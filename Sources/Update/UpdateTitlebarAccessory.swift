@@ -433,22 +433,17 @@ func titlebarHintLayoutRightmostExtent(
         let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
         guard !shortcut.isUnbound, shortcut.command else { continue }
         let width = titlebarHintPillWidth(for: shortcut, config: config)
-        let index = CGFloat(slot.rawValue)
-        let buttonRightEdge = (index + 1) * config.buttonSize + index * config.spacing
-        let rightEdge = config.groupPadding.leading
-            + buttonRightEdge
-            + xOffset
-            + TitlebarControlsLayoutMetrics.hintRightSafetyShift
-            + TitlebarControlsLayoutMetrics.hintBaseXShift
-        intervals.append((rightEdge - width)...rightEdge)
+        intervals.append(
+            TitlebarControlsLayoutMetrics.hintInterval(
+                for: slot,
+                width: width,
+                config: config,
+                xOffset: xOffset
+            )
+        )
     }
     guard !intervals.isEmpty else { return 0 }
-    let assignedRightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(
-        for: intervals,
-        minSpacing: 6,
-        minLeadingEdge: config.groupPadding.leading
-    )
-    return assignedRightEdges.max() ?? 0
+    return intervals.map(\.upperBound).max() ?? 0
 }
 
 enum TitlebarShortcutHintMetrics {
@@ -485,22 +480,16 @@ enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
 
 enum TitlebarControlsLayoutMetrics {
     static let outerLeadingPadding: CGFloat = TitlebarControlsHitRegions.outerLeadingPadding
-    static let hintRightSafetyShift: CGFloat = 10
     static let hintTrailingBaseInset: CGFloat = 8
     static let trafficLightGap: CGFloat = 2
-    /// Constant X shift applied to every hint's right edge in the view's layout. Must
-    /// match `TitlebarControlsView.titlebarHintBaseXShift` so the reserved width matches
-    /// the rendered positions.
-    static let hintBaseXShift: CGFloat = -10
     /// Leading inset the controls content sits at inside the accessory; must match the
     /// `.padding(.leading, …)` applied to `controlsGroup` in the view body.
-    static let hintLeadingPadding: CGFloat = 4
+    static let hintLeadingPadding: CGFloat = HeaderChromeControlMetrics.titlebarControlsLeadingPadding
     /// Extra trailing room past the rightmost pill for its capsule stroke and shadow.
     static let hintShadowMargin: CGFloat = 4
 
     static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
         max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
-            + hintRightSafetyShift
             + hintTrailingBaseInset
     }
 
@@ -508,6 +497,26 @@ enum TitlebarControlsLayoutMetrics {
         let buttonCount = CGFloat(TitlebarShortcutHintActionSlot.allCases.count)
         let gapCount = max(0, buttonCount - 1)
         return (buttonCount * config.buttonSize) + (gapCount * config.spacing)
+    }
+
+    static func buttonCenterX(
+        for slot: TitlebarShortcutHintActionSlot,
+        config: TitlebarControlsStyleConfig
+    ) -> CGFloat {
+        let index = CGFloat(slot.rawValue)
+        return config.groupPadding.leading
+            + (index * (config.buttonSize + config.spacing))
+            + (config.buttonSize / 2.0)
+    }
+
+    static func hintInterval(
+        for slot: TitlebarShortcutHintActionSlot,
+        width: CGFloat,
+        config: TitlebarControlsStyleConfig,
+        xOffset: CGFloat
+    ) -> ClosedRange<CGFloat> {
+        let centerX = buttonCenterX(for: slot, config: config) + xOffset
+        return (centerX - (width / 2.0))...(centerX + (width / 2.0))
     }
 
     static func contentSize(
@@ -544,16 +553,12 @@ enum TitlebarControlsLayoutMetrics {
     }
 
     static func leadingOffset(
-        trafficLightFrame: NSRect?,
+        trafficLightFrame _: NSRect?,
         debugSnapshot: MinimalModeTitlebarDebugSnapshot
     ) -> CGFloat {
-        let debugOffset = MinimalModeTitlebarDebugSettings.leftControlsXOffset(
+        MinimalModeTitlebarDebugSettings.leftControlsXOffset(
             leadingInset: debugSnapshot.leftControlsLeadingInset
         )
-        guard let trafficLightFrame, !trafficLightFrame.isEmpty else {
-            return debugOffset
-        }
-        return max(debugOffset, trafficLightFrame.maxX + trafficLightGap)
     }
 
     static func yOffset(
@@ -822,13 +827,12 @@ struct TitlebarControlsView: View {
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
-    private let titlebarHintBaseXShift: CGFloat = TitlebarControlsLayoutMetrics.hintBaseXShift
 
     private struct TitlebarHintLayoutItem: Identifiable {
         let action: KeyboardShortcutSettings.Action
         let shortcut: StoredShortcut
         let width: CGFloat
-        let leftEdge: CGFloat
+        let centerX: CGFloat
 
         var id: String { action.rawValue }
     }
@@ -1071,24 +1075,15 @@ struct TitlebarControlsView: View {
         let intervals = titlebarHintIntervals(config: config, xOffset: xOffset)
         guard !intervals.isEmpty else { return [] }
 
-        // Keep all titlebar hints on the same Y lane and resolve overlaps by shifting left.
-        let minimumSpacing: CGFloat = 6
-        let assignedRightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(
-            for: intervals.map { $0.interval },
-            minSpacing: minimumSpacing,
-            minLeadingEdge: config.groupPadding.leading
-        )
-
         var items: [TitlebarHintLayoutItem] = []
         items.reserveCapacity(intervals.count)
-        for (index, item) in intervals.enumerated() {
-            let rightEdge = assignedRightEdges[index]
+        for item in intervals {
             items.append(
                 TitlebarHintLayoutItem(
                     action: item.action,
                     shortcut: item.shortcut,
                     width: item.width,
-                    leftEdge: rightEdge - item.width
+                    centerX: (item.interval.lowerBound + item.interval.upperBound) / 2.0
                 )
             )
         }
@@ -1110,22 +1105,18 @@ struct TitlebarControlsView: View {
             ) else { return nil }
 
             let width = titlebarHintWidth(for: shortcut, config: config)
-            let rightEdge = config.groupPadding.leading
-                + titlebarButtonRightEdge(for: slot, config: config)
-                + xOffset
-                + TitlebarControlsLayoutMetrics.hintRightSafetyShift
-                + titlebarHintBaseXShift
-            return (slot.action, shortcut, width, (rightEdge - width)...rightEdge)
+            let interval = TitlebarControlsLayoutMetrics.hintInterval(
+                for: slot,
+                width: width,
+                config: config,
+                xOffset: xOffset
+            )
+            return (slot.action, shortcut, width, interval)
         }
     }
 
     private func titlebarHintWidth(for shortcut: StoredShortcut, config: TitlebarControlsStyleConfig) -> CGFloat {
         titlebarHintPillWidth(for: shortcut, config: config)
-    }
-
-    private func titlebarButtonRightEdge(for slot: TitlebarShortcutHintActionSlot, config: TitlebarControlsStyleConfig) -> CGFloat {
-        let index = CGFloat(slot.rawValue)
-        return (index + 1) * config.buttonSize + index * config.spacing
     }
 
     @ViewBuilder
@@ -1138,18 +1129,17 @@ struct TitlebarControlsView: View {
             + ShortcutHintDebugSettings.clamped(titlebarShortcutHintYOffset)
 
         ZStack(alignment: .topLeading) {
+            Color.clear
             ForEach(items) { item in
-                VStack(alignment: .leading, spacing: 0) {
-                    Color.clear.frame(height: yOffset)
-                    HStack(spacing: 0) {
-                        Color.clear.frame(width: item.leftEdge)
-                        titlebarShortcutHintPill(shortcut: item.shortcut, config: config)
-                            .accessibilityIdentifier("titlebarShortcutHint.\(item.action.rawValue)")
-                            .frame(width: item.width, alignment: .leading)
-                            .background(TitlebarChromeGeometryReporter(keyPrefix: "titlebarShortcutHint_\(item.action.rawValue)"))
-                    }
-                }
-                .shortcutHintTransition()
+                titlebarShortcutHintPill(shortcut: item.shortcut, config: config)
+                    .accessibilityIdentifier("titlebarShortcutHint.\(item.action.rawValue)")
+                    .frame(width: item.width, alignment: .center)
+                    .background(TitlebarChromeGeometryReporter(keyPrefix: "titlebarShortcutHint_\(item.action.rawValue)"))
+                    .position(
+                        x: item.centerX,
+                        y: yOffset + titlebarShortcutHintHeight(for: config) / 2.0
+                    )
+                    .shortcutHintTransition()
             }
         }
         .shortcutHintVisibilityAnimation(value: shouldShowTitlebarShortcutHints)
