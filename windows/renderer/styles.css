@@ -2910,6 +2910,22 @@ body.reduce-motion *::after {
   scrollbar-width: thin;
 }
 
+@container (max-width: 439px) {
+  .settings-page-switcher {
+    gap: 0;
+  }
+
+  .settings-page-tabs {
+    display: none;
+  }
+}
+
+@container (min-width: 440px) {
+  .settings-page-head {
+    display: none;
+  }
+}
+
 .settings-page-tab {
   flex: 0 0 auto;
   height: 28px;
