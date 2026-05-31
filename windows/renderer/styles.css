@@ -1588,9 +1588,14 @@ body.reduce-motion *::after {
   color: var(--color-text);
 }
 
+.shell.pane-actions-essential .pane-tool.split-right,
+.shell.pane-actions-essential .pane-tool.split-down,
 .shell.pane-actions-essential .pane-tool.font-down,
 .shell.pane-actions-essential .pane-tool.font-up,
-.shell.pane-actions-essential .pane-tool.restart {
+.shell.pane-actions-essential .pane-tool.restart,
+.shell.pane-actions-split .pane-tool.font-down,
+.shell.pane-actions-split .pane-tool.font-up,
+.shell.pane-actions-split .pane-tool.restart {
   display: none;
 }
 
@@ -3443,6 +3448,10 @@ body.reduce-motion *::after {
 
 .layout-settings-preview.pane-actions-full .layout-preview-pane-header {
   grid-template-columns: minmax(0, 1fr) 64px;
+}
+
+.layout-settings-preview.pane-actions-essential .layout-preview-pane-header {
+  grid-template-columns: minmax(0, 1fr) 28px;
 }
 
 .layout-preview-terminal-line {

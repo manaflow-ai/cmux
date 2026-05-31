@@ -258,7 +258,8 @@ export const paneHeaderOptions = [
 ];
 
 export const paneActionOptions = [
-  ["essential", "Essential"],
+  ["essential", "Clean"],
+  ["split", "Split tools"],
   ["full", "Full"]
 ];
 

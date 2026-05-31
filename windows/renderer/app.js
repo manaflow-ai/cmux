@@ -1521,6 +1521,7 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "pane-header-full", state.settings.paneHeaderMode === "full");
   toggleClassIfChanged(elements.shell, "pane-header-hidden", state.settings.paneHeaderMode === "hidden");
   toggleClassIfChanged(elements.shell, "pane-actions-essential", state.settings.paneActionMode === "essential");
+  toggleClassIfChanged(elements.shell, "pane-actions-split", state.settings.paneActionMode === "split");
   toggleClassIfChanged(elements.shell, "pane-actions-full", state.settings.paneActionMode === "full");
   toggleClassIfChanged(elements.shell, "workspace-detail-compact", state.settings.sidebarDetailMode === "compact");
   toggleClassIfChanged(elements.shell, "workspace-detail-balanced", state.settings.sidebarDetailMode === "balanced");
@@ -5179,7 +5180,7 @@ function renderSettingsInspector(options = {}) {
     }
     paneActionSelect.value = state.settings.paneActionMode;
     paneActionSelect.onchange = () => updateSettings({ paneActionMode: paneActionSelect.value });
-    layoutSection.append(settingRow("Pane controls", paneActionSelect, false, "pane controls buttons actions essential full toolbar clean clutter"));
+    layoutSection.append(settingRow("Pane controls", paneActionSelect, false, "pane controls buttons actions clean split full toolbar clutter"));
     const sidebarDetailSelect = document.createElement("select");
     sidebarDetailSelect.className = "setting-select";
     for (const [value, label] of sidebarDetailOptions) {
