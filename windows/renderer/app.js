@@ -9176,10 +9176,7 @@ async function renameWorkspaceTo(title, workspaceId = activeWorkspace()?.id) {
   const trimmed = String(title || "").trim();
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace || !trimmed || trimmed === workspace.title) return;
-  await api(`/api/workspaces/${workspace.id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ title: trimmed })
-  });
+  await updateWorkspace(workspace.id, { title: trimmed });
 }
 
 async function cycleWorkspaceColor(workspaceId = activeWorkspace()?.id) {
@@ -9188,10 +9185,7 @@ async function cycleWorkspaceColor(workspaceId = activeWorkspace()?.id) {
   if (!workspace || palette.length === 0) return;
   const currentIndex = Math.max(0, palette.indexOf(workspace.color));
   const color = palette[(currentIndex + 1) % palette.length];
-  await api(`/api/workspaces/${workspace.id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ color })
-  });
+  await updateWorkspace(workspace.id, { color });
 }
 
 async function openWorkspaceFolder(workspace = activeWorkspace()) {
@@ -9226,12 +9220,9 @@ async function chooseWorkspaceFolder(workspace = activeWorkspace()) {
 async function setWorkspaceFolder(cwd, workspaceId = activeWorkspace()?.id) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace || !cwd) return;
-  await api(`/api/workspaces/${workspace.id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ cwd })
-  });
+  const ok = await updateWorkspace(workspace.id, { cwd });
+  if (!ok) return;
   rememberRecentFolder(cwd);
-  await loadState();
   toast("Workspace folder updated.");
 }
 
@@ -9300,10 +9291,7 @@ function schedulePanelCreateReconcile(workspaceId, panelId = "", shouldFocusWork
 async function setWorkspaceColor(color, workspaceId = activeWorkspace()?.id) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return;
-  await api(`/api/workspaces/${workspace.id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ color })
-  });
+  await updateWorkspace(workspace.id, { color });
 }
 
 async function closeActiveWorkspace() {
@@ -10018,17 +10006,85 @@ function optimisticMoveWorkspace(workspaceId, beforeWorkspaceId = null) {
   return true;
 }
 
-async function updateWorkspaceOrder(workspaceId, updates) {
-  if (!optimisticMoveWorkspace(workspaceId, updates.moveToEnd ? null : updates.beforeWorkspaceId)) return;
+function optimisticUpdateWorkspace(workspaceId, updates = {}) {
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
+  if (!workspace) return false;
+  if (Object.hasOwn(updates, "beforeWorkspaceId") || Object.hasOwn(updates, "moveToEnd")) {
+    return optimisticMoveWorkspace(workspaceId, updates.moveToEnd ? null : updates.beforeWorkspaceId);
+  }
+  let changed = false;
+  if (Object.hasOwn(updates, "title")) {
+    const title = String(updates.title || "").trim();
+    if (title && workspace.title !== title.slice(0, 80)) {
+      workspace.title = title.slice(0, 80);
+      changed = true;
+    }
+  }
+  if (Object.hasOwn(updates, "color")) {
+    const color = String(updates.color || "").trim();
+    if (isAllowedUiColor(color, state.data?.palette || workspaceColorOptions) && workspace.color !== color) {
+      workspace.color = color;
+      changed = true;
+    }
+  }
+  if (Object.hasOwn(updates, "cwd")) {
+    const cwd = String(updates.cwd || "").trim();
+    if (cwd && workspace.cwd !== cwd) {
+      workspace.cwd = cwd;
+      workspace.cwdShort = shortFolderPath(cwd);
+      changed = true;
+    }
+  }
+  if (changed) render();
+  return true;
+}
+
+function workspaceUpdateReconcileNeeded(workspaceId, updates = {}) {
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
+  if (!workspace) return true;
+  if (Object.hasOwn(updates, "beforeWorkspaceId")) {
+    const workspaces = state.data?.workspaces || [];
+    const workspaceIndex = workspaces.findIndex((candidate) => candidate.id === workspaceId);
+    const beforeIndex = workspaces.findIndex((candidate) => candidate.id === updates.beforeWorkspaceId);
+    if (beforeIndex >= 0 && workspaceIndex !== beforeIndex - 1) return true;
+  }
+  if (updates.moveToEnd) {
+    const workspaces = state.data?.workspaces || [];
+    const workspaceIndex = workspaces.findIndex((candidate) => candidate.id === workspaceId);
+    if (workspaceIndex !== workspaces.length - 1) return true;
+  }
+  if (Object.hasOwn(updates, "title")) {
+    const title = String(updates.title || "").trim();
+    if (title && workspace.title !== title.slice(0, 80)) return true;
+  }
+  if (Object.hasOwn(updates, "color")) {
+    const color = String(updates.color || "").trim();
+    if (isAllowedUiColor(color, state.data?.palette || workspaceColorOptions) && workspace.color !== color) return true;
+  }
+  if (Object.hasOwn(updates, "cwd")) {
+    const cwd = String(updates.cwd || "").trim();
+    if (cwd && workspace.cwd !== cwd) return true;
+  }
+  return false;
+}
+
+async function updateWorkspace(workspaceId, updates = {}) {
+  if (!optimisticUpdateWorkspace(workspaceId, updates)) return false;
   try {
-    await api(`/api/workspaces/${workspaceId}`, {
+    const result = await api(`/api/workspaces/${workspaceId}`, {
       method: "PATCH",
       body: JSON.stringify(updates)
     });
-    await loadState();
+    if (!result?.ok || workspaceUpdateReconcileNeeded(workspaceId, updates)) await loadState();
+    return Boolean(result?.ok);
   } catch {
     await loadState();
+    return false;
   }
+}
+
+async function updateWorkspaceOrder(workspaceId, updates) {
+  await updateWorkspace(workspaceId, updates);
 }
 
 function moveWorkspaceRelative(workspaceId, targetWorkspaceId, placement) {
