@@ -6467,6 +6467,23 @@ extension BrowserPanel {
         _ = performDeveloperToolsVisibilityTransition(to: pendingTargetVisible, source: "\(source).queued")
     }
 
+#if DEBUG
+    func debugSettleDeveloperToolsTransitionForTesting(source: String = "unit-test") {
+        var remainingPasses = 4
+        repeat {
+            developerToolsTransitionSettleWorkItem?.cancel()
+            developerToolsTransitionSettleWorkItem = nil
+            finishDeveloperToolsTransition(source: source)
+            remainingPasses -= 1
+        } while remainingPasses > 0 &&
+            (
+                developerToolsTransitionSettleWorkItem != nil ||
+                developerToolsTransitionTargetVisible != nil ||
+                pendingDeveloperToolsTransitionTargetVisible != nil
+            )
+    }
+#endif
+
     @discardableResult
     private func enqueueDeveloperToolsVisibilityTransition(
         to targetVisible: Bool,

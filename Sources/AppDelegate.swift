@@ -862,6 +862,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var debugAddWorkspaceInPreferredMainWindowCreationOverride: ((MainWindowContext, String?) -> UUID?)?
     weak var debugPreferredWorkspaceCreationWindowOverride: NSWindow?
     var debugBrowserPanelsForInspectorWindowCloseOverride: (() -> [BrowserPanel])?
+    var debugDetachedInspectorCloseActionWindowOverride: (() -> NSWindow?)?
     var debugFocusedCloseShortcutWindowOverride: (() -> NSWindow?)?
     var debugAuxiliaryCloseShortcutWindowOverride: (() -> NSWindow?)?
 #endif
@@ -14451,6 +14452,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugAddWorkspaceInPreferredMainWindowCreationOverride = nil
         debugPreferredWorkspaceCreationWindowOverride = nil
         debugBrowserPanelsForInspectorWindowCloseOverride = nil
+        debugDetachedInspectorCloseActionWindowOverride = nil
         debugFocusedCloseShortcutWindowOverride = nil
         debugAuxiliaryCloseShortcutWindowOverride = nil
     }
@@ -16362,6 +16364,13 @@ private extension AppDelegate {
         if let cell = sender as? NSCell {
             return cell.controlView?.window
         }
+#if DEBUG
+        if target == nil,
+           (allowFallback || sender is NSMenuItem),
+           let window = AppDelegate.shared?.debugDetachedInspectorCloseActionWindowOverride?() {
+            return window
+        }
+#endif
         if target == nil, sender is NSMenuItem {
             return NSApp.keyWindow ?? NSApp.mainWindow
         }

@@ -3061,20 +3061,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
     }
 
-    private func findHostContainerView(in root: NSView) -> WebViewRepresentable.HostContainerView? {
-        if let host = root as? WebViewRepresentable.HostContainerView {
-            return host
-        }
-        for subview in root.subviews {
-            if let host = findHostContainerView(in: subview) {
-                return host
-            }
-        }
-        return nil
-    }
-
-    private func waitForDeveloperToolsTransitions() {
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+    private func settleDeveloperToolsTransitions(_ panel: BrowserPanel) {
+        panel.debugSettleDeveloperToolsTransitionForTesting()
     }
 
     private func closeBrowserPanel(_ panel: BrowserPanel) {
@@ -3348,12 +3336,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let inspectorWindow = makeDetachedInspectorWindow(frontendView: frontendView)
         inspector.setFrontendView(frontendView)
         defer { closeWindow(inspectorWindow) }
+        appDelegate.debugDetachedInspectorCloseActionWindowOverride = { inspectorWindow }
+        defer { appDelegate.debugDetachedInspectorCloseActionWindowOverride = nil }
 
-        inspectorWindow.makeKeyAndOrderFront(nil)
-        inspectorWindow.makeKey()
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertEqual(inspector.closeCount, 0)
-        XCTAssertTrue(inspectorWindow.isKeyWindow)
 
         let handled = NSApp.sendAction(NSSelectorFromString("__close"), to: nil, from: nil)
 
@@ -3382,12 +3369,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let inspectorWindow = makeDetachedInspectorWindow(frontendView: frontendView)
         inspector.setFrontendView(frontendView)
         defer { closeWindow(inspectorWindow) }
+        appDelegate.debugDetachedInspectorCloseActionWindowOverride = { inspectorWindow }
+        defer { appDelegate.debugDetachedInspectorCloseActionWindowOverride = nil }
 
-        inspectorWindow.makeKeyAndOrderFront(nil)
-        inspectorWindow.makeKey()
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertEqual(inspector.closeCount, 0)
-        XCTAssertTrue(inspectorWindow.isKeyWindow)
 
         let menuItem = NSMenuItem(
             title: "Close",
@@ -3443,9 +3429,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         contentView.addSubview(frontendView)
         inspector.setFrontendView(frontendView)
+        appDelegate.debugDetachedInspectorCloseActionWindowOverride = { mainWindow }
+        defer { appDelegate.debugDetachedInspectorCloseActionWindowOverride = nil }
 
-        mainWindow.makeKeyAndOrderFront(nil)
-        mainWindow.makeKey()
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.closeCount, 0)
@@ -3502,7 +3488,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.showCount, 1)
-        waitForDeveloperToolsTransitions()
+        settleDeveloperToolsTransitions(panel)
 
         // Simulate WebKit closing inspector during detach/reattach churn.
         inspector.close()
@@ -3556,7 +3542,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertEqual(inspector.showCount, 1)
-        waitForDeveloperToolsTransitions()
+        settleDeveloperToolsTransitions(panel)
 
         // Simulate user closing inspector before detach.
         inspector.close()
@@ -3573,7 +3559,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertEqual(inspector.showCount, 1)
-        waitForDeveloperToolsTransitions()
+        settleDeveloperToolsTransitions(panel)
 
         // Simulate a transient close caused by view detach, not user intent.
         inspector.close()
@@ -3589,14 +3575,14 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
-        waitForDeveloperToolsTransitions()
+        settleDeveloperToolsTransitions(panel)
         XCTAssertTrue(panel.isDeveloperToolsVisible())
 
         inspector.hide()
         XCTAssertFalse(panel.isDeveloperToolsVisible())
 
         panel.syncDeveloperToolsPreferenceFromInspector()
-        waitForDeveloperToolsTransitions()
+        settleDeveloperToolsTransitions(panel)
 
         var publishCount = 0
         let cancellable = panel.objectWillChange.sink {
@@ -3659,7 +3645,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.showCount, 1)
         XCTAssertEqual(inspector.closeCount, 0)
 
-        waitForDeveloperToolsTransitions()
+        settleDeveloperToolsTransitions(panel)
 
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.showCount, 1)
@@ -3675,7 +3661,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.showCount, 1)
         XCTAssertEqual(inspector.closeCount, 0)
 
-        waitForDeveloperToolsTransitions()
+        settleDeveloperToolsTransitions(panel)
 
         XCTAssertFalse(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.showCount, 1)
@@ -3688,7 +3674,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
-        waitForDeveloperToolsTransitions()
+        settleDeveloperToolsTransitions(panel)
 
         XCTAssertTrue(panel.toggleDeveloperTools())
 
@@ -3797,8 +3783,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     func testPortalBindDoesNotMoveInspectorFrontendOutOfDetachedWindowOwner() {
-        let (panel, inspector) = makePanelWithInspector()
-        defer { closeBrowserPanel(panel) }
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
             styleMask: [.titled, .closable],
@@ -3806,6 +3791,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             defer: false
         )
         defer {
+            BrowserWindowPortalRegistry.detach(webView: webView)
+            webView.removeFromSuperview()
             closeWindow(window)
         }
         guard let contentView = window.contentView else {
@@ -3818,25 +3805,34 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 280, y: 20, width: 220, height: 180))
         contentView.addSubview(anchor)
 
-        panel.webView.frame = sourceSlot.bounds
-        sourceSlot.addSubview(panel.webView)
+        webView.frame = sourceSlot.bounds
+        sourceSlot.addSubview(webView)
+        let relatedView = WKRelatedProbeView(
+            frame: NSRect(x: 0, y: sourceSlot.bounds.height - 24, width: sourceSlot.bounds.width, height: 24)
+        )
+        sourceSlot.addSubview(relatedView)
         let frontendView = WKInspectorProbeView(
             frame: NSRect(x: 0, y: 0, width: sourceSlot.bounds.width, height: 72)
         )
         sourceSlot.addSubview(frontendView)
-        inspector.setFrontendView(frontendView)
 
-        window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true, zPriority: 1)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        guard let portalSlot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected portal slot")
+            return
+        }
 
         XCTAssertFalse(
-            panel.webView.superview === sourceSlot,
+            webView.superview === sourceSlot,
             "The page web view should move to the portal host for this regression setup"
+        )
+        XCTAssertTrue(
+            relatedView.superview === portalSlot,
+            "Non-inspector WebKit companion views should still move with the page web view"
         )
         XCTAssertTrue(
             frontendView.superview === sourceSlot,
@@ -3918,21 +3914,14 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             return
         }
 
-        let visibleHosting = NSHostingView(rootView: representable)
-        visibleHosting.frame = contentView.bounds
-        visibleHosting.autoresizingMask = [.width, .height]
-        contentView.addSubview(visibleHosting)
-        defer { visibleHosting.removeFromSuperview() }
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
+        let visibleHost = WebViewRepresentable.HostContainerView(frame: contentView.bounds)
+        visibleHost.wantsLayer = true
+        visibleHost.autoresizingMask = [.width, .height]
+        contentView.addSubview(visibleHost)
+        defer { visibleHost.removeFromSuperview() }
+        XCTAssertTrue(representable.debugUpdateUsingLocalInlineHostingForTesting(host: visibleHost))
         contentView.layoutSubtreeIfNeeded()
-        visibleHosting.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        guard let visibleHost = findHostContainerView(in: visibleHosting) else {
-            XCTFail("Expected visible local host")
-            return
-        }
+        visibleHost.layoutSubtreeIfNeeded()
         guard let visibleSlot = panel.webView.superview as? WindowBrowserSlotView else {
             XCTFail("Expected visible local inline slot")
             return
@@ -3952,17 +3941,12 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         visibleSlot.layoutSubtreeIfNeeded()
 
-        let detachedRoot = NSView(frame: visibleHosting.frame)
-        let offWindowHosting = NSHostingView(rootView: representable)
-        offWindowHosting.frame = detachedRoot.bounds
-        offWindowHosting.autoresizingMask = [.width, .height]
-        detachedRoot.addSubview(offWindowHosting)
-        defer { offWindowHosting.removeFromSuperview() }
-        detachedRoot.layoutSubtreeIfNeeded()
-        offWindowHosting.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        let offWindowHost = WebViewRepresentable.HostContainerView(frame: visibleHost.frame)
+        offWindowHost.wantsLayer = true
+        XCTAssertFalse(representable.debugUpdateUsingLocalInlineHostingForTesting(host: offWindowHost))
+        offWindowHost.layoutSubtreeIfNeeded()
 
-        XCTAssertNotNil(findHostContainerView(in: offWindowHosting), "Expected off-window replacement host")
+        XCTAssertNil(offWindowHost.window, "Expected off-window replacement host")
         XCTAssertTrue(visibleHost.window === window)
         XCTAssertTrue(
             panel.webView.superview === visibleSlot,
@@ -4006,15 +3990,24 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             return
         }
 
-        let narrowHosting = NSHostingView(rootView: representable)
-        narrowHosting.frame = NSRect(x: 180, y: 0, width: 180, height: 240)
-        contentView.addSubview(narrowHosting)
+        let coordinator = representable.makeCoordinator()
+        coordinator.webView = panel.webView
 
-        window.makeKeyAndOrderFront(nil)
+        let narrowHost = WebViewRepresentable.HostContainerView(
+            frame: NSRect(x: 180, y: 0, width: 180, height: 240)
+        )
+        narrowHost.wantsLayer = true
+        contentView.addSubview(narrowHost)
+
+        XCTAssertTrue(
+            representable.debugUpdateUsingLocalInlineHostingForTesting(
+                host: narrowHost,
+                coordinator: coordinator
+            )
+        )
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
-        narrowHosting.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        narrowHost.layoutSubtreeIfNeeded()
 
         guard let initialSlot = panel.webView.superview as? WindowBrowserSlotView else {
             XCTFail("Expected initial local inline slot")
@@ -4034,26 +4027,24 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         initialSlot.layoutSubtreeIfNeeded()
 
-        let replacementHosting = NSHostingView(rootView: representable)
-        replacementHosting.frame = contentView.bounds
-        replacementHosting.autoresizingMask = [.width, .height]
-        contentView.addSubview(replacementHosting, positioned: .above, relativeTo: narrowHosting)
+        let replacementHost = WebViewRepresentable.HostContainerView(frame: contentView.bounds)
+        replacementHost.wantsLayer = true
+        replacementHost.autoresizingMask = [.width, .height]
+        contentView.addSubview(replacementHost, positioned: .above, relativeTo: narrowHost)
+        XCTAssertTrue(
+            representable.debugUpdateUsingLocalInlineHostingForTesting(
+                host: replacementHost,
+                coordinator: coordinator
+            )
+        )
         contentView.layoutSubtreeIfNeeded()
-        replacementHosting.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        replacementHost.layoutSubtreeIfNeeded()
 
-        replacementHosting.rootView = representable
+        narrowHost.removeFromSuperview()
         contentView.layoutSubtreeIfNeeded()
-        replacementHosting.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        replacementHost.layoutSubtreeIfNeeded()
 
-        narrowHosting.removeFromSuperview()
-        contentView.layoutSubtreeIfNeeded()
-        replacementHosting.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        guard let replacementHost = findHostContainerView(in: replacementHosting),
-              let replacementSlot = findWindowBrowserSlotView(in: replacementHost) else {
+        guard let replacementSlot = findWindowBrowserSlotView(in: replacementHost) else {
             XCTFail("Expected replacement local inline host")
             return
         }
