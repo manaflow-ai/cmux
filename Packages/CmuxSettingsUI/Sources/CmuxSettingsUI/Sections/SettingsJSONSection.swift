@@ -21,6 +21,8 @@ public struct SettingsJSONSection: View {
             SettingsCard {
                 userConfigFileRow
                 SettingsCardDivider()
+                surfaceTabBarDocumentationRow
+                SettingsCardDivider()
                 documentationRow
             }
         }
@@ -51,6 +53,23 @@ public struct SettingsJSONSection: View {
                 .accessibilityIdentifier("SettingsJSONOpenButton")
             }
             .accessibilityIdentifier("SettingsJSONOpenFileRowActions")
+        }
+    }
+
+    @ViewBuilder
+    private var surfaceTabBarDocumentationRow: some View {
+        SettingsCardRow(
+            configurationReview: .action,
+            searchAnchorID: "setting:settingsJSON:surface-tab-bar",
+            String(localized: "settings.settingsJSON.surfaceTabBar", defaultValue: "Pane tab bar customization"),
+            subtitle: String(localized: "settings.settingsJSON.surfaceTabBar.subtitle", defaultValue: "Customize pane buttons and the More menu globally or per directory with .cmux/cmux.json.")
+        ) {
+            Link(
+                String(localized: "settings.settingsJSON.docsButton", defaultValue: "Open Docs"),
+                destination: URL(string: "https://cmux.com/docs/custom-commands#surface-tab-bar-buttons")!
+            )
+            .font(.caption)
+            .accessibilityIdentifier("SettingsJSONSurfaceTabBarDocsLink")
         }
     }
 

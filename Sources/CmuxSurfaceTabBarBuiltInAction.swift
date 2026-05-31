@@ -19,6 +19,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case vaultPane = "cmux.vaultPane"
     case diffViewer = "cmux.diffViewer"
     case revealCurrentDirectoryInFinder = "cmux.revealCurrentDirectoryInFinder"
+    case customizeSurfaceTabBar = "cmux.customizeSurfaceTabBar"
 
     init?(configID: String) {
         switch configID {
@@ -60,6 +61,9 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         case "cmux.revealCurrentDirectoryInFinder", "revealCurrentDirectoryInFinder",
              "openCurrentDirectoryInFinder", "finder":
             self = .revealCurrentDirectoryInFinder
+        case "cmux.customizeSurfaceTabBar", "customizeSurfaceTabBar", "customizeTabBar",
+             "customize":
+            self = .customizeSurfaceTabBar
         default:
             return nil
         }
@@ -105,6 +109,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "plusminus"
         case .revealCurrentDirectoryInFinder:
             return "folder"
+        case .customizeSurfaceTabBar:
+            return "slider.horizontal.3"
         }
     }
 
@@ -112,7 +118,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         switch self {
         case .newWorkspace, .cloudVM, .more, .rightSidebarFiles, .rightSidebarFind,
              .rightSidebarVault, .rightSidebarFeed, .rightSidebarDock, .filesPane,
-             .findPane, .vaultPane, .diffViewer, .revealCurrentDirectoryInFinder:
+             .findPane, .vaultPane, .diffViewer, .revealCurrentDirectoryInFinder,
+             .customizeSurfaceTabBar:
             return nil
         case .newTerminal:
             return .newTerminal

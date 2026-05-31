@@ -330,10 +330,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
             CmuxSurfaceTabBarBuiltInAction.findPane.configID,
             CmuxSurfaceTabBarBuiltInAction.diffViewer.configID,
             CmuxSurfaceTabBarBuiltInAction.revealCurrentDirectoryInFinder.configID,
-            CmuxSurfaceTabBarBuiltInAction.rightSidebarFeed.configID,
-            CmuxSurfaceTabBarBuiltInAction.rightSidebarDock.configID,
-            CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID,
-            CmuxSurfaceTabBarBuiltInAction.cloudVM.configID,
+            CmuxSurfaceTabBarBuiltInAction.customizeSurfaceTabBar.configID,
         ])
     }
 
@@ -451,6 +448,68 @@ final class CmuxConfigDecodingTests: XCTestCase {
         ])
         XCTAssertEqual(store.surfaceTabBarButtons.last?.title, "Tools")
         XCTAssertEqual(store.surfaceTabBarButtons.last?.menu?.map(\.action), [.builtIn(.vaultPane)])
+    }
+
+    @MainActor
+    func testProjectLocalSurfaceTabBarButtonsOverrideGlobalButtons() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let localDirectory = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: localDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let localConfigURL = localDirectory.appendingPathComponent("cmux.json")
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": ["cmux.newTerminal", "cmux.newBrowser"]
+            }
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": ["cmux.splitRight"]
+            }
+          }
+        }
+        """.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: localConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.surfaceTabBarButtonSourcePath, localConfigURL.path)
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.action.builtInActionReference), [
+            .splitRight,
+            .more,
+        ])
+    }
+
+    func testMenuSurfaceTabBarButtonActivatesOnMouseDown() throws {
+        let button = CmuxSurfaceTabBarButton(
+            id: CmuxSurfaceTabBarBuiltInAction.more.configID,
+            action: .builtIn(.more),
+            menu: [.actionReference(CmuxSurfaceTabBarBuiltInAction.vaultPane.configID)]
+        )
+
+        let bonsplitButton = button.bonsplitActionButton(
+            configSourcePath: nil,
+            globalConfigPath: "/tmp/cmux.json"
+        )
+
+        XCTAssertTrue(bonsplitButton.activatesOnMouseDown)
     }
 
     func testDecodeSurfaceTabBarButtonsDefersUnknownActionReferences() throws {

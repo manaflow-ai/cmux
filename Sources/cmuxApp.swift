@@ -5283,6 +5283,7 @@ struct SettingsView: View {
     private let notificationSoundControlWidth: CGFloat = 280
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
     private let settingsJSONDocsURL = URL(string: "https://cmux.com/docs/configuration#cmux-json")!
+    private let surfaceTabBarDocsURL = URL(string: "https://cmux.com/docs/custom-commands#surface-tab-bar-buttons")!
     @Environment(\.openWindow) private var openWindow
     @SceneStorage("selectedSettingsSection") private var selectedSettingsSectionRaw = SettingsNavigationTarget.account.rawValue
     @State private var highlightedSearchAnchorID: String?
@@ -8190,6 +8191,19 @@ struct SettingsView: View {
                                 .accessibilityIdentifier("SettingsJSONOpenButton")
                             }
                             .accessibilityIdentifier("SettingsJSONOpenFileRowActions")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .action,
+                            String(localized: "settings.settingsJSON.surfaceTabBar", defaultValue: "Pane tab bar customization"),
+                            subtitle: String(localized: "settings.settingsJSON.surfaceTabBar.subtitle", defaultValue: "Customize pane buttons and the More menu globally or per directory with .cmux/cmux.json."),
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .settingsJSON, idSuffix: "surface-tab-bar")
+                        ) {
+                            Link(String(localized: "settings.settingsJSON.docsButton", defaultValue: "Open Docs"), destination: surfaceTabBarDocsURL)
+                                .font(.caption)
+                                .accessibilityIdentifier("SettingsJSONSurfaceTabBarDocsLink")
                         }
 
                         SettingsCardDivider()

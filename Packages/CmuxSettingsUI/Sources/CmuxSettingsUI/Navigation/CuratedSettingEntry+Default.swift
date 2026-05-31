@@ -139,6 +139,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // cmux.json
             .init(section: .settingsJSON, id: "open-file", title: "User config file", synonyms: "open config file json jsonc config editor ~/.config cmux preferences"),
+            .init(section: .settingsJSON, id: "surface-tab-bar", title: "Pane tab bar customization", synonyms: "surface tab bar pane buttons more menu customize local project directory cmux json"),
             .init(section: .settingsJSON, id: "documentation", title: "Documentation", synonyms: "docs documentation schema reference cmux json keys configuration"),
 
             // Reset

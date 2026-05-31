@@ -18263,7 +18263,7 @@ extension Workspace: BonsplitDelegate {
             return owningTabManager != nil
         case .newWorkspace, .cloudVM, .newTerminal, .newBrowser, .splitRight, .splitDown,
              .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault,
-             .revealCurrentDirectoryInFinder:
+             .revealCurrentDirectoryInFinder, .customizeSurfaceTabBar:
             return true
         }
     }
@@ -18347,6 +18347,11 @@ extension Workspace: BonsplitDelegate {
             Task {
                 await WorkspaceFinderDirectoryOpener.openInFinder(url)
             }
+        case .customizeSurfaceTabBar:
+            AppDelegate.shared?.openPreferencesWindow(
+                debugSource: "surfaceTabBar.customize",
+                navigationTarget: .settingsJSON
+            )
         }
     }
 

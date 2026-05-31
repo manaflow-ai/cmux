@@ -14738,6 +14738,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 onExecuted?()
                 return true
+            case .customizeSurfaceTabBar:
+                openPreferencesWindow(
+                    debugSource: "configured.cmux.customizeSurfaceTabBar",
+                    navigationTarget: .settingsJSON
+                )
+                onExecuted?()
+                return true
             }
         case .command, .agent, .workspaceCommand:
             guard let cmuxConfigStore = context.cmuxConfigStore else {

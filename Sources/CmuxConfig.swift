@@ -1225,10 +1225,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Equatable, Identifiable {
         .actionReference(CmuxSurfaceTabBarBuiltInAction.findPane.configID),
         .actionReference(CmuxSurfaceTabBarBuiltInAction.diffViewer.configID),
         .actionReference(CmuxSurfaceTabBarBuiltInAction.revealCurrentDirectoryInFinder.configID),
-        .actionReference(CmuxSurfaceTabBarBuiltInAction.rightSidebarFeed.configID),
-        .actionReference(CmuxSurfaceTabBarBuiltInAction.rightSidebarDock.configID),
-        .actionReference(CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID),
-        .actionReference(CmuxSurfaceTabBarBuiltInAction.cloudVM.configID),
+        .actionReference(CmuxSurfaceTabBarBuiltInAction.customizeSurfaceTabBar.configID),
     ]
 
     static let defaults: [CmuxSurfaceTabBarButton] = [
@@ -1315,7 +1312,8 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Equatable, Identifiable {
                 allowProjectLocalImage: allowProjectLocalIcon
             ),
             tooltip: tooltip ?? title ?? terminalCommand,
-            action: bonsplitAction
+            action: bonsplitAction,
+            activatesOnMouseDown: menu != nil || action.isBuiltInMoreReference
         )
     }
 
@@ -1788,6 +1786,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .revealCurrentDirectoryInFinder:
             title = String(localized: "command.revealCurrentDirectoryInFinder.title", defaultValue: "Reveal Current Directory in Finder")
             keywords = ["finder", "reveal", "directory", "folder", "cwd"]
+        case .customizeSurfaceTabBar:
+            title = String(localized: "command.customizeSurfaceTabBar.title", defaultValue: "Customize")
+            keywords = ["customize", "settings", "configuration", "cmux.json", "surface", "tab", "bar"]
         }
 
         return CmuxResolvedConfigAction(
