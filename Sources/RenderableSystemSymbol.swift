@@ -1,38 +1,10 @@
 import AppKit
 
-private final class RenderableSystemSymbolCache: @unchecked Sendable {
-    private let lock = NSLock()
-    private var values: [String: Bool] = [:]
-
-    func value(for symbol: String, compute: () -> Bool) -> Bool {
-        lock.lock()
-        if let cached = values[symbol] {
-            lock.unlock()
-            return cached
-        }
-        lock.unlock()
-
-        let resolved = compute()
-
-        lock.lock()
-        values[symbol] = resolved
-        lock.unlock()
-        return resolved
-    }
-
-    #if DEBUG
-    func removeAll() {
-        lock.lock()
-        values.removeAll()
-        lock.unlock()
-    }
-    #endif
-}
-
 enum RenderableSystemSymbol {
     static let defaultWorkspaceGroupIcon = "folder.fill"
     static let defaultSurfaceTabIcon = "doc.text"
-    private static let cache = RenderableSystemSymbolCache()
+    @MainActor
+    private static var renderabilityCache: [String: Bool] = [:]
 
     static func trimmed(_ raw: String?) -> String? {
         guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -42,6 +14,7 @@ enum RenderableSystemSymbol {
         return trimmed
     }
 
+    @MainActor
     static func normalized(_ raw: String?) -> String? {
         guard let trimmed = trimmed(raw),
               isRenderable(trimmed) else {
@@ -50,6 +23,7 @@ enum RenderableSystemSymbol {
         return trimmed
     }
 
+    @MainActor
     static func resolvedWorkspaceGroupIcon(explicit: String?, configured: String?) -> String {
         for candidate in [explicit, configured] {
             guard let normalized = normalized(candidate) else { continue }
@@ -58,21 +32,27 @@ enum RenderableSystemSymbol {
         return defaultWorkspaceGroupIcon
     }
 
+    @MainActor
     static func resolvedSurfaceTabIcon(_ raw: String?, fallback: String = defaultSurfaceTabIcon) -> String {
         normalized(raw)
             ?? normalized(fallback)
             ?? defaultSurfaceTabIcon
     }
 
+    @MainActor
     static func isRenderable(_ symbol: String) -> Bool {
-        cache.value(for: symbol) {
-            NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil
+        if let cached = renderabilityCache[symbol] {
+            return cached
         }
+        let resolved = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil
+        renderabilityCache[symbol] = resolved
+        return resolved
     }
 
     #if DEBUG
+    @MainActor
     static func resetRenderabilityCacheForTesting() {
-        cache.removeAll()
+        renderabilityCache.removeAll()
     }
     #endif
 }

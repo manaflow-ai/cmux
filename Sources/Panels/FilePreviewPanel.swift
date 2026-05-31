@@ -576,9 +576,7 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
                 id: dragId,
                 title: displayTitle,
                 hasCustomTitle: false,
-                icon: RenderableSystemSymbol.resolvedSurfaceTabIcon(
-                    FilePreviewKindResolver.initialTabIconName(for: URL(fileURLWithPath: filePath))
-                ),
+                icon: FilePreviewKindResolver.initialTabIconName(for: URL(fileURLWithPath: filePath)),
                 iconImageData: nil,
                 kind: "filePreview",
                 isDirty: false,
