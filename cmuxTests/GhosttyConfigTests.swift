@@ -51,6 +51,104 @@ final class GhosttyConfigTests: XCTestCase {
         let blue: Int
     }
 
+    func testLaunchGhosttyResourcesPreferCurrentBundleOverInheritedEnvironment() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-launch-resources-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let inheritedResources = root.appendingPathComponent("inherited/ghostty", isDirectory: true)
+        let bundleResources = root.appendingPathComponent("BundleResources", isDirectory: true)
+        let bundledGhostty = bundleResources.appendingPathComponent("ghostty", isDirectory: true)
+        try fileManager.createDirectory(
+            at: inheritedResources.appendingPathComponent("themes", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: bundledGhostty.appendingPathComponent("themes", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+            currentValue: inheritedResources.path,
+            bundleResourceURL: bundleResources,
+            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(resolved, bundledGhostty.path)
+    }
+
+    func testLaunchGhosttyResourcesKeepInheritedEnvironmentWhenBundleHasNoResources() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-launch-resource-fallback-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let inheritedResources = root.appendingPathComponent("inherited/ghostty", isDirectory: true)
+        let emptyBundleResources = root.appendingPathComponent("BundleResources", isDirectory: true)
+        try fileManager.createDirectory(at: inheritedResources, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: emptyBundleResources, withIntermediateDirectories: true)
+
+        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+            currentValue: inheritedResources.path,
+            bundleResourceURL: emptyBundleResources,
+            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(resolved, inheritedResources.path)
+    }
+
+    func testLaunchGhosttyResourcesKeepInheritedEnvironmentWhenBundleLacksThemes() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-launch-incomplete-resource-fallback-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let inheritedResources = root.appendingPathComponent("inherited/ghostty", isDirectory: true)
+        let bundleResources = root.appendingPathComponent("BundleResources", isDirectory: true)
+        let bundledGhostty = bundleResources.appendingPathComponent("ghostty", isDirectory: true)
+        try fileManager.createDirectory(
+            at: inheritedResources.appendingPathComponent("themes", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(at: bundledGhostty, withIntermediateDirectories: true)
+
+        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+            currentValue: inheritedResources.path,
+            bundleResourceURL: bundleResources,
+            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(resolved, inheritedResources.path)
+    }
+
+    func testLaunchGhosttyResourcesUseIncompleteBundleOnlyAsLastFallback() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-launch-incomplete-resource-last-fallback-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let bundleResources = root.appendingPathComponent("BundleResources", isDirectory: true)
+        let bundledGhostty = bundleResources.appendingPathComponent("ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: bundledGhostty, withIntermediateDirectories: true)
+
+        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+            currentValue: root.appendingPathComponent("missing-inherited", isDirectory: true).path,
+            bundleResourceURL: bundleResources,
+            ghosttyAppResources: root.appendingPathComponent("missing-app", isDirectory: true).path,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(resolved, bundledGhostty.path)
+    }
+
     func testResolveThemeNamePrefersLightEntryForPairedTheme() {
         let resolved = GhosttyConfig.resolveThemeName(
             from: "light:Builtin Solarized Light,dark:Builtin Solarized Dark",
@@ -2428,6 +2526,48 @@ final class WorkspaceRemoteConfigurationTransportKeyTests: XCTestCase {
 
         XCTAssertEqual(first.proxyBrokerTransportKey, second.proxyBrokerTransportKey)
     }
+
+    func testPersistentPTYIdentityRequiresSameRelayPort() {
+        let first = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 22,
+            identityFile: "~/.ssh/id_ed25519",
+            sshOptions: [
+                "Compression=yes",
+                "ControlMaster=auto",
+                "ControlPath=/tmp/cmux-ssh-501-64000-%C",
+            ],
+            localProxyPort: nil,
+            relayPort: 64000,
+            relayID: "relay-a",
+            relayToken: "token-a",
+            localSocketPath: "/tmp/cmux-a.sock",
+            terminalStartupCommand: "ssh cmux-macmini",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-test-slot"
+        )
+        let second = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 22,
+            identityFile: "~/.ssh/id_ed25519",
+            sshOptions: [
+                "Compression=yes",
+                "ControlMaster=auto",
+                "ControlPath=/tmp/cmux-ssh-501-64001-%C",
+            ],
+            localProxyPort: nil,
+            relayPort: 64001,
+            relayID: "relay-b",
+            relayToken: "token-b",
+            localSocketPath: "/tmp/cmux-b.sock",
+            terminalStartupCommand: "ssh cmux-macmini",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-test-slot"
+        )
+
+        XCTAssertFalse(first.hasSamePersistentPTYIdentity(as: second))
+        XCTAssertFalse(second.hasSamePersistentPTYIdentity(as: first))
+    }
 }
 
 final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
@@ -2435,6 +2575,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         let psOutput = """
           101 1 /usr/bin/ssh -N -T -S none -o ControlPath=/tmp/cmux-ssh-501-56080-%C -R 127.0.0.1:56080:127.0.0.1:64048 cmux-macmini
           102 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
+          107 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote 'serve' '--stdio' '--persistent' '--slot' 'ssh-test''
           103 999 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56081:127.0.0.1:64049 cmux-macmini
           104 1 /usr/bin/ssh -tt cmux-macmini
           105 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56082:127.0.0.1:64050 other-host
@@ -2446,7 +2587,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
                 psOutput: psOutput,
                 destination: "cmux-macmini"
             ),
-            [101, 102]
+            [101, 102, 107]
         )
     }
 
@@ -2455,7 +2596,19 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
           201 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56080:127.0.0.1:64048 cmux-macmini
           202 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56081:127.0.0.1:64049 cmux-macmini
           203 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
+          204 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote 'serve' '--stdio' '--persistent' '--slot' 'ssh-test''
+          205 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote 'serve' '--stdio' '--persistent' '--slot' 'ssh-other''
         """
+
+        XCTAssertEqual(
+            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+                psOutput: psOutput,
+                destination: "cmux-macmini",
+                relayPort: 56081,
+                persistentDaemonSlot: "ssh-test"
+            ),
+            [202, 204]
+        )
 
         XCTAssertEqual(
             WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
@@ -2464,6 +2617,59 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
                 relayPort: 56081
             ),
             [202]
+        )
+    }
+
+    func testOrphanedCMUXRemoteSSHPIDsMatchesBackslashEscapedPersistentDaemonSlot() {
+        let psOutput = """
+          211 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec '\''.cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote'\'' '\''serve'\'' '\''--stdio'\'' '\''--persistent'\'' '\''--slot'\'' '\''ssh-test'\'''
+          212 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec '\''.cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote'\'' '\''serve'\'' '\''--stdio'\'' '\''--persistent'\'' '\''--slot'\'' '\''ssh-other'\'''
+        """
+
+        XCTAssertEqual(
+            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+                psOutput: psOutput,
+                destination: "cmux-macmini",
+                relayPort: 56081,
+                persistentDaemonSlot: "ssh-test"
+            ),
+            [211]
+        )
+    }
+
+    func testOrphanedCMUXRemoteSSHPIDsMatchesEqualsQuotedPersistentDaemonSlot() {
+        let psOutput = """
+          221 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote serve --stdio --persistent --slot='ssh-test''
+          222 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote serve --stdio --persistent --slot="ssh-other"'
+        """
+
+        XCTAssertEqual(
+            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+                psOutput: psOutput,
+                destination: "cmux-macmini",
+                relayPort: 56081,
+                persistentDaemonSlot: "ssh-test"
+            ),
+            [221]
+        )
+    }
+
+    func testOrphanedCMUXRemoteSSHPIDsWithSlotAndNoRelayKeepsGenericCleanup() {
+        let psOutput = """
+          301 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56080:127.0.0.1:64048 cmux-macmini
+          302 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
+          303 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote 'serve' '--stdio' '--persistent' '--slot' 'ssh-test''
+          304 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote 'serve' '--stdio' '--persistent' '--slot' 'ssh-other''
+          305 1 /usr/bin/ssh -T -S none -o RequestTTY=no other-host sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
+        """
+
+        XCTAssertEqual(
+            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+                psOutput: psOutput,
+                destination: "cmux-macmini",
+                persistentDaemonSlot: "ssh-test"
+            ),
+            [301, 302, 303]
         )
     }
 }

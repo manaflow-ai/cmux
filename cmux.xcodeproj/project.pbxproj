@@ -351,11 +351,14 @@
 		A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */; };
 		A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
+		A5001643 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */; };
+		B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */; };
 		D0C0D0C0D0C0D0C0D0C00001 /* RemoteLoopbackProxyAlias.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C00002 /* RemoteLoopbackProxyAlias.swift */; };
 		D0C0D0C0D0C0D0C0D0C00003 /* RemoteLoopbackRuntimeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C00004 /* RemoteLoopbackRuntimeBridge.swift */; };
 		A5001640 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
 		B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
 		E4321000E4321000E4321001 /* RemoteShellSessionParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4321000E4321000E4321002 /* RemoteShellSessionParsing.swift */; };
+		D5037010000000000000003 /* RenderableSystemSymbol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5037010000000000000002 /* RenderableSystemSymbol.swift */; };
 		F5410004A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */; };
 		F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */; };
 		F5410002A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410003A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift */; };
@@ -496,6 +499,10 @@
 		C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B100000000000000002 /* TextBoxInput.swift */; };
 		A5002000 /* THIRD_PARTY_LICENSES.md in Resources */ = {isa = PBXBuildFile; fileRef = A5002001 /* THIRD_PARTY_LICENSES.md */; };
 		C4160A060000000000000001 /* TitlebarChromeGeometryReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A060000000000000002 /* TitlebarChromeGeometryReporting.swift */; };
+		F50030030000000000000001 /* TitlebarInteractiveControlHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030030000000000000002 /* TitlebarInteractiveControlHost.swift */; };
+		F50030020000000000000001 /* TitlebarInteractiveControlModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */; };
+		F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */; };
+		F50030010000000000000001 /* TitlebarInteractiveHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030010000000000000002 /* TitlebarInteractiveHostingView.swift */; };
 		C4160A070000000000000001 /* TitlebarLayoutDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */; };
 		B35751000000000000000002 /* TmuxResumeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35751000000000000000001 /* TmuxResumeParser.swift */; };
 		E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */; };
@@ -979,10 +986,12 @@
 		A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectSchemesTabView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectTargetsTabView.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
+		A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInteractiveShellBootstrapBuilder.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C00002 /* RemoteLoopbackProxyAlias.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteLoopbackProxyAlias.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C00004 /* RemoteLoopbackRuntimeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteLoopbackRuntimeBridge.swift; sourceTree = "<group>"; };
 		A5001641 /* RemoteRelayZshBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelayZshBootstrap.swift; sourceTree = "<group>"; };
 		E4321000E4321000E4321002 /* RemoteShellSessionParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteShellSessionParsing.swift; sourceTree = "<group>"; };
+		D5037010000000000000002 /* RenderableSystemSymbol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderableSystemSymbol.swift; sourceTree = "<group>"; };
 		F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderHermesTests.swift; sourceTree = "<group>"; };
 		F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderResumeTests.swift; sourceTree = "<group>"; };
 		F5410003A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentNonInteractiveTests.swift; sourceTree = "<group>"; };
@@ -1119,6 +1128,10 @@
 		C0DE7B100000000000000002 /* TextBoxInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInput.swift; sourceTree = "<group>"; };
 		A5002001 /* THIRD_PARTY_LICENSES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_LICENSES.md; sourceTree = SOURCE_ROOT; };
 		C4160A060000000000000002 /* TitlebarChromeGeometryReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/TitlebarChromeGeometryReporting.swift; sourceTree = "<group>"; };
+		F50030030000000000000002 /* TitlebarInteractiveControlHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveControlHost.swift; sourceTree = "<group>"; };
+		F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveControlModifier.swift; sourceTree = "<group>"; };
+		F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveControlTests.swift; sourceTree = "<group>"; };
+		F50030010000000000000002 /* TitlebarInteractiveHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveHostingView.swift; sourceTree = "<group>"; };
 		C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarLayoutDebugWindow.swift; sourceTree = "<group>"; };
 		B35751000000000000000001 /* TmuxResumeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxResumeParser.swift; sourceTree = "<group>"; };
 		E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayView.swift; sourceTree = "<group>"; };
@@ -1383,6 +1396,9 @@
 				C4160A010000000000000002 /* cmuxApp+HistoryMenu.swift */,
 				C4160A020000000000000002 /* FocusHistoryMenuInvalidator.swift */,
 				C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */,
+				F50030030000000000000002 /* TitlebarInteractiveControlHost.swift */,
+				F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */,
+				F50030010000000000000002 /* TitlebarInteractiveHostingView.swift */,
 				C0DE34020000000000000003 /* CmuxHelpCommands.swift */,
 				C0DE34020000000000000004 /* CmuxHelpResource.swift */,
 				A50019A1 /* SettingsNavigation.swift */,
@@ -1424,6 +1440,7 @@
 				C9A57108C9A57108C9A57108 /* SidebarWorkspaceGroupDialogs.swift */,
 				C9A57102C9A57102C9A57102 /* SidebarWorkspaceGroupHeaderView.swift */,
 				C9A5710AC9A5710AC9A5710A /* SidebarWorkspaceGroupingMetrics.swift */,
+				D5037010000000000000002 /* RenderableSystemSymbol.swift */,
 				C9A57202C9A57202C9A57202 /* SidebarWorkspaceRenderItem.swift */,
 				C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */,
 				C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */,
@@ -1651,6 +1668,7 @@
 				A5001661 /* RestorableAgentSession.swift */,
 				C0DEF0C10000000000000002 /* AgentForkSupport.swift */,
 				C0DEF0C20000000000000002 /* SemanticVersion.swift */,
+				A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */,
 				A5001651 /* CmuxConfig.swift */,
@@ -1811,6 +1829,7 @@
 				C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */,
 				C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */,
 				C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */,
+				F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */,
 				BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */,
 				D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */,
 				2907A0042907A0042907A004 /* AppDelegateIssue2907RoutingTests.swift */,
@@ -2366,10 +2385,12 @@
 					A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */,
 					A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */,
 				A500RG01 /* ReactGrab.swift in Sources */,
+				A5001643 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 					D0C0D0C0D0C0D0C0D0C00001 /* RemoteLoopbackProxyAlias.swift in Sources */,
 					D0C0D0C0D0C0D0C0D0C00003 /* RemoteLoopbackRuntimeBridge.swift in Sources */,
 				A5001640 /* RemoteRelayZshBootstrap.swift in Sources */,
 				E4321000E4321000E4321001 /* RemoteShellSessionParsing.swift in Sources */,
+				D5037010000000000000003 /* RenderableSystemSymbol.swift in Sources */,
 				A5001660 /* RestorableAgentSession.swift in Sources */,
 				C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */,
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,
@@ -2454,6 +2475,9 @@
 				D0B10006A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift in Sources */,
 				C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */,
 				C4160A060000000000000001 /* TitlebarChromeGeometryReporting.swift in Sources */,
+				F50030030000000000000001 /* TitlebarInteractiveControlHost.swift in Sources */,
+				F50030020000000000000001 /* TitlebarInteractiveControlModifier.swift in Sources */,
+				F50030010000000000000001 /* TitlebarInteractiveHostingView.swift in Sources */,
 				C4160A070000000000000001 /* TitlebarLayoutDebugWindow.swift in Sources */,
 				B35751000000000000000002 /* TmuxResumeParser.swift in Sources */,
 				E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */,
@@ -2535,6 +2559,7 @@
 					FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 				C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */,
 				C47110020000000000000003 /* ProcessPipeReader.swift in Sources */,
+				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
 			);
@@ -2711,6 +2736,7 @@
 					A5A5A505A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift in Sources */,
 				A5A5A503A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift in Sources */,
 					A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */,
+				F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */,
 				D3284001A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift in Sources */,
 				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
 					C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */,

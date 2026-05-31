@@ -597,6 +597,7 @@ struct TitlebarControlButton<Content: View>: View {
                 TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
             }
         }
+        .titlebarInteractiveControl()
     }
 }
 
