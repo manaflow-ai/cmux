@@ -5028,6 +5028,10 @@ func privacyModeBranded(_ cmuxText: String) -> String {
     PrivacyMode.isEnabled ? cmuxText.replacingOccurrences(of: "cmux", with: PrivacyMode.productName) : cmuxText
 }
 
+func privacyModeBranded(_ privacyText: String, stable cmuxText: String) -> String {
+    PrivacyMode.isEnabled ? privacyText : cmuxText
+}
+
 enum TelemetrySettings {
     static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
     static let defaultSendAnonymousTelemetry = false
