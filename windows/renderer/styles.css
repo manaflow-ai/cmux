@@ -2372,6 +2372,11 @@ body.reduce-motion *::after {
   display: none;
 }
 
+.browser-deferred-standalone {
+  width: 100%;
+  height: 100%;
+}
+
 .browser-deferred:hover {
   color: var(--color-text);
   background:

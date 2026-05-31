@@ -3356,7 +3356,14 @@ function renderPaneNode(panel, workspace, visibleCount) {
     const terminal = state.terminals.get(panel.id);
     if (terminal) scheduleFitTerminal(terminal);
   }
-  if (panel.type === "browser") ensureBrowser(panel, pane.querySelector(".pane-body"));
+  if (panel.type === "browser") {
+    const body = pane.querySelector(".pane-body");
+    if (shouldRenderDeferredBrowserShell(panel)) {
+      renderDeferredBrowserShell(panel, body);
+    } else {
+      ensureBrowser(panel, body);
+    }
+  }
   return pane;
 }
 
@@ -4853,6 +4860,31 @@ function shouldDeferInitialBrowserLoad(panel) {
   )?.id;
   const eagerBrowserPanelId = activeBrowserPanelId || browserPanels[0]?.id;
   return panel.id !== eagerBrowserPanelId;
+}
+
+function shouldRenderDeferredBrowserShell(panel) {
+  return panel?.type === "browser"
+    && !state.browserViews.has(panel.id)
+    && shouldDeferInitialBrowserLoad(panel);
+}
+
+function renderDeferredBrowserShell(panel, body) {
+  let deferred = body.querySelector(".browser-deferred-standalone");
+  const targetUrl = normalizeUrl(panel.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+  if (!deferred) {
+    deferred = document.createElement("button");
+    deferred.className = "browser-deferred browser-deferred-standalone";
+    deferred.type = "button";
+    deferred.innerHTML = `
+      <span class="browser-deferred-title">Browser paused</span>
+      <span class="browser-deferred-url"></span>
+      <span class="browser-deferred-action">Click pane to load</span>
+    `;
+    deferred.onclick = () => focusPanel(panel.id);
+    body.replaceChildren(deferred);
+  }
+  deferred.querySelector(".browser-deferred-url").textContent = targetUrl;
+  deferred.querySelector(".browser-deferred-url").title = targetUrl;
 }
 
 function saveBrowserSessionTabs(session) {
