@@ -67,8 +67,17 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
     private final class RootView: NSView {
         var onLayout: (() -> Void)?
         var onMoveToWindow: (() -> Void)?
+        var onMouseDown: (() -> Void)?
 
         override var isFlipped: Bool { true }
+        override var intrinsicContentSize: NSSize {
+            NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            onMouseDown?()
+            super.mouseDown(with: event)
+        }
 
         override func layout() {
             super.layout()
@@ -98,11 +107,14 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
     private let rootView = RootView(frame: .zero)
     private let cardView = FocusCardView(frame: .zero)
     private let contentView = NSView(frame: .zero)
+    private let compactLabel = NSTextField(labelWithString: String(
+        localized: "sidebar.extensions.browser.compact",
+        defaultValue: "Open larger"
+    ))
     private var cardWidthConstraint: NSLayoutConstraint?
-    private var cardHeightConstraint: NSLayoutConstraint?
     private var cardTopConstraint: NSLayoutConstraint?
     private var cardHorizontalSafetyConstraints: [NSLayoutConstraint] = []
-    private var cardBottomSafetyConstraint: NSLayoutConstraint?
+    private var cardBottomConstraint: NSLayoutConstraint?
     private var browserConstraints: [NSLayoutConstraint] = []
 
     init(
@@ -124,6 +136,9 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
         rootView.onLayout = { [weak self] in
             self?.updateLayoutForCurrentBounds()
         }
+        rootView.onMouseDown = { [weak self] in
+            self?.onRequestPanelFocus()
+        }
         rootView.onMoveToWindow = { [weak self] in
             self?.attachBrowserIfNeeded()
             self?.updateLayoutForCurrentBounds()
@@ -131,10 +146,11 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
 
         cardView.translatesAutoresizingMaskIntoConstraints = false
         cardView.wantsLayer = true
-        cardView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(Self.backgroundAlpha).cgColor
+        cardView.layer?.backgroundColor = Self.cardBackgroundColor.cgColor
         cardView.layer?.cornerRadius = Self.cornerRadius
         cardView.layer?.cornerCurve = .continuous
-        cardView.layer?.borderWidth = 0
+        cardView.layer?.borderWidth = 1
+        cardView.layer?.borderColor = Self.cardBorderColor.cgColor
         cardView.layer?.masksToBounds = true
         cardView.onMouseDown = { [weak self] in
             self?.onRequestPanelFocus()
@@ -144,34 +160,44 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
         contentView.wantsLayer = true
         contentView.layer?.backgroundColor = NSColor.clear.cgColor
 
+        compactLabel.translatesAutoresizingMaskIntoConstraints = false
+        compactLabel.alignment = .center
+        compactLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        compactLabel.textColor = .secondaryLabelColor
+        compactLabel.maximumNumberOfLines = 0
+        compactLabel.lineBreakMode = .byWordWrapping
+        compactLabel.cell?.wraps = true
+        compactLabel.cell?.usesSingleLineMode = false
+        compactLabel.isHidden = true
+
         rootView.addSubview(cardView)
         cardView.addSubview(contentView)
-        let cardWidthConstraint = cardView.widthAnchor.constraint(equalToConstant: Self.defaultWidth)
-        let cardHeightConstraint = cardView.heightAnchor.constraint(equalToConstant: Self.defaultHeight)
-        let cardTopConstraint = cardView.topAnchor.constraint(equalTo: rootView.topAnchor, constant: Self.topInset)
-        let cardBottomSafetyConstraint = cardView.bottomAnchor.constraint(lessThanOrEqualTo: rootView.bottomAnchor, constant: -Self.bottomInset)
+        cardView.addSubview(compactLabel)
+        let cardWidthConstraint = cardView.widthAnchor.constraint(equalToConstant: Self.preferredWidth)
+        let cardTopConstraint = cardView.topAnchor.constraint(equalTo: rootView.topAnchor, constant: Self.defaultVerticalInset)
+        let cardBottomConstraint = cardView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor, constant: -Self.defaultVerticalInset)
         cardWidthConstraint.priority = .defaultHigh
-        cardHeightConstraint.priority = .defaultHigh
         cardHorizontalSafetyConstraints = [
-            cardView.leadingAnchor.constraint(greaterThanOrEqualTo: rootView.leadingAnchor, constant: Self.sideInset),
-            cardView.trailingAnchor.constraint(lessThanOrEqualTo: rootView.trailingAnchor, constant: -Self.sideInset),
+            cardView.leadingAnchor.constraint(greaterThanOrEqualTo: rootView.leadingAnchor, constant: Self.defaultHorizontalInset),
+            cardView.trailingAnchor.constraint(lessThanOrEqualTo: rootView.trailingAnchor, constant: -Self.defaultHorizontalInset),
         ]
         self.cardWidthConstraint = cardWidthConstraint
-        self.cardHeightConstraint = cardHeightConstraint
         self.cardTopConstraint = cardTopConstraint
-        self.cardBottomSafetyConstraint = cardBottomSafetyConstraint
+        self.cardBottomConstraint = cardBottomConstraint
 
         NSLayoutConstraint.activate(
             cardHorizontalSafetyConstraints + [
             cardView.centerXAnchor.constraint(equalTo: rootView.centerXAnchor),
             cardTopConstraint,
-            cardBottomSafetyConstraint,
+            cardBottomConstraint,
             cardWidthConstraint,
-            cardHeightConstraint,
             contentView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
             contentView.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
             contentView.topAnchor.constraint(equalTo: cardView.topAnchor),
             contentView.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
+            compactLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 20),
+            compactLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -20),
+            compactLabel.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
         ])
 
         view = rootView
@@ -226,36 +252,56 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
     }
 
     func updateLayoutForCurrentBounds() {
-        cardWidthConstraint?.constant = Self.width(for: rootView.bounds.width)
-        cardHeightConstraint?.constant = Self.height(for: rootView.bounds.height)
-        cardTopConstraint?.constant = Self.topInset
-        cardBottomSafetyConstraint?.constant = -Self.bottomInset
-        cardHorizontalSafetyConstraints.first?.constant = Self.sideInset
-        cardHorizontalSafetyConstraints.dropFirst().first?.constant = -Self.sideInset
+        let visibleBounds = rootView.visibleRect
+        let layoutWidth = visibleBounds.width > 0 ? visibleBounds.width : rootView.bounds.width
+        let layoutHeight = visibleBounds.height > 0 ? visibleBounds.height : rootView.bounds.height
+        let horizontalInset = Self.horizontalInset(for: layoutWidth)
+        let verticalInset = Self.verticalInset(for: layoutHeight)
+        cardWidthConstraint?.constant = Self.width(for: layoutWidth, horizontalInset: horizontalInset)
+        cardTopConstraint?.constant = verticalInset
+        cardBottomConstraint?.constant = -verticalInset
+        cardHorizontalSafetyConstraints.first?.constant = horizontalInset
+        cardHorizontalSafetyConstraints.dropFirst().first?.constant = -horizontalInset
 
-        cardView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(Self.backgroundAlpha).cgColor
+        cardView.layer?.backgroundColor = Self.cardBackgroundColor.cgColor
+        cardView.layer?.borderColor = Self.cardBorderColor.cgColor
         cardView.layer?.cornerRadius = Self.cornerRadius
         browserViewController.view.layer?.cornerRadius = Self.cornerRadius
+        let isCompact = visibleBounds.width < Self.minimumUsableWidth ||
+            visibleBounds.height < Self.minimumUsableHeight
+        compactLabel.preferredMaxLayoutWidth = max(0, cardView.bounds.width - 40)
+        contentView.isHidden = isCompact
+        compactLabel.isHidden = !isCompact
     }
 
-    private static func width(for availableWidth: CGFloat) -> CGFloat {
-        guard availableWidth > 0 else { return defaultWidth }
-        return min(defaultWidth, max(minWidth, availableWidth - sideInset * 2))
+    private static func width(for availableWidth: CGFloat, horizontalInset: CGFloat) -> CGFloat {
+        guard availableWidth > 0 else { return preferredWidth }
+        let safeWidth = max(0, availableWidth - horizontalInset * 2)
+        return min(preferredWidth, safeWidth)
     }
 
-    private static func height(for availableHeight: CGFloat) -> CGFloat {
-        guard availableHeight > 0 else { return defaultHeight }
-        return min(maxHeight, max(minHeight, min(defaultHeight, availableHeight - topInset - bottomInset)))
+    private static func horizontalInset(for availableWidth: CGFloat) -> CGFloat {
+        if availableWidth < 360 { return 8 }
+        if availableWidth < 520 { return 12 }
+        return defaultHorizontalInset
     }
 
-    private static let sideInset: CGFloat = 20
-    private static let topInset: CGFloat = 16
-    private static let bottomInset: CGFloat = 16
-    private static let minWidth: CGFloat = 260
-    private static let defaultWidth: CGFloat = 720
-    private static let minHeight: CGFloat = 360
-    private static let defaultHeight: CGFloat = 460
-    private static let maxHeight: CGFloat = 560
+    private static func verticalInset(for availableHeight: CGFloat) -> CGFloat {
+        if availableHeight < 320 { return 8 }
+        if availableHeight < 420 { return 12 }
+        return defaultVerticalInset
+    }
+
+    private static let defaultHorizontalInset: CGFloat = 20
+    private static let defaultVerticalInset: CGFloat = 16
+    private static let preferredWidth: CGFloat = 1200
+    private static let minimumUsableWidth: CGFloat = 600
+    private static let minimumUsableHeight: CGFloat = 420
     private static let cornerRadius: CGFloat = 8
-    private static let backgroundAlpha: CGFloat = 0.35
+    private static var cardBackgroundColor: NSColor {
+        NSColor.windowBackgroundColor.withAlphaComponent(0.92)
+    }
+    private static var cardBorderColor: NSColor {
+        NSColor.separatorColor.withAlphaComponent(0.45)
+    }
 }
