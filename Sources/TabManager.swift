@@ -6522,9 +6522,10 @@ class TabManager: ObservableObject {
     }
 
     func setWorkspaceGroupIcon(groupId: UUID, symbol: String?) {
+        let normalized = WorkspaceGroupIconSymbol.normalized(symbol)
         guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
-        guard workspaceGroups[index].iconSymbol != symbol else { return }
-        workspaceGroups[index].iconSymbol = symbol
+        guard workspaceGroups[index].iconSymbol != normalized else { return }
+        workspaceGroups[index].iconSymbol = normalized
     }
 
     /// Reassign which member workspace serves as the group's anchor.

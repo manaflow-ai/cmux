@@ -13,7 +13,10 @@ extension VerticalTabsSidebar {
         let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
-        let effectiveIcon = group.iconSymbol ?? resolvedConfig?.iconSymbol ?? "folder.fill"
+        let effectiveIcon = WorkspaceGroupIconSymbol.resolved(
+            explicit: group.iconSymbol,
+            configured: resolvedConfig?.iconSymbol
+        )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
         let anchorUnreadCount: Int = {
@@ -127,6 +130,14 @@ extension VerticalTabsSidebar {
                     tabManager: tabManager,
                     groupId: groupId,
                     currentName: currentName
+                )
+            },
+            onSetIcon: { [weak tabManager, groupId = group.id, currentSymbol = group.iconSymbol] in
+                guard let tabManager else { return }
+                presentSidebarWorkspaceGroupIconPrompt(
+                    tabManager: tabManager,
+                    groupId: groupId,
+                    currentSymbol: currentSymbol
                 )
             },
             onTogglePinned: { [weak tabManager, groupId = group.id] in
