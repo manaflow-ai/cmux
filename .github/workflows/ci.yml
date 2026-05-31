@@ -246,7 +246,7 @@ jobs:
       - name: Cache DerivedData
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/Library/Developer/Xcode/DerivedData/cmux-tests
+          path: .ci-derived-data/tests
           key: deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
           restore-keys: |
             deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
@@ -283,7 +283,7 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/tests"
           run_split_theme_tests() {
             # A merged main branch can force this narrow XCTest step to do the
             # full Debug compile before the four regression tests run. Keep it
@@ -323,7 +323,7 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/tests"
           run_unit_tests() {
             # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
             # intermittently crash inside XCTest's post-test memory checker or
@@ -371,7 +371,7 @@ jobs:
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
-            rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+            rm -rf "$DERIVED_DATA_PATH"
             set +e
             run_unit_tests | tee /tmp/test-output.txt
             EXIT_CODE=${PIPESTATUS[0]}
@@ -510,7 +510,7 @@ jobs:
       - name: Cache DerivedData
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/Library/Developer/Xcode/DerivedData/cmux-*
+          path: .ci-derived-data/build
           key: deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
           restore-keys: |
             deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
@@ -547,8 +547,10 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/build"
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" build 2>&1 | tee /tmp/cmux-build-output.txt
 
@@ -558,12 +560,8 @@ jobs:
       - name: Run CoreAnimation main-thread startup regression
         run: |
           set -euo pipefail
-          APP="$(
-            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -exec stat -f '%m %N' {} \; \
-              | sort -nr \
-              | head -1 \
-              | cut -d' ' -f2-
-          )"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/build"
+          APP="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
           if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
             echo "cmux DEV.app not found in DerivedData" >&2
             exit 1
@@ -589,7 +587,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          APP="$(find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -print -quit)"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/build"
+          APP="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
           if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
             echo "cmux DEV.app not found in DerivedData" >&2
             exit 1
@@ -802,7 +801,7 @@ jobs:
       - name: Cache DerivedData
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/Library/Developer/Xcode/DerivedData/cmux-ui-regressions
+          path: .ci-derived-data/ui-regressions
           key: deriveddata-ui-regressions-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}
           restore-keys: deriveddata-ui-regressions-
 
@@ -837,7 +836,7 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-ui-regressions"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/ui-regressions"
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -derivedDataPath "$DERIVED_DATA_PATH" \
@@ -849,7 +848,7 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-ui-regressions"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/ui-regressions"
           HELPER_PATH="/tmp/create-virtual-display"
           TOKEN="$(uuidgen)"
           DIAG_PATH="/tmp/cmux-ui-test-display-churn-${TOKEN}.json"
@@ -1021,7 +1020,7 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-ui-regressions"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/ui-regressions"
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -derivedDataPath "$DERIVED_DATA_PATH" \
