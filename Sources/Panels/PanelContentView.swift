@@ -107,6 +107,7 @@ struct PanelContentView: View {
                     panel: extensionBrowserPanel,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
