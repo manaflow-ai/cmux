@@ -5936,7 +5936,9 @@ function renderSettingsInspector(options = {}) {
     imageInput.addEventListener("blur", async () => {
       await applyImageInput();
     });
-    appearanceSection.append(settingRow("Custom image", imageInput, true));
+    const customImageRow = settingRow("Custom image", imageInput, true, "background image url local path file drop wallpaper");
+    installBackgroundDropTarget(customImageRow, { input: imageInput });
+    appearanceSection.append(customImageRow);
     const imageActions = document.createElement("div");
     imageActions.className = "settings-actions background-actions";
     imageActions.append(
