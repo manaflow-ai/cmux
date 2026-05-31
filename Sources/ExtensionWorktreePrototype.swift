@@ -13,17 +13,15 @@ struct CmuxExtensionWorktreeCreationResult: Sendable {
 ///
 /// A workspace closes the moment its main process exits, so the worktree
 /// `setupCommand` must be delivered as terminal *input* typed into the
-/// interactive login shell — never as `initialTerminalCommand` (the surface's
-/// primary process). Routing setup through `initialTerminalCommand` makes the
-/// tab flash and disappear the instant the setup command finishes or fails.
+/// interactive login shell — never as the surface's primary process. This type
+/// deliberately has **no** primary-command field: the workspace's main process
+/// is structurally always the login shell, so the "setup command became the
+/// main process and the tab died when it exited" bug cannot be expressed here.
 struct CmuxExtensionWorktreeWorkspaceSpawnArgs: Sendable, Equatable {
     let title: String
     let workingDirectory: String
-    /// The workspace's primary process. Always `nil` so the main process stays
-    /// the user's login shell and the tab survives setup completion.
-    let initialTerminalCommand: String?
     /// Setup command typed into the interactive shell after spawn (with a
-    /// trailing newline so it executes).
+    /// trailing newline so it executes), or `nil` when there is no setup.
     let initialTerminalInput: String?
     let inheritWorkingDirectory: Bool
 }
@@ -34,14 +32,12 @@ extension CmuxExtensionWorktreeCreationResult {
     /// The returned arguments always leave the workspace's main process as the
     /// login shell and deliver ``setupCommand`` as terminal input.
     func workspaceSpawnArgs() -> CmuxExtensionWorktreeWorkspaceSpawnArgs {
-        // The main process must stay the login shell so the tab survives setup
-        // completion. Worktree creation already ran as a pre-spawn step, so the
-        // setup command is delivered as interactive shell input (with a trailing
+        // Worktree creation already ran as a pre-spawn step, so the setup
+        // command is delivered as interactive shell input (with a trailing
         // newline so it executes) rather than as the surface's primary process.
         CmuxExtensionWorktreeWorkspaceSpawnArgs(
             title: workspaceTitle,
             workingDirectory: worktreePath,
-            initialTerminalCommand: nil,
             initialTerminalInput: setupCommand.isEmpty ? nil : setupCommand + "\n",
             inheritWorkingDirectory: false
         )

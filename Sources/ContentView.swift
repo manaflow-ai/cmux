@@ -11775,11 +11775,11 @@ struct VerticalTabsSidebar: View {
                 tabManager.addWorkspace(
                     title: spawnArgs.title,
                     workingDirectory: spawnArgs.workingDirectory,
-                    initialTerminalCommand: spawnArgs.initialTerminalCommand,
                     initialTerminalInput: spawnArgs.initialTerminalInput,
                     inheritWorkingDirectory: spawnArgs.inheritWorkingDirectory,
                     select: true,
-                    eagerLoadTerminal: false
+                    eagerLoadTerminal: false,
+                    autoWelcomeIfNeeded: spawnArgs.initialTerminalInput == nil
                 )
             } catch {
                 NSSound.beep()

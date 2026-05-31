@@ -25,23 +25,17 @@ struct ExtensionWorktreeSpawnArgsTests {
         )
     }
 
-    @Test("setup command is never the workspace's primary process")
-    func setupCommandIsNeverPrimaryProcess() {
-        let args = makeResult(setupCommand: "cd '/tmp/sample' && python3 -m http.server 4100")
-            .workspaceSpawnArgs()
-
-        // A one-shot setup command as the primary process makes the tab die the
-        // moment that command exits. The main process must remain the shell.
-        #expect(args.initialTerminalCommand == nil)
-    }
-
     @Test("setup command runs as interactive shell input")
     func setupCommandRunsAsShellInput() {
         let setup = "cd '/tmp/sample' && python3 -m http.server 4100"
         let args = makeResult(setupCommand: setup).workspaceSpawnArgs()
 
-        // Delivered as input (with a trailing newline so it executes) into the
+        // The setup command must NOT become the workspace's primary process (a
+        // one-shot command there makes the tab die the moment it exits). It is
+        // delivered as input (with a trailing newline so it executes) into the
         // interactive shell, matching the `cmux new-workspace --cwd` contract.
+        // The spawn-args type has no primary-command field, so the original bug
+        // is structurally unrepresentable here.
         #expect(args.initialTerminalInput == setup + "\n")
     }
 
@@ -54,11 +48,10 @@ struct ExtensionWorktreeSpawnArgsTests {
         #expect(args.title == "cmux-sidebar-123")
     }
 
-    @Test("empty setup command yields no input and no command")
-    func emptySetupCommandYieldsNeither() {
+    @Test("empty setup command yields no input")
+    func emptySetupCommandYieldsNoInput() {
         let args = makeResult(setupCommand: "").workspaceSpawnArgs()
 
-        #expect(args.initialTerminalCommand == nil)
         #expect(args.initialTerminalInput == nil)
     }
 }
