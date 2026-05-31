@@ -252,6 +252,207 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(buttons[1].terminalCommand, "claude --permission-mode acceptEdits")
     }
 
+    func testDecodeSurfaceTabBarMenuButton() throws {
+        let json = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                {
+                  "id": "workspace-tools",
+                  "type": "menu",
+                  "title": "Workspace Tools",
+                  "icon": { "type": "symbol", "name": "ellipsis.circle" },
+                  "menu": [
+                    "vault",
+                    { "builtin": "finder" },
+                    {
+                      "id": "git-status",
+                      "title": "Git Status",
+                      "command": "git status"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+        """
+        let config = try decode(json)
+        let rawButton = try XCTUnwrap(config.surfaceTabBarButtons?.first)
+        XCTAssertEqual(rawButton.id, "workspace-tools")
+        XCTAssertEqual(rawButton.title, "Workspace Tools")
+        XCTAssertEqual(rawButton.icon, .symbol("ellipsis.circle"))
+        XCTAssertEqual(rawButton.action, .builtIn(.more))
+
+        let rawMenu = try XCTUnwrap(rawButton.menu)
+        XCTAssertEqual(rawMenu.count, 3)
+        XCTAssertEqual(rawMenu[0].action, .actionReference(CmuxSurfaceTabBarBuiltInAction.vaultPane.configID))
+        XCTAssertEqual(rawMenu[1].action, .builtIn(.revealCurrentDirectoryInFinder))
+        XCTAssertEqual(rawMenu[2].id, "git-status")
+        XCTAssertEqual(rawMenu[2].title, "Git Status")
+        XCTAssertEqual(rawMenu[2].terminalCommand, "git status")
+
+        let resolvedButton = try rawButton.resolved(actions: resolvedActions(from: config), codingPath: [])
+        XCTAssertEqual(resolvedButton.menu?[0].action, .builtIn(.vaultPane))
+        XCTAssertEqual(resolvedButton.menu?[1].action, .builtIn(.revealCurrentDirectoryInFinder))
+        XCTAssertEqual(resolvedButton.menu?[2].terminalCommand, "git status")
+    }
+
+    @MainActor
+    func testDefaultSurfaceTabBarButtonsIncludeMoreMenu() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), [
+            CmuxSurfaceTabBarBuiltInAction.newTerminal.configID,
+            CmuxSurfaceTabBarBuiltInAction.newBrowser.configID,
+            CmuxSurfaceTabBarBuiltInAction.splitRight.configID,
+            CmuxSurfaceTabBarBuiltInAction.splitDown.configID,
+            CmuxSurfaceTabBarBuiltInAction.more.configID,
+        ])
+
+        let moreButton = try XCTUnwrap(store.surfaceTabBarButtons.last)
+        XCTAssertEqual(moreButton.action, .builtIn(.more))
+        XCTAssertEqual(moreButton.menu?.map(\.id), [
+            CmuxSurfaceTabBarBuiltInAction.vaultPane.configID,
+            CmuxSurfaceTabBarBuiltInAction.filesPane.configID,
+            CmuxSurfaceTabBarBuiltInAction.findPane.configID,
+            CmuxSurfaceTabBarBuiltInAction.diffViewer.configID,
+            CmuxSurfaceTabBarBuiltInAction.revealCurrentDirectoryInFinder.configID,
+            CmuxSurfaceTabBarBuiltInAction.rightSidebarFeed.configID,
+            CmuxSurfaceTabBarBuiltInAction.rightSidebarDock.configID,
+            CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID,
+            CmuxSurfaceTabBarBuiltInAction.cloudVM.configID,
+        ])
+    }
+
+    @MainActor
+    func testConfiguredSurfaceTabBarButtonsAppendMoreMenu() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "action": "newTerminal", "icon": { "type": "symbol", "name": "terminal" } },
+                { "action": "newBrowser", "tooltip": "New browser" }
+              ]
+            }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.action.builtInActionReference), [
+            .newTerminal,
+            .newBrowser,
+            .more,
+        ])
+        XCTAssertEqual(store.surfaceTabBarButtons.last?.menu?.first?.action, .builtIn(.vaultPane))
+    }
+
+    @MainActor
+    func testSurfaceTabBarCanExplicitlyHideMoreMenu() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "hideMoreButton": true,
+              "buttons": [
+                { "action": "newTerminal" },
+                { "action": "newBrowser" }
+              ]
+            }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.action.builtInActionReference), [
+            .newTerminal,
+            .newBrowser,
+        ])
+    }
+
+    @MainActor
+    func testSurfaceTabBarKeepsConfiguredMoreMenuAtEnd() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "action": "newTerminal" },
+                {
+                  "action": "more",
+                  "title": "Tools",
+                  "menu": ["vault"]
+                },
+                { "action": "newBrowser" }
+              ]
+            }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.action.builtInActionReference), [
+            .newTerminal,
+            .newBrowser,
+            .more,
+        ])
+        XCTAssertEqual(store.surfaceTabBarButtons.last?.title, "Tools")
+        XCTAssertEqual(store.surfaceTabBarButtons.last?.menu?.map(\.action), [.builtIn(.vaultPane)])
+    }
+
     func testDecodeSurfaceTabBarButtonsDefersUnknownActionReferences() throws {
         let json = """
         {
@@ -1323,6 +1524,67 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), ["newTerminal", "dev"])
         XCTAssertEqual(store.surfaceTabBarButtons.last?.workspaceCommandName, "Dev Environment")
+    }
+
+    @MainActor
+    func testSurfaceTabBarMenuResolvesNestedWorkspaceCommandsAndSourcePaths() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-store-\(UUID().uuidString)", isDirectory: true)
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let localDirectory = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: localDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let localConfigURL = localDirectory.appendingPathComponent("cmux.json")
+        let globalJSON = """
+        {
+          "actions": {
+            "repo-status": { "type": "command", "command": "git status" }
+          }
+        }
+        """
+        let localJSON = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                {
+                  "id": "workspace-tools",
+                  "type": "menu",
+                  "menu": [
+                    { "action": "repo-status" },
+                    { "id": "dev", "type": "workspaceCommand", "commandName": "Dev Environment" },
+                    { "id": "typo", "type": "workspaceCommand", "commandName": "Typo" }
+                  ]
+                }
+              ]
+            }
+          },
+          "commands": [
+            {
+              "name": "Dev Environment",
+              "workspace": { "name": "Dev" }
+            }
+          ]
+        }
+        """
+        try globalJSON.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try localJSON.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: localConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let menu = try XCTUnwrap(store.surfaceTabBarButtons.first?.menu)
+        XCTAssertEqual(menu.map(\.id), ["repo-status", "dev"])
+        XCTAssertEqual(menu[0].terminalCommand, "git status")
+        XCTAssertEqual(menu[1].workspaceCommandName, "Dev Environment")
+        XCTAssertEqual(store.surfaceTabBarCommandSourcePaths["repo-status"], globalConfigURL.path)
     }
 
     func testDecodeEmptySurfaceTabBarButtons() throws {
