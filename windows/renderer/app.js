@@ -4575,6 +4575,8 @@ function ensureBrowser(panel, body) {
   status.textContent = "Loading";
   bar.append(back, forward, reload, home, address, go, external);
 
+  const content = document.createElement("div");
+  content.className = "browser-content";
   const view = document.createElement(window.cmuxNative?.electron ? "webview" : "iframe");
   view.className = "browser-view";
   if (view.tagName.toLowerCase() === "webview") {
@@ -4583,9 +4585,26 @@ function ensureBrowser(panel, body) {
     view.setAttribute("useragent", embeddedBrowserUserAgent());
   }
   view.src = normalizeUrl(address.value, state.settings.browserHomeUrl);
+  const errorPane = document.createElement("div");
+  errorPane.className = "browser-error";
+  errorPane.hidden = true;
+  errorPane.innerHTML = `
+    <div class="browser-error-card">
+      <span class="browser-error-title"></span>
+      <span class="browser-error-body"></span>
+      <span class="browser-error-url"></span>
+      <span class="browser-error-actions">
+        <button class="browser-error-action browser-error-retry" type="button">Retry</button>
+        <button class="browser-error-action browser-error-open" type="button">Open</button>
+        <button class="browser-error-action browser-error-home" type="button">Home</button>
+      </span>
+    </div>
+  `;
+  content.append(view, errorPane);
   const isWebview = view.tagName.toLowerCase() === "webview";
   let webviewReady = !isWebview;
   let loadingStatusTimer = 0;
+  let browserLoadFailed = false;
   let session = null;
 
   const setStatus = (message = "") => {
@@ -4601,6 +4620,18 @@ function ensureBrowser(panel, body) {
         if (status.textContent === "Loading") setStatus("");
       }, 4500);
     }
+  };
+  const hideBrowserError = () => {
+    errorPane.hidden = true;
+  };
+  const showBrowserError = (message = "This page could not be shown inside cmux.", detail = address.value) => {
+    const targetUrl = normalizeUrl(detail || address.value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+    errorPane.querySelector(".browser-error-title").textContent = "Page did not load";
+    errorPane.querySelector(".browser-error-body").textContent = message;
+    errorPane.querySelector(".browser-error-url").textContent = targetUrl;
+    errorPane.querySelector(".browser-error-url").title = targetUrl;
+    errorPane.hidden = false;
+    setStatus("");
   };
 
   const updateNavState = () => {
@@ -4628,6 +4659,8 @@ function ensureBrowser(panel, body) {
     const next = normalizeUrl(address.value, state.settings.browserHomeUrl);
     address.value = next;
     view.src = next;
+    browserLoadFailed = false;
+    hideBrowserError();
     setStatus("Loading");
     updateActiveBrowserTabUrl(session, next);
     queueBrowserUrlSync(panel.id, next);
@@ -4643,6 +4676,15 @@ function ensureBrowser(panel, body) {
   go.onclick = navigate;
   external.onclick = () => openBrowserPanelExternally(panel);
   tabNew.onclick = () => createBrowserTab(session, state.settings.browserHomeUrl);
+  errorPane.querySelector(".browser-error-retry").onclick = () => {
+    hideBrowserError();
+    reloadBrowserPanel(panel);
+  };
+  errorPane.querySelector(".browser-error-open").onclick = () => openBrowserPanelExternally(panel);
+  errorPane.querySelector(".browser-error-home").onclick = () => {
+    address.value = state.settings.browserHomeUrl;
+    navigate();
+  };
   shell.addEventListener("wheel", handleBrowserWheel, { passive: false, capture: true });
   view.addEventListener("wheel", handleBrowserWheel, { passive: false, capture: true });
   address.addEventListener("focus", () => markInteractedPanel(panel.id));
@@ -4701,6 +4743,8 @@ function ensureBrowser(panel, body) {
     updateNavState();
   });
   view.addEventListener("did-start-loading", () => {
+    browserLoadFailed = false;
+    hideBrowserError();
     setStatus("Loading");
     updateNavState();
   });
@@ -4709,6 +4753,7 @@ function ensureBrowser(panel, body) {
     updateNavState();
   });
   view.addEventListener("did-finish-load", () => {
+    if (!browserLoadFailed) hideBrowserError();
     setStatus("");
     updateNavState();
   });
@@ -4720,17 +4765,21 @@ function ensureBrowser(panel, body) {
       setStatus("");
       return;
     }
-    setStatus("Could not load here. Use Open.");
+    if (event.isMainFrame === false) return;
+    browserLoadFailed = true;
+    showBrowserError("Try again, open it externally, or return home.", event.validatedURL || address.value);
     updateNavState();
   });
   view.addEventListener("load", () => {
+    if (!browserLoadFailed) hideBrowserError();
     setStatus("");
   });
   view.addEventListener("error", () => {
-    setStatus("Could not load here. Use Open.");
+    browserLoadFailed = true;
+    showBrowserError("Try again, open it externally, or return home.");
   });
 
-  shell.append(tabStrip, bar, status, view);
+  shell.append(tabStrip, bar, status, content);
   body.append(shell);
   session = {
     panelId: panel.id,

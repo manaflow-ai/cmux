@@ -37,6 +37,7 @@
   --scrollbar-size: 10px;
   --scrollbar-thumb: color-mix(in oklch, var(--color-line-strong) 74%, transparent);
   --scrollbar-thumb-hover: color-mix(in oklch, var(--color-muted) 72%, transparent);
+  --shadow-soft: 0 10px 36px color-mix(in oklch, var(--color-canvas) 64%, transparent);
   color-scheme: dark;
 }
 
@@ -2054,6 +2055,14 @@ body.reduce-motion *::after {
   padding: 0;
 }
 
+.browser-content {
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: grid;
+  overflow: hidden;
+}
+
 @container (max-width: 320px) {
   .browser-bar {
     grid-template-columns: 24px 24px minmax(0, 1fr) 26px;
@@ -2094,10 +2103,86 @@ body.reduce-motion *::after {
 }
 
 .browser-view {
+  grid-area: 1 / 1;
   width: 100%;
   height: 100%;
   border: 0;
   background: var(--color-pane);
+}
+
+.browser-error {
+  grid-area: 1 / 1;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 92%, transparent), var(--color-canvas));
+}
+
+.browser-error[hidden] {
+  display: none;
+}
+
+.browser-error-card {
+  width: min(420px, 100%);
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-pane-warm) 88%, var(--color-chrome) 12%);
+  box-shadow: var(--shadow-soft);
+}
+
+.browser-error-title {
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.browser-error-body,
+.browser-error-url {
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.browser-error-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--color-faint);
+}
+
+.browser-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.browser-error-action {
+  min-width: 64px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-text);
+  font-size: 12px;
+}
+
+.browser-error-action:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-active);
+}
+
+.browser-error-action:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .browser-status {
