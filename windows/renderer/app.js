@@ -10568,7 +10568,7 @@ function handleTerminalWheelZoom(event) {
 function handleWindowWheelZoom(event) {
   if (!event.ctrlKey) return;
   if (event.target?.closest?.(".terminal-host")) return;
-  const panel = actionPanelFromEvent(event);
+  const panel = panelFromEvent(event);
   if (panel?.type === "terminal") {
     applyTerminalWheelZoom(event, panel);
   } else if (event.target?.closest?.(".app-shell, .pane, .surface-tabs, .sidebar, .topbar, .command-strip")) {
