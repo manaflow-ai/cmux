@@ -8,26 +8,43 @@ import StackAuth
 import Security
 #endif
 
-private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
+private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding, @unchecked Sendable {
     static let shared = AuthPresentationContext()
 
+    // ASWebAuthenticationSession invokes presentationAnchor(for:) synchronously
+    // on whichever thread called session.start(). When beginSignIn() fires from
+    // the socket command dispatch thread (cmux auth login), that callback lands
+    // off-main, but the anchor (NSApp.keyWindow/...) is @MainActor state. Rather
+    // than block the caller with DispatchQueue.main.sync, beginSignIn() (already
+    // @MainActor) pre-fetches the anchor on main via cacheCurrentAnchor() right
+    // before start(), and the off-main callback reads that cached window under a
+    // lock. The lock-guarded NSWindow is why this type is @unchecked Sendable.
+    private let lock = NSLock()
+    private var cachedAnchor: NSWindow?
+
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        // ASWebAuthenticationSession invokes this on whichever thread called
-        // session.start(). When beginSignIn() fires from the socket command
-        // dispatch thread (cmux auth login), this callback lands off-main,
-        // and any NSApp access must hop to main before returning.
         if Thread.isMainThread {
             return Self.currentAnchor()
         }
-        var result: ASPresentationAnchor = NSWindow()
-        DispatchQueue.main.sync {
-            result = Self.currentAnchor()
-        }
-        return result
+        lock.lock()
+        let cached = cachedAnchor
+        lock.unlock()
+        return cached ?? NSWindow()
+    }
+
+    /// Snapshot the current presentation anchor on the main actor so the
+    /// synchronous, possibly off-main protocol callback can read it without
+    /// blocking on main. Call immediately before `session.start()`.
+    @MainActor
+    func cacheCurrentAnchor() {
+        let anchor = Self.currentAnchor()
+        lock.lock()
+        cachedAnchor = anchor
+        lock.unlock()
     }
 
     @MainActor
-    private static func currentAnchor() -> ASPresentationAnchor {
+    private static func currentAnchor() -> NSWindow {
         NSApp.keyWindow ?? NSApp.mainWindow ?? (NSApp.windows.first ?? NSWindow())
     }
 }
@@ -277,7 +294,9 @@ final class AuthManager: ObservableObject {
                 }
             }
         }
-        session.presentationContextProvider = AuthPresentationContext.shared
+        let presentationContext = AuthPresentationContext.shared
+        presentationContext.cacheCurrentAnchor()
+        session.presentationContextProvider = presentationContext
         session.prefersEphemeralWebBrowserSession = false
 
         if session.start() {

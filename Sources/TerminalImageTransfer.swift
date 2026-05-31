@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import UniformTypeIdentifiers
+import os
 
 enum TerminalImageTransferMode {
     case paste
@@ -79,35 +80,42 @@ enum TerminalImageTransferExecutionError: Error {
     case cancelled
 }
 
+// `@unchecked Sendable` is required (and honest) because `handler` is a
+// non-Sendable closure. All access goes through `state`'s lock, and the handler
+// is invoked by the caller's own executor — the same safety contract this type
+// had before adopting OSAllocatedUnfairLock. Callers do not need `@Sendable`
+// handlers, and the type makes no false claim that the closure is cross-executor
+// safe (that was the unsound part of a plain `Sendable` + wrapper design).
 final class TerminalImageTransferOperation: @unchecked Sendable {
-    private enum State {
+    private enum Phase {
         case running
         case cancelled
         case finished
     }
 
-    private let lock = NSLock()
-    private var state: State = .running
-    private var cancellationHandler: (() -> Void)?
+    private struct Protected {
+        var phase: Phase = .running
+        var handler: (() -> Void)?
+    }
+
+    private let state = OSAllocatedUnfairLock(uncheckedState: Protected())
 
     var isCancelled: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return state == .cancelled
+        state.withLockUnchecked { $0.phase == .cancelled }
     }
 
     func installCancellationHandler(_ handler: @escaping () -> Void) {
-        var invokeImmediately = false
-        lock.lock()
-        switch state {
-        case .running:
-            cancellationHandler = handler
-        case .cancelled:
-            invokeImmediately = true
-        case .finished:
-            break
+        let invokeImmediately = state.withLockUnchecked { protected -> Bool in
+            switch protected.phase {
+            case .running:
+                protected.handler = handler
+                return false
+            case .cancelled:
+                return true
+            case .finished:
+                return false
+            }
         }
-        lock.unlock()
 
         if invokeImmediately {
             handler()
@@ -115,38 +123,36 @@ final class TerminalImageTransferOperation: @unchecked Sendable {
     }
 
     func clearCancellationHandler() {
-        lock.lock()
-        if state == .running {
-            cancellationHandler = nil
+        state.withLockUnchecked { protected in
+            if protected.phase == .running {
+                protected.handler = nil
+            }
         }
-        lock.unlock()
     }
 
     @discardableResult
     func cancel() -> Bool {
-        let handler: (() -> Void)?
-        lock.lock()
-        guard state == .running else {
-            lock.unlock()
-            return false
+        let result = state.withLockUnchecked { protected -> (didCancel: Bool, handler: (() -> Void)?) in
+            guard protected.phase == .running else { return (false, nil) }
+            protected.phase = .cancelled
+            let pending = protected.handler
+            protected.handler = nil
+            return (true, pending)
         }
-        state = .cancelled
-        handler = cancellationHandler
-        cancellationHandler = nil
-        lock.unlock()
 
-        handler?()
+        guard result.didCancel else { return false }
+        result.handler?()
         return true
     }
 
     @discardableResult
     func finish() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard state == .running else { return false }
-        state = .finished
-        cancellationHandler = nil
-        return true
+        state.withLockUnchecked { protected in
+            guard protected.phase == .running else { return false }
+            protected.phase = .finished
+            protected.handler = nil
+            return true
+        }
     }
 
     func throwIfCancelled() throws {

@@ -12,44 +12,52 @@ nonisolated private let sessionIndexLogger = Logger(
     category: "SessionIndexStore"
 )
 
-/// Locked cancellation state shared by synchronous `Process` callbacks.
-/// `onCancel` cannot await an actor, so mutable state stays behind `lock`.
-final class SessionIndexRipgrepCancellation: @unchecked Sendable {
-    private let lock = NSLock()
+/// Cancellation state shared by synchronous `Process` callbacks.
+///
+/// Both `markStarted`/`markFinished` (called from `Process.terminationHandler`)
+/// and `cancel` (called from the synchronous `withTaskCancellationHandler`
+/// `onCancel` closure) must run synchronously. An actor cannot satisfy that
+/// contract because those callbacks cannot `await`, so the pid state lives
+/// behind an `OSAllocatedUnfairLock`, which gives compile-time `Sendable`
+/// safety without the fragility of a hand-managed `NSLock`.
+final class SessionIndexRipgrepCancellation: Sendable {
+    private struct State {
+        var activeProcessIdentifier: pid_t?
+        var finishedProcessIdentifier: pid_t?
+    }
+
     private let sendSignal: @Sendable (pid_t, Int32) -> Int32
-    private var activeProcessIdentifier: pid_t?
-    private var finishedProcessIdentifier: pid_t?
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     init(sendSignal: @escaping @Sendable (pid_t, Int32) -> Int32 = Darwin.kill) {
         self.sendSignal = sendSignal
     }
 
     func markStarted(processIdentifier: pid_t) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        if finishedProcessIdentifier == processIdentifier {
-            activeProcessIdentifier = nil
-        } else {
-            activeProcessIdentifier = processIdentifier
+        state.withLock { state in
+            if state.finishedProcessIdentifier == processIdentifier {
+                state.activeProcessIdentifier = nil
+            } else {
+                state.activeProcessIdentifier = processIdentifier
+            }
         }
     }
 
     func markFinished(processIdentifier: pid_t) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        finishedProcessIdentifier = processIdentifier
-        if activeProcessIdentifier == processIdentifier {
-            activeProcessIdentifier = nil
+        state.withLock { state in
+            state.finishedProcessIdentifier = processIdentifier
+            if state.activeProcessIdentifier == processIdentifier {
+                state.activeProcessIdentifier = nil
+            }
         }
     }
 
     func cancel() {
-        lock.lock()
-        let processIdentifier = activeProcessIdentifier
-        activeProcessIdentifier = nil
-        lock.unlock()
+        let processIdentifier = state.withLock { state -> pid_t? in
+            let active = state.activeProcessIdentifier
+            state.activeProcessIdentifier = nil
+            return active
+        }
 
         guard let processIdentifier else { return }
         _ = sendSignal(processIdentifier, SIGTERM)
@@ -62,31 +70,32 @@ final class SessionIndexRipgrepCancellation: @unchecked Sendable {
 /// mtime as the freshness check. Avoids re-reading and re-parsing the same
 /// jsonls across pagination calls. Bounded by `maxEntries` to keep memory in
 /// check (LRU on insert).
-final class ClaudeMetadataCache: @unchecked Sendable {
+final class ClaudeMetadataCache: Sendable {
     static let shared = ClaudeMetadataCache()
     private let maxEntries = 1000
-    private let lock = NSLock()
-    private var entries: [URL: (mtime: Date, entry: SessionEntry)] = [:]
+    private let entries = OSAllocatedUnfairLock(
+        initialState: [URL: (mtime: Date, entry: SessionEntry)]()
+    )
 
     func get(url: URL, mtime: Date) -> SessionEntry? {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let cached = entries[url], cached.mtime == mtime else { return nil }
-        return cached.entry
+        entries.withLock { entries in
+            guard let cached = entries[url], cached.mtime == mtime else { return nil }
+            return cached.entry
+        }
     }
 
     func put(url: URL, mtime: Date, entry: SessionEntry) {
-        lock.lock()
-        defer { lock.unlock() }
-        entries[url] = (mtime, entry)
-        if entries.count > maxEntries {
-            // Evict ~10% (oldest mtimes) to amortize cleanup cost.
-            let evictCount = entries.count / 10
-            let oldestKeys = entries
-                .sorted { $0.value.mtime < $1.value.mtime }
-                .prefix(evictCount)
-                .map(\.key)
-            for k in oldestKeys { entries.removeValue(forKey: k) }
+        entries.withLock { entries in
+            entries[url] = (mtime, entry)
+            if entries.count > maxEntries {
+                // Evict ~10% (oldest mtimes) to amortize cleanup cost.
+                let evictCount = entries.count / 10
+                let oldestKeys = entries
+                    .sorted { $0.value.mtime < $1.value.mtime }
+                    .prefix(evictCount)
+                    .map(\.key)
+                for k in oldestKeys { entries.removeValue(forKey: k) }
+            }
         }
     }
 }
@@ -1116,16 +1125,13 @@ final class SessionIndexStore: ObservableObject {
     /// Thread-safe accumulator passed down to per-agent helpers so they can
     /// report failures (e.g. SQL prepare errors when an agent bumps its
     /// schema) without requiring the helpers to throw across actor boundaries.
-    final class ErrorBag: @unchecked Sendable {
-        private let lock = NSLock()
-        private var messages: [String] = []
+    final class ErrorBag: Sendable {
+        private let messages = OSAllocatedUnfairLock(initialState: [String]())
         func add(_ msg: String) {
-            lock.lock(); defer { lock.unlock() }
-            messages.append(msg)
+            messages.withLock { $0.append(msg) }
         }
         func snapshot() -> [String] {
-            lock.lock(); defer { lock.unlock() }
-            return messages
+            messages.withLock { $0 }
         }
     }
 

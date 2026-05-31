@@ -46,11 +46,26 @@ enum NotificationSoundSettings {
         label: "com.cmuxterm.notification-sound-preparation",
         qos: .utility
     )
-    private static let pendingCustomSoundPreparationLock = NSLock()
-    private static var pendingCustomSoundPreparationPaths: Set<String> = []
-    private static let activePlaybackSoundsLock = NSLock()
-    private static var activePlaybackSounds: [ObjectIdentifier: NSSound] = [:]
-    private static let activePlaybackSoundDelegate = ActivePlaybackSoundDelegate()
+    private static let soundPreparationCoordinator = SoundPreparationCoordinator()
+    @MainActor private static var activePlaybackSounds: [ObjectIdentifier: NSSound] = [:]
+    @MainActor private static let activePlaybackSoundDelegate = ActivePlaybackSoundDelegate()
+
+    // Serializes the set of in-flight custom-sound staging paths so duplicate
+    // requests for the same path do not stage concurrently. Replaces a manual
+    // NSLock so there is no lock left held on an early return.
+    private actor SoundPreparationCoordinator {
+        private var pendingPaths: Set<String> = []
+
+        /// Atomically records `path` as pending. Returns `true` when the caller
+        /// should proceed with staging, `false` when staging is already in flight.
+        func beginIfNeeded(_ path: String) -> Bool {
+            pendingPaths.insert(path).inserted
+        }
+
+        func finish(_ path: String) {
+            pendingPaths.remove(path)
+        }
+    }
     private static let notificationSoundSupportedExtensions: Set<String> = [
         "aif",
         "aiff",
@@ -60,7 +75,10 @@ enum NotificationSoundSettings {
 
     private final class ActivePlaybackSoundDelegate: NSObject, NSSoundDelegate {
         func sound(_ sound: NSSound, didFinishPlaying finishedPlaying: Bool) {
-            NotificationSoundSettings.releaseActivePlaybackSound(sound)
+            // AppKit delivers NSSound delegate callbacks on the main thread.
+            MainActor.assumeIsolated {
+                NotificationSoundSettings.releaseActivePlaybackSound(sound)
+            }
         }
     }
 
@@ -331,26 +349,24 @@ enum NotificationSoundSettings {
 
     private static func queueCustomSoundPreparation(path: String) {
         let expandedPath = (path as NSString).expandingTildeInPath
-        pendingCustomSoundPreparationLock.lock()
-        if pendingCustomSoundPreparationPaths.contains(expandedPath) {
-            pendingCustomSoundPreparationLock.unlock()
-            return
-        }
-        pendingCustomSoundPreparationPaths.insert(expandedPath)
-        pendingCustomSoundPreparationLock.unlock()
-
-        customSoundPreparationQueue.async {
-            defer {
-                pendingCustomSoundPreparationLock.lock()
-                pendingCustomSoundPreparationPaths.remove(expandedPath)
-                pendingCustomSoundPreparationLock.unlock()
+        Task {
+            guard await soundPreparationCoordinator.beginIfNeeded(expandedPath) else { return }
+            // Await staging, then clear the pending mark inline. A fire-and-forget
+            // `defer { Task { finish } }` would let a follow-up request for the same
+            // path see it still pending and be dropped. The continuation has a
+            // `Never` failure type, so this path cannot throw before finish runs.
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                customSoundPreparationQueue.async {
+                    _ = prepareCustomFileForNotifications(path: expandedPath)
+                    continuation.resume()
+                }
             }
-            _ = prepareCustomFileForNotifications(path: expandedPath)
+            await soundPreparationCoordinator.finish(expandedPath)
         }
     }
 
     private static func playSoundFile(at url: URL) {
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { @MainActor in
             guard let sound = NSSound(contentsOf: url, byReference: false) else {
                 NSLog("Notification custom sound failed to load from path: \(url.path)")
                 return
@@ -363,16 +379,14 @@ enum NotificationSoundSettings {
         }
     }
 
+    @MainActor
     private static func retainActivePlaybackSound(_ sound: NSSound) {
-        activePlaybackSoundsLock.lock()
         activePlaybackSounds[ObjectIdentifier(sound)] = sound
-        activePlaybackSoundsLock.unlock()
     }
 
+    @MainActor
     private static func releaseActivePlaybackSound(_ sound: NSSound) {
-        activePlaybackSoundsLock.lock()
         activePlaybackSounds.removeValue(forKey: ObjectIdentifier(sound))
-        activePlaybackSoundsLock.unlock()
     }
 
     private static func cleanupStaleStagedSoundFiles(

@@ -214,8 +214,8 @@ enum SocketControlPasswordStore {
 
     static func resetLazyKeychainFallbackCacheForTests() {
         lazyKeychainFallbackLock.lock()
+        defer { lazyKeychainFallbackLock.unlock() }
         lazyKeychainFallbackCache = LazyKeychainFallbackCache()
-        lazyKeychainFallbackLock.unlock()
     }
 
     static func defaultPasswordFileURL(

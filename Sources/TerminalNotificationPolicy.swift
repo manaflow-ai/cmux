@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
+import os
 
 struct TerminalNotificationPolicyPayload: Codable, Sendable, Equatable {
     var workspaceId: String
@@ -430,7 +431,17 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         qos: .utility
     )
     private let outputBuffer = NotificationHookPipeBuffer()
-    private var continuation: CheckedContinuation<Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>, Never>?
+    // Completion state (the continuation and the one-shot `didComplete` flag) is the
+    // only mutable state contended on by multiple event sources (timeout, kill,
+    // process-exit, read-source EOF/overflow) plus the outer async context that
+    // installs the continuation. It is guarded by an unfair lock so the test-and-set
+    // in `complete()` is atomic by construction. All remaining mutable state below is
+    // confined to the serial `queue`.
+    private struct CompletionState {
+        var continuation: CheckedContinuation<Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>, Never>?
+        var didComplete = false
+    }
+    private let completionState = OSAllocatedUnfairLock(initialState: CompletionState())
     private var processId: pid_t = -1
     private var stdinWriteFD: Int32 = -1
     private var stdoutReadFD: Int32 = -1
@@ -440,7 +451,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
     private var waitSource: DispatchSourceProcess?
     private var timeoutSource: DispatchSourceTimer?
     private var killSource: DispatchSourceTimer?
-    private var didComplete = false
     private var didRequestTermination = false
     private var pendingFailure: TerminalNotificationPolicyFailure?
 
@@ -459,7 +469,7 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
     func run() async -> Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure> {
         await withCheckedContinuation { continuation in
             queue.async { [self] in
-                self.continuation = continuation
+                self.completionState.withLock { $0.continuation = continuation }
                 self.start()
             }
         }
@@ -677,7 +687,7 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
     }
 
     private func timeoutReached() {
-        guard !didComplete else { return }
+        guard !isComplete else { return }
         if let status = reapProcessIfExited() {
             finish(rawStatus: status)
             return
@@ -689,7 +699,7 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
     }
 
     private func requestTermination(_ failure: TerminalNotificationPolicyFailure) {
-        guard !didComplete else { return }
+        guard !isComplete else { return }
         if pendingFailure == nil {
             pendingFailure = failure
         }
@@ -852,19 +862,26 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         }
     }
 
+    private var isComplete: Bool {
+        completionState.withLock { $0.didComplete }
+    }
+
     private func complete(
         _ result: Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>
     ) {
-        let continuation: CheckedContinuation<Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>, Never>?
-        if didComplete {
-            return
+        let continuation = completionState.withLock { state -> CheckedContinuation<Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>, Never>? in
+            if state.didComplete {
+                return nil
+            }
+            state.didComplete = true
+            let pending = state.continuation
+            state.continuation = nil
+            return pending
         }
-        didComplete = true
-        continuation = self.continuation
-        self.continuation = nil
+        guard let continuation else { return }
 
         cleanup()
-        continuation?.resume(returning: result)
+        continuation.resume(returning: result)
     }
 
     private func cleanup() {
