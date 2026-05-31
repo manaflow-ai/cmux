@@ -5,6 +5,7 @@ export const defaultSettings = {
   backgroundOpacity: 16,
   backgroundFit: "cover",
   backgroundPosition: "center",
+  backgroundEffects: "flat",
   browserHomeUrl: "https://www.google.com",
   browserLaunchMode: "pane",
   externalBrowserProfileId: "system",
@@ -174,6 +175,11 @@ export const backgroundPositionOptions = [
   ["bottom", "Bottom"],
   ["left", "Left"],
   ["right", "Right"]
+];
+
+export const backgroundEffectsOptions = [
+  ["flat", "Flat"],
+  ["glass", "Glass"]
 ];
 
 export const browserHomePresets = [
@@ -360,6 +366,7 @@ export const settingsPresets = [
       backgroundOpacity: 16,
       backgroundFit: "cover",
       backgroundPosition: "center",
+      backgroundEffects: "flat",
       density: "comfortable",
       paneHeaderMode: "compact",
       paneActionMode: "essential",
@@ -399,6 +406,7 @@ export const settingsPresets = [
       backgroundOpacity: 12,
       backgroundFit: "cover",
       backgroundPosition: "center",
+      backgroundEffects: "flat",
       density: "compact",
       paneHeaderMode: "compact",
       paneActionMode: "essential",
@@ -438,6 +446,7 @@ export const settingsPresets = [
       backgroundOpacity: 10,
       backgroundFit: "cover",
       backgroundPosition: "center",
+      backgroundEffects: "flat",
       density: "compact",
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
@@ -477,6 +486,7 @@ export const settingsPresets = [
       backgroundOpacity: 0,
       backgroundFit: "cover",
       backgroundPosition: "center",
+      backgroundEffects: "flat",
       density: "compact",
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
@@ -516,6 +526,7 @@ export const settingsPresets = [
       backgroundOpacity: 24,
       backgroundFit: "cover",
       backgroundPosition: "center",
+      backgroundEffects: "glass",
       density: "comfortable",
       paneHeaderMode: "full",
       paneActionMode: "full",

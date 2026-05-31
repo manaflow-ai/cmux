@@ -196,40 +196,69 @@ button {
 .shell.has-background .surface-tabs,
 .shell.has-background .statusbar,
 .shell.has-background .inspector {
-  background: color-mix(in oklch, var(--color-chrome) 88%, transparent);
-  backdrop-filter: blur(10px);
+  background: color-mix(in oklch, var(--color-chrome) 94%, transparent);
 }
 
 .shell.has-background .main,
 .shell.has-background .pane-grid {
-  background: color-mix(in oklch, var(--color-canvas) 82%, transparent);
+  background: color-mix(in oklch, var(--color-canvas) 88%, transparent);
 }
 
 .shell.has-background .pane,
 .shell.has-background .terminal-host {
-  background: color-mix(in oklch, var(--color-pane) 90%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 94%, transparent);
 }
 
 .shell.has-background .pane-header,
 .shell.has-background .browser-tabs,
 .shell.has-background .browser-bar {
-  background: color-mix(in oklch, var(--color-pane-warm) 84%, transparent);
-  backdrop-filter: blur(8px);
+  background: color-mix(in oklch, var(--color-pane-warm) 92%, transparent);
 }
 
 .shell.has-background .browser-tab.is-active,
 .shell.has-background .surface-tab.is-active {
+  background: color-mix(in oklch, var(--color-pane-warm) 94%, transparent);
+}
+
+.shell.background-effects-glass.has-background .sidebar,
+.shell.background-effects-glass.has-background .topbar,
+.shell.background-effects-glass.has-background .surface-tabs,
+.shell.background-effects-glass.has-background .statusbar,
+.shell.background-effects-glass.has-background .inspector {
+  background: color-mix(in oklch, var(--color-chrome) 88%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.shell.background-effects-glass.has-background .main,
+.shell.background-effects-glass.has-background .pane-grid {
+  background: color-mix(in oklch, var(--color-canvas) 82%, transparent);
+}
+
+.shell.background-effects-glass.has-background .pane,
+.shell.background-effects-glass.has-background .terminal-host {
+  background: color-mix(in oklch, var(--color-pane) 90%, transparent);
+}
+
+.shell.background-effects-glass.has-background .pane-header,
+.shell.background-effects-glass.has-background .browser-tabs,
+.shell.background-effects-glass.has-background .browser-bar {
+  background: color-mix(in oklch, var(--color-pane-warm) 84%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.shell.background-effects-glass.has-background .browser-tab.is-active,
+.shell.background-effects-glass.has-background .surface-tab.is-active {
   background: color-mix(in oklch, var(--color-pane-warm) 90%, transparent);
 }
 
-.shell.performance-mode.has-background .sidebar,
-.shell.performance-mode.has-background .topbar,
-.shell.performance-mode.has-background .surface-tabs,
-.shell.performance-mode.has-background .statusbar,
-.shell.performance-mode.has-background .inspector,
-.shell.performance-mode.has-background .pane-header,
-.shell.performance-mode.has-background .browser-tabs,
-.shell.performance-mode.has-background .browser-bar {
+.shell.performance-mode.background-effects-glass.has-background .sidebar,
+.shell.performance-mode.background-effects-glass.has-background .topbar,
+.shell.performance-mode.background-effects-glass.has-background .surface-tabs,
+.shell.performance-mode.background-effects-glass.has-background .statusbar,
+.shell.performance-mode.background-effects-glass.has-background .inspector,
+.shell.performance-mode.background-effects-glass.has-background .pane-header,
+.shell.performance-mode.background-effects-glass.has-background .browser-tabs,
+.shell.performance-mode.background-effects-glass.has-background .browser-bar {
   backdrop-filter: none;
 }
 

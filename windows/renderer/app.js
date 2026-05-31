@@ -1,5 +1,6 @@
 import {
   accentOptions,
+  backgroundEffectsOptions,
   backgroundFitOptions,
   backgroundPositionOptions,
   backgroundPresets,
@@ -119,6 +120,7 @@ const appearancePreviewKeys = new Set([
   "backgroundOpacity",
   "backgroundFit",
   "backgroundPosition",
+  "backgroundEffects",
   "terminalFontFamily",
   "terminalBackground",
   "terminalForeground",
@@ -483,6 +485,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.backgroundOpacity = clamp(next.backgroundOpacity, 0, 42);
   if (!backgroundFitOptions.some(([id]) => id === next.backgroundFit)) next.backgroundFit = defaultSettings.backgroundFit;
   if (!backgroundPositionOptions.some(([id]) => id === next.backgroundPosition)) next.backgroundPosition = defaultSettings.backgroundPosition;
+  if (!backgroundEffectsOptions.some(([id]) => id === next.backgroundEffects)) next.backgroundEffects = defaultSettings.backgroundEffects;
   if (!themeOptions.some(([id]) => id === next.theme)) next.theme = defaultSettings.theme;
   next.accent = normalizeUiColor(next.accent, defaultSettings.accent);
   if (!["comfortable", "compact"].includes(next.density)) next.density = defaultSettings.density;
@@ -1188,11 +1191,13 @@ function settingsProfileSummary(settings) {
   const theme = themeOptions.find(([id]) => id === normalized.theme)?.[1] || normalized.theme;
   const toolbar = toolbarModeOptions.find(([id]) => id === normalized.toolbarMode)?.[1] || normalized.toolbarMode;
   const actions = paneActionOptions.find(([id]) => id === normalized.paneActionMode)?.[1] || normalized.paneActionMode;
+  const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, "Flat");
   return [
     theme,
     normalized.density,
     toolbar,
     `${actions} pane controls`,
+    `${backgroundEffects.toLowerCase()} background`,
     normalized.performanceMode ? "performance" : normalized.reduceMotion ? "reduced motion" : "balanced",
     normalized.terminalPauseInactiveOutput ? "paused output" : "live output",
     `${normalized.terminalFontSize}px`
@@ -1479,6 +1484,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.backgroundOpacity,
     settings.backgroundFit,
     settings.backgroundPosition,
+    settings.backgroundEffects,
     settings.density,
     settings.toolbarMode,
     settings.tabSize,
@@ -1537,6 +1543,8 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "hide-status", !state.settings.showStatusbar);
   toggleClassIfChanged(elements.shell, "show-advanced", state.settings.showAdvanced);
   toggleClassIfChanged(elements.shell, "performance-mode", state.settings.performanceMode);
+  toggleClassIfChanged(elements.shell, "background-effects-flat", state.settings.backgroundEffects === "flat");
+  toggleClassIfChanged(elements.shell, "background-effects-glass", state.settings.backgroundEffects === "glass");
   const reduceMotion = state.settings.reduceMotion || state.settings.performanceMode;
   toggleClassIfChanged(document.body, "reduce-motion", reduceMotion);
   toggleClassIfChanged(elements.shell, "reduce-motion", reduceMotion);
@@ -5054,6 +5062,19 @@ function renderSettingsInspector(options = {}) {
     positionSelect.onchange = () => updateSettings({ backgroundPosition: positionSelect.value });
     appearanceSection.append(settingRow("Image position", positionSelect, false, "background image position center top bottom left right wallpaper align"));
 
+    const effectsSelect = document.createElement("select");
+    effectsSelect.className = "setting-select";
+    effectsSelect.dataset.settingControl = "backgroundEffects";
+    for (const [value, label] of backgroundEffectsOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      effectsSelect.append(option);
+    }
+    effectsSelect.value = state.settings.backgroundEffects;
+    effectsSelect.onchange = () => updateSettings({ backgroundEffects: effectsSelect.value });
+    appearanceSection.append(settingRow("Image effects", effectsSelect, false, "background image effects flat fast glass blur wallpaper performance"));
+
     const opacityInput = document.createElement("input");
     opacityInput.className = "setting-control";
     opacityInput.type = "range";
@@ -5792,7 +5813,9 @@ function appearanceBackgroundLabel(value) {
   if (!normalized) return "None";
   const preset = backgroundPresetMap.get(normalized);
   const label = preset ? preset.label : defaultBackgroundLabel(normalized);
-  return `${label} / ${optionLabel(backgroundFitOptions, state.settings.backgroundFit, "Fill")}`;
+  const fit = optionLabel(backgroundFitOptions, state.settings.backgroundFit, "Fill");
+  const effects = optionLabel(backgroundEffectsOptions, state.settings.backgroundEffects, "Flat");
+  return `${label} / ${fit} / ${effects}`;
 }
 
 function appearancePreviewPanel() {
@@ -6726,6 +6749,8 @@ function performanceDiagnosticsPayload() {
       background: state.settings.backgroundImage
         ? isBackgroundPreset(state.settings.backgroundImage) ? state.settings.backgroundImage : "custom-image"
         : "none",
+      backgroundOpacity: state.settings.backgroundOpacity,
+      backgroundEffects: state.settings.backgroundEffects,
       terminalFontFamily: state.settings.terminalFontFamily,
       terminalFontSize: state.settings.terminalFontSize,
       terminalLineHeight: state.settings.terminalLineHeight,
@@ -7070,6 +7095,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     adaptivePerformance: true,
     reduceMotion: true,
     backgroundOpacity: Math.min(state.settings.backgroundOpacity, 8),
+    backgroundEffects: "flat",
     density: "compact",
     toolbarMode: "compact",
     paneActionMode: "essential",
