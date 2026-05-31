@@ -3244,6 +3244,11 @@ body.reduce-motion *::after {
   grid-template-columns: repeat(auto-fit, minmax(min(112px, 100%), 1fr));
 }
 
+.active-pane-text-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
 .pane-shape-panel {
   min-width: 0;
   display: grid;

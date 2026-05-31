@@ -7209,6 +7209,8 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     fontRange.max = String(terminalFontSizeMax);
     fontRange.value = String(paneFontSize);
     const fontRow = settingRow(`Pane text ${paneFontSize}px`, fontRange, false, "active pane terminal text size font zoom");
+    fontRow.dataset.activePaneTextRow = panel.id;
+    fontRange.dataset.activePaneTextRange = panel.id;
     fontRange.oninput = () => {
       const nextSize = setPaneTerminalFontSizeOverride(panel.id, Number(fontRange.value), { toast: false });
       fontRow.querySelector(".setting-label").textContent = `Pane text ${nextSize || terminalFontSizeForPanel(panel)}px`;
@@ -7219,6 +7221,21 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
       toast(`Pane text ${terminalFontSizeForPanel(panel)}px.`);
     };
     wrapper.append(fontRow);
+    const textActions = document.createElement("div");
+    textActions.className = "settings-actions active-pane-text-actions";
+    textActions.dataset.settingsSearch = normalizeSettingsQuery("active pane terminal text size font zoom smaller larger default reset");
+    const resetText = settingsActionButton("Default", () => {
+      if (!resetPaneTerminalFontSize(panel.id)) return;
+      refreshActivePaneTextControls(panel.id);
+    }, "", "active pane terminal text size reset default");
+    resetText.dataset.activePaneResetText = panel.id;
+    resetText.disabled = !panelHasTerminalFontSize(panel);
+    textActions.append(
+      settingsActionButton("Smaller", () => changePaneTerminalFontSize(panel.id, -1), "", "active pane terminal text size smaller zoom out"),
+      settingsActionButton("Larger", () => changePaneTerminalFontSize(panel.id, 1), "", "active pane terminal text size larger zoom in"),
+      resetText
+    );
+    wrapper.append(textActions);
   } else {
     const urlInput = document.createElement("input");
     urlInput.className = "setting-control";
@@ -7255,13 +7272,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     settingsActionButton("Clear color", () => updatePanel(panel.id, { color: "" }), "danger", "active pane clear color")
   );
   if (panel.type === "terminal") {
-    const resetText = settingsActionButton("Use default text", () => {
-      if (setPaneTerminalFontSizeOverride(panel.id, 0)) renderSettingsInspector();
-      else toast(`Pane already uses ${state.settings.terminalFontSize}px default.`);
-    }, "", "active pane terminal text size reset default");
-    resetText.dataset.activePaneResetText = "1";
-    resetText.disabled = !panelHasTerminalFontSize(panel);
-    actions.append(resetText, settingsActionButton("Restart", () => restartPanel(panel.id), "", "active pane terminal restart"));
+    actions.append(settingsActionButton("Restart", () => restartPanel(panel.id), "", "active pane terminal restart"));
   } else {
     actions.append(
       settingsActionButton("New tab", () => newBrowserTabFromPanel(panel), "", "active pane browser new tab"),
@@ -11985,6 +11996,23 @@ async function flushTerminalFontSizeSync() {
   }));
 }
 
+function refreshActivePaneTextControls(panelId) {
+  const found = findPanelState(panelId);
+  if (!found || found.panel.type !== "terminal" || !elements.inspectorBody) return;
+  const nextSize = terminalFontSizeForPanel(found.panel);
+  const hasOverride = panelHasTerminalFontSize(found.panel);
+  for (const row of elements.inspectorBody.querySelectorAll("[data-active-pane-text-row]")) {
+    if (row.dataset.activePaneTextRow !== panelId) continue;
+    setTextIfChanged(row.querySelector(".setting-label"), `Pane text ${nextSize}px`);
+  }
+  for (const range of elements.inspectorBody.querySelectorAll("[data-active-pane-text-range]")) {
+    if (range.dataset.activePaneTextRange === panelId) range.value = String(nextSize);
+  }
+  for (const button of elements.inspectorBody.querySelectorAll("[data-active-pane-reset-text]")) {
+    if (button.dataset.activePaneResetText === panelId) button.disabled = !hasOverride;
+  }
+}
+
 function setPaneTerminalFontSizeOverride(panelId, fontSize, options = {}) {
   const found = findPanelState(panelId);
   if (!found || found.panel.type !== "terminal") return 0;
@@ -11992,7 +12020,10 @@ function setPaneTerminalFontSizeOverride(panelId, fontSize, options = {}) {
     ? 0
     : normalizeTerminalFontSize(fontSize, terminalFontSizeForPanel(found.panel));
   const currentOverride = normalizeTerminalFontSize(found.panel.terminalFontSize, 0);
-  if (currentOverride === override) return terminalFontSizeForPanel(found.panel);
+  if (currentOverride === override) {
+    refreshActivePaneTextControls(panelId);
+    return terminalFontSizeForPanel(found.panel);
+  }
   found.panel.terminalFontSize = override;
   const nextSize = terminalFontSizeForPanel(found.panel);
   const session = state.terminals.get(panelId);
@@ -12002,6 +12033,7 @@ function setPaneTerminalFontSizeOverride(panelId, fontSize, options = {}) {
     scheduleFitTerminal(session, true);
   }
   queueTerminalFontSizeSync(panelId, override);
+  refreshActivePaneTextControls(panelId);
   if (options.toast !== false) {
     toast(override ? `Pane text ${nextSize}px.` : `Pane text reset to ${nextSize}px.`);
   }
@@ -12023,6 +12055,7 @@ function changeTerminalFontSize(delta, options = {}) {
     scheduleFitTerminal(session, true);
   }
   queueTerminalFontSizeSync(panel.id, nextSize);
+  refreshActivePaneTextControls(panel.id);
   if (options.toast !== false) toast(`Pane text ${nextSize}px`);
   return true;
 }
@@ -12051,6 +12084,7 @@ function resetTerminalFontSize(options = {}) {
     scheduleFitTerminal(session, true);
   }
   queueTerminalFontSizeSync(panel.id, 0);
+  refreshActivePaneTextControls(panel.id);
   if (options.toast !== false) toast(`Pane text reset to ${nextSize}px.`);
   return true;
 }
