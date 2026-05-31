@@ -1,5 +1,6 @@
 import CmuxSettings
 import CmuxSettingsUI
+import Foundation
 import SwiftUI
 
 enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
@@ -141,6 +142,9 @@ struct FileExtensionOpenersSettingsCard: View {
             )
         )
         .onReceive(NotificationCenter.default.publisher(for: FileExtensionOpenBehaviorSettings.didChangeNotification)) { _ in
+            openers = FileExtensionOpenBehaviorSettings.openers()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             openers = FileExtensionOpenBehaviorSettings.openers()
         }
     }

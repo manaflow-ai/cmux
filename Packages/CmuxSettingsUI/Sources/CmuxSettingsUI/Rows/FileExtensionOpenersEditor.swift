@@ -5,17 +5,22 @@ import SwiftUI
 public struct FileExtensionOpenersEditor: View {
     @Binding private var openers: [String: FileExtensionOpenBehavior]
     @State private var draftExtension = ""
+    @State private var showsAllExtensions = false
+
+    private static let initiallyVisibleExtensionLimit = 32
 
     public init(openers: Binding<[String: FileExtensionOpenBehavior]>) {
         self._openers = openers
     }
 
     public var body: some View {
+        let extensions = sortedExtensions
+
         VStack(alignment: .leading, spacing: 0) {
             SettingsCardRow(
                 configurationReview: .json("app.fileExtensionOpeners"),
                 String(localized: "settings.app.fileExtensionOpeners", defaultValue: "File Extension Openers"),
-                subtitle: String(localized: "settings.app.fileExtensionOpeners.subtitle", defaultValue: "Choose how Cmd-click opens specific file extensions. HTML opens in the cmux browser by default.")
+                subtitle: String(localized: "settings.app.fileExtensionOpeners.subtitle", defaultValue: "Add any file extension and choose whether Cmd-click opens it in preview, browser, Markdown viewer, preferred editor, or system default. HTML opens in the cmux browser by default.")
             ) {
                 HStack(spacing: 6) {
                     TextField(
@@ -36,13 +41,18 @@ public struct FileExtensionOpenersEditor: View {
                 }
             }
 
-            if sortedExtensions.isEmpty {
+            if extensions.isEmpty {
                 SettingsCardDivider()
                 SettingsCardNote(String(localized: "settings.app.fileExtensionOpeners.empty", defaultValue: "No extension overrides. Cmd-click falls back to the supported-file and Markdown settings."))
             } else {
-                ForEach(sortedExtensions, id: \.self) { fileExtension in
+                ForEach(visibleExtensions(from: extensions), id: \.self) { fileExtension in
                     SettingsCardDivider()
                     openerRow(fileExtension)
+                }
+
+                if shouldShowExtensionLimitToggle(for: extensions) {
+                    SettingsCardDivider()
+                    extensionLimitToggleRow()
                 }
             }
         }
@@ -56,6 +66,43 @@ public struct FileExtensionOpenersEditor: View {
 
     private var normalizedDraftExtension: String? {
         FileExtensionOpenBehavior.normalizedExtension(draftExtension)
+    }
+
+    private func visibleExtensions(from extensions: [String]) -> [String] {
+        guard !showsAllExtensions, extensions.count > Self.initiallyVisibleExtensionLimit else {
+            return extensions
+        }
+        return Array(extensions.prefix(Self.initiallyVisibleExtensionLimit))
+    }
+
+    private func shouldShowExtensionLimitToggle(for extensions: [String]) -> Bool {
+        extensions.count > Self.initiallyVisibleExtensionLimit
+    }
+
+    private func extensionLimitToggleRow() -> some View {
+        HStack(spacing: 12) {
+            Text(String(localized: "settings.app.fileExtensionOpeners.limitedNote", defaultValue: "Showing fewer rows keeps Settings responsive. Use cmux.json for bulk changes."))
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .lineLimit(2)
+
+            Spacer(minLength: 12)
+
+            Button {
+                showsAllExtensions.toggle()
+            } label: {
+                Text(
+                    showsAllExtensions
+                        ? String(localized: "settings.app.fileExtensionOpeners.showFewer", defaultValue: "Show Fewer")
+                        : String(localized: "settings.app.fileExtensionOpeners.showAll", defaultValue: "Show All")
+                )
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func openerRow(_ fileExtension: String) -> some View {
