@@ -9253,9 +9253,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     private func closeRegisteredShortcutRoutingWindow(_ window: NSWindow, id: UUID) {
         AppDelegate.shared?.unregisterMainWindowContextForTesting(windowId: id)
-        window.orderOut(nil)
-        window.close()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        closeTestWindow(window)
     }
 
     private func assertCloseShortcutsTargetFocusedWindowWhenEventWindowMetadataIsStale(
@@ -10000,9 +9998,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     private func closeTestWindow(_ window: NSWindow) {
+        if let rawIdentifier = window.identifier?.rawValue,
+           rawIdentifier.hasPrefix("cmux.main."),
+           let windowId = UUID(uuidString: String(rawIdentifier.dropFirst("cmux.main.".count))) {
+            AppDelegate.shared?.forgetRecoverableMainWindowRoute(windowId: windowId)
+            window.identifier = nil
+        }
         window.animationBehavior = .none
         window.orderOut(nil)
         window.close()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
     }
 
     private func waitFor(timeout: TimeInterval, until condition: () -> Bool) {
