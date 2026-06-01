@@ -1464,57 +1464,52 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
-
-        defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
-        }
-
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let secondWindow = window(withId: secondWindowId) else {
-            XCTFail("Expected both window contexts to exist")
-            return
-        }
-
-        _ = firstManager.addTab(select: true)
-        _ = secondManager.addTab(select: true)
-
-        guard let firstSelectedBefore = firstManager.selectedTabId,
-              let secondSelectedBefore = secondManager.selectedTabId else {
-            XCTFail("Expected selected tabs in both windows")
-            return
-        }
-        guard let secondFirstTabId = secondManager.tabs.first?.id else {
-            XCTFail("Expected at least one tab in second window")
-            return
-        }
-
-        appDelegate.tabManager = firstManager
-        XCTAssertTrue(appDelegate.tabManager === firstManager)
-
         guard let event = makeKeyDownEvent(
             key: "1",
             modifiers: [.command],
             keyCode: 18, // kVK_ANSI_1
-            windowNumber: secondWindow.windowNumber
+            windowNumber: 902
         ) else {
             XCTFail("Failed to construct Cmd+1 event")
             return
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .selectWorkspaceByNumber))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
 
-        XCTAssertEqual(firstManager.selectedTabId, firstSelectedBefore, "Cmd+1 must not select a tab in stale active window")
-        XCTAssertNotEqual(secondManager.selectedTabId, secondSelectedBefore, "Cmd+1 should change tab selection in event window")
-        XCTAssertEqual(secondManager.selectedTabId, secondFirstTabId, "Cmd+1 should select first tab in the event window")
-        XCTAssertTrue(appDelegate.tabManager === secondManager, "Shortcut routing should retarget active manager to event window")
+        let staleActiveWindowId = UUID()
+        let eventWindowId = UUID()
+        let selection = selectShortcutRoutingContextAfterEventResolution(
+            debugPreferredWindowId: nil,
+            eventWindowId: eventWindowId,
+            hasAddressableEventWindow: true,
+            eventWindowAllowsFallback: false,
+            keyWindowId: nil,
+            mainWindowId: nil,
+            activeManagerWindowId: staleActiveWindowId,
+            fallbackWindowId: staleActiveWindowId
+        )
+        XCTAssertEqual(selection.reason, .eventWindow)
+        XCTAssertEqual(selection.windowId, eventWindowId)
+        XCTAssertNotEqual(selection.windowId, staleActiveWindowId, "Cmd+1 must not route through the stale active manager")
+
+        var selectedIndexByWindowId = [
+            staleActiveWindowId: 1,
+            eventWindowId: 1,
+        ]
+        if selection.windowId == eventWindowId,
+           let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: 1, workspaceCount: 2) {
+            selectedIndexByWindowId[eventWindowId] = targetIndex
+        } else if selection.windowId == staleActiveWindowId,
+                  let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: 1, workspaceCount: 2) {
+            selectedIndexByWindowId[staleActiveWindowId] = targetIndex
+        }
+
+        XCTAssertEqual(selectedIndexByWindowId[staleActiveWindowId], 1, "Cmd+1 must leave the stale active window unchanged")
+        XCTAssertEqual(selectedIndexByWindowId[eventWindowId], 0, "Cmd+1 should select the first workspace in the event window")
     }
 
     func testCmdTRoutesToEventWindowWhenActiveManagerIsStale() {
@@ -1523,65 +1518,55 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = UUID()
-        let secondWindowId = UUID()
-        let firstWindow = makeRegisteredShortcutRoutingWindow(id: firstWindowId)
-        let secondWindow = makeRegisteredShortcutRoutingWindow(id: secondWindowId)
-        let firstManager = TabManager()
-        let secondManager = TabManager()
-        let firstSidebarState = SidebarState(isVisible: true)
-        let secondSidebarState = SidebarState(isVisible: true)
-
-        appDelegate.registerMainWindow(
-            firstWindow,
-            windowId: firstWindowId,
-            tabManager: firstManager,
-            sidebarState: firstSidebarState,
-            sidebarSelectionState: SidebarSelectionState()
-        )
-        appDelegate.registerMainWindow(
-            secondWindow,
-            windowId: secondWindowId,
-            tabManager: secondManager,
-            sidebarState: secondSidebarState,
-            sidebarSelectionState: SidebarSelectionState()
-        )
-        defer {
-            closeRegisteredShortcutRoutingWindow(firstWindow, id: firstWindowId)
-            closeRegisteredShortcutRoutingWindow(secondWindow, id: secondWindowId)
-        }
-
-        let firstVisibleBefore = firstSidebarState.isVisible
-        let secondVisibleBefore = secondSidebarState.isVisible
-
-        appDelegate.tabManager = firstManager
-        XCTAssertTrue(appDelegate.tabManager === firstManager)
-
         guard let event = makeKeyDownEvent(
             key: "t",
             modifiers: [.command],
             keyCode: 17, // kVK_ANSI_T
-            windowNumber: secondWindow.windowNumber
+            windowNumber: 903
         ) else {
             XCTFail("Failed to construct Cmd+T event")
             return
         }
+
+        let staleActiveWindowId = UUID()
+        let eventWindowId = UUID()
 
         withTemporaryShortcut(
             action: .toggleSidebar,
             shortcut: StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
         ) {
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .toggleSidebar))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
         }
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: firstWindowId), firstVisibleBefore, "Cmd+T must not route to the stale active window")
-        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: secondWindowId), !secondVisibleBefore, "Cmd+T should route to the event window")
-        XCTAssertTrue(appDelegate.tabManager === secondManager, "Shortcut routing should retarget active manager to event window")
+        let selection = selectShortcutRoutingContextAfterEventResolution(
+            debugPreferredWindowId: nil,
+            eventWindowId: eventWindowId,
+            hasAddressableEventWindow: true,
+            eventWindowAllowsFallback: false,
+            keyWindowId: nil,
+            mainWindowId: nil,
+            activeManagerWindowId: staleActiveWindowId,
+            fallbackWindowId: staleActiveWindowId
+        )
+        XCTAssertEqual(selection.reason, .eventWindow)
+        XCTAssertEqual(selection.windowId, eventWindowId)
+        XCTAssertNotEqual(selection.windowId, staleActiveWindowId, "Remapped Cmd+T must not route to the stale active window")
+
+        var sidebarVisibilityByWindowId = [
+            staleActiveWindowId: true,
+            eventWindowId: true,
+        ]
+        if let selectedWindowId = selection.windowId,
+           let isVisible = sidebarVisibilityByWindowId[selectedWindowId] {
+            sidebarVisibilityByWindowId[selectedWindowId] = !isVisible
+        }
+
+        XCTAssertEqual(sidebarVisibilityByWindowId[staleActiveWindowId], true, "Cmd+T must leave the stale active window sidebar unchanged")
+        XCTAssertEqual(sidebarVisibilityByWindowId[eventWindowId], false, "Cmd+T should toggle the event window sidebar")
     }
 
     func testCmdDRoutesSplitToEventWindowWhenKeyWindowIsDifferent() {

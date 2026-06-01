@@ -7969,50 +7969,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 #endif
-        if let preferredWindow = shortcutRoutingPreferredWindowOverride,
-           let context = contextForMainTerminalWindow(preferredWindow) {
-            return context
+        let debugPreferredContext = shortcutRoutingPreferredWindowOverride.flatMap {
+            contextForMainTerminalWindow($0)
+        }
+        let eventContext = mainWindowContext(forShortcutEvent: event, debugSource: "shortcut.routing")
+        let hasAddressableEventWindow = shortcutEventHasAddressableWindow(event)
+        let eventWindowAllowsFallback =
+            hasAddressableEventWindow
+            && resolvedShortcutEventWindow(event).map { cmuxWindowShouldOwnCloseShortcut($0) } == true
+        let keyContext = NSApp.keyWindow.flatMap { contextForMainTerminalWindow($0) }
+        let mainContext = NSApp.mainWindow.flatMap { contextForMainTerminalWindow($0) }
+        let activeContext = tabManager.flatMap { activeManager in
+            mainWindowContexts.values.first { $0.tabManager === activeManager }
+        }
+        let fallbackContext = mainWindowContexts.values.first
+        let selection = selectShortcutRoutingContextAfterEventResolution(
+            debugPreferredWindowId: debugPreferredContext?.windowId,
+            eventWindowId: eventContext?.windowId,
+            hasAddressableEventWindow: hasAddressableEventWindow,
+            eventWindowAllowsFallback: eventWindowAllowsFallback,
+            keyWindowId: keyContext?.windowId,
+            mainWindowId: mainContext?.windowId,
+            activeManagerWindowId: activeContext?.windowId,
+            fallbackWindowId: fallbackContext?.windowId
+        )
+        let selectedContext = selection.windowId.flatMap { selectedWindowId in
+            mainWindowContexts.values.first { $0.windowId == selectedWindowId }
         }
 
-        if let context = mainWindowContext(forShortcutEvent: event, debugSource: "shortcut.routing") {
-            return context
-        }
-
-        if shortcutEventHasAddressableWindow(event) {
-            if let eventWindow = resolvedShortcutEventWindow(event),
-               cmuxWindowShouldOwnCloseShortcut(eventWindow) {
-                // Auxiliary cmux windows do not own a terminal tab manager. Let them fall back
-                // to the active main terminal window so app shortcuts like Close Tab still route.
-            } else {
+        if selection.reason == ShortcutRoutingContextSelectionReason.eventContextRequiredNoFallback {
 #if DEBUG
-                logWorkspaceCreationRouting(
-                    phase: "choose",
-                    source: "shortcut.routing",
-                    reason: "event_context_required_no_fallback",
-                    event: event,
-                    chosenContext: nil
-                )
+            logWorkspaceCreationRouting(
+                phase: "choose",
+                source: "shortcut.routing",
+                reason: selection.reason.rawValue,
+                event: event,
+                chosenContext: nil
+            )
 #endif
-                return nil
-            }
+            return nil
         }
 
-        if let keyWindow = NSApp.keyWindow,
-           let context = contextForMainTerminalWindow(keyWindow) {
-            return context
-        }
-
-        if let mainWindow = NSApp.mainWindow,
-           let context = contextForMainTerminalWindow(mainWindow) {
-            return context
-        }
-
-        if let activeManager = tabManager,
-           let context = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
-            return context
-        }
-
-        return mainWindowContexts.values.first
+        return selectedContext
     }
 
     @discardableResult

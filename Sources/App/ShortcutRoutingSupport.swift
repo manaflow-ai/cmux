@@ -60,6 +60,79 @@ func shouldBypassShortcutRoutingForUnresolvedEventWindow(
     hasEventWindowContext && !didSynchronizeShortcutContext && !allowsFocusedCloseShortcutFallback
 }
 
+enum ShortcutRoutingContextSelectionReason: String, Equatable {
+    case debugPreferredWindow = "debug_preferred_window"
+    case eventWindow = "event_window"
+    case eventContextRequiredNoFallback = "event_context_required_no_fallback"
+    case keyWindow = "key_window"
+    case mainWindow = "main_window"
+    case activeManager = "active_manager"
+    case fallbackFirstContext = "fallback_first_context"
+}
+
+struct ShortcutRoutingContextSelection: Equatable {
+    let windowId: UUID?
+    let reason: ShortcutRoutingContextSelectionReason
+}
+
+func selectShortcutRoutingContextAfterEventResolution(
+    debugPreferredWindowId: UUID?,
+    eventWindowId: UUID?,
+    hasAddressableEventWindow: Bool,
+    eventWindowAllowsFallback: Bool,
+    keyWindowId: UUID?,
+    mainWindowId: UUID?,
+    activeManagerWindowId: UUID?,
+    fallbackWindowId: UUID?
+) -> ShortcutRoutingContextSelection {
+    if let debugPreferredWindowId {
+        return ShortcutRoutingContextSelection(
+            windowId: debugPreferredWindowId,
+            reason: .debugPreferredWindow
+        )
+    }
+
+    if let eventWindowId {
+        return ShortcutRoutingContextSelection(
+            windowId: eventWindowId,
+            reason: .eventWindow
+        )
+    }
+
+    if hasAddressableEventWindow && !eventWindowAllowsFallback {
+        return ShortcutRoutingContextSelection(
+            windowId: nil,
+            reason: .eventContextRequiredNoFallback
+        )
+    }
+
+    if let keyWindowId {
+        return ShortcutRoutingContextSelection(
+            windowId: keyWindowId,
+            reason: .keyWindow
+        )
+    }
+
+    if let mainWindowId {
+        return ShortcutRoutingContextSelection(
+            windowId: mainWindowId,
+            reason: .mainWindow
+        )
+    }
+
+    if let activeManagerWindowId {
+        return ShortcutRoutingContextSelection(
+            windowId: activeManagerWindowId,
+            reason: .activeManager
+        )
+    }
+
+    return ShortcutRoutingContextSelection(
+        windowId: fallbackWindowId,
+        reason: .fallbackFirstContext
+    )
+}
+
 func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
     flags: NSEvent.ModifierFlags,
