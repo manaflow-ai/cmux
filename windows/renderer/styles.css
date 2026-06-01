@@ -3195,7 +3195,7 @@ body.reduce-motion *::after {
   scrollbar-width: thin;
 }
 
-@container (max-width: 439px) {
+@container (max-width: 329px) {
   .settings-page-switcher {
     gap: 0;
   }
@@ -3205,7 +3205,7 @@ body.reduce-motion *::after {
   }
 }
 
-@container (min-width: 440px) {
+@container (min-width: 330px) {
   .settings-page-head {
     display: none;
   }
