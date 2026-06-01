@@ -1960,12 +1960,25 @@ body.reduce-motion *::after {
   .pane-header:hover .pane-toolbar,
   .pane.is-active .pane-toolbar,
   .pane-toolbar:focus-within {
-    max-width: min(58%, 116px);
+    max-width: min(64%, 128px);
   }
 
   .pane-tool {
     width: 22px;
     flex-basis: 22px;
+  }
+}
+
+@container (max-width: 260px) {
+  .pane-tool.split-right,
+  .pane-tool.split-down {
+    display: none;
+  }
+
+  .pane-header:hover .pane-toolbar,
+  .pane.is-active .pane-toolbar,
+  .pane-toolbar:focus-within {
+    max-width: 74px;
   }
 }
 
