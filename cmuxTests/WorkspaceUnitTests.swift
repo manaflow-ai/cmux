@@ -4682,6 +4682,40 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 
 
 @MainActor
+final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
+    func testCreatesExtensionBrowserTabInFocusedPane() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              let leftPaneId = workspace.paneId(forPanelId: leftPanelId) else {
+            XCTFail("Expected split workspace setup to succeed")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
+
+        workspace.focusPanel(leftPanelId)
+        XCTAssertEqual(workspace.bonsplitController.focusedPaneId, leftPaneId)
+
+        guard let extensionBrowserPanel = workspace.newSidebarExtensionBrowserSurface(
+            inPane: leftPaneId,
+            title: "Sidebar Extensions",
+            focus: true
+        ) else {
+            XCTFail("Expected extension browser tab creation to succeed")
+            return
+        }
+
+        XCTAssertEqual(extensionBrowserPanel.panelType, .extensionBrowser)
+        XCTAssertEqual(workspace.focusedPanelId, extensionBrowserPanel.id)
+        XCTAssertEqual(workspace.paneId(forPanelId: extensionBrowserPanel.id), leftPaneId)
+        XCTAssertNotEqual(workspace.paneId(forPanelId: extensionBrowserPanel.id), workspace.paneId(forPanelId: rightPanel.id))
+    }
+}
+
+
+@MainActor
 final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
     func testPrefersSelectedTerminalInTargetPaneOverFocusedTerminalElsewhere() {
         let manager = TabManager()
@@ -5838,6 +5872,65 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(launch.remoteConfiguration?.sshOptions, ["ServerAliveInterval=30"])
         XCTAssertNil(launch.remoteConfiguration?.relayPort)
         XCTAssertNil(launch.remoteConfiguration?.localSocketPath)
+    }
+
+    func testForkAgentWorkspaceLaunchFromPersistentSSHPTYDoesNotReuseParentRelayOrDaemonSlot() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: 2222,
+                identityFile: "/Users/example/.ssh/cmux",
+                sshOptions: ["ControlMaster=auto", "ControlPersist=600"],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: "relay-fork-persistent",
+                relayToken: String(repeating: "c", count: 64),
+                localSocketPath: "/tmp/cmux-fork-persistent.sock",
+                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "ssh-parent-slot"
+            ),
+            autoConnect: false
+        )
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/cmux/project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: ["/Users/example/.bun/bin/codex"],
+                workingDirectory: "/Users/cmux/project",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let launch = try XCTUnwrap(
+            workspace.forkAgentWorkspaceLaunch(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot
+            )
+        )
+
+        XCTAssertTrue(launch.autoConnectRemoteConfiguration)
+        XCTAssertEqual(launch.remoteConfiguration?.destination, "cmux-macmini")
+        XCTAssertEqual(launch.remoteConfiguration?.port, 2222)
+        XCTAssertEqual(launch.remoteConfiguration?.preserveAfterTerminalExit, false)
+        XCTAssertNil(launch.remoteConfiguration?.relayPort)
+        XCTAssertNil(launch.remoteConfiguration?.relayID)
+        XCTAssertNil(launch.remoteConfiguration?.relayToken)
+        XCTAssertNil(launch.remoteConfiguration?.localSocketPath)
+        XCTAssertNil(launch.remoteConfiguration?.persistentDaemonSlot)
+        let startupCommand = try XCTUnwrap(launch.remoteConfiguration?.terminalStartupCommand)
+        XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
+        XCTAssertEqual(
+            startupCommand,
+            "ssh -p 2222 -i /Users/example/.ssh/cmux -tt cmux-macmini"
+        )
     }
 
     func testForkAgentWorkspaceLaunchInRemoteWorkspaceUsesFallbackDirectoryInForkCommand() throws {

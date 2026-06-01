@@ -21,6 +21,23 @@ extension CMUXCLI {
         let events: [HookEvent]
         let aliases: Set<String>
         let publishesStopNotification: Bool
+        /// Whether this agent's `SessionEnd`/`session-end` hook fires once per
+        /// conversation turn rather than at a true session teardown.
+        ///
+        /// Restorable agents (grok, antigravity, hermes-agent) re-emit their
+        /// session-end event after every turn, so the `.sessionEnd` handler must
+        /// treat it as a non-destructive turn boundary (`recordPromptStop`) and
+        /// must not consume the session or clear the surface resume binding —
+        /// otherwise the restore record is destroyed after the first turn and
+        /// nothing survives a quit/relaunch. See
+        /// https://github.com/manaflow-ai/cmux/issues/5000.
+        ///
+        /// Agents whose runtime distinguishes a per-turn boundary from a genuine
+        /// session teardown (hermes-agent emits both `on_session_end` per turn and
+        /// `on_session_finalize` once at the end) route the teardown event to the
+        /// separate `session-finalize` subcommand / ``AgentHookAction/sessionFinalize``
+        /// action, which performs the destructive cleanup this flag suppresses.
+        let sessionEndIsTurnBoundary: Bool
         /// Feed-hook events. Each entry installs a second hook for
         /// `agentEvent` that invokes `cmux hooks feed --source <name>`
         /// with a 120s timeout so the socket reply wait doesn't trip the
@@ -81,6 +98,7 @@ extension CMUXCLI {
              format: HookFormat, events: [HookEvent],
              aliases: Set<String> = [],
              publishesStopNotification: Bool = true,
+             sessionEndIsTurnBoundary: Bool = false,
              feedHookEvents: [String] = [],
              postInstallAction: PostInstallAction? = nil) {
             self.name = name; self.displayName = displayName; self.statusKey = statusKey
@@ -92,6 +110,7 @@ extension CMUXCLI {
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
             self.publishesStopNotification = publishesStopNotification
+            self.sessionEndIsTurnBoundary = sessionEndIsTurnBoundary
             self.aliases = Set(aliases.compactMap { alias in
                 let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return normalized.isEmpty ? nil : normalized
@@ -102,7 +121,7 @@ extension CMUXCLI {
     }
 
     enum AgentHookAction {
-        case sessionStart, promptSubmit, stop, notification, approvalResponse, sessionEnd, noop
+        case sessionStart, promptSubmit, stop, notification, approvalResponse, sessionEnd, sessionFinalize, noop
     }
 
     static let subcommandActions: [String: AgentHookAction] = [
@@ -116,6 +135,7 @@ extension CMUXCLI {
         "shell-exec": .promptSubmit,
         "shell-done": .noop,
         "session-end": .sessionEnd,
+        "session-finalize": .sessionFinalize,
     ]
 
     // MARK: Agent definitions
@@ -149,6 +169,7 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             publishesStopNotification: false,
+            sessionEndIsTurnBoundary: true,
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
@@ -214,6 +235,7 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             aliases: ["agy"],
+            sessionEndIsTurnBoundary: true,
             feedHookEvents: ["PreToolUse", "PostToolUse"]
         ),
         AgentHookDef(
@@ -241,9 +263,10 @@ extension CMUXCLI {
                 .init(agentEvent: "pre_approval_request", cmuxSubcommand: "notification"),
                 .init(agentEvent: "post_approval_response", cmuxSubcommand: "approval-response"),
                 .init(agentEvent: "on_session_end", cmuxSubcommand: "session-end"),
-                .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-end"),
+                .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-finalize"),
                 .init(agentEvent: "on_session_reset", cmuxSubcommand: "session-start"),
             ],
+            sessionEndIsTurnBoundary: true,
             feedHookEvents: ["pre_tool_call", "post_tool_call", "pre_approval_request", "post_approval_response"]
         ),
         AgentHookDef(

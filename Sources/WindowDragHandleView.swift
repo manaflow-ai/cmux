@@ -413,6 +413,10 @@ func withTemporaryWindowMovableEnabled(window: NSWindow?, _ body: () -> Void) ->
 /// SwiftUI/AppKit hosting wrappers can appear as the top hit even for empty
 /// titlebar space. Treat those as pass-through so explicit sibling checks decide.
 func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
+    if windowDragHandleHitBelongsToTitlebarInteractiveControl(view) {
+        return false
+    }
+
     let className = String(describing: type(of: view))
     if className.contains("HostContainerView")
         || className.contains("AppKitWindowHostingView")
@@ -421,6 +425,21 @@ func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
     }
     if let window = view.window, view === window.contentView {
         return true
+    }
+    return false
+}
+
+private func windowDragHandleHitBelongsToTitlebarInteractiveControl(_ view: NSView) -> Bool {
+    let contentView = view.window?.contentView
+    var candidate: NSView? = view
+    while let current = candidate {
+        if current.identifier == TitlebarInteractiveHostingView<AnyView>.viewIdentifier {
+            return true
+        }
+        if let contentView, current === contentView {
+            break
+        }
+        candidate = current.superview
     }
     return false
 }
@@ -512,33 +531,6 @@ enum MinimalModeTitlebarControlHitRegionRegistry {
             }
         }
         return nil
-    }
-}
-
-struct MinimalModeTitlebarControlHitRegionView: NSViewRepresentable {
-    final class RegisteredView: NSView {
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if window == nil {
-                MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
-            } else {
-                MinimalModeTitlebarControlHitRegionRegistry.register(self)
-            }
-        }
-
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-        deinit {
-            MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
-        }
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        RegisteredView(frame: .zero)
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        MinimalModeTitlebarControlHitRegionRegistry.register(nsView)
     }
 }
 
@@ -835,9 +827,9 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
 
     var acceptsContextMenu: Bool {
         switch self {
-        case .newTab, .focusHistoryBack, .focusHistoryForward:
+        case .toggleSidebar, .newTab, .focusHistoryBack, .focusHistoryForward:
             return true
-        case .toggleSidebar, .showNotifications:
+        case .showNotifications:
             return false
         }
     }

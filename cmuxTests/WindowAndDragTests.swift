@@ -868,6 +868,12 @@ final class WindowDragHandleHitTests: XCTestCase {
         let config = TitlebarControlsStyle.classic.config
         let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
         XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
+        XCTAssertEqual(
+            ranges[0].lowerBound,
+            TitlebarControlsLayoutMetrics.hintLeadingPadding + config.groupPadding.leading,
+            accuracy: 0.001,
+            "Hidden titlebar hit regions should share the visible titlebar control leading position."
+        )
 
         XCTAssertTrue(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(

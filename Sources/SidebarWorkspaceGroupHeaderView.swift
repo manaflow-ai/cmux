@@ -81,6 +81,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         return .secondary
     }
 
+    private var displayedIconSymbol: String {
+        RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: iconSymbol, configured: nil)
+    }
+
     private var shortcutHintPillText: String? {
         guard showsShortcutHint,
               let shortcutDigit,
@@ -118,9 +122,11 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 )
 
             HStack(spacing: 6) {
-                Image(systemName: iconSymbol)
-                    .font(.system(size: 11))
+                Image(systemName: displayedIconSymbol)
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(iconColor)
+                    .frame(width: 14, height: 14)
+                    .accessibilityHidden(true)
                 Text(name)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
