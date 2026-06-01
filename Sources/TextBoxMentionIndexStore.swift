@@ -42,7 +42,8 @@ actor TextBoxMentionIndexStore {
     ]
 
     private var fileIndexesByRoot: [String: TextBoxMentionCachedIndex] = [:]
-    private var fileIndexRefreshTasks: [String: Task<TextBoxMentionCandidateIndex, Never>] = [:]
+    private var fileIndexRefreshTasks: [String: TextBoxMentionFileIndexRefreshTask] = [:]
+    private var nextFileIndexRefreshTaskID: UInt64 = 0
     private var skillIndexesByRootKey: [String: TextBoxMentionCandidateIndex] = [:]
 
     func suggestions(
@@ -106,7 +107,11 @@ actor TextBoxMentionIndexStore {
             shouldCancel: { Task.isCancelled }
         )
         if matches.isEmpty {
-            let refreshed = await refreshFileIndex(rootDirectory: rootDirectory, now: now)
+            let refreshed = await refreshFileIndex(
+                rootDirectory: rootDirectory,
+                now: Date(),
+                minimumStartedAt: now
+            )
             if Task.isCancelled { return [] }
             matches = refreshed.rankedCandidates(
                 matching: query.query,
@@ -152,31 +157,47 @@ actor TextBoxMentionIndexStore {
 
     private func refreshFileIndex(
         rootDirectory: String,
-        now: Date
+        now: Date,
+        minimumStartedAt: Date? = nil
     ) async -> TextBoxMentionCandidateIndex {
         // Coalesce concurrent refreshes: while one scan is in flight for a root,
         // additional keystrokes await the same scan instead of each spawning a
         // fresh (and expensive) `rg`/filesystem walk. The detached scan is not
         // cancelled, so a join here is correct even if the caller's lookup task is.
-        let scanTask = fileIndexRefreshTask(rootDirectory: rootDirectory)
-        let index = await scanTask.value
-        storeFileIndex(rootDirectory: rootDirectory, index: index, createdAt: now)
+        let refreshTask = fileIndexRefreshTask(
+            rootDirectory: rootDirectory,
+            minimumStartedAt: minimumStartedAt
+        )
+        let index = await refreshTask.task.value
+        storeFileIndex(
+            rootDirectory: rootDirectory,
+            index: index,
+            createdAt: now,
+            refreshTaskID: refreshTask.id
+        )
         return index
     }
 
     private func refreshFileIndexInBackground(rootDirectory: String, now: Date) {
         guard cachedFileIndex(rootDirectory: rootDirectory, now: now) == nil else { return }
-        let scanTask = fileIndexRefreshTask(rootDirectory: rootDirectory)
-        Task { [rootDirectory, now, scanTask] in
-            let index = await scanTask.value
-            self.storeFileIndex(rootDirectory: rootDirectory, index: index, createdAt: now)
+        let refreshTask = fileIndexRefreshTask(rootDirectory: rootDirectory)
+        Task { [rootDirectory, now, refreshTask] in
+            let index = await refreshTask.task.value
+            self.storeFileIndex(
+                rootDirectory: rootDirectory,
+                index: index,
+                createdAt: now,
+                refreshTaskID: refreshTask.id
+            )
         }
     }
 
     private func fileIndexRefreshTask(
-        rootDirectory: String
-    ) -> Task<TextBoxMentionCandidateIndex, Never> {
-        if let inFlight = fileIndexRefreshTasks[rootDirectory] {
+        rootDirectory: String,
+        minimumStartedAt: Date? = nil
+    ) -> TextBoxMentionFileIndexRefreshTask {
+        if let inFlight = fileIndexRefreshTasks[rootDirectory],
+           minimumStartedAt.map({ inFlight.startedAt >= $0 }) ?? true {
             return inFlight
         }
 
@@ -185,19 +206,28 @@ actor TextBoxMentionIndexStore {
             let candidates = await Self.scanFiles(rootURL: rootURL)
             return TextBoxMentionCandidateIndex(candidates: candidates)
         }
-        fileIndexRefreshTasks[rootDirectory] = scanTask
-        return scanTask
+        nextFileIndexRefreshTaskID &+= 1
+        let refreshTask = TextBoxMentionFileIndexRefreshTask(
+            id: nextFileIndexRefreshTaskID,
+            startedAt: Date(),
+            task: scanTask
+        )
+        fileIndexRefreshTasks[rootDirectory] = refreshTask
+        return refreshTask
     }
 
     private func storeFileIndex(
         rootDirectory: String,
         index: TextBoxMentionCandidateIndex,
-        createdAt: Date
+        createdAt: Date,
+        refreshTaskID: UInt64
     ) {
         if let cached = fileIndexesByRoot[rootDirectory], cached.createdAt > createdAt {
             return
         }
-        fileIndexRefreshTasks[rootDirectory] = nil
+        if fileIndexRefreshTasks[rootDirectory]?.id == refreshTaskID {
+            fileIndexRefreshTasks[rootDirectory] = nil
+        }
         let storedAt = Date()
         fileIndexesByRoot[rootDirectory] = TextBoxMentionCachedIndex(
             index: index,
