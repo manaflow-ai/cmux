@@ -7341,6 +7341,30 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return chunks
     }
 
+    // Canonical key text for synthetic key events sent from the mobile/socket
+    // input path (see `sendKeyEvent`). The desktop `keyDown` handler fills
+    // `ghostty_input_key_s.text` from `charactersIgnoringModifiers`; libghostty
+    // needs that text to encode control keys whose byte is otherwise filtered by
+    // the raw-text input path. Mobile builds the event from a bare keycode, so we
+    // reproduce the same canonical text here, keyed purely off the keycode.
+    //
+    // Only Backspace/Delete and Tab need this: their physical macOS keys carry
+    // the DEL (0x7F) and TAB (0x09) characters in `charactersIgnoringModifiers`.
+    // The text is independent of modifiers (Option-Backspace still reports DEL),
+    // so this intentionally ignores `mods`. Pure function keys (arrows, Home,
+    // End, page navigation) carry no characters and correctly encode from the
+    // keycode alone, so they return nil.
+    private static func canonicalKeyText(keycode: UInt32) -> String? {
+        switch keycode {
+        case UInt32(kVK_Delete):
+            return "\u{7F}"
+        case UInt32(kVK_Tab):
+            return "\t"
+        default:
+            return nil
+        }
+    }
+
     private func sendKeyEvent(
         surface: ghostty_surface_t,
         keycode: UInt32,
@@ -7351,10 +7375,32 @@ final class TerminalSurface: Identifiable, ObservableObject {
         keyEvent.keycode = keycode
         keyEvent.mods = mods
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-        keyEvent.unshifted_codepoint = 0
         keyEvent.composing = false
-        keyEvent.text = nil
-        _ = ghostty_surface_key(surface, keyEvent)
+
+        let canonicalText = Self.canonicalKeyText(keycode: keycode)
+        keyEvent.unshifted_codepoint = canonicalText?.unicodeScalars.first?.value ?? 0
+
+        let handled: Bool
+        if let canonicalText {
+            // Mirror the desktop `keyDown` path's C-string lifetime: the text
+            // pointer must stay valid only for the `ghostty_surface_key` call.
+            handled = canonicalText.withCString { ptr in
+                keyEvent.text = ptr
+                return ghostty_surface_key(surface, keyEvent)
+            }
+        } else {
+            keyEvent.text = nil
+            handled = ghostty_surface_key(surface, keyEvent)
+        }
+
+#if DEBUG
+        cmuxDebugLog(
+            "surface.socket_input.key surface=\(id.uuidString.prefix(8)) " +
+            "keycode=\(keycode) mods=\(mods.rawValue) " +
+            "codepoint=0x\(String(keyEvent.unshifted_codepoint, radix: 16)) " +
+            "handled=\(handled ? 1 : 0)"
+        )
+#endif
     }
 
     @MainActor

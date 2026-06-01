@@ -1027,14 +1027,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return true
     }
 
-    @discardableResult
-    private func performBindingAction(_ action: String) -> Bool {
-        guard let surface else { return false }
-        return action.withCString { pointer in
-            ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
-        }
-    }
-
     #if DEBUG
     /// Repro hook for the `CMUX_ZOOM_STRESS` harness: drive one font-zoom
     /// step exactly as pinch / the accessory buttons do, so the harness can
@@ -1170,9 +1162,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func scrollInitialOutputToBottomIfNeeded() {
-        guard shouldScrollInitialOutputToBottom else { return }
+        guard shouldScrollInitialOutputToBottom, let surface else { return }
         shouldScrollInitialOutputToBottom = false
-        _ = performBindingAction("scroll_to_bottom")
+        // `ghostty_surface_binding_action` takes the same internal surface lock
+        // as `process_output`/`render_now`. This runs on the MAIN thread (inside
+        // the `processOutput` completion hop), so calling it inline would contend
+        // that lock against the off-main renderer/IO during a render storm and
+        // wedge main on libghostty's futex. Dispatch it on the serial surface
+        // queue like the absolute `set_font_size` push (see
+        // `applyPendingFontSizeIfNeeded`); enqueuing after any pending
+        // `process_output` also preserves ordering. The return was already
+        // discarded.
+        let action = "scroll_to_bottom"
+        Self.outputQueue.async {
+            action.withCString { pointer in
+                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+            }
+        }
     }
 
     static func forwardDaemonOutputBytes(_ data: Data) -> Data {

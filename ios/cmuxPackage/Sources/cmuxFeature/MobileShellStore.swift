@@ -30,6 +30,19 @@ public final class CMUXMobileShellStore {
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
 
+    /// How long the render-grid stream may stay silent (no event of any topic)
+    /// before the liveness watchdog assumes the push subscription is dead and
+    /// forces a re-subscribe + replay. Picked at the low end of the acceptable
+    /// 8-12s window so a wedged stream recovers in a few seconds instead of the
+    /// transport's ~85s timeout, while staying well above any normal inter-event
+    /// gap on a busy shell.
+    private static let renderGridLivenessSilenceThreshold: TimeInterval = 9
+    /// Cadence of the liveness watchdog tick. It only reads a timestamp and
+    /// compares against the threshold, so a short interval is cheap; it does not
+    /// reschedule per received event (an actively-streaming connection just keeps
+    /// failing the silence check because `lastTerminalEventAt` stays fresh).
+    private static let renderGridLivenessCheckInterval: TimeInterval = 2.5
+
     public private(set) var isSignedIn: Bool
     public private(set) var connectionState: MobileConnectionState
     public private(set) var connectedHostName: String
@@ -67,6 +80,18 @@ public final class CMUXMobileShellStore {
     }
     private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
+    // Liveness watchdog for the render-grid push subscription. The `for await`
+    // listener loop blocks indefinitely if the underlying connection half-dies
+    // (network blip, Mac stops pushing, background/foreground cycle): the
+    // AsyncStream neither yields a new event nor finishes, so the loop sits
+    // silent and the phone shows a stale frame while the Mac advances thousands
+    // of render-grid deltas. The transport's own timeout (~85s) is far too slow.
+    // A `DispatchSourceTimer` ticks independently of the (potentially wedged)
+    // stream and compares "now" against the last received event to detect
+    // prolonged silence, then tears down + re-subscribes + replays.
+    private var renderGridLivenessTimer: DispatchSourceTimer?
+    private var renderGridLivenessListenerID: UUID?
+    private var lastTerminalEventAt: Date?
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
@@ -154,6 +179,7 @@ public final class CMUXMobileShellStore {
 
     isolated deinit {
         terminalEventListenerTask?.cancel()
+        renderGridLivenessTimer?.cancel()
         terminalSubscriptionRefreshTask?.cancel()
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
@@ -1038,6 +1064,8 @@ public final class CMUXMobileShellStore {
         terminalOutputTransport = .rawBytes
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
+        stopRenderGridLivenessWatchdog(listenerID: nil)
+        lastTerminalEventAt = nil
     }
 
     private func beginPairingAttempt() -> UUID {
@@ -1289,11 +1317,24 @@ public final class CMUXMobileShellStore {
         guard terminalEventListenerTask == nil else { return }
         let listenerID = UUID()
         terminalEventListenerID = listenerID
+        // Arm the liveness watchdog for this subscription generation. Done only
+        // inside the push-events path (after the guard above) so scripted
+        // transport tests, which set `supportsServerPushEvents = false`, never
+        // schedule speculative re-subscribes. A fresh subscription gets a full
+        // silence window before it can be judged dead.
+        startRenderGridLivenessWatchdog(listenerID: listenerID)
         terminalEventListenerTask = Task { @MainActor [weak self] in
             defer {
                 if self?.terminalEventListenerID == listenerID {
                     self?.terminalEventListenerTask = nil
                     self?.terminalEventListenerID = nil
+                    // Only this generation's watchdog is torn down here. The
+                    // `== listenerID` guard matters because `restartEventStream`
+                    // does stop()+start() and the old listener's defer can run
+                    // asynchronously after the new listener+watchdog are armed;
+                    // without the guard a stale teardown would cancel the fresh
+                    // watchdog.
+                    self?.stopRenderGridLivenessWatchdog(listenerID: listenerID)
                 }
             }
 
@@ -1315,6 +1356,9 @@ public final class CMUXMobileShellStore {
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
                 guard self.remoteClient === client, self.connectionState == .connected else { return }
+                // Any yielded envelope proves the transport is still pushing, so
+                // it resets the liveness window (not just render_grid events).
+                self.lastTerminalEventAt = self.runtime?.now() ?? Date()
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
                 } else if event.topic == "terminal.render_grid" {
@@ -1344,6 +1388,81 @@ public final class CMUXMobileShellStore {
         terminalEventListenerID = nil
         startTerminalRefreshPolling()
         scheduleWorkspaceListRefreshFromEvent()
+    }
+
+    // MARK: - Render-grid liveness watchdog
+
+    /// Start a repeating `DispatchSourceTimer` that watches for prolonged silence
+    /// on the render-grid push subscription identified by `listenerID`.
+    ///
+    /// The listener's `for await` loop blocks indefinitely when the underlying
+    /// connection half-dies, so we cannot detect death from inside it. This timer
+    /// ticks independently and, on each tick, hops to the main actor to compare
+    /// `lastTerminalEventAt` against `renderGridLivenessSilenceThreshold`. While
+    /// events keep arriving, `lastTerminalEventAt` stays fresh and every tick is a
+    /// no-op, so an actively-streaming connection never triggers recovery; only a
+    /// genuinely silent stream crosses the threshold.
+    private func startRenderGridLivenessWatchdog(listenerID: UUID) {
+        stopRenderGridLivenessWatchdog(listenerID: nil)
+        renderGridLivenessListenerID = listenerID
+        // Reset the window so a freshly-armed subscription gets the full silence
+        // budget before it can be judged dead.
+        lastTerminalEventAt = runtime?.now() ?? Date()
+        // DispatchSourceTimer is the allowed low-level primitive for periodic
+        // event delivery; the handler does no work beyond hopping to @MainActor
+        // (no DispatchQueue.main.async, no queue-as-lock). The timer fires on a
+        // background queue and the only state it touches lives on the main actor.
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        let interval = Self.renderGridLivenessCheckInterval
+        timer.schedule(
+            deadline: .now() + interval,
+            repeating: interval,
+            leeway: .milliseconds(500)
+        )
+        timer.setEventHandler { [weak self] in
+            // The handler runs on a background queue; hop to the main actor before
+            // touching any store state. `self` is a @MainActor @Observable class
+            // (therefore Sendable) captured weakly, so this @Sendable closure is
+            // safe and no state is read off the main actor.
+            Task { @MainActor in
+                self?.checkRenderGridLiveness(listenerID: listenerID)
+            }
+        }
+        renderGridLivenessTimer = timer
+        timer.resume()
+    }
+
+    /// Cancel the liveness watchdog. When `listenerID` is non-nil the cancel only
+    /// applies if it matches the armed generation, so a stale listener's async
+    /// `defer` cannot tear down a watchdog that a newer subscription just armed.
+    private func stopRenderGridLivenessWatchdog(listenerID: UUID?) {
+        if let listenerID, renderGridLivenessListenerID != listenerID {
+            return
+        }
+        renderGridLivenessTimer?.cancel()
+        renderGridLivenessTimer = nil
+        renderGridLivenessListenerID = nil
+    }
+
+    /// One watchdog tick on the main actor: if the subscription generation still
+    /// matches, the store is connected, and the stream has been silent past the
+    /// threshold, tear down + re-subscribe + replay via the existing resync path.
+    private func checkRenderGridLiveness(listenerID: UUID) {
+        guard renderGridLivenessListenerID == listenerID else { return }
+        guard remoteClient != nil, connectionState == .connected else { return }
+        guard terminalEventListenerID == listenerID else { return }
+        let now = runtime?.now() ?? Date()
+        let last = lastTerminalEventAt ?? now
+        let silent = now.timeIntervalSince(last)
+        guard silent >= Self.renderGridLivenessSilenceThreshold else { return }
+        let silentMs = Int(silent * 1000)
+        liveAnchormuxLog("sync.liveness re-subscribe silentMs=\(silentMs)")
+        mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms, re-subscribing")
+        // resyncTerminalOutput(restartEventStream: true) stops the wedged listener
+        // (which cancels this watchdog via stopTerminalRefreshPolling) and starts a
+        // fresh subscription + watchdog, then replays every surface so the phone
+        // catches up on the deltas it missed while the stream was silent.
+        resyncTerminalOutput(reason: "liveness", restartEventStream: true)
     }
 
     private func resyncTerminalOutput(
@@ -1702,6 +1821,7 @@ public final class CMUXMobileShellStore {
         terminalEventListenerTask?.cancel()
         terminalEventListenerTask = nil
         terminalEventListenerID = nil
+        stopRenderGridLivenessWatchdog(listenerID: nil)
     }
 
     private func setSelectedWorkspaceID(_ id: MobileWorkspacePreview.ID?) {
