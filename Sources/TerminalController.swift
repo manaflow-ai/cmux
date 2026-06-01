@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSettings
+import CmuxSocketControl
 import Carbon.HIToolbox
 import CMUXWorkstream
 import Foundation
@@ -129,6 +131,8 @@ class TerminalController {
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     private var tabManager: TabManager?
     private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
+    // Sendable value type; injected at construction so socket auth never reaches a global.
+    private nonisolated let passwordStore: SocketControlPasswordStore
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenBacklog: Int32 = 128
@@ -358,7 +362,8 @@ class TerminalController {
         }
     }
 
-    private init() {
+    private init(passwordStore: SocketControlPasswordStore = SocketControlPasswordStore()) {
+        self.passwordStore = passwordStore
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
             object: nil,
@@ -379,6 +384,15 @@ class TerminalController {
         listenerStateLock.lock()
         defer { listenerStateLock.unlock() }
         return body()
+    }
+
+    nonisolated func currentSocketPathForRemoteRestore() -> String? {
+        withListenerState {
+            if isRunning || acceptLoopAlive || listenerStartInProgress || serverSocket >= 0 {
+                return socketPath
+            }
+            return reservedStartupSocketPath
+        }
     }
 
     private nonisolated func listenerStateSnapshot() -> ListenerStateSnapshot {
@@ -2171,7 +2185,7 @@ class TerminalController {
         guard lowered == "auth" || lowered.hasPrefix("auth ") else {
             return nil
         }
-        guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
+        guard passwordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
             return "ERROR: Password mode is enabled but no socket password is configured in Settings."
         }
 
@@ -2184,7 +2198,7 @@ class TerminalController {
         guard !provided.isEmpty else {
             return "ERROR: Missing password. Usage: auth <password>"
         }
-        guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
+        guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
             return "ERROR: Invalid password"
         }
         authenticated = true
@@ -2208,7 +2222,7 @@ class TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "auth.login requires params.password")
         }
 
-        guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
+        guard passwordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
             return v2Error(
                 id: id,
                 code: "auth_unconfigured",
@@ -2216,7 +2230,7 @@ class TerminalController {
             )
         }
 
-        guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
+        guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
             return v2Error(id: id, code: "auth_failed", message: "Invalid password")
         }
         authenticated = true
@@ -6497,7 +6511,7 @@ class TerminalController {
         // Placement resolution: explicit `placement` param wins, then the
         // group's per-cwd `newWorkspacePlacement` from cmux.json, then the
         // global default. The CLI exposes this as
-        // `cmux workspace-group new-workspace <group> --placement <top|end>`.
+        // `cmux workspace-group new-workspace <group> --placement <afterCurrent|top|end>`.
         let placementRaw = v2String(params, "placement")
         let explicitPlacement = WorkspaceGroupNewPlacement(rawString: placementRaw)
         if let raw = placementRaw,
@@ -6505,7 +6519,7 @@ class TerminalController {
            explicitPlacement == nil {
             return .err(
                 code: "invalid_params",
-                message: "placement must be one of: top, end",
+                message: "placement must be one of: afterCurrent, top, end",
                 data: ["placement": raw]
             )
         }
@@ -6566,12 +6580,15 @@ class TerminalController {
         let symbol: String? = (params["symbol"] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let normalized: String? = (symbol?.isEmpty == false) ? symbol : nil
         var ok = false
+        var storedIconSymbol: String?
         v2MainSync {
             ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
-            if ok { tabManager.setWorkspaceGroupIcon(groupId: gid, symbol: normalized) }
+            if ok {
+                storedIconSymbol = tabManager.setWorkspaceGroupIcon(groupId: gid, symbol: normalized)
+            }
         }
         return ok
-            ? .ok(["group_id": gid.uuidString, "icon_symbol": v2OrNull(normalized)])
+            ? .ok(["group_id": gid.uuidString, "icon_symbol": v2OrNull(storedIconSymbol)])
             : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
     }
 
@@ -6839,6 +6856,21 @@ class TerminalController {
         let localSocketPath = v2RawString(params, "local_socket_path")
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        var persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if v2HasNonNullParam(params, "persistent_daemon_slot") {
+            guard let persistentDaemonSlot,
+                  !persistentDaemonSlot.isEmpty,
+                  persistentDaemonSlot.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil,
+                  persistentDaemonSlot != ".",
+                  persistentDaemonSlot != ".." else {
+                return .err(
+                    code: "invalid_params",
+                    message: "persistent_daemon_slot must contain only letters, numbers, '.', '_' or '-'",
+                    data: nil
+                )
+            }
+        }
         let daemonWebSocketURL = v2RawString(params, "daemon_websocket_url")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let daemonWebSocketToken = v2RawString(params, "daemon_websocket_token")?
@@ -6880,6 +6912,20 @@ class TerminalController {
             )
         }
         let skipDaemonBootstrap = v2Bool(params, "skip_daemon_bootstrap") ?? false
+        if persistentDaemonSlot != nil, !preserveAfterTerminalExit {
+            return .err(
+                code: "invalid_params",
+                message: "preserve_after_terminal_exit is required when persistent_daemon_slot is set",
+                data: nil
+            )
+        }
+        if preserveAfterTerminalExit,
+           transport == .ssh,
+           !skipDaemonBootstrap,
+           daemonWebSocketEndpoint == nil,
+           persistentDaemonSlot == nil {
+            persistentDaemonSlot = "ssh-\(workspaceId.uuidString.lowercased())"
+        }
         if relayPort != nil {
             guard let relayID, !relayID.isEmpty else {
                 return .err(code: "invalid_params", message: "relay_id is required when relay_port is set", data: nil)
@@ -6926,6 +6972,7 @@ class TerminalController {
                 foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
                 daemonWebSocketEndpoint: daemonWebSocketEndpoint,
                 preserveAfterTerminalExit: preserveAfterTerminalExit,
+                persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
                 skipDaemonBootstrap: skipDaemonBootstrap
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
@@ -16720,8 +16767,7 @@ class TerminalController {
             // starting SidebarDragFailsafeMonitor — it would otherwise post
             // mouse_up_failsafe immediately because no real mouse is pressed.
             dragState.isSimulated = true
-            dragState.draggedTabId = fromTabId
-            dragState.dropIndicator = nil
+            dragState.beginDragging(tabId: fromTabId)
             return true
         }
         guard startedOK else {
@@ -16743,7 +16789,7 @@ class TerminalController {
             }
             let tickOK: Bool = v2MainSync {
                 guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
-                dragState.dropIndicator = SidebarDropIndicator(tabId: targetTabId, edge: edge)
+                dragState.setDropIndicator(SidebarDropIndicator(tabId: targetTabId, edge: edge))
                 return true
             }
             if !tickOK {
@@ -16757,8 +16803,7 @@ class TerminalController {
 
         v2MainSync {
             guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
-            dragState.draggedTabId = nil
-            dragState.dropIndicator = nil
+            dragState.clearDrag()
             dragState.isSimulated = false
         }
 
@@ -17076,7 +17121,7 @@ class TerminalController {
 
         Input commands:
           send <text>                     - Send text to current terminal
-          send_key <key>                  - Send special key (ctrl-c, ctrl-d, enter, tab, escape)
+          send_key <key>                  - Send special key (ctrl-c, ctrl-d, ctrl-f, enter, tab, escape)
           send_surface <id|idx> <text>    - Send text to a specific terminal
           send_key_surface <id|idx> <key> - Send special key to a specific terminal
           read_screen [id|idx] [--scrollback] [--lines N] - Read terminal text (plain text)
@@ -20982,7 +21027,7 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
-            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+            guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
@@ -21219,7 +21264,7 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
-            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+            guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
@@ -21541,7 +21586,11 @@ class TerminalController {
         }
 
         v2MainSync {
-            GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.reloadConfiguration(source: "socket.reload_config")
+            } else {
+                GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
+            }
         }
         return "OK Reloaded config"
     }

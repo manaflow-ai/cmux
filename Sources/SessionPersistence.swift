@@ -1373,6 +1373,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
     var textBoxDraft: SessionTextBoxInputDraftSnapshot?
+    var isRemoteTerminal: Bool?
     var remotePTYSessionID: String?
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
@@ -1386,6 +1387,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
+        isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil
     ) {
@@ -1396,6 +1398,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.hibernation = hibernation
         self.resumeBinding = resumeBinding
         self.textBoxDraft = textBoxDraft
+        self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
     }
@@ -1496,9 +1499,57 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var shouldRenderWebView: Bool
     var pageZoom: Double
     var developerToolsVisible: Bool
+    var isMuted: Bool
     var omnibarVisible: Bool? = nil
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
+
+    init(
+        urlString: String?,
+        profileID: UUID?,
+        shouldRenderWebView: Bool,
+        pageZoom: Double,
+        developerToolsVisible: Bool,
+        isMuted: Bool = false,
+        omnibarVisible: Bool? = nil,
+        backHistoryURLStrings: [String]?,
+        forwardHistoryURLStrings: [String]?
+    ) {
+        self.urlString = urlString
+        self.profileID = profileID
+        self.shouldRenderWebView = shouldRenderWebView
+        self.pageZoom = pageZoom
+        self.developerToolsVisible = developerToolsVisible
+        self.isMuted = isMuted
+        self.omnibarVisible = omnibarVisible
+        self.backHistoryURLStrings = backHistoryURLStrings
+        self.forwardHistoryURLStrings = forwardHistoryURLStrings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case urlString
+        case profileID
+        case shouldRenderWebView
+        case pageZoom
+        case developerToolsVisible
+        case isMuted
+        case omnibarVisible
+        case backHistoryURLStrings
+        case forwardHistoryURLStrings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        urlString = try container.decodeIfPresent(String.self, forKey: .urlString)
+        profileID = try container.decodeIfPresent(UUID.self, forKey: .profileID)
+        shouldRenderWebView = try container.decode(Bool.self, forKey: .shouldRenderWebView)
+        pageZoom = try container.decode(Double.self, forKey: .pageZoom)
+        developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)
+        isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        omnibarVisible = try container.decodeIfPresent(Bool.self, forKey: .omnibarVisible)
+        backHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .backHistoryURLStrings)
+        forwardHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .forwardHistoryURLStrings)
+    }
 }
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String

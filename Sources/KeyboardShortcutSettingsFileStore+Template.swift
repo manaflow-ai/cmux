@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSocketControl
 
 extension CmuxSettingsFileStore {
     static func defaultTemplate() -> String {
@@ -81,10 +82,17 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "workspaceGroups": [
+                    "newWorkspacePlacement": WorkspaceGroupNewWorkspacePlacementSettings.defaultValue.rawValue,
+                ],
+            ],
+            [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
                     "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
+                    "showTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultShowOnNewTerminals,
+                    "focusTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultFocusOnNewTerminals,
                     "agentHibernation": [
                         "enabled": AgentHibernationSettings.defaultEnabled,
                         "idleSeconds": Int(AgentHibernationSettings.defaultIdleSeconds),
@@ -158,6 +166,8 @@ extension CmuxSettingsFileStore {
                     "suppressSubagentNotifications": AgentSubagentNotificationSettings.defaultSuppressNotifications,
                     "cursorIntegration": CursorIntegrationSettings.defaultHooksEnabled,
                     "geminiIntegration": GeminiIntegrationSettings.defaultHooksEnabled,
+                    "kiroIntegration": KiroIntegrationSettings.defaultHooksEnabled,
+                    "kiroNotificationLevel": KiroIntegrationSettings.defaultNotificationLevel.rawValue,
                     "portBase": AutomationSettings.defaultPortBase,
                     "portRange": AutomationSettings.defaultPortRange,
                 ],

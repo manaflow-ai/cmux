@@ -60,7 +60,15 @@ function HomeContent() {
           data-dev="subtitle"
           style={{ lineHeight: 1.5 }}
         >
-          <Balancer>{t("subtitle")}</Balancer>
+          <Balancer>
+            {t.rich("subtitle", {
+              cliLink: (chunks) => (
+                <Link href="/docs/api" className={linkClass}>
+                  {chunks}
+                </Link>
+              ),
+            })}
+          </Balancer>
         </p>
 
         {/* Download */}

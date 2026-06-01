@@ -1,4 +1,7 @@
 import AppKit
+import CmuxSettings
+import CmuxSettingsUI
+import CmuxSocketControl
 import SwiftUI
 import Bonsplit
 import CMUXWorkstream
@@ -9,17 +12,7 @@ import WebKit
 import Combine
 import ObjectiveC.runtime
 import Darwin
-
-func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
-    guard let value else { return nil }
-    // Serialize as a JSON array, then strip the outer brackets to get a quoted JS string literal.
-    guard let data = try? JSONSerialization.data(withJSONObject: [value]),
-          let arrayLiteral = String(data: data, encoding: .utf8),
-          arrayLiteral.count >= 2 else {
-        return nil
-    }
-    return String(arrayLiteral.dropFirst().dropLast())
-}
+import CmuxFoundation
 
 private struct MultiWindowRouteCLIResult {
     let status: String
@@ -171,6 +164,12 @@ private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
 
+private struct WorkspaceGroupNewWorkspaceTarget {
+    let groupId: UUID
+    let referenceWorkspaceId: UUID
+    let placement: WorkspaceGroupNewPlacement
+}
+
 /// Short-lived helper that watches for the next workspace to appear in a
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
@@ -178,30 +177,36 @@ private enum CmuxThemeNotifications {
 /// Subscribes to `tabManager.$tabs` (the @Published source of truth that
 /// `addWorkspace` updates, regardless of whether a NotificationCenter event
 /// fired) so VM workspaces, dropped attaches, or any other slow async path
-/// is caught. Self-clears on first match or after `timeoutSeconds` (default
-/// 10 minutes so legitimately slow VM provisioning still lands in the
-/// group).
+/// is caught. Self-clears on first match, group disappearance, or a process
+/// completion signal that either names the created workspace or reports launch
+/// failure.
 @MainActor
 final class ConfiguredGroupActionAsyncWorkspaceObserver {
     static var pending: [ObjectIdentifier: ConfiguredGroupActionAsyncWorkspaceObserver] = [:]
+    private let id = UUID()
     private weak var tabManager: TabManager?
     private let storedKey: ObjectIdentifier
     private let groupId: UUID
+    private let placement: WorkspaceGroupNewPlacement
+    private let referenceWorkspaceId: UUID?
     private var knownIds: Set<UUID>
     private var subscription: AnyCancellable?
-    private var timeoutTask: Task<Void, Never>?
 
-    /// Default 180s: long enough for typical Cloud VM provisioning but
-    /// short enough that an unrelated workspace created later that session
-    /// usually doesn't land in the watcher's grace window. Best-effort
-    /// correlation; for a tighter guarantee the launcher would need to
-    /// signal back its created workspace id, which is a separate refactor.
-    static func install(tabManager: TabManager, groupId: UUID, knownIds: Set<UUID>, timeoutSeconds: TimeInterval = 180) {
+    @discardableResult
+    static func install(
+        tabManager: TabManager,
+        groupId: UUID,
+        knownIds: Set<UUID>,
+        placement: WorkspaceGroupNewPlacement,
+        referenceWorkspaceId: UUID?
+    ) -> UUID {
         let key = ObjectIdentifier(tabManager)
         pending[key]?.dispose()
         let watcher = ConfiguredGroupActionAsyncWorkspaceObserver(
             tabManager: tabManager,
             groupId: groupId,
+            placement: placement,
+            referenceWorkspaceId: referenceWorkspaceId,
             knownIds: knownIds
         )
         pending[key] = watcher
@@ -210,16 +215,33 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
             .sink { [weak watcher] tabs in
                 watcher?.checkForNewWorkspace(in: tabs)
             }
-        watcher.timeoutTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
-            watcher.dispose()
-        }
+        return watcher.id
     }
 
-    private init(tabManager: TabManager, groupId: UUID, knownIds: Set<UUID>) {
+    static func disposePending(tabManager: TabManager, observerId: UUID) {
+        let key = ObjectIdentifier(tabManager)
+        guard pending[key]?.id == observerId else { return }
+        pending[key]?.dispose()
+    }
+
+    static func finishPending(tabManager: TabManager, observerId: UUID, workspaceId: UUID?) {
+        let key = ObjectIdentifier(tabManager)
+        guard let watcher = pending[key], watcher.id == observerId else { return }
+        watcher.finish(workspaceId: workspaceId)
+    }
+
+    private init(
+        tabManager: TabManager,
+        groupId: UUID,
+        placement: WorkspaceGroupNewPlacement,
+        referenceWorkspaceId: UUID?,
+        knownIds: Set<UUID>
+    ) {
         self.tabManager = tabManager
         self.storedKey = ObjectIdentifier(tabManager)
         self.groupId = groupId
+        self.placement = placement
+        self.referenceWorkspaceId = referenceWorkspaceId
         self.knownIds = knownIds
     }
 
@@ -230,17 +252,33 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
             return
         }
         for tab in tabs where !knownIds.contains(tab.id) {
-            tabManager.addWorkspaceToGroup(workspaceId: tab.id, groupId: groupId)
+            tabManager.addWorkspaceToGroup(
+                workspaceId: tab.id,
+                groupId: groupId,
+                placement: placement,
+                referenceWorkspaceId: referenceWorkspaceId
+            )
             dispose()
             return
         }
     }
 
+    private func finish(workspaceId: UUID?) {
+        defer { dispose() }
+        guard let workspaceId, let tabManager else { return }
+        guard tabManager.workspaceGroups.contains(where: { $0.id == groupId }) else { return }
+        guard tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
+        tabManager.addWorkspaceToGroup(
+            workspaceId: workspaceId,
+            groupId: groupId,
+            placement: placement,
+            referenceWorkspaceId: referenceWorkspaceId
+        )
+    }
+
     private func dispose() {
         subscription?.cancel()
         subscription = nil
-        timeoutTask?.cancel()
-        timeoutTask = nil
         // Remove by the key recorded at install time. The weak `tabManager`
         // may already be nil here (window closed mid-watch), and walking it
         // would silently leak the entry in the static `pending` dictionary
@@ -625,8 +663,9 @@ final class CmuxMainThreadTurnProfiler {
 #endif
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate {
     nonisolated(unsafe) static var shared: AppDelegate?
+    private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
     private var isRunningUnderXCTestCached: Bool {
@@ -783,6 +822,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+    /// The app's settings dependency container, handed over by `cmuxApp` via
+    /// `configure(...)` before any main window is created. AppKit builds the
+    /// main window's `NSHostingView` itself, so it injects this into the
+    /// `ContentView` environment so `@LiveSetting` can resolve the stores it
+    /// observes inside the sidebar.
+    var settingsRuntime: SettingsRuntime?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -793,6 +838,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
+    private var reloadConfigurationMenuItemRefreshScheduled = false
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
@@ -1098,11 +1144,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        let fileURLs = externalOpenFileURLs(from: urls)
+        let externalFileURLs = externalOpenFileURLs(from: urls)
+        let terminalFileRequests = TerminalDefaultFileOpenRequest.requests(from: externalFileURLs)
+        let terminalFilePaths = Set(terminalFileRequests.map { $0.fileURL.path(percentEncoded: false) })
+        let fileURLs = externalFileURLs.filter { url in
+            !terminalFilePaths.contains(url.standardizedFileURL.path(percentEncoded: false))
+        }
         let directories = externalOpenDirectories(from: urls.filter { externalOpenURLIsDirectory($0) })
-        guard !fileURLs.isEmpty || !directories.isEmpty else { return }
+        guard !terminalFileRequests.isEmpty || !fileURLs.isEmpty || !directories.isEmpty else { return }
 
         prepareForExplicitOpenIntentAtStartup()
+        for request in terminalFileRequests {
+            openTerminalDefaultFileRequest(
+                request,
+                debugSource: "application.openURLs.defaultTerminal"
+            )
+        }
         for fileURL in fileURLs {
             _ = openFilePreviewInPreferredMainWindow(
                 filePath: fileURL.path(percentEncoded: false),
@@ -1805,8 +1862,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ClosedItemHistoryStore.shared.flushPendingSaves()
     }
 
-    func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState) {
+    func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState, settingsRuntime: SettingsRuntime) {
         self.tabManager = tabManager
+        self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
@@ -6762,9 +6820,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
+        let workspaceGroupTarget = context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
         if let context,
-           executeConfiguredNewWorkspaceActionIfAvailable(in: context, debugSource: debugSource) {
+           executeConfiguredNewWorkspaceActionIfAvailable(
+               in: context,
+               debugSource: debugSource,
+               workspaceGroupTarget: workspaceGroupTarget
+           ) {
             return true
+        }
+
+        if let context, let workspaceGroupTarget {
+            return context.tabManager.createWorkspaceInGroup(
+                groupId: workspaceGroupTarget.groupId,
+                placement: workspaceGroupTarget.placement,
+                referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
+            ) != nil
         }
 
         if let preferredTabManager,
@@ -6792,7 +6863,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func performCloudVMAction(
         tabManager preferredTabManager: TabManager? = nil,
         preferredWindow: NSWindow? = nil,
-        debugSource: String = "cloudVM"
+        debugSource: String = "cloudVM",
+        onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
     ) -> Bool {
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? preferredWindow.flatMap { contextForMainWindow($0) }
@@ -6806,7 +6878,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         return CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
-            preferredWindow: resolvedWindow(for: context) ?? preferredWindow
+            preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
+            onCompletion: onCompletion
         )
     }
 
@@ -6817,7 +6890,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func executeConfiguredNewWorkspaceActionIfAvailable(
         in context: MainWindowContext,
         debugSource: String,
-        replacingInitialWorkspace initialWorkspace: Workspace? = nil
+        replacingInitialWorkspace initialWorkspace: Workspace? = nil,
+        workspaceGroupTarget: WorkspaceGroupNewWorkspaceTarget? = nil
     ) -> Bool {
         guard let cmuxConfigStore = context.cmuxConfigStore,
               let action = cmuxConfigStore.resolvedNewWorkspaceAction() else {
@@ -6834,17 +6908,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         let initialWorkspaceId = initialWorkspace?.id
-        let onExecuted: (() -> Void)? = action.workspaceCommandName == nil ? nil : { [weak self, weak context] in
-            self?.closeInitialWorkspaceIfNeeded(
-                initialWorkspaceId: initialWorkspaceId,
-                in: context
+        if let workspaceGroupTarget,
+           case .builtIn(.newWorkspace) = action.action {
+            return context.tabManager.createWorkspaceInGroup(
+                groupId: workspaceGroupTarget.groupId,
+                placement: workspaceGroupTarget.placement,
+                referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
+            ) != nil
+        }
+
+        let beforeIds = workspaceGroupTarget.map { _ in Set(context.tabManager.tabs.map(\.id)) }
+        var asyncObserverId: UUID?
+        let onExecuted: (() -> Void)? = (action.workspaceCommandName == nil && workspaceGroupTarget == nil) ? nil : { [weak self, weak context] in
+            if let context,
+               let workspaceGroupTarget,
+               let beforeIds {
+                let afterIds = context.tabManager.tabs.map(\.id)
+                var newlyCreatedId: UUID?
+                for id in afterIds where !beforeIds.contains(id) {
+                    context.tabManager.addWorkspaceToGroup(
+                        workspaceId: id,
+                        groupId: workspaceGroupTarget.groupId,
+                        placement: workspaceGroupTarget.placement,
+                        referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
+                    )
+                    newlyCreatedId = id
+                    break
+                }
+                if newlyCreatedId == nil, case .builtIn(.cloudVM) = action.action {
+                    asyncObserverId = ConfiguredGroupActionAsyncWorkspaceObserver.install(
+                        tabManager: context.tabManager,
+                        groupId: workspaceGroupTarget.groupId,
+                        knownIds: Set(afterIds),
+                        placement: workspaceGroupTarget.placement,
+                        referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
+                    )
+                }
+            }
+            if action.workspaceCommandName != nil {
+                self?.closeInitialWorkspaceIfNeeded(
+                    initialWorkspaceId: initialWorkspaceId,
+                    in: context
+                )
+            }
+        }
+        let onCloudVMCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = workspaceGroupTarget == nil ? nil : { [weak context] completion in
+            guard let context, let asyncObserverId else { return }
+            ConfiguredGroupActionAsyncWorkspaceObserver.finishPending(
+                tabManager: context.tabManager,
+                observerId: asyncObserverId,
+                workspaceId: completion.succeeded ? completion.workspaceId : nil
             )
         }
         return executeConfiguredCmuxAction(
             action,
             context: context,
             preferredWindow: window,
-            onExecuted: onExecuted
+            onExecuted: onExecuted,
+            onCloudVMCompletion: onCloudVMCompletion
+        )
+    }
+
+    private func workspaceGroupNewWorkspaceTarget(in context: MainWindowContext) -> WorkspaceGroupNewWorkspaceTarget? {
+        let tabManager = context.tabManager
+        guard let selectedWorkspaceId = tabManager.selectedTabId,
+              let selectedWorkspace = tabManager.tabs.first(where: { $0.id == selectedWorkspaceId }),
+              let groupId = selectedWorkspace.groupId,
+              let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
+            return nil
+        }
+        let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+        let configured = context.cmuxConfigStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
+        return WorkspaceGroupNewWorkspaceTarget(
+            groupId: groupId,
+            referenceWorkspaceId: selectedWorkspaceId,
+            placement: configured ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
         )
     }
 
@@ -7168,6 +7306,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = createMainWindow(initialWorkingDirectory: workingDirectory)
     }
 
+    private func openTerminalDefaultFileRequest(
+        _ request: TerminalDefaultFileOpenRequest,
+        debugSource: String
+    ) {
+        if addWorkspaceInPreferredMainWindow(
+            workingDirectory: request.workingDirectory,
+            initialTerminalInput: request.initialInput,
+            shouldBringToFront: true,
+            debugSource: debugSource
+        ) != nil {
+            return
+        }
+        _ = createMainWindow(
+            initialWorkspaceTitle: request.fileURL.lastPathComponent,
+            initialWorkingDirectory: request.workingDirectory,
+            initialTerminalInput: request.initialInput
+        )
+    }
+
     @discardableResult
     func pasteTextInPreferredMainWindowFromExternalLink(
         _ text: String,
@@ -7256,6 +7413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func addWorkspaceInPreferredMainWindow(
         workingDirectory: String? = nil,
+        initialTerminalInput: String? = nil,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
@@ -7303,8 +7461,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let workspace: Workspace
-        if let workingDirectory {
-            workspace = context.tabManager.addWorkspace(workingDirectory: workingDirectory, select: true)
+        if workingDirectory != nil || initialTerminalInput != nil {
+            workspace = context.tabManager.addWorkspace(
+                workingDirectory: workingDirectory,
+                initialTerminalInput: initialTerminalInput,
+                select: true,
+                autoWelcomeIfNeeded: initialTerminalInput == nil
+            )
         } else {
             workspace = context.tabManager.addTab(select: true)
         }
@@ -7680,6 +7843,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(sidebarSelectionState)
             .environmentObject(fileExplorerState)
             .environmentObject(cmuxConfigStore)
+            // AppKit hosts this ContentView in its own NSHostingView, which does
+            // not inherit the App scene's SwiftUI environment. Inject the
+            // settings runtime so `@LiveSetting` can resolve the stores it
+            // observes throughout the main window (e.g. the sidebar). The key is
+            // optional, so a nil runtime just leaves reads at their seeded
+            // catalog default.
+            .environment(\.settingsRuntime, settingsRuntime)
 
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.
@@ -10368,7 +10538,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         awaitingInputId: String? = nil,
         completion: @escaping ([String: String]) -> Void
     ) {
-        let expectedInputIdLiteral = cmuxJavaScriptStringLiteral(awaitingInputId) ?? "null"
+        let expectedInputIdLiteral = awaitingInputId?.javaScriptStringLiteral ?? "null"
         let script = """
         (() => {
           const expectedInputId = \(expectedInputIdLiteral);
@@ -11674,6 +11844,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func handleShortcutDefaultsDidChange() {
         clearConfiguredShortcutChordState()
+        scheduleReloadConfigurationMenuItemRefresh()
         scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
     }
 
@@ -11686,6 +11857,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // orphaned, breaking that keystroke for the focused terminal/browser
             // input.
             guard action != .showHideAllWindows && action != .globalSearch else { return false }
+            guard !action.isBrowserContentShortcut else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
     }
@@ -11730,6 +11902,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] _ in
             self?.refreshGhosttyGotoSplitShortcuts()
         }
+    }
+
+    @objc func reloadConfigurationMenuItem(_ sender: Any?) {
+        reloadConfiguration(source: "menu.reload_configuration")
+    }
+
+    func installReloadConfigurationMenuItemAction() {
+        guard let appMenu = NSApp.mainMenu?.items.first?.submenu else { return }
+        appMenu.delegate = self
+        configureReloadConfigurationMenuItem(in: appMenu)
+    }
+
+    private func scheduleReloadConfigurationMenuItemRefresh() {
+        guard !reloadConfigurationMenuItemRefreshScheduled else { return }
+        reloadConfigurationMenuItemRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.reloadConfigurationMenuItemRefreshScheduled = false
+            self.installReloadConfigurationMenuItemAction()
+        }
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === NSApp.mainMenu?.items.first?.submenu else { return }
+        configureReloadConfigurationMenuItem(in: menu)
+    }
+
+    private func configureReloadConfigurationMenuItem(in menu: NSMenu) {
+        guard let item = reloadConfigurationMenuItem(in: menu) else { return }
+
+        item.identifier = Self.reloadConfigurationMenuItemIdentifier
+        item.target = self
+        item.action = #selector(reloadConfigurationMenuItem(_:))
+
+        let shortcut = KeyboardShortcutSettings.menuShortcut(for: .reloadConfiguration)
+        if let keyEquivalent = shortcut.menuItemKeyEquivalent {
+            item.keyEquivalent = keyEquivalent
+            item.keyEquivalentModifierMask = shortcut.modifierFlags
+        } else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+        }
+    }
+
+    private func reloadConfigurationMenuItem(in menu: NSMenu) -> NSMenuItem? {
+        if let identifiedItem = menu.items.first(where: { $0.identifier == Self.reloadConfigurationMenuItemIdentifier }) {
+            return identifiedItem
+        }
+
+        let reloadConfigurationTitle = String(
+            localized: "menu.app.reloadConfiguration",
+            defaultValue: "Reload Configuration"
+        )
+        return menu.items.first(where: { $0.title == reloadConfigurationTitle })
+    }
+
+    func reloadConfiguration(
+        soft: Bool = false,
+        source: String,
+        reloadSettingsFromFile: Bool = true,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
+    ) {
+#if DEBUG
+        cmuxDebugLog("reload.config.request source=\(source) soft=\(soft)")
+#endif
+        GhosttyApp.shared.reloadConfiguration(
+            soft: soft,
+            source: source,
+            reloadSettingsFromFile: reloadSettingsFromFile,
+            preferredColorScheme: preferredColorScheme
+        )
     }
 
     func reloadCmuxConfigStores(source: String) {
@@ -12427,7 +12670,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if matchConfiguredShortcut(event: event, action: .reloadConfiguration) {
-            GhosttyApp.shared.reloadConfiguration(source: "shortcut.reloadConfiguration")
+            reloadConfiguration(source: "shortcut.reloadConfiguration")
             return true
         }
 
@@ -12596,6 +12839,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .attachTextBoxFile) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             let handled = routedManager?.attachFileToFocusedTerminalTextBoxInput() ?? false
+            return handled
+        }
+
+        if matchConfiguredShortcut(event: event, action: .sendCtrlFToTerminal) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            let handled = routedManager?.sendCtrlFToFocusedTerminal() ?? false
+#if DEBUG
+            cmuxDebugLog(
+                "shortcut.action name=sendCtrlFToTerminal handled=\(handled ? 1 : 0) " +
+                "\(debugShortcutRouteSnapshot(event: event))"
+            )
+#endif
+            // Only consume when a focused terminal actually received the chord.
             return handled
         }
 
@@ -13219,6 +13475,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = focusBrowserAddressBar(panelId: panelId)
 #endif
         return panelId
+    }
+
+    @discardableResult
+    func openSidebarExtensionBrowser(from anchorView: NSView?, title: String) -> UUID? {
+        // Defensive gate: the extensions browser is part of the experimental
+        // Extensions feature. Its entry points are hidden while disabled, but
+        // guard here too so no other path can open it.
+        guard CmuxExtensionSidebarSelection.isEnabled else { return nil }
+        let preferredWindow = anchorView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let targetTabManager = synchronizeActiveMainWindowContext(preferredWindow: preferredWindow)
+        guard let workspace = targetTabManager?.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return nil
+        }
+
+        return workspace.newSidebarExtensionBrowserSurface(
+            inPane: paneId,
+            title: title,
+            focus: true
+        )?.id
     }
 
     private func focusBrowserAddressBar(in panel: BrowserPanel) {
@@ -14125,6 +14401,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {
         return KeyboardShortcutSettings.Action.allCases.contains {
             $0.shortcutContext == .browserPanel &&
+                !$0.isBrowserContentShortcut &&
                 matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: $0))
         }
     }
@@ -14258,21 +14535,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) else {
             return false
         }
+        let anchorId = tabManager.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId
+        let groupPlacement: WorkspaceGroupNewPlacement = {
+            let cwd = anchorId.flatMap { id in
+                tabManager.tabs.first(where: { $0.id == id })?.currentDirectory
+            }
+            let configured = context.cmuxConfigStore?.resolveWorkspaceGroupConfig(forCwd: cwd)?.newWorkspacePlacement
+            return configured ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+        }()
         // Short-circuit the built-in `newWorkspace` action: it must go through
         // createWorkspaceInGroup so the new workspace inherits the anchor's
-        // cwd and honors the group's per-cwd placement (top/end), matching
+        // cwd and honors the group's configured placement, matching
         // the bare `+` button. The generic executor below uses addWorkspace()
         // which skips both behaviors.
         if case .builtIn(.newWorkspace) = action.action {
-            let placement: WorkspaceGroupNewPlacement = {
-                let anchorId = tabManager.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId
-                let cwd = anchorId.flatMap { id in
-                    tabManager.tabs.first(where: { $0.id == id })?.currentDirectory
-                }
-                let configured = context.cmuxConfigStore?.resolveWorkspaceGroupConfig(forCwd: cwd)?.newWorkspacePlacement
-                return configured ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
-            }()
-            return tabManager.createWorkspaceInGroup(groupId: groupId, placement: placement) != nil
+            return tabManager.createWorkspaceInGroup(
+                groupId: groupId,
+                placement: groupPlacement,
+                referenceWorkspaceId: anchorId
+            ) != nil
         }
         // Snapshot tab ids BEFORE the action fires so the onExecuted callback
         // (which runs after any confirmation/authorization flow completes) can
@@ -14290,32 +14571,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // had a different workspace focused before, restore it once the
         // action's onExecuted fires. Skipped when no action workspace was
         // created so we don't strand selection on the anchor.
-        let anchorId = tabManager.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId
         let previousSelectedId = tabManager.selectedTabId
         if let anchorId, anchorId != previousSelectedId,
            tabManager.tabs.contains(where: { $0.id == anchorId }) {
             tabManager.selectedTabId = anchorId
         }
-        let onExecuted: () -> Void = { [weak tabManager, groupId, beforeIds, previousSelectedId, anchorId, action] in
+        var asyncObserverId: UUID?
+        let onExecuted: () -> Void = { [weak tabManager, groupId, beforeIds, previousSelectedId, anchorId, groupPlacement, action] in
             guard let tabManager else { return }
             let afterIds = tabManager.tabs.map(\.id)
             var newlyCreatedId: UUID?
             for id in afterIds where !beforeIds.contains(id) {
-                tabManager.addWorkspaceToGroup(workspaceId: id, groupId: groupId)
+                tabManager.addWorkspaceToGroup(
+                    workspaceId: id,
+                    groupId: groupId,
+                    placement: groupPlacement,
+                    referenceWorkspaceId: anchorId
+                )
                 newlyCreatedId = id
                 break
             }
-            // Async actions (cloudVM in particular) launch a `cmux vm new`
-            // process and return before the workspace appears in tabs[]. The
-            // synchronous diff above misses it, so install a short-lived
-            // observer that joins the first subsequent new workspace to the
-            // group. Capped at ~60s so a user-cancelled VM never leaves a
-            // lingering subscription.
+            // cloudVM launches a `cmux vm new` process and returns before the
+            // workspace appears in tabs[]. The synchronous diff above misses
+            // it, so watch the tab list while the process is running. Process
+            // completion also reports the created workspace UUID as an exact
+            // fallback.
             if newlyCreatedId == nil, case .builtIn(.cloudVM) = action.action {
-                ConfiguredGroupActionAsyncWorkspaceObserver.install(
+                asyncObserverId = ConfiguredGroupActionAsyncWorkspaceObserver.install(
                     tabManager: tabManager,
                     groupId: groupId,
-                    knownIds: Set(afterIds)
+                    knownIds: Set(afterIds),
+                    placement: groupPlacement,
+                    referenceWorkspaceId: anchorId
                 )
             }
             // Restore the prior selection if the action didn't create a new
@@ -14329,13 +14616,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                tabManager.tabs.contains(where: { $0.id == previousSelectedId }) {
                 tabManager.selectedTabId = previousSelectedId
             }
-            _ = anchorId
+        }
+        let onCloudVMCompletion: (CloudVMActionLauncher.Completion) -> Void = { [weak tabManager] completion in
+            guard let tabManager, let asyncObserverId else { return }
+            ConfiguredGroupActionAsyncWorkspaceObserver.finishPending(
+                tabManager: tabManager,
+                observerId: asyncObserverId,
+                workspaceId: completion.succeeded ? completion.workspaceId : nil
+            )
         }
         let didRun = executeConfiguredCmuxAction(
             action,
             context: context,
             preferredWindow: resolvedWindow(for: context),
-            onExecuted: onExecuted
+            onExecuted: onExecuted,
+            onCloudVMCompletion: onCloudVMCompletion
         )
         // executeConfiguredCmuxAction returns false when the action couldn't
         // start at all (unresolved action ref, missing target terminal, etc.).
@@ -14357,7 +14652,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ action: CmuxResolvedConfigAction,
         context: MainWindowContext,
         preferredWindow: NSWindow? = nil,
-        onExecuted: (() -> Void)? = nil
+        onExecuted: (() -> Void)? = nil,
+        onCloudVMCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
     ) -> Bool {
         switch action.action {
         case .builtIn(let builtIn):
@@ -14370,7 +14666,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let didStart = performCloudVMAction(
                     tabManager: context.tabManager,
                     preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
-                    debugSource: "configured.cmux.cloudvm"
+                    debugSource: "configured.cmux.cloudvm",
+                    onCompletion: onCloudVMCompletion
                 )
                 if didStart { onExecuted?() }
                 return didStart
@@ -15959,7 +16256,7 @@ private extension AppDelegate {
                 guard let self,
                       self.cmuxThemePreviewReloadGeneration == generation else { return }
                 self.cmuxThemePreviewReloadWorkItem = nil
-                GhosttyApp.shared.reloadConfiguration(source: source)
+                self.reloadConfiguration(source: source)
             }
             cmuxThemePreviewReloadWorkItem = workItem
             DispatchQueue.main.asyncAfter(
@@ -15974,7 +16271,7 @@ private extension AppDelegate {
         cmuxThemePreviewReloadGeneration += 1
         cmuxThemePreviewReloadWorkItem?.cancel()
         cmuxThemePreviewReloadWorkItem = nil
-        GhosttyApp.shared.reloadConfiguration(source: source)
+        reloadConfiguration(source: source)
     }
 }
 
