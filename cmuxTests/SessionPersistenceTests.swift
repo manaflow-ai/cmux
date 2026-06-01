@@ -1387,6 +1387,15 @@ final class SessionPersistenceTests: XCTestCase {
                 ]
             ),
             (
+                .kiro,
+                [
+                    "/usr/local/bin/kiro-cli",
+                    "chat",
+                    "--agent",
+                    "cmux",
+                ]
+            ),
+            (
                 .opencode,
                 [
                     "/usr/local/bin/opencode",
@@ -1594,6 +1603,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = [:]
             case .gemini:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
+            case .kiro:
+                resolvedEnvironment = ["KIRO_HOME": "/tmp/kiro"]
             case .antigravity:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
             case .opencode:

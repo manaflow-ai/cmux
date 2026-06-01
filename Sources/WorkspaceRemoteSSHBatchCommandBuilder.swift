@@ -10,7 +10,15 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String
     ) -> [String] {
-        let script = "exec \(shellSingleQuoted(remotePath)) serve --stdio"
+        var serveArguments = ["serve", "--stdio"]
+        if let slot = configuration.persistentDaemonSlot?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !slot.isEmpty {
+            serveArguments += ["--persistent", "--slot", slot]
+        }
+        let daemonCommand = ([remotePath] + serveArguments)
+            .map(shellSingleQuoted)
+            .joined(separator: " ")
+        let script = "exec \(daemonCommand)"
         let command = "sh -c \(shellSingleQuoted(script))"
         return ["-T"]
             + batchArguments(configuration: configuration)
@@ -47,6 +55,18 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
         var args = batchArguments(configuration: configuration)
         args += ["-O", controlCommand, "-R", forwardSpec, configuration.destination]
         return args
+    }
+
+    static func reverseRelayControlMasterCancelArguments(
+        configuration: WorkspaceRemoteConfiguration,
+        relayPort: Int
+    ) -> [String]? {
+        guard relayPort > 0 else { return nil }
+        return reverseRelayControlMasterArguments(
+            configuration: configuration,
+            controlCommand: "cancel",
+            forwardSpec: "127.0.0.1:\(relayPort)"
+        )
     }
 
     private static func batchArguments(configuration: WorkspaceRemoteConfiguration) -> [String] {

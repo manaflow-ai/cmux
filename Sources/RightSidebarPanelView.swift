@@ -289,7 +289,6 @@ struct RightSidebarPanelView: View {
             keyPrefix: "rightSidebarHeaderOpenAsPane",
             isVisible: true
         )
-        .background(MinimalModeTitlebarControlHitRegionView())
         .rightSidebarHeaderControlAlignment()
         .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
         .accessibilityLabel(
@@ -299,6 +298,7 @@ struct RightSidebarPanelView: View {
             )
         )
         .accessibilityIdentifier("RightSidebar.openAsPaneButton")
+        .titlebarInteractiveControl()
     }
 
     private var closeButton: some View {
@@ -334,7 +334,6 @@ struct RightSidebarPanelView: View {
             width: RightSidebarChromeMetrics.headerControlSize,
             height: RightSidebarChromeMetrics.headerControlSize
         )
-        .background(MinimalModeTitlebarControlHitRegionView())
         .overlay(alignment: .top) {
             if showsShortcutHint {
                 ShortcutHintPill(shortcut: shortcut, fontSize: 9, emphasis: 1.05)
@@ -351,6 +350,7 @@ struct RightSidebarPanelView: View {
         }
         .rightSidebarHeaderControlAlignment()
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
+        .titlebarInteractiveControl()
     }
 
     @ViewBuilder
@@ -585,7 +585,7 @@ private struct ModeBarButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(MinimalModeTitlebarControlHitRegionView())
+        .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
         .help(helpText)
         .accessibilityIdentifier("RightSidebarModeButton.\(mode.rawValue)")

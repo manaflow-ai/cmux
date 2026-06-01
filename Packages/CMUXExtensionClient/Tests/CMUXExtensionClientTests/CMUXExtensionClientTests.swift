@@ -29,7 +29,9 @@ struct CMUXExtensionClientTests {
 
     @Test
     func testSidebarExtensionPointUsesStablePublicIdentifiers() {
-        #expect(CMUXSidebarExtensionPoint.identifier == "com.manaflow.cmux.sidebar")
+        #expect(CMUXSidebarExtensionPoint.baseIdentifier == "com.manaflow.cmux.sidebar")
+        // No Info.plist override in the test bundle, so it resolves to the base id.
+        #expect(CMUXSidebarExtensionPoint.identifier(in: .main) == "com.manaflow.cmux.sidebar")
         #expect(CMUXSidebarExtensionPoint.defaultSceneID == "sidebar")
     }
 
@@ -124,6 +126,41 @@ struct CMUXExtensionClientTests {
         #expect(rejected.message == "Extension action is not granted")
         #expect(accepted == .accepted)
         #expect(actions == [.selectWorkspace(workspaceID)])
+    }
+
+    @Test
+    func testSessionRequiresOpenURLForURLBearingBrowserCreation() async throws {
+        let workspaceID = UUID()
+        let emptyAction = CMUXSidebarAction.createBrowserSurface(workspaceID: workspaceID, url: nil)
+        let urlAction = CMUXSidebarAction.createBrowserSurface(workspaceID: workspaceID, url: "https://example.com")
+        let recorder = ActionRecorder()
+        let client = CMUXSidebarHostClient(
+            snapshot: {
+                CMUXSidebarSnapshot(sequence: 1, selectedWorkspaceID: nil, workspaces: [])
+            },
+            dispatch: { action in
+                await recorder.append(action)
+                return .accepted
+            }
+        )
+        let session = try CMUXSidebarExtensionSession(
+            manifest: CMUXExtensionManifest(
+                id: "dev.example.sidebar",
+                displayName: "Example",
+                requestedActionScopes: [.createSurface, .openURL]
+            ),
+            client: client,
+            grantedActionScopes: [.createSurface]
+        )
+
+        let emptyBrowser = try await session.perform(emptyAction)
+        let urlBrowser = try await session.perform(urlAction)
+        let actions = await recorder.actions()
+
+        #expect(emptyBrowser == .accepted)
+        #expect(!urlBrowser.accepted)
+        #expect(urlBrowser.message == "Extension action is not granted")
+        #expect(actions == [emptyAction])
     }
 }
 

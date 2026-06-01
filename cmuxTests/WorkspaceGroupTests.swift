@@ -418,6 +418,103 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func createWorkspaceInGroupAfterCurrentPlacesAfterReferenceMember() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+            originalIds[3],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        let inserted = try #require(manager.createWorkspaceInGroup(
+            groupId: groupId,
+            placement: .afterCurrent,
+            referenceWorkspaceId: originalIds[2],
+            select: false
+        ))
+
+        #expect(inserted.groupId == groupId)
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            originalIds[1],
+            originalIds[2],
+            inserted.id,
+            originalIds[3],
+        ])
+    }
+
+    @Test func createWorkspaceInGroupAfterCurrentAnchorReferenceFallsBackToTop() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        let inserted = try #require(manager.createWorkspaceInGroup(
+            groupId: groupId,
+            placement: .afterCurrent,
+            referenceWorkspaceId: group.anchorWorkspaceId,
+            select: false
+        ))
+
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            inserted.id,
+            originalIds[1],
+            originalIds[2],
+        ])
+    }
+
+    @Test func addingExistingWorkspaceToGroupHonorsPlacementReference() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        manager.addWorkspaceToGroup(
+            workspaceId: originalIds[0],
+            groupId: groupId,
+            placement: .afterCurrent,
+            referenceWorkspaceId: originalIds[1]
+        )
+
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            originalIds[1],
+            originalIds[0],
+            originalIds[2],
+        ])
+    }
+
+    @Test(arguments: [
+        ("afterCurrent", WorkspaceGroupNewPlacement?.some(.afterCurrent)),
+        ("after-current", WorkspaceGroupNewPlacement?.some(.afterCurrent)),
+        ("after_current", WorkspaceGroupNewPlacement?.some(.afterCurrent)),
+        ("top", WorkspaceGroupNewPlacement?.some(.top)),
+        ("end", WorkspaceGroupNewPlacement?.some(.end)),
+        ("middle", nil),
+    ])
+    func workspaceGroupNewPlacementParsesConfigSpellings(
+        input: String,
+        expected: WorkspaceGroupNewPlacement?
+    ) {
+        #expect(WorkspaceGroupNewPlacement(rawString: input) == expected)
+    }
+
     @Test func removeNonAnchorPreservesGroup() {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)
@@ -581,5 +678,34 @@ struct WorkspaceGroupTests {
         #expect(restoredGroup.isPinned == true)
         #expect(restoredGroup.customColor == "#123456")
         #expect(restoredGroup.iconSymbol == "leaf.fill")
+    }
+
+    @Test func workspaceGroupIconSymbolResolutionFallsBackToRenderableIcon() {
+        #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: nil, configured: nil) == "folder.fill")
+        #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: "   ", configured: "leaf.fill") == "leaf.fill")
+        #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: "not.an.sf.symbol", configured: nil) == "folder.fill")
+    }
+
+    @Test func setWorkspaceGroupIconDropsInvalidSymbols() {
+        let manager = makeTabManager()
+        let groupId = manager.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [manager.tabs[0].id]
+        )!
+
+        let invalidStoredIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "not.an.sf.symbol")
+        #expect(invalidStoredIcon == nil)
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == nil)
+
+        let validStoredIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "  leaf.fill  ")
+        #expect(validStoredIcon == "leaf.fill")
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == "leaf.fill")
+    }
+
+    @Test func surfaceTabIconSymbolResolutionFallsBackForInvalidInput() {
+        #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("doc.text") == "doc.text")
+        #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   doc.text   ") == "doc.text")
+        #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("not.an.sf.symbol") == "doc.text")
+        #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   ") == "doc.text")
     }
 }

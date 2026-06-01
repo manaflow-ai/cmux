@@ -50,7 +50,7 @@ public actor CMUXSidebarExtensionSession {
     /// - Returns: Host action result.
     /// - Throws: Errors thrown by the host dispatch callback.
     public func perform(_ action: CMUXSidebarAction) async throws -> CMUXExtensionActionResult {
-        guard grantedActionScopes.contains(action.requiredScope) else {
+        guard grantedActionScopes.isSuperset(of: action.requiredScopes) else {
             return .rejected("Extension action is not granted")
         }
         return try await client.dispatch(action)

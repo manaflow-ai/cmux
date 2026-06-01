@@ -48,6 +48,10 @@ extension SidebarWorkspaceDetailDefaults {
     static func watchGitStatusValue(defaults: UserDefaults) -> Bool {
         boolValue(defaults: defaults, key: watchGitStatusKey, defaultValue: watchGitStatus)
     }
+
+    static func pullRequestPollingEnabled(defaults: UserDefaults) -> Bool {
+        watchGitStatusValue(defaults: defaults) && showPullRequestsValue(defaults: defaults)
+    }
 }
 
 enum AutomationSettings {
@@ -83,6 +87,7 @@ extension CmuxSettingsFileStore {
         "app.hideTabCloseButton",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
+        "workspaceGroups.newWorkspacePlacement",
         "terminal.showScrollBar",
         "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
@@ -139,6 +144,8 @@ extension CmuxSettingsFileStore {
         "automation.suppressSubagentNotifications",
         "automation.cursorIntegration",
         "automation.geminiIntegration",
+        "automation.kiroIntegration",
+        "automation.kiroNotificationLevel",
         "automation.portBase",
         "automation.portRange",
         "browser.defaultSearchEngine",

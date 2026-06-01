@@ -13,7 +13,10 @@ extension VerticalTabsSidebar {
         let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
-        let effectiveIcon = group.iconSymbol ?? resolvedConfig?.iconSymbol ?? "folder.fill"
+        let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
+            explicit: group.iconSymbol,
+            configured: resolvedConfig?.iconSymbol
+        )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
         let anchorUnreadCount: Int = {

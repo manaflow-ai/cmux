@@ -1,7 +1,11 @@
-import CMUXSocketPathDomain
-import Foundation
+public import Foundation
 
-extension SocketControlSettings {
+public extension SocketControlSettings {
+    /// Records the active socket path to every marker file for the current build variant.
+    /// - Parameters:
+    ///   - path: The socket path to record.
+    ///   - bundleIdentifier: The running app's bundle identifier.
+    ///   - environment: The process environment.
     static func recordLastSocketPath(
         _ path: String,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
@@ -13,6 +17,12 @@ extension SocketControlSettings {
         }
     }
 
+    /// The marker file paths that record the last socket path for the current build variant.
+    /// - Parameters:
+    ///   - bundleIdentifier: The running app's bundle identifier.
+    ///   - environment: The process environment.
+    ///   - fileManager: The file manager used to resolve Application Support; defaults to `.default`.
+    /// - Returns: The marker file paths to write.
     static func lastSocketPathFiles(
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         environment: [String: String] = ProcessInfo.processInfo.environment,

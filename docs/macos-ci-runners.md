@@ -2,12 +2,14 @@
 
 All paid macOS CI/CD jobs pick their runner from two repository variables instead of a hardcoded label:
 
-- `MACOS_RUNNER_15` for macOS 15 jobs (most jobs, plus the e2e/perf defaults)
-- `MACOS_RUNNER_26` for macOS 26 jobs (release, nightly, compat)
+- `MACOS_RUNNER_15` for jobs that build the real universal Release app, including nightly, stable release, `release-build`, and the e2e/perf defaults.
+- `MACOS_RUNNER_26` for macOS 26 compatibility coverage and jobs that do not need Zig to build the real universal Ghostty CLI helper.
 
 Workflows reference them as `runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}`. If a variable is unset, the job still uses Blacksmith.
 
 ## Blacksmith defaults
+
+Nightly and stable release stay on macOS 15 until Zig can link the real universal Ghostty CLI helper on macOS 26. `ci-macos-compat.yml` still covers macOS 26 by setting `CMUX_SKIP_ZIG_BUILD=1`, but publishing workflows cannot use that stub because the signed artifacts must include the real helper.
 
 The defaults are checked into the workflows. The repo variables are an override layer and take effect on the next workflow run, with no PR or commit.
 
