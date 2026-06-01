@@ -111,6 +111,15 @@ public final class UpdateStateModel {
         detectedUpdateVersion = nil
     }
 
+    #if DEBUG
+    /// Sets the detected-update version directly without an appcast item. DEBUG-only, for UI
+    /// test scaffolding that wants to surface the passive banner without a real appcast.
+    public func debugSetDetectedVersion(_ version: String?) {
+        detectedUpdateItem = nil
+        detectedUpdateVersion = version
+    }
+    #endif
+
     /// Dismisses a detected available update, replying `.dismiss` to Sparkle for whichever of
     /// ``state``/``overrideState`` is carrying it, and clearing the detected-update banner.
     public func dismissDetectedAvailableUpdate() {
