@@ -2377,7 +2377,13 @@ struct ContentView: View {
             }
             .frame(height: titlebarContentHeight)
             .padding(.top, 2)
-            .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? sidebarWidth + 12 : titlebarLeadingInset))
+            .padding(.leading, TitlebarFolderTitleLayout.leadingInset(
+                isFullScreen: isFullScreen,
+                sidebarVisible: sidebarState.isVisible,
+                sidebarWidth: sidebarWidth,
+                minimumSidebarWidth: minimumSidebarWidth,
+                collapsedInset: titlebarLeadingInset
+            ))
             .padding(.trailing, 8)
         }
         .frame(height: WindowChromeMetrics.appTitlebarHeight)
