@@ -4842,41 +4842,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         }
 
+        let postAttachActions = Self.surfaceMovePostAttachActions(
+            focus: focus,
+            sourceWorkspaceIsEmpty: sourceWorkspace.panels.isEmpty,
+            sourceWorkspaceIsRegistered: source.tabManager.tabs.contains { $0.id == sourceWorkspace.id },
+            sourceWorkspaceCount: source.tabManager.tabs.count
+        )
+
 #if DEBUG
         var focusMs = "0.00"
+        var cleanupMs = "0.00"
 #endif
-        if focus {
+        for action in postAttachActions {
+            switch action {
+            case .focusDestination:
 #if DEBUG
-            let focusStart = ProcessInfo.processInfo.systemUptime
+                let focusStart = ProcessInfo.processInfo.systemUptime
 #endif
-            let destinationWindowId = focusWindow ? windowId(for: destinationManager) : nil
-            if let destinationWindowId {
-                _ = focusMainWindow(windowId: destinationWindowId)
-            }
-            destinationManager.focusTab(targetWorkspaceId, surfaceId: panelId, suppressFlash: true)
-            if let destinationWindowId {
-                reassertCrossWindowSurfaceMoveFocusIfNeeded(
-                    destinationWindowId: destinationWindowId,
-                    sourceWindowId: source.windowId,
-                    destinationWorkspaceId: targetWorkspaceId,
-                    destinationPanelId: panelId,
-                    destinationManager: destinationManager
+                let destinationWindowId = focusWindow ? windowId(for: destinationManager) : nil
+                if let destinationWindowId {
+                    _ = focusMainWindow(windowId: destinationWindowId)
+                }
+                destinationManager.focusTab(targetWorkspaceId, surfaceId: panelId, suppressFlash: true)
+                if let destinationWindowId {
+                    reassertCrossWindowSurfaceMoveFocusIfNeeded(
+                        destinationWindowId: destinationWindowId,
+                        sourceWindowId: source.windowId,
+                        destinationWorkspaceId: targetWorkspaceId,
+                        destinationPanelId: panelId,
+                        destinationManager: destinationManager
+                    )
+                }
+#if DEBUG
+                focusMs = elapsedMs(since: focusStart)
+#endif
+            case .cleanupEmptySourceWorkspace(let cleanupAction):
+#if DEBUG
+                let cleanupStart = ProcessInfo.processInfo.systemUptime
+#endif
+                performEmptySourceWorkspaceCleanupAfterSurfaceMove(
+                    cleanupAction,
+                    sourceWorkspace: sourceWorkspace,
+                    sourceManager: source.tabManager,
+                    sourceWindowId: source.windowId
                 )
-            }
 #if DEBUG
-            focusMs = elapsedMs(since: focusStart)
+                cleanupMs = elapsedMs(since: cleanupStart)
 #endif
+            }
         }
 #if DEBUG
-        let cleanupStart = ProcessInfo.processInfo.systemUptime
-#endif
-        cleanupEmptySourceWorkspaceAfterSurfaceMove(
-            sourceWorkspace: sourceWorkspace,
-            sourceManager: source.tabManager,
-            sourceWindowId: source.windowId
-        )
-#if DEBUG
-        let cleanupMs = elapsedMs(since: cleanupStart)
         cmuxDebugLog(
             "surface.move.end panel=\(panelId.uuidString.prefix(5)) path=crossWorkspace moved=1 " +
             "sourceWs=\(sourceWorkspace.id.uuidString.prefix(5)) destinationWs=\(destinationWorkspace.id.uuidString.prefix(5)) " +
@@ -5668,12 +5683,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sourceManager: TabManager,
         sourceWindowId: UUID
     ) {
-        guard sourceWorkspace.panels.isEmpty else { return }
-        guard sourceManager.tabs.contains(where: { $0.id == sourceWorkspace.id }) else { return }
+        guard let action = Self.emptySourceWorkspaceCleanupAction(
+            sourceWorkspaceIsEmpty: sourceWorkspace.panels.isEmpty,
+            sourceWorkspaceIsRegistered: sourceManager.tabs.contains(where: { $0.id == sourceWorkspace.id }),
+            sourceWorkspaceCount: sourceManager.tabs.count
+        ) else {
+            return
+        }
 
-        if sourceManager.tabs.count > 1 {
+        performEmptySourceWorkspaceCleanupAfterSurfaceMove(
+            action,
+            sourceWorkspace: sourceWorkspace,
+            sourceManager: sourceManager,
+            sourceWindowId: sourceWindowId
+        )
+    }
+
+    enum EmptySourceWorkspaceCleanupAction: Equatable {
+        case closeWorkspace
+        case closeWindow
+    }
+
+    enum SurfaceMovePostAttachAction: Equatable {
+        case focusDestination
+        case cleanupEmptySourceWorkspace(EmptySourceWorkspaceCleanupAction)
+    }
+
+    static func emptySourceWorkspaceCleanupAction(
+        sourceWorkspaceIsEmpty: Bool,
+        sourceWorkspaceIsRegistered: Bool,
+        sourceWorkspaceCount: Int
+    ) -> EmptySourceWorkspaceCleanupAction? {
+        guard sourceWorkspaceIsEmpty, sourceWorkspaceIsRegistered else { return nil }
+        return sourceWorkspaceCount > 1 ? .closeWorkspace : .closeWindow
+    }
+
+    static func surfaceMovePostAttachActions(
+        focus: Bool,
+        sourceWorkspaceIsEmpty: Bool,
+        sourceWorkspaceIsRegistered: Bool,
+        sourceWorkspaceCount: Int
+    ) -> [SurfaceMovePostAttachAction] {
+        var actions: [SurfaceMovePostAttachAction] = []
+        if focus {
+            actions.append(.focusDestination)
+        }
+        if let cleanup = emptySourceWorkspaceCleanupAction(
+            sourceWorkspaceIsEmpty: sourceWorkspaceIsEmpty,
+            sourceWorkspaceIsRegistered: sourceWorkspaceIsRegistered,
+            sourceWorkspaceCount: sourceWorkspaceCount
+        ) {
+            actions.append(.cleanupEmptySourceWorkspace(cleanup))
+        }
+        return actions
+    }
+
+    func performEmptySourceWorkspaceCleanupAfterSurfaceMove(
+        _ action: EmptySourceWorkspaceCleanupAction,
+        sourceWorkspace: Workspace,
+        sourceManager: TabManager,
+        sourceWindowId: UUID
+    ) {
+        switch action {
+        case .closeWorkspace:
             sourceManager.closeWorkspace(sourceWorkspace, recordHistory: false)
-        } else {
+        case .closeWindow:
             _ = closeMainWindow(windowId: sourceWindowId, recordHistory: false)
         }
     }

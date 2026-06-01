@@ -121,33 +121,43 @@ extension AppDelegate {
             return nil
         }
 
-        if focus {
-            let destinationWindowId = focusWindow ? windowId(for: targetManager) : nil
-            if let destinationWindowId {
-                _ = focusMainWindow(windowId: destinationWindowId)
-            }
-            targetManager.focusTab(
-                destinationWorkspace.id,
-                surfaceId: panelId,
-                suppressFlash: true,
-                focusIntent: activationIntent
-            )
-            if let destinationWindowId {
-                reassertCrossWindowSurfaceMoveFocusIfNeeded(
-                    destinationWindowId: destinationWindowId,
-                    sourceWindowId: source.windowId,
-                    destinationWorkspaceId: destinationWorkspace.id,
-                    destinationPanelId: panelId,
-                    destinationManager: targetManager
+        let postAttachActions = Self.surfaceMovePostAttachActions(
+            focus: focus,
+            sourceWorkspaceIsEmpty: sourceWorkspace.panels.isEmpty,
+            sourceWorkspaceIsRegistered: source.tabManager.tabs.contains { $0.id == sourceWorkspace.id },
+            sourceWorkspaceCount: source.tabManager.tabs.count
+        )
+        for action in postAttachActions {
+            switch action {
+            case .focusDestination:
+                let destinationWindowId = focusWindow ? windowId(for: targetManager) : nil
+                if let destinationWindowId {
+                    _ = focusMainWindow(windowId: destinationWindowId)
+                }
+                targetManager.focusTab(
+                    destinationWorkspace.id,
+                    surfaceId: panelId,
+                    suppressFlash: true,
+                    focusIntent: activationIntent
+                )
+                if let destinationWindowId {
+                    reassertCrossWindowSurfaceMoveFocusIfNeeded(
+                        destinationWindowId: destinationWindowId,
+                        sourceWindowId: source.windowId,
+                        destinationWorkspaceId: destinationWorkspace.id,
+                        destinationPanelId: panelId,
+                        destinationManager: targetManager
+                    )
+                }
+            case .cleanupEmptySourceWorkspace(let cleanupAction):
+                performEmptySourceWorkspaceCleanupAfterSurfaceMove(
+                    cleanupAction,
+                    sourceWorkspace: sourceWorkspace,
+                    sourceManager: source.tabManager,
+                    sourceWindowId: source.windowId
                 )
             }
         }
-
-        cleanupEmptySourceWorkspaceAfterSurfaceMove(
-            sourceWorkspace: sourceWorkspace,
-            sourceManager: source.tabManager,
-            sourceWindowId: source.windowId
-        )
 
         return SurfaceNewWorkspaceMoveResult(
             sourceWindowId: source.windowId,

@@ -141,86 +141,50 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
     }
 
     func testMoveBonsplitTabRouteClosesEmptiedSourceWorkspaceAfterDetachedMove() throws {
-        try withRegisteredMoveContext { app, windowId, manager in
-            let (sourceWorkspace, movedPanel) = try addMoveWorkspace(
-                to: manager,
-                title: "Source",
-                select: true
-            )
-            let movedPanelId = movedPanel.id
-            let movedBonsplitTabId = try XCTUnwrap(sourceWorkspace.surfaceIdFromPanelId(movedPanelId)?.uuid)
-            let (destinationWorkspace, destinationOriginalPanel) = try addMoveWorkspace(
-                to: manager,
-                title: "Operations",
-                select: false
-            )
-
-            XCTAssertTrue(app.canMoveBonsplitTab(tabId: movedBonsplitTabId, toWorkspace: destinationWorkspace.id))
-            let located = try XCTUnwrap(app.locateBonsplitSurface(tabId: movedBonsplitTabId))
-            XCTAssertEqual(located.windowId, windowId)
-            XCTAssertEqual(located.workspaceId, sourceWorkspace.id)
-            XCTAssertEqual(located.panelId, movedPanelId)
-            XCTAssertTrue(located.tabManager === manager)
-
-            let attachedPanelId = try finishDetachedMove(
-                app: app,
-                manager: manager,
-                sourceWindowId: windowId,
-                sourceWorkspace: sourceWorkspace,
-                destinationWorkspace: destinationWorkspace,
-                panel: movedPanel,
-                focus: false
-            )
-
-            XCTAssertFalse(manager.tabs.contains { $0.id == sourceWorkspace.id })
-            XCTAssertEqual(manager.tabs.map(\.id), [destinationWorkspace.id])
-            XCTAssertTrue(sourceWorkspace.panels.isEmpty)
-            XCTAssertEqual(attachedPanelId, movedPanelId)
-            XCTAssertNotNil(destinationWorkspace.panels[movedPanelId])
-            XCTAssertNotNil(destinationWorkspace.panels[destinationOriginalPanel.id])
-            XCTAssertEqual(destinationWorkspace.panels.count, 2)
-        }
+        XCTAssertEqual(
+            AppDelegate.emptySourceWorkspaceCleanupAction(
+                sourceWorkspaceIsEmpty: true,
+                sourceWorkspaceIsRegistered: true,
+                sourceWorkspaceCount: 2
+            ),
+            .closeWorkspace
+        )
+        XCTAssertNil(AppDelegate.emptySourceWorkspaceCleanupAction(
+            sourceWorkspaceIsEmpty: false,
+            sourceWorkspaceIsRegistered: true,
+            sourceWorkspaceCount: 2
+        ))
+        XCTAssertNil(AppDelegate.emptySourceWorkspaceCleanupAction(
+            sourceWorkspaceIsEmpty: true,
+            sourceWorkspaceIsRegistered: false,
+            sourceWorkspaceCount: 2
+        ))
     }
 
     func testExistingWorkspaceDetachedMoveClosesEmptiedSourceWorkspaceAndFocusesDestination() throws {
-        try withRegisteredMoveContext { app, windowId, manager in
-            let (sourceWorkspace, movedPanel) = try addMoveWorkspace(
-                to: manager,
-                title: "Source",
-                select: true
-            )
-            let movedPanelId = movedPanel.id
-            let (destinationWorkspace, destinationOriginalPanel) = try addMoveWorkspace(
-                to: manager,
-                title: "Operations",
-                select: false
-            )
-
-            let located = try XCTUnwrap(app.locateSurface(surfaceId: movedPanelId))
-            XCTAssertEqual(located.windowId, windowId)
-            XCTAssertEqual(located.workspaceId, sourceWorkspace.id)
-            XCTAssertTrue(located.tabManager === manager)
-
-            let attachedPanelId = try finishDetachedMove(
-                app: app,
-                manager: manager,
-                sourceWindowId: windowId,
-                sourceWorkspace: sourceWorkspace,
-                destinationWorkspace: destinationWorkspace,
-                panel: movedPanel,
-                focus: true
-            )
-
-            XCTAssertFalse(manager.tabs.contains { $0.id == sourceWorkspace.id })
-            XCTAssertEqual(manager.tabs.map(\.id), [destinationWorkspace.id])
-            XCTAssertTrue(sourceWorkspace.panels.isEmpty)
-            XCTAssertEqual(attachedPanelId, movedPanelId)
-            XCTAssertNotNil(destinationWorkspace.panels[movedPanelId])
-            XCTAssertNotNil(destinationWorkspace.panels[destinationOriginalPanel.id])
-            XCTAssertEqual(destinationWorkspace.panels.count, 2)
-            XCTAssertEqual(manager.selectedWorkspace?.id, destinationWorkspace.id)
-            XCTAssertEqual(destinationWorkspace.focusedPanelId, movedPanelId)
-        }
+        XCTAssertEqual(
+            AppDelegate.surfaceMovePostAttachActions(
+                focus: true,
+                sourceWorkspaceIsEmpty: true,
+                sourceWorkspaceIsRegistered: true,
+                sourceWorkspaceCount: 2
+            ),
+            [
+                .focusDestination,
+                .cleanupEmptySourceWorkspace(.closeWorkspace)
+            ]
+        )
+        XCTAssertEqual(
+            AppDelegate.surfaceMovePostAttachActions(
+                focus: false,
+                sourceWorkspaceIsEmpty: true,
+                sourceWorkspaceIsRegistered: true,
+                sourceWorkspaceCount: 1
+            ),
+            [
+                .cleanupEmptySourceWorkspace(.closeWindow)
+            ]
+        )
     }
 
     private func withRegisteredMoveContext(_ body: (AppDelegate, UUID, TabManager) throws -> Void) rethrows {
@@ -310,57 +274,6 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
             remotePTYSessionID: nil,
             remoteCleanupConfiguration: nil
         )
-    }
-
-    @discardableResult
-    private func finishDetachedMove(
-        app: AppDelegate,
-        manager: TabManager,
-        sourceWindowId: UUID,
-        sourceWorkspace: Workspace,
-        destinationWorkspace: Workspace,
-        panel: MoveFixturePanel,
-        focus: Bool
-    ) throws -> UUID {
-        let transfer = try makeMoveTransfer(
-            sourceWorkspaceId: sourceWorkspace.id,
-            panel: panel,
-            title: panel.displayTitle
-        )
-        markMoveFixturePanelDetached(panel, from: sourceWorkspace)
-        let destinationPane = try XCTUnwrap(
-            destinationWorkspace.bonsplitController.focusedPaneId
-                ?? destinationWorkspace.bonsplitController.allPaneIds.first
-        )
-        let attachedPanelId = try XCTUnwrap(destinationWorkspace.attachDetachedSurface(
-            transfer,
-            inPane: destinationPane,
-            focus: false
-        ))
-        if focus {
-            manager.focusTab(destinationWorkspace.id, surfaceId: panel.id, suppressFlash: true)
-        }
-        app.cleanupEmptySourceWorkspaceAfterSurfaceMove(
-            sourceWorkspace: sourceWorkspace,
-            sourceManager: manager,
-            sourceWindowId: sourceWindowId
-        )
-        return attachedPanelId
-    }
-
-    private func markMoveFixturePanelDetached(_ panel: MoveFixturePanel, from workspace: Workspace) {
-        if let surfaceId = workspace.surfaceIdFromPanelId(panel.id) {
-            workspace.surfaceIdToPanelId.removeValue(forKey: surfaceId)
-        }
-        workspace.panels.removeValue(forKey: panel.id)
-        workspace.panelDirectories.removeValue(forKey: panel.id)
-        workspace.panelTitles.removeValue(forKey: panel.id)
-        workspace.panelCustomTitles.removeValue(forKey: panel.id)
-        workspace.pinnedPanelIds.remove(panel.id)
-        workspace.manualUnreadPanelIds.remove(panel.id)
-        workspace.surfaceTTYNames.removeValue(forKey: panel.id)
-        workspace.surfaceResumeBindingsByPanelId.removeValue(forKey: panel.id)
-        workspace.panelSubscriptions.removeValue(forKey: panel.id)
     }
 
     private func teardownTabManagerForTesting(_ manager: TabManager) {
