@@ -275,6 +275,8 @@ When in doubt, **extract leaf-first**: pull out the package that has no internal
 
 The existing packages under `Packages/` predate this policy and should not be used as design references.
 
+**Wiring a new local package into the project.** `cmux.xcodeproj` lists package dependencies explicitly (it is not a synchronized-folder project). Adding `Packages/CmuxFoo` means mirroring an existing package's `project.pbxproj` entries — one `XCLocalSwiftPackageReference` (in the project's `packageReferences`), one `XCSwiftPackageProductDependency`, and a `PBXBuildFile` linked in the Frameworks phase of **every** target that imports it. The app-target packages link into **both** `cmux` and `cmux-unit` (so tests can `import` and inject them); copy a recent leaf like `CmuxSocketControl` for the exact shape, then run `scripts/normalize-pbxproj.py` and `scripts/check-pbxproj.sh`. A package the app builds against but `cmux-unit` does not link will compile the app yet fail the test target.
+
 ## File organization
 
 One major type per file. Each `struct`, `class`, `enum`, `actor`, or `protocol` that is part of a public API (or has any meaningful body) lives in its own file named after the type (`Control.swift`, `LabeledChoice.swift`, `ListControl.swift` — not one shared `SettingControl.swift`). This rule applies to all new code in `Packages/` and to any new files added to the app target.
@@ -315,6 +317,7 @@ Every public type added to `Packages/` must be **testable from a test target** w
 
 - **No global state in package code.** Every public type that needs `UserDefaults`, `FileManager`, an on-disk path, an environment variable, or a clock takes it via initializer parameter. Tests pass a `UserDefaults(suiteName:)` scoped to the test, a temp directory URL, a fixed `Date`, etc.
 - **No reliance on `.shared` / `.standard`.** A public type that hardcodes `UserDefaults.standard` or `FileManager.default` inside its implementation cannot be tested without polluting the developer's actual settings. Inject these at the seam.
+- **Test through injected seams, never a static test hook.** A `nonisolated(unsafe) static var fooForTesting` (or any global mutable "override" a test swaps in) is global state by another name: it leaks across tests, forces `nonisolated(unsafe)`, and usually needs a lock. Replace it with a protocol seam injected through `init` (e.g. `init(commandRunner: any CommandRunning = CommandRunner())`); the test passes a conforming fake. When you extract such a type into a package, deleting the static hook (and the lock it required) is part of the extraction, not a follow-up.
 - **Public APIs return values, not side effects, where possible.** A function that mutates global UserDefaults and returns `Void` is harder to test than one that returns the changed value and lets the caller persist. Prefer pure transformations + thin imperative layers.
 - **Asynchronous APIs surface their observation as `AsyncStream`.** Tests can iterate `AsyncStream` deterministically and assert the sequence of yielded values. Avoid `NotificationCenter`-only patterns where the test has to spin a runloop.
 - **Document the test pattern** alongside any non-trivial public surface. The package's `README.md` and any DocC catalog should show how to instantiate the type with test-friendly dependencies.
@@ -326,6 +329,8 @@ If a design is hard to test, it is wrong. Reach for the constructor parameter li
 All new code in `Packages/` and any new files added to the app target use Swift 6 concurrency primitives: `actor`, `async`/`await`, `AsyncStream`/`AsyncSequence`, `@Observable`, `@MainActor`. Old primitives — locks, manual KVO, `@Published`, completion handlers, `DispatchQueue` used as a serial lock — are not allowed.
 
 If you find yourself reaching for a lock, the type is the wrong shape. Promote it to an `actor`.
+
+When **extracting** existing code that uses a forbidden primitive into a package, redesign the primitive at the seam — do not carry it across. The common case is an `NSLock` coordinating a single-resume race (a `Process` termination handler vs. a timeout vs. a spawn failure, all racing to resume one `withCheckedContinuation`): replace it with a tiny `actor` guard (e.g. `actor ResumeGuard { func claim() -> Bool }`) so exactly one path resumes the continuation. Drain `Process` pipes concurrently on detached tasks keyed by the raw fd (an `Int32` is `Sendable`; a `FileHandle` is not).
 
 **Forbidden in new code (no exceptions without a written justification in the PR description):**
 
@@ -350,6 +355,7 @@ These low-level primitives have no async-native replacement. They must be hidden
 
 - `DispatchSource.makeFileSystemObjectSource` for file watching (no Foundation async equivalent).
 - `DispatchSource.makeReadSource`/`makeWriteSource` for low-level socket I/O.
+- `DispatchSource.makeTimerSource` (one-shot) for a genuine deadline/timeout, e.g. a subprocess time limit. A real deadline needs a timer, and the async-native timers are disallowed here (`Task.sleep` is banned in runtime code; `DispatchQueue.asyncAfter` is a forbidden timing hack). Hide the timer behind the type and cancel it on the non-timeout path. This is for true deadlines only, never to poll or to fake a sleep.
 - `NSKeyValueObservation` token (the closure-based API) when wrapping a Foundation/AppKit type that exposes change only via KVO.
 
 **`@unchecked Sendable` and `nonisolated(unsafe)`:**
@@ -415,6 +421,7 @@ Swift Testing is the current Apple-supported primitive for tests on this codebas
 
 - **E2E / UI tests:** trigger via `gh workflow run test-e2e.yml` (see cmuxterm-hq CLAUDE.md for details)
 - **Unit tests:** `xcodebuild -scheme cmux-unit` is safe (no app launch), but prefer CI
+- **`reload.sh` does not compile the test target.** It builds only the `cmux` scheme, so a green `reload.sh` says nothing about whether `cmuxTests`/`cmuxUITests` still compile. A symbol that is moved or renamed can keep the `cmux` app building while breaking the test target (real case: a `write(to:atomically:)` typo and a removed `TabManager.CommandResult` only surfaced in the `tests` job). Before pushing package/refactor changes, build the `cmux-unit` scheme (with `-derivedDataPath /tmp/cmux-<tag>` and, for `cmuxApp`/`AppDelegate` churn, the GlobalISel workaround flag) or let the `tests` CI job gate it — never treat `reload.sh` alone as proof the tests build.
 - **Python socket tests (tests_v2/):** these connect to a running cmux instance's socket. Never launch an untagged `cmux DEV.app` to run them. If you must test locally, use a tagged build's socket (`/tmp/cmux-debug-<tag>.sock`) with `CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock`
 - **Never `open` an untagged `cmux DEV.app`** from DerivedData. It conflicts with the user's running debug instance.
 
