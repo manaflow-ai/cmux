@@ -1,5 +1,4 @@
 public import Foundation
-import os
 #if canImport(Security)
 import Security
 #endif
@@ -28,35 +27,31 @@ public struct SocketControlPasswordStore: Sendable {
     private static let legacyKeychainService = "com.cmuxterm.app.socket-control"
     private static let legacyKeychainAccount = "local-socket-password"
 
-    private struct LazyKeychainFallbackCache {
-        var hasLoaded = false
-        var password: String?
-    }
-
     private let environment: [String: String]
     private let fileURLOverride: URL?
     private let loadKeychainPassword: @Sendable () -> String?
     private let deleteKeychainPassword: @Sendable () -> Bool
-    // OSAllocatedUnfairLock guards a tiny in-memory cache so the rarely-used keychain
-    // fallback is read at most once per store instance. Copies of this value share the
-    // lock (reference semantics), so the single injected store keeps one cache. A lock is
-    // used rather than an actor because the socket auth path that reads it is synchronous
-    // and nonisolated, with no async seam to await an actor.
-    private let fallbackCache = OSAllocatedUnfairLock(initialState: LazyKeychainFallbackCache())
+    // FileManager is Apple-documented thread-safe for the file operations used here
+    // (existence checks, directory creation, attribute writes, removal), so it is safe
+    // to read from the synchronous, `nonisolated` socket-auth path without isolation.
+    private nonisolated(unsafe) let fileManager: FileManager
 
     /// Creates a password store backed by the real legacy keychain.
     /// - Parameters:
     ///   - environment: The process environment used to read `CMUX_SOCKET_PASSWORD`.
     ///   - fileURL: An explicit password file URL; defaults to the Application Support location.
+    ///   - fileManager: The file manager used to read and write the password file; defaults to `.default`.
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileURL: URL? = nil
+        fileURL: URL? = nil,
+        fileManager: FileManager = .default
     ) {
         // An init body (unlike a default-argument value) may reference private statics,
         // so the real keychain accessors stay private to the type.
         self.init(
             environment: environment,
             fileURL: fileURL,
+            fileManager: fileManager,
             loadKeychainPassword: { Self.loadLegacyPasswordFromKeychain() },
             deleteKeychainPassword: { Self.deleteLegacyPasswordFromKeychain() }
         )
@@ -66,16 +61,19 @@ public struct SocketControlPasswordStore: Sendable {
     /// - Parameters:
     ///   - environment: The process environment used to read `CMUX_SOCKET_PASSWORD`.
     ///   - fileURL: An explicit password file URL; defaults to the Application Support location.
+    ///   - fileManager: The file manager used to read and write the password file; defaults to `.default`.
     ///   - loadKeychainPassword: Reads the legacy keychain password.
     ///   - deleteKeychainPassword: Deletes the legacy keychain entry.
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileURL: URL? = nil,
+        fileManager: FileManager = .default,
         loadKeychainPassword: @escaping @Sendable () -> String?,
         deleteKeychainPassword: @escaping @Sendable () -> Bool
     ) {
         self.environment = environment
         self.fileURLOverride = fileURL
+        self.fileManager = fileManager
         self.loadKeychainPassword = loadKeychainPassword
         self.deleteKeychainPassword = deleteKeychainPassword
     }
@@ -93,7 +91,12 @@ public struct SocketControlPasswordStore: Sendable {
         guard allowLazyKeychainFallback else {
             return nil
         }
-        return cachedLazyKeychainFallbackPassword()
+        // The legacy keychain is the lowest-priority source and is only consulted
+        // when neither the environment nor the file holds a password. In steady
+        // state the file holds it (the keychain entry is migrated then deleted),
+        // so this read is rare; reading on demand keeps the store free of shared
+        // mutable state (no lock, trivially `Sendable`).
+        return Self.normalized(loadKeychainPassword())
     }
 
     /// Whether a non-empty password is configured.
@@ -115,7 +118,25 @@ public struct SocketControlPasswordStore: Sendable {
               !expected.isEmpty else {
             return false
         }
-        return expected == candidate
+        return Self.constantTimeEquals(expected, candidate)
+    }
+
+    /// Compares two strings in time independent of where they first differ.
+    ///
+    /// The socket is local-only, so the timing-attack surface is small, but this
+    /// is an auth path: a length-and-content comparison that always scans the
+    /// full expected password removes any ambiguity about early-exit leakage.
+    private static func constantTimeEquals(_ expected: String, _ candidate: String) -> Bool {
+        let expectedBytes = Array(expected.utf8)
+        let candidateBytes = Array(candidate.utf8)
+        var difference = expectedBytes.count ^ candidateBytes.count
+        for index in expectedBytes.indices {
+            // Fold every expected byte in; index into candidate safely so a
+            // length mismatch never short-circuits the scan.
+            let candidateByte = index < candidateBytes.count ? candidateBytes[index] : 0
+            difference |= Int(expectedBytes[index] ^ candidateByte)
+        }
+        return difference == 0
     }
 
     /// Migrates a legacy keychain password into the password file once, then deletes the keychain entry.
@@ -150,7 +171,7 @@ public struct SocketControlPasswordStore: Sendable {
         guard let fileURL = resolvedFileURL() else {
             return nil
         }
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
             return nil
         }
         let data = try Data(contentsOf: fileURL)
@@ -164,7 +185,7 @@ public struct SocketControlPasswordStore: Sendable {
     /// - Parameter password: The password to store; an empty/whitespace value clears it.
     /// - Throws: If the file path cannot be resolved or the write fails.
     public func savePassword(_ password: String) throws {
-        let normalized = password.trimmingCharacters(in: .newlines)
+        let normalized = password.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty {
             try clearPassword()
             return
@@ -174,14 +195,14 @@ public struct SocketControlPasswordStore: Sendable {
             throw SocketControlPasswordStoreError.unresolvedPasswordFilePath
         }
         let directory = fileURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(
+        try fileManager.createDirectory(
             at: directory,
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
         let data = Data(normalized.utf8)
         try data.write(to: fileURL, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
     }
 
@@ -191,16 +212,11 @@ public struct SocketControlPasswordStore: Sendable {
         guard let fileURL = resolvedFileURL() else {
             return
         }
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
             return
         }
-        try FileManager.default.removeItem(at: fileURL)
+        try fileManager.removeItem(at: fileURL)
         NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
-    }
-
-    /// Clears this store's in-memory keychain-fallback cache. Intended for tests.
-    public func resetLazyKeychainFallbackCacheForTests() {
-        fallbackCache.withLock { $0 = LazyKeychainFallbackCache() }
     }
 
     /// The default password file URL within Application Support, if it can be resolved.
@@ -226,23 +242,12 @@ public struct SocketControlPasswordStore: Sendable {
     }
 
     private func resolvedFileURL() -> URL? {
-        fileURLOverride ?? Self.defaultPasswordFileURL()
-    }
-
-    private func cachedLazyKeychainFallbackPassword() -> String? {
-        fallbackCache.withLock { cache in
-            if cache.hasLoaded {
-                return cache.password
-            }
-            cache.hasLoaded = true
-            cache.password = Self.normalized(loadKeychainPassword())
-            return cache.password
-        }
+        fileURLOverride ?? Self.defaultPasswordFileURL(fileManager: fileManager)
     }
 
     private static func normalized(_ value: String?) -> String? {
         guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .newlines)
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 

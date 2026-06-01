@@ -73,7 +73,7 @@ struct cmuxApp: App {
             plaintextKeyPath: ["automation", "socketPassword"],
             configURL: configFileURL,
             loadCurrentSecret: { (try? socketPasswordStore.loadPassword()) ?? nil },
-            saveSecret: { try? socketPasswordStore.savePassword($0) },
+            saveSecret: { try socketPasswordStore.savePassword($0) },
             backupTimestamp: secretMigrationTimestamp
         )
         self.settingsRuntime = SettingsRuntime(

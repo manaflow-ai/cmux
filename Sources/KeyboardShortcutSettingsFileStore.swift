@@ -58,7 +58,7 @@ final class CmuxSettingsFileStore {
     private let fallbackPaths: [String]
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
-    private let passwordStore = SocketControlPasswordStore()
+    private let passwordStore: SocketControlPasswordStore
     private let appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment
     private let stateLock = NSLock()
 
@@ -83,6 +83,7 @@ final class CmuxSettingsFileStore {
         fileManager: FileManager = .default,
         notificationCenter: NotificationCenter = .default,
         appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment = .live,
+        passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         startWatching: Bool = true
     ) {
         self.primaryPath = primaryPath
@@ -91,6 +92,7 @@ final class CmuxSettingsFileStore {
         self.fileManager = fileManager
         self.notificationCenter = notificationCenter
         self.appearanceEnvironment = appearanceEnvironment
+        self.passwordStore = passwordStore
         importedManagedDefaults = Self.loadImportedManagedDefaults()
 
         bootstrapPrimaryTemplateIfNeeded()

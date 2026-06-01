@@ -69,6 +69,15 @@ import CmuxSettings
                 isDebugBuild: true
             )
         )
+        // XCUITest launches the app as a separate process without XCTest env vars,
+        // so any CMUX_UI_TEST_ marker must bypass blocking for a bare debug bundle.
+        #expect(
+            !SocketControlSettings.shouldBlockUntaggedDebugLaunch(
+                environment: ["CMUX_UI_TEST_RUN": "1"],
+                bundleIdentifier: "com.cmuxterm.app.debug",
+                isDebugBuild: true
+            )
+        )
         // Tagged debug bundle => allowed.
         #expect(
             !SocketControlSettings.shouldBlockUntaggedDebugLaunch(

@@ -28,11 +28,24 @@ public struct SecretFileKey: Sendable, Equatable {
 
     /// Creates a secret-file key.
     ///
+    /// `fileName` must be a bare file name: ``SecretFileStore`` resolves it with
+    /// `appendingPathComponent`, which would otherwise treat `/` or `..` as path
+    /// navigation and let a secret escape the store's base directory. A value
+    /// containing a path separator or `..` is a programmer error and traps.
+    ///
     /// - Parameters:
     ///   - id: The dotted identifier.
-    ///   - fileName: The file name (no path separators) under the store's base directory.
+    ///   - fileName: The file name (no path separators, no `..`) under the store's base directory.
     ///   - defaultValue: The fallback when the file is missing or empty; defaults to `""`.
     public init(id: String, fileName: String, defaultValue: String = "") {
+        precondition(
+            !fileName.isEmpty
+                && !fileName.contains("/")
+                && !fileName.contains("\\")
+                && fileName != "."
+                && !fileName.contains(".."),
+            "SecretFileKey.fileName must be a bare file name without path separators or '..': \(fileName)"
+        )
         self.id = id
         self.fileName = fileName
         self.defaultValue = defaultValue

@@ -57,10 +57,19 @@ public actor SecretFileStore {
         return normalized ?? key.defaultValue
     }
 
-    /// Whether a non-empty secret is stored for `key`.
+    /// Whether a non-empty secret is stored on disk for `key`.
+    ///
+    /// This inspects the stored file directly and ignores
+    /// ``SecretFileKey/defaultValue``, so a key with a non-empty default does not
+    /// make an absent secret look present.
     public func hasValue(for key: SecretFileKey) -> Bool {
-        guard let stored = try? value(for: key) else { return false }
-        return !stored.isEmpty
+        let url = fileURL(for: key)
+        guard FileManager.default.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let raw = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        return Self.normalized(raw) != nil
     }
 
     /// Writes `value` to the key's `0600` file, or clears it when empty after

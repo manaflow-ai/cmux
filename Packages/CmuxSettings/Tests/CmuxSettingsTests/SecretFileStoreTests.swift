@@ -31,6 +31,23 @@ import Testing
         #expect(await store.hasValue(for: key) == false)
     }
 
+    @Test func hasValueIgnoresNonEmptyDefault() async throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let keyWithDefault = SecretFileKey(
+            id: "x.withDefault",
+            fileName: "x-with-default",
+            defaultValue: "fallback"
+        )
+        let store = SecretFileStore(baseDirectory: dir)
+        // No file written: value() returns the default, but the secret is absent.
+        #expect(try await store.value(for: keyWithDefault) == "fallback")
+        #expect(await store.hasValue(for: keyWithDefault) == false)
+
+        try await store.set("real", for: keyWithDefault)
+        #expect(await store.hasValue(for: keyWithDefault))
+    }
+
     @Test func writesOwnerOnlyPermissions() async throws {
         let dir = tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

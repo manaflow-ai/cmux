@@ -153,6 +153,50 @@ struct PlaintextSecretMigrationTests {
         #expect(saved == ["ab//cd"])
     }
 
+    @Test func leavesPlaintextIntactWhenSaveFails() {
+        struct SaveError: Error {}
+        let raw = #"{"automation":{"socketPassword":"hunter2"}}"#
+        let url = makeConfig(raw)
+        let outcome = PlaintextSecretMigration.scrub(
+            plaintextKeyPath: keyPath,
+            configURL: url,
+            loadCurrentSecret: { nil },
+            saveSecret: { _ in throw SaveError() },
+            backupTimestamp: "T"
+        )
+        #expect(outcome == .saveFailedLeftIntact)
+        // Config left completely intact so the only copy of the secret survives.
+        #expect((try? String(contentsOf: url, encoding: .utf8)) == raw)
+        // No backup was made and nothing was scrubbed.
+        let backup = url.deletingPathExtension().appendingPathExtension("T.bak")
+        #expect(!FileManager.default.fileExists(atPath: backup.path))
+    }
+
+    @Test func preservesCommaBraceInsideStringValue() throws {
+        // A string value containing `, }` must not be corrupted by trailing-comma stripping.
+        let url = makeConfig("""
+        {
+          "automation": {
+            "socketPassword": "secret",
+            "note": "value, }",
+          },
+        }
+        """)
+        var saved: [String] = []
+        let outcome = PlaintextSecretMigration.scrub(
+            plaintextKeyPath: keyPath,
+            configURL: url,
+            loadCurrentSecret: { nil },
+            saveSecret: { saved.append($0) },
+            backupTimestamp: "T"
+        )
+        #expect(outcome == .migratedAndScrubbed)
+        #expect(saved == ["secret"])
+        let automation = try #require(object(at: url)?["automation"] as? [String: Any])
+        #expect(automation["socketPassword"] == nil)
+        #expect(automation["note"] as? String == "value, }")
+    }
+
     @Test func leavesUnparseableFileIntact() {
         let raw = "{ this is not json and has socketPassword somewhere"
         let url = makeConfig(raw)

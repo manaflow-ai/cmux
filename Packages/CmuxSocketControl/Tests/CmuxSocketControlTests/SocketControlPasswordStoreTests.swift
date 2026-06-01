@@ -3,7 +3,7 @@ import Testing
 
 @testable import CmuxSocketControl
 
-@Suite struct SocketControlPasswordStoreTests {
+@Suite(.serialized) struct SocketControlPasswordStoreTests {
     private func tempFileURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-pw-test-\(UUID().uuidString)")
@@ -27,8 +27,8 @@ import Testing
         #expect(try store.loadPassword() == nil)
         #expect(!store.hasConfiguredPassword())
 
-        // The store trims surrounding newlines (the UI caller trims other whitespace).
-        try store.savePassword("secret\n")
+        // The store trims surrounding whitespace and newlines.
+        try store.savePassword("  secret\n")
         #expect(try store.loadPassword() == "secret")
         #expect(store.verify(password: "secret"))
 
@@ -37,17 +37,27 @@ import Testing
         #expect(!store.hasConfiguredPassword())
     }
 
-    @Test func savingNewlineOnlyPasswordClears() throws {
+    @Test func savingWhitespaceOnlyPasswordClears() throws {
         let url = tempFileURL()
         let store = SocketControlPasswordStore(environment: [:], fileURL: url)
         try store.savePassword("secret")
         #expect(try store.loadPassword() == "secret")
-        // A value that is empty after newline-trimming clears the stored password.
-        try store.savePassword("\n\n")
+        // A value that is empty after whitespace/newline trimming clears the stored password.
+        try store.savePassword("   \n\t")
         #expect(try store.loadPassword() == nil)
     }
 
-    @Test func keychainFallbackOnlyWhenAllowedAndCachedOnce() {
+    @Test func verifyRejectsWrongCandidate() throws {
+        let store = SocketControlPasswordStore(environment: [:], fileURL: tempFileURL())
+        try store.savePassword("hunter2")
+        #expect(store.verify(password: "hunter2"))
+        #expect(!store.verify(password: "hunter3"))
+        // A length mismatch must not be accepted (constant-time comparison).
+        #expect(!store.verify(password: "hunter"))
+        #expect(!store.verify(password: "hunter22"))
+    }
+
+    @Test func keychainFallbackOnlyConsultedWhenAllowed() {
         let counter = Counter()
         let store = SocketControlPasswordStore(
             environment: [:],
@@ -62,10 +72,11 @@ import Testing
         #expect(store.configuredPassword(allowLazyKeychainFallback: false) == nil)
         #expect(counter.value == 0)
 
-        // Consulted when allowed, and cached so the keychain is read once.
+        // Consulted only when allowed. The store holds no cache (it stays free of
+        // shared mutable state), so each fallback-allowed read consults the keychain.
         #expect(store.configuredPassword(allowLazyKeychainFallback: true) == "fromkeychain")
         #expect(store.configuredPassword(allowLazyKeychainFallback: true) == "fromkeychain")
-        #expect(counter.value == 1)
+        #expect(counter.value == 2)
     }
 
     @Test func migrateMovesKeychainPasswordIntoFileOnce() throws {
@@ -92,17 +103,14 @@ import Testing
     }
 
     /// Reference-typed counter so the `@Sendable` keychain closures can record call counts.
+    ///
+    /// The keychain closures run inline and synchronously on the test thread while
+    /// the store resolves a password; there is no concurrency, and the `.serialized`
+    /// suite keeps it that way, so no synchronization primitive is needed.
     private final class Counter: @unchecked Sendable {
-        // Tests are single-threaded here; the lock keeps this safe if that ever changes.
-        private let lock = NSLock()
-        private var count = 0
-        var value: Int {
-            lock.lock(); defer { lock.unlock() }
-            return count
-        }
-        func increment() {
-            lock.lock(); defer { lock.unlock() }
-            count += 1
-        }
+        // Mutated only from the single test thread (see the type doc comment).
+        private nonisolated(unsafe) var count = 0
+        var value: Int { count }
+        func increment() { count += 1 }
     }
 }

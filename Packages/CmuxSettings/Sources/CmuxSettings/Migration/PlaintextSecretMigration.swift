@@ -24,7 +24,7 @@ public import Foundation
 ///     plaintextKeyPath: ["automation", "socketPassword"],
 ///     configURL: configFileURL,
 ///     loadCurrentSecret: { (try? store.loadPassword()) ?? nil },
-///     saveSecret: { try? store.savePassword($0) },
+///     saveSecret: { try store.savePassword($0) },
 ///     backupTimestamp: timestamp
 /// )
 /// ```
@@ -39,6 +39,10 @@ public enum PlaintextSecretMigration {
         /// completely intact so a malformed/unsupported config is never
         /// corrupted; the plaintext (if any) is not migrated.
         case parseFailedLeftIntact
+        /// Copying the plaintext into the secret sink failed, so `cmux.json` was
+        /// left completely intact (not scrubbed). The plaintext is preserved so a
+        /// later run can retry rather than losing the only copy of the secret.
+        case saveFailedLeftIntact
         /// A plaintext value was copied into the empty secret sink and then
         /// removed from `cmux.json`.
         case migratedAndScrubbed
@@ -60,7 +64,9 @@ public enum PlaintextSecretMigration {
     ///     `["automation", "socketPassword"]`.
     ///   - configURL: The `cmux.json` location.
     ///   - loadCurrentSecret: Returns the current secret-sink value, or `nil`/empty when unset.
-    ///   - saveSecret: Persists a value into the secret sink.
+    ///   - saveSecret: Persists a value into the secret sink. If it throws, the
+    ///     plaintext is left in `cmux.json` (``Outcome/saveFailedLeftIntact``) so
+    ///     the only copy of the secret is never lost to a failed write.
     ///   - backupTimestamp: A filename-safe timestamp used for the `.bak` copy
     ///     (injected so the result is deterministic in tests).
     ///   - fileManager: File system access (injected for tests).
@@ -70,7 +76,7 @@ public enum PlaintextSecretMigration {
         plaintextKeyPath: [String],
         configURL: URL,
         loadCurrentSecret: () -> String?,
-        saveSecret: (String) -> Void,
+        saveSecret: (String) throws -> Void,
         backupTimestamp: String,
         fileManager: FileManager = .default
     ) -> Outcome {
@@ -91,7 +97,13 @@ public enum PlaintextSecretMigration {
         if let plaintext, !plaintext.isEmpty {
             let existing = loadCurrentSecret()?.trimmingCharacters(in: .whitespacesAndNewlines)
             if existing == nil || existing?.isEmpty == true {
-                saveSecret(plaintext)
+                do {
+                    try saveSecret(plaintext)
+                } catch {
+                    // The secure write failed; leave the plaintext in cmux.json so a
+                    // later run can retry rather than losing the only copy.
+                    return .saveFailedLeftIntact
+                }
                 outcome = .migratedAndScrubbed
             }
         }
@@ -169,11 +181,55 @@ public enum PlaintextSecretMigration {
             out.append(c)
             i += 1
         }
-        return String(out).replacingOccurrences(
-            of: #",(\s*[}\]])"#,
-            with: "$1",
-            options: .regularExpression
-        )
+        return stripTrailingCommas(out)
+    }
+
+    /// Removes trailing commas (a comma whose next non-whitespace character is
+    /// `}` or `]`) from already comment-stripped JSONC text, while preserving
+    /// commas that appear inside string literals.
+    ///
+    /// A global regex over the whole text would rewrite a `,` followed by a brace
+    /// inside a string value (for example `"a, }"`); this pass tracks string state
+    /// so only structural trailing commas are dropped.
+    private static func stripTrailingCommas(_ chars: [Character]) -> String {
+        var out: [Character] = []
+        out.reserveCapacity(chars.count)
+        var inString = false
+        var escaped = false
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if inString {
+                out.append(c)
+                if escaped {
+                    escaped = false
+                } else if c == "\\" {
+                    escaped = true
+                } else if c == "\"" {
+                    inString = false
+                }
+                i += 1
+                continue
+            }
+            if c == "\"" {
+                inString = true
+                out.append(c)
+                i += 1
+                continue
+            }
+            if c == "," {
+                var j = i + 1
+                while j < chars.count, chars[j].isWhitespace { j += 1 }
+                if j < chars.count, chars[j] == "}" || chars[j] == "]" {
+                    // Structural trailing comma: drop it, keep the whitespace/bracket.
+                    i += 1
+                    continue
+                }
+            }
+            out.append(c)
+            i += 1
+        }
+        return String(out)
     }
 
     // MARK: - Nested object navigation

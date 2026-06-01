@@ -54,15 +54,15 @@ public final class SecretValueModel {
     /// ``current``. On failure ``lastWriteError`` is populated and recorded.
     public func set(_ value: String) {
         let keyID = key.id
+        // The Task inherits this method's `@MainActor` isolation, so the
+        // completion assignments already run on the main actor.
         Task { [weak self, store, key] in
             do {
                 try await store.set(value, for: key)
-                await MainActor.run { self?.lastWriteError = nil }
+                self?.lastWriteError = nil
             } catch {
-                await MainActor.run {
-                    self?.lastWriteError = error
-                    self?.errorLog.record(error, keyID: keyID)
-                }
+                self?.lastWriteError = error
+                self?.errorLog.record(error, keyID: keyID)
             }
         }
     }
