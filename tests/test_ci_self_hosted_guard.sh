@@ -153,13 +153,15 @@ check_split_theme_regression_timeout() {
     in_step && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_wrapper=1 }
     in_step && /CMUX_SPLIT_THEME_TEST_TIMEOUT_SECONDS/ { saw_timeout=1 }
     in_step && /xcodebuild split-theme regression timeout/ { saw_timeout_message=1 }
-    END { exit(saw_wrapper && saw_timeout && saw_timeout_message ? 0 : 1) }
+    in_step && /Cargo registry download failed during split-theme build, retrying once/ { saw_cargo_retry=1 }
+    in_step && /static\\.crates\\.io/ { saw_static_crates_match=1 }
+    END { exit(saw_wrapper && saw_timeout && saw_timeout_message && saw_cargo_retry && saw_static_crates_match ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: split-theme XCTest regression must use noninteractive xcodebuild plus a step timeout"
+    echo "FAIL: split-theme XCTest regression must use noninteractive xcodebuild, a step timeout, and a Cargo registry retry"
     exit 1
   fi
 
-  echo "PASS: split-theme XCTest regression uses noninteractive xcodebuild with timeout"
+  echo "PASS: split-theme XCTest regression uses noninteractive xcodebuild with timeout and Cargo registry retry"
 }
 
 check_tests_deriveddata_cache() {
