@@ -395,6 +395,8 @@ export const settingsPresets = [
       terminalPadding: 8,
       terminalScrollback: 12000,
       terminalPauseInactiveOutput: true,
+      terminalCursorStyle: "bar",
+      terminalCursorBlink: true,
       terminalBackground: "",
       terminalForeground: "",
       terminalCursorColor: ""
@@ -435,6 +437,8 @@ export const settingsPresets = [
       terminalPadding: 6,
       terminalScrollback: 10000,
       terminalPauseInactiveOutput: true,
+      terminalCursorStyle: "bar",
+      terminalCursorBlink: true,
       terminalBackground: "",
       terminalForeground: "",
       terminalCursorColor: ""
@@ -475,6 +479,8 @@ export const settingsPresets = [
       terminalPadding: 6,
       terminalScrollback: 10000,
       terminalPauseInactiveOutput: true,
+      terminalCursorStyle: "bar",
+      terminalCursorBlink: true,
       terminalBackground: "",
       terminalForeground: "",
       terminalCursorColor: ""
@@ -515,6 +521,8 @@ export const settingsPresets = [
       terminalPadding: 4,
       terminalScrollback: 6000,
       terminalPauseInactiveOutput: true,
+      terminalCursorStyle: "bar",
+      terminalCursorBlink: true,
       terminalBackground: "",
       terminalForeground: "",
       terminalCursorColor: ""
@@ -555,6 +563,8 @@ export const settingsPresets = [
       terminalPadding: 10,
       terminalScrollback: 12000,
       terminalPauseInactiveOutput: true,
+      terminalCursorStyle: "bar",
+      terminalCursorBlink: true,
       terminalBackground: "",
       terminalForeground: "",
       terminalCursorColor: ""
