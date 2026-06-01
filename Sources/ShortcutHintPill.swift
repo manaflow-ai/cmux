@@ -70,11 +70,12 @@ extension View {
         text: String?,
         emphasis: Double,
         offsetX: Double,
-        offsetY: Double
+        offsetY: Double,
+        fontSize: CGFloat = 10
     ) -> some View {
         overlay(alignment: .topTrailing) {
             if let text {
-                ShortcutHintPill(text: text, fontSize: 10, emphasis: emphasis)
+                ShortcutHintPill(text: text, fontSize: fontSize, emphasis: emphasis)
                     .offset(
                         x: ShortcutHintDebugSettings.clamped(offsetX),
                         y: ShortcutHintDebugSettings.clamped(offsetY)

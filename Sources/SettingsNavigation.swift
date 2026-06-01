@@ -101,7 +101,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .betaFeatures:
             return "\(title) beta experimental unstable feed dock right sidebar"
         case .automation:
-            return "\(title) socket integrations hooks ports claude cursor gemini"
+            return "\(title) socket integrations hooks ports claude cursor gemini kiro"
         case .browser:
             return "\(title) search engine links history theme"
         case .browserImport:
@@ -341,6 +341,7 @@ enum SettingsSearchIndex {
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
         setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
+        setting(.terminal, "tab-bar-font-size", String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"), "font size text scale terminal browser pane tab title surface-tab-bar-font-size"),
         setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
         setting(.terminal, "agent-hibernation", String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"), "terminal.agentHibernation idle hibernate suspend background agents claude code codex opencode live terminals"),
         setting(.terminal, "resume-commands", String(localized: "settings.terminal.resumeCommands", defaultValue: "Resume Commands"), "surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
@@ -348,6 +349,7 @@ enum SettingsSearchIndex {
         setting(.textBox, "focus-textbox-new-terminals", String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals"), "terminal.focusTextBoxOnNewTerminals textbox text box rich input prompt default new workspace split tab beta"),
         setting(.textBox, "textbox-max-lines", String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines"), "terminal.textBoxMaxLines terminal textbox text box rich input prompt max height lines grow scroll beta"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
+        setting(.sidebarAppearance, "font-size", String(localized: "settings.sidebarAppearance.fontSize", defaultValue: "Sidebar Font Size"), "font size text scale workspace title badge metadata shortcut hint sidebar-font-size"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
         setting(.sidebarAppearance, "wrap-workspace-titles", String(localized: "settings.app.wrapWorkspaceTitles", defaultValue: "Wrap Workspace Titles in Sidebar"), "workspace title wrap multiline pr pull request"),
         setting(.sidebarAppearance, "show-workspace-description", String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"), "workspace description notes markdown"),
@@ -375,6 +377,8 @@ enum SettingsSearchIndex {
         setting(.automation, "subagent-notifications", String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"), "nested child agent codex claude hooks notifications"),
         setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
         setting(.automation, "gemini", String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), "agent hooks notifications"),
+        setting(.automation, "kiro", String(localized: "settings.automation.kiro", defaultValue: "Kiro CLI Integration"), "agent hooks notifications"),
+        setting(.automation, "kiro-notification-level", String(localized: "settings.automation.kiro.notificationLevel", defaultValue: "Kiro Notification Level"), "agent hooks notifications verbosity tool events"),
         setting(.automation, "port-base", String(localized: "settings.automation.portBase", defaultValue: "Port Base"), "CMUX_PORT start"),
         setting(.automation, "port-range", String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"), "CMUX_PORT_END workspace ports"),
         setting(.browser, "search-engine", String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"), "address bar query google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider"),
@@ -466,6 +470,8 @@ enum SettingsSearchIndex {
         "sidebar.showLog": settingID(for: .sidebarAppearance, idSuffix: "show-log"),
         "sidebar.showProgress": settingID(for: .sidebarAppearance, idSuffix: "show-progress"),
         "sidebar.showCustomMetadata": settingID(for: .sidebarAppearance, idSuffix: "show-metadata"),
+        "sidebar-font-size": settingID(for: .sidebarAppearance, idSuffix: "font-size"),
+        "surface-tab-bar-font-size": settingID(for: .terminal, idSuffix: "tab-bar-font-size"),
         "terminal.showScrollBar": settingID(for: .terminal, idSuffix: "scrollbar"),
         "terminal.showTextBoxOnNewTerminals": settingID(for: .textBox, idSuffix: "show-textbox-new-terminals"),
         "terminal.focusTextBoxOnNewTerminals": settingID(for: .textBox, idSuffix: "focus-textbox-new-terminals"),
@@ -487,6 +493,8 @@ enum SettingsSearchIndex {
         "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),
         "automation.cursorIntegration": settingID(for: .automation, idSuffix: "cursor"),
         "automation.geminiIntegration": settingID(for: .automation, idSuffix: "gemini"),
+        "automation.kiroIntegration": settingID(for: .automation, idSuffix: "kiro"),
+        "automation.kiroNotificationLevel": settingID(for: .automation, idSuffix: "kiro-notification-level"),
         "automation.portBase": settingID(for: .automation, idSuffix: "port-base"),
         "automation.portRange": settingID(for: .automation, idSuffix: "port-range"),
         "browser.enabled": settingID(for: .browser, idSuffix: "enable-browser"),
