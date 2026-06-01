@@ -884,26 +884,26 @@ function droppedBackgroundValue(dataTransfer) {
   return droppedBackgroundText(dataTransfer);
 }
 
-function hasBackgroundDropData(dataTransfer) {
+function hasBackgroundDropData(dataTransfer, options = {}) {
   if (state.dragPanelId || state.dragWorkspaceId) return false;
   const items = [...(dataTransfer?.items || [])];
   if (items.some((item) => item.kind === "file" && (!item.type || item.type.startsWith("image/")))) return true;
   const types = [...(dataTransfer?.types || [])];
-  return types.includes("text/uri-list") || types.includes("text/plain");
+  return types.includes("text/uri-list") || (options.allowPlainText !== false && types.includes("text/plain"));
 }
 
 function installBackgroundDropTarget(target, options = {}) {
   if (!target) return;
   const setDropping = (dropping) => target.classList.toggle("is-drop-target", dropping);
   target.addEventListener("dragover", (event) => {
-    if (!hasBackgroundDropData(event.dataTransfer)) return;
+    if (!hasBackgroundDropData(event.dataTransfer, options)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
     setDropping(true);
   });
   target.addEventListener("dragleave", () => setDropping(false));
   target.addEventListener("drop", async (event) => {
-    if (!hasBackgroundDropData(event.dataTransfer)) return;
+    if (!hasBackgroundDropData(event.dataTransfer, options)) return;
     event.preventDefault();
     setDropping(false);
     const value = droppedBackgroundValue(event.dataTransfer);
@@ -13999,7 +13999,7 @@ if (window.cmuxNative?.onCommand) {
   });
 }
 
-installBackgroundDropTarget(elements.paneGrid);
+installBackgroundDropTarget(elements.paneGrid, { allowPlainText: false });
 applySettings();
 loadState();
 loadBrowserProfiles();
