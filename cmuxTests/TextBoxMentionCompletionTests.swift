@@ -133,6 +133,32 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxMentionMarkdownEscapesAngleTargetDelimiters() {
+        let link = TextBoxMentionMarkdown.link(
+            label: "@Docs/[draft].md",
+            path: "Docs/roadmap <draft>.md"
+        )
+
+        #expect(link == "[@Docs/\\[draft\\].md](<Docs/roadmap %3Cdraft%3E.md>)")
+    }
+
+    @Test
+    func testTextBoxProcessTerminationStatusResumesMultipleWaiters() async {
+        let status = TextBoxProcessTerminationStatus()
+
+        async let firstWaiter: Int32 = status.wait()
+        async let secondWaiter: Int32 = status.wait()
+        await Task.yield()
+
+        await status.finish(status: 7)
+
+        let (firstStatus, secondStatus) = await (firstWaiter, secondWaiter)
+        #expect(firstStatus == 7)
+        #expect(secondStatus == 7)
+        #expect(await status.wait() == 7)
+    }
+
+    @Test
     func testTextBoxMentionFileSuggestionsReturnRootFilesForEmptyQuery() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
