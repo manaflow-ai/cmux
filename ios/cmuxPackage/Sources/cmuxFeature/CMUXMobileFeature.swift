@@ -224,8 +224,13 @@ struct CMUXMobileRootView: View {
     @discardableResult
     private func connectUITestAttachURLIfNeeded() -> Bool {
         #if DEBUG
-        guard UITestConfig.mockDataEnabled,
-              !didConsumeUITestAttachURL,
+        // Auto-pair when CMUX_UITEST_ATTACH_URL is supplied at launch. Originally
+        // gated on mock data (the XCUITest harness), but the dev-launch tooling
+        // (scripts/mobile-dev-launch.sh) signs in for real (CMUX_UITEST_STACK_*
+        // with CMUX_UITEST_MOCK_DATA=0) and still wants to auto-attach, so this
+        // fires for any authenticated session once the attach URL is present.
+        // No-op unless that env var is set, so normal launches are unaffected.
+        guard !didConsumeUITestAttachURL,
               isAuthenticated,
               let attachURL = UITestConfig.attachURL else {
             return false
