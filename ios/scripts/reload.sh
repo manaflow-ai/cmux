@@ -522,7 +522,12 @@ reload_device() {
   xcrun devicectl device install app --device "$selected_device_install_id" "$device_app_path"
 
   if [[ "$LAUNCH" -eq 1 ]]; then
-    xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null
+    # Build + install already succeeded; a launch failure (most commonly a
+    # LOCKED device — "could not be unlocked") must not fail the whole reload
+    # or skip the QR marker update below. Warn and continue.
+    if ! xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null 2>&1; then
+      echo "warning: installed but could not launch $BUNDLE_ID (device locked? unlock the iPhone and tap the app)" >&2
+    fi
   fi
 
   cat <<EOF
