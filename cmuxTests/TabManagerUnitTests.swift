@@ -3871,6 +3871,15 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         let reference = GitHubRepositoryReference.parse(remoteURL: "git@[::1]:acme/widgets.git")
         #expect(reference?.host == GitHubHost(hostname: "::1"))
         #expect(reference?.slug == "acme/widgets")
+        // The API base must re-bracket the IPv6 literal — building it must not
+        // trap (the host is reachable once a token exists).
+        #expect(reference?.host.apiBaseURL.absoluteString == "https://[::1]/api/v3/")
+    }
+
+    @Test func normalizesExplicitDefaultHTTPPortToDotCom() {
+        let reference = GitHubRepositoryReference.parse(remoteURL: "http://github.com:80/manaflow-ai/cmux.git")
+        #expect(reference?.host == .dotCom)
+        #expect(reference?.host.isDotCom == true)
     }
 
     @Test func parsesNonGitHubHostVerbatim() {

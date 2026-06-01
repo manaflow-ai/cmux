@@ -60,11 +60,15 @@ struct GitHubRepositoryReference: Hashable, Sendable {
     ///
     /// Only `http`/`https` remotes contribute a port. An `ssh://` or `git://`
     /// port is a transport port (e.g. `2222`), not the REST API port, so it must
-    /// not leak into ``GitHubHost/apiBaseURL``.
+    /// not leak into ``GitHubHost/apiBaseURL``. An explicit default port (80 for
+    /// http, 443 for https) is normalized to `nil` so that, e.g.,
+    /// `http://github.com:80/...` is still recognized as ``GitHubHost/dotCom``.
     private static func apiPort(of url: URL) -> Int? {
         switch url.scheme?.lowercased() {
-        case "http", "https":
-            return url.port
+        case "http":
+            return url.port == 80 ? nil : url.port
+        case "https":
+            return url.port == 443 ? nil : url.port
         default:
             return nil
         }

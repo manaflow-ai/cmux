@@ -51,16 +51,16 @@ struct GitHubHost: Hashable, Sendable {
         if isDotCom {
             return URL(string: "https://api.github.com/")!
         }
-        var components = URLComponents()
-        components.scheme = "https"
-        components.host = hostname
-        components.port = port
-        components.path = "/api/v3/"
-        // A valid hostname (from a parsed git remote) is always representable as
-        // a URL host; hitting this path would mean a bug upstream. Trap instead
-        // of silently promoting an enterprise request to the public github.com
-        // API, which would leak the per-host token to the wrong host.
-        guard let url = components.url else {
+        // Bracket IPv6 literals (RFC 2732) — `URLComponents`/`URL` reject a bare
+        // `::1` host — and append an explicit non-default port. String building
+        // is used over `URLComponents` because the latter does not bracket IPv6
+        // hosts on common Foundation builds.
+        let encodedHost = hostname.contains(":") ? "[\(hostname)]" : hostname
+        let portSuffix = port.map { ":\($0)" } ?? ""
+        // A host that came from a parsed git remote is always representable here;
+        // trapping (rather than falling back to the public github.com API) keeps
+        // a per-host enterprise token from leaking to the wrong host.
+        guard let url = URL(string: "https://\(encodedHost)\(portSuffix)/api/v3/") else {
             preconditionFailure("GitHubHost: could not build API URL for hostname '\(hostname)'")
         }
         return url
