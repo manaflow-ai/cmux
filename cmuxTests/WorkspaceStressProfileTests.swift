@@ -225,7 +225,6 @@ final class WorkspaceStressProfileTests: XCTestCase {
         let workspaceIds = manager.tabs.map(\.id)
         let anchorWorkspaceId = workspaceIds[0]
         var colorSamples: [TimedSample] = []
-        var scrollBarSamples: [TimedSample] = []
         var pinSamples: [TimedSample] = []
         var unpinSamples: [TimedSample] = []
 
@@ -238,14 +237,6 @@ final class WorkspaceStressProfileTests: XCTestCase {
                 manager.applyWorkspaceColor(nil, toWorkspaceIds: workspaceIds)
             }
             XCTAssertTrue(manager.tabs.allSatisfy { $0.customColor == nil })
-            timed("pass-\(label(for: pass))-scrollbar-hide", collectInto: &scrollBarSamples) {
-                manager.setWorkspaceTerminalScrollBarHidden(hidden: true, forWorkspaceIds: workspaceIds)
-            }
-            XCTAssertTrue(manager.tabs.allSatisfy { $0.terminalScrollBarHidden })
-            timed("pass-\(label(for: pass))-scrollbar-show", collectInto: &scrollBarSamples) {
-                manager.setWorkspaceTerminalScrollBarHidden(hidden: false, forWorkspaceIds: workspaceIds)
-            }
-            XCTAssertTrue(manager.tabs.allSatisfy { !$0.terminalScrollBarHidden })
             let pinResult = timed("pass-\(label(for: pass))-pin", collectInto: &pinSamples) {
                 WorkspaceActionDispatcher.performPinAction(
                     WorkspaceActionDispatcher.PinState(
@@ -275,12 +266,10 @@ final class WorkspaceStressProfileTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, config.workspaceCount)
         XCTAssertTrue(manager.tabs.allSatisfy { !$0.isPinned })
         XCTAssertTrue(manager.tabs.allSatisfy { $0.customColor == nil })
-        XCTAssertTrue(manager.tabs.allSatisfy { !$0.terminalScrollBarHidden })
 
         let report = [
             "Workspace batch action stress config workspaces=\(config.workspaceCount) passes=\(config.switchPasses)",
             reportLine(title: "color", summary: TimingSummary(samples: colorSamples), slowest: slowest(colorSamples)),
-            reportLine(title: "scrollbar", summary: TimingSummary(samples: scrollBarSamples), slowest: slowest(scrollBarSamples)),
             reportLine(title: "pin", summary: TimingSummary(samples: pinSamples), slowest: slowest(pinSamples)),
             reportLine(title: "unpin", summary: TimingSummary(samples: unpinSamples), slowest: slowest(unpinSamples))
         ].joined(separator: "\n")

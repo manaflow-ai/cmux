@@ -244,7 +244,6 @@ extension Workspace {
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
-            terminalScrollBarHidden: terminalScrollBarHidden ? true : nil,
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
             layout: layout,
@@ -322,7 +321,6 @@ extension Workspace {
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
-        setTerminalScrollBarHidden(snapshot.terminalScrollBarHidden ?? false)
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -10257,10 +10255,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
-        "cmux.workspaceTerminalScrollBarHiddenDidChange"
-    )
-
     let id: UUID
     @Published var title: String
     @Published var customTitle: String?
@@ -10270,7 +10264,6 @@ final class Workspace: Identifiable, ObservableObject {
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
-    @Published private(set) var terminalScrollBarHidden: Bool = false
     @Published var currentDirectory: String {
         didSet {
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -10524,7 +10517,6 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($customDescription),
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
-            sidebarObservationSignal($terminalScrollBarHidden),
             sidebarObservationSignal($latestConversationMessage),
             sidebarObservationSignal($latestSubmittedMessage),
             sidebarObservationSignal($latestSubmittedAt),
@@ -12013,15 +12005,6 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             customColor = nil
         }
-    }
-
-    func setTerminalScrollBarHidden(_ hidden: Bool) {
-        guard terminalScrollBarHidden != hidden else { return }
-        terminalScrollBarHidden = hidden
-        NotificationCenter.default.post(
-            name: Self.terminalScrollBarHiddenDidChangeNotification,
-            object: self
-        )
     }
 
     private static func normalizedCustomDescription(_ description: String?) -> String? {
