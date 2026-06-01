@@ -2055,7 +2055,7 @@ struct ContentView: View {
         return -max(0, min(titlebarPadding, hostingSafeAreaTop))
     }
 
-    static func customTitlebarLeadingPadding(
+    nonisolated static func customTitlebarLeadingPadding(
         isFullScreen: Bool,
         isSidebarVisible: Bool,
         sidebarWidth: CGFloat,
@@ -2072,10 +2072,11 @@ struct ContentView: View {
         }
 
         let visibleSidebarTitleInset = sidebarWidth + 12
+        // Absorb floating-point drift around the minimum-width clamp.
         guard sidebarWidth > minimumSidebarWidth + 0.5 else {
             return minimumSidebarTitleInset
         }
-        return max(minimumSidebarTitleInset, visibleSidebarTitleInset)
+        return max(titlebarLeadingInset, visibleSidebarTitleInset)
     }
 
     private func terminalContent(appearance: WindowAppearanceSnapshot) -> some View {

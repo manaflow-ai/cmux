@@ -3,6 +3,7 @@ import AppKit
 import Carbon.HIToolbox
 import Darwin
 import PDFKit
+import Testing
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -1958,21 +1959,21 @@ final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
 }
 
 
-final class CustomTitlebarLeadingPaddingTests: XCTestCase {
-    func testHiddenSidebarUsesMinimumSidebarTitleInset() {
-        XCTAssertEqual(
+@Suite("Custom titlebar leading padding")
+struct CustomTitlebarLeadingPaddingTests {
+    @Test func hiddenSidebarUsesMinimumSidebarTitleInset() {
+        #expect(
             ContentView.customTitlebarLeadingPadding(
                 isFullScreen: false,
                 isSidebarVisible: false,
                 sidebarWidth: 216,
                 minimumSidebarWidth: 216,
                 titlebarLeadingInset: 82
-            ),
-            228
+            ) == 228
         )
     }
 
-    func testMinimumWidthVisibleSidebarMatchesHiddenSidebarTitleInset() {
+    @Test func minimumWidthVisibleSidebarMatchesHiddenSidebarTitleInset() {
         let hidden = ContentView.customTitlebarLeadingPadding(
             isFullScreen: false,
             isSidebarVisible: false,
@@ -1988,10 +1989,10 @@ final class CustomTitlebarLeadingPaddingTests: XCTestCase {
             titlebarLeadingInset: 82
         )
 
-        XCTAssertEqual(visible, hidden)
+        #expect(visible == hidden)
     }
 
-    func testWiderSidebarPushesTitlebarContentRight() {
+    @Test func widerSidebarPushesTitlebarContentRight() {
         let hidden = ContentView.customTitlebarLeadingPadding(
             isFullScreen: false,
             isSidebarVisible: false,
@@ -2007,20 +2008,19 @@ final class CustomTitlebarLeadingPaddingTests: XCTestCase {
             titlebarLeadingInset: 82
         )
 
-        XCTAssertGreaterThan(visible, hidden)
-        XCTAssertEqual(visible, 332)
+        #expect(visible > hidden)
+        #expect(visible == 332)
     }
 
-    func testFullscreenHiddenSidebarKeepsCompactInset() {
-        XCTAssertEqual(
+    @Test func fullscreenHiddenSidebarKeepsCompactInset() {
+        #expect(
             ContentView.customTitlebarLeadingPadding(
                 isFullScreen: true,
                 isSidebarVisible: false,
                 sidebarWidth: 216,
                 minimumSidebarWidth: 216,
                 titlebarLeadingInset: 82
-            ),
-            8
+            ) == 8
         )
     }
 }
