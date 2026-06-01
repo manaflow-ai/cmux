@@ -2,8 +2,8 @@ import AppKit
 import CmuxSocketControl
 import Bonsplit
 import Combine
-import CMUXExtensionClient
-import CmuxExtensionKit
+@_spi(CmuxHostTransport) import CmuxExtensionKit
+import CmuxSidebarProviderKit
 import CmuxSettings
 import ImageIO
 import Observation
@@ -9995,7 +9995,7 @@ private extension String {
 enum CmuxExtensionSidebarSelection {
     static let defaultsKey = "cmuxExtensionSidebar.providerId"
     static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
-    static let defaultProviderId = CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID
+    static let defaultProviderId = CmuxSidebarProviderDescriptor.defaultWorkspacesID
     static let hostedExtensionsProviderId = "cmux.sidebar.extensions"
 
     /// The UserDefaults key and default for the experimental Extensions flag,
@@ -10015,23 +10015,23 @@ enum CmuxExtensionSidebarSelection {
         return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
     }
 
-    static var providers: [any CmuxExtensionSidebarProvider] {
+    static var providers: [any CmuxSidebarProvider] {
         []
     }
 
-    static var descriptors: [CmuxExtensionSidebarProviderDescriptor] {
+    static var descriptors: [CmuxSidebarProviderDescriptor] {
         [.defaultWorkspaces, hostedExtensionsDescriptor] + providers.map { $0.descriptor }
     }
 
-    static var hostedExtensionsDescriptor: CmuxExtensionSidebarProviderDescriptor {
+    static var hostedExtensionsDescriptor: CmuxSidebarProviderDescriptor {
         let selectedName = UserDefaults.standard.string(forKey: selectedExtensionNameDefaultsKey)?.nilIfEmpty
-        return CmuxExtensionSidebarProviderDescriptor(
+        return CmuxSidebarProviderDescriptor(
             id: hostedExtensionsProviderId,
-            title: CmuxExtensionLocalizedText(
+            title: CmuxSidebarProviderLocalizedText(
                 key: "sidebar.provider.extensions.title",
                 defaultValue: selectedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar")
             ),
-            subtitle: CmuxExtensionLocalizedText(
+            subtitle: CmuxSidebarProviderLocalizedText(
                 key: "sidebar.provider.extensions.subtitle",
                 defaultValue: selectedName == nil
                     ? String(localized: "sidebar.provider.extensions.subtitle", defaultValue: "Custom sidebar")
@@ -10042,19 +10042,19 @@ enum CmuxExtensionSidebarSelection {
         )
     }
 
-    static func descriptor(for providerId: String) -> CmuxExtensionSidebarProviderDescriptor {
+    static func descriptor(for providerId: String) -> CmuxSidebarProviderDescriptor {
         descriptors.first { $0.id == providerId } ?? .defaultWorkspaces
     }
 
-    static func provider(for providerId: String) -> (any CmuxExtensionSidebarProvider)? {
+    static func provider(for providerId: String) -> (any CmuxSidebarProvider)? {
         providers.first { $0.descriptor.id == providerId }
     }
 
-    static func localizedTitle(for descriptor: CmuxExtensionSidebarProviderDescriptor) -> String {
+    static func localizedTitle(for descriptor: CmuxSidebarProviderDescriptor) -> String {
         localizedText(descriptor.title)
     }
 
-    static func localizedText(_ text: CmuxExtensionLocalizedText) -> String {
+    static func localizedText(_ text: CmuxSidebarProviderLocalizedText) -> String {
         NSLocalizedString(
             text.key,
             tableName: "Localizable",
@@ -10609,7 +10609,7 @@ struct VerticalTabsSidebar: View {
         )
 
         ZStack(alignment: .bottomLeading) {
-            if CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId).id == CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID {
+            if CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId).id == CmuxSidebarProviderDescriptor.defaultWorkspacesID {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
@@ -10873,7 +10873,7 @@ struct VerticalTabsSidebar: View {
                 snapshotUpdateToken: extensionSidebarUpdateToken,
                 actionHandler: { handleCMUXSidebarExtensionAction($0) },
                 onUseDefaultSidebar: {
-                    CmuxExtensionSidebarSelection.setProviderId(CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID)
+                    CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID)
                 }
             )
             .onReceive(
@@ -10909,7 +10909,7 @@ struct VerticalTabsSidebar: View {
 
     private func extensionSidebarTimelineContent(
         renderContext: WorkspaceListRenderContext,
-        model: CmuxExtensionSidebarRenderModel,
+        model: CmuxSidebarProviderRenderModel,
         now: Date
     ) -> some View {
         GeometryReader { geometryProxy in
@@ -11057,25 +11057,25 @@ struct VerticalTabsSidebar: View {
     private func extensionSidebarRenderModel(
         renderContext: WorkspaceListRenderContext,
         now: Date
-    ) -> CmuxExtensionSidebarRenderModel {
+    ) -> CmuxSidebarProviderRenderModel {
         let _ = extensionSidebarUpdateToken
         let snapshot = extensionSidebarSnapshot(renderContext: renderContext)
         return extensionSidebarRenderModel(snapshot: snapshot, now: now)
     }
 
     private func extensionSidebarRenderModel(
-        snapshot: CmuxExtensionSidebarSnapshot,
+        snapshot: CmuxSidebarProviderSnapshot,
         now: Date
-    ) -> CmuxExtensionSidebarRenderModel {
+    ) -> CmuxSidebarProviderRenderModel {
         let descriptor = CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId)
         if let provider = CmuxExtensionSidebarSelection.provider(for: descriptor.id) {
-            let context = CmuxExtensionSidebarRenderContext(now: now)
-            if let contextualProvider = provider as? any CmuxExtensionSidebarContextualProvider {
+            let context = CmuxSidebarProviderRenderContext(now: now)
+            if let contextualProvider = provider as? any CmuxContextualSidebarProvider {
                 return contextualProvider.render(snapshot: snapshot, context: context)
             }
             return provider.render(snapshot: snapshot)
         }
-        return CmuxExtensionSidebarRenderModel(
+        return CmuxSidebarProviderRenderModel(
             providerId: descriptor.id,
             snapshotSequence: snapshot.sequence,
             sections: []
@@ -11084,22 +11084,22 @@ struct VerticalTabsSidebar: View {
 
     private func extensionSidebarSnapshot(
         renderContext: WorkspaceListRenderContext
-    ) -> CmuxExtensionSidebarSnapshot {
+    ) -> CmuxSidebarProviderSnapshot {
         extensionSidebarSnapshot(workspaces: renderContext.tabs)
     }
 
-    private func extensionSidebarSnapshotForCurrentTabs() -> CmuxExtensionSidebarSnapshot {
+    private func extensionSidebarSnapshotForCurrentTabs() -> CmuxSidebarProviderSnapshot {
         extensionSidebarSnapshot(workspaces: tabManager.tabs)
     }
 
-    private func cmuxSidebarSnapshotForCurrentTabs() -> CMUXSidebarSnapshot {
+    private func cmuxSidebarSnapshotForCurrentTabs() -> CmuxSidebarSnapshot {
         let snapshot = extensionSidebarSnapshotForCurrentTabs()
-        return CMUXSidebarSnapshot(
+        return CmuxSidebarSnapshot(
             sequence: snapshot.sequence,
             windowID: snapshot.windowId,
             selectedWorkspaceID: snapshot.selectedWorkspaceId,
             workspaces: snapshot.workspaces.map { workspace in
-                CMUXSidebarWorkspace(
+                CmuxSidebarWorkspace(
                     id: workspace.id,
                     title: workspace.title,
                     detail: workspace.customDescription,
@@ -11117,11 +11117,11 @@ struct VerticalTabsSidebar: View {
 	        )
 	    }
 
-    private func cmuxSidebarSurfaces(for workspace: CmuxExtensionWorkspaceSnapshot) -> [CMUXSidebarSurface] {
+    private func cmuxSidebarSurfaces(for workspace: CmuxSidebarProviderWorkspace) -> [CmuxSidebarSurface] {
         guard let liveWorkspace = tabManager.tabs.first(where: { $0.id == workspace.id }) else { return [] }
         return liveWorkspace.sidebarOrderedPanelIds().compactMap { panelId in
             guard let panel = liveWorkspace.panels[panelId] else { return nil }
-            return CMUXSidebarSurface(
+            return CmuxSidebarSurface(
                 id: panelId,
                 title: liveWorkspace.panelTitle(panelId: panelId) ?? panel.displayTitle,
                 kind: cmuxSidebarSurfaceKind(for: panel.panelType),
@@ -11133,7 +11133,7 @@ struct VerticalTabsSidebar: View {
         }
     }
 
-    private func cmuxSidebarSurfaceKind(for panelType: PanelType) -> CMUXSidebarSurfaceKind {
+    private func cmuxSidebarSurfaceKind(for panelType: PanelType) -> CmuxSidebarSurfaceKind {
         switch panelType {
         case .terminal:
             return .terminal
@@ -11153,8 +11153,8 @@ struct VerticalTabsSidebar: View {
     }
 
     private func handleCMUXSidebarExtensionAction(
-        _ action: CMUXSidebarAction
-    ) -> CMUXExtensionActionResult {
+        _ action: CmuxSidebarAction
+    ) -> CmuxSidebarActionResult {
         switch action {
         case .createWorkspace(let title, let workingDirectory, let select):
             let workspace = tabManager.addWorkspace(
@@ -11163,11 +11163,11 @@ struct VerticalTabsSidebar: View {
                 inheritWorkingDirectory: workingDirectory == nil,
                 select: select
             )
-            return CMUXExtensionActionResult(accepted: true, message: workspace.id.uuidString)
+            return CmuxSidebarActionResult(accepted: true, message: workspace.id.uuidString)
 
         case .selectWorkspace(let workspaceId):
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
-                return CMUXExtensionActionResult(
+                return CmuxSidebarActionResult(
                     accepted: false,
                     message: String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found")
                 )
@@ -11177,7 +11177,7 @@ struct VerticalTabsSidebar: View {
 
         case .closeWorkspace(let workspaceId):
             guard tabManager.closeWorkspaceWithConfirmation(tabId: workspaceId) else {
-                return CMUXExtensionActionResult(
+                return CmuxSidebarActionResult(
                     accepted: false,
                     message: String(localized: "sidebar.extensions.action.closeRejected", defaultValue: "Workspace could not be closed")
                 )
@@ -11200,7 +11200,7 @@ struct VerticalTabsSidebar: View {
                 tabManager.selectWorkspace(workspace)
             }
             let panel = workspace.newTerminalSurfaceInFocusedPane(focus: true, initialInput: nil)
-            return panel.map { CMUXExtensionActionResult(accepted: true, message: $0.id.uuidString) }
+            return panel.map { CmuxSidebarActionResult(accepted: true, message: $0.id.uuidString) }
                 ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
 
         case .createBrowserSurface(let workspaceId, let urlString):
@@ -11215,7 +11215,7 @@ struct VerticalTabsSidebar: View {
                 tabManager.selectWorkspace(workspace)
             }
             let panelId = tabManager.createBrowserSplit(direction: .right, url: validatedURL.url)
-            return panelId.map { CMUXExtensionActionResult(accepted: true, message: $0.uuidString) }
+            return panelId.map { CmuxSidebarActionResult(accepted: true, message: $0.uuidString) }
                 ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
 
         case .selectSurface(let workspaceId, let surfaceId):
@@ -11250,7 +11250,7 @@ struct VerticalTabsSidebar: View {
                   let panelId = tabManager.createSplit(tabId: workspaceId, surfaceId: surfaceId, direction: splitDirection) else {
                 return .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
             }
-            return CMUXExtensionActionResult(accepted: true, message: panelId.uuidString)
+            return CmuxSidebarActionResult(accepted: true, message: panelId.uuidString)
 
         case .splitBrowser(let workspaceId, let surfaceId, let direction, let urlString):
             let validatedURL = cmuxSidebarExtensionOptionalHTTPURL(from: urlString)
@@ -11265,7 +11265,7 @@ struct VerticalTabsSidebar: View {
             tabManager.selectWorkspace(tab)
             tab.focusPanel(surfaceId)
             let panelId = tabManager.createBrowserSplit(direction: splitDirection, url: validatedURL.url)
-            return panelId.map { CMUXExtensionActionResult(accepted: true, message: $0.uuidString) }
+            return panelId.map { CmuxSidebarActionResult(accepted: true, message: $0.uuidString) }
                 ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
 
         case .toggleSurfaceZoom(let workspaceId, let surfaceId):
@@ -11277,7 +11277,7 @@ struct VerticalTabsSidebar: View {
         case .openURL(let urlString):
             guard let url = cmuxSidebarExtensionRequiredHTTPURL(from: urlString),
                   NSWorkspace.shared.open(url) else {
-                return CMUXExtensionActionResult(
+                return CmuxSidebarActionResult(
                     accepted: false,
                     message: String(localized: "sidebar.extensions.action.urlRejected", defaultValue: "URL could not be opened")
                 )
@@ -11307,7 +11307,7 @@ struct VerticalTabsSidebar: View {
         return url
     }
 
-    private func splitDirection(from direction: CMUXSplitDirection) -> SplitDirection? {
+    private func splitDirection(from direction: CmuxSidebarSplitDirection) -> SplitDirection? {
         switch direction {
         case .left:
             return .left
@@ -11320,8 +11320,8 @@ struct VerticalTabsSidebar: View {
         }
     }
 
-    private func extensionSidebarSnapshot(workspaces: [Workspace]) -> CmuxExtensionSidebarSnapshot {
-        CmuxExtensionSidebarSnapshot(
+    private func extensionSidebarSnapshot(workspaces: [Workspace]) -> CmuxSidebarProviderSnapshot {
+        CmuxSidebarProviderSnapshot(
             sequence: UInt64(max(0, CmuxEventBus.shared.latestSequence)),
             selectedWorkspaceId: tabManager.selectedTabId,
             workspaces: workspaces.map(extensionWorkspaceSnapshot(for:)),
@@ -11329,9 +11329,9 @@ struct VerticalTabsSidebar: View {
         )
     }
 
-    private func extensionWorkspaceSnapshot(for workspace: Workspace) -> CmuxExtensionWorkspaceSnapshot {
+    private func extensionWorkspaceSnapshot(for workspace: Workspace) -> CmuxSidebarProviderWorkspace {
         let rootPath = extensionSidebarRootPath(for: workspace)
-        return CmuxExtensionWorkspaceSnapshot(
+        return CmuxSidebarProviderWorkspace(
             id: workspace.id,
             title: workspace.title,
             customDescription: workspace.customDescription,
@@ -11352,7 +11352,7 @@ struct VerticalTabsSidebar: View {
             pullRequestURLs: workspace.sidebarPullRequestsInDisplayOrder().map { $0.url.absoluteString },
             panelDirectories: workspace.sidebarDirectoriesInDisplayOrder(),
             gitBranches: workspace.sidebarGitBranchesInDisplayOrder().map {
-                CmuxExtensionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
+                CmuxSidebarProviderGitBranch(branch: $0.branch, isDirty: $0.isDirty)
             }
         )
     }
@@ -11362,7 +11362,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func extensionBrowserStackSidebar(
-        model: CmuxExtensionSidebarRenderModel,
+        model: CmuxSidebarProviderRenderModel,
         now: Date
     ) -> some View {
         let rows = model.sections.flatMap(\.rows)
@@ -11448,7 +11448,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func extensionBrowserStackGroup(
-        section: CmuxExtensionSidebarRenderSection,
+        section: CmuxSidebarProviderSection,
         now: Date,
         dropRows: [ExtensionSidebarBrowserStackDropRow]
     ) -> some View {
@@ -11495,7 +11495,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func extensionBrowserStackTile(
-        row: CmuxExtensionSidebarRenderRow,
+        row: CmuxSidebarProviderRow,
         isSelected: Bool,
         dropRows: [ExtensionSidebarBrowserStackDropRow]
     ) -> some View {
@@ -11565,7 +11565,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func extensionBrowserStackRow(
-        row: CmuxExtensionSidebarRenderRow,
+        row: CmuxSidebarProviderRow,
         now: Date,
         compact: Bool = false,
         isSelected: Bool,
@@ -11644,7 +11644,7 @@ struct VerticalTabsSidebar: View {
 
     @ViewBuilder
     private func extensionBrowserStackDropIndicator(
-        row: CmuxExtensionSidebarRenderRow,
+        row: CmuxSidebarProviderRow,
         edge: SidebarDropEdge
     ) -> some View {
         if dragState.dropIndicator == SidebarDropIndicator(tabId: row.workspaceId, edge: edge) {
@@ -11656,7 +11656,7 @@ struct VerticalTabsSidebar: View {
     }
 
     @ViewBuilder
-    private func extensionBrowserStackReorderMenu(row: CmuxExtensionSidebarRenderRow) -> some View {
+    private func extensionBrowserStackReorderMenu(row: CmuxSidebarProviderRow) -> some View {
         Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
             moveExtensionBrowserStackWorkspace(row.workspaceId, by: -1)
         }
@@ -11687,9 +11687,9 @@ struct VerticalTabsSidebar: View {
         }
     }
 
-    private func handleExtensionSidebarMutation(_ mutation: CmuxExtensionSidebarMutation) -> Bool {
+    private func handleExtensionSidebarMutation(_ mutation: CmuxSidebarProviderMutation) -> Bool {
         let descriptor = CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId)
-        guard let provider = CmuxExtensionSidebarSelection.provider(for: descriptor.id) as? any CmuxExtensionSidebarMutableProvider else {
+        guard let provider = CmuxExtensionSidebarSelection.provider(for: descriptor.id) as? any CmuxMutableSidebarProvider else {
             return false
         }
         do {
@@ -11707,7 +11707,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func extensionBrowserStackDropRows(
-        for model: CmuxExtensionSidebarRenderModel
+        for model: CmuxSidebarProviderRenderModel
     ) -> [ExtensionSidebarBrowserStackDropRow] {
         model.sections.flatMap { section in
             section.rows.map { row in
@@ -11723,7 +11723,7 @@ struct VerticalTabsSidebar: View {
         workspaceId: UUID,
         insertionPosition: Int,
         orderedRows: [ExtensionSidebarBrowserStackDropRow]
-    ) -> CmuxExtensionSidebarWorkspaceMove? {
+    ) -> CmuxSidebarProviderWorkspaceMove? {
         ExtensionSidebarBrowserStackDropPlanner.move(
             draggedWorkspaceId: workspaceId,
             insertionPosition: insertionPosition,
@@ -11732,9 +11732,9 @@ struct VerticalTabsSidebar: View {
     }
 
     private func extensionSidebarWorkspaceSnapshotsById(
-        for rows: [CmuxExtensionSidebarRenderRow]
-    ) -> [UUID: CmuxExtensionWorkspaceSnapshot] {
-        var snapshotsById: [UUID: CmuxExtensionWorkspaceSnapshot] = [:]
+        for rows: [CmuxSidebarProviderRow]
+    ) -> [UUID: CmuxSidebarProviderWorkspace] {
+        var snapshotsById: [UUID: CmuxSidebarProviderWorkspace] = [:]
         for row in rows where snapshotsById[row.workspaceId] == nil {
             snapshotsById[row.workspaceId] = extensionWorkspaceSnapshot(for: row.workspaceId)
         }
@@ -11742,7 +11742,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func extensionBrowserStackIcon(
-        _ icon: CmuxExtensionSidebarRenderIcon?,
+        _ icon: CmuxSidebarProviderIcon?,
         size: CGFloat
     ) -> some View {
         let shape = icon?.shape ?? .circle
@@ -11767,7 +11767,7 @@ struct VerticalTabsSidebar: View {
         .frame(width: size, height: size)
     }
 
-    private func extensionSidebarRenderedText(_ text: CmuxExtensionSidebarRenderText?, now: Date) -> String? {
+    private func extensionSidebarRenderedText(_ text: CmuxSidebarProviderText?, now: Date) -> String? {
         guard let text else { return nil }
         switch text {
         case .plain(let value):
@@ -11794,7 +11794,7 @@ struct VerticalTabsSidebar: View {
 
     @ViewBuilder
     private func extensionSidebarSection(
-        _ section: CmuxExtensionSidebarRenderSection,
+        _ section: CmuxSidebarProviderSection,
         providerId: String,
         now: Date
     ) -> some View {
@@ -11870,11 +11870,11 @@ struct VerticalTabsSidebar: View {
         }
     }
 
-    private func extensionWorkspaceSnapshot(for workspaceId: UUID) -> CmuxExtensionWorkspaceSnapshot? {
+    private func extensionWorkspaceSnapshot(for workspaceId: UUID) -> CmuxSidebarProviderWorkspace? {
         tabManager.tabs.first { $0.id == workspaceId }.map(extensionWorkspaceSnapshot(for:))
     }
 
-    private func extensionSidebarTreeSectionTitle(_ section: CmuxExtensionWorkspaceTreeSection) -> String {
+    private func extensionSidebarTreeSectionTitle(_ section: CmuxSidebarProviderTreeSection) -> String {
         if let titleText = section.titleText {
             return CmuxExtensionSidebarSelection.localizedText(titleText)
         }
@@ -11889,7 +11889,7 @@ struct VerticalTabsSidebar: View {
         tabManager.selectWorkspace(workspace)
     }
 
-    private func createExtensionWorktreeWorkspace(for section: CmuxExtensionWorkspaceTreeSection) {
+    private func createExtensionWorktreeWorkspace(for section: CmuxSidebarProviderTreeSection) {
         guard let projectRootPath = section.projectRootPath,
               !extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id) else {
             return
@@ -14431,7 +14431,7 @@ private struct ExtensionSidebarBrowserStackEmptyArea: View {
     @Binding var draggedTabId: UUID?
     @Binding var dropIndicator: SidebarDropIndicator?
     let onNewTab: () -> Void
-    let onMove: (CmuxExtensionSidebarWorkspaceMove) -> Bool
+    let onMove: (CmuxSidebarProviderWorkspaceMove) -> Bool
 
     var body: some View {
         Color.clear
@@ -17337,7 +17337,7 @@ enum ExtensionSidebarBrowserStackDropPlanner {
         insertionPosition: Int,
         orderedRows: [ExtensionSidebarBrowserStackDropRow],
         preferredTargetSectionId: String? = nil
-    ) -> CmuxExtensionSidebarWorkspaceMove? {
+    ) -> CmuxSidebarProviderWorkspaceMove? {
         guard let sourceIndex = orderedRows.firstIndex(where: { $0.workspaceId == draggedWorkspaceId }) else {
             return nil
         }
@@ -17366,7 +17366,7 @@ enum ExtensionSidebarBrowserStackDropPlanner {
             targetIndex = 0
         }
 
-        return CmuxExtensionSidebarWorkspaceMove(
+        return CmuxSidebarProviderWorkspaceMove(
             workspaceId: draggedWorkspaceId,
             sourceSectionId: sourceRow.sectionId,
             targetSectionId: targetSectionId,
@@ -17433,7 +17433,7 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
     let targetRowHeight: CGFloat?
     let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var dropIndicator: SidebarDropIndicator?
-    let onMove: (CmuxExtensionSidebarWorkspaceMove) -> Bool
+    let onMove: (CmuxSidebarProviderWorkspaceMove) -> Bool
 
     func validateDrop(info: DropInfo) -> Bool {
         info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
@@ -17529,7 +17529,7 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
         draggedWorkspaceId: UUID,
         insertionPosition: Int,
         indicator: SidebarDropIndicator?
-    ) -> CmuxExtensionSidebarWorkspaceMove? {
+    ) -> CmuxSidebarProviderWorkspaceMove? {
         ExtensionSidebarBrowserStackDropPlanner.move(
             draggedWorkspaceId: draggedWorkspaceId,
             insertionPosition: insertionPosition,
@@ -17552,7 +17552,7 @@ private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
     @Binding var draggedTabId: UUID?
     let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var dropIndicator: SidebarDropIndicator?
-    let onMove: (CmuxExtensionSidebarWorkspaceMove) -> Bool
+    let onMove: (CmuxSidebarProviderWorkspaceMove) -> Bool
 
     func validateDrop(info: DropInfo) -> Bool {
         info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])

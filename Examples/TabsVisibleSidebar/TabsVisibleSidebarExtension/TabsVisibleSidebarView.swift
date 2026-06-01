@@ -29,7 +29,7 @@ struct TabsVisibleSidebarView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func workspaceList(_ snapshot: CMUXSidebarSnapshot) -> some View {
+    private func workspaceList(_ snapshot: CmuxSidebarSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if snapshot.workspaces.isEmpty {
                 Text(String(localized: "tabsVisible.noWorkspaces", defaultValue: "No workspaces shared by cmux"))
@@ -44,7 +44,7 @@ struct TabsVisibleSidebarView: View {
     }
 
     private func workspaceDisclosure(
-        _ workspace: CMUXSidebarWorkspace,
+        _ workspace: CmuxSidebarWorkspace,
         selectedWorkspaceID: UUID?
     ) -> some View {
         let isExpanded = Binding(
@@ -97,7 +97,7 @@ struct TabsVisibleSidebarView: View {
         )
     }
 
-    private func surfacesList(_ workspace: CMUXSidebarWorkspace) -> some View {
+    private func surfacesList(_ workspace: CmuxSidebarWorkspace) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             if workspace.surfaces.isEmpty {
                 Text(String(localized: "tabsVisible.noSurfaces", defaultValue: "No shared tabs"))
@@ -159,7 +159,7 @@ struct TabsVisibleSidebarView: View {
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 
-    private func iconName(for kind: CMUXSidebarSurfaceKind) -> String {
+    private func iconName(for kind: CmuxSidebarSurfaceKind) -> String {
         switch kind {
         case .terminal:
             return "terminal"
@@ -171,6 +171,8 @@ struct TabsVisibleSidebarView: View {
             return "doc"
         case .rightSidebarTool:
             return "sidebar.right"
+        case .project:
+            return "folder"
         case .unknown:
             return "rectangle"
         }
