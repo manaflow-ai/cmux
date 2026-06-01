@@ -1,5 +1,6 @@
 import XCTest
 import Bonsplit
+import Combine
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,15 +10,35 @@ import Bonsplit
 
 @MainActor
 final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
+    private final class MoveFixturePanel: NSObject, Panel, ObservableObject {
+        let id = UUID()
+        let panelType: PanelType = .project
+        let title: String
+
+        init(title: String) {
+            self.title = title
+            super.init()
+        }
+
+        var displayTitle: String { title }
+        var displayIcon: String? { "hammer" }
+        var isDirty: Bool { false }
+
+        func close() {}
+        func focus() {}
+        func unfocus() {}
+        func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
+    }
+
     func testMoveSurfaceToNewWorkspaceCreatesSinglePanelWorkspaceFromPanelTitle() throws {
         try withRegisteredMoveContext { app, windowId, manager in
-            let (sourceWorkspace, remainingPanel) = try addProjectWorkspace(
+            let (sourceWorkspace, remainingPanel) = try addMoveWorkspace(
                 to: manager,
                 title: "Source",
                 select: true
             )
             let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
-            let movedPanel = try addProjectPanel(
+            let movedPanel = try addMovePanel(
                 to: sourceWorkspace,
                 paneId: sourcePaneId,
                 title: "Build"
@@ -68,13 +89,13 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         defaults.set(false, forKey: focusKey)
 
         try withRegisteredMoveContext { app, _, manager in
-            let (sourceWorkspace, _) = try addProjectWorkspace(
+            let (sourceWorkspace, _) = try addMoveWorkspace(
                 to: manager,
                 title: "Source",
                 select: true
             )
             let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
-            let movedPanel = try addProjectPanel(
+            let movedPanel = try addMovePanel(
                 to: sourceWorkspace,
                 paneId: sourcePaneId,
                 title: "Moved"
@@ -90,7 +111,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
             ))
 
             let destinationWorkspace = try XCTUnwrap(manager.tabs.first { $0.id == result.destinationWorkspaceId })
-            let destinationPanel = try XCTUnwrap(destinationWorkspace.panels[movedPanel.id] as? ProjectPanel)
+            let destinationPanel = try XCTUnwrap(destinationWorkspace.panels[movedPanel.id] as? MoveFixturePanel)
             XCTAssertTrue(destinationPanel === movedPanel)
         }
     }
@@ -106,7 +127,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
 
     func testMoveSurfaceToNewWorkspaceRejectsOnlyPanel() throws {
         try withRegisteredMoveContext { app, _, manager in
-            let (sourceWorkspace, onlyPanel) = try addProjectWorkspace(
+            let (sourceWorkspace, onlyPanel) = try addMoveWorkspace(
                 to: manager,
                 title: "Only",
                 select: true
@@ -121,14 +142,14 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
 
     func testMoveBonsplitTabRouteClosesEmptiedSourceWorkspaceAfterDetachedMove() throws {
         try withRegisteredMoveContext { app, windowId, manager in
-            let (sourceWorkspace, movedPanel) = try addProjectWorkspace(
+            let (sourceWorkspace, movedPanel) = try addMoveWorkspace(
                 to: manager,
                 title: "Source",
                 select: true
             )
             let movedPanelId = movedPanel.id
             let movedBonsplitTabId = try XCTUnwrap(sourceWorkspace.surfaceIdFromPanelId(movedPanelId)?.uuid)
-            let (destinationWorkspace, destinationOriginalPanel) = try addProjectWorkspace(
+            let (destinationWorkspace, destinationOriginalPanel) = try addMoveWorkspace(
                 to: manager,
                 title: "Operations",
                 select: false
@@ -141,7 +162,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
             XCTAssertEqual(located.panelId, movedPanelId)
             XCTAssertTrue(located.tabManager === manager)
 
-            let attachedPanelId = try finishDetachedProjectPanelMove(
+            let attachedPanelId = try finishDetachedMove(
                 app: app,
                 manager: manager,
                 sourceWindowId: windowId,
@@ -163,13 +184,13 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
 
     func testExistingWorkspaceDetachedMoveClosesEmptiedSourceWorkspaceAndFocusesDestination() throws {
         try withRegisteredMoveContext { app, windowId, manager in
-            let (sourceWorkspace, movedPanel) = try addProjectWorkspace(
+            let (sourceWorkspace, movedPanel) = try addMoveWorkspace(
                 to: manager,
                 title: "Source",
                 select: true
             )
             let movedPanelId = movedPanel.id
-            let (destinationWorkspace, destinationOriginalPanel) = try addProjectWorkspace(
+            let (destinationWorkspace, destinationOriginalPanel) = try addMoveWorkspace(
                 to: manager,
                 title: "Operations",
                 select: false
@@ -180,7 +201,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
             XCTAssertEqual(located.workspaceId, sourceWorkspace.id)
             XCTAssertTrue(located.tabManager === manager)
 
-            let attachedPanelId = try finishDetachedProjectPanelMove(
+            let attachedPanelId = try finishDetachedMove(
                 app: app,
                 manager: manager,
                 sourceWindowId: windowId,
@@ -217,51 +238,49 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         try body(app, windowId, manager)
     }
 
-    private func addProjectWorkspace(
+    private func addMoveWorkspace(
         to manager: TabManager,
         title: String,
         select: Bool
-    ) throws -> (Workspace, ProjectPanel) {
-        let transfer = try makeProjectTransfer(title: title)
-        let workspace = try XCTUnwrap(manager.addWorkspace(
-            fromDetachedSurface: transfer,
-            title: title,
-            select: select
-        ))
+    ) throws -> (Workspace, MoveFixturePanel) {
+        let transfer = try makeMoveTransfer(title: title)
+        let workspace = Workspace(title: title, initialDetachedSurface: transfer)
+        workspace.owningTabManager = manager
         workspace.setPortalRenderingEnabled(false, reason: "AppDelegateMoveTabToNewWorkspaceTests.fixture")
-        let panel = try XCTUnwrap(workspace.panels[transfer.panelId] as? ProjectPanel)
+        var tabs = manager.tabs
+        tabs.append(workspace)
+        manager.tabs = tabs
+        if select {
+            manager.selectedTabId = workspace.id
+        }
+        let panel = try XCTUnwrap(workspace.panels[transfer.panelId] as? MoveFixturePanel)
         return (workspace, panel)
     }
 
-    private func addProjectPanel(
+    private func addMovePanel(
         to workspace: Workspace,
         paneId: PaneID,
         title: String
-    ) throws -> ProjectPanel {
-        let transfer = try makeProjectTransfer(sourceWorkspaceId: workspace.id, title: title)
+    ) throws -> MoveFixturePanel {
+        let transfer = try makeMoveTransfer(sourceWorkspaceId: workspace.id, title: title)
         let panelId = try XCTUnwrap(workspace.attachDetachedSurface(
             transfer,
             inPane: paneId,
             focus: false
         ))
-        return try XCTUnwrap(workspace.panels[panelId] as? ProjectPanel)
+        return try XCTUnwrap(workspace.panels[panelId] as? MoveFixturePanel)
     }
 
-    private func makeProjectTransfer(
+    private func makeMoveTransfer(
         sourceWorkspaceId: UUID = UUID(),
-        panel providedPanel: ProjectPanel? = nil,
+        panel providedPanel: MoveFixturePanel? = nil,
         title: String
     ) throws -> Workspace.DetachedSurfaceTransfer {
-        let panel: ProjectPanel
-        let directory: URL
+        let panel: MoveFixturePanel
         if let providedPanel {
             panel = providedPanel
-            directory = providedPanel.projectURL
         } else {
-            directory = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-move-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            panel = ProjectPanel(projectURL: directory)
+            panel = MoveFixturePanel(title: title)
         }
         return Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
@@ -273,7 +292,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
             kind: "project",
             isLoading: false,
             isPinned: false,
-            directory: directory.path,
+            directory: nil,
             ttyName: nil,
             cachedTitle: panel.displayTitle,
             customTitle: nil,
@@ -291,16 +310,16 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
     }
 
     @discardableResult
-    private func finishDetachedProjectPanelMove(
+    private func finishDetachedMove(
         app: AppDelegate,
         manager: TabManager,
         sourceWindowId: UUID,
         sourceWorkspace: Workspace,
         destinationWorkspace: Workspace,
-        panel: ProjectPanel,
+        panel: MoveFixturePanel,
         focus: Bool
     ) throws -> UUID {
-        let transfer = try makeProjectTransfer(
+        let transfer = try makeMoveTransfer(
             sourceWorkspaceId: sourceWorkspace.id,
             panel: panel,
             title: panel.displayTitle
