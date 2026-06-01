@@ -1013,7 +1013,7 @@ final class CmuxSettingsFileStore {
             // showHideAllWindows) — honors the rebinding instead of silently
             // dropping it and falling back to the built-in default.
             if let object = rawValue as? [String: Any] {
-                return parseShortcutObjectForm(object)
+                return parseShortcutObjectForm(object, action: action)
             }
             return nil
         }()
@@ -1027,9 +1027,15 @@ final class CmuxSettingsFileStore {
     /// Decodes the nested-object binding the CmuxSettings package writes
     /// (`{ "first": { stroke }, "second": { stroke }? }`) into the app-target
     /// ``StoredShortcut``. An empty primary key is the package's explicit
-    /// "unbound" marker. Returns `nil` only when `first` is missing or
-    /// malformed, matching the silently-ignored behavior of the string forms.
-    private func parseShortcutObjectForm(_ object: [String: Any]) -> StoredShortcut? {
+    /// "unbound" marker. Returns `nil` when `first` is missing or malformed —
+    /// and, to stay consistent with the string parser, when a present `second`
+    /// stroke is malformed (a chord must not silently degrade to a single
+    /// stroke) or when a bare first stroke is used by an action that requires a
+    /// modifier.
+    private func parseShortcutObjectForm(
+        _ object: [String: Any],
+        action: KeyboardShortcutSettings.Action
+    ) -> StoredShortcut? {
         guard let firstValue = object["first"],
               let first = parseShortcutStrokeObject(firstValue) else {
             return nil
@@ -1037,7 +1043,23 @@ final class CmuxSettingsFileStore {
         if first.key.isEmpty {
             return .unbound
         }
-        let second = object["second"].flatMap(parseShortcutStrokeObject)
+        // Mirror StoredShortcut.parseConfig(strokes:allowBareFirstStroke:): a
+        // bare first stroke is only valid for actions that opt into it, or for
+        // the space key.
+        guard action.allowsBareFirstStroke || !first.modifierFlags.isEmpty || first.key == "space" else {
+            return nil
+        }
+        let second: ShortcutStroke?
+        if let secondValue = object["second"], !(secondValue is NSNull) {
+            // A present-but-malformed second stroke invalidates the whole
+            // binding rather than silently dropping the chord half.
+            guard let parsedSecond = parseShortcutStrokeObject(secondValue) else {
+                return nil
+            }
+            second = parsedSecond
+        } else {
+            second = nil
+        }
         return StoredShortcut(first: first, second: second)
     }
 
@@ -1047,13 +1069,22 @@ final class CmuxSettingsFileStore {
               let key = jsonString(dict["key"]) else {
             return nil
         }
+        // An out-of-range keyCode is a corrupt binding, not a key to silently
+        // wrap into a valid UInt16 (which would re-target a different key).
+        let keyCode: UInt16?
+        if let rawKeyCode = jsonInt(dict["keyCode"]) {
+            guard let value = UInt16(exactly: rawKeyCode) else { return nil }
+            keyCode = value
+        } else {
+            keyCode = nil
+        }
         return ShortcutStroke(
             key: key,
             command: jsonBool(dict["command"]) ?? false,
             shift: jsonBool(dict["shift"]) ?? false,
             option: jsonBool(dict["option"]) ?? false,
             control: jsonBool(dict["control"]) ?? false,
-            keyCode: jsonInt(dict["keyCode"]).map { UInt16(truncatingIfNeeded: $0) }
+            keyCode: keyCode
         )
     }
 

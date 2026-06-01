@@ -209,6 +209,66 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
         XCTAssertEqual(store.override(for: .globalSearch), .unbound)
     }
 
+    func testSettingsFileStoreRejectsObjectFormChordWithMalformedSecondStroke() throws {
+        // A present-but-malformed `second` stroke must invalidate the whole
+        // binding rather than silently degrading the chord to a single stroke
+        // (which could create an unintended single-key shortcut).
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-bad-chord-object-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "newTab": {
+                "first": { "key": "b", "command": false, "shift": false, "option": false, "control": true },
+                "second": { "command": false }
+              }
+            }
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNil(store.override(for: .newTab))
+    }
+
+    func testSettingsFileStoreRejectsObjectFormBareKeyForModifierRequiringAction() throws {
+        // Object-form parsing must apply the same bare-first-stroke rule as the
+        // string parser: an action that requires a modifier rejects a bare key.
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-bare-object-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "newTab": { "first": { "key": "j", "command": false, "shift": false, "option": false, "control": false } }
+            }
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNil(store.override(for: .newTab))
+    }
+
     func testSettingsFileStoreRejectsGlobalSearchChordBinding() throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-global-search-invalid-settings-\(UUID().uuidString)", isDirectory: true)
