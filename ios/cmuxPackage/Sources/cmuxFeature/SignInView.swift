@@ -84,12 +84,9 @@ struct SignInView: View {
                     }
                 } label: {
                     Group {
-                        if isAppleSigningIn {
-                            ProgressView()
-                        } else {
-                            Label(L10n.string("mobile.signIn.apple", defaultValue: "Sign in with Apple"), systemImage: "apple.logo")
-                                .fontWeight(.semibold)
-                        }
+                        Label(L10n.string("mobile.signIn.apple", defaultValue: "Sign in with Apple"), systemImage: "apple.logo")
+                            .fontWeight(.semibold)
+                            .mobileButtonLoading(isAppleSigningIn)
                     }
                     .frame(maxWidth: .infinity)
                     .contentShape(.capsule)
@@ -104,19 +101,16 @@ struct SignInView: View {
                     }
                 } label: {
                     Group {
-                        if isGoogleSigningIn {
-                            ProgressView()
-                        } else {
-                            HStack(spacing: 6) {
-                                Image("GoogleLogo")
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 16, height: 16)
-                                    .accessibilityHidden(true)
-                                Text(L10n.string("mobile.signIn.google", defaultValue: "Sign in with Google"))
-                                    .fontWeight(.semibold)
-                            }
+                        HStack(spacing: 6) {
+                            Image("GoogleLogo")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 16, height: 16)
+                                .accessibilityHidden(true)
+                            Text(L10n.string("mobile.signIn.google", defaultValue: "Sign in with Google"))
+                                .fontWeight(.semibold)
                         }
+                        .mobileButtonLoading(isGoogleSigningIn)
                     }
                     .frame(maxWidth: .infinity)
                     .contentShape(.capsule)

@@ -153,11 +153,8 @@ struct PairingView: View {
                 } label: {
                     HStack {
                         Spacer(minLength: 0)
-                        if isPairing {
-                            ProgressView()
-                        } else {
-                            Text(L10n.string("mobile.addDevice.pair", defaultValue: "Pair"))
-                        }
+                        Text(L10n.string("mobile.addDevice.pair", defaultValue: "Pair"))
+                            .mobileButtonLoading(isPairing, tint: .white)
                         Spacer(minLength: 0)
                     }
                 }
