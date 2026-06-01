@@ -145,27 +145,38 @@ jobs:
           # on Tahoe (the team is pinned to Xcode 26 via .xcode-version). The zig
           # Ghostty CLI helper must link against a pre-26 SDK because zig 0.15.2
           # cannot cross-link x86_64 against the macOS 26 SDK. Both Xcodes ship on
-          # the macOS 15 runner image, so pick one of each by SDK major.
-          APP_DEVELOPER_DIR=""
-          APP_SDK_MAJOR=""
-          HELPER_DEVELOPER_DIR=""
-          HELPER_SDK_MAJOR=""
+          # the macOS 15 runner image, so pick the newest of each by SDK version.
+          # Compare SDK versions numerically (not lexicographically) so e.g.
+          # 26.10 sorts above 26.3.
+          sdk_rank() {
+            # "26.2" -> 26002 ; "26" -> 26000
+            local v="$1" maj min
+            maj="${v%%.*}"
+            min="${v#*.}"
+            [ "$min" = "$v" ] && min=0
+            min="${min%%.*}"
+            printf '%d' "$(( maj * 1000 + min ))"
+          }
+          APP_DEVELOPER_DIR=""; APP_SDK_VER=""; APP_RANK=-1
+          HELPER_DEVELOPER_DIR=""; HELPER_SDK_VER=""; HELPER_RANK=-1
           while IFS= read -r app; do
             [ -n "$app" ] || continue
             dev="$app/Contents/Developer"
             [ -d "$dev" ] || continue
             sdk_ver="$(DEVELOPER_DIR="$dev" xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
             [ -n "$sdk_ver" ] || continue
-            major="${sdk_ver%%.*}"
-            echo "Found $app -> macOS SDK $sdk_ver"
-            if [ "$major" -ge 26 ]; then
-              APP_DEVELOPER_DIR="$dev"
-              APP_SDK_MAJOR="$major"
+            rank="$(sdk_rank "$sdk_ver")"
+            echo "Found $app -> macOS SDK $sdk_ver (rank $rank)"
+            if [ "${sdk_ver%%.*}" -ge 26 ]; then
+              if [ "$rank" -gt "$APP_RANK" ]; then
+                APP_DEVELOPER_DIR="$dev"; APP_SDK_VER="$sdk_ver"; APP_RANK="$rank"
+              fi
             else
-              HELPER_DEVELOPER_DIR="$dev"
-              HELPER_SDK_MAJOR="$major"
+              if [ "$rank" -gt "$HELPER_RANK" ]; then
+                HELPER_DEVELOPER_DIR="$dev"; HELPER_SDK_VER="$sdk_ver"; HELPER_RANK="$rank"
+              fi
             fi
-          done < <(find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null | sort)
+          done < <(find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null)
 
           if [ -z "$APP_DEVELOPER_DIR" ]; then
             echo "No Xcode with the macOS 26+ SDK found; the app would ship without Liquid Glass on Tahoe." >&2
@@ -176,8 +187,8 @@ jobs:
             exit 1
           fi
 
-          echo "App build Xcode (DEVELOPER_DIR): $APP_DEVELOPER_DIR (macOS SDK $APP_SDK_MAJOR)"
-          echo "Helper build Xcode (HELPER_DEVELOPER_DIR): $HELPER_DEVELOPER_DIR (macOS SDK $HELPER_SDK_MAJOR)"
+          echo "App build Xcode (DEVELOPER_DIR): $APP_DEVELOPER_DIR (macOS SDK $APP_SDK_VER)"
+          echo "Helper build Xcode (HELPER_DEVELOPER_DIR): $HELPER_DEVELOPER_DIR (macOS SDK $HELPER_SDK_VER)"
           DEVELOPER_DIR="$APP_DEVELOPER_DIR" xcodebuild -version
           echo "DEVELOPER_DIR=$APP_DEVELOPER_DIR" >> "$GITHUB_ENV"
           echo "HELPER_DEVELOPER_DIR=$HELPER_DEVELOPER_DIR" >> "$GITHUB_ENV"
@@ -253,11 +264,13 @@ jobs:
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         run: |
           set -euo pipefail
-          DEST="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
-          if [ ! -e "$DEST" ]; then
-            echo "Expected Ghostty helper slot missing at $DEST" >&2
+          APP_DIR="build-universal/Build/Products/Release/cmux.app"
+          if [ ! -d "$APP_DIR" ]; then
+            echo "Built app not found at $APP_DIR" >&2
             exit 1
           fi
+          DEST="$APP_DIR/Contents/Resources/bin/ghostty"
+          mkdir -p "$(dirname "$DEST")"
           install -m 755 /tmp/cmux-ghostty-helper-universal "$DEST"
           echo "Injected Ghostty CLI helper architectures: $(lipo -archs "$DEST")"
 
