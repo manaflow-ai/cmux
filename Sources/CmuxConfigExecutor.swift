@@ -498,7 +498,7 @@ struct CmuxConfigExecutor {
         }
 
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
-        let newWorkspace = tabManager.addWorkspace(workingDirectory: resolvedCwd)
+        let newWorkspace = tabManager.addWorkspace(workingDirectory: resolvedCwd, eagerLoadTerminal: true)
         newWorkspace.setCustomTitle(workspaceName)
         if let color = wsDef.color {
             newWorkspace.setCustomColor(color)
