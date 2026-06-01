@@ -728,7 +728,7 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 			_ = os.Remove(tmpScript)
 			return nil, fmt.Errorf("could not write startup script: %w", err)
 		}
-		_ = f.Chmod(0o700)
+		_ = f.Chmod(0o400)
 		_ = f.Close()
 		cmd = exec.Command("/bin/sh", tmpScript)
 	} else {
