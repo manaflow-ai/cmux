@@ -131,6 +131,10 @@ jobs:
         working-directory: diff-viewer
         run: bun run typecheck
 
+      - name: Test diff viewer
+        working-directory: diff-viewer
+        run: bun run test
+
       - name: Oxlint diff viewer
         working-directory: diff-viewer
         run: bun run lint:ci

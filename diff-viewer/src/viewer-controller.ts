@@ -1,4 +1,5 @@
 import type { DiffViewerConfig } from "./types";
+import { planPierreFileTreeRefresh } from "./file-tree-refresh";
 
 type GitStatusPatchEntry = {
   path: string;
@@ -1613,7 +1614,6 @@ function setupPierreFileTree(source, treesModule) {
     itemHeight: 24,
     overscan: 12,
     preparedInput: preparePresortedFileTreeInput(paths),
-    presorted: true,
     search: true,
     searchBlurBehavior: "retain",
     stickyFolders: true,
@@ -1653,10 +1653,9 @@ function refreshPierreFileTree(source, treesModule) {
   fileTreeSource = source;
   updateFileTreeStatsFromSource(source);
   let resetTree = false;
-  const previousPathCount = previousSource?.pathCount ?? 0;
-  const sourcePathCountValue = source.pathCount ?? paths.length;
-  if (previousSource && (source.previousSource === previousSource || isPathPrefix(previousSource, source)) && sourcePathCountValue >= previousPathCount) {
-    const addedPaths = paths.slice(previousPathCount, sourcePathCountValue);
+  const plan = planPierreFileTreeRefresh(previousSource, source, paths);
+  if (plan.kind === "append") {
+    const addedPaths = plan.addedPaths;
     if (addedPaths.length > 0) {
       try {
         fileTree.batch(addedPaths.map((path) => ({ type: "add", path })));
@@ -1719,22 +1718,6 @@ function sourcePaths(source) {
   const count = source?.pathCount ?? source?.paths?.length ?? 0;
   const paths = source?.paths ?? [];
   return paths.length === count ? paths : paths.slice(0, count);
-}
-
-function isPathPrefix(previousSource, nextSource) {
-  const previousPaths = previousSource?.paths;
-  const nextPaths = nextSource?.paths;
-  const previousCount = previousSource?.pathCount ?? previousPaths?.length ?? 0;
-  const nextCount = nextSource?.pathCount ?? nextPaths?.length ?? 0;
-  if (!Array.isArray(previousPaths) || !Array.isArray(nextPaths) || previousCount > nextCount) {
-    return false;
-  }
-  for (let index = 0; index < previousCount; index += 1) {
-    if (previousPaths[index] !== nextPaths[index]) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function updateFileTreeStatsFromSource(source) {

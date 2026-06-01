@@ -8,6 +8,7 @@
     "lint": "oxlint . --react-plugin --jsx-a11y-plugin --import-plugin",
     "lint:ci": "oxlint . --react-plugin --jsx-a11y-plugin --import-plugin --deny-warnings",
     "lint:fix": "oxlint . --react-plugin --jsx-a11y-plugin --import-plugin --fix",
+    "test": "bun test",
     "typecheck": "tsc --noEmit",
     "react-doctor": "react-doctor . --full --no-score --fail-on none",
     "react-doctor:ci": "react-doctor . --full --no-score --fail-on error"
