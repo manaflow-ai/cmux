@@ -2171,7 +2171,13 @@ body.reduce-motion *::after {
   display: flex;
   align-items: end;
   gap: var(--space-1);
-  overflow: hidden;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.browser-tab-list::-webkit-scrollbar {
+  display: none;
 }
 
 .browser-tab {

@@ -4475,6 +4475,8 @@ function cleanupPanel(panelId) {
   }
   const browserSession = state.browserViews.get(panelId);
   if (browserSession?.tabRenderFrame) cancelAnimationFrame(browserSession.tabRenderFrame);
+  if (browserSession?.tabScrollFrame) cancelAnimationFrame(browserSession.tabScrollFrame);
+  browserSession?.detachTabWheelScroll?.();
   const pane = state.paneCache.get(panelId);
   pane?.remove();
   state.paneCache.delete(panelId);
@@ -5348,6 +5350,7 @@ function renderBrowserTabs(session) {
     return button;
   });
   replaceChildrenIfChanged(session.tabList, nodes);
+  scheduleActiveBrowserTabIntoView(session);
 }
 
 function scheduleBrowserTabsRender(session) {
@@ -5355,6 +5358,29 @@ function scheduleBrowserTabsRender(session) {
   session.tabRenderFrame = requestAnimationFrame(() => {
     session.tabRenderFrame = 0;
     renderBrowserTabs(session);
+  });
+}
+
+function scheduleActiveBrowserTabIntoView(session) {
+  if (!session?.tabList || !session.activeTabId) return;
+  if (session.tabScrollFrame) return;
+  session.tabScrollFrame = requestAnimationFrame(() => {
+    session.tabScrollFrame = 0;
+    const activeButton = session.tabButtons?.get(session.activeTabId);
+    if (!activeButton) return;
+    const inset = 8;
+    const minLeft = activeButton.offsetLeft - inset;
+    const maxRight = activeButton.offsetLeft + activeButton.offsetWidth - session.tabList.clientWidth + inset;
+    const maxScroll = Math.max(0, session.tabList.scrollWidth - session.tabList.clientWidth);
+    let nextLeft = session.tabList.scrollLeft;
+    if (activeButton.offsetLeft < session.tabList.scrollLeft + inset) {
+      nextLeft = minLeft;
+    } else if (activeButton.offsetLeft + activeButton.offsetWidth > session.tabList.scrollLeft + session.tabList.clientWidth - inset) {
+      nextLeft = maxRight;
+    }
+    nextLeft = clamp(nextLeft, 0, maxScroll);
+    if (Math.abs(nextLeft - session.tabList.scrollLeft) < 1) return;
+    session.tabList.scrollTo({ left: nextLeft, behavior: "auto" });
   });
 }
 
@@ -5931,6 +5957,7 @@ function ensureBrowser(panel, body) {
     suspendInactive: state.settings.browserSuspendInactive,
     loadDeferred: false
   };
+  session.detachTabWheelScroll = attachHorizontalWheelScroll(tabList);
   state.browserViews.set(panel.id, session);
   renderBrowserTabs(session);
   const activeUrl = activeBrowserTab(session)?.url;
