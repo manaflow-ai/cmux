@@ -3832,6 +3832,16 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         #expect(reference?.slug == "acme/widgets")
     }
 
+    @Test func preservesExplicitPortFromEnterpriseHTTPSRemote() {
+        // A GHES instance served on a non-default port must keep that port so
+        // the REST API base targets it instead of silently falling back to 443.
+        let reference = GitHubRepositoryReference.parse(remoteURL: "https://ghe.example.com:8443/acme/widgets.git")
+        #expect(reference?.host == GitHubHost(hostname: "ghe.example.com", port: 8443))
+        #expect(reference?.host.apiBaseURL.absoluteString == "https://ghe.example.com:8443/api/v3/")
+        // A distinct port is a distinct host identity.
+        #expect(reference?.host != GitHubHost(hostname: "ghe.example.com"))
+    }
+
     @Test func parsesEnterpriseSSHSchemeRemoteWithCustomUser() {
         let reference = GitHubRepositoryReference.parse(remoteURL: "ssh://org-1@ghe.example.com/acme/widgets.git/")
         #expect(reference?.host == GitHubHost(hostname: "ghe.example.com"))

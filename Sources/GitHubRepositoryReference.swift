@@ -49,7 +49,11 @@ struct GitHubRepositoryReference: Hashable, Sendable {
               let (owner, repo) = Self.ownerRepo(fromPath: url.path) else {
             return nil
         }
-        return GitHubRepositoryReference(host: GitHubHost(hostname: host), owner: owner, repo: repo)
+        return GitHubRepositoryReference(
+            host: GitHubHost(hostname: host, port: url.port),
+            owner: owner,
+            repo: repo
+        )
     }
 
     /// Parses SCP-style SSH remotes (`git@host:owner/repo.git`).
@@ -77,7 +81,11 @@ struct GitHubRepositoryReference: Hashable, Sendable {
               let (owner, repo) = Self.ownerRepo(fromPath: webURL.path) else {
             return nil
         }
-        return GitHubRepositoryReference(host: GitHubHost(hostname: host), owner: owner, repo: repo)
+        return GitHubRepositoryReference(
+            host: GitHubHost(hostname: host, port: webURL.port),
+            owner: owner,
+            repo: repo
+        )
     }
 
     /// Splits a URL path into `owner` and `repo`, stripping a trailing `.git`.

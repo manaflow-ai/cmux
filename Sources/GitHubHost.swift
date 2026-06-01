@@ -14,28 +14,37 @@ struct GitHubHost: Hashable, Sendable {
     /// The bare, lowercased hostname, e.g. `github.com` or `ghe.example.com`.
     let hostname: String
 
-    /// Creates a host from a raw hostname. The hostname is lowercased so that
-    /// hosts compare and hash case-insensitively.
-    init(hostname: String) {
+    /// An explicit, non-default port from the remote URL, if any.
+    ///
+    /// `nil` for the default HTTPS port. A GitHub Enterprise Server instance
+    /// served on a non-standard port (e.g. `https://ghe.example.com:8443/...`)
+    /// keeps that port here so ``apiBaseURL`` targets the same port the remote
+    /// uses, rather than silently falling back to 443.
+    let port: Int?
+
+    /// Creates a host from a raw hostname and optional port. The hostname is
+    /// lowercased so that hosts compare and hash case-insensitively.
+    init(hostname: String, port: Int? = nil) {
         self.hostname = hostname.lowercased()
+        self.port = port
     }
 
     /// The canonical github.com host.
     static let dotCom = GitHubHost(hostname: "github.com")
 
-    /// Whether this host is github.com (the public SaaS host).
+    /// Whether this host is github.com (the public SaaS host) on the default port.
     ///
     /// github.com serves public repositories without authentication, so the
     /// poller may query it even when no token is available; every other host
     /// requires a token (see ``isPollable(token:)``).
-    var isDotCom: Bool { hostname == "github.com" }
+    var isDotCom: Bool { hostname == "github.com" && port == nil }
 
     /// The REST API base URL for this host.
     ///
     /// github.com maps to `https://api.github.com/`; any GitHub Enterprise
-    /// Server host maps to `https://<host>/api/v3/`. The returned URL always
-    /// ends in a trailing slash so endpoint paths can be appended relative to it
-    /// (see ``apiURL(endpoint:)``).
+    /// Server host maps to `https://<host>[:<port>]/api/v3/`. The returned URL
+    /// always ends in a trailing slash so endpoint paths can be appended
+    /// relative to it (see ``apiURL(endpoint:)``).
     var apiBaseURL: URL {
         if isDotCom {
             return URL(string: "https://api.github.com/")!
@@ -43,10 +52,16 @@ struct GitHubHost: Hashable, Sendable {
         var components = URLComponents()
         components.scheme = "https"
         components.host = hostname
+        components.port = port
         components.path = "/api/v3/"
-        // Falls back to the public API only if `hostname` is somehow not
-        // representable as a URL host (it always is for a real git remote).
-        return components.url ?? URL(string: "https://api.github.com/")!
+        // A valid hostname (from a parsed git remote) is always representable as
+        // a URL host; hitting this path would mean a bug upstream. Trap instead
+        // of silently promoting an enterprise request to the public github.com
+        // API, which would leak the per-host token to the wrong host.
+        guard let url = components.url else {
+            preconditionFailure("GitHubHost: could not build API URL for hostname '\(hostname)'")
+        }
+        return url
     }
 
     /// Builds an absolute REST API URL for an endpoint path relative to ``apiBaseURL``.
