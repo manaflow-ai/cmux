@@ -383,7 +383,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
 
@@ -441,7 +441,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
 
@@ -509,7 +509,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
 
@@ -566,7 +566,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
 
@@ -622,7 +622,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
 
@@ -692,8 +692,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             createInitialWorkspace: false
         )
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId, notifyObservers: false)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId, notifyObservers: false)
             closeTestWindow(firstContext.window)
             closeTestWindow(secondContext.window)
         }
@@ -754,7 +754,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
 
@@ -821,7 +821,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
 
@@ -947,8 +947,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             createInitialWorkspace: false
         )
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId, notifyObservers: false)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId, notifyObservers: false)
             closeTestWindow(firstContext.window)
             closeTestWindow(secondContext.window)
             restoreDefaultsValue(previousWelcomeShown, forKey: WelcomeSettings.shownKey, defaults: .standard)
@@ -1482,8 +1482,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             createInitialWorkspace: false
         )
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId, notifyObservers: false)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId, notifyObservers: false)
             closeTestWindow(firstContext.window)
             closeTestWindow(secondContext.window)
             restoreDefaultsValue(previousWelcomeShown, forKey: WelcomeSettings.shownKey, defaults: .standard)
@@ -1873,7 +1873,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
 
@@ -1917,7 +1917,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
 
@@ -1969,7 +1969,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
 
@@ -2032,7 +2032,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
 
@@ -2356,7 +2356,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer {
             appDelegate.debugAuxiliaryCloseShortcutWindowOverride = nil
             appDelegate.tabManager = previousTabManager
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
 
@@ -3872,7 +3872,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
 
@@ -5145,7 +5145,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         guard let initialSidebarVisible = appDelegate.sidebarVisibility(windowId: context.windowId) else {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
             XCTFail("Expected a main window context")
             return
@@ -5156,7 +5156,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         defer {
             NSApp.mainMenu = previousMainMenu
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
 
@@ -9248,7 +9248,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     private func closeRegisteredShortcutRoutingWindow(_ window: NSWindow, id: UUID) {
-        AppDelegate.shared?.unregisterMainWindowContextForTesting(windowId: id)
+        AppDelegate.shared?.unregisterMainWindowContextForTesting(windowId: id, notifyObservers: false)
         closeTestWindow(window)
     }
 
@@ -9286,8 +9286,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer {
             appDelegate.debugFocusedCloseShortcutWindowOverride = nil
             appDelegate.tabManager = previousTabManager
-            appDelegate.unregisterMainWindowContextForTesting(windowId: originalContext.windowId)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: focusedContext.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: originalContext.windowId, notifyObservers: false)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: focusedContext.windowId, notifyObservers: false)
             closeTestWindow(originalWindow)
             closeTestWindow(focusedWindow)
         }
@@ -9937,7 +9937,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let registeredWindowId = appDelegate.registerMainWindowContextForTesting(
             windowId: windowId,
             tabManager: tabManager,
-            window: window
+            window: window,
+            notifyObservers: false
         )
         return (registeredWindowId, window, tabManager)
     }

@@ -4472,7 +4472,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager: TabManager,
         cmuxConfigStore: CmuxConfigStore? = nil,
         fileExplorerState: FileExplorerState? = nil,
-        window: NSWindow? = nil
+        window: NSWindow? = nil,
+        notifyObservers: Bool = true
     ) -> UUID {
         let key: ObjectIdentifier
         if let window {
@@ -4491,7 +4492,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxConfigStore: cmuxConfigStore,
             window: window
         )
-        notifyMainWindowContextsDidChange()
+        if notifyObservers {
+            notifyMainWindowContextsDidChange()
+        }
         return windowId
     }
 
@@ -5886,7 +5889,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return removed
     }
 
-    private func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
+    private func discardOrphanedMainWindowContext(
+        _ context: MainWindowContext,
+        allowWindowlessFallback: Bool = false,
+        notifyObservers: Bool = true
+    ) {
         let contextKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
         }
@@ -5894,7 +5901,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mainWindowContexts.removeValue(forKey: key)
         }
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
-        notifyMainWindowContextsDidChange()
+        if notifyObservers {
+            notifyMainWindowContextsDidChange()
+        }
 
         commandPaletteVisibilityByWindowId.removeValue(forKey: context.windowId)
         commandPalettePendingOpenByWindowId.removeValue(forKey: context.windowId)
@@ -5922,8 +5931,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
-    func unregisterMainWindowContextForTesting(windowId: UUID) {
-        mainWindowContexts.values.filter { $0.windowId == windowId }.forEach { discardOrphanedMainWindowContext($0, allowWindowlessFallback: true) }
+    func unregisterMainWindowContextForTesting(windowId: UUID, notifyObservers: Bool = true) {
+        mainWindowContexts.values.filter { $0.windowId == windowId }.forEach {
+            discardOrphanedMainWindowContext($0, allowWindowlessFallback: true, notifyObservers: notifyObservers)
+        }
     }
 #endif
 
