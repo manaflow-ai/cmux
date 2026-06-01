@@ -101,7 +101,7 @@ public struct SidebarSection: View {
                         .frame(width: 130)
                         .accessibilityIdentifier("SettingsSidebarFontSizeSlider")
 
-                        Text(String(localized: "settings.fontSize.valuePoints", defaultValue: "\(hostActions.formattedFontSize(sidebarFont.points)) pt"))
+                        Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), hostActions.formattedFontSize(sidebarFont.points)))
                             .font(.system(size: 12, weight: .medium, design: .rounded))
                             .monospacedDigit()
                             .frame(width: 44, alignment: .trailing)

@@ -96,7 +96,7 @@ public struct TerminalSection: View {
                         .frame(width: 130)
                         .accessibilityIdentifier("SettingsTabBarFontSizeSlider")
 
-                        Text(String(localized: "settings.fontSize.valuePoints", defaultValue: "\(hostActions.formattedFontSize(surfaceTabBarFont.points)) pt"))
+                        Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), hostActions.formattedFontSize(surfaceTabBarFont.points)))
                             .font(.system(size: 12, weight: .medium, design: .rounded))
                             .monospacedDigit()
                             .frame(width: 44, alignment: .trailing)
