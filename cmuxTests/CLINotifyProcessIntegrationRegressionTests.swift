@@ -73,6 +73,90 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testPiUIPromptLifecycleMarksNeedsInputWithoutNotification() throws {
+        let context = try makeClaudeHookContext(name: "pi-ui-prompt")
+        defer { context.cleanup() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+        let sessionId = "pi-session-123"
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "pi",
+            executable: "/usr/local/bin/pi",
+            arguments: ["/usr/local/bin/pi", "--model", "gpt-5.1"]
+        )
+        let start = runAgentHook(
+            context: context,
+            agent: "pi",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+        XCTAssertEqual(start.stdout, "{}\n")
+
+        let promptStartCommandStart = context.state.snapshot().count
+        let promptStart = runAgentHook(
+            context: context,
+            agent: "pi",
+            subcommand: "ui-prompt-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"ui_prompt_start","kind":"select","title":"Choose one"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(promptStart.timedOut, promptStart.stderr)
+        XCTAssertEqual(promptStart.status, 0, promptStart.stderr)
+        XCTAssertEqual(promptStart.stdout, "{}\n")
+
+        let promptStartCommands = Array(context.state.snapshot().dropFirst(promptStartCommandStart))
+        XCTAssertTrue(
+            promptStartCommands.contains {
+                $0.contains("set_agent_lifecycle pi needsInput --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected Pi UI prompt start to mark lifecycle needsInput, saw \(promptStartCommands)"
+        )
+        XCTAssertTrue(
+            promptStartCommands.contains {
+                $0.contains("set_status pi Pi needs input --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected Pi UI prompt start to show a needs-input status, saw \(promptStartCommands)"
+        )
+        XCTAssertFalse(
+            promptStartCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Pi UI prompt start should update lifecycle/status without publishing a notification, saw \(promptStartCommands)"
+        )
+
+        let promptEndCommandStart = context.state.snapshot().count
+        let promptEnd = runAgentHook(
+            context: context,
+            agent: "pi",
+            subcommand: "ui-prompt-end",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"ui_prompt_end","kind":"select"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(promptEnd.timedOut, promptEnd.stderr)
+        XCTAssertEqual(promptEnd.status, 0, promptEnd.stderr)
+        XCTAssertEqual(promptEnd.stdout, "{}\n")
+
+        let promptEndCommands = Array(context.state.snapshot().dropFirst(promptEndCommandStart))
+        XCTAssertTrue(
+            promptEndCommands.contains {
+                $0.contains("set_agent_lifecycle pi running --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected Pi UI prompt end to restore lifecycle running, saw \(promptEndCommands)"
+        )
+        XCTAssertTrue(
+            promptEndCommands.contains {
+                $0.contains("set_status pi Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected Pi UI prompt end to restore running status, saw \(promptEndCommands)"
+        )
+    }
+
     func testCodexPromptSubmitRefreshesLastTurnDiffBaseline() throws {
         let context = try makeClaudeHookContext(name: "codex-prompt-baseline")
         defer { context.cleanup() }
