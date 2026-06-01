@@ -636,7 +636,8 @@
         "find": "ค้นหา",
         "terminal": "เทอร์มินัล",
         "window": "หน้าต่าง",
-        "diffViewer": "ตัวดู diff"
+        "diffViewer": "ตัวดู diff",
+        "markdownViewer": "Markdown Viewer"
       },
       "sc": {
         "ws-new": "Workspace ใหม่",

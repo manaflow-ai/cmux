@@ -637,7 +637,8 @@
         "find": "Пошук",
         "terminal": "Термінал",
         "window": "Вікно",
-        "diffViewer": "Перегляд diff"
+        "diffViewer": "Перегляд diff",
+        "markdownViewer": "Markdown Viewer"
       },
       "sc": {
         "ws-new": "Новий робочий простір",

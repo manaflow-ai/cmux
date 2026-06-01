@@ -636,7 +636,8 @@
         "find": "البحث",
         "terminal": "الطرفية",
         "window": "النافذة",
-        "diffViewer": "عارض الاختلافات"
+        "diffViewer": "عارض الاختلافات",
+        "markdownViewer": "Markdown Viewer"
       },
       "sc": {
         "ws-new": "مساحة عمل جديدة",

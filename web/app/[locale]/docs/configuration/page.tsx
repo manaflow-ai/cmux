@@ -61,6 +61,8 @@ const settingsFileExample = `{
   //   "newWorkspacePlacement": "afterCurrent",
   //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
+  //   "openMarkdownInCmuxViewer": true,
+  //   "markdownViewerFontSize": 15,
   //   "workspaceInheritWorkingDirectory": true,
   //   "iMessageMode": true
   // },

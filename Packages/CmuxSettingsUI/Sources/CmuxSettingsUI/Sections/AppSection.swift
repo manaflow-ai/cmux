@@ -35,6 +35,7 @@ public struct AppSection: View {
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
+    @State private var markdownViewerFontSize: DefaultsValueModel<Double>
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<Bool>
     @State private var dockBadge: DefaultsValueModel<Bool>
@@ -75,6 +76,7 @@ public struct AppSection: View {
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
+        _markdownViewerFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.markdownViewerFontSize))
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
         _dockBadge = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge))
@@ -96,6 +98,9 @@ public struct AppSection: View {
 
     private static let columnWidth: CGFloat = 196
     private static let notificationSoundControlWidth: CGFloat = 280
+    private static let markdownViewerFontMinimum: Double = 8
+    private static let markdownViewerFontMaximum: Double = 96
+    private static let markdownViewerFontDefault: Double = 15
 
     /// Languages legacy `AppLanguage` exposes (cmuxApp.swift line
     /// 4338). The shared `CmuxSettings.AppLanguage` adds `.vi` for a
@@ -308,6 +313,43 @@ public struct AppSection: View {
                 Toggle("", isOn: Binding(get: { openMarkdown.current }, set: { openMarkdown.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Markdown Viewer Font Size
+            SettingsCardRow(
+                configurationReview: .json("app.markdownViewerFontSize"),
+                String(localized: "settings.app.markdownViewerFontSize", defaultValue: "Markdown Viewer Font Size"),
+                subtitle: String(localized: "settings.app.markdownViewerFontSize.subtitle", defaultValue: "Default preview text size for new markdown panels and the markdown zoom reset action."),
+                controlWidth: 250
+            ) {
+                HStack(spacing: 8) {
+                    Slider(
+                        value: Binding(
+                            get: { Self.clampedMarkdownViewerFontSize(markdownViewerFontSize.current) },
+                            set: { markdownViewerFontSize.set(Self.clampedMarkdownViewerFontSize($0)) }
+                        ),
+                        in: Self.markdownViewerFontMinimum...Self.markdownViewerFontMaximum,
+                        step: 0.5
+                    )
+                    .frame(width: 130)
+                    .accessibilityIdentifier("SettingsMarkdownViewerFontSizeSlider")
+
+                    Text(String.localizedStringWithFormat(
+                        String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"),
+                        hostActions.formattedFontSize(Self.clampedMarkdownViewerFontSize(markdownViewerFontSize.current))
+                    ))
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .trailing)
+
+                    Button(String(localized: "settings.app.markdownViewerFontSize.reset", defaultValue: "Reset")) {
+                        markdownViewerFontSize.set(Self.markdownViewerFontDefault)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(abs(Self.clampedMarkdownViewerFontSize(markdownViewerFontSize.current) - Self.markdownViewerFontDefault) < 0.001)
+                }
             }
             SettingsCardDivider()
 
@@ -713,6 +755,10 @@ public struct AppSection: View {
                 defaultValue: "Dragging files opens previews or split panes. Hold Shift over terminals and editors to insert path text."
             )
         }
+    }
+
+    private static func clampedMarkdownViewerFontSize(_ value: Double) -> Double {
+        min(max(value, markdownViewerFontMinimum), markdownViewerFontMaximum)
     }
 
     private func confirmQuitSubtitle(_ mode: ConfirmQuitMode) -> String {

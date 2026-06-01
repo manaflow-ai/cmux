@@ -79,6 +79,12 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "openMarkdownInCmuxViewer"
     )
 
+    public let markdownViewerFontSize = DefaultsKey<Double>(
+        id: "app.markdownViewerFontSize",
+        defaultValue: 15,
+        userDefaultsKey: "markdownViewerFontSize"
+    )
+
     public let iMessageMode = DefaultsKey<Bool>(
         id: "app.iMessageMode",
         defaultValue: false,

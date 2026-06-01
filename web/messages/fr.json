@@ -636,7 +636,8 @@
         "find": "Recherche",
         "terminal": "Terminal",
         "window": "Fenêtre",
-        "diffViewer": "Visionneuse de diff"
+        "diffViewer": "Visionneuse de diff",
+        "markdownViewer": "Markdown Viewer"
       },
       "sc": {
         "ws-new": "Nouvel espace de travail",

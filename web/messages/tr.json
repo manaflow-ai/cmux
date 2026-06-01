@@ -636,7 +636,8 @@
         "find": "Bul",
         "terminal": "Terminal",
         "window": "Pencere",
-        "diffViewer": "Diff görüntüleyici"
+        "diffViewer": "Diff görüntüleyici",
+        "markdownViewer": "Markdown Viewer"
       },
       "sc": {
         "ws-new": "Yeni çalışma alanı",

@@ -704,7 +704,8 @@
         "find": "検索",
         "terminal": "ターミナル",
         "window": "ウィンドウ",
-        "diffViewer": "差分ビューア"
+        "diffViewer": "差分ビューア",
+        "markdownViewer": "Markdownビューア"
       },
       "sc": {
         "ws-new": "新規ワークスペース",

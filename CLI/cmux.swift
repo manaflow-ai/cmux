@@ -4637,7 +4637,9 @@ struct CMUXCLI {
         let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
         let (directionOpt, argsAfterDirection) = parseOption(argsAfterSurface, name: "--direction")
         let (focusOpt, argsAfterFocus) = parseOption(argsAfterDirection, name: "--focus")
-        args = argsAfterFocus
+        let (fontSizeOpt, argsAfterFontSize) = parseOption(argsAfterFocus, name: "--font-size")
+        args = argsAfterFontSize
+        let usage = "cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>] [--font-size <points>]"
 
         // Determine subcommand. Explicit "open" is supported, otherwise treat
         // a single positional argument as shorthand path.
@@ -4652,7 +4654,7 @@ struct CMUXCLI {
             if let first = args.first, first.hasPrefix("-") {
                 throw CLIError(
                     message:
-                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
+                        "markdown open: unknown flag '\(first)'. Usage: \(usage)"
                 )
             } else if let first = args.first, looksLikePath(first) || first.contains(".") {
                 subArgs = args
@@ -4670,21 +4672,25 @@ struct CMUXCLI {
         if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
             throw CLIError(
                 message:
-                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
+                    "markdown open: unknown flag '\(unknownFlag)'. Usage: \(usage)"
             )
         }
         if let extraArg = trailingArgs.first {
             throw CLIError(
                 message:
-                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
+                    "markdown open: unexpected argument '\(extraArg)'. Usage: \(usage)"
             )
         }
 
         let absolutePath = resolvePath(rawPath)
+        let fontSizeOverride = try fontSizeOpt.map(parseMarkdownViewerFontSize)
 
         // Build params
         let direction = directionOpt ?? "right"
         var params: [String: Any] = ["path": absolutePath, "direction": direction]
+        if let fontSizeOverride {
+            params["font_size"] = fontSizeOverride
+        }
         if let surfaceRaw = surfaceOpt {
             if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = surface
@@ -4711,8 +4717,27 @@ struct CMUXCLI {
             let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
             let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
             let filePath = (payload["path"] as? String) ?? absolutePath
-            print("OK surface=\(surfaceText) pane=\(paneText) path=\(filePath)")
+            let payloadFontSize = (payload["font_size"] as? Double) ?? (payload["font_size"] as? NSNumber)?.doubleValue
+            let fontSizeText = payloadFontSize
+                .map { String(format: "%.2f", $0) }
+                ?? fontSizeOverride.map { String(format: "%.2f", $0) }
+            if let fontSizeText {
+                print("OK surface=\(surfaceText) pane=\(paneText) path=\(filePath) font_size=\(fontSizeText)")
+            } else {
+                print("OK surface=\(surfaceText) pane=\(paneText) path=\(filePath)")
+            }
         }
+    }
+
+    private func parseMarkdownViewerFontSize(_ rawValue: String) throws -> Double {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let size = Double(trimmed),
+              size.isFinite,
+              size >= 8,
+              size <= 96 else {
+            throw CLIError(message: "--font-size must be a number between 8 and 96")
+        }
+        return (size * 100).rounded() / 100
     }
 
     private func runProjectCommand(
@@ -14436,12 +14461,14 @@ struct CMUXCLI {
               --window <id|ref|index>      Target window
               --direction <left|right|up|down>  Split direction (default: right)
               --focus <true|false>         Focus the markdown panel (default: false)
+              --font-size <points>         Set preview font size for this panel
 
             Examples:
               cmux markdown open plan.md
               cmux markdown ~/project/CHANGELOG.md
               cmux markdown open ./docs/design.md --workspace 0
               cmux markdown open plan.md --direction down
+              cmux markdown open README.md --font-size 13
             """
         default:
             return nil

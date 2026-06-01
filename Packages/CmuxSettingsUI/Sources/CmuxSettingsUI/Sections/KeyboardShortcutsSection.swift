@@ -306,6 +306,7 @@ public struct KeyboardShortcutsSection: View {
 
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
         for other in ShortcutAction.allCases where other != action {
+            guard !Self.canShareShortcutContext(action, other) else { continue }
             let override = bindings[other.rawValue]
             let effective = override ?? other.defaultStroke.map { StoredShortcut(first: $0) }
             guard let effective, !effective.isUnbound else { continue }
@@ -313,6 +314,31 @@ public struct KeyboardShortcutsSection: View {
         }
         return nil
     }
+
+    private static func canShareShortcutContext(_ first: ShortcutAction, _ second: ShortcutAction) -> Bool {
+        let firstIsMarkdown = markdownViewerActions.contains(first)
+        let secondIsMarkdown = markdownViewerActions.contains(second)
+        let firstIsBrowser = browserPanelActions.contains(first)
+        let secondIsBrowser = browserPanelActions.contains(second)
+        return (firstIsMarkdown && secondIsBrowser) || (firstIsBrowser && secondIsMarkdown)
+    }
+
+    private static let markdownViewerActions: Set<ShortcutAction> = [
+        .markdownZoomIn,
+        .markdownZoomOut,
+        .markdownZoomReset,
+    ]
+
+    private static let browserPanelActions: Set<ShortcutAction> = [
+        .browserBack,
+        .browserForward,
+        .browserReload,
+        .browserZoomIn,
+        .browserZoomOut,
+        .browserZoomReset,
+        .toggleBrowserDeveloperTools,
+        .showBrowserJavaScriptConsole,
+    ]
 
     /// Mirrors legacy `StoredShortcut.displayString`: returns localized
     /// "None" for unbound, formats the first stroke (and optional chord

@@ -518,7 +518,7 @@ the expected text without connecting to a cmux socket.
 - `cmux get-url --help` -> `Legacy alias for 'cmux browser get-url'`
 - `cmux focus-webview --help` -> `Legacy alias for 'cmux browser focus-webview'`
 - `cmux is-webview-focused --help` -> `Legacy alias for 'cmux browser is-webview-focused'`
-- `cmux markdown --help` -> `Usage: cmux markdown open <path>`
+- `cmux markdown --help` -> `Usage: cmux markdown open <path> [options]`
 <!-- cli-contract-help-probes:end -->
 
 ## No-Socket Negative Help Probes
