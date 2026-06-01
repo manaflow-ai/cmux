@@ -156,6 +156,35 @@ if [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && -n "${ASC_API_K
   )
 fi
 
+# Tell the mobile-attach QR server (scripts/mobile-attach-qr-server.sh) which
+# iOS tag is freshest, so the QR's "Open" button + bundle id track this reload
+# without restarting the server. Merges into the shared marker so a concurrent
+# macOS reload's mac_tag is preserved. Best-effort: never fail the reload over
+# the marker (e.g. no python3, read-only TMPDIR).
+update_qr_tag_marker() {
+  # FIXED /tmp path (not TMPDIR): the QR server runs in a different shell whose
+  # per-session TMPDIR differs, so the rendezvous file must be machine-shared.
+  local marker="/tmp/cmux-mobile-attach-qr-tags.json"
+  command -v python3 >/dev/null 2>&1 || return 0
+  IOS_TAG="$TAG" MARKER="$marker" python3 - <<'PY' 2>/dev/null || true
+import json, os
+marker = os.environ["MARKER"]
+data = {}
+try:
+    with open(marker) as fh:
+        loaded = json.load(fh)
+        if isinstance(loaded, dict):
+            data = loaded
+except (FileNotFoundError, ValueError, OSError):
+    pass
+data["ios_tag"] = os.environ["IOS_TAG"]
+tmp = marker + ".tmp"
+with open(tmp, "w") as fh:
+    json.dump(data, fh)
+os.replace(tmp, marker)
+PY
+}
+
 run_and_capture() {
   local log_path="$1"
   shift
@@ -516,3 +545,5 @@ fi
 if [[ "$RELOAD_DEVICE" -eq 1 ]]; then
   reload_device
 fi
+
+update_qr_tag_marker
