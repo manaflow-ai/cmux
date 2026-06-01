@@ -5776,9 +5776,12 @@ function scheduleBrowserTabOverflowRefresh(session) {
 function updateBrowserTabOverflow(session) {
   const tabList = session?.tabList;
   if (!tabList) return;
-  const countCrowded = (session.tabs?.length || tabList.children.length) >= 5;
+  const tabCount = session.tabs?.length || tabList.children.length;
+  if (tabCount < 5 && tabList.classList.contains("is-crowded")) {
+    tabList.classList.remove("is-crowded");
+  }
   const naturalOverflowing = tabList.scrollWidth > tabList.clientWidth + 1;
-  toggleClassIfChanged(tabList, "is-crowded", countCrowded || naturalOverflowing);
+  toggleClassIfChanged(tabList, "is-crowded", naturalOverflowing || tabCount >= 5);
   const overflowing = tabList.scrollWidth > tabList.clientWidth + 1;
   const maxScrollLeft = Math.max(0, tabList.scrollWidth - tabList.clientWidth);
   const scrollLeft = Math.max(0, tabList.scrollLeft);
