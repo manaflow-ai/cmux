@@ -190,6 +190,24 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
+    func surfaceTabsFillPaneWidth() -> Bool {
+        // See ``sidebarFontSize()`` — uses the cached config to avoid main-actor disk I/O.
+        GhosttyConfig.load().surfaceTabsFillPaneWidth
+    }
+
+    func setSurfaceTabsFillPaneWidth(_ enabled: Bool) async -> Bool {
+        let formatted = CmuxGhosttyConfigSettingEditor.formattedBool(enabled)
+        guard await fontConfigWriter.write(
+            key: CmuxGhosttyConfigSettingEditor.surfaceTabsFillPaneWidthKey,
+            value: formatted
+        ) else {
+            hostSettingsLogger.warning("failed to persist surface-tabs-fill-pane-width")
+            return false
+        }
+        GhosttyApp.shared.reloadConfiguration(source: "settings.terminal.tabsFillPaneWidth")
+        return true
+    }
+
     func formattedFontSize(_ points: Double) -> String {
         CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
     }

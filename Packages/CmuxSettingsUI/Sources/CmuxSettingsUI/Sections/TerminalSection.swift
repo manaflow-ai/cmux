@@ -14,6 +14,8 @@ public struct TerminalSection: View {
     @State private var surfaceTabBarFont: SettingsFontSize
     @State private var fontSaveFailed = false
     @State private var fontSaveTask: Task<Void, Never>?
+    @State private var tabsFillPaneWidth: Bool
+    @State private var tabsFillSaveTask: Task<Void, Never>?
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
@@ -31,6 +33,7 @@ public struct TerminalSection: View {
         self.catalog = catalog
         self.hostActions = hostActions
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
+        _tabsFillPaneWidth = State(initialValue: hostActions.surfaceTabsFillPaneWidth())
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
@@ -55,6 +58,15 @@ public struct TerminalSection: View {
         fontSaveTask = Task {
             let saved = await hostActions.setSurfaceTabBarFontSize(points)
             if !Task.isCancelled { fontSaveFailed = !saved }
+        }
+    }
+
+    /// Persists the stretch-tabs-to-fill flag, cancelling any in-flight save so a
+    /// rapid toggle sequence only reflects the latest value.
+    private func saveTabsFillPaneWidth(_ enabled: Bool) {
+        tabsFillSaveTask?.cancel()
+        tabsFillSaveTask = Task {
+            _ = await hostActions.setSurfaceTabsFillPaneWidth(enabled)
         }
     }
 
@@ -127,6 +139,22 @@ public struct TerminalSection: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.terminal.tabsFillPaneWidth", defaultValue: "Stretch Tabs to Fill Pane Width"),
+                subtitle: tabsFillPaneWidth
+                    ? String(localized: "settings.terminal.tabsFillPaneWidth.subtitleOn", defaultValue: "Tabs stretch to fill each pane's tab bar. A single tab spans the full width; multiple tabs share it evenly and scroll only when they overflow.")
+                    : String(localized: "settings.terminal.tabsFillPaneWidth.subtitleOff", defaultValue: "Tabs use a fixed width and scroll horizontally when they overflow the pane.")
+            ) {
+                Toggle("", isOn: Binding(get: { tabsFillPaneWidth }, set: { newValue in
+                    tabsFillPaneWidth = newValue
+                    saveTabsFillPaneWidth(newValue)
+                }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsTerminalTabsFillPaneWidthToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

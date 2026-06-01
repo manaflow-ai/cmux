@@ -187,6 +187,9 @@ enum CmuxGhosttyConfigSettingEditor {
     static let minSurfaceTabBarFontSize = 8.0
     static let maxSurfaceTabBarFontSize = 14.0
 
+    static let surfaceTabsFillPaneWidthKey = "surface-tabs-fill-pane-width"
+    static let defaultSurfaceTabsFillPaneWidth = false
+
     static func clampedSidebarFontSize(_ value: Double) -> Double {
         guard value.isFinite else { return defaultSidebarFontSize }
         return min(max(value, minSidebarFontSize), maxSidebarFontSize)
@@ -211,6 +214,35 @@ enum CmuxGhosttyConfigSettingEditor {
 
     static func parsedSurfaceTabBarFontSize(in contents: String) -> Double? {
         parsedFontSize(in: contents, key: surfaceTabBarFontSizeKey, clamp: clampedSurfaceTabBarFontSize)
+    }
+
+    /// Serializes a boolean Ghostty config value (`true`/`false`).
+    static func formattedBool(_ value: Bool) -> String {
+        value ? "true" : "false"
+    }
+
+    /// Reads the last occurrence of the surface-tabs-fill-pane-width flag, or `nil` if unset/unparseable.
+    static func parsedSurfaceTabsFillPaneWidth(in contents: String) -> Bool? {
+        guard let raw = parsedValue(for: surfaceTabsFillPaneWidthKey, in: contents) else {
+            return nil
+        }
+        return parsedBoolLiteral(raw)
+    }
+
+    /// Parses a Ghostty-style boolean literal, accepting the common truthy/falsy spellings.
+    static func parsedBoolLiteral(_ rawValue: String) -> Bool? {
+        let normalized = rawValue
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            .trimmingCharacters(in: .whitespaces)
+            .lowercased()
+        switch normalized {
+        case "true", "1", "yes", "on":
+            return true
+        case "false", "0", "no", "off":
+            return false
+        default:
+            return nil
+        }
     }
 
     /// Formats a point size for display, trimming trailing zeros (`12`, `13.5`, `13.75`).

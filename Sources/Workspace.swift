@@ -10680,8 +10680,16 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitAppearance(
             from: config.backgroundColor,
             backgroundOpacity: config.backgroundOpacity,
-            tabTitleFontSize: config.surfaceTabBarFontSize
+            tabTitleFontSize: config.surfaceTabBarFontSize,
+            tabWidthMode: Self.bonsplitTabWidthMode(for: config)
         )
+    }
+
+    /// Maps the `surface-tabs-fill-pane-width` config flag to Bonsplit's tab-width mode.
+    nonisolated static func bonsplitTabWidthMode(
+        for config: GhosttyConfig
+    ) -> BonsplitConfiguration.Appearance.TabWidthMode {
+        config.surfaceTabsFillPaneWidth ? .fill : .fixed
     }
 
     nonisolated static func usesSharedSurfaceBackdrop(defaults: UserDefaults = .standard) -> Bool {
@@ -10816,7 +10824,8 @@ final class Workspace: Identifiable, ObservableObject {
     private static func bonsplitAppearance(
         from backgroundColor: NSColor,
         backgroundOpacity: Double,
-        tabTitleFontSize: CGFloat = 11
+        tabTitleFontSize: CGFloat = 11,
+        tabWidthMode: BonsplitConfiguration.Appearance.TabWidthMode = .fixed
     ) -> BonsplitConfiguration.Appearance {
         let sharesWindowBackdrop = usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
@@ -10831,6 +10840,7 @@ final class Workspace: Identifiable, ObservableObject {
         return BonsplitConfiguration.Appearance(
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
             tabTitleFontSize: tabTitleFontSize,
+            tabWidthMode: tabWidthMode,
             splitButtonBackdropEffect: Self.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
@@ -10851,15 +10861,18 @@ final class Workspace: Identifiable, ObservableObject {
             renderingMode: renderingMode
         )
         let nextTabTitleFontSize = config.surfaceTabBarFontSize
+        let nextTabWidthMode = Self.bonsplitTabWidthMode(for: config)
         let currentAppearance = bonsplitController.configuration.appearance
         let currentTabTitleFontSize = currentAppearance.tabTitleFontSize
+        let currentTabWidthMode = currentAppearance.tabWidthMode
         let colorsChanged = !Self.bonsplitChromeColorsEqual(
             currentAppearance.chromeColors,
             nextChromeColors
         )
         let sharedBackdropChanged = currentAppearance.usesSharedBackdrop != sharesWindowBackdrop
         let fontSizeChanged = abs(currentTabTitleFontSize - nextTabTitleFontSize) > 0.0001
-        let isNoOp = !colorsChanged && !sharedBackdropChanged && !fontSizeChanged
+        let tabWidthModeChanged = currentTabWidthMode != nextTabWidthMode
+        let isNoOp = !colorsChanged && !sharedBackdropChanged && !fontSizeChanged && !tabWidthModeChanged
 
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
@@ -10885,6 +10898,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if fontSizeChanged {
             bonsplitController.configuration.appearance.tabTitleFontSize = nextTabTitleFontSize
+        }
+        if tabWidthModeChanged {
+            bonsplitController.configuration.appearance.tabWidthMode = nextTabWidthMode
         }
 
         if GhosttyApp.shared.backgroundLogEnabled {
@@ -10974,11 +10990,12 @@ final class Workspace: Identifiable, ObservableObject {
         // and keep split entry instantaneous.
         // Use the cached Ghostty config so new workspaces inherit tab-strip sizing
         // without paying repeated parse costs on the workspace-creation hot path.
-        let initialSurfaceTabBarFontSize = GhosttyConfig.load().surfaceTabBarFontSize
+        let initialConfig = GhosttyConfig.load()
         let appearance = Self.bonsplitAppearance(
             from: GhosttyApp.shared.defaultBackgroundColor,
             backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
-            tabTitleFontSize: initialSurfaceTabBarFontSize
+            tabTitleFontSize: initialConfig.surfaceTabBarFontSize,
+            tabWidthMode: Self.bonsplitTabWidthMode(for: initialConfig)
         )
         let config = BonsplitConfiguration(
             allowSplits: true,
