@@ -94,6 +94,121 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
         )
     }
 
+    func testSettingsFileStoreParsesPackageObjectFormGlobalSearchShortcut() throws {
+        // Regression for https://github.com/manaflow-ai/cmux/issues/5137.
+        // The in-app Settings UI (CmuxSettings package) persists every
+        // shortcut rebinding to cmux.json under `shortcuts.bindings.<action>`
+        // as a nested StoredShortcut object ({"first": {key, command, ...}}),
+        // not the legacy human-editable "cmd+opt+f" string. The file store
+        // that feeds KeyboardShortcutSettings — and therefore the system-wide
+        // Carbon hotkeys (globalSearch, showHideAllWindows) — must understand
+        // that object form. Otherwise SystemWideHotkeyController never sees the
+        // rebinding and the default ⌥⌘F keeps opening Global Search.
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-object-settings-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "globalSearch": {
+                "first": { "key": "j", "command": true, "shift": false, "option": false, "control": true }
+              }
+            }
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .globalSearch),
+            StoredShortcut(key: "j", command: true, shift: false, option: false, control: true)
+        )
+    }
+
+    func testSettingsFileStoreParsesPackageObjectFormChordShortcut() throws {
+        // The package object form also encodes two-stroke chords as
+        // {"first": {...}, "second": {...}}. A non-system-wide action exercises
+        // the general path so the fix is not narrowed to global search.
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-chord-object-settings-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "newTab": {
+                "first": { "key": "b", "command": false, "shift": false, "option": false, "control": true },
+                "second": { "key": "n", "command": false, "shift": false, "option": false, "control": false }
+              }
+            }
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .newTab),
+            StoredShortcut(
+                key: "b",
+                command: false,
+                shift: false,
+                option: false,
+                control: true,
+                chordKey: "n",
+                chordCommand: false,
+                chordShift: false,
+                chordOption: false,
+                chordControl: false
+            )
+        )
+    }
+
+    func testSettingsFileStoreParsesPackageObjectFormUnboundShortcut() throws {
+        // The package marks an explicit "no shortcut" override with an empty
+        // primary key ({"first": {"key": ""}}). The legacy reader must treat
+        // that as unbound, not as an invalid binding to be dropped.
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-unbound-object-settings-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "globalSearch": { "first": { "key": "", "command": false, "shift": false, "option": false, "control": false } }
+            }
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(store.override(for: .globalSearch), .unbound)
+    }
+
     func testSettingsFileStoreRejectsGlobalSearchChordBinding() throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-global-search-invalid-settings-\(UUID().uuidString)", isDirectory: true)
