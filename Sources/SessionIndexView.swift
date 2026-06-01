@@ -799,7 +799,7 @@ private struct SessionTranscriptPreviewView: View {
             loadingStatusRow
         case .missingFile:
             statusRow(
-                systemImage: "doc.badge.questionmark",
+                systemImage: RenderableSystemSymbol.unknownDocumentIcon,
                 text: String(localized: "sessionIndex.preview.noFile", defaultValue: "No transcript file")
             )
         case .failed:

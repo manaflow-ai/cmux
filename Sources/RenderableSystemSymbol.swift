@@ -1,6 +1,10 @@
 import AppKit
 
 enum RenderableSystemSymbol {
+    static let sidebarExtensionIcon = "puzzlepiece"
+    static let packageIcon = "archivebox"
+    static let packageFillIcon = "archivebox.fill"
+    static let unknownDocumentIcon = "doc.questionmark"
     static let defaultWorkspaceGroupIcon = "folder.fill"
     static let defaultSurfaceTabIcon = "doc.text"
     @MainActor

@@ -139,7 +139,7 @@ class UpdateViewModel: ObservableObject {
         case .downloading:
             return "arrow.down.circle"
         case .extracting:
-            return "shippingbox"
+            return RenderableSystemSymbol.packageIcon
         case .installing:
             return "power.circle"
         case .notFound:

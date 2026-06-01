@@ -11,7 +11,7 @@ final class CMUXSidebarExtensionBrowserPanel: NSObject, Panel, ObservableObject 
     private let title: String
 
     var displayTitle: String { title }
-    var displayIcon: String? { "puzzlepiece.extension" }
+    var displayIcon: String? { RenderableSystemSymbol.sidebarExtensionIcon }
 
     init(title: String) {
         self.title = title

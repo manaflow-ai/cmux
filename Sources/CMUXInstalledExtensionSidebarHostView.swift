@@ -217,7 +217,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 .accessibilityIdentifier("CMUXExtensionSidebarEmptyState")
             } else {
                 VStack(spacing: 16) {
-                    Image(systemName: "puzzlepiece.extension")
+                    Image(systemName: RenderableSystemSymbol.sidebarExtensionIcon)
                         .font(.system(size: 26, weight: .regular))
                         .foregroundStyle(.secondary)
                         .frame(width: 60, height: 60)
@@ -344,13 +344,13 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     Button {
                         selectExtension(enabledIdentity)
                     } label: {
-                        Label(enabledIdentity.localizedName, systemImage: "puzzlepiece.extension")
+                        Label(enabledIdentity.localizedName, systemImage: RenderableSystemSymbol.sidebarExtensionIcon)
                     }
                 }
             } label: {
                 Label(
                     String(localized: "sidebar.extensions.choose.action", defaultValue: "Choose Extension"),
-                    systemImage: "puzzlepiece.extension"
+                    systemImage: RenderableSystemSymbol.sidebarExtensionIcon
                 )
             }
             .menuStyle(.button)
@@ -362,7 +362,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         } label: {
             Label(
                 String(localized: "sidebar.extensions.manage.short", defaultValue: "Manage"),
-                systemImage: "puzzlepiece.extension"
+                systemImage: RenderableSystemSymbol.sidebarExtensionIcon
             )
         }
         .controlSize(.small)
@@ -418,7 +418,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     private func extensionDetailsPopover(activeIdentity: AppExtensionIdentity?) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Image(systemName: "puzzlepiece.extension")
+                Image(systemName: RenderableSystemSymbol.sidebarExtensionIcon)
                     .font(.system(size: 18, weight: .medium))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(activeIdentity?.localizedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar"))
@@ -556,7 +556,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         } label: {
             Label(
                 String(localized: "sidebar.extensions.manage.short", defaultValue: "Manage"),
-                systemImage: "puzzlepiece.extension")
+                systemImage: RenderableSystemSymbol.sidebarExtensionIcon)
         }
         .controlSize(.small)
     }
@@ -659,14 +659,14 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     } label: {
                         Label(
                             enabledIdentity.localizedName,
-                            systemImage: enabledIdentity.bundleIdentifier == activeIdentity?.bundleIdentifier ? "checkmark" : "puzzlepiece.extension"
+                            systemImage: enabledIdentity.bundleIdentifier == activeIdentity?.bundleIdentifier ? "checkmark" : RenderableSystemSymbol.sidebarExtensionIcon
                         )
                     }
                 }
             } label: {
                 Label(
                     activeIdentity?.localizedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar"),
-                    systemImage: "puzzlepiece.extension"
+                    systemImage: RenderableSystemSymbol.sidebarExtensionIcon
                 )
                 .lineLimit(1)
             }
@@ -675,7 +675,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         } else {
             Label(
                 activeIdentity?.localizedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar"),
-                systemImage: "puzzlepiece.extension"
+                systemImage: RenderableSystemSymbol.sidebarExtensionIcon
             )
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.secondary)
@@ -760,7 +760,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                Image(systemName: "puzzlepiece.extension")
+                Image(systemName: RenderableSystemSymbol.sidebarExtensionIcon)
                     .font(.system(size: 22, weight: .medium))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String.localizedStringWithFormat(

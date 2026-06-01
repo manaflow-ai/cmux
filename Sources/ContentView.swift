@@ -9958,7 +9958,7 @@ enum CmuxExtensionSidebarSelection {
                     ? String(localized: "sidebar.provider.extensions.subtitle", defaultValue: "Custom sidebar")
                     : String(localized: "sidebar.provider.extensions.selectedSubtitle", defaultValue: "Sidebar extension")
             ),
-            systemImageName: "puzzlepiece.extension",
+            systemImageName: RenderableSystemSymbol.sidebarExtensionIcon,
             isHostProvided: true
         )
     }
@@ -13029,7 +13029,7 @@ private struct SidebarFooterButtons: View {
                     title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
                 )
             } label: {
-                Image(systemName: "puzzlepiece.extension")
+                Image(systemName: RenderableSystemSymbol.sidebarExtensionIcon)
                     .symbolRenderingMode(.monochrome)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color(nsColor: .secondaryLabelColor))

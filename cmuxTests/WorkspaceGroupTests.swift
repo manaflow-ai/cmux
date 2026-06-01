@@ -708,4 +708,17 @@ struct WorkspaceGroupTests {
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("not.an.sf.symbol") == "doc.text")
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   ") == "doc.text")
     }
+
+    @Test func appOwnedFallbackSymbolsAreRenderable() {
+        for symbol in [
+            RenderableSystemSymbol.sidebarExtensionIcon,
+            RenderableSystemSymbol.packageIcon,
+            RenderableSystemSymbol.packageFillIcon,
+            RenderableSystemSymbol.unknownDocumentIcon,
+            RenderableSystemSymbol.defaultWorkspaceGroupIcon,
+            RenderableSystemSymbol.defaultSurfaceTabIcon
+        ] {
+            #expect(RenderableSystemSymbol.isRenderable(symbol), "Expected \(symbol) to resolve as an SF Symbol")
+        }
+    }
 }

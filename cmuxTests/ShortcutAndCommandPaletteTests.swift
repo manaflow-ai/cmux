@@ -1945,6 +1945,15 @@ final class UpdateViewModelPresentationTests: XCTestCase {
         XCTAssertNotNil(NSImage(systemSymbolName: viewModel.iconName ?? "", accessibilityDescription: nil))
     }
 
+    func testExtractingUpdateUsesResolvablePackageIcon() {
+        let viewModel = UpdateViewModel()
+
+        viewModel.state = .extracting(.init(progress: 0.4))
+
+        XCTAssertEqual(viewModel.iconName, RenderableSystemSymbol.packageIcon)
+        XCTAssertNotNil(NSImage(systemSymbolName: viewModel.iconName ?? "", accessibilityDescription: nil))
+    }
+
     func testActiveUpdateStateTakesPrecedenceOverDetectedBackgroundVersion() {
         let viewModel = UpdateViewModel()
 

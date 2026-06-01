@@ -123,7 +123,7 @@ struct ProjectTargetsTabView: View {
             }
         } else {
             ProjectEmptyDetailView(
-                systemImage: "shippingbox",
+                systemImage: RenderableSystemSymbol.packageIcon,
                 title: "Select a target",
                 hint: "Pick a target on the left to see its product type, dependencies, and configurations."
             )
@@ -226,11 +226,11 @@ struct ProjectTargetsTabView: View {
     private func glyph(for productType: TargetProductType) -> String {
         switch productType {
         case .application: return "app.fill"
-        case .framework, .dynamicLibrary, .staticLibrary, .xcFramework: return "shippingbox"
-        case .bundle: return "shippingbox.fill"
+        case .framework, .dynamicLibrary, .staticLibrary, .xcFramework: return RenderableSystemSymbol.packageIcon
+        case .bundle: return RenderableSystemSymbol.packageFillIcon
         case .unitTest, .uiTest: return "testtube.2"
         case .commandLineTool: return "terminal"
-        case .appExtension: return "puzzlepiece.extension"
+        case .appExtension: return RenderableSystemSymbol.sidebarExtensionIcon
         case .watchApp, .watchExtension: return "applewatch"
         case .other: return "questionmark.square"
         }
