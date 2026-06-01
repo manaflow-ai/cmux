@@ -1,12 +1,10 @@
 import Foundation
 
-final class CmuxSidebarExtensionRuntime<Extension: CmuxSidebarExtension>: @unchecked Sendable {
-    private let sidebarExtension: Extension
+final class CmuxSidebarExtensionRuntime: @unchecked Sendable {
     private let connection: CMUXSidebarExtensionConnection
 
     @MainActor
-    init(sidebarExtension: Extension) {
-        self.sidebarExtension = sidebarExtension
+    init<Extension: CmuxSidebarExtension>(sidebarExtension: Extension) {
         var transport: CMUXSidebarExtensionConnection!
         transport = CMUXSidebarExtensionConnection(
             manifest: Extension.manifest,

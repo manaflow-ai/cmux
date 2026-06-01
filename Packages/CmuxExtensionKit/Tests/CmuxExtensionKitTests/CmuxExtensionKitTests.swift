@@ -226,11 +226,17 @@ struct CMUXExtensionKitTests {
         )
         #expect(decodedAction == action)
 
-        let result = CmuxSidebarActionResult(accepted: false, message: "Not found")
+        let result = CmuxSidebarActionResult.rejected("Not found")
         let decodedResult = try CmuxSidebarXPCCodec.decodeActionResult(
             try CmuxSidebarXPCCodec.encodeActionResult(result)
         )
         #expect(decodedResult == result)
+
+        let cancelledResult = CmuxSidebarActionResult.cancelled
+        let decodedCancelledResult = try CmuxSidebarXPCCodec.decodeActionResult(
+            try CmuxSidebarXPCCodec.encodeActionResult(cancelledResult)
+        )
+        #expect(decodedCancelledResult.rejectionReason == .cancelled)
     }
 
     @Test

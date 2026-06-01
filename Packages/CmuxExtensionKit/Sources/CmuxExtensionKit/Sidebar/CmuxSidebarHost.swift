@@ -137,7 +137,7 @@ public struct CmuxSidebarHost {
         let result = await perform(action)
         guard result.accepted else {
             let message = result.message ?? "cmux did not allow that action"
-            if message == "Extension action was cancelled" {
+            if result.rejectionReason == .cancelled {
                 throw CmuxSidebarActionError.cancelled
             }
             throw CmuxSidebarActionError.rejected(message)
@@ -187,7 +187,7 @@ private final class CmuxSidebarActionReplyGate: @unchecked Sendable {
         lock.lock()
         if didComplete {
             lock.unlock()
-            continuation.resume(returning: .rejected("Extension action was cancelled"))
+            continuation.resume(returning: .cancelled)
             return false
         }
         self.continuation = continuation
@@ -227,7 +227,7 @@ private final class CmuxSidebarActionReplyGate: @unchecked Sendable {
         lock.unlock()
 
         cancellation?.cancel()
-        continuation?.resume(returning: .rejected("Extension action was cancelled"))
+        continuation?.resume(returning: .cancelled)
     }
 
     private func complete() -> CheckedContinuation<CmuxSidebarActionResult, Never>? {

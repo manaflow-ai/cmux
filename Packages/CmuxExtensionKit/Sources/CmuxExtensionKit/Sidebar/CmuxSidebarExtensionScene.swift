@@ -15,29 +15,13 @@ struct CmuxSidebarExtensionScene<Extension: CmuxSidebarExtension>: AppExtensionS
     @MainActor
     var body: PrimitiveAppExtensionScene {
         let runtime = CmuxSidebarExtensionRuntime(sidebarExtension: sidebarExtension)
-        let runtimeBox: AnySidebarRuntimeBox = SidebarRuntimeBox(runtime)
+        let acceptConnection: @Sendable (NSXPCConnection) -> Bool = { connection in
+            runtime.accept(connection)
+        }
         return PrimitiveAppExtensionScene(id: id) {
             sidebarExtension.body
         } onConnection: { connection in
-            runtimeBox.accept(connection)
+            acceptConnection(connection)
         }
-    }
-}
-
-private final class SidebarRuntimeBox<Extension: CmuxSidebarExtension>: AnySidebarRuntimeBox, @unchecked Sendable {
-    private let runtime: CmuxSidebarExtensionRuntime<Extension>
-
-    init(_ runtime: CmuxSidebarExtensionRuntime<Extension>) {
-        self.runtime = runtime
-    }
-
-    override func accept(_ connection: NSXPCConnection) -> Bool {
-        runtime.accept(connection)
-    }
-}
-
-private class AnySidebarRuntimeBox: @unchecked Sendable {
-    func accept(_ connection: NSXPCConnection) -> Bool {
-        false
     }
 }
