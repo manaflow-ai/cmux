@@ -485,7 +485,7 @@ class TerminalProcess {
       this.emitOutput(`\r\n[process exited: ${code ?? "unknown"}]\r\n`);
       this.closed = true;
     });
-    this.emitOutput("cmux Windows process bridge fallback is active. Install node-pty for full ConPTY behavior.\r\n");
+    this.emitOutput("cmux is using the compatibility terminal bridge. Some interactive shell features may be limited.\r\n");
   }
 
   attach(socket) {
@@ -727,10 +727,23 @@ class CmuxWindowsRuntime {
   }
 
   serializeWorkspace(workspace) {
-    const terminalPanels = workspace.panels.filter((panel) => panel.type === "terminal");
-    const browserPanels = workspace.panels.filter((panel) => panel.type === "browser");
-    const latestNotification = workspace.panels.find((panel) => panel.needsAttention)?.notificationText || "";
-    const cwd = workspace.cwd || terminalPanels[0]?.cwd || defaultWorkspaceDirectory();
+    const panels = Array.isArray(workspace.panels) ? workspace.panels : [];
+    let terminalCount = 0;
+    let browserCount = 0;
+    let firstTerminalCwd = "";
+    let latestNotification = "";
+    for (const panel of panels) {
+      if (panel.type === "terminal") {
+        terminalCount += 1;
+        if (!firstTerminalCwd) firstTerminalCwd = panel.cwd || "";
+      } else if (panel.type === "browser") {
+        browserCount += 1;
+      }
+      if (!latestNotification && panel.needsAttention) {
+        latestNotification = panel.notificationText || "";
+      }
+    }
+    const cwd = workspace.cwd || firstTerminalCwd || defaultWorkspaceDirectory();
     const branch = gitBranch(cwd);
     return {
       id: workspace.id,
@@ -738,13 +751,13 @@ class CmuxWindowsRuntime {
       color: workspace.color || workspaceColors[0],
       activePanelId: workspace.activePanelId,
       splitDirection: workspace.splitDirection,
-      terminalCount: terminalPanels.length,
-      browserCount: browserPanels.length,
+      terminalCount,
+      browserCount,
       cwd,
       cwdShort: shortPath(cwd),
       branch,
       latestNotification,
-      panels: workspace.panels.map((panel) => this.serializePanel(panel))
+      panels: panels.map((panel) => this.serializePanel(panel))
     };
   }
 

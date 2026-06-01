@@ -2985,10 +2985,10 @@ function updateRuntimeStatusLabels() {
   const pipeName = state.data?.pipeName || "";
   setTextIfChanged(elements.statusPipe, pipeName ? "pipe" : "pipe unavailable");
   setTitleIfChanged(elements.statusPipe, pipeName || "Control pipe unavailable");
-  setTextIfChanged(elements.statusPty, state.data?.ptyAvailable ? "ConPTY" : "fallback");
+  setTextIfChanged(elements.statusPty, state.data?.ptyAvailable ? "native" : "compat");
   setTitleIfChanged(elements.statusPty, state.data?.ptyAvailable
-    ? "ConPTY terminal backend ready"
-    : "Process pipe fallback terminal backend");
+    ? "Native terminal backend ready"
+    : "Compatibility terminal bridge active");
 }
 
 function updateOperationChrome() {
@@ -6226,7 +6226,7 @@ function renderInspector() {
     const workspace = activeWorkspace();
     const cards = [
       ["Control pipe", state.data.pipeName || "Unavailable"],
-      ["Terminal backend", state.data.ptyAvailable ? "node-pty / ConPTY" : "process pipe fallback"],
+      ["Terminal backend", state.data.ptyAvailable ? "Native" : "Compatibility mode"],
       ["Active workspace", workspace?.title || "None"],
       ["Working directory", workspace?.cwd || "None"]
     ];
