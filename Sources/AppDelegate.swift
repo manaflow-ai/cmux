@@ -847,6 +847,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
     private var ghosttyGotoSplitDownShortcut: StoredShortcut?
+    private var ghosttyGotoSplitPreviousShortcut: StoredShortcut?
+    private var ghosttyGotoSplitNextShortcut: StoredShortcut?
     private var browserAddressBarFocusedPanelId: UUID?
     private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
     private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
@@ -9718,6 +9720,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "paneCount": String(allPaneIds.count),
                 "allPaneIds": allPaneIds.joined(separator: ","),
                 "focusedPaneId": focusedPaneId,
+                "ghosttyGotoSplitPreviousShortcut": ghosttyGotoSplitPreviousShortcut?.displayString ?? "",
+                "ghosttyGotoSplitNextShortcut": ghosttyGotoSplitNextShortcut?.displayString ?? "",
                 "setupComplete": "true",
             ])
         }
@@ -10079,6 +10083,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "ghosttyGotoSplitRightShortcut": ghosttyGotoSplitRightShortcut?.displayString ?? "",
                 "ghosttyGotoSplitUpShortcut": ghosttyGotoSplitUpShortcut?.displayString ?? "",
                 "ghosttyGotoSplitDownShortcut": ghosttyGotoSplitDownShortcut?.displayString ?? "",
+                "ghosttyGotoSplitPreviousShortcut": ghosttyGotoSplitPreviousShortcut?.displayString ?? "",
+                "ghosttyGotoSplitNextShortcut": ghosttyGotoSplitNextShortcut?.displayString ?? "",
                 "webViewFocused": "true"
             ])
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_GOTO_SPLIT_INPUT_SETUP"] == "1" {
@@ -12063,6 +12069,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ghosttyGotoSplitRightShortcut = nil
             ghosttyGotoSplitUpShortcut = nil
             ghosttyGotoSplitDownShortcut = nil
+            ghosttyGotoSplitPreviousShortcut = nil
+            ghosttyGotoSplitNextShortcut = nil
             return
         }
 
@@ -12077,6 +12085,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         ghosttyGotoSplitDownShortcut = storedShortcutFromGhosttyTrigger(
             ghostty_config_trigger(config, "goto_split:down", UInt("goto_split:down".utf8.count))
+        )
+        ghosttyGotoSplitPreviousShortcut = storedShortcutFromGhosttyTrigger(
+            ghostty_config_trigger(config, "goto_split:previous", UInt("goto_split:previous".utf8.count))
+        )
+        ghosttyGotoSplitNextShortcut = storedShortcutFromGhosttyTrigger(
+            ghostty_config_trigger(config, "goto_split:next", UInt("goto_split:next".utf8.count))
         )
     }
 
@@ -13131,6 +13145,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.movePaneFocus(direction: .down)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .down)
+#endif
+            return true
+        }
+
+        if matchesGhosttyGotoSplitPreviousShortcut(event) {
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.cyclePaneFocus(forward: false)
+#if DEBUG
+            if let workspace = tabManager?.selectedWorkspace {
+                recordGotoSplitCycleMoveIfNeeded(tabId: workspace.id, forward: false)
+            }
+#endif
+            return true
+        }
+
+        if matchesGhosttyGotoSplitNextShortcut(event) {
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.cyclePaneFocus(forward: true)
+#if DEBUG
+            if let workspace = tabManager?.selectedWorkspace {
+                recordGotoSplitCycleMoveIfNeeded(tabId: workspace.id, forward: true)
+            }
 #endif
             return true
         }
@@ -14809,6 +14843,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         shortcut.matches(event: event, layoutCharacterProvider: shortcutLayoutCharacterProvider)
+    }
+
+    fileprivate func shouldRouteGhosttyGotoSplitCycleShortcutToTerminal(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        return matchesGhosttyGotoSplitPreviousShortcut(event)
+            || matchesGhosttyGotoSplitNextShortcut(event)
+    }
+
+    private func matchesGhosttyGotoSplitPreviousShortcut(_ event: NSEvent) -> Bool {
+        guard let ghosttyGotoSplitPreviousShortcut else { return false }
+        return matchShortcut(event: event, shortcut: ghosttyGotoSplitPreviousShortcut)
+    }
+
+    private func matchesGhosttyGotoSplitNextShortcut(_ event: NSEvent) -> Bool {
+        guard let ghosttyGotoSplitNextShortcut else { return false }
+        return matchShortcut(event: event, shortcut: ghosttyGotoSplitNextShortcut)
     }
 
     private func matchesKeyboardShortcutEvent(
@@ -17021,6 +17071,13 @@ private extension NSWindow {
             if AppDelegate.shared?.shouldForwardBrowserSurfaceShortcutToTerminal(event) == true {
                 if firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) { return true }
                 firstResponderGhosttyView.keyDown(with: event)
+                return true
+            }
+            if AppDelegate.shared?.shouldRouteGhosttyGotoSplitCycleShortcutToTerminal(event) == true,
+               firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) {
+#if DEBUG
+                cmuxDebugLog("  → terminal goto_split cycle handled before mainMenu")
+#endif
                 return true
             }
             guard let mainMenu = NSApp.mainMenu else { return false }

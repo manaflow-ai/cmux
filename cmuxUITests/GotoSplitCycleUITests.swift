@@ -19,12 +19,15 @@ final class GotoSplitCycleUITests: XCTestCase {
     // MARK: - Tests
 
     func testGotoSplitNextCyclesAllPanes() {
-        // Uses Cmd+] which is Ghostty's default keybind for goto_split:next.
+        // Uses the Ghostty trigger loaded by the app for goto_split:next.
         let (app, configCleanup) = launchWithThreePaneLayout()
         defer { configCleanup() }
 
         XCTAssertTrue(
-            waitForData(keys: ["setupComplete", "allPaneIds", "focusedPaneId"], timeout: 10.0),
+            waitForData(
+                keys: ["setupComplete", "allPaneIds", "focusedPaneId", "ghosttyGotoSplitNextShortcut"],
+                timeout: 10.0
+            ),
             "Expected three-pane setup data to be written"
         )
 
@@ -39,12 +42,13 @@ final class GotoSplitCycleUITests: XCTestCase {
 
         let startPane = setup["focusedPaneId"]!
         XCTAssertTrue(allPaneIds.contains(startPane), "Start pane should be in allPaneIds")
+        let nextShortcut = setup["ghosttyGotoSplitNextShortcut"] ?? ""
+        XCTAssertFalse(nextShortcut.isEmpty, "Expected Ghostty goto_split:next shortcut")
 
-        // Send goto_split:next (Cmd+]) 3 times — should visit all panes and wrap.
-        // Ghostty default keybind: super+]=goto_split:next
+        // Send goto_split:next 3 times — should visit all panes and wrap.
         var visited = [startPane]
         for i in 0..<3 {
-            app.typeKey("]", modifierFlags: [.command])
+            typeShortcut(nextShortcut, in: app)
 
             XCTAssertTrue(
                 waitForDataMatch(timeout: 3.0) { data in
@@ -67,12 +71,15 @@ final class GotoSplitCycleUITests: XCTestCase {
     }
 
     func testGotoSplitPreviousCyclesAllPanes() {
-        // Uses Cmd+[ which is Ghostty's default keybind for goto_split:previous.
+        // Uses the Ghostty trigger loaded by the app for goto_split:previous.
         let (app, configCleanup) = launchWithThreePaneLayout()
         defer { configCleanup() }
 
         XCTAssertTrue(
-            waitForData(keys: ["setupComplete", "allPaneIds", "focusedPaneId"], timeout: 10.0),
+            waitForData(
+                keys: ["setupComplete", "allPaneIds", "focusedPaneId", "ghosttyGotoSplitPreviousShortcut"],
+                timeout: 10.0
+            ),
             "Expected three-pane setup data to be written"
         )
 
@@ -86,10 +93,12 @@ final class GotoSplitCycleUITests: XCTestCase {
         XCTAssertEqual(allPaneIds.count, 3, "Expected 3 distinct pane IDs")
 
         let startPane = setup["focusedPaneId"]!
+        let previousShortcut = setup["ghosttyGotoSplitPreviousShortcut"] ?? ""
+        XCTAssertFalse(previousShortcut.isEmpty, "Expected Ghostty goto_split:previous shortcut")
 
         var visited = [startPane]
         for i in 0..<3 {
-            app.typeKey("[", modifierFlags: [.command])
+            typeShortcut(previousShortcut, in: app)
 
             XCTAssertTrue(
                 waitForDataMatch(timeout: 3.0) { data in
@@ -121,29 +130,51 @@ final class GotoSplitCycleUITests: XCTestCase {
         }
 
         let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        let configURL = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        let nativeConfigURL = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        let cmuxConfigURLs = [
+            appSupport
+                .appendingPathComponent("com.cmuxterm.app.debug.goto.split.cycle", isDirectory: true)
+                .appendingPathComponent("config.ghostty", isDirectory: false),
+            appSupport
+                .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+                .appendingPathComponent("config.ghostty", isDirectory: false),
+        ]
+        let configURLs = [nativeConfigURL] + cmuxConfigURLs
 
         do {
             try fileManager.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
+            for url in cmuxConfigURLs {
+                try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            }
         } catch {
-            XCTFail("Failed to create Ghostty app support dir: \(error)")
+            XCTFail("Failed to create Ghostty config dir: \(error)")
             return (XCUIApplication(), {})
         }
 
-        let originalConfigData = try? Data(contentsOf: configURL)
+        let originalConfigData = configURLs.map { url in
+            (url, try? Data(contentsOf: url))
+        }
         let cleanup: () -> Void = {
-            if let originalConfigData {
-                try? originalConfigData.write(to: configURL, options: .atomic)
-            } else {
-                try? fileManager.removeItem(at: configURL)
+            for (url, data) in originalConfigData {
+                if let data {
+                    try? data.write(to: url, options: .atomic)
+                } else {
+                    try? fileManager.removeItem(at: url)
+                }
             }
         }
 
         let home = fileManager.homeDirectoryForCurrentUser
-        let configContents = "# cmux goto_split cycle UI test\nworking-directory = \(home.path)\n"
+        let configContents = """
+        # cmux goto_split cycle UI test
+        working-directory = \(home.path)
+
+        """
 
         do {
-            try configContents.write(to: configURL, atomically: true, encoding: .utf8)
+            for url in configURLs {
+                try configContents.write(to: url, atomically: true, encoding: .utf8)
+            }
         } catch {
             XCTFail("Failed to write Ghostty config: \(error)")
             return (XCUIApplication(), {})
@@ -160,6 +191,39 @@ final class GotoSplitCycleUITests: XCTestCase {
     }
 
     // MARK: - Data Polling
+
+    private func typeShortcut(
+        _ shortcut: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        var flags: XCUIElement.KeyModifierFlags = []
+        if shortcut.contains("⌘") { flags.insert(.command) }
+        if shortcut.contains("⌃") { flags.insert(.control) }
+        if shortcut.contains("⌥") { flags.insert(.option) }
+        if shortcut.contains("⇧") { flags.insert(.shift) }
+
+        let key: String
+        if shortcut.contains("→") {
+            key = XCUIKeyboardKey.rightArrow.rawValue
+        } else if shortcut.contains("←") {
+            key = XCUIKeyboardKey.leftArrow.rawValue
+        } else if shortcut.contains("]") {
+            key = "]"
+        } else if shortcut.contains("[") {
+            key = "["
+        } else if shortcut.localizedCaseInsensitiveContains("n") {
+            key = "n"
+        } else if shortcut.localizedCaseInsensitiveContains("p") {
+            key = "p"
+        } else {
+            XCTFail("Unsupported goto_split shortcut: \(shortcut)", file: file, line: line)
+            return
+        }
+
+        app.typeKey(key, modifierFlags: flags)
+    }
 
     private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {

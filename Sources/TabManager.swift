@@ -9040,6 +9040,13 @@ class TabManager: ObservableObject {
         tab.moveFocus(direction: direction)
     }
 
+    /// Cycle focus through panes in tree order, wrapping at the ends.
+    func cyclePaneFocus(forward: Bool) {
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }) else { return }
+        tab.cycleFocus(forward: forward)
+    }
+
     // MARK: - Focus History Navigation
 
     @discardableResult
