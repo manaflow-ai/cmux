@@ -7490,8 +7490,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             rootDirectory: root.path
         )
 
-        XCTAssertEqual(suggestions.first?.title, "/nested-skill")
-        XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[/nested-skill](") == true)
+        let nestedSkill = suggestions.first { $0.title == "/nested-skill" }
+        XCTAssertNotNil(nestedSkill)
+        XCTAssertTrue(nestedSkill?.insertionText.hasPrefix("[/nested-skill](") == true)
     }
 
     func testTextBoxMentionRefreshKeepsRowsOnSameTriggerEditButClearsOnTriggerChange() {
@@ -7534,6 +7535,48 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textView.setSelectedRange(NSRange(location: 2, length: 0))
         textView.refreshMentionCompletions()
         XCTAssertEqual(textView.debugMentionSuggestionCount(), 0)
+    }
+
+    func testTextBoxMentionRootDirectoryChangeClearsActiveFileSuggestions() throws {
+        let fileManager = FileManager.default
+        let oldRoot = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-old-root-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let newRoot = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-new-root-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer {
+            try? fileManager.removeItem(at: oldRoot)
+            try? fileManager.removeItem(at: newRoot)
+        }
+        try fileManager.createDirectory(at: oldRoot, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: newRoot, withIntermediateDirectories: true)
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.completionRootDirectory = oldRoot.path
+        textView.string = "@a"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 2), query: "a"),
+            suggestions: [
+                TextBoxMentionSuggestion(
+                    id: "old:alpha",
+                    title: "@alpha.txt",
+                    subtitle: "alpha.txt",
+                    insertionText: "[@alpha.txt](\(oldRoot.path)/alpha.txt)",
+                    systemImageName: "doc"
+                )
+            ],
+            rootDirectory: oldRoot.path
+        )
+        XCTAssertTrue(textView.debugMentionSuggestionsAreCurrent())
+
+        textView.completionRootDirectory = newRoot.path
+
+        XCTAssertEqual(textView.debugMentionSuggestionCount(), 0)
+        XCTAssertFalse(textView.debugAcceptMentionCompletion())
     }
 
     func testTextBoxMentionRefreshOpensPopoverImmediatelyForBareFileTrigger() throws {
