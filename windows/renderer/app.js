@@ -2480,6 +2480,7 @@ const commands = [
   { id: "notifications.open", label: "Show Notifications", shortcut: "Ctrl+I", run: () => openInspector("notifications") },
   { id: "session.tools", label: "Show Session Tools", shortcut: "", run: () => openInspector("session") },
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
+  { id: "settings.resetAppearance", label: "Reset Look Settings", shortcut: "", run: () => resetAppearanceSettings() },
   { id: "settings.performance", label: "Open Performance Settings", shortcut: "", run: () => openSettingsCategory("performance") },
   { id: "settings.tunePerformance", label: "Tune Performance Now", shortcut: "", run: () => tunePerformanceNow() },
   { id: "settings.copyDiagnostics", label: "Copy Performance Diagnostics", shortcut: "", run: () => copyPerformanceDiagnostics() },
@@ -6592,6 +6593,13 @@ function renderSettingsInspector(options = {}) {
     appearanceSection.append(settingRow("Accent", swatchGrid(accentColorPalette(), state.settings.accent, (accent) => updateSettings({ accent }))));
     appearanceSection.append(settingRow("Custom accent", colorPicker(state.settings.accent, (accent) => updateSettings({ accent })), false, "custom accent color hex picker"));
     appearanceSection.append(settingRow("Saved colors", savedColorPalettePanel(), true, "saved color palette custom accent workspace tab pane color"));
+    const appearanceActions = document.createElement("div");
+    appearanceActions.className = "settings-actions appearance-actions";
+    appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look reset theme accent background terminal colors default");
+    appearanceActions.append(
+      settingsActionButton("Reset look", resetAppearanceSettings, "", "appearance look reset theme accent background terminal colors default")
+    );
+    appearanceSection.append(appearanceActions);
     appearanceSection.append(activeBackgroundPanel());
     appearanceSection.append(settingRow("Background preset", backgroundPresetGrid(), true));
 
@@ -12808,6 +12816,19 @@ const workspaceChromeSettings = [
   "inspectorWidth"
 ];
 
+const appearanceResetSettings = [
+  "theme",
+  "accent",
+  "backgroundImage",
+  "backgroundOpacity",
+  "backgroundFit",
+  "backgroundPosition",
+  "backgroundEffects",
+  "terminalBackground",
+  "terminalForeground",
+  "terminalCursorColor"
+];
+
 function toggleFocusMode(nextValue = !state.settings.focusMode, options = {}) {
   const enabled = Boolean(nextValue);
   const changed = updateSettings({ focusMode: enabled }, { immediate: true });
@@ -12817,6 +12838,19 @@ function toggleFocusMode(nextValue = !state.settings.focusMode, options = {}) {
   }
   refreshLayoutSettings({ ifChanged: true });
   if (options.toast !== false) toast(`Focus mode ${enabled ? "on" : "off"}.`);
+  return true;
+}
+
+function resetAppearanceSettings() {
+  const updates = {};
+  for (const key of appearanceResetSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Look settings already reset.");
+    return false;
+  }
+  renderSettingsInspector();
+  toast("Look settings reset.");
   return true;
 }
 
