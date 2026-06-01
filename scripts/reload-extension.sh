@@ -10,12 +10,14 @@ set -euo pipefail
 # SAME tagged point and carry per-tag bundle ids so it can coexist with other tags'
 # extensions.
 #
-# This script passes the tagged point id and tagged bundle ids to xcodebuild as build
-# settings, so Xcode itself bakes EXExtensionPointIdentifier (via Info.plist variable
-# substitution) and the bundle ids into a normally signed, pkd-ingestible bundle. It
-# then installs the .app to ~/Applications and launches it once to register. No
-# post-build Info.plist mutation and no ad-hoc re-signing: a sealed bundle edited after
-# signing is refused by pkd, which is why the post-build approach was abandoned.
+# This script passes the tagged point id (CMUX_SIDEBAR_EXTENSION_POINT_ID) and a per-tag
+# bundle-id suffix (CMUX_BUNDLE_ID_SUFFIX=.<TAG_ID>) to xcodebuild as build settings, so
+# Xcode bakes EXExtensionPointIdentifier (via Info.plist variable substitution) and
+# distinct app+appex bundle ids into an ad-hoc-signed bundle whose Info.plist is bound.
+# pkd only records a bundle whose Info.plist is sealed AND whose appex id it has not
+# already seen, so both the suffix and the signing are required. It then installs the
+# .app to ~/Applications, ad-hoc re-signs as a fallback if the Info.plist did not bind,
+# registers with pluginkit, and launches once.
 #
 # Usage:
 #   scripts/reload-extension.sh --tag <tag> [--example sample|tabs|both] [--no-launch]
@@ -105,32 +107,54 @@ build_install_example() {
 
   # Bake the tagged point id at build time: CMUX_SIDEBAR_EXTENSION_POINT_ID feeds the
   # appex Info.plist EXExtensionPointIdentifier via Xcode's $(VAR) substitution, so the
-  # extension registers against the tagged host's point. Xcode signs the result
-  # normally; we do not mutate or re-sign afterward.
+  # extension registers against the tagged host's point.
   #
-  # Bundle ids stay at their base values. A command-line PRODUCT_BUNDLE_IDENTIFIER
-  # would apply to every target in the build (app AND appex), collapsing the appex's
-  # required app-prefixed id; xcodebuild has no per-target override syntax. Tags coexist
-  # via the per-tag point id plus the tagged install name, which is what binds the
-  # extension to its tagged host.
+  # Scope the bundle ids per tag via CMUX_BUNDLE_ID_SUFFIX (a default-empty build
+  # setting the example projects insert into PRODUCT_BUNDLE_IDENTIFIER: app
+  # <appBase>$(CMUX_BUNDLE_ID_SUFFIX), appex <appBase>$(CMUX_BUNDLE_ID_SUFFIX).Extension).
+  # The suffix sits before the appex leaf so the appex id stays app-prefixed. Without
+  # distinct bundle ids every tag's install shares one appex id and pkd keeps the first
+  # one it saw, so the tagged copy never registers.
+  #
+  # Ad-hoc sign (CODE_SIGN_IDENTITY="-") so resources and Info.plist are bound.
+  # CODE_SIGNING_ALLOWED=NO produces a bundle whose Info.plist is "not bound", which
+  # pkd refuses to ingest.
   xcodebuild -project "$REPO_ROOT/$project" -scheme "$scheme" -configuration Debug \
     -derivedDataPath "$derived" \
-    CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
     CMUX_SIDEBAR_EXTENSION_POINT_ID="$TAGGED_POINT_ID" \
+    CMUX_BUNDLE_ID_SUFFIX=".${TAG_ID}" \
+    CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES \
+    CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="" PROVISIONING_PROFILE_SPECIFIER="" \
     build > "$derived.log" 2>&1 || { echo "error: build failed; see $derived.log" >&2; tail -20 "$derived.log" >&2; return 1; }
 
   local built_app
   built_app="$(find "$derived/Build/Products/Debug" -maxdepth 1 -name "*.app" | head -1)"
   [[ -z "$built_app" || ! -d "$built_app" ]] && { echo "error: no .app produced for $which" >&2; return 1; }
 
-  # Install to ~/Applications under the tagged name so multiple tags coexist. We only
-  # rename the bundle directory for clarity; the bundle's signed contents (point id,
-  # bundle ids, signature) are exactly what xcodebuild produced.
+  # Install to ~/Applications under the tagged name so multiple tags coexist.
   local dest="$HOME/Applications/${tagged_app_name}.app"
   pkill -f "${tagged_app_name}.app/Contents/MacOS" 2>/dev/null || true
   rm -rf "$dest"
   ditto "$built_app" "$dest"
   echo "==> installed ${dest}"
+
+  local appex
+  appex="$(find "$dest/Contents/Extensions" -maxdepth 1 -name "*.appex" | head -1)"
+  if [[ -n "$appex" ]]; then
+    # pkd only ingests bundles whose Info.plist is sealed by a signature. If the build
+    # did not bind it, ad-hoc re-sign (appex first, then host app) without --preserve so
+    # the Info.plist reseals.
+    if ! codesign -dvv "$appex" 2>&1 | grep -qi 'Info.plist='; then
+      echo "==> Info.plist not bound after build; ad-hoc re-signing"
+      codesign --force --sign - "$appex"
+      codesign --force --sign - "$dest"
+    fi
+    echo -n "==> appex codesign: "
+    codesign -dvv "$appex" 2>&1 | grep -i 'Info.plist=' || echo "(no Info.plist line)"
+    pluginkit -a "$appex" 2>/dev/null || true
+  else
+    echo "warning: no .appex found in $dest/Contents/Extensions" >&2
+  fi
 
   if [[ "$LAUNCH" -eq 1 ]]; then
     open "$dest" && echo "==> launched ${tagged_app_name} to register"

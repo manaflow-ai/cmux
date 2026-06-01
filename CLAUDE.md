@@ -246,6 +246,21 @@ The app has a **Debug** menu in the macOS menu bar (only in DEBUG builds). Use i
 - **Foundation, SwiftUI, AttributeGraph, and WebKit semantics change silently between macOS major versions.** A function that "obviously" returns the same value on every macOS is not a reliable assumption. Concrete case from https://github.com/manaflow-ai/cmux/issues/4529: `URL(fileURLWithPath: "/").deletingLastPathComponent().path` returns `"/.."` on macOS 14 and 15 but `"/"` on macOS 26 — Apple silently fixed the underlying CFURL normalization. The repo's `macos-26` CI and every maintainer's dev machine were on the fixed-behavior side; every reporter on the issue was on the broken side. Always test on the reporter's macOS before declaring a user-reported repro disproven. AWS M4 Pro builders (`cmux-aws-mac`, `cmux-aws-m4pro`, `aws-m4pro-1..6`) are pre-provisioned on macOS 15.7.4 and the preferred empirical-repro path; see the `regression-hunt` skill in the cmuxterm-hq sibling repo for the full playbook.
 - **Test files in `cmuxTests/` must be wired into `cmux.xcodeproj/project.pbxproj`.** A `.swift` file added to the worktree without a matching `PBXFileReference` + `PBXSourcesBuildPhase` entry is silently ignored by Xcode and never compiles or runs on CI. Both `xcodebuild test -only-testing:cmuxTests/<TestClass>` and bot reviews pass with "Executed 0 tests" — so the missing wiring is indistinguishable from a clean two-commit red/green regression test until a real user hits the bug. The `workflow-guard-tests` job runs `./scripts/lint-pbxproj-test-wiring.sh` to catch this at PR time; surfaced during the https://github.com/manaflow-ai/cmux/issues/4529 investigation against https://github.com/manaflow-ai/cmux/pull/4536. Add via Xcode (drag the file into the cmuxTests target) or hand-edit the four pbxproj entries; reference any wired sibling like `TabManagerUnitTests.swift` as a template.
 
+## Sidebar extension point (dev tagging)
+
+Each tagged dev build gets its own ExtensionKit sidebar extension point so concurrent dev builds don't collide. Two build settings drive this:
+
+- `CMUX_SIDEBAR_EXTENSION_POINT_ID` (default `com.manaflow.cmux.sidebar`): the extension point identifier baked into Info.plist at build time.
+- `CMUX_BUNDLE_ID_SUFFIX` (default empty): inserted into the app and appex bundle ids so a tagged extension gets a distinct identity that pkd records separately.
+
+The host resolves its point id at runtime from the Info.plist key `CMUXSidebarExtensionPointIdentifier` via `CMUXSidebarExtensionPoint.identifier(in:)`. `./scripts/reload.sh --tag <tag>` scopes the host point to `com.manaflow.cmux.sidebar.<tag>`. `./scripts/reload-extension.sh --tag <tag> [--example sample|tabs|both]` builds a matching tag-scoped sample extension, passing `CMUX_SIDEBAR_EXTENSION_POINT_ID=com.manaflow.cmux.sidebar.<tag>` and `CMUX_BUNDLE_ID_SUFFIX=.<tag>`, and ad-hoc signs it so the Info.plist is bound. pkd only ingests bundles whose Info.plist is bound, and only records a tagged copy because its bundle id is distinct. Verify with `pluginkit -m -p com.manaflow.cmux.sidebar.<tag>`.
+
+To author a NEW sample extension that is tag-ready:
+- appex Info.plist: `EXAppExtensionAttributes:EXExtensionPointIdentifier = $(CMUX_SIDEBAR_EXTENSION_POINT_ID)`.
+- add `CMUX_SIDEBAR_EXTENSION_POINT_ID` (default `com.manaflow.cmux.sidebar`) and `CMUX_BUNDLE_ID_SUFFIX` (default empty) build settings to the app and appex targets in all build configs.
+- `PRODUCT_BUNDLE_IDENTIFIER` = `<appBase>$(CMUX_BUNDLE_ID_SUFFIX)` for the app target and `<appBase>$(CMUX_BUNDLE_ID_SUFFIX).<leaf>` for the appex (suffix before the appex leaf so the appex id stays prefixed by the app id).
+- it must be ad-hoc signed (Info.plist bound) for pkd to ingest the tagged copy; `reload-extension.sh` already builds with ad-hoc signing.
+
 ## Package architecture
 
 We are migrating cmux from a single app target into Swift Packages under `Packages/`. Every new package must satisfy three rules:
