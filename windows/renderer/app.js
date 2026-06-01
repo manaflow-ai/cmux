@@ -3372,19 +3372,17 @@ function surfaceTabsOverflowing() {
 
 function updateSurfaceTabsOverflow() {
   if (!elements.surfaceTabs) return;
+  const strip = elements.surfaceTabs;
   const tabCount = Math.max(0, elements.surfaceTabs.querySelectorAll(".surface-tab:not(.surface-new-tab)").length);
-  let overflow = surfaceTabsOverflowing();
-  let crowded = overflow || tabCount >= 6;
-  const crowdedChanged = toggleClassIfChanged(elements.surfaceTabs, "is-crowded", crowded);
-  if (crowdedChanged) {
-    overflow = surfaceTabsOverflowing();
-    crowded = overflow || tabCount >= 6;
-    if (toggleClassIfChanged(elements.surfaceTabs, "is-crowded", crowded)) {
-      overflow = surfaceTabsOverflowing();
-    }
+  if (tabCount < 6 && strip.classList.contains("is-crowded")) {
+    strip.classList.remove("is-crowded");
   }
-  toggleClassIfChanged(elements.surfaceTabs, "has-overflow", overflow);
-  if (!overflow && elements.surfaceTabs.scrollLeft) elements.surfaceTabs.scrollLeft = 0;
+  const normalOverflow = surfaceTabsOverflowing();
+  const crowded = normalOverflow || tabCount >= 6;
+  toggleClassIfChanged(strip, "is-crowded", crowded);
+  const finalOverflow = surfaceTabsOverflowing();
+  toggleClassIfChanged(strip, "has-overflow", finalOverflow);
+  if (!finalOverflow && strip.scrollLeft) strip.scrollLeft = 0;
 }
 
 function commandStripContentWidth() {
@@ -3434,9 +3432,17 @@ function observeSurfaceTabOverflow() {
   if (!elements.surfaceTabs) return;
   if (typeof ResizeObserver === "function") {
     state.surfaceTabResizeObserver = new ResizeObserver(scheduleSurfaceTabsOverflowRefresh);
-    state.surfaceTabResizeObserver.observe(elements.surfaceTabs);
+    for (const target of [
+      elements.surfaceTabs,
+      elements.surfaceTabs.parentElement,
+      elements.shell,
+      elements.inspector
+    ]) {
+      if (target) state.surfaceTabResizeObserver.observe(target);
+    }
   }
   window.addEventListener("resize", scheduleSurfaceTabsOverflowRefresh, { passive: true });
+  window.visualViewport?.addEventListener("resize", scheduleSurfaceTabsOverflowRefresh, { passive: true });
   requestAnimationFrame(() => {
     updateSurfaceTabsOverflow();
   });

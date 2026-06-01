@@ -1086,6 +1086,7 @@ body.reduce-motion *::after {
 .surface-tabs {
   position: relative;
   isolation: isolate;
+  container-type: inline-size;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1143,6 +1144,22 @@ body.reduce-motion *::after {
   padding: 0 3px 0 5px;
 }
 
+@container (max-width: 520px) {
+  .surface-tab:not(.surface-new-tab) {
+    flex-basis: 118px;
+    min-width: 78px;
+    max-width: 148px;
+    grid-template-columns: 16px minmax(0, 1fr) 20px;
+    gap: 5px;
+    padding: 0 3px 0 5px;
+  }
+
+  .surface-tab:not(.surface-new-tab):hover,
+  .surface-tab:not(.surface-new-tab).is-active {
+    padding: 0 3px 0 5px;
+  }
+}
+
 .surface-tab:hover {
   border-color: color-mix(in oklch, var(--color-line-strong) 62%, transparent);
   background: color-mix(in oklch, var(--color-pane) 74%, transparent);
@@ -1177,6 +1194,20 @@ body.reduce-motion *::after {
 
 .surface-tabs.is-crowded .surface-dot::after {
   content: attr(data-tab-index);
+}
+
+@container (max-width: 520px) {
+  .surface-dot {
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-1);
+    color: var(--color-canvas);
+    font-weight: 760;
+  }
+
+  .surface-dot::after {
+    content: attr(data-tab-index);
+  }
 }
 
 .surface-tab.has-attention .surface-dot {
@@ -1241,6 +1272,19 @@ body.reduce-motion *::after {
 .surface-tabs.is-crowded .surface-tab.is-active .surface-close {
   width: 20px;
   height: 20px;
+}
+
+@container (max-width: 520px) {
+  .surface-close,
+  .surface-tab:hover .surface-close,
+  .surface-tab.is-active .surface-close {
+    width: 20px;
+    height: 20px;
+  }
+
+  .surface-close {
+    background: color-mix(in oklch, var(--color-pane) 82%, transparent);
+  }
 }
 
 .surface-tab:hover .surface-close,
