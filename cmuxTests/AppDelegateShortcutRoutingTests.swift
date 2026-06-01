@@ -5147,13 +5147,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let previousMainMenu = NSApp.mainMenu
+        let previousFocusContext = appDelegate.debugShortcutEventFocusContextOverride
         let menuProbe = MenuActionProbe()
 
         defer {
+            appDelegate.debugShortcutEventFocusContextOverride = previousFocusContext
             NSApp.mainMenu = previousMainMenu
             appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
+        appDelegate.debugShortcutEventFocusContextOverride = ShortcutEventFocusContext(
+            browserPanel: nil,
+            rightSidebarFocused: false
+        )
 
         let staleMenu = NSMenu(title: "Test")
         let staleCloseItem = NSMenuItem(
