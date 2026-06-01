@@ -1671,6 +1671,7 @@ body.reduce-motion *::after {
 }
 
 .pane-header:hover .pane-toolbar,
+.pane.is-active .pane-toolbar,
 .pane-toolbar:focus-within {
   opacity: 1;
   pointer-events: auto;
