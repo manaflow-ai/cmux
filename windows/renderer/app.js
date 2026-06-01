@@ -380,6 +380,8 @@ const state = {
   terminalAppearanceFrame: 0,
   deferredTerminalInitQueue: new Set(),
   deferredTerminalInitTimer: 0,
+  deferredTerminalInitFrame: 0,
+  paintDeferredTerminalInitPanelIds: new Set(),
   deferredTerminalFitFrame: 0,
   appearancePreviewFrame: 0,
   terminalSettingsPreviewFrame: 0,
@@ -3604,9 +3606,11 @@ function renderPaneNode(panel, workspace, visibleCount) {
   }
   if (panel.type === "terminal") {
     const body = pane.querySelector(".pane-body");
+    const deferUntilPaint = shouldDeferTerminalInitUntilPaint(panel, workspace);
     if (shouldDeferInitialTerminalLoad(panel, workspace, visibleCount)) {
       renderDeferredTerminal(panel, body);
-      queueDeferredTerminalInit(panel.id);
+      if (deferUntilPaint) state.paintDeferredTerminalInitPanelIds.delete(panel.id);
+      queueDeferredTerminalInit(panel.id, { afterPaint: deferUntilPaint });
     } else {
       ensureTerminal(panel, body);
     }
@@ -4449,6 +4453,7 @@ function cleanupPanel(panelId) {
   if (state.lastInteractedPanelId === panelId) state.lastInteractedPanelId = null;
   if (state.hoveredPanelId === panelId) state.hoveredPanelId = null;
   state.visibleTerminalFitPanelIds.delete(panelId);
+  state.paintDeferredTerminalInitPanelIds.delete(panelId);
   if (state.terminalFocusPanelId === panelId) {
     state.terminalFocusPanelId = "";
     if (state.terminalFocusFrame) cancelAnimationFrame(state.terminalFocusFrame);
@@ -4529,10 +4534,20 @@ function markTerminalOutputReady(session) {
 }
 
 function shouldDeferInitialTerminalLoad(panel, workspace, visibleCount = 1) {
-  return visibleCount > 1
+  return shouldDeferTerminalInitUntilPaint(panel, workspace)
+    || (visibleCount > 1
     && panel?.type === "terminal"
     && !state.terminals.has(panel.id)
     && panel.id !== workspace?.activePanelId
+    && !isPanelMinimized(panel)
+    && !isPendingPanel(panel));
+}
+
+function shouldDeferTerminalInitUntilPaint(panel, workspace) {
+  return panel?.type === "terminal"
+    && panel.id === workspace?.activePanelId
+    && state.paintDeferredTerminalInitPanelIds.has(panel.id)
+    && !state.terminals.has(panel.id)
     && !isPanelMinimized(panel)
     && !isPendingPanel(panel);
 }
@@ -4551,10 +4566,19 @@ function renderDeferredTerminal(panel, body) {
   setTextIfChanged(deferred.querySelector(".terminal-deferred-meta"), panel.cwdShort || panel.cwd || "~");
 }
 
-function queueDeferredTerminalInit(panelId) {
+function queueDeferredTerminalInit(panelId, options = {}) {
   if (!panelId || state.terminals.has(panelId)) return;
   state.deferredTerminalInitQueue.add(panelId);
-  scheduleDeferredTerminalInit();
+  if (options.afterPaint) scheduleDeferredTerminalInitAfterPaint();
+  else scheduleDeferredTerminalInit();
+}
+
+function scheduleDeferredTerminalInitAfterPaint() {
+  if (state.deferredTerminalInitFrame) return;
+  state.deferredTerminalInitFrame = requestAnimationFrame(() => {
+    state.deferredTerminalInitFrame = 0;
+    flushDeferredTerminalInit();
+  });
 }
 
 function scheduleDeferredTerminalInit() {
@@ -11912,6 +11936,13 @@ async function focusWorkspace(workspaceId) {
   if (focusablePanel) workspace.activePanelId = focusablePanel.id;
   state.focusedPanelId = focusablePanel?.id || null;
   state.lastInteractedPanelId = focusablePanel?.id || null;
+  if (
+    focusablePanel?.type === "terminal"
+    && !state.terminals.has(focusablePanel.id)
+    && (switchingWorkspace || workspace.activePanelId !== previousPanelId)
+  ) {
+    state.paintDeferredTerminalInitPanelIds.add(focusablePanel.id);
+  }
   if (state.data?.activeWorkspaceId === workspaceId) {
     if (workspace.activePanelId !== previousPanelId) render();
     focusTerminalSession(focusablePanel?.id);
@@ -11952,6 +11983,9 @@ async function focusPanel(panelId) {
     return;
   }
   if (!optimisticFocusPanel(panelId)) return;
+  if (found.panel.type === "terminal" && !state.terminals.has(panelId)) {
+    state.paintDeferredTerminalInitPanelIds.add(panelId);
+  }
   if (shouldShowPaneHud) showPaneSwitchHud(found.panel, found.workspace);
   queueFocusSync({ type: "panel", panelId });
   focusTerminalSession(panelId);
