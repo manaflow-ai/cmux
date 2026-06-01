@@ -345,6 +345,7 @@
 		F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */; };
 		A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
 		A5001521 /* PostHogAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001520 /* PostHogAnalytics.swift */; };
+		C0DEF5000000000000000001 /* PrivacyUsageDescriptionBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF5000000000000000002 /* PrivacyUsageDescriptionBundleTests.swift */; };
 		C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */; };
 		C47110020000000000000001 /* ProcessPipeReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110020000000000000002 /* ProcessPipeReader.swift */; };
 		C47110020000000000000003 /* ProcessPipeReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110020000000000000002 /* ProcessPipeReader.swift */; };
@@ -974,6 +975,7 @@
 		A5001541 /* PortScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanner.swift; sourceTree = "<group>"; };
 		F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScannerTests.swift; sourceTree = "<group>"; };
 		A5001520 /* PostHogAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalytics.swift; sourceTree = "<group>"; };
+		C0DEF5000000000000000002 /* PrivacyUsageDescriptionBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyUsageDescriptionBundleTests.swift; sourceTree = "<group>"; };
 		C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReadCrashRegressionTests.swift; sourceTree = "<group>"; };
 		C47110020000000000000002 /* ProcessPipeReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReader.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectBuildSettingsTabView.swift; sourceTree = "<group>"; };
@@ -1816,6 +1818,7 @@
 					D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */,
 					D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */,
 					D0B10009A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift */,
+					C0DEF5000000000000000002 /* PrivacyUsageDescriptionBundleTests.swift */,
 					71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */,
 					71F8ED92A4B55D34BE6A0668 /* WorkspaceSplitStartupCommandTests.swift */,
 					EF7347934AB1BD387686EE43 /* WorkspaceActionDispatcherTests.swift */,
@@ -2727,6 +2730,7 @@
 					B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */,
 					D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */,
 					F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */,
+					C0DEF5000000000000000001 /* PrivacyUsageDescriptionBundleTests.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
 					F5410004A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift in Sources */,
 					F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */,

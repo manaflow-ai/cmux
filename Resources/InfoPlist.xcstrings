@@ -149,6 +149,119 @@
         }
       }
     },
+    "NSSpeechRecognitionUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to use speech recognition."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムが音声認識の使用を求めています。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中运行的程序想要使用语音识别。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中執行的程式想要使用語音辨識。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 내에서 실행 중인 프로그램이 음성 인식을 사용하려고 합니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein in cmux ausgeführtes Programm möchte Spracherkennung verwenden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programa en ejecución dentro de cmux desea usar el reconocimiento de voz."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programme s'exécutant dans cmux souhaite utiliser la reconnaissance vocale."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programma in esecuzione in cmux desidera utilizzare il riconoscimento vocale."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program, der kører i cmux, vil gerne bruge talegenkendelse."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program działający w cmux chciałby użyć rozpoznawania mowy."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Программа, запущенная в cmux, хотела бы использовать распознавание речи."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program koji se izvršava unutar cmux želi koristiti prepoznavanje govora."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرغب برنامج يعمل داخل cmux في استخدام التعرف على الكلام."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program som kjører i cmux ønsker å bruke talegjenkjenning."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um programa em execução no cmux gostaria de usar reconhecimento de fala."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการใช้การรู้จำเสียงพูด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux içinde çalışan bir program konuşma tanımayı kullanmak istiyor."
+          }
+        }
+      }
+    },
     "New $(PRODUCT_NAME) Workspace Here": {
       "extractionState": "manual",
       "localizations": {
