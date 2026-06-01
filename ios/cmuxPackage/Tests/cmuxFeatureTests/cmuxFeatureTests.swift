@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxMobileAuth
+@testable import CmuxMobileAuth
 import Foundation
 import StackAuth
 import SwiftUI
