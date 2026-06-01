@@ -6091,6 +6091,7 @@ function renderSettingsInspector(options = {}) {
     const quickSection = settingsSection("Quick setup");
     quickSection.append(quickSetupOverviewPanel());
     quickSection.append(quickSetupActionGrid());
+    quickSection.append(...quickColorControlRows(workspace));
     quickSection.append(quickSettingsShortcutGrid());
     quickSection.append(settingsPresetGrid());
     nodes.push(quickSection);
@@ -8144,6 +8145,29 @@ function quickSetupActionGrid() {
     grid.append(button);
   }
   return grid;
+}
+
+function quickColorControlRows(workspace = activeWorkspace()) {
+  const rows = [];
+  if (!workspace) return rows;
+  rows.push(settingRow(
+    "Workspace color",
+    swatchGrid(workspaceColorPalette(), workspace.color, (color) => setWorkspaceColor(color, workspace.id)),
+    true,
+    "quick setup workspace color tab sidebar customize"
+  ));
+  const panel = workspace.panels.find((candidate) => candidate.id === workspace.activePanelId)
+    || workspace.panels[0]
+    || null;
+  if (panel) {
+    rows.push(settingRow(
+      "Pane color",
+      swatchGrid(workspaceColorPalette(), panel.color || workspace.color, (color) => updatePanel(panel.id, { color })),
+      true,
+      "quick setup active pane terminal browser tab color customize"
+    ));
+  }
+  return rows;
 }
 
 function quickSettingsShortcutGrid() {
