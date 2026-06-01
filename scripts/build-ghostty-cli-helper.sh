@@ -16,6 +16,7 @@ EOF
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GHOSTTY_DIR="$REPO_ROOT/ghostty"
+ZIG_REQUIRED="${ZIG_REQUIRED:-0.15.2}"
 
 OUTPUT_PATH=""
 TARGET_TRIPLE=""
@@ -33,6 +34,12 @@ target_arch_for_triple() {
   esac
 }
 
+zig_has_required_version() {
+  local zig_path="$1"
+  [[ -x "$zig_path" ]] || return 1
+  [[ "$("$zig_path" version 2>/dev/null || true)" == "$ZIG_REQUIRED" ]]
+}
+
 select_zig_for_target() {
   local target="${1:-}"
   local desired_arch
@@ -41,6 +48,10 @@ select_zig_for_target() {
   if [[ -n "${CMUX_ZIG:-}" ]]; then
     if [[ ! -x "$CMUX_ZIG" ]]; then
       echo "error: CMUX_ZIG is not executable: $CMUX_ZIG" >&2
+      return 1
+    fi
+    if ! zig_has_required_version "$CMUX_ZIG"; then
+      echo "error: CMUX_ZIG must be zig ${ZIG_REQUIRED}: $CMUX_ZIG" >&2
       return 1
     fi
     echo "$CMUX_ZIG"
@@ -63,6 +74,7 @@ select_zig_for_target() {
     canonical="$(cd "$(dirname "$candidate")" && pwd)/$(basename "$candidate")"
     [[ "$seen" == *" $canonical "* ]] && continue
     seen="${seen}${canonical} "
+    zig_has_required_version "$canonical" || continue
     [[ -z "$fallback" ]] && fallback="$canonical"
     if [[ -n "$desired_arch" ]]; then
       arch="$(zig_binary_arch "$canonical")"
@@ -78,7 +90,7 @@ select_zig_for_target() {
     return 0
   fi
 
-  echo "error: zig is required to build the Ghostty CLI helper" >&2
+  echo "error: zig ${ZIG_REQUIRED} is required to build the Ghostty CLI helper" >&2
   return 1
 }
 

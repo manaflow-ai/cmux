@@ -236,6 +236,160 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
+    func testChildExitOnLastPersistentRemotePanelKeepsExitedSurfaceVisibleAndClearsPTYState() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let remotePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "ssh-child-exit-test"
+            ),
+            autoConnect: false
+        )
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(manager.selectedTabId, workspace.id)
+        XCTAssertEqual(manager.tabs.first?.id, workspace.id)
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertNotNil(workspace.panels[remotePanelId])
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertNil(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
+        )
+    }
+
+    func testChildExitAfterPersistentAttachEndKeepsExitedSurfaceVisible() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let remotePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64020,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-attach-end-test.sock",
+                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "ssh-child-exit-after-attach-end"
+            ),
+            autoConnect: false
+        )
+        let sessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: remotePanelId)
+
+        let outcome = workspace.markRemotePTYAttachEnded(surfaceId: remotePanelId, sessionID: sessionID)
+
+        XCTAssertTrue(outcome.clearedRemotePTYSession)
+        XCTAssertTrue(outcome.untrackedRemoteTerminal)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertTrue(workspace.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(remotePanelId))
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertNotNil(workspace.panels[remotePanelId])
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertFalse(workspace.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(remotePanelId))
+        XCTAssertNil(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
+        )
+    }
+
+    func testChildExitOnSplitPersistentRemotePanelKeepsExitedSurfaceVisibleAndClearsOnlyThatPTYState() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let remotePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64018,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-split-test.sock",
+                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "ssh-child-exit-split-test"
+            ),
+            autoConnect: false
+        )
+        let siblingPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: remotePanelId, orientation: .horizontal, focus: false)
+        )
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(siblingPanel.id))
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(manager.selectedTabId, workspace.id)
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertNotNil(workspace.panels[remotePanelId])
+        XCTAssertNotNil(workspace.panels[siblingPanel.id])
+        XCTAssertEqual(workspace.panels.count, 2)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(siblingPanel.id))
+        XCTAssertNil(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
+        )
+        XCTAssertNotNil(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == siblingPanel.id }?.terminal?.remotePTYSessionID
+        )
+    }
+
     func testChildExitAfterRemoteSessionEndKeepsWorkspaceAndDemotesToLocal() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -2437,11 +2591,50 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
                 bypassRemoteProxy: true
             )
         )
+        guard browserPanel.setMuted(true) else {
+            throw XCTSkip("WKWebView page-audio mute selector is unavailable")
+        }
 
         let duplicate = try XCTUnwrap(workspace.duplicateBrowserToRight(panelId: browserPanel.id, focus: false))
+        let duplicateTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(duplicate.id))
+        let duplicateTab = try XCTUnwrap(workspace.bonsplitController.tab(duplicateTabId))
 
         XCTAssertFalse(duplicate.isOmnibarVisible)
         XCTAssertTrue(duplicate.bypassesRemoteWorkspaceProxyForTabDuplication)
+        XCTAssertTrue(duplicate.isMuted)
+        XCTAssertTrue(duplicateTab.isAudioMuted)
+    }
+
+    func testBrowserAudioMuteContextActionTogglesPanelAndTabState() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let browserPanel = try XCTUnwrap(workspace.newBrowserSurface(inPane: paneId, focus: true))
+        let tabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(browserPanel.id))
+        guard browserPanel.setMuted(false) else {
+            throw XCTSkip("WKWebView page-audio mute selector is unavailable")
+        }
+
+        let initialTab = try XCTUnwrap(workspace.bonsplitController.tab(tabId))
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .toggleAudioMute,
+            for: initialTab,
+            inPane: paneId
+        )
+
+        XCTAssertTrue(browserPanel.isMuted)
+        XCTAssertTrue(try XCTUnwrap(workspace.bonsplitController.tab(tabId)).isAudioMuted)
+
+        let mutedTab = try XCTUnwrap(workspace.bonsplitController.tab(tabId))
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .toggleAudioMute,
+            for: mutedTab,
+            inPane: paneId
+        )
+
+        XCTAssertFalse(browserPanel.isMuted)
+        XCTAssertFalse(try XCTUnwrap(workspace.bonsplitController.tab(tabId)).isAudioMuted)
     }
 
     func testOpenBrowserInWorkspaceSplitRightSelectsTargetWorkspaceAndCreatesSplit() {

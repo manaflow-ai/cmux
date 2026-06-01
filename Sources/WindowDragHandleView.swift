@@ -827,9 +827,9 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
 
     var acceptsContextMenu: Bool {
         switch self {
-        case .newTab, .focusHistoryBack, .focusHistoryForward:
+        case .toggleSidebar, .newTab, .focusHistoryBack, .focusHistoryForward:
             return true
-        case .toggleSidebar, .showNotifications:
+        case .showNotifications:
             return false
         }
     }

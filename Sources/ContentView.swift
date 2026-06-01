@@ -1581,8 +1581,21 @@ struct ContentView: View {
     private static let maximumRightSidebarWidth: CGFloat = 1200
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
+    /// Gap kept between the rightmost titlebar shortcut-hint tooltip and the sidebar's
+    /// trailing edge, so the last tooltip never sits flush against (or spills over) the
+    /// sidebar divider.
+    private static let sidebarTooltipClearance: CGFloat = 8
+
     private var minimumSidebarWidth: CGFloat {
-        CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
+        let userFloor = CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
+        // The sidebar must be at least as wide as everything in the leading titlebar
+        // accessory area (traffic lights + controls + the shortcut-hint tooltips) plus a
+        // small gap, so the rightmost tooltip stays within the sidebar column instead of
+        // spilling past the divider. `titlebarLeadingInset` is measured at runtime as the
+        // traffic-light inset plus every leading accessory's width, and the accessory's
+        // width now reserves the tooltip extent (see TitlebarControlsLayoutMetrics.contentSize).
+        let tooltipFloor = titlebarLeadingInset + Self.sidebarTooltipClearance
+        return max(userFloor, tooltipFloor)
     }
 
     private enum SidebarResizerHandle: Hashable {
@@ -2379,6 +2392,7 @@ struct ContentView: View {
         .background(TitlebarDoubleClickMonitorView())
         .overlay(alignment: .bottom) {
             WindowChromeBorder(orientation: .horizontal)
+                .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
         }
     }
 
@@ -5846,6 +5860,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
         case .project:
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
+        case .extensionBrowser:
+            return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         }
     }
 
@@ -5863,6 +5879,8 @@ struct ContentView: View {
             return ["tool", "files", "find", "vault", "sidebar"]
         case .project:
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
+        case .extensionBrowser:
+            return ["sidebar", "extensions", "extensionkit", "browser"]
         }
     }
 
@@ -9988,17 +10006,9 @@ enum CmuxExtensionSidebarSelection {
             item.representedObject = descriptor.id
             item.target = CmuxExtensionSidebarMenuTarget.shared
             item.state = selectedProviderId == descriptor.id ? .on : .off
+            item.image = NSImage(systemSymbolName: descriptor.systemImageName, accessibilityDescription: nil)
             menu.addItem(item)
         }
-        menu.addItem(.separator())
-        let manageItem = NSMenuItem(
-            title: String(localized: "sidebar.extensions.manage", defaultValue: "Manage Sidebar Extensions..."),
-            action: #selector(CmuxExtensionSidebarMenuTarget.manageExtensions(_:)),
-            keyEquivalent: ""
-        )
-        manageItem.representedObject = anchorView
-        manageItem.target = CmuxExtensionSidebarMenuTarget.shared
-        menu.addItem(manageItem)
         menu.popUp(
             positioning: nil,
             at: NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
@@ -10014,14 +10024,6 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
     @objc func selectProvider(_ sender: NSMenuItem) {
         guard let providerId = sender.representedObject as? String else { return }
         CmuxExtensionSidebarSelection.setProviderId(providerId)
-    }
-
-    @objc func manageExtensions(_ sender: NSMenuItem) {
-        guard let anchorView = sender.representedObject as? NSView else { return }
-        CMUXSidebarExtensionBrowserPresenter.present(
-            from: anchorView,
-            title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
-        )
     }
 }
 
@@ -10779,6 +10781,16 @@ struct VerticalTabsSidebar: View {
             ) { _ in
                 refreshExtensionSidebarSnapshot()
             }
+            // Fade the extension's content out at the bottom so it dissolves behind the
+            // sidebar footer instead of overlapping it sharply, matching the default
+            // workspace sidebar's bottom scrim. Top stays sharp so the control strip
+            // remains crisp.
+            .mask(
+                SidebarWorkspaceScrollEdgeFadeMask(
+                    topHeight: 0,
+                    bottomHeight: sidebarBottomScrimHeight
+                )
+            )
         } else {
             TimelineView(.periodic(from: .now, by: 30)) { timeline in
                 let model = extensionSidebarRenderModel(renderContext: renderContext, now: timeline.date)
@@ -11027,6 +11039,8 @@ struct VerticalTabsSidebar: View {
             return .rightSidebarTool
         case .project:
             return .project
+        case .extensionBrowser:
+            return .unknown
         }
     }
 
@@ -11777,13 +11791,15 @@ struct VerticalTabsSidebar: View {
         Task {
             do {
                 let result = try await CmuxExtensionWorktreePrototype.createWorktree(projectRootPath: projectRootPath)
+                let spawnArgs = result.workspaceSpawnArgs()
                 tabManager.addWorkspace(
-                    title: result.workspaceTitle,
-                    workingDirectory: result.worktreePath,
-                    initialTerminalCommand: result.initialCommand,
-                    inheritWorkingDirectory: false,
+                    title: spawnArgs.title,
+                    workingDirectory: spawnArgs.workingDirectory,
+                    initialTerminalInput: spawnArgs.initialTerminalInput,
+                    inheritWorkingDirectory: spawnArgs.inheritWorkingDirectory,
                     select: true,
-                    eagerLoadTerminal: false
+                    eagerLoadTerminal: false,
+                    autoWelcomeIfNeeded: spawnArgs.initialTerminalInput == nil
                 )
             } catch {
                 NSSound.beep()
@@ -12135,7 +12151,7 @@ enum ShortcutHintModifierPolicy {
 enum ShortcutHintDebugSettings {
     static let defaultSidebarHintX = 0.0
     static let defaultSidebarHintY = 0.0
-    static let defaultTitlebarHintX = 4.0
+    static let defaultTitlebarHintX = 0.0
     static let defaultTitlebarHintY = -5.0
     static let defaultPaneHintX = 0.0
     static let defaultPaneHintY = 0.0
@@ -13004,14 +13020,16 @@ private struct SidebarFooterButtons: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
-    @State private var extensionMenuAnchorView: NSView?
+    @State private var extensionBrowserAnchorView: NSView?
 
     var body: some View {
         HStack(spacing: 4) {
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
             Button {
-                guard let extensionMenuAnchorView else { return }
-                CmuxExtensionSidebarSelection.showMenu(anchorView: extensionMenuAnchorView, event: nil)
+                _ = AppDelegate.shared?.openSidebarExtensionBrowser(
+                    from: extensionBrowserAnchorView,
+                    title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+                )
             } label: {
                 Image(systemName: "puzzlepiece.extension")
                     .symbolRenderingMode(.monochrome)
@@ -13021,10 +13039,10 @@ private struct SidebarFooterButtons: View {
             }
             .buttonStyle(SidebarFooterIconButtonStyle())
             .frame(width: 22, height: 22, alignment: .center)
-            .safeHelp(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar"))
-            .accessibilityLabel(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar"))
+            .safeHelp(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
+            .accessibilityLabel(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
             .accessibilityIdentifier("SidebarExtensionMenuButton")
-            .background(TitlebarControlAnchorView { extensionMenuAnchorView = $0 })
+            .background(TitlebarControlAnchorView { extensionBrowserAnchorView = $0 })
             UpdatePill(model: updateViewModel)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

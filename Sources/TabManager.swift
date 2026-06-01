@@ -6584,10 +6584,13 @@ class TabManager: ObservableObject {
         workspaceGroups[index].customColor = hex
     }
 
-    func setWorkspaceGroupIcon(groupId: UUID, symbol: String?) {
-        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
-        guard workspaceGroups[index].iconSymbol != symbol else { return }
-        workspaceGroups[index].iconSymbol = symbol
+    @discardableResult
+    func setWorkspaceGroupIcon(groupId: UUID, symbol: String?) -> String? {
+        let normalized = RenderableSystemSymbol.normalized(symbol)
+        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return nil }
+        guard workspaceGroups[index].iconSymbol != normalized else { return normalized }
+        workspaceGroups[index].iconSymbol = normalized
+        return normalized
     }
 
     /// Reassign which member workspace serves as the group's anchor.
@@ -8053,23 +8056,32 @@ class TabManager: ObservableObject {
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         guard tab.panels[surfaceId] != nil else { return }
-        let keepsRemoteWorkspaceOpen =
+        let keepsPersistentRemoteSurfaceOpen =
+            tab.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId)
+        let handlesRemoteExitThroughWorkspace =
             tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
 
 #if DEBUG
         cmuxDebugLog(
             "surface.close.childExited tab=\(tabId.uuidString.prefix(5)) " +
             "surface=\(surfaceId.uuidString.prefix(5)) panels=\(tab.panels.count) workspaces=\(tabs.count) " +
-            "remoteWorkspace=\(tab.isRemoteWorkspace ? 1 : 0) keepRemote=\(keepsRemoteWorkspaceOpen ? 1 : 0)"
+            "remoteWorkspace=\(tab.isRemoteWorkspace ? 1 : 0) keepRemote=\(handlesRemoteExitThroughWorkspace ? 1 : 0) " +
+            "keepPersistentRemote=\(keepsPersistentRemoteSurfaceOpen ? 1 : 0)"
         )
 #endif
 
-        // Exiting the last SSH surface should demote the workspace back to a local one.
-        // Route through Workspace close handling so remote teardown and replacement-panel
-        // logic run before TabManager considers removing the workspace itself, including
-        // session-end paths where remote configuration was cleared before Ghostty delivered
-        // the child-exit callback.
-        if keepsRemoteWorkspaceOpen {
+        // A persistent SSH workspace must never silently replace a failed remote attach with
+        // a local login shell. Keep the exited surface visible so the user can see the error
+        // and retry instead of making a detached remote workspace look local after relaunch.
+        if keepsPersistentRemoteSurfaceOpen {
+            tab.markPersistentRemotePTYAttachFailed(surfaceId: surfaceId)
+            return
+        }
+
+        // Exiting the last non-persistent SSH surface should demote the workspace back to a
+        // local one. Route through Workspace close handling so remote teardown and replacement
+        // panel logic run before TabManager considers removing the workspace itself.
+        if handlesRemoteExitThroughWorkspace {
             closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
             return
         }
