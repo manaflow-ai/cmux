@@ -3848,6 +3848,14 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         #expect(reference?.slug == "acme/widgets")
     }
 
+    @Test func parsesSCPRemoteWithBracketedIPv6Host() {
+        // The host/path separator must be found after the bracketed address,
+        // not at the first ':' inside the IPv6 literal.
+        let reference = GitHubRepositoryReference.parse(remoteURL: "git@[::1]:acme/widgets.git")
+        #expect(reference?.host == GitHubHost(hostname: "::1"))
+        #expect(reference?.slug == "acme/widgets")
+    }
+
     @Test func parsesNonGitHubHostVerbatim() {
         // Parsing is host-agnostic; gitlab.com is preserved and only gated out
         // later by token availability (see pollability tests below).

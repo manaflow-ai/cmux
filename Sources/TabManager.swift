@@ -4456,12 +4456,27 @@ class TabManager: ObservableObject {
                 )
             }
 
+            // A reference with no entry in `repoResults` was never fetched —
+            // its host was gated out by `isPollable(token:)` (no token). If every
+            // reference was skipped, treat the candidate as unsupported rather
+            // than "not found", so it leaves the fast poll loop instead of
+            // re-running `gh auth token` for a host we already know we can't poll.
+            let attemptedReferences = candidate.repoReferences.filter { repoResults[$0] != nil }
+            if attemptedReferences.isEmpty {
+                return WorkspacePullRequestRefreshResult(
+                    workspaceId: candidate.workspaceId,
+                    panelId: candidate.panelId,
+                    resolution: .unsupportedRepository,
+                    usedCachedRepoData: false
+                )
+            }
+
             var matchedPullRequest: GitHubPullRequestProbeItem?
             var matchedPullRequestUsedCache = false
             var sawTransientFailure = false
             var sawCachedSuccess = false
 
-            for reference in candidate.repoReferences {
+            for reference in attemptedReferences {
                 guard let repoResult = repoResults[reference] else { continue }
                 switch repoResult {
                 case .success(let cacheEntry, let usedCache, let transientBranches):

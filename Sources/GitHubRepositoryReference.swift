@@ -58,14 +58,22 @@ struct GitHubRepositoryReference: Hashable, Sendable {
 
     /// Parses SCP-style SSH remotes (`git@host:owner/repo.git`).
     private static func parseSCPLike(_ remoteURL: String) -> GitHubRepositoryReference? {
-        guard let colonIndex = remoteURL.firstIndex(of: ":") else { return nil }
+        // The authority/path separator is the first ':' that follows the host.
+        // For a bracketed IPv6 host (`git@[::1]:owner/repo`) that ':' comes after
+        // the closing bracket; otherwise it is simply the first ':'. Searching
+        // from after any ']' avoids splitting inside the address literal.
+        let searchStart = remoteURL.firstIndex(of: "]").map { remoteURL.index(after: $0) }
+            ?? remoteURL.startIndex
+        guard let colonIndex = remoteURL[searchStart...].firstIndex(of: ":") else { return nil }
         let authority = String(remoteURL[..<colonIndex])
         let path = String(remoteURL[remoteURL.index(after: colonIndex)...])
-        let host: String
-        if let atIndex = authority.lastIndex(of: "@") {
-            host = String(authority[authority.index(after: atIndex)...])
-        } else {
-            host = authority
+
+        var host = authority
+        if let atIndex = host.lastIndex(of: "@") {
+            host = String(host[host.index(after: atIndex)...])
+        }
+        if host.hasPrefix("["), host.hasSuffix("]") {
+            host = String(host.dropFirst().dropLast())
         }
         guard !host.isEmpty, let (owner, repo) = Self.ownerRepo(fromPath: path) else { return nil }
         return GitHubRepositoryReference(host: GitHubHost(hostname: host), owner: owner, repo: repo)
