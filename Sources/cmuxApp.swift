@@ -27,7 +27,6 @@ struct cmuxApp: App {
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @Environment(\.openWindow) private var openWindow
 
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
@@ -276,7 +275,7 @@ struct cmuxApp: App {
                 .onAppear {
                     SettingsWindowPresenter.configure(
                         openWindow: {
-                            openWindow(id: SettingsWindowPresenter.windowID)
+                            SettingsAppKitWindowPresenter.shared.show(runtime: settingsRuntime)
                         },
                         parentWindowProvider: {
                             AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
@@ -1249,7 +1248,6 @@ private struct MainWindowBootstrapView: View {
             })
     }
 }
-
 
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",

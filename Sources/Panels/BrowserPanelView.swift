@@ -412,7 +412,6 @@ struct BrowserPanelView: View {
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.openWindow) private var openWindow
     @Environment(\.paneDropZone) private var paneDropZone
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
@@ -2074,10 +2073,7 @@ struct BrowserPanelView: View {
 
     private func openBrowserImportSettings() {
         isBrowserImportHintPopoverPresented = false
-        SettingsWindowPresenter.show(
-            navigationTarget: .browserImport,
-            openWindowOverride: { openWindow(id: SettingsWindowPresenter.windowID) }
-        )
+        SettingsWindowPresenter.show(navigationTarget: .browserImport)
         NSRunningApplication.current.activate(options: [.activateAllWindows])
     }
 

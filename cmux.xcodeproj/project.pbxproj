@@ -404,6 +404,7 @@
 		F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */; };
 		D10000000000000000A00020 /* SettingsAccountJSONResetBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00021 /* SettingsAccountJSONResetBehaviorUITests.swift */; };
 		D10000000000000000A00012 /* SettingsAppBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00013 /* SettingsAppBehaviorUITests.swift */; };
+		D36090020000000000000001 /* SettingsAppKitWindowPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000002 /* SettingsAppKitWindowPresenter.swift */; };
 		D10000000000000000A00018 /* SettingsAutomationBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00019 /* SettingsAutomationBehaviorUITests.swift */; };
 		D10000000000000000A0001A /* SettingsBrowserBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A0001B /* SettingsBrowserBehaviorUITests.swift */; };
 		B37A00000000000000000007 /* SettingsCardNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000008 /* SettingsCardNote.swift */; };
@@ -1039,6 +1040,7 @@
 		F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptTypes.swift; sourceTree = "<group>"; };
 		D10000000000000000A00021 /* SettingsAccountJSONResetBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAccountJSONResetBehaviorUITests.swift; sourceTree = "<group>"; };
 		D10000000000000000A00013 /* SettingsAppBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAppBehaviorUITests.swift; sourceTree = "<group>"; };
+		D36090020000000000000002 /* SettingsAppKitWindowPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SettingsAppKitWindowPresenter.swift; sourceTree = "<group>"; };
 		D10000000000000000A00019 /* SettingsAutomationBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAutomationBehaviorUITests.swift; sourceTree = "<group>"; };
 		D10000000000000000A0001B /* SettingsBrowserBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsBrowserBehaviorUITests.swift; sourceTree = "<group>"; };
 		B37A00000000000000000008 /* SettingsCardNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsCardNote.swift; sourceTree = "<group>"; };
@@ -1414,6 +1416,7 @@
 				A50019A1 /* SettingsNavigation.swift */,
 				A50019B1 /* SettingsSearchAliases.swift */,
 				D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */,
+				D36090020000000000000002 /* SettingsAppKitWindowPresenter.swift */,
 				D36090010000000000000002 /* SettingsWindowPresenter.swift */,
 				B37A00000000000000000002 /* BetaFeaturesSettingsView.swift */,
 				B37A00000000000000000008 /* SettingsCardNote.swift */,
@@ -2432,6 +2435,7 @@
 				A5001670 /* SessionRestoredTerminalCommandStore.swift in Sources */,
 				A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */,
 				F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */,
+				D36090020000000000000001 /* SettingsAppKitWindowPresenter.swift in Sources */,
 				B37A00000000000000000007 /* SettingsCardNote.swift in Sources */,
 				D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */,
 				A50019A0 /* SettingsNavigation.swift in Sources */,
