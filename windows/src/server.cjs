@@ -175,6 +175,11 @@ function sanitizeTerminalFontSize(value, fallback = 0) {
   return Math.min(22, Math.max(10, Math.round(size)));
 }
 
+function sanitizeRendererPort(value) {
+  const port = Number(value);
+  return Number.isInteger(port) && port > 0 && port < 65536 ? port : 0;
+}
+
 function defaultWorkspaceDirectory() {
   const home = os.homedir();
   return home && fs.existsSync(home) ? home : process.cwd();
@@ -625,6 +630,7 @@ class CmuxWindowsRuntime {
         this.sessionRepaired = titleSignatureBefore !== titleSignatureAfter;
         return {
           activeWorkspaceId: parsed.activeWorkspaceId || parsed.workspaces[0].id,
+          rendererPort: sanitizeRendererPort(parsed.rendererPort),
           workspaces
         };
       }
@@ -632,14 +638,15 @@ class CmuxWindowsRuntime {
       // First run or corrupt state: start clean.
     }
     const workspace = this.newWorkspace("Workspace 1");
-    return { activeWorkspaceId: workspace.id, workspaces: [workspace] };
+    return { activeWorkspaceId: workspace.id, rendererPort: 0, workspaces: [workspace] };
   }
 
   resetSession() {
     for (const terminal of this.terminals.values()) terminal.close();
     this.terminals.clear();
+    const rendererPort = sanitizeRendererPort(this.state.rendererPort);
     const workspace = this.newWorkspace("cmux Windows");
-    this.state = { activeWorkspaceId: workspace.id, workspaces: [workspace] };
+    this.state = { activeWorkspaceId: workspace.id, rendererPort, workspaces: [workspace] };
     this.persistAndBroadcast();
     return this.serializedState();
   }
@@ -648,6 +655,7 @@ class CmuxWindowsRuntime {
     fs.mkdirSync(this.dataDir, { recursive: true });
     const payload = {
       activeWorkspaceId: this.state.activeWorkspaceId,
+      rendererPort: sanitizeRendererPort(this.state.rendererPort),
       workspaces: this.state.workspaces.map((workspace) => ({
         id: workspace.id,
         title: workspace.title,
@@ -719,6 +727,7 @@ class CmuxWindowsRuntime {
   serializedState() {
     return {
       activeWorkspaceId: this.state.activeWorkspaceId,
+      rendererPort: sanitizeRendererPort(this.state.rendererPort),
       ptyAvailable: this.ptyAvailable,
       pipeName: this.pipeName,
       palette: workspaceColors,
@@ -1305,9 +1314,23 @@ class CmuxWindowsRuntime {
     });
   }
 
-  listen(port = 0) {
+  listen(port = null) {
+    const requestedPort = port === null || port === undefined
+      ? sanitizeRendererPort(this.state.rendererPort)
+      : sanitizeRendererPort(port);
+    return this.listenOnPort(requestedPort || 0).catch((error) => {
+      if (requestedPort > 0 && error?.code === "EADDRINUSE") {
+        try { this.server?.close(); } catch {}
+        this.server = null;
+        return this.listenOnPort(0);
+      }
+      throw error;
+    });
+  }
+
+  listenOnPort(port) {
     return new Promise((resolve, reject) => {
-      this.server = http.createServer((request, response) => {
+      const server = http.createServer((request, response) => {
         const url = new URL(request.url, "http://127.0.0.1");
         if (url.pathname.startsWith("/api/")) {
           this.handleApi(request, response, url);
@@ -1317,17 +1340,23 @@ class CmuxWindowsRuntime {
           this.serveStatic(request, response, url);
         }
       });
-      this.server.on("upgrade", (request, socket, head) => this.handleUpgrade(request, socket, head));
-      this.server.on("error", reject);
-      this.server.listen(port, "127.0.0.1", async () => {
+      this.server = server;
+      const onError = (error) => reject(error);
+      server.on("upgrade", (request, socket, head) => this.handleUpgrade(request, socket, head));
+      server.once("error", onError);
+      server.listen(port, "127.0.0.1", async () => {
+        server.removeListener("error", onError);
+        server.on("error", (error) => console.error(error));
         try {
           await this.startPipeServer();
         } catch (error) {
-          this.server.close();
+          server.close();
           reject(error);
           return;
         }
-        const address = this.server.address();
+        const address = server.address();
+        this.state.rendererPort = address.port;
+        this.persistSession();
         resolve({
           port: address.port,
           url: `http://127.0.0.1:${address.port}/`,
