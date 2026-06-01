@@ -906,6 +906,67 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
+    func testSettingsFileStoreInvalidKiroNotificationLevelDoesNotSkipLaterAutomationKeys() throws {
+        let defaults = UserDefaults.standard
+        let previousKiroLevel = defaults.object(forKey: KiroIntegrationSettings.notificationLevelKey)
+        let previousPortBase = defaults.object(forKey: AutomationSettings.portBaseKey)
+        let previousPortRange = defaults.object(forKey: AutomationSettings.portRangeKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousKiroLevel {
+                defaults.set(previousKiroLevel, forKey: KiroIntegrationSettings.notificationLevelKey)
+            } else {
+                defaults.removeObject(forKey: KiroIntegrationSettings.notificationLevelKey)
+            }
+            if let previousPortBase {
+                defaults.set(previousPortBase, forKey: AutomationSettings.portBaseKey)
+            } else {
+                defaults.removeObject(forKey: AutomationSettings.portBaseKey)
+            }
+            if let previousPortRange {
+                defaults.set(previousPortRange, forKey: AutomationSettings.portRangeKey)
+            } else {
+                defaults.removeObject(forKey: AutomationSettings.portRangeKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: KiroIntegrationSettings.notificationLevelKey)
+        defaults.removeObject(forKey: AutomationSettings.portBaseKey)
+        defaults.removeObject(forKey: AutomationSettings.portRangeKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "kiroNotificationLevel": "loud",
+                "portBase": 32100,
+                "portRange": 42
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNil(defaults.object(forKey: KiroIntegrationSettings.notificationLevelKey))
+        XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portBaseKey), 32100)
+        XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portRangeKey), 42)
+    }
+
     func testSettingsFileStoreAppliesBrowserHiddenWebViewDiscardDelayAtMaximum() throws {
         let defaults = UserDefaults.standard
         let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
@@ -4677,6 +4738,40 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 #else
         throw XCTSkip("Debug-only regression test")
 #endif
+    }
+}
+
+
+@MainActor
+final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
+    func testCreatesExtensionBrowserTabInFocusedPane() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              let leftPaneId = workspace.paneId(forPanelId: leftPanelId) else {
+            XCTFail("Expected split workspace setup to succeed")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
+
+        workspace.focusPanel(leftPanelId)
+        XCTAssertEqual(workspace.bonsplitController.focusedPaneId, leftPaneId)
+
+        guard let extensionBrowserPanel = workspace.newSidebarExtensionBrowserSurface(
+            inPane: leftPaneId,
+            title: "Sidebar Extensions",
+            focus: true
+        ) else {
+            XCTFail("Expected extension browser tab creation to succeed")
+            return
+        }
+
+        XCTAssertEqual(extensionBrowserPanel.panelType, .extensionBrowser)
+        XCTAssertEqual(workspace.focusedPanelId, extensionBrowserPanel.id)
+        XCTAssertEqual(workspace.paneId(forPanelId: extensionBrowserPanel.id), leftPaneId)
+        XCTAssertNotEqual(workspace.paneId(forPanelId: extensionBrowserPanel.id), workspace.paneId(forPanelId: rightPanel.id))
     }
 }
 

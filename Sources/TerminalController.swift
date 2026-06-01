@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSettings
+import CmuxSocketControl
 import Carbon.HIToolbox
 import CMUXWorkstream
 import Foundation
@@ -129,6 +131,8 @@ class TerminalController {
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     private var tabManager: TabManager?
     private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
+    // Sendable value type; injected at construction so socket auth never reaches a global.
+    private nonisolated let passwordStore: SocketControlPasswordStore
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenBacklog: Int32 = 128
@@ -358,7 +362,8 @@ class TerminalController {
         }
     }
 
-    private init() {
+    private init(passwordStore: SocketControlPasswordStore = SocketControlPasswordStore()) {
+        self.passwordStore = passwordStore
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
             object: nil,
@@ -2180,7 +2185,7 @@ class TerminalController {
         guard lowered == "auth" || lowered.hasPrefix("auth ") else {
             return nil
         }
-        guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
+        guard passwordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
             return "ERROR: Password mode is enabled but no socket password is configured in Settings."
         }
 
@@ -2193,7 +2198,7 @@ class TerminalController {
         guard !provided.isEmpty else {
             return "ERROR: Missing password. Usage: auth <password>"
         }
-        guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
+        guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
             return "ERROR: Invalid password"
         }
         authenticated = true
@@ -2217,7 +2222,7 @@ class TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "auth.login requires params.password")
         }
 
-        guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
+        guard passwordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
             return v2Error(
                 id: id,
                 code: "auth_unconfigured",
@@ -2225,7 +2230,7 @@ class TerminalController {
             )
         }
 
-        guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
+        guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
             return v2Error(id: id, code: "auth_failed", message: "Invalid password")
         }
         authenticated = true
@@ -6569,12 +6574,15 @@ class TerminalController {
         let symbol: String? = (params["symbol"] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let normalized: String? = (symbol?.isEmpty == false) ? symbol : nil
         var ok = false
+        var storedIconSymbol: String?
         v2MainSync {
             ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
-            if ok { tabManager.setWorkspaceGroupIcon(groupId: gid, symbol: normalized) }
+            if ok {
+                storedIconSymbol = tabManager.setWorkspaceGroupIcon(groupId: gid, symbol: normalized)
+            }
         }
         return ok
-            ? .ok(["group_id": gid.uuidString, "icon_symbol": v2OrNull(normalized)])
+            ? .ok(["group_id": gid.uuidString, "icon_symbol": v2OrNull(storedIconSymbol)])
             : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
     }
 
@@ -17039,7 +17047,7 @@ class TerminalController {
 
         Input commands:
           send <text>                     - Send text to current terminal
-          send_key <key>                  - Send special key (ctrl-c, ctrl-d, enter, tab, escape)
+          send_key <key>                  - Send special key (ctrl-c, ctrl-d, ctrl-f, enter, tab, escape)
           send_surface <id|idx> <text>    - Send text to a specific terminal
           send_key_surface <id|idx> <key> - Send special key to a specific terminal
           read_screen [id|idx] [--scrollback] [--lines N] - Read terminal text (plain text)

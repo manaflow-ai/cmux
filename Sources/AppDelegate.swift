@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSettings
+import CmuxSocketControl
 import SwiftUI
 import Bonsplit
 import CMUXWorkstream
@@ -9,17 +11,7 @@ import WebKit
 import Combine
 import ObjectiveC.runtime
 import Darwin
-
-func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
-    guard let value else { return nil }
-    // Serialize as a JSON array, then strip the outer brackets to get a quoted JS string literal.
-    guard let data = try? JSONSerialization.data(withJSONObject: [value]),
-          let arrayLiteral = String(data: data, encoding: .utf8),
-          arrayLiteral.count >= 2 else {
-        return nil
-    }
-    return String(arrayLiteral.dropFirst().dropLast())
-}
+import CmuxFoundation
 
 private struct MultiWindowRouteCLIResult {
     let status: String
@@ -10847,7 +10839,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         awaitingInputId: String? = nil,
         completion: @escaping ([String: String]) -> Void
     ) {
-        let expectedInputIdLiteral = cmuxJavaScriptStringLiteral(awaitingInputId) ?? "null"
+        let expectedInputIdLiteral = awaitingInputId?.javaScriptStringLiteral ?? "null"
         let script = """
         (() => {
           const expectedInputId = \(expectedInputIdLiteral);
@@ -13160,6 +13152,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
+        if matchConfiguredShortcut(event: event, action: .sendCtrlFToTerminal) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            let handled = routedManager?.sendCtrlFToFocusedTerminal() ?? false
+#if DEBUG
+            cmuxDebugLog(
+                "shortcut.action name=sendCtrlFToTerminal handled=\(handled ? 1 : 0) " +
+                "\(debugShortcutRouteSnapshot(event: event))"
+            )
+#endif
+            // Only consume when a focused terminal actually received the chord.
+            return handled
+        }
+
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
         if matchConfiguredShortcut(event: event, action: .nextSidebarTab) {
 #if DEBUG
@@ -13792,6 +13797,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = focusBrowserAddressBar(panelId: panelId)
 #endif
         return panelId
+    }
+
+    @discardableResult
+    func openSidebarExtensionBrowser(from anchorView: NSView?, title: String) -> UUID? {
+        // Defensive gate: the extensions browser is part of the experimental
+        // Extensions feature. Its entry points are hidden while disabled, but
+        // guard here too so no other path can open it.
+        guard CmuxExtensionSidebarSelection.isEnabled else { return nil }
+        let preferredWindow = anchorView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let targetTabManager = synchronizeActiveMainWindowContext(preferredWindow: preferredWindow)
+        guard let workspace = targetTabManager?.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return nil
+        }
+
+        return workspace.newSidebarExtensionBrowserSurface(
+            inPane: paneId,
+            title: title,
+            focus: true
+        )?.id
     }
 
     private func focusBrowserAddressBar(in panel: BrowserPanel) {

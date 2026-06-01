@@ -386,6 +386,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				CMUX_DISPLAY_NAME_SUFFIX = "";
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.manaflow.cmux.sidebar;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -394,7 +397,7 @@
 				ENABLE_DEBUG_DYLIB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TabsVisibleSidebarExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Tabs Visible Sidebar";
+				INFOPLIST_KEY_CFBundleDisplayName = "Tabs Visible Sidebar$(CMUX_DISPLAY_NAME_SUFFIX)";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -402,7 +405,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.TabsVisibleSidebar.Extension;
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.TabsVisibleSidebar$(CMUX_BUNDLE_ID_SUFFIX).Extension";
 				PRODUCT_NAME = "Tabs Visible Sidebar Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -421,6 +424,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				CMUX_DISPLAY_NAME_SUFFIX = "";
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.manaflow.cmux.sidebar;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -429,7 +435,7 @@
 				ENABLE_DEBUG_DYLIB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TabsVisibleSidebarExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Tabs Visible Sidebar";
+				INFOPLIST_KEY_CFBundleDisplayName = "Tabs Visible Sidebar$(CMUX_DISPLAY_NAME_SUFFIX)";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -437,7 +443,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.TabsVisibleSidebar.Extension;
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.TabsVisibleSidebar$(CMUX_BUNDLE_ID_SUFFIX).Extension";
 				PRODUCT_NAME = "Tabs Visible Sidebar Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -591,7 +597,8 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.TabsVisibleSidebar;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.TabsVisibleSidebar$(CMUX_BUNDLE_ID_SUFFIX)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -624,7 +631,8 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.TabsVisibleSidebar;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.TabsVisibleSidebar$(CMUX_BUNDLE_ID_SUFFIX)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

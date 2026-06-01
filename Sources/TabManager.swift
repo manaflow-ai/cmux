@@ -2647,6 +2647,33 @@ class TabManager: ObservableObject {
         return panel.surface.toggleKeyboardCopyMode()
     }
 
+    /// Forwards a single Ctrl-F (`^F`) key press to the focused terminal surface,
+    /// faithfully encoded through Ghostty so it matches whatever the running TUI
+    /// would receive from a real keystroke.
+    ///
+    /// This is the non-keyboard escape hatch for control chords that a focused TUI
+    /// reads off the raw tty. The motivating case is Claude Code's force-stop, which
+    /// is only exposed as "press Ctrl-F twice"; invoke this action twice to deliver
+    /// it. Delivery bypasses cmux's shortcut/menu/responder layers entirely.
+    ///
+    /// - Returns: `true` when the chord was sent or queued for the focused terminal,
+    ///   `false` when no terminal panel is focused.
+    @discardableResult
+    func sendCtrlFToFocusedTerminal() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        let result = panel.sendNamedKeyResult("ctrl-f")
+        if result == .sent {
+            panel.surface.forceRefresh(reason: "tabManager.sendCtrlFToFocusedTerminal")
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "terminal.sendCtrlF workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+            "panel=\(panel.id.uuidString.prefix(5)) result=\(result)"
+        )
+#endif
+        return result.accepted
+    }
+
     @discardableResult
     func toggleFocusedTerminalTextBox() -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
@@ -6593,10 +6620,13 @@ class TabManager: ObservableObject {
         workspaceGroups[index].customColor = hex
     }
 
-    func setWorkspaceGroupIcon(groupId: UUID, symbol: String?) {
-        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
-        guard workspaceGroups[index].iconSymbol != symbol else { return }
-        workspaceGroups[index].iconSymbol = symbol
+    @discardableResult
+    func setWorkspaceGroupIcon(groupId: UUID, symbol: String?) -> String? {
+        let normalized = RenderableSystemSymbol.normalized(symbol)
+        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return nil }
+        guard workspaceGroups[index].iconSymbol != normalized else { return normalized }
+        workspaceGroups[index].iconSymbol = normalized
+        return normalized
     }
 
     /// Reassign which member workspace serves as the group's anchor.
@@ -11242,7 +11272,6 @@ extension TabManager {
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
             hasher.combine(workspace.isPinned)
-            hasher.combine(workspace.terminalScrollBarHidden)
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)
             hasher.combine(workspace.metadataBlocks.count)
