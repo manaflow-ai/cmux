@@ -20,6 +20,7 @@ extension Workspace {
         let isLoading: Bool
         let isPinned: Bool
         let directory: String?
+        let directoryDisplayLabel: String?
         let ttyName: String?
         let cachedTitle: String?
         let customTitle: String?
@@ -46,6 +47,7 @@ extension Workspace {
                 isLoading: isLoading,
                 isPinned: isPinned,
                 directory: directory,
+                directoryDisplayLabel: directoryDisplayLabel,
                 ttyName: ttyName,
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
