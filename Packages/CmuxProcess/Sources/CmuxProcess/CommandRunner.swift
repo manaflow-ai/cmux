@@ -1,5 +1,6 @@
 public import Foundation
 import Darwin
+import os
 
 /// Runs external commands with `Process`, capturing output and honoring an
 /// optional deadline.
@@ -126,18 +127,6 @@ public struct CommandRunner: CommandRunning, Sendable {
         case spawnFailed(String)
     }
 
-    /// Ensures the continuation resumes exactly once across the termination,
-    /// timeout, and spawn-failure callbacks, without a lock.
-    private actor ResumeGuard {
-        private var claimed = false
-        /// Returns `true` only the first time it is called.
-        func claim() -> Bool {
-            if claimed { return false }
-            claimed = true
-            return true
-        }
-    }
-
     private func waitForExit(
         _ process: Process,
         stdoutPipe: Pipe,
@@ -145,7 +134,19 @@ public struct CommandRunner: CommandRunning, Sendable {
         timeout: TimeInterval?
     ) async -> RunOutcome {
         await withCheckedContinuation { (continuation: CheckedContinuation<RunOutcome, Never>) in
-            let resumeGuard = ResumeGuard()
+            // The termination handler, the deadline timer, and the spawn-failure path all
+            // race to resume this continuation exactly once. Each runs on a synchronous,
+            // non-async callback, so a lock-guarded compare-and-set resumes inline — far
+            // cleaner here than detouring every callback through an actor + `Task`/`await`.
+            // (Per CLAUDE.md's lock carve-out for a synchronous one-shot resume guard.)
+            let resumed = OSAllocatedUnfairLock(initialState: false)
+            let claim: @Sendable () -> Bool = {
+                resumed.withLock { alreadyResumed in
+                    if alreadyResumed { return false }
+                    alreadyResumed = true
+                    return true
+                }
+            }
 
             var deadlineTimer: (any DispatchSourceTimer)?
             if let timeout {
@@ -157,12 +158,10 @@ public struct CommandRunner: CommandRunning, Sendable {
                 let timer = DispatchSource.makeTimerSource(queue: Self.timerQueue)
                 timer.schedule(deadline: .now() + timeout)
                 timer.setEventHandler {
-                    Task {
-                        if await resumeGuard.claim() {
-                            process.terminate()
-                            Self.scheduleSigkill(pid: process.processIdentifier)
-                            continuation.resume(returning: .timedOut)
-                        }
+                    if claim() {
+                        process.terminate()
+                        Self.scheduleSigkill(pid: process.processIdentifier)
+                        continuation.resume(returning: .timedOut)
                     }
                     timer.cancel()
                 }
@@ -174,11 +173,8 @@ public struct CommandRunner: CommandRunning, Sendable {
             // then so it cannot fire after a normal exit.
             process.terminationHandler = { [deadlineTimer] finished in
                 deadlineTimer?.cancel()
-                let status = finished.terminationStatus
-                Task {
-                    if await resumeGuard.claim() {
-                        continuation.resume(returning: .exited(status))
-                    }
+                if claim() {
+                    continuation.resume(returning: .exited(finished.terminationStatus))
                 }
             }
 
@@ -189,10 +185,8 @@ public struct CommandRunner: CommandRunning, Sendable {
                 let message = String(describing: error)
                 try? stdoutPipe.fileHandleForWriting.close()
                 try? stderrPipe.fileHandleForWriting.close()
-                Task {
-                    if await resumeGuard.claim() {
-                        continuation.resume(returning: .spawnFailed(message))
-                    }
+                if claim() {
+                    continuation.resume(returning: .spawnFailed(message))
                 }
                 return
             }
