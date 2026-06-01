@@ -602,6 +602,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var displayLink: CADisplayLink?
     private var cursorBlinkState = TerminalCursorBlinkState()
     private var cursorOverlayLayer: CALayer?
+    /// Whether the host terminal currently wants the cursor shown (DECTCEM).
+    /// TUIs that hide the cursor (vim, fzf, htop, less, …) emit `ESC [ ? 25 l`;
+    /// the render-grid producer forwards that in the VT-patch bytes, so we track
+    /// the last applied state from the byte stream and hide the overlay to
+    /// match. Defaults to visible (a normal shell shows its cursor).
+    private var hostCursorVisible: Bool = true
     private var needsDraw: Bool = false
     /// Countdown of extra draw requests after a geometry change, so the
     /// renderer (which presents a frame behind) produces a frame at the final
@@ -1096,6 +1102,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         #endif
         let forwarded = Self.forwardDaemonOutputBytes(data)
+        // Track the host's cursor-visible mode (DECTCEM) straight from the VT
+        // bytes the surface is about to apply, so the cursor overlay can match a
+        // TUI that hides the cursor. nil = this delta carried no DECTCEM, so the
+        // previous visibility stands.
+        let cursorVisibilityDelta = Self.lastCursorVisibility(in: forwarded)
 
         // `ghostty_surface_process_output` BLOCKS on libghostty's internal
         // renderer/IO synchronization (a futex). Device crash logs show it
@@ -1129,6 +1140,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.needsDraw = true
+                if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
+                    self.hostCursorVisible = cursorVisibilityDelta
+                    self.updateCursorOverlay()
+                }
                 #if DEBUG
                 self.lastOutputAppliedTime = CACurrentMediaTime()
                 #endif
@@ -1165,6 +1180,36 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // exact VT stream it received so desktop and mobile render the same
         // session history and prompt state.
         data
+    }
+
+    /// The final DECTCEM cursor-visibility state in `data`, or nil if the chunk
+    /// contains no cursor show/hide. Scans for the exact sequences the
+    /// render-grid producer emits: `ESC [ ? 2 5 h` (show) / `ESC [ ? 2 5 l`
+    /// (hide). The last occurrence wins, so a delta that toggles ends on the
+    /// applied state.
+    nonisolated static func lastCursorVisibility(in data: Data) -> Bool? {
+        // ESC [ ? 2 5 (h|l)
+        let prefix: [UInt8] = [0x1B, 0x5B, 0x3F, 0x32, 0x35]
+        guard data.count >= 6 else { return nil }
+        var result: Bool?
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            var i = 0
+            let end = bytes.count - 5
+            while i < end {
+                if bytes[i] == prefix[0],
+                   bytes[i + 1] == prefix[1],
+                   bytes[i + 2] == prefix[2],
+                   bytes[i + 3] == prefix[3],
+                   bytes[i + 4] == prefix[4] {
+                    let final = bytes[i + 5]
+                    if final == 0x68 { result = true; i += 6; continue }   // 'h'
+                    if final == 0x6C { result = false; i += 6; continue }  // 'l'
+                }
+                i += 1
+            }
+        }
+        return result
     }
 
     @objc
@@ -1536,6 +1581,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func updateCursorOverlay() {
         guard let surface,
+              hostCursorVisible,
               window != nil,
               !isHidden,
               alpha > 0.01,
@@ -2169,18 +2215,33 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// (visible grid only, not scrollback) via libghostty.
     public static func visibleTerminalSnapshot() -> String {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-        var sections: [String] = []
+        // Collect the main-actor state + surface pointers first, then read the
+        // viewport text on the serial output queue. `ghostty_surface_read_text`
+        // takes the same surface lock as `process_output` (which runs off-main);
+        // reading it on the MAIN thread here contends that lock during a render
+        // storm and stalls the present — tapping Copy Debug Logs would itself
+        // blank the terminal. The output queue is never concurrent with
+        // `process_output`, so the read can't wedge. No `main.sync` runs on that
+        // queue, so this `.sync` cannot deadlock.
+        var pending: [(grid: String, font: Int, surface: ghostty_surface_t)] = []
         for view in registeredSurfaceViews.values.compactMap(\.value) {
-            guard view.window != nil, !view.isHidden, view.alpha > 0.01 else { continue }
+            guard view.window != nil, !view.isHidden, view.alpha > 0.01,
+                  let surface = view.surface else { continue }
             let grid = view.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "?"
-            let text = view.renderedTextForTesting(pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
-            sections.append(
-                "===== visible terminal · grid=\(grid) · font=\(Int(view.liveFontSize)) =====\n"
-                + text
-            )
+            pending.append((grid: grid, font: Int(view.liveFontSize), surface: surface))
         }
-        if sections.isEmpty {
+        if pending.isEmpty {
             return "===== visible terminal: (no on-screen surface) ====="
+        }
+        var sections: [String] = []
+        outputQueue.sync {
+            for item in pending {
+                let text = surfaceText(item.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
+                sections.append(
+                    "===== visible terminal · grid=\(item.grid) · font=\(item.font) =====\n"
+                    + text
+                )
+            }
         }
         return sections.joined(separator: "\n\n")
     }
