@@ -7612,6 +7612,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var deferredSurfaceSizeRetryQueued = false
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
+    private var selectionSharingServicePicker: NSSharingServicePicker?
+    private var contextMenuTextSnapshot: TextMenuSnapshot?
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -8438,6 +8440,41 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = performBindingAction("copy_to_clipboard")
     }
 
+    @objc private func lookUpContextMenuText(_ sender: Any?) {
+        guard let snapshot = contextMenuTextSnapshot ?? readSelectionTextMenuSnapshot(),
+              !snapshot.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            NSSound.beep()
+            return
+        }
+        let attributed = NSAttributedString(string: snapshot.string)
+        showDefinition(for: attributed, at: selectionDefinitionOrigin(for: snapshot))
+    }
+
+    private func selectionDefinitionOrigin(for snapshot: TextMenuSnapshot) -> NSPoint {
+        NSPoint(
+            x: max(0, snapshot.topLeft.x),
+            y: max(0, bounds.height - snapshot.topLeft.y)
+        )
+    }
+
+    private func lookUpMenuTitle(for text: String) -> String {
+        let previewLimit = 40
+        let normalized = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let preview: String
+        if normalized.count > previewLimit {
+            preview = String(normalized.prefix(previewLimit)).trimmingCharacters(in: .whitespaces) + "\u{2026}"
+        } else {
+            preview = normalized
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "terminalContextMenu.lookUpFormat", defaultValue: "Look Up \"%@\""),
+            preview
+        )
+    }
+
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
         guard let terminalSurface else { return }
         let paneId = terminalSurface.owningWorkspace()?.paneId(forPanelId: terminalSurface.id)?.id
@@ -8501,6 +8538,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case #selector(copy(_:)):
             guard let surface = surface else { return false }
             return ghostty_surface_has_selection(surface)
+        case #selector(lookUpContextMenuText(_:)):
+            let snapshot = contextMenuTextSnapshot ?? readSelectionTextMenuSnapshot()
+            return snapshot?.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         case #selector(paste(_:)):
             return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(pasteAsPlainText(_:)):
@@ -8512,6 +8552,31 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         default:
             return true
         }
+    }
+
+    override func validRequestor(
+        forSendType sendType: NSPasteboard.PasteboardType?,
+        returnType: NSPasteboard.PasteboardType?
+    ) -> Any? {
+        guard returnType == nil,
+              let snapshot = readSelectionSnapshot(),
+              !snapshot.string.isEmpty else {
+            return super.validRequestor(forSendType: sendType, returnType: returnType)
+        }
+        if sendType == nil || sendType == .string {
+            return self
+        }
+        return super.validRequestor(forSendType: sendType, returnType: returnType)
+    }
+
+    @objc func writeSelection(to pasteboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
+        guard types.contains(.string),
+              let snapshot = readSelectionSnapshot(),
+              !snapshot.string.isEmpty else {
+            return false
+        }
+        pasteboard.clearContents()
+        return pasteboard.setString(snapshot.string, forType: .string)
     }
 
     // MARK: - Accessibility
@@ -8601,6 +8666,40 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             string: selected,
             topLeft: CGPoint(x: text.tl_px_x, y: text.tl_px_y)
         )
+    }
+
+    private func readSelectionTextMenuSnapshot() -> TextMenuSnapshot? {
+        guard let snapshot = readSelectionSnapshot(),
+              !snapshot.string.isEmpty else {
+            return nil
+        }
+        return TextMenuSnapshot(
+            string: snapshot.string,
+            topLeft: snapshot.topLeft,
+            isSelection: true
+        )
+    }
+
+    private func readQuickLookWordTextMenuSnapshot() -> TextMenuSnapshot? {
+        guard let surface else { return nil }
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_quicklook_word(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let ptr = text.text, text.text_len > 0 else { return nil }
+
+        let wordData = Data(bytes: ptr, count: Int(text.text_len))
+        let word = String(decoding: wordData, as: UTF8.self)
+        guard !word.isEmpty else { return nil }
+        return TextMenuSnapshot(
+            string: word,
+            topLeft: CGPoint(x: text.tl_px_x, y: text.tl_px_y),
+            isSelection: false
+        )
+    }
+
+    private func readContextMenuTextSnapshot() -> TextMenuSnapshot? {
+        readSelectionTextMenuSnapshot() ?? readQuickLookWordTextMenuSnapshot()
     }
 
     private func visibleDocumentRectInScreenCoordinates() -> NSRect {
@@ -8744,6 +8843,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let range: NSRange
         let string: String
         let topLeft: CGPoint
+    }
+
+    private struct TextMenuSnapshot {
+        let string: String
+        let topLeft: CGPoint
+        let isSelection: Bool
     }
 
 #if DEBUG
@@ -10461,6 +10566,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
 
         let menu = NSMenu()
+        contextMenuTextSnapshot = readContextMenuTextSnapshot()
+        if let contextMenuTextSnapshot {
+            appendTerminalTextContextMenuItems(to: menu, snapshot: contextMenuTextSnapshot)
+            menu.addItem(.separator())
+        }
         if onTriggerFlash != nil {
             let flashItem = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.triggerFlash", defaultValue: "Trigger Flash"),
@@ -10470,14 +10580,34 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             flashItem.target = self
             menu.addItem(.separator())
         }
-        if ghostty_surface_has_selection(surface) {
-            let item = menu.addItem(
+        appendTerminalPaneContextMenuItems(to: menu)
+        return menu
+    }
+
+    private func appendTerminalTextContextMenuItems(to menu: NSMenu, snapshot: TextMenuSnapshot) {
+        if snapshot.isSelection {
+            let copyItem = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.copy", defaultValue: "Copy"),
                 action: #selector(copy(_:)),
                 keyEquivalent: ""
             )
-            item.target = self
+            copyItem.target = self
         }
+
+        let lookUpItem = menu.addItem(
+            withTitle: lookUpMenuTitle(for: snapshot.string),
+            action: #selector(lookUpContextMenuText(_:)),
+            keyEquivalent: ""
+        )
+        lookUpItem.target = self
+
+        selectionSharingServicePicker = NSSharingServicePicker(items: [snapshot.string])
+        if let shareItem = selectionSharingServicePicker?.standardShareMenuItem {
+            menu.addItem(shareItem)
+        }
+    }
+
+    private func appendTerminalPaneContextMenuItems(to menu: NSMenu) {
         let pasteItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.paste", defaultValue: "Paste"),
             action: #selector(paste(_:)),
@@ -10534,7 +10664,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
             linkItem.target = self
         }
-        return menu
     }
 
     private func canSplitCurrentSurface() -> Bool {
