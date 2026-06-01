@@ -128,15 +128,31 @@ jobs:
       - name: Run activation session benchmark
         run: |
           set -euo pipefail
+          WORKSPACE_COUNT="${{ inputs.workspace_count || '12' }}"
+          HEAVY_SCROLLBACK_LINES="${{ inputs.heavy_scrollback_lines || '2400' }}"
+          OTHER_SCROLLBACK_LINES="${{ inputs.other_scrollback_lines || '1400' }}"
+
+          CONSOLE_USER="$(stat -f %Su /dev/console)"
+          CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+          sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
+            env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" \
+            PERF_TAG="$PERF_TAG" GITHUB_WORKSPACE="$PWD" \
+            WORKSPACE_COUNT="$WORKSPACE_COUNT" \
+            HEAVY_SCROLLBACK_LINES="$HEAVY_SCROLLBACK_LINES" \
+            OTHER_SCROLLBACK_LINES="$OTHER_SCROLLBACK_LINES" \
+            bash -s <<'BENCH_SCRIPT'
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           mkdir -p perf-results
           python3 scripts/perf-activation-session.py \
             --tag "$PERF_TAG" \
-            --workspace-count "${{ inputs.workspace_count || '12' }}" \
-            --heavy-scrollback-lines "${{ inputs.heavy_scrollback_lines || '2400' }}" \
-            --other-scrollback-lines "${{ inputs.other_scrollback_lines || '1400' }}" \
+            --workspace-count "$WORKSPACE_COUNT" \
+            --heavy-scrollback-lines "$HEAVY_SCROLLBACK_LINES" \
+            --other-scrollback-lines "$OTHER_SCROLLBACK_LINES" \
             --synthetic-scrollback-fallback \
             --output perf-results/activation-session.json \
             --junit perf-results/activation-session.junit.xml
+          BENCH_SCRIPT
 
       - name: Run Cmd-Tab activation benchmark
         run: |

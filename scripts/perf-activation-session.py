@@ -162,7 +162,14 @@ class CmuxPerfRunner:
         ready = self.wait_for_socket(timeout_s=self.args.launch_timeout)
         elapsed = rounded_ms(now_ms() - start)
         if not ready:
-            raise PerfFailure(f"{label}: socket not ready after {self.args.launch_timeout}s")
+            process_state = "unknown"
+            if self.proc:
+                exit_code = self.proc.poll()
+                process_state = f"exited with {exit_code}" if exit_code is not None else "still running"
+            raise PerfFailure(
+                f"{label}: socket not ready after {self.args.launch_timeout}s; "
+                f"process {process_state}; stdout={self.stdout_path}; debug_log={self.debug_log_path}"
+            )
         self.result["measurements"][f"{label}_socket_ready_ms"] = elapsed
         return elapsed
 
@@ -569,6 +576,25 @@ class CmuxPerfRunner:
             if not self.args.keep_fixture and self.fixture_root.exists():
                 shutil.rmtree(self.fixture_root, ignore_errors=True)
 
+    def write_failure_diagnostics(self, output_dir: pathlib.Path) -> None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        diagnostics = self.result.setdefault("diagnostics", {})
+        for source, name in (
+            (self.stdout_path, "app-stdout-tail.log"),
+            (self.debug_log_path, "cmux-debug-tail.log"),
+        ):
+            if not source.exists():
+                continue
+            destination = output_dir / name
+            max_bytes = 262_144
+            data = source.read_bytes()
+            if len(data) > max_bytes:
+                header = f"truncated to last {max_bytes} bytes from {source}\n".encode("utf-8")
+                destination.write_bytes(header + data[-max_bytes:])
+            else:
+                destination.write_bytes(data)
+            diagnostics[name] = str(destination)
+
 
 def write_junit(result: dict, path: pathlib.Path) -> None:
     failures = result.get("failures", [])
@@ -672,6 +698,7 @@ def main() -> int:
         if args.output:
             output = pathlib.Path(args.output)
             output.parent.mkdir(parents=True, exist_ok=True)
+            runner.write_failure_diagnostics(output.parent)
             output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         if args.junit:
             write_junit(result, pathlib.Path(args.junit))
