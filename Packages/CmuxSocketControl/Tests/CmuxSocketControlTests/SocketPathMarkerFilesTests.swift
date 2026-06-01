@@ -1,5 +1,5 @@
 import Testing
-@testable import CMUXSocketPathDomain
+@testable import CmuxSocketControl
 
 @Test func markerFilesAreVariantAware() {
     #expect(SocketPathMarkerFiles.variant(

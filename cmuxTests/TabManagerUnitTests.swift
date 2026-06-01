@@ -1224,32 +1224,9 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id), Set<UUID>())
     }
 
-    func testResolvedCommandPathFallsBackOutsideAppPATH() throws {
-        let fileManager = FileManager.default
-        let tempDir = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-command-path-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: tempDir) }
-
-        let executableName = "cmux-gh-test-\(UUID().uuidString)"
-        let executableURL = tempDir.appendingPathComponent(executableName)
-        try """
-        #!/bin/sh
-        exit 0
-        """.write(to: executableURL, atomically: true, encoding: .utf8)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
-
-        XCTAssertEqual(
-            TabManager.resolvedCommandPathForTesting(
-                executable: executableName,
-                environment: ["PATH": "/usr/bin:/bin"],
-                fallbackDirectories: [tempDir.path]
-            ),
-            executableURL.path
-        )
-    }
+    // testResolvedCommandPathFallsBackOutsideAppPATH moved to
+    // CmuxProcessTests.resolvesCommandViaFallbackDirectoryOutsidePath when the
+    // command runner was extracted into the CmuxProcess package.
 
     func testPeriodicWorkspaceGitMetadataRefreshClearsStalePullRequestAfterBranchReset() throws {
         let fileManager = FileManager.default
@@ -2244,6 +2221,37 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         }
 
         XCTAssertFalse(manager.focusTabFromNotification(workspace.id, surfaceId: UUID()))
+    }
+
+    func testClosingSelectedTabInZoomedPaneClearsSplitZoomBeforeSelectingNextTab() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let firstPanelId = workspace.focusedPanelId,
+              let firstPaneId = workspace.bonsplitController.focusedPaneId,
+              workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) != nil,
+              let secondTabPanel = workspace.newTerminalSurface(inPane: firstPaneId, focus: true) else {
+            XCTFail("Expected split workspace with two tabs in the first pane")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, secondTabPanel.id)
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: secondTabPanel.id), "Expected split zoom to enable")
+        XCTAssertTrue(workspace.bonsplitController.isSplitZoomed, "Expected workspace to start zoomed")
+
+        XCTAssertTrue(workspace.closePanel(secondTabPanel.id, force: true), "Expected selected tab close to succeed")
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId, "Expected the surviving tab in the pane to become focused")
+        XCTAssertFalse(
+            workspace.bonsplitController.isSplitZoomed,
+            "Closing the selected tab that owns zoom must not transfer the maximized layout to the next tab"
+        )
+        XCTAssertTrue(
+            workspace.toggleSplitZoom(panelId: firstPanelId),
+            "The surviving tab should still be zoomable on demand"
+        )
+        XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
     }
 
     func testFocusTabFromNotificationDismissesUnreadWithDismissFlash() {

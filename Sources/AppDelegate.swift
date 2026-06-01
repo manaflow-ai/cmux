@@ -1,4 +1,7 @@
 import AppKit
+import CmuxSettings
+import CmuxSettingsUI
+import CmuxSocketControl
 import SwiftUI
 import Bonsplit
 import CMUXWorkstream
@@ -819,6 +822,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+    /// The app's settings dependency container, handed over by `cmuxApp` via
+    /// `configure(...)` before any main window is created. AppKit builds the
+    /// main window's `NSHostingView` itself, so it injects this into the
+    /// `ContentView` environment so `@LiveSetting` can resolve the stores it
+    /// observes inside the sidebar.
+    var settingsRuntime: SettingsRuntime?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -1846,8 +1855,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ClosedItemHistoryStore.shared.flushPendingSaves()
     }
 
-    func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState) {
+    func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState, settingsRuntime: SettingsRuntime) {
         self.tabManager = tabManager
+        self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
@@ -7826,6 +7836,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(sidebarSelectionState)
             .environmentObject(fileExplorerState)
             .environmentObject(cmuxConfigStore)
+            // AppKit hosts this ContentView in its own NSHostingView, which does
+            // not inherit the App scene's SwiftUI environment. Inject the
+            // settings runtime so `@LiveSetting` can resolve the stores it
+            // observes throughout the main window (e.g. the sidebar). The key is
+            // optional, so a nil runtime just leaves reads at their seeded
+            // catalog default.
+            .environment(\.settingsRuntime, settingsRuntime)
 
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.
@@ -12818,6 +12835,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
+        if matchConfiguredShortcut(event: event, action: .sendCtrlFToTerminal) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            let handled = routedManager?.sendCtrlFToFocusedTerminal() ?? false
+#if DEBUG
+            cmuxDebugLog(
+                "shortcut.action name=sendCtrlFToTerminal handled=\(handled ? 1 : 0) " +
+                "\(debugShortcutRouteSnapshot(event: event))"
+            )
+#endif
+            // Only consume when a focused terminal actually received the chord.
+            return handled
+        }
+
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
         if matchConfiguredShortcut(event: event, action: .nextSidebarTab) {
 #if DEBUG
@@ -13442,6 +13472,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func openSidebarExtensionBrowser(from anchorView: NSView?, title: String) -> UUID? {
+        // Defensive gate: the extensions browser is part of the experimental
+        // Extensions feature. Its entry points are hidden while disabled, but
+        // guard here too so no other path can open it.
+        guard CmuxExtensionSidebarSelection.isEnabled else { return nil }
         let preferredWindow = anchorView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         let targetTabManager = synchronizeActiveMainWindowContext(preferredWindow: preferredWindow)
         guard let workspace = targetTabManager?.selectedWorkspace,

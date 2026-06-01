@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -112,6 +113,39 @@ final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
             SidebarActiveTabIndicatorSettings.current(defaults: defaults),
             SidebarActiveTabIndicatorSettings.defaultStyle
         )
+    }
+}
+
+@Suite
+struct SidebarTabItemFontScaleTests {
+    @Test func defaultSidebarFontScaleIsUnitScale() {
+        let scale = SidebarTabItemFontScale.scale(for: GhosttyConfig.defaultSidebarFontSize)
+
+        #expect(abs(scale - 1) <= 0.0001)
+    }
+
+    @Test func sidebarFontScaleIsProportionalToDefaultSidebarSize() {
+        let scale = SidebarTabItemFontScale.scale(for: 18)
+
+        #expect(abs(scale - (18 / GhosttyConfig.defaultSidebarFontSize)) <= 0.0001)
+    }
+
+    @Test func sidebarFontScaleClampsSmallSizes() {
+        let scale = SidebarTabItemFontScale.scale(for: 4)
+
+        #expect(abs(scale - (GhosttyConfig.minSidebarFontSize / GhosttyConfig.defaultSidebarFontSize)) <= 0.0001)
+    }
+
+    @Test func sidebarFontScaleClampsLargeSizes() {
+        let scale = SidebarTabItemFontScale.scale(for: 48)
+
+        #expect(abs(scale - (GhosttyConfig.maxSidebarFontSize / GhosttyConfig.defaultSidebarFontSize)) <= 0.0001)
+    }
+
+    @Test func sidebarFontScaleFallsBackToDefaultForNonFiniteValue() {
+        let scale = SidebarTabItemFontScale.scale(for: CGFloat.nan)
+
+        #expect(abs(scale - 1) <= 0.0001)
     }
 }
 
