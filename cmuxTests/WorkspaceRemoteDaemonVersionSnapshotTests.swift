@@ -136,6 +136,6 @@ struct WorkspaceRemoteDaemonVersionSnapshotTests {
         #expect(configuration.localSocketPath == "/tmp/cmux-restore.sock")
         let terminalStartupCommand = try #require(configuration.terminalStartupCommand)
         #expect(terminalStartupCommand.contains("ssh-pty-attach"))
-        #expect(terminalStartupCommand.contains("--require-existing"))
+        #expect(!terminalStartupCommand.contains("--require-existing"))
     }
 }
