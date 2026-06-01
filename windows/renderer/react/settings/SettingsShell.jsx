@@ -27,8 +27,9 @@ export function SettingsShell({
 
   return (
     <div className="settings-react-shell" data-react-settings="true">
-      <div className="settings-search">
+      <div className={`settings-search${query ? " has-query" : ""}`}>
         <input
+          aria-label={labels.searchPlaceholder}
           className="setting-control settings-search-input"
           type="search"
           placeholder={labels.searchPlaceholder}

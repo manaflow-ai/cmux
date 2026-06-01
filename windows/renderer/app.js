@@ -7224,15 +7224,18 @@ function renderSettingsChrome(host) {
 
 function settingsSearch() {
   const wrapper = document.createElement("div");
-  wrapper.className = "settings-search";
+  wrapper.className = `settings-search${state.settingsQuery ? " has-query" : ""}`;
   const input = document.createElement("input");
   input.className = "setting-control settings-search-input";
   input.type = "search";
   input.placeholder = t("settings.searchPlaceholder");
+  input.setAttribute("aria-label", t("settings.searchPlaceholder"));
   input.value = state.settingsQuery;
   input.addEventListener("input", () => {
     const wasSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
     state.settingsQuery = input.value;
+    wrapper.classList.toggle("has-query", Boolean(state.settingsQuery));
+    clear.disabled = !state.settingsQuery;
     const isSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
     if (isSearching) queueSettingsSearchAutoScroll();
     if (wasSearching !== isSearching) {
