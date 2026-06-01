@@ -1928,7 +1928,21 @@ final class UpdateViewModelPresentationTests: XCTestCase {
         XCTAssertTrue(viewModel.showsPill)
         XCTAssertTrue(viewModel.showsDetectedBackgroundUpdate)
         XCTAssertEqual(viewModel.text, "Update Available: 9.9.9")
-        XCTAssertEqual(viewModel.iconName, "shippingbox.fill")
+        XCTAssertEqual(viewModel.iconName, "arrow.down.circle.fill")
+        XCTAssertNotNil(NSImage(systemSymbolName: viewModel.iconName ?? "", accessibilityDescription: nil))
+    }
+
+    func testAvailableUpdateUsesResolvableDownloadIcon() throws {
+        let viewModel = UpdateViewModel()
+        let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
+
+        viewModel.state = .updateAvailable(.init(
+            appcastItem: item,
+            reply: { _ in }
+        ))
+
+        XCTAssertEqual(viewModel.iconName, "arrow.down.circle.fill")
+        XCTAssertNotNil(NSImage(systemSymbolName: viewModel.iconName ?? "", accessibilityDescription: nil))
     }
 
     func testActiveUpdateStateTakesPrecedenceOverDetectedBackgroundVersion() {
