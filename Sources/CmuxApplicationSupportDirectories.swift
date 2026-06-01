@@ -185,7 +185,7 @@ enum CmuxGhosttyConfigSettingEditor {
     static let surfaceTabBarFontSizeKey = "surface-tab-bar-font-size"
     static let defaultSurfaceTabBarFontSize = 11.0
     static let minSurfaceTabBarFontSize = 8.0
-    static let maxSurfaceTabBarFontSize = 24.0
+    static let maxSurfaceTabBarFontSize = 14.0
 
     static func clampedSidebarFontSize(_ value: Double) -> Double {
         guard value.isFinite else { return defaultSidebarFontSize }

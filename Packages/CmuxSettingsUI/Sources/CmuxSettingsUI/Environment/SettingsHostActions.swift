@@ -110,7 +110,7 @@ public extension SettingsHostActions {
     func setSidebarFontSize(_ points: Double) async -> Bool { true }
 
     func surfaceTabBarFontSize() -> SettingsFontSize {
-        SettingsFontSize(points: 11, minimum: 8, maximum: 24, defaultValue: 11)
+        SettingsFontSize(points: 11, minimum: 8, maximum: 14, defaultValue: 11)
     }
 
     func setSurfaceTabBarFontSize(_ points: Double) async -> Bool { true }
