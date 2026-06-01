@@ -1224,32 +1224,9 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id), Set<UUID>())
     }
 
-    func testResolvedCommandPathFallsBackOutsideAppPATH() throws {
-        let fileManager = FileManager.default
-        let tempDir = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-command-path-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: tempDir) }
-
-        let executableName = "cmux-gh-test-\(UUID().uuidString)"
-        let executableURL = tempDir.appendingPathComponent(executableName)
-        try """
-        #!/bin/sh
-        exit 0
-        """.write(to: executableURL, atomically: true, encoding: .utf8)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
-
-        XCTAssertEqual(
-            TabManager.resolvedCommandPathForTesting(
-                executable: executableName,
-                environment: ["PATH": "/usr/bin:/bin"],
-                fallbackDirectories: [tempDir.path]
-            ),
-            executableURL.path
-        )
-    }
+    // testResolvedCommandPathFallsBackOutsideAppPATH moved to
+    // CmuxProcessTests.resolvesCommandViaFallbackDirectoryOutsidePath when the
+    // command runner was extracted into the CmuxProcess package.
 
     func testPeriodicWorkspaceGitMetadataRefreshClearsStalePullRequestAfterBranchReset() throws {
         let fileManager = FileManager.default
