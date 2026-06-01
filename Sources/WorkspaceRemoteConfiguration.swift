@@ -463,6 +463,7 @@ extension SessionRemoteWorkspaceSnapshot {
         let normalizedCurrentRemoteDaemonVersion = WorkspaceRemoteSSHOptionFilter.normalizedOptional(currentRemoteDaemonVersion)
         let canRestoreSavedPTYForDaemonVersion =
             normalizedRemoteDaemonVersion != nil &&
+            normalizedCurrentRemoteDaemonVersion != nil &&
             normalizedRemoteDaemonVersion == normalizedCurrentRemoteDaemonVersion
         let preservedOptions = preserveSSHOptions
             ? WorkspaceRemoteSSHOptionFilter.trimmedOptions(sshOptions)

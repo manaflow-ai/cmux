@@ -8666,7 +8666,7 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
-    static func currentRemoteDaemonVersion(
+    nonisolated static func currentRemoteDaemonVersion(
         infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> String {
