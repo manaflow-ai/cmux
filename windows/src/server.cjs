@@ -288,11 +288,52 @@ function shortPath(rawPath) {
   return `${parts[0]}\\...\\${parts.slice(-2).join("\\")}`;
 }
 
+function gitCommonDir(gitDir) {
+  try {
+    const value = fs
+      .readFileSync(path.join(gitDir, "commondir"), "utf8")
+      .trim();
+    return value ? path.resolve(gitDir, value) : gitDir;
+  } catch {
+    return gitDir;
+  }
+}
+
+function packedRefExists(gitDir, refName) {
+  try {
+    const content = fs.readFileSync(path.join(gitDir, "packed-refs"), "utf8");
+    return content.split(/\r?\n/).some((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("^")) {
+        return false;
+      }
+      const [, ref] = trimmed.split(/\s+/);
+      return ref === refName;
+    });
+  } catch {
+    return false;
+  }
+}
+
+function gitRefExists(gitDir, refName) {
+  const roots = Array.from(new Set([gitDir, gitCommonDir(gitDir)]));
+  return roots.some((root) => {
+    const refPath = path.join(root, ...refName.split("/"));
+    return fs.existsSync(refPath) || packedRefExists(root, refName);
+  });
+}
+
 function branchFromGitDir(gitDir) {
   try {
     const head = fs.readFileSync(path.join(gitDir, "HEAD"), "utf8").trim();
-    const prefix = "ref: refs/heads/";
-    return head.startsWith(prefix) ? head.slice(prefix.length).slice(0, 80) : "";
+    const refPrefix = "ref: ";
+    const branchPrefix = "refs/heads/";
+    if (!head.startsWith(refPrefix)) return "";
+    const refName = head.slice(refPrefix.length).trim();
+    if (!refName.startsWith(branchPrefix) || !gitRefExists(gitDir, refName)) {
+      return "";
+    }
+    return refName.slice(branchPrefix.length).slice(0, 80);
   } catch {
     return "";
   }
