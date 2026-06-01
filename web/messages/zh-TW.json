@@ -636,7 +636,8 @@
         "find": "搜尋",
         "terminal": "終端機",
         "window": "視窗",
-        "diffViewer": "差異檢視器"
+        "diffViewer": "差異檢視器",
+        "markdownViewer": "Markdown Viewer"
       },
       "sc": {
         "ws-new": "新增工作區",

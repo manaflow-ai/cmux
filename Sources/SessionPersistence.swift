@@ -1553,6 +1553,12 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
 }
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
+    var fontSize: Double?
+
+    init(filePath: String, fontSize: Double? = nil) {
+        self.filePath = filePath
+        self.fontSize = fontSize
+    }
 }
 
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {

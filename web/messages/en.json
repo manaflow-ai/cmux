@@ -746,7 +746,8 @@
         "find": "Find",
         "terminal": "Terminal",
         "window": "Window",
-        "diffViewer": "Diff Viewer"
+        "diffViewer": "Diff Viewer",
+        "markdownViewer": "Markdown Viewer"
       },
       "sc": {
         "ws-new": "New workspace",

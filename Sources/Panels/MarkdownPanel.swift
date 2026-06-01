@@ -37,6 +37,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// The current view mode for this markdown panel. New panels default to preview.
     @Published private(set) var displayMode: MarkdownPanelDisplayMode = .preview
 
+    /// Current preview font size in points.
+    @Published private(set) var fontSize: Double
+
     /// Title shown in the tab bar (filename).
     @Published private(set) var displayTitle: String = ""
 
@@ -67,18 +70,24 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var pendingSearchNeedle: String?
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
+    private var usesCustomFontSize: Bool
+    private var fontSizeDefaultsObserver: NSObjectProtocol?
     private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
 
     // MARK: - Init
 
-    init(workspaceId: UUID, filePath: String) {
+    init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.fontSize = fontSize.map(MarkdownViewerFontSizeSettings.sanitizedPoints)
+            ?? MarkdownViewerFontSizeSettings.points()
+        self.usesCustomFontSize = fontSize != nil
         self.displayTitle = (filePath as NSString).lastPathComponent
 
         loadFileContent()
         startFileWatcher()
+        observeFontSizeDefaults()
     }
 
     // MARK: - Panel protocol
@@ -98,6 +107,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
+        if let fontSizeDefaultsObserver {
+            NotificationCenter.default.removeObserver(fontSizeDefaultsObserver)
+            self.fontSizeDefaultsObserver = nil
+        }
         stopWatching()
     }
 
@@ -113,6 +126,30 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         if mode == .text {
             focus()
         }
+    }
+
+    @discardableResult
+    func setFontSize(_ points: Double, custom: Bool = true) -> Bool {
+        let sanitized = MarkdownViewerFontSizeSettings.sanitizedPoints(points)
+        usesCustomFontSize = custom
+        guard abs(fontSize - sanitized) >= 0.001 else { return false }
+        fontSize = sanitized
+        return true
+    }
+
+    @discardableResult
+    func zoomIn() -> Bool {
+        setFontSize(fontSize + MarkdownViewerFontSizeSettings.zoomStep, custom: true)
+    }
+
+    @discardableResult
+    func zoomOut() -> Bool {
+        setFontSize(fontSize - MarkdownViewerFontSizeSettings.zoomStep, custom: true)
+    }
+
+    @discardableResult
+    func resetZoom() -> Bool {
+        setFontSize(MarkdownViewerFontSizeSettings.points(), custom: false)
     }
 
     func attachTextView(_ textView: NSTextView) {
@@ -204,6 +241,19 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             isDirty = false
             isFileUnavailable = true
             GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+        }
+    }
+
+    private func observeFontSizeDefaults() {
+        fontSizeDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isClosed, !self.usesCustomFontSize else { return }
+                self.setFontSize(MarkdownViewerFontSizeSettings.points(), custom: false)
+            }
         }
     }
 

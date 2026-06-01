@@ -636,7 +636,8 @@
         "find": "찾기",
         "terminal": "터미널",
         "window": "창",
-        "diffViewer": "Diff 뷰어"
+        "diffViewer": "Diff 뷰어",
+        "markdownViewer": "Markdown Viewer"
       },
       "sc": {
         "ws-new": "새 워크스페이스",

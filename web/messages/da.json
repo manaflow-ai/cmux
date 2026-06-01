@@ -636,7 +636,8 @@
         "find": "Find",
         "terminal": "Terminal",
         "window": "Vindue",
-        "diffViewer": "Diff-viser"
+        "diffViewer": "Diff-viser",
+        "markdownViewer": "Markdown Viewer"
       },
       "sc": {
         "ws-new": "Nyt workspace",

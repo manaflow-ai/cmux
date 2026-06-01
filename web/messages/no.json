@@ -636,7 +636,8 @@
         "find": "Finn",
         "terminal": "Terminal",
         "window": "Vindu",
-        "diffViewer": "Diff-viser"
+        "diffViewer": "Diff-viser",
+        "markdownViewer": "Markdown Viewer"
       },
       "sc": {
         "ws-new": "Nytt arbeidsområde",

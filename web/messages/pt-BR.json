@@ -636,7 +636,8 @@
         "find": "Buscar",
         "terminal": "Terminal",
         "window": "Janela",
-        "diffViewer": "Visualizador de diffs"
+        "diffViewer": "Visualizador de diffs",
+        "markdownViewer": "Markdown Viewer"
       },
       "sc": {
         "ws-new": "Novo workspace",

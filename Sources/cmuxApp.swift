@@ -845,15 +845,18 @@ struct cmuxApp: App {
             }
 
             splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
-                _ = activeTabManager.zoomInFocusedBrowser()
+                _ = activeTabManager.zoomInFocusedMarkdown()
+                    || activeTabManager.zoomInFocusedBrowser()
             }
 
             splitCommandButton(title: String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out"), shortcut: menuShortcut(for: .browserZoomOut)) {
-                _ = activeTabManager.zoomOutFocusedBrowser()
+                _ = activeTabManager.zoomOutFocusedMarkdown()
+                    || activeTabManager.zoomOutFocusedBrowser()
             }
 
             splitCommandButton(title: String(localized: "menu.view.actualSize", defaultValue: "Actual Size"), shortcut: menuShortcut(for: .browserZoomReset)) {
-                _ = activeTabManager.resetZoomFocusedBrowser()
+                _ = activeTabManager.resetZoomFocusedMarkdown()
+                    || activeTabManager.resetZoomFocusedBrowser()
             }
 
             Button(String(localized: "menu.view.clearBrowserHistory", defaultValue: "Clear Browser History")) {
@@ -5153,6 +5156,28 @@ enum CmdClickMarkdownRouteSettings {
         // targets, and permission-denied paths so the viewer never opens into
         // an unavailable state.
         return CmdClickSupportedFileRouteSettings.isReadableRegularFile(path: path)
+    }
+}
+
+enum MarkdownViewerFontSizeSettings {
+    static let key = "markdownViewerFontSize"
+    static let defaultPoints: Double = 15
+    static let minimumPoints: Double = 8
+    static let maximumPoints: Double = 96
+    static let zoomStep: Double = 1
+
+    static func sanitizedPoints(_ value: Double) -> Double {
+        let clamped = min(max(value, minimumPoints), maximumPoints)
+        return (clamped * 100).rounded() / 100
+    }
+
+    static func points(defaults: UserDefaults = .standard) -> Double {
+        guard let raw = defaults.object(forKey: key) as? NSNumber,
+              CFGetTypeID(raw) != CFBooleanGetTypeID(),
+              raw.doubleValue.isFinite else {
+            return defaultPoints
+        }
+        return sanitizedPoints(raw.doubleValue)
     }
 }
 

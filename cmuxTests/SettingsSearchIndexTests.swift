@@ -32,6 +32,8 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("reset shortcut defaults", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "reset-defaults"))
         assertSearch("clickable pr", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"))
         assertSearch("clickable pull requests", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"))
+        assertSearch("markdown font size", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "markdown-viewer-font-size"))
+        assertSearch("markdown zoom", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "markdown-viewer-font-size"))
     }
 
     func testSettingsPathAnchorIncludesBrowserEnabled() {
@@ -80,6 +82,13 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "app.iMessageMode"),
             SettingsSearchIndex.settingID(for: .app, idSuffix: "imessage-mode")
+        )
+    }
+
+    func testSettingsPathAnchorIncludesMarkdownViewerFontSize() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "app.markdownViewerFontSize"),
+            SettingsSearchIndex.settingID(for: .app, idSuffix: "markdown-viewer-font-size")
         )
     }
 

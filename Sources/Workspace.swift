@@ -634,7 +634,10 @@ extension Workspace {
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
-            markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+            markdownSnapshot = SessionMarkdownPanelSnapshot(
+                filePath: markdownPanel.filePath,
+                fontSize: markdownPanel.fontSize
+            )
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
             projectSnapshot = nil
@@ -1816,6 +1819,7 @@ extension Workspace {
                   let markdownPanel = newMarkdownSurface(
                     inPane: paneId,
                     filePath: filePath,
+                    fontSize: snapshot.markdown?.fontSize,
                     focus: false
                   ) else {
                 return nil
@@ -14714,19 +14718,23 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func openOrFocusMarkdownSplit(
         from panelId: UUID,
-        filePath: String
+        filePath: String,
+        fontSize: Double? = nil
     ) -> MarkdownPanel? {
         let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let md = panel as? MarkdownPanel else { continue }
             if (md.filePath as NSString).resolvingSymlinksInPath == canonical {
+                if let fontSize {
+                    md.setFontSize(fontSize, custom: true)
+                }
                 focusPanel(existingId)
                 return md
             }
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: true)
+            return newMarkdownSurface(inPane: targetPane, filePath: filePath, fontSize: fontSize, focus: true)
         }
 
         return newMarkdownSplit(
@@ -14734,6 +14742,7 @@ final class Workspace: Identifiable, ObservableObject {
             orientation: .horizontal,
             insertFirst: false,
             filePath: filePath,
+            fontSize: fontSize,
             focus: true
         )
     }
@@ -14743,6 +14752,7 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool = false,
         filePath: String,
+        fontSize: Double? = nil,
         focus: Bool = true
     ) -> MarkdownPanel? {
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
@@ -14757,7 +14767,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let paneId = sourcePaneId else { return nil }
 
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
+        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath, fontSize: fontSize)
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 
@@ -14805,6 +14815,7 @@ final class Workspace: Identifiable, ObservableObject {
     func newMarkdownSurface(
         inPane paneId: PaneID,
         filePath: String,
+        fontSize: Double? = nil,
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> MarkdownPanel? {
@@ -14812,7 +14823,7 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
+        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath, fontSize: fontSize)
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 
@@ -14907,12 +14918,16 @@ final class Workspace: Identifiable, ObservableObject {
     func openOrFocusMarkdownSurface(
         inPane paneId: PaneID,
         filePath: String,
+        fontSize: Double? = nil,
         focus: Bool = true
     ) -> MarkdownPanel? {
         let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let markdownPanel = panel as? MarkdownPanel else { continue }
             if (markdownPanel.filePath as NSString).resolvingSymlinksInPath == canonical {
+                if let fontSize {
+                    markdownPanel.setFontSize(fontSize, custom: true)
+                }
                 if focus {
                     focusPanel(existingId)
                 }
@@ -14920,7 +14935,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        return newMarkdownSurface(inPane: paneId, filePath: filePath, fontSize: fontSize, focus: focus)
     }
 
     @discardableResult
@@ -14928,9 +14943,10 @@ final class Workspace: Identifiable, ObservableObject {
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
         insertFirst: Bool,
-        filePath: String
+        filePath: String,
+        fontSize: Double? = nil
     ) -> MarkdownPanel? {
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
+        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath, fontSize: fontSize)
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 

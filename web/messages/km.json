@@ -636,7 +636,8 @@
         "find": "ស្វែងរក",
         "terminal": "ទែមីណល",
         "window": "បង្អួច",
-        "diffViewer": "កម្មវិធីមើល diff"
+        "diffViewer": "កម្មវិធីមើល diff",
+        "markdownViewer": "Markdown Viewer"
       },
       "sc": {
         "ws-new": "Workspace ថ្មី",

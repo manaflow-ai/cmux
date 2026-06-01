@@ -45,6 +45,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.language",
         "app.menuBarOnly",
         "app.minimalMode",
+        "app.markdownViewerFontSize",
         "app.newWorkspacePlacement",
         "app.openMarkdownInCmuxViewer",
         "app.openSupportedFilesInCmux",

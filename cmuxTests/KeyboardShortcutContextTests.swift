@@ -123,6 +123,40 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .nonBrowserPanel)
     }
 
+    func testMarkdownZoomShortcutsShareBrowserZoomKeysAcrossContexts() {
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.markdownZoomIn.defaultShortcut,
+            KeyboardShortcutSettings.Action.browserZoomIn.defaultShortcut
+        )
+        XCTAssertEqual(KeyboardShortcutSettings.Action.markdownZoomIn.shortcutContext, .markdownPanel)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.browserZoomIn.shortcutContext, .browserPanel)
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.markdownZoomIn.conflicts(
+                with: KeyboardShortcutSettings.Action.browserZoomIn.defaultShortcut,
+                proposedAction: .browserZoomIn,
+                configuredShortcut: KeyboardShortcutSettings.Action.markdownZoomIn.defaultShortcut
+            )
+        )
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.browserZoomIn.conflicts(
+                with: KeyboardShortcutSettings.Action.markdownZoomIn.defaultShortcut,
+                proposedAction: .markdownZoomIn,
+                configuredShortcut: KeyboardShortcutSettings.Action.browserZoomIn.defaultShortcut
+            )
+        )
+    }
+
+    func testMarkdownContextAvailabilityExcludesNonBrowserPanelContext() {
+        let markdownContext = KeyboardShortcutSettings.Action.markdownZoomOut.shortcutContext
+        let renameContext = KeyboardShortcutSettings.Action.renameTab.shortcutContext
+
+        XCTAssertTrue(markdownContext.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: true, rightSidebarFocused: false))
+        XCTAssertFalse(markdownContext.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: false))
+        XCTAssertFalse(renameContext.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: true, rightSidebarFocused: false))
+        XCTAssertFalse(markdownContext.overlaps(KeyboardShortcutSettings.Action.browserZoomOut.shortcutContext))
+        XCTAssertTrue(markdownContext.overlaps(KeyboardShortcutSettings.Action.commandPalette.shortcutContext))
+    }
+
     func testRightSidebarContextIsOnlyAvailableWhenRightSidebarHasFocus() {
         let context = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext
 

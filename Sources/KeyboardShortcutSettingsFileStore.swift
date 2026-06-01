@@ -442,6 +442,16 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["openMarkdownInCmuxViewer"]) {
             snapshot.managedUserDefaults[CmdClickMarkdownRouteSettings.key] = .bool(value)
         }
+        if let value = jsonDouble(section["markdownViewerFontSize"]),
+           value.isFinite,
+           value >= MarkdownViewerFontSizeSettings.minimumPoints,
+           value <= MarkdownViewerFontSizeSettings.maximumPoints {
+            snapshot.managedUserDefaults[MarkdownViewerFontSizeSettings.key] = .double(
+                MarkdownViewerFontSizeSettings.sanitizedPoints(value)
+            )
+        } else if section.keys.contains("markdownViewerFontSize") {
+            logInvalid("app.markdownViewerFontSize", sourcePath: sourcePath)
+        }
         if let value = jsonBool(section["reorderOnNotification"]) {
             snapshot.managedUserDefaults[WorkspaceAutoReorderSettings.key] = .bool(value)
         }

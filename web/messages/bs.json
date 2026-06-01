@@ -636,7 +636,8 @@
         "find": "Pretraga",
         "terminal": "Terminal",
         "window": "Prozor",
-        "diffViewer": "Preglednik diffa"
+        "diffViewer": "Preglednik diffa",
+        "markdownViewer": "Markdown Viewer"
       },
       "sc": {
         "ws-new": "Novi radni prostor",
