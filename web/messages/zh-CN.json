@@ -635,7 +635,8 @@
         "notifications": "通知",
         "find": "查找",
         "terminal": "终端",
-        "window": "窗口"
+        "window": "窗口",
+        "diffViewer": "差异查看器"
       },
       "sc": {
         "ws-new": "新建工作区",

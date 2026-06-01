@@ -1428,6 +1428,7 @@ class TabManager: ObservableObject {
     private var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
     private var workspaceGitMetadataFallbackTimer: DispatchSourceTimer?
     private var lastSidebarGitMetadataWatchEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
+    private var lastSidebarPullRequestPollingEnabled = SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
     private var workspacePullRequestProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
     private var workspacePullRequestNextPollAtByKey: [WorkspaceGitProbeKey: Date] = [:]
     private var workspacePullRequestLastTerminalStateRefreshAtByKey: [WorkspaceGitProbeKey: Date] = [:]
@@ -1535,7 +1536,7 @@ class TabManager: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { [weak self] in
-                self?.sidebarGitMetadataWatchSettingsDidChange()
+                self?.sidebarMetadataSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
             }
         })
@@ -1575,7 +1576,7 @@ class TabManager: ObservableObject {
     }
 
     private func updateWorkspacePullRequestPollTimer() {
-        guard sidebarGitMetadataWatchEnabled else {
+        guard sidebarPullRequestPollingEnabled else {
             workspacePullRequestPollTimer?.cancel()
             workspacePullRequestPollTimer = nil
             return
@@ -1661,6 +1662,15 @@ class TabManager: ObservableObject {
         SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     }
 
+    private var sidebarPullRequestPollingEnabled: Bool {
+        SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
+    }
+
+    private func sidebarMetadataSettingsDidChange() {
+        sidebarGitMetadataWatchSettingsDidChange()
+        sidebarPullRequestPollingSettingsDidChange()
+    }
+
     private func sidebarGitMetadataWatchSettingsDidChange() {
         let isEnabled = sidebarGitMetadataWatchEnabled
         guard isEnabled != lastSidebarGitMetadataWatchEnabled else {
@@ -1691,6 +1701,22 @@ class TabManager: ObservableObject {
 
         restartWorkspaceGitMetadataWatching(reason: "gitWatchSettingEnabled")
         updateWorkspaceGitMetadataFallbackTimer()
+    }
+
+    private func sidebarPullRequestPollingSettingsDidChange() {
+        let isEnabled = sidebarPullRequestPollingEnabled
+        guard isEnabled != lastSidebarPullRequestPollingEnabled else {
+            return
+        }
+        lastSidebarPullRequestPollingEnabled = isEnabled
+
+        guard isEnabled else {
+            resetWorkspacePullRequestRefreshState()
+            clearAllWorkspaceSidebarPullRequestMetadata()
+            return
+        }
+
+        refreshTrackedWorkspacePullRequestsIfNeeded(reason: "pullRequestVisibilityEnabled")
     }
 
     private func restartWorkspaceGitMetadataWatching(reason: String) {
@@ -1820,9 +1846,9 @@ class TabManager: ObservableObject {
         reason: String,
         allowCachedResultsOverride: Bool? = nil
     ) {
-        guard sidebarGitMetadataWatchEnabled else {
+        guard sidebarPullRequestPollingEnabled else {
             resetWorkspacePullRequestRefreshState()
-            clearAllWorkspaceSidebarGitMetadata()
+            clearAllWorkspaceSidebarPullRequestMetadata()
             return
         }
 
@@ -2008,8 +2034,8 @@ class TabManager: ObservableObject {
         reason: String
     ) {
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-        guard sidebarGitMetadataWatchEnabled else {
-            clearWorkspaceGitMetadata(for: key)
+        guard sidebarPullRequestPollingEnabled else {
+            clearWorkspacePullRequestMetadata(for: key)
             return
         }
         let shouldBypassRepoCache = !Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
@@ -2040,6 +2066,12 @@ class TabManager: ObservableObject {
         now: Date,
         reason: String
     ) {
+        guard sidebarPullRequestPollingEnabled else {
+            resetWorkspacePullRequestRefreshState()
+            clearAllWorkspaceSidebarPullRequestMetadata()
+            return
+        }
+
         for (repoSlug, repoResult) in repoResults {
             guard case .success(let cacheEntry, let usedCache, _) = repoResult,
                   !usedCache else {
@@ -2242,6 +2274,14 @@ class TabManager: ObservableObject {
         updateWorkspacePullRequestPollTimer()
     }
 
+    private func clearWorkspacePullRequestMetadata(for key: WorkspaceGitProbeKey) {
+        clearWorkspacePullRequestTracking(for: key)
+        guard let workspace = tabs.first(where: { $0.id == key.workspaceId }) else {
+            return
+        }
+        workspace.clearPanelPullRequest(panelId: key.panelId)
+    }
+
     private func resetWorkspacePullRequestRefreshState() {
         workspacePullRequestRefreshTask?.cancel()
         workspacePullRequestRefreshTask = nil
@@ -2345,7 +2385,7 @@ class TabManager: ObservableObject {
     }
 
     func sidebarGitMetadataWatchSettingsDidChangeForTesting() {
-        sidebarGitMetadataWatchSettingsDidChange()
+        sidebarMetadataSettingsDidChange()
     }
 
     func trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
@@ -2362,6 +2402,14 @@ class TabManager: ObservableObject {
     func activeWorkspaceGitProbePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
         let probeKeys = Set(workspaceGitProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitProbeTimersByKey.keys.filter { $0.workspaceId == workspaceId })
+        return Set(probeKeys.map(\.panelId))
+    }
+
+    func workspacePullRequestTrackedPanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
+        let probeKeys = Set(workspacePullRequestProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestNextPollAtByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestLastTerminalStateRefreshAtByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestTransientFailureCountByKey.keys.filter { $0.workspaceId == workspaceId })
         return Set(probeKeys.map(\.panelId))
     }
 
@@ -2588,6 +2636,33 @@ class TabManager: ObservableObject {
     func toggleFocusedTerminalCopyMode() -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
         return panel.surface.toggleKeyboardCopyMode()
+    }
+
+    /// Forwards a single Ctrl-F (`^F`) key press to the focused terminal surface,
+    /// faithfully encoded through Ghostty so it matches whatever the running TUI
+    /// would receive from a real keystroke.
+    ///
+    /// This is the non-keyboard escape hatch for control chords that a focused TUI
+    /// reads off the raw tty. The motivating case is Claude Code's force-stop, which
+    /// is only exposed as "press Ctrl-F twice"; invoke this action twice to deliver
+    /// it. Delivery bypasses cmux's shortcut/menu/responder layers entirely.
+    ///
+    /// - Returns: `true` when the chord was sent or queued for the focused terminal,
+    ///   `false` when no terminal panel is focused.
+    @discardableResult
+    func sendCtrlFToFocusedTerminal() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        let result = panel.sendNamedKeyResult("ctrl-f")
+        if result == .sent {
+            panel.surface.forceRefresh(reason: "tabManager.sendCtrlFToFocusedTerminal")
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "terminal.sendCtrlF workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+            "panel=\(panel.id.uuidString.prefix(5)) result=\(result)"
+        )
+#endif
+        return result.accepted
     }
 
     @discardableResult
@@ -3027,6 +3102,12 @@ class TabManager: ObservableObject {
         }
     }
 
+    private func clearAllWorkspaceSidebarPullRequestMetadata() {
+        for workspace in tabs {
+            workspace.clearSidebarPullRequestMetadata()
+        }
+    }
+
     private func clearWorkspaceGitProbes(workspaceId: UUID) {
         let keys = Set(workspaceGitProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitProbeTimersByKey.keys.filter { $0.workspaceId == workspaceId })
@@ -3060,7 +3141,9 @@ class TabManager: ObservableObject {
             if case .inFlight = workspaceGitProbeStateByKey[probeKey] { return true }
             return false
         }()
+        let shouldTrackPullRequests = sidebarPullRequestPollingEnabled
         let resolvedPullRequest: SidebarPullRequestState? = {
+            guard shouldTrackPullRequests else { return nil }
             guard case .resolved(let pullRequest) = snapshot.pullRequest else { return nil }
             return pullRequest
         }()
@@ -3183,24 +3266,31 @@ class TabManager: ObservableObject {
 
         switch snapshot.pullRequest {
         case .resolved(let pullRequest):
-            workspace.updatePanelPullRequest(
-                panelId: probeKey.panelId,
-                number: pullRequest.number,
-                label: pullRequest.label,
-                url: pullRequest.url,
-                status: pullRequest.status,
-                branch: pullRequest.branch,
-                isStale: false
-            )
+            if shouldTrackPullRequests {
+                workspace.updatePanelPullRequest(
+                    panelId: probeKey.panelId,
+                    number: pullRequest.number,
+                    label: pullRequest.label,
+                    url: pullRequest.url,
+                    status: pullRequest.status,
+                    branch: pullRequest.branch,
+                    isStale: false
+                )
+            } else if workspace.panelPullRequests[probeKey.panelId] != nil {
+                workspace.clearPanelPullRequest(panelId: probeKey.panelId)
+            }
         case .notFound:
             if workspace.panelPullRequests[probeKey.panelId] != nil {
                 workspace.clearPanelPullRequest(panelId: probeKey.panelId)
             }
         case .deferred, .unsupportedRepository, .transientFailure:
+            if !shouldTrackPullRequests, workspace.panelPullRequests[probeKey.panelId] != nil {
+                workspace.clearPanelPullRequest(panelId: probeKey.panelId)
+            }
             break
         }
 
-        if snapshot.branch != nil {
+        if snapshot.branch != nil, shouldTrackPullRequests {
             scheduleWorkspacePullRequestRefresh(
                 workspaceId: probeKey.workspaceId,
                 panelId: probeKey.panelId,
@@ -6521,10 +6611,13 @@ class TabManager: ObservableObject {
         workspaceGroups[index].customColor = hex
     }
 
-    func setWorkspaceGroupIcon(groupId: UUID, symbol: String?) {
-        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
-        guard workspaceGroups[index].iconSymbol != symbol else { return }
-        workspaceGroups[index].iconSymbol = symbol
+    @discardableResult
+    func setWorkspaceGroupIcon(groupId: UUID, symbol: String?) -> String? {
+        let normalized = RenderableSystemSymbol.normalized(symbol)
+        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return nil }
+        guard workspaceGroups[index].iconSymbol != normalized else { return normalized }
+        workspaceGroups[index].iconSymbol = normalized
+        return normalized
     }
 
     /// Reassign which member workspace serves as the group's anchor.
@@ -7089,6 +7182,10 @@ class TabManager: ObservableObject {
         target: String?
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        guard sidebarPullRequestPollingEnabled else {
+            clearWorkspacePullRequestMetadata(for: WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId))
+            return
+        }
         reconcileLocalPullRequestActionIfPossible(
             workspace: tab,
             panelId: surfaceId,
@@ -7986,23 +8083,32 @@ class TabManager: ObservableObject {
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         guard tab.panels[surfaceId] != nil else { return }
-        let keepsRemoteWorkspaceOpen =
+        let keepsPersistentRemoteSurfaceOpen =
+            tab.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId)
+        let handlesRemoteExitThroughWorkspace =
             tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
 
 #if DEBUG
         cmuxDebugLog(
             "surface.close.childExited tab=\(tabId.uuidString.prefix(5)) " +
             "surface=\(surfaceId.uuidString.prefix(5)) panels=\(tab.panels.count) workspaces=\(tabs.count) " +
-            "remoteWorkspace=\(tab.isRemoteWorkspace ? 1 : 0) keepRemote=\(keepsRemoteWorkspaceOpen ? 1 : 0)"
+            "remoteWorkspace=\(tab.isRemoteWorkspace ? 1 : 0) keepRemote=\(handlesRemoteExitThroughWorkspace ? 1 : 0) " +
+            "keepPersistentRemote=\(keepsPersistentRemoteSurfaceOpen ? 1 : 0)"
         )
 #endif
 
-        // Exiting the last SSH surface should demote the workspace back to a local one.
-        // Route through Workspace close handling so remote teardown and replacement-panel
-        // logic run before TabManager considers removing the workspace itself, including
-        // session-end paths where remote configuration was cleared before Ghostty delivered
-        // the child-exit callback.
-        if keepsRemoteWorkspaceOpen {
+        // A persistent SSH workspace must never silently replace a failed remote attach with
+        // a local login shell. Keep the exited surface visible so the user can see the error
+        // and retry instead of making a detached remote workspace look local after relaunch.
+        if keepsPersistentRemoteSurfaceOpen {
+            tab.markPersistentRemotePTYAttachFailed(surfaceId: surfaceId)
+            return
+        }
+
+        // Exiting the last non-persistent SSH surface should demote the workspace back to a
+        // local one. Route through Workspace close handling so remote teardown and replacement
+        // panel logic run before TabManager considers removing the workspace itself.
+        if handlesRemoteExitThroughWorkspace {
             closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
             return
         }

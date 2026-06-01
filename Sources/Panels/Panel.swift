@@ -10,6 +10,7 @@ public enum PanelType: String, Codable, Sendable {
     case filePreview = "filepreview"
     case rightSidebarTool
     case project
+    case extensionBrowser
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
