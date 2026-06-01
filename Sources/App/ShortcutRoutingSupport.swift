@@ -197,7 +197,7 @@ func shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
 /// they must be routed to the first responder explicitly. Scoped to the textbox so
 /// terminal/browser Ctrl-N/Ctrl-P are unaffected.
 func shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
-    keyCode: UInt16,
+    charactersIgnoringModifiers: String?,
     firstResponderIsTextBoxInput: Bool,
     firstResponderHasMarkedText: Bool = false,
     flags: NSEvent.ModifierFlags
@@ -209,8 +209,8 @@ func shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
     guard normalizedFlags == [.control] else { return false }
-    // kVK_ANSI_N == 45, kVK_ANSI_P == 35
-    return keyCode == 45 || keyCode == 35
+    let key = charactersIgnoringModifiers?.lowercased()
+    return key == "n" || key == "p"
 }
 
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(

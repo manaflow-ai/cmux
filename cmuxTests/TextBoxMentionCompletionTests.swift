@@ -13,6 +13,30 @@ import Testing
 @MainActor
 struct TextBoxMentionCompletionTests {
     @Test
+    func testTextBoxControlNavigationRoutingUsesTranslatedCharacters() {
+        #expect(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+            charactersIgnoringModifiers: "n",
+            firstResponderIsTextBoxInput: true,
+            flags: [.control]
+        ))
+        #expect(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+            charactersIgnoringModifiers: "p",
+            firstResponderIsTextBoxInput: true,
+            flags: [.control]
+        ))
+        #expect(!(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+            charactersIgnoringModifiers: "b",
+            firstResponderIsTextBoxInput: true,
+            flags: [.control]
+        )))
+        #expect(!(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+            charactersIgnoringModifiers: "n",
+            firstResponderIsTextBoxInput: true,
+            flags: [.control, .command]
+        )))
+    }
+
+    @Test
     func testTextBoxMentionCompletionDetectsFileAndSkillTokens() {
         let filePrompt = "open @Sources/TextBox"
         let fileQuery = TextBoxMentionCompletionDetector.query(

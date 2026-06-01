@@ -16799,7 +16799,7 @@ private extension NSWindow {
         }
 
         if shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
-            keyCode: event.keyCode,
+            charactersIgnoringModifiers: KeyboardLayout.normalizedCharacters(for: event),
             firstResponderIsTextBoxInput: firstResponderIsTextBoxInput,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags

@@ -106,6 +106,7 @@ actor TextBoxMentionIndexStore {
             limit: Self.suggestionLimit,
             shouldCancel: { Task.isCancelled }
         )
+        if Task.isCancelled { return [] }
         if matches.isEmpty {
             let refreshed = await refreshFileIndex(
                 rootDirectory: rootDirectory,
@@ -118,6 +119,7 @@ actor TextBoxMentionIndexStore {
                 limit: Self.suggestionLimit,
                 shouldCancel: { Task.isCancelled }
             )
+            if Task.isCancelled { return [] }
         }
         return matches
             .map { $0.suggestion(trigger: query.trigger) }
