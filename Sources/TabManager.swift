@@ -23,6 +23,68 @@ private final class WorkspaceGitMetadataWatcherCallbackBox: @unchecked Sendable 
     }
 }
 
+#if DEBUG
+// @unchecked Sendable: every mutable field is guarded by `lock`. This is
+// DEBUG-only test scaffolding, touched synchronously from the FSEvents callback,
+// the synthetic-event producer thread, and the measuring helper — a synchronous
+// compare-and-set guard, not ongoing domain state, so a lock is the right shape.
+private final class WorkspaceGitMetadataWatcherRefreshRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var startedAt: Date?
+    private var firstRefreshDelay: TimeInterval?
+    private var cancelled = false
+
+    /// Starts the delay clock. Idempotent; only the first call takes effect.
+    /// Called once the watcher exists and the storm is about to begin so the
+    /// measured delay excludes watcher setup.
+    func start() {
+        lock.lock()
+        defer { lock.unlock() }
+        if startedAt == nil { startedAt = Date() }
+    }
+
+    /// Records the first refresh delay relative to `start()`. No-op before the
+    /// clock is started or after the first refresh has already been recorded.
+    func recordFirstRefresh() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard firstRefreshDelay == nil, let startedAt else { return }
+        firstRefreshDelay = Date().timeIntervalSince(startedAt)
+    }
+
+    /// Signals the synthetic-event producer to stop emitting events.
+    func cancel() {
+        lock.lock()
+        defer { lock.unlock() }
+        cancelled = true
+    }
+
+    /// Whether `cancel()` has been called; polled by the producer loop.
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    var delay: TimeInterval? {
+        lock.lock()
+        defer { lock.unlock() }
+        return firstRefreshDelay
+    }
+}
+#endif
+
+private let workspaceGitMetadataWatcherContextRetain: CFAllocatorRetainCallBack = { info in
+    guard let info else { return nil }
+    _ = Unmanaged<WorkspaceGitMetadataWatcherCallbackBox>.fromOpaque(info).retain()
+    return info
+}
+
+private let workspaceGitMetadataWatcherContextRelease: CFAllocatorReleaseCallBack = { info in
+    guard let info else { return }
+    Unmanaged<WorkspaceGitMetadataWatcherCallbackBox>.fromOpaque(info).release()
+}
+
 private let workspaceGitMetadataWatcherCallback: FSEventStreamCallback = { _, info, _, _, _, _ in
     guard let info else { return }
     let box = Unmanaged<WorkspaceGitMetadataWatcherCallbackBox>.fromOpaque(info).takeUnretainedValue()
@@ -30,6 +92,19 @@ private let workspaceGitMetadataWatcherCallback: FSEventStreamCallback = { _, in
 }
 
 private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
+    private static let queueSpecificKey = DispatchSpecificKey<UInt8>()
+    // A single serial queue is shared by every watcher instance (rather than one
+    // queue per watcher) to bound thread usage when many workspaces are tracked.
+    // Contract: because `stop()` synchronizes on this queue, the `onChange`
+    // closure MUST stay non-blocking — a slow `onChange` on any watcher would
+    // serialize behind it and stall every other watcher's `stop()` on the main
+    // actor. The production closure only spawns a `@MainActor` Task and returns.
+    private static let queue: DispatchQueue = {
+        let queue = DispatchQueue(label: "com.cmux.workspace-git-metadata-watcher", qos: .utility)
+        queue.setSpecific(key: queueSpecificKey, value: 1)
+        return queue
+    }()
+
     struct Descriptor: Equatable, Sendable {
         let directory: String
         let watchedPaths: [String]
@@ -37,8 +112,6 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
 
     let descriptor: Descriptor
 
-    private let queue = DispatchQueue(label: "com.cmux.workspace-git-metadata-watcher", qos: .utility)
-    private let queueSpecificKey = DispatchSpecificKey<UInt8>()
     private var callbackBox: WorkspaceGitMetadataWatcherCallbackBox?
     private let onChange: @Sendable () -> Void
     private var stream: FSEventStreamRef?
@@ -48,7 +121,6 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
         guard !descriptor.watchedPaths.isEmpty else { return nil }
         self.descriptor = descriptor
         self.onChange = onChange
-        queue.setSpecific(key: queueSpecificKey, value: 1)
         let callbackBox = WorkspaceGitMetadataWatcherCallbackBox { [weak self] in
             self?.scheduleChange()
         }
@@ -57,12 +129,12 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
         var context = FSEventStreamContext(
             version: 0,
             info: Unmanaged.passUnretained(callbackBox).toOpaque(),
-            retain: nil,
-            release: nil,
+            retain: workspaceGitMetadataWatcherContextRetain,
+            release: workspaceGitMetadataWatcherContextRelease,
             copyDescription: nil
         )
         let flags = FSEventStreamCreateFlags(
-            kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer
+            kFSEventStreamCreateFlagFileEvents
         )
         guard let stream = FSEventStreamCreate(
             nil,
@@ -76,7 +148,7 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
             return nil
         }
         self.stream = stream
-        FSEventStreamSetDispatchQueue(stream, queue)
+        FSEventStreamSetDispatchQueue(stream, Self.queue)
         guard FSEventStreamStart(stream) else {
             stop()
             return nil
@@ -84,10 +156,16 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
     }
 
     func stop() {
-        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
+        // Teardown runs synchronously on the shared queue so it completes before
+        // the caller continues — critically, before `deinit` returns. An async hop
+        // could let the watcher deallocate (and its `[weak self]` work no-op)
+        // before the stream is invalidated, leaking the FSEventStream. The
+        // `getSpecific` check tears down inline (no `sync`) when already on the
+        // queue, avoiding a deadlock.
+        if DispatchQueue.getSpecific(key: Self.queueSpecificKey) != nil {
             stopOnQueue()
         } else {
-            queue.sync {
+            Self.queue.sync {
                 stopOnQueue()
             }
         }
@@ -104,23 +182,44 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
     }
 
     private func scheduleChange() {
-        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
+        if DispatchQueue.getSpecific(key: Self.queueSpecificKey) != nil {
             scheduleChangeOnQueue()
         } else {
-            queue.async { [weak self] in
+            Self.queue.async { [weak self] in
                 self?.scheduleChangeOnQueue()
             }
         }
     }
 
+    // Leading-edge throttle: the first event arms a single flush 0.25s later;
+    // events arriving while that flush is pending are coalesced into it (the
+    // `debounceWorkItem == nil` guard makes them no-ops). Combined with the
+    // stream's 0.25s FSEvents latency, the worst-case delay from a filesystem
+    // change to `onChange` is ~0.5s. During a sustained storm `onChange` fires at
+    // most once per ~0.25s window — it intentionally does NOT wait for the repo to
+    // go quiet. The previous trailing-edge debounce (cancel-and-reschedule on every
+    // event) fired once after quiet, which produced the allocate-and-cancel churn
+    // this watcher was hardened against.
     private func scheduleChangeOnQueue() {
-        debounceWorkItem?.cancel()
+        guard stream != nil, debounceWorkItem == nil else { return }
         let workItem = DispatchWorkItem { [weak self] in
-            self?.onChange()
+            self?.flushScheduledChangeOnQueue()
         }
         debounceWorkItem = workItem
-        queue.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+        Self.queue.asyncAfter(deadline: .now() + 0.25, execute: workItem)
     }
+
+    private func flushScheduledChangeOnQueue() {
+        debounceWorkItem = nil
+        guard stream != nil else { return }
+        onChange()
+    }
+
+#if DEBUG
+    func simulateEventForTesting() {
+        scheduleChange()
+    }
+#endif
 
     deinit {
         stop()
@@ -4990,6 +5089,62 @@ class TabManager: ObservableObject {
 #if DEBUG
     nonisolated static func workspaceGitMetadataWatchedPathsForTesting(directory: String) -> [String] {
         workspaceGitMetadataWatcherDescriptor(for: directory)?.watchedPaths ?? []
+    }
+
+    nonisolated static func workspaceGitMetadataWatcherFirstRefreshDelayDuringStormForTesting(
+        eventCount: Int,
+        eventInterval: TimeInterval,
+        waitTimeout: TimeInterval
+    ) -> TimeInterval? {
+        let semaphore = DispatchSemaphore(value: 0)
+        let recorder = WorkspaceGitMetadataWatcherRefreshRecorder()
+
+        // Watch a unique, empty temp directory so only simulated events reach the
+        // watcher. Pointing it at the shared NSTemporaryDirectory() would let
+        // unrelated temp-dir traffic from other processes or tests trip the watcher
+        // and skew the measured first-refresh delay.
+        let temporaryDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: temporaryDirectoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectoryURL) }
+
+        let createdWatcher = WorkspaceGitMetadataWatcher(
+            descriptor: WorkspaceGitMetadataWatcher.Descriptor(
+                directory: temporaryDirectoryURL.path,
+                watchedPaths: [temporaryDirectoryURL.path]
+            )
+        ) {
+            recorder.recordFirstRefresh()
+            semaphore.signal()
+        }
+        guard let watcher = createdWatcher else {
+            return nil
+        }
+        // Cancel the producer before tearing down the watcher so a timeout doesn't
+        // leave synthetic events landing on the shared watcher queue after this
+        // helper returns (which would bleed into later tests). Deferred blocks run
+        // last-in-first-out, so this runs before the temp-directory cleanup above.
+        defer {
+            recorder.cancel()
+            watcher.stop()
+        }
+
+        DispatchQueue.global(qos: .utility).async {
+            // Start the clock only once the storm actually begins; the watcher is
+            // already constructed here, so setup time isn't counted as delay.
+            recorder.start()
+            for _ in 0..<eventCount {
+                if recorder.isCancelled { return }
+                watcher.simulateEventForTesting()
+                Thread.sleep(forTimeInterval: eventInterval)
+            }
+        }
+
+        guard semaphore.wait(timeout: .now() + waitTimeout) == .success else {
+            return nil
+        }
+
+        return recorder.delay
     }
 
     nonisolated static func githubRepositorySlugs(fromGitConfigForTesting config: String) -> [String] {
