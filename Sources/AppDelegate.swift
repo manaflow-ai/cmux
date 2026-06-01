@@ -1,6 +1,5 @@
 import AppKit
 import CmuxSettings
-import CmuxSettingsUI
 import CmuxSocketControl
 import SwiftUI
 import Bonsplit
@@ -822,14 +821,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
-    /// The app's settings dependency container, handed over by `cmuxApp` via
-    /// ``configure(tabManager:notificationStore:sidebarState:settingsRuntime:)``
-    /// before any main window is created. AppKit builds the main window's
-    /// `NSHostingView` itself, so it must inject this into the `ContentView`
-    /// environment (`.environment(\.settingsRuntime, …)`) for `@Setting` to
-    /// resolve inside the sidebar; it is also the source of truth for the
-    /// synchronous reads on `CmuxExtensionSidebarSelection`.
-    var settingsRuntime: SettingsRuntime?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -1857,11 +1848,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ClosedItemHistoryStore.shared.flushPendingSaves()
     }
 
-    func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState, settingsRuntime: SettingsRuntime) {
+    func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState) {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
-        self.settingsRuntime = settingsRuntime
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
@@ -7838,12 +7828,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(sidebarSelectionState)
             .environmentObject(fileExplorerState)
             .environmentObject(cmuxConfigStore)
-            // AppKit hosts this ContentView in its own NSHostingView, which does
-            // not inherit the SwiftUI environment from the App scene. Inject the
-            // settings runtime here so `@Setting` resolves throughout the main
-            // window (e.g. the sidebar). The environment key is optional, so a
-            // nil runtime simply falls back to each key's default.
-            .environment(\.settingsRuntime, settingsRuntime)
 
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.

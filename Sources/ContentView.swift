@@ -5,7 +5,6 @@ import Combine
 import CMUXExtensionClient
 import CmuxExtensionKit
 import CmuxSettings
-import CmuxSettingsUI
 import ImageIO
 import Observation
 import SwiftUI
@@ -9999,17 +9998,18 @@ enum CmuxExtensionSidebarSelection {
     static let defaultProviderId = CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID
     static let hostedExtensionsProviderId = "cmux.sidebar.extensions"
 
-    /// Synchronous read of the experimental Extensions flag for the on-demand
-    /// AppKit/static paths (the toggle menu, the command-palette builder, the
-    /// extensions-browser opener) that have no `SettingsRuntime` in scope and
-    /// run outside the SwiftUI update cycle.
-    ///
-    /// SwiftUI views bind reactively via `@Setting(\.betaFeatures.extensions)`.
-    /// The settings store is `actor`-isolated and async-only, so these
-    /// synchronous callers resolve the value from the catalog key
-    /// (`BetaFeaturesCatalogSection.extensions`) read against `UserDefaults`,
-    /// which is the same suite and key the store persists to — the catalog
-    /// remains the single definition of the key, decode, and default.
+    /// The UserDefaults key and default for the experimental Extensions flag,
+    /// resolved from the settings catalog (`BetaFeaturesCatalogSection.extensions`)
+    /// so the key and default are never re-declared. The sidebar lives in an
+    /// AppKit-hosted subtree where the `SettingsRuntime` environment does not
+    /// reach, so SwiftUI views observe the flag with `@AppStorage(enabledDefaultsKey)`
+    /// (reactive and environment-independent) rather than `@Setting`.
+    static var enabledDefaultsKey: String { SettingCatalog().betaFeatures.extensions.userDefaultsKey }
+    static var enabledDefault: Bool { SettingCatalog().betaFeatures.extensions.defaultValue }
+
+    /// Synchronous read of the flag for the on-demand AppKit/static paths (the
+    /// toggle menu, the command-palette builder, the extensions-browser opener)
+    /// that have no `SettingsRuntime` in scope and run outside the SwiftUI cycle.
     static var isEnabled: Bool {
         let key = SettingCatalog().betaFeatures.extensions
         return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
@@ -10378,7 +10378,8 @@ struct VerticalTabsSidebar: View {
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
-    @Setting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
+    @AppStorage(CmuxExtensionSidebarSelection.enabledDefaultsKey)
+    private var extensionsExperimentalEnabled = CmuxExtensionSidebarSelection.enabledDefault
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
@@ -13123,7 +13124,8 @@ private struct SidebarFooterButtons: View {
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
     @State private var extensionBrowserAnchorView: NSView?
-    @Setting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
+    @AppStorage(CmuxExtensionSidebarSelection.enabledDefaultsKey)
+    private var extensionsExperimentalEnabled = CmuxExtensionSidebarSelection.enabledDefault
 
     var body: some View {
         HStack(spacing: 4) {
