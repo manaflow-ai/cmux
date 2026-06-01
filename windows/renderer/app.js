@@ -3976,8 +3976,10 @@ function setPaneSplitterPercent(splitter, percent, options = {}) {
   savePaneTreeLayouts(state.paneTrees);
   scheduleRender();
   scheduleWorkspaceTerminalFits(workspace.id, true);
-  if (options.toast) refreshLayoutSettings();
-  if (options.toast) toast(label + ".");
+  if (options.toast) {
+    refreshLayoutSettings();
+    toast(`${splitter.dataset.resizeLabel || `${nextPercent}% / ${100 - nextPercent}%`}.`);
+  }
   return true;
 }
 
