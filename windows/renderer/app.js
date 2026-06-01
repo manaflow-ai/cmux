@@ -5196,6 +5196,8 @@ function reloadBrowserPanel(panel = focusedPanel()) {
     return false;
   }
   const url = browserPanelUrl(browserPanel);
+  session.setLoading?.(true);
+  session.setStatus?.("Loading");
   if (typeof session.view?.reload === "function" && !session.reload?.disabled) {
     session.view.reload();
   } else {
