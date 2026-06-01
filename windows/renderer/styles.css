@@ -2297,6 +2297,7 @@ body.reduce-motion *::after {
 
 .browser-tabs {
   grid-row: 1;
+  grid-column: 1 / -1;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -2481,6 +2482,7 @@ body.reduce-motion *::after {
 
 .browser-bar {
   grid-row: 2;
+  grid-column: 1 / -1;
   min-width: 0;
   display: grid;
   grid-template-columns: 24px 24px 24px 24px minmax(0, 1fr) 32px 26px;
@@ -2557,6 +2559,7 @@ body.reduce-motion *::after {
 
 .browser-content {
   grid-row: 4;
+  grid-column: 1 / -1;
   min-width: 0;
   min-height: 0;
   position: relative;
@@ -2866,6 +2869,7 @@ body.reduce-motion *::after {
 
 .browser-status {
   grid-row: 3;
+  grid-column: 1 / -1;
   display: none;
   align-items: center;
   gap: var(--space-2);
