@@ -2080,6 +2080,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(persistedWorkspace.remote?.preserveAfterTerminalExit, true)
         XCTAssertEqual(persistedWorkspace.remote?.relayPort, 64003)
         XCTAssertEqual(persistedWorkspace.remote?.persistentDaemonSlot, persistentDaemonSlot)
+        XCTAssertEqual(persistedWorkspace.remote?.remoteDaemonVersion, Workspace.currentRemoteDaemonVersion())
         XCTAssertEqual(
             persistedWorkspace.panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID,
             expectedSessionID
@@ -2196,6 +2197,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(roundTrip.remote?.preserveAfterTerminalExit, true)
         XCTAssertEqual(roundTrip.remote?.relayPort, 64003)
         XCTAssertEqual(roundTrip.remote?.persistentDaemonSlot, persistentDaemonSlot)
+        XCTAssertEqual(roundTrip.remote?.remoteDaemonVersion, Workspace.currentRemoteDaemonVersion())
         XCTAssertEqual(roundTrip.panels.first?.terminal?.remotePTYSessionID, expectedSessionID)
         XCTAssertEqual(
             persistedWorkspace.panels.first { $0.id == remotePanelId }?.terminal?.scrollback,
@@ -2925,6 +2927,38 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
 
         let configuration = try XCTUnwrap(snapshot.workspaceConfiguration(localSocketPath: "/tmp/cmux-restore.sock"))
+
+        XCTAssertEqual(configuration.preserveAfterTerminalExit, false)
+        XCTAssertNil(configuration.foregroundAuthToken)
+        XCTAssertNil(configuration.persistentDaemonSlot)
+        XCTAssertNil(configuration.relayPort)
+        XCTAssertNil(configuration.localSocketPath)
+        XCTAssertFalse(configuration.terminalStartupCommand?.contains("ssh-pty-attach") == true)
+        XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
+    }
+
+    func testSessionRemoteWorkspaceSnapshotFallsBackFromPersistentSSHPTYDaemonVersionMismatch() throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+            ],
+            preserveAfterTerminalExit: true,
+            skipDaemonBootstrap: nil,
+            relayPort: 64022,
+            persistentDaemonSlot: "ssh-old-nightly",
+            remoteDaemonVersion: "0.64.10-nightly.123"
+        )
+
+        let configuration = try XCTUnwrap(
+            snapshot.workspaceConfiguration(
+                localSocketPath: "/tmp/cmux-restore.sock",
+                currentRemoteDaemonVersion: "0.64.10-nightly.456"
+            )
+        )
 
         XCTAssertEqual(configuration.preserveAfterTerminalExit, false)
         XCTAssertNil(configuration.foregroundAuthToken)

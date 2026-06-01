@@ -88,6 +88,7 @@ nonisolated struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable 
     var skipDaemonBootstrap: Bool?
     var relayPort: Int? = nil
     var persistentDaemonSlot: String? = nil
+    var remoteDaemonVersion: String? = nil
 }
 
 struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable {
@@ -443,7 +444,8 @@ extension SessionRemoteWorkspaceSnapshot {
     func workspaceConfiguration(
         localSocketPath: String? = nil,
         allowPersistentPTYRestore: Bool = true,
-        preserveSSHOptions: Bool = false
+        preserveSSHOptions: Bool = false,
+        currentRemoteDaemonVersion: String? = Workspace.currentRemoteDaemonVersion()
     ) -> WorkspaceRemoteConfiguration? {
         guard transport == .ssh else { return nil }
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -457,6 +459,11 @@ extension SessionRemoteWorkspaceSnapshot {
         let normalizedRelayPort = relayPort.flatMap { port in
             (1...65535).contains(port) ? port : nil
         }
+        let normalizedRemoteDaemonVersion = WorkspaceRemoteSSHOptionFilter.normalizedOptional(remoteDaemonVersion)
+        let normalizedCurrentRemoteDaemonVersion = WorkspaceRemoteSSHOptionFilter.normalizedOptional(currentRemoteDaemonVersion)
+        let canRestoreSavedPTYForDaemonVersion =
+            normalizedRemoteDaemonVersion != nil &&
+            normalizedRemoteDaemonVersion == normalizedCurrentRemoteDaemonVersion
         let preservedOptions = preserveSSHOptions
             ? WorkspaceRemoteSSHOptionFilter.trimmedOptions(sshOptions)
             : Self.normalizedSSHOptions(sshOptions)
@@ -469,6 +476,7 @@ extension SessionRemoteWorkspaceSnapshot {
             : preservedOptions
         let preservePTYSession =
             allowPersistentPTYRestore &&
+            canRestoreSavedPTYForDaemonVersion &&
             preserveAfterTerminalExit == true &&
             skipDaemonBootstrap != true &&
             normalizedPersistentDaemonSlot != nil &&
@@ -588,7 +596,10 @@ extension WorkspaceRemoteConfiguration {
         WorkspaceRemoteSSHOptionFilter.forkedWorkspaceOptions(options)
     }
 
-    func sessionSnapshot(sshOptionsOverride: [String]? = nil) -> SessionRemoteWorkspaceSnapshot? {
+    func sessionSnapshot(
+        sshOptionsOverride: [String]? = nil,
+        remoteDaemonVersion: String? = Workspace.currentRemoteDaemonVersion()
+    ) -> SessionRemoteWorkspaceSnapshot? {
         guard transport == .ssh else { return nil }
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedDestination.isEmpty else { return nil }
@@ -602,7 +613,10 @@ extension WorkspaceRemoteConfiguration {
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap,
             relayPort: preserveAfterTerminalExit ? relayPort : nil,
-            persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil
+            persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil,
+            remoteDaemonVersion: preserveAfterTerminalExit
+                ? WorkspaceRemoteSSHOptionFilter.normalizedOptional(remoteDaemonVersion)
+                : nil
         )
     }
 }
