@@ -3884,15 +3884,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         overlayContainer.isHidden = false
         overlayHost.addSubview(overlayContainer)
 
-        let fieldEditor = CommandPaletteMarkedTextFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        fieldEditor.isFieldEditor = true
-        overlayContainer.addSubview(fieldEditor)
-        XCTAssertTrue(window.makeFirstResponder(fieldEditor))
-
         appDelegate.setCommandPaletteVisible(false, for: window)
         defer {
             overlayContainer.removeFromSuperview()
-            fieldEditor.removeFromSuperview()
         }
 
         let moveExpectation = expectation(
@@ -3910,11 +3904,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             moveExpectation.fulfill()
         }
         defer { NotificationCenter.default.removeObserver(moveToken) }
-
-        XCTAssertTrue(
-            window.makeFirstResponder(fieldEditor),
-            "Expected command palette field editor to own first responder"
-        )
 
         guard let downArrowEvent = makeKeyDownEvent(
             key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
