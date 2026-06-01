@@ -2280,6 +2280,22 @@ final class TerminalNotificationStore: ObservableObject {
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
     }
+
+    /// Runs the notification-apply path with an explicit, caller-supplied request so a test can
+    /// drive the generation-time focus (`request.isFocusedPanel`) independently of live selection
+    /// state. Used to prove that history navigation / live focus cannot light the ring.
+    func applyNotificationForTesting(
+        request: TerminalNotificationPolicyRequest,
+        effects: TerminalNotificationPolicyEffects = TerminalNotificationPolicyEffects()
+    ) {
+        applyNotification(
+            request: request,
+            effects: effects,
+            now: Date(),
+            cooldownReservation: nil,
+            clickAction: nil
+        )
+    }
 #endif
 
     private func refreshDockBadge() {
