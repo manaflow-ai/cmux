@@ -353,13 +353,15 @@ If a design is hard to test, it is wrong. Reach for the constructor parameter li
 
 All new code in `Packages/` and any new files added to the app target use Swift 6 concurrency primitives: `actor`, `async`/`await`, `AsyncStream`/`AsyncSequence`, `@Observable`, `@MainActor`. Old primitives — locks, manual KVO, `@Published`, completion handlers, `DispatchQueue` used as a serial lock — are not allowed.
 
-If you find yourself reaching for a lock, the type is the wrong shape. Promote it to an `actor`.
+If you find yourself reaching for a lock to protect ongoing mutable shared state, the type is almost always the wrong shape — promote it to an `actor`. The exception is the narrow lock carve-out below.
 
-When **extracting** existing code that uses a forbidden primitive into a package, redesign the primitive at the seam — do not carry it across. The common case is an `NSLock` coordinating a single-resume race (a `Process` termination handler vs. a timeout vs. a spawn failure, all racing to resume one `withCheckedContinuation`): replace it with a tiny `actor` guard (e.g. `actor ResumeGuard { func claim() -> Bool }`) so exactly one path resumes the continuation. Drain `Process` pipes concurrently on detached tasks keyed by the raw fd (an `Int32` is `Sendable`; a `FileHandle` is not).
+**Do not introduce a single-method `actor` purely as a mutex.** An `actor Guard { func claim() -> Bool }` whose only job is to guard a flag is a lock with extra ceremony: it forces synchronous callers — a `Process` termination handler, a `DispatchSource` event handler, a `withCheckedContinuation` resume race — through `Task { await guard.claim() }`, which adds suspension points, ordering hops, and reentrancy surface to what is fundamentally a synchronous compare-and-set. That makes the code worse, not safer. A tiny synchronous guard like that belongs in the lock carve-out, not an actor.
+
+When **extracting** existing code that uses a forbidden primitive into a package, reconsider the shape at the seam rather than copying it blindly — usually it wants an `actor`. But a one-shot single-resume guard (a `Process` termination handler vs. a timeout vs. a spawn failure racing to resume one `withCheckedContinuation`) is exactly a case the lock carve-out covers: keep a synchronous primitive, hidden behind the type. Drain `Process` pipes concurrently on detached tasks keyed by the raw fd (an `Int32` is `Sendable`; a `FileHandle` is not).
 
 **Forbidden in new code (no exceptions without a written justification in the PR description):**
 
-- **Locks.** `NSLock`, `NSRecursiveLock`, `os_unfair_lock`, `OSAllocatedUnfairLock`, `pthread_mutex_t`, `Synchronization.Mutex`, `DispatchSemaphore` used as a lock. Use `actor` isolation. Mutable shared state belongs in an actor; reads and writes are `async`.
+- **Locks.** `NSLock`, `NSRecursiveLock`, `os_unfair_lock`, `OSAllocatedUnfairLock`, `pthread_mutex_t`, `Synchronization.Mutex`, `DispatchSemaphore` used as a lock. Use `actor` isolation. Mutable shared state belongs in an actor; reads and writes are `async`. (Narrow carve-out below: a lock is allowed where the `actor`/`async` alternative would genuinely worsen the code, with justification.)
 - **KVO via `NSObject` subclassing.** Any `class Foo: NSObject` whose purpose is to override `observeValue(forKeyPath:...)` or call `addObserver(_:forKeyPath:...)`. Replace with `NotificationCenter.default.notifications(named:)` `AsyncSequence`, or the `NSKeyValueObservation` token API at the seam only.
 - **`DispatchQueue` used as a synchronization primitive.** A `DispatchQueue(label:)` accessed via `queue.sync { ... }` to serialize mutable state is a lock with different syntax. Use an `actor`. Queues are fine for *event delivery* (e.g. a `DispatchSource` handler), not for protecting state.
 - **Combine for change propagation.** No `@Published`, no `ObservableObject`, no `PassthroughSubject`/`CurrentValueSubject`, no `AnyCancellable` for change observation. Use `@Observable` (Observation framework, Swift 5.9+) for SwiftUI state, or `AsyncStream`/`AsyncSequence` for cross-actor change propagation.
@@ -381,6 +383,7 @@ These low-level primitives have no async-native replacement. They must be hidden
 - `DispatchSource.makeFileSystemObjectSource` for file watching (no Foundation async equivalent).
 - `DispatchSource.makeReadSource`/`makeWriteSource` for low-level socket I/O.
 - `DispatchSource.makeTimerSource` (one-shot) for a genuine deadline/timeout, e.g. a subprocess time limit. A real deadline needs a timer, and the async-native timers are disallowed here (`Task.sleep` is banned in runtime code; `DispatchQueue.asyncAfter` is a forbidden timing hack). Hide the timer behind the type and cancel it on the non-timeout path. This is for true deadlines only, never to poll or to fake a sleep.
+- A **lock for a synchronous compare-and-set called from non-async callbacks**, where promoting to an `actor` would only add `Task`/`await` hops and reentrancy. The canonical case is a one-shot resume guard: several synchronous `Process`/`DispatchSource` callbacks race to resume one `withCheckedContinuation` exactly once. `OSAllocatedUnfairLock(initialState:)` guarding a `Bool` (claimed once, checked synchronously in each callback) is correct, deterministic, and lets the callback resume the continuation inline. This carve-out is for short, non-blocking critical sections over a tiny flag/counter — not for guarding ongoing domain state (that is still an `actor`). Keep it private to the type, with a one-line justification.
 - `NSKeyValueObservation` token (the closure-based API) when wrapping a Foundation/AppKit type that exposes change only via KVO.
 
 **`@unchecked Sendable` and `nonisolated(unsafe)`:**
@@ -401,7 +404,7 @@ Without a justification comment, the diff is rejected. `@unchecked Sendable` on 
 
 - Applies to: every new file in `Packages/`, every new file in the app target, every meaningful rewrite of an existing Swift file.
 - Existing app target code may continue to use the old primitives until rewritten. Do not retrofit blindly.
-- Code review checklist (Codex, CodeRabbit, Greptile, and human reviewers): reject diffs that introduce `NSLock`/`NSRecursiveLock`/`@Published`/`ObservableObject`/`DispatchQueue.main.async`/`addObserver(_:forKeyPath:...)`/`Task.sleep` outside tests in new code. Reject `@unchecked Sendable` or `nonisolated(unsafe)` without a justification comment.
+- Code review checklist (Codex, CodeRabbit, Greptile, and human reviewers): reject diffs that introduce `@Published`/`ObservableObject`/`DispatchQueue.main.async`/`addObserver(_:forKeyPath:...)`/`Task.sleep` outside tests in new code. Reject a lock (`NSLock`/`OSAllocatedUnfairLock`/etc.) or `@unchecked Sendable`/`nonisolated(unsafe)` unless it falls under a documented carve-out *and* carries a one-line justification — and reject a single-method `actor` that exists only to guard a flag (use the lock carve-out instead).
 
 ## Test quality policy
 
