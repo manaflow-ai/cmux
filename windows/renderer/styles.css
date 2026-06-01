@@ -3340,12 +3340,10 @@ body.reduce-motion *::after {
   overscroll-behavior-x: contain;
   padding: 0 10px 2px 2px;
   scroll-padding-inline: 10px;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
-  mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
   scrollbar-width: thin;
 }
 
-@container (max-width: 329px) {
+@container (max-width: 419px) {
   .settings-page-switcher {
     gap: 0;
   }
@@ -3355,7 +3353,7 @@ body.reduce-motion *::after {
   }
 }
 
-@container (min-width: 330px) {
+@container (min-width: 420px) {
   .settings-page-head {
     display: none;
   }
