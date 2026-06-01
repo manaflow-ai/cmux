@@ -594,6 +594,7 @@ extension CMUXCLI {
     }
 
     private struct DiffViewerAppearance {
+        var backgroundOpacity: Double
         var fontFamily: String
         var fontSize: Double
         var lightTheme: DiffViewerTheme
@@ -609,6 +610,7 @@ extension CMUXCLI {
 
         var jsonObject: [String: Any] {
             [
+                "backgroundOpacity": backgroundOpacity,
                 "fontFamily": fontFamily,
                 "fontSize": fontSize,
                 "lineHeight": lineHeight,
@@ -2523,6 +2525,7 @@ extension CMUXCLI {
         applyDiffViewerThemeContents(diffViewerDefaultThemeConfigContents(preferredColorScheme: .dark), to: &darkTheme)
 
         return DiffViewerAppearance(
+            backgroundOpacity: 1,
             fontFamily: "Menlo",
             fontSize: 10,
             lightTheme: lightTheme,
@@ -2543,6 +2546,10 @@ extension CMUXCLI {
             case "font-size":
                 if let fontSize = diffViewerConfigFontSize(value) {
                     appearance.fontSize = fontSize
+                }
+            case "background-opacity":
+                if let backgroundOpacity = diffViewerConfigUnitInterval(value) {
+                    appearance.backgroundOpacity = backgroundOpacity
                 }
             case "theme":
                 applyDiffViewerThemeDirective(value, to: &appearance)
@@ -2829,6 +2836,24 @@ extension CMUXCLI {
             return nil
         }
         return roundedDiffViewerMetric(size)
+    }
+
+    private func diffViewerConfigUnitInterval(_ rawValue: String) -> Double? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let rawNumber: String
+        let divisor: Double
+        if trimmed.hasSuffix("%") {
+            rawNumber = String(trimmed.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+            divisor = 100
+        } else {
+            rawNumber = trimmed
+            divisor = 1
+        }
+        guard let value = Double(rawNumber), value.isFinite else { return nil }
+
+        return roundedDiffViewerMetric(min(1, max(0, value / divisor)))
     }
 
     private func roundedDiffViewerMetric(_ value: Double) -> Double {

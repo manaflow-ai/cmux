@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "./appearance";
 import styles from "./styles.css?inline";
 import type { DiffViewerConfig } from "./types";
 
@@ -20,6 +21,7 @@ function installStyles() {
 
 const config = readConfig();
 installStyles();
+applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));
 if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
   document.title = config.payload.title;
 }

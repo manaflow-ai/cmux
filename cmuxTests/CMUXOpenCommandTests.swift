@@ -267,6 +267,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let ghosttyConfigContents = """
         font-family = Unit Mono
         font-size = 15
+        background-opacity = 0.42
         theme = light:Unit Light,dark:Unit Dark
         """
         try ghosttyConfigContents.write(to: ghosttyConfigURL, atomically: true, encoding: .utf8)
@@ -404,6 +405,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(viewerAssets["treesModuleURL"], "./assets/pierre-diffs-1.2.1-trees-1.0.0-beta.4/trees.mjs")
         XCTAssertEqual(viewerAssets["workerPoolModuleURL"], "./assets/pierre-diffs-1.2.1-trees-1.0.0-beta.4/worker-pool/worker-pool.mjs")
         XCTAssertEqual(viewerAssets["workerModuleURL"], "./assets/pierre-diffs-1.2.1-trees-1.0.0-beta.4/worker-pool/worker-portable.mjs")
+        let appearance = try XCTUnwrap(viewerPayload["appearance"] as? [String: Any])
+        XCTAssertEqual(appearance["backgroundOpacity"] as? Double, 0.42)
         XCTAssertTrue(html.contains("\"fontFamily\":\"Unit Mono\""), html)
         XCTAssertTrue(html.contains("\"fontSize\":13"), html)
         XCTAssertFalse(html.contains("\"fontSize\":15"), html)

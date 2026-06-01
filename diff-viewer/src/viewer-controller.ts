@@ -1,4 +1,5 @@
 import type { DiffViewerConfig } from "./types";
+import { appearanceBackgroundColor, applyDiffViewerAppearance, resolveDiffViewerAppearance } from "./appearance";
 import { planPierreFileTreeRefresh } from "./file-tree-refresh";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 
@@ -151,6 +152,7 @@ export function startDiffViewer(config: DiffViewerConfig) {
   const WORKER_POOL_MODULE_URL = resolveAssetURL(assets.workerPoolModuleURL, "workerPoolModuleURL");
   const DIFF_WORKER_URL = resolveAssetURL(assets.workerModuleURL, "workerModuleURL");
   const payload = config.payload ?? {};
+const appearance = resolveDiffViewerAppearance(payload.appearance);
 const viewerElement = requireElement<HTMLElement>("viewer");
 const status = requireElement<HTMLDivElement>("status");
 const toolbar = requireElement<HTMLElement>("toolbar");
@@ -206,7 +208,7 @@ let treePathByItemId = new Map();
 if (typeof payload.title === "string" && payload.title.trim() !== "") {
   document.title = payload.title;
 }
-applyViewerAppearance(payload.appearance);
+applyDiffViewerAppearance(appearance);
 setupToolbar();
 setupSourceSelector(payload.sourceOptions ?? []);
 setupNavigationSelector(repoSelect, payload.repoOptions ?? [], payload.repoRoot ?? "", label("repoPath"));
@@ -248,8 +250,8 @@ async function renderDiff() {
     }),
   ]);
 
-  registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.light);
-  registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.dark);
+  registerGhosttyTheme(registerCustomTheme, appearance.themes.light);
+  registerGhosttyTheme(registerCustomTheme, appearance.themes.dark);
   showStatusMessage(label("parsingDiff"), { loading: true });
   setWorkerPoolStatus("loading");
   workerPool = await createCodeViewWorkerPool();
@@ -276,7 +278,7 @@ async function renderDiff() {
   }
 
   if (!workerPool) {
-    preloadDiffHighlighter(payload.appearance, codeViewItems.length > 0 ? codeViewItems : diffItems, getFiletypeFromFileName, preloadHighlighter)
+    preloadDiffHighlighter(appearance, codeViewItems.length > 0 ? codeViewItems : diffItems, getFiletypeFromFileName, preloadHighlighter)
       .catch((error) => console.warn("cmux diff highlighter preload failed", error));
   }
 }
@@ -329,8 +331,8 @@ async function createCodeViewWorkerPool() {
   try {
     // oxlint-disable-next-line react-doctor/no-dynamic-import-path -- cmux serves this external module URL from its bundled resources at runtime.
     const workerPoolModule = await import(WORKER_POOL_MODULE_URL);
-    registerGhosttyTheme(workerPoolModule.registerCustomTheme, payload.appearance.themes.light);
-    registerGhosttyTheme(workerPoolModule.registerCustomTheme, payload.appearance.themes.dark);
+    registerGhosttyTheme(workerPoolModule.registerCustomTheme, appearance.themes.light);
+    registerGhosttyTheme(workerPoolModule.registerCustomTheme, appearance.themes.dark);
     const workerURL = new URL(DIFF_WORKER_URL, window.location.href).href;
     return workerPoolModule.createDiffWorkerPool({
       workerURL,
@@ -378,7 +380,7 @@ function recordWorkerPoolStats(stats) {
 
 function workerHighlighterOptions() {
   return {
-    theme: payload.appearance.theme,
+    theme: appearance.theme,
     preferredHighlighter: "shiki-wasm",
     lineDiffType: appState.wordDiffs ? "word" : "none",
     maxLineDiffLength: 1000,
@@ -1020,24 +1022,6 @@ async function loadPatchText() {
   return patchTextPromise.value;
 }
 
-function applyViewerAppearance(appearance) {
-  const rootStyle = document.documentElement.style;
-  rootStyle.setProperty("--cmux-diff-bg-light", appearance.themes.light.background);
-  rootStyle.setProperty("--cmux-diff-bg-dark", appearance.themes.dark.background);
-  rootStyle.setProperty("--cmux-diff-fg-light", appearance.themes.light.foreground);
-  rootStyle.setProperty("--cmux-diff-fg-dark", appearance.themes.dark.foreground);
-  rootStyle.setProperty("--cmux-diff-selection-bg-light", appearance.themes.light.selectionBackground);
-  rootStyle.setProperty("--cmux-diff-selection-bg-dark", appearance.themes.dark.selectionBackground);
-  rootStyle.setProperty("--cmux-diff-code-font-family", cssFontFamily(appearance.fontFamily));
-  rootStyle.setProperty("--cmux-diff-font-size", `${appearance.fontSize}px`);
-  rootStyle.setProperty("--cmux-diff-line-height", `${appearance.lineHeight}px`);
-}
-
-function cssFontFamily(fontFamily) {
-  const family = typeof fontFamily === "string" && fontFamily.trim() !== "" ? fontFamily.trim() : "Menlo";
-  return `${JSON.stringify(family)}, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
-}
-
 function setupToolbar() {
   filesToggle.innerHTML = icon("files");
   fileSearchToggle.innerHTML = icon("search");
@@ -1214,7 +1198,7 @@ function codeViewOptions() {
     lineDiffType: appState.wordDiffs ? "word" : "none",
     stickyHeaders: true,
     unsafeCSS: codeViewUnsafeCSS(),
-    theme: payload.appearance.theme,
+    theme: appearance.theme,
     themeType: "system",
   };
 }
@@ -2070,7 +2054,7 @@ function preloadDiffHighlighter(appearance, items, getFiletypeFromFileName, prel
 function shikiThemeFromGhostty(theme) {
   const palette = theme.palette ?? {};
   const foreground = theme.foreground;
-  const background = theme.background;
+  const background = appearanceBackgroundColor(theme.background, appearance);
   return {
     name: theme.name,
     displayName: theme.ghosttyName,

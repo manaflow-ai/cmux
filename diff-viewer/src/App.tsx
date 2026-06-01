@@ -17,12 +17,12 @@ const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78
 
 function LoadingFileList() {
   return (
-    <div className="diff-loading-placeholder p-2" aria-hidden="true">
+    <div className="diff-loading-placeholder" aria-hidden="true">
       {fileSkeletonWidths.map((width, index) => (
-        <div key={`${width}-${index}`} className="grid h-[30px] grid-cols-[17px_minmax(0,1fr)_44px] items-center gap-2 rounded-md px-[7px]">
-          <span className="size-[17px] rounded-[5px] border border-[color-mix(in_lab,var(--cmux-diff-fg)_18%,transparent)]" />
-          <span className="h-3 rounded bg-[var(--cmux-diff-muted-bg)]" style={{ width }} />
-          <span className="h-3 justify-self-end rounded bg-[var(--cmux-diff-muted-bg)] opacity-70" style={{ width: index % 2 === 0 ? "34px" : "24px" }} />
+        <div key={`${width}-${index}`} className="grid h-6 grid-cols-[16px_minmax(0,1fr)_44px] items-center gap-2 rounded-[5px] px-[7px]">
+          <span className="size-4 rounded-[5px] border border-[color-mix(in_lab,var(--cmux-diff-fg)_18%,transparent)]" />
+          <span className="h-[11px] rounded bg-[var(--cmux-diff-muted-bg)]" style={{ width }} />
+          <span className="h-[11px] justify-self-end rounded bg-[var(--cmux-diff-muted-bg)] opacity-70" style={{ width: index % 2 === 0 ? "34px" : "24px" }} />
         </div>
       ))}
     </div>
@@ -45,6 +45,15 @@ function LoadingDiffSkeleton() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function LoadingLayer({ config, label }: ShellProps) {
+  return (
+    <div id="loading-layer" aria-live="polite">
+      <div id="status">{config.payload?.statusMessage ?? label("loadingDiff")}</div>
+      <LoadingDiffSkeleton />
     </div>
   );
 }
@@ -172,8 +181,7 @@ export function App({ config }: ConfigProps) {
       <section id="content">
         <FilesSidebar config={config} label={label} />
         <main id="viewer" aria-label={label("diffViewer")}>
-          <div id="status">{config.payload?.statusMessage ?? label("loadingDiff")}</div>
-          <LoadingDiffSkeleton />
+          <LoadingLayer config={config} label={label} />
         </main>
       </section>
     </div>

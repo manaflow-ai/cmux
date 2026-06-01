@@ -1,4 +1,7 @@
+import type { DiffViewerAppearance } from "./appearance";
+
 export type DiffViewerPayload = {
+  appearance?: DiffViewerAppearance;
   externalURL?: string;
   labels?: Record<string, string>;
   pendingReplacement?: boolean;

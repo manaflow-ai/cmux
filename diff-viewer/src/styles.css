@@ -2,6 +2,10 @@
 
 :root {
   color-scheme: light dark;
+  --cmux-diff-bg-opacity: 1;
+  --cmux-diff-bg-opacity-percent: 100%;
+  --cmux-diff-bg-base-light: #fff;
+  --cmux-diff-bg-base-dark: #000;
   --cmux-diff-bg-light: #fff;
   --cmux-diff-bg-dark: #000;
   --cmux-diff-fg-light: #000;
@@ -17,11 +21,11 @@
   --cmux-diff-bg: var(--cmux-diff-bg-light);
   --cmux-diff-fg: var(--cmux-diff-fg-light);
   --cmux-diff-border: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
-  --cmux-diff-sidebar-bg: color-mix(in lab, var(--cmux-diff-bg) 98%, var(--cmux-diff-fg));
+  --cmux-diff-sidebar-bg: transparent;
   --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
-  background: var(--cmux-diff-bg);
+  background: transparent;
   color: var(--cmux-diff-fg);
 }
 @media (prefers-color-scheme: dark) {
@@ -36,6 +40,7 @@
 html,
 body {
   height: 100%;
+  background: transparent;
   overflow: hidden;
 }
 body {
@@ -51,6 +56,11 @@ body {
   font-size: var(--cmux-diff-ui-font-size);
   line-height: var(--cmux-diff-ui-line-height);
 }
+#root {
+  height: 100%;
+  min-height: 0;
+  background: transparent;
+}
 #app {
   height: 100vh;
   min-height: 0;
@@ -59,7 +69,7 @@ body {
   overflow: hidden;
   overscroll-behavior: contain;
   contain: strict;
-  background: inherit;
+  background: transparent;
   color: inherit;
 }
 #toolbar {
@@ -71,7 +81,7 @@ body {
   min-height: 32px;
   padding: 3px 8px;
   border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 14%, transparent);
-  background: color-mix(in lab, var(--cmux-diff-bg) 98%, var(--cmux-diff-fg));
+  background: transparent;
   color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
   z-index: 50;
 }
@@ -199,7 +209,7 @@ body {
   padding: 8px;
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
   border-radius: 8px;
-  background: color-mix(in lab, var(--cmux-diff-bg) 94%, var(--cmux-diff-fg));
+  background: var(--cmux-diff-bg);
   box-shadow: 0 16px 34px color-mix(in lab, #000 28%, transparent);
   z-index: 100;
 }
@@ -243,7 +253,7 @@ body {
   justify-self: end;
   padding: 2px;
   border-radius: 7px;
-  background: color-mix(in lab, var(--cmux-diff-bg) 82%, var(--cmux-diff-fg));
+  background: transparent;
 }
 .segment-button {
   width: 27px;
@@ -286,7 +296,7 @@ body {
   overflow: hidden;
   overscroll-behavior: contain;
   contain: strict;
-  background: inherit;
+  background: transparent;
 }
 body[data-files-hidden="true"] #content {
   grid-template-columns: minmax(0, 1fr) 0;
@@ -306,7 +316,7 @@ body[data-status-only="true"] #content {
   flex-direction: column;
   overflow: hidden;
   border-left: 1px solid var(--cmux-diff-border);
-  background: color-mix(in lab, var(--cmux-diff-bg) 99%, var(--cmux-diff-fg));
+  background: transparent;
   contain: strict;
   opacity: 1;
   transition: opacity 100ms ease, visibility 0s linear 0s;
@@ -330,7 +340,7 @@ body[data-status-only="true"] #files-sidebar {
   gap: 8px;
   padding: 0 7px 0 10px;
   border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-  background: color-mix(in lab, var(--cmux-diff-bg) 99%, var(--cmux-diff-fg));
+  background: transparent;
   color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
 }
 #files-title {
@@ -406,6 +416,12 @@ body[data-status-only="true"] #files-sidebar {
 body[data-loading="false"] .diff-loading-placeholder {
   display: none;
 }
+body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
+  display: none;
+}
+body[data-loading="true"] #viewer diffs-container {
+  visibility: hidden;
+}
 #file-list file-tree-container {
   width: 100%;
   height: 100%;
@@ -414,7 +430,7 @@ body[data-loading="false"] .diff-loading-placeholder {
   flex: 0 0 auto;
   padding: 7px 10px 8px;
   border-top: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-  background: color-mix(in lab, var(--cmux-diff-bg) 97%, var(--cmux-diff-fg));
+  background: transparent;
 }
 .stats-row {
   display: flex;
@@ -493,7 +509,7 @@ body[data-loading="false"] .diff-loading-placeholder {
   overflow-anchor: none;
   contain: strict;
   border-bottom: 1px solid var(--cmux-diff-border);
-  background: inherit;
+  background: transparent;
 }
 @media (max-width: 520px) {
   #content,
@@ -521,21 +537,50 @@ body[data-loading="false"] .diff-loading-placeholder {
   contain: layout paint style;
   box-shadow: 0 -1px 0 var(--cmux-diff-border), 0 1px 0 var(--cmux-diff-border);
 }
+#loading-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: hidden;
+  pointer-events: none;
+  background: transparent;
+  contain: strict;
+}
+body[data-status-only="true"] #loading-layer {
+  display: flex;
+  position: static;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+}
 #status {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  min-height: 40px;
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 5;
+  min-height: 32px;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
-  border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-  background: color-mix(in lab, var(--cmux-diff-bg) 98%, var(--cmux-diff-fg));
+  max-width: calc(100% - 24px);
+  padding: 8px 12px;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  border-radius: 7px;
+  background: var(--cmux-diff-bg);
   font-family: var(--cmux-diff-ui-font-family);
   font-size: 13px;
   line-height: var(--cmux-diff-ui-line-height);
   color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
+}
+body[data-status-only="true"] #status {
+  position: static;
+  width: 100%;
+  max-width: none;
+  min-height: 40px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  border-radius: 0;
+  padding: 10px 14px;
 }
 #status[data-pending="true"]::before,
 body[data-loading="true"] #status::before {
