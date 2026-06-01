@@ -15,5 +15,16 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "rightSidebar.beta.dock.enabled"
     )
 
+    /// Extensions: the experimental ExtensionKit sidebar-extension surface
+    /// (puzzle button, sidebar-toggle provider menu, installed-extension
+    /// host, and the extensions browser). Defaults off; while off, every
+    /// extension-related entry point is hidden so the feature stays opt-in
+    /// while it is in beta.
+    public let extensions = DefaultsKey<Bool>(
+        id: "extensions.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "extensions.beta.enabled"
+    )
+
     public init() {}
 }
