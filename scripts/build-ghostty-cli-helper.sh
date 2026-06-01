@@ -58,14 +58,8 @@ select_zig_for_target() {
   local target="${1:-}"
   local desired_arch
   desired_arch="$(target_arch_for_triple "$target")"
-  local host_arch=""
-  case "$(uname -m)" in
-    arm64 | aarch64) host_arch="arm64" ;;
-    x86_64) host_arch="x86_64" ;;
-  esac
-  if [[ "$host_arch" == "x86_64" && "$(sysctl -in hw.optional.arm64 2>/dev/null || echo 0)" == "1" ]]; then
-    host_arch="arm64"
-  fi
+  local host_arch
+  host_arch="$(detected_host_arch)"
 
   if [[ -n "${CMUX_ZIG:-}" ]]; then
     if [[ ! -x "$CMUX_ZIG" ]]; then
