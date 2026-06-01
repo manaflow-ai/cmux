@@ -36,7 +36,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    var shortcutAction: KeyboardShortcutSettings.Action {
+    var shortcutAction: KeyboardShortcutSettings.Action? {
         switch self {
         case .files: return .switchRightSidebarToFiles
         case .find: return .switchRightSidebarToFind
@@ -148,6 +148,7 @@ enum RightSidebarKeyboardNavigation {
 
 /// Right sidebar root view. Hosts a segmented mode picker plus the active panel.
 struct RightSidebarPanelView: View {
+    @ObservedObject var tabManager: TabManager
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
@@ -227,18 +228,22 @@ struct RightSidebarPanelView: View {
 
     private var modeBar: some View {
         let _ = keyboardShortcutSettingsObserver.revision
-        let showsModeShortcutHints = alwaysShowShortcutHints || modeShortcutHintMonitor.isModifierPressed
         return ZStack {
             WindowDragHandleView()
 
-            HStack(spacing: 4) {
+            HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
                 ForEach(availableModes, id: \.rawValue) { mode in
+                    let shortcut = mode.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
                     ModeBarButton(
                         mode: mode,
                         isSelected: fileExplorerState.mode == mode,
                         badgeCount: mode == .feed ? feedPendingCount : 0,
-                        shortcutHint: KeyboardShortcutSettings.shortcut(for: mode.shortcutAction),
-                        showsShortcutHint: showsModeShortcutHints
+                        shortcutHint: shortcut,
+                        showsShortcutHint: titlebarShortcutHintShouldShow(
+                            shortcut: shortcut,
+                            alwaysShowShortcutHints: alwaysShowShortcutHints,
+                            modifierPressed: modeShortcutHintMonitor.isModifierPressed
+                        )
                     ) {
                         if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                             mode: mode,
@@ -261,7 +266,6 @@ struct RightSidebarPanelView: View {
             focusShortcutHintOverlay
         }
         .background(TitlebarDoubleClickMonitorView())
-        .background(MinimalModeTitlebarControlHitRegionView())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebarModeBar")
         .reportRightSidebarChromeGeometryForBonsplitUITest(
@@ -275,12 +279,17 @@ struct RightSidebarPanelView: View {
             onOpenAsPane(mode)
         } label: {
             Image(systemName: "rectangle.split.2x1")
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .foregroundColor(.secondary)
+        .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderOpenAsPaneIcon"))
+        .frame(
+            width: RightSidebarChromeMetrics.headerControlSize,
+            height: RightSidebarChromeMetrics.headerControlSize
+        )
+        .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+            keyPrefix: "rightSidebarHeaderOpenAsPane",
+            isVisible: true
+        )
+        .rightSidebarHeaderControlAlignment()
         .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
         .accessibilityLabel(
             String.localizedStringWithFormat(
@@ -289,6 +298,7 @@ struct RightSidebarPanelView: View {
             )
         )
         .accessibilityIdentifier("RightSidebar.openAsPaneButton")
+        .titlebarInteractiveControl()
     }
 
     private var closeButton: some View {
@@ -302,12 +312,16 @@ struct RightSidebarPanelView: View {
         return ZStack {
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .foregroundColor(.secondary)
+            .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderCloseIcon"))
+            .frame(
+                width: RightSidebarChromeMetrics.headerControlSize,
+                height: RightSidebarChromeMetrics.headerControlSize
+            )
+            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+                keyPrefix: "rightSidebarHeaderClose",
+                isVisible: true
+            )
             .safeHelp(
                 KeyboardShortcutSettings.Action.toggleRightSidebar.tooltip(
                     String(localized: "rightSidebar.toggle.tooltip", defaultValue: "Toggle right sidebar")
@@ -316,7 +330,10 @@ struct RightSidebarPanelView: View {
             .accessibilityLabel(String(localized: "rightSidebar.close.accessibilityLabel", defaultValue: "Close Right Sidebar"))
             .accessibilityIdentifier("RightSidebar.closeButton")
         }
-        .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
+        .frame(
+            width: RightSidebarChromeMetrics.headerControlSize,
+            height: RightSidebarChromeMetrics.headerControlSize
+        )
         .overlay(alignment: .top) {
             if showsShortcutHint {
                 ShortcutHintPill(shortcut: shortcut, fontSize: 9, emphasis: 1.05)
@@ -331,7 +348,9 @@ struct RightSidebarPanelView: View {
                     .zIndex(10)
             }
         }
+        .rightSidebarHeaderControlAlignment()
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
+        .titlebarInteractiveControl()
     }
 
     @ViewBuilder
@@ -526,9 +545,24 @@ private struct ModeBarButton: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: mode.symbolName)
-                    .font(.system(size: 11, weight: .medium))
+                    .symbolRenderingMode(.monochrome)
+                    .font(
+                        .system(
+                            size: RightSidebarChromeControlStyle.modeIconSize,
+                            weight: RightSidebarChromeControlStyle.iconWeight
+                        )
+                    )
+                    .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+                        keyPrefix: "rightSidebarModeIcon_\(mode.rawValue)",
+                        isVisible: true
+                    )
                 Text(mode.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(
+                        .system(
+                            size: RightSidebarChromeControlStyle.labelSize,
+                            weight: RightSidebarChromeControlStyle.labelWeight
+                        )
+                    )
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if badgeCount > 0 {
@@ -551,6 +585,7 @@ private struct ModeBarButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
         .help(helpText)
         .accessibilityIdentifier("RightSidebarModeButton.\(mode.rawValue)")

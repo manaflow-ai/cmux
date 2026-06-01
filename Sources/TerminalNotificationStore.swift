@@ -459,7 +459,7 @@ enum NotificationSoundSettings {
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: errorPipe.fileHandleForReading)
             let errorOutput = String(data: errorData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if fileManager.fileExists(atPath: normalizedDestination.path) {
@@ -1133,7 +1133,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func hasVisibleNotificationIndicator(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
         hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) ||
-            focusedReadIndicatorByTabId[tabId] == surfaceId
+            (focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false)
     }
 
     func latestNotification(forTabId tabId: UUID) -> TerminalNotification? {
@@ -1564,6 +1564,22 @@ final class TerminalNotificationStore: ObservableObject {
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
 
+    func markUnread(id: UUID) {
+        var updated = notifications
+        guard let index = updated.firstIndex(where: { $0.id == id }) else { return }
+        guard updated[index].isRead else { return }
+        let tabId = updated[index].tabId
+        updated[index].isRead = false
+        notifications = updated
+        // The notification itself now provides the workspace unread indicator. Clear any
+        // existing manual or restored workspace unread state for the same tab so we don't
+        // double-count it. (Mirrors what markLatestNotificationAsOldestUnread does for the
+        // manual flag — restored hints are a one-time signal from a previous session and
+        // should also defer to the concrete unread notification.)
+        setWorkspaceManualUnread(false, forTabId: tabId)
+        setWorkspaceRestoredUnread(false, forTabId: tabId)
+    }
+
     func markRead(forTabId tabId: UUID) {
         var updated = notifications
         var idsToClear: [String] = []
@@ -1576,6 +1592,7 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             notifications = updated
         }
+        clearFocusedReadIndicator(forTabId: tabId)
         setWorkspaceManualUnread(false, forTabId: tabId)
         clearWorkspacePanelUnread(forTabId: tabId)
         setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
@@ -1598,6 +1615,7 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             notifications = updated
         }
+        clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         if surfaceId == nil {
             clearWorkspacePanelUnread(forTabId: tabId)
             setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
@@ -1618,7 +1636,7 @@ final class TerminalNotificationStore: ObservableObject {
     func markLatestNotificationAsOldestUnread(forTabId tabId: UUID, surfaceId: UUID?) -> UUID? {
         var updated = notifications
         guard let index = latestNotificationIndex(forTabId: tabId, surfaceId: surfaceId, in: updated) else {
-            if !workspaceIsUnread(forTabId: tabId) {
+            if surfaceId == nil, !workspaceIsUnread(forTabId: tabId) {
                 setWorkspaceManualUnread(true, forTabId: tabId)
             }
             return nil
@@ -1705,9 +1723,11 @@ final class TerminalNotificationStore: ObservableObject {
         let removedIds = notifications
             .filter { $0.tabId == tabId }
             .map { $0.id.uuidString }
+        var usedNotificationIds = Set(notifications.filter { $0.tabId != tabId }.map(\.id))
         let restoredForTab = restoredNotifications
             .filter { $0.tabId == tabId }
             .sorted(by: Self.notificationSortPrecedes)
+            .map { Self.notificationWithUniqueId($0, usedIds: &usedNotificationIds) }
         let keptNotifications = notifications.filter { $0.tabId != tabId }
         let nextNotifications = (restoredForTab + keptNotifications).sorted(by: Self.notificationSortPrecedes)
 
@@ -1721,6 +1741,34 @@ final class TerminalNotificationStore: ObservableObject {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: removedIds)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: removedIds)
         }
+    }
+
+    private static func notificationWithUniqueId(
+        _ notification: TerminalNotification,
+        usedIds: inout Set<UUID>
+    ) -> TerminalNotification {
+        if usedIds.insert(notification.id).inserted {
+            return notification
+        }
+
+        var replacementId = UUID()
+        while !usedIds.insert(replacementId).inserted {
+            replacementId = UUID()
+        }
+
+        return TerminalNotification(
+            id: replacementId,
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId,
+            panelId: notification.panelId,
+            title: notification.title,
+            subtitle: notification.subtitle,
+            body: notification.body,
+            createdAt: notification.createdAt,
+            isRead: notification.isRead,
+            paneFlash: notification.paneFlash,
+            clickAction: notification.clickAction
+        )
     }
 
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSocketControl
 
 extension CmuxSettingsFileStore {
     static func defaultTemplate() -> String {
@@ -61,6 +62,7 @@ extension CmuxSettingsFileStore {
                     "appIcon": AppIconSettings.defaultMode.rawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
                     "newWorkspacePlacement": WorkspacePlacementSettings.defaultPlacement.rawValue,
+                    "forkConversationDefaultDestination": AgentConversationForkDefaultSettings.defaultDestination.rawValue,
                     "workspaceInheritWorkingDirectory": WorkspaceWorkingDirectoryInheritanceSettings.defaultValue,
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
@@ -73,14 +75,30 @@ extension CmuxSettingsFileStore {
                     "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
                     "confirmQuit": QuitWarningSettings.defaultConfirmQuitMode.rawValue,
                     "warnBeforeClosingTab": CloseTabWarningSettings.defaultWarnBeforeClosingTab,
+                    "warnBeforeClosingTabXButton": CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton,
+                    "hideTabCloseButton": CloseTabWarningSettings.defaultHideTabCloseButton,
                     "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
                     "commandPaletteSearchesAllSurfaces": CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
                 ],
             ],
             [
+                "workspaceGroups": [
+                    "newWorkspacePlacement": WorkspaceGroupNewWorkspacePlacementSettings.defaultValue.rawValue,
+                ],
+            ],
+            [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
+                    "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
+                    "showTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultShowOnNewTerminals,
+                    "focusTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultFocusOnNewTerminals,
+                    "agentHibernation": [
+                        "enabled": AgentHibernationSettings.defaultEnabled,
+                        "idleSeconds": Int(AgentHibernationSettings.defaultIdleSeconds),
+                        "maxLiveTerminals": AgentHibernationSettings.defaultMaxLiveTerminals,
+                    ],
+                    "textBoxMaxLines": TerminalTextBoxInputSettings.defaultMaxLines,
                     "resumeCommands": [],
                 ],
             ],
@@ -100,8 +118,11 @@ extension CmuxSettingsFileStore {
             [
                 "sidebar": [
                     "hideAllDetails": SidebarWorkspaceDetailSettings.defaultHideAllDetails,
+                    "wrapWorkspaceTitles": SidebarWorkspaceTitleWrapSettings.defaultWrap,
                     "showWorkspaceDescription": SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription,
                     "branchLayout": SidebarBranchLayoutSettings.defaultVerticalLayout ? "vertical" : "inline",
+                    "stackBranchDirectory": SidebarBranchDirectoryStackedSettings.defaultStacked,
+                    "pathLastSegmentOnly": SidebarPathLastSegmentSettings.defaultLastSegmentOnly,
                     "showNotificationMessage": SidebarWorkspaceDetailSettings.defaultShowNotificationMessage,
                     "showBranchDirectory": SidebarWorkspaceDetailDefaults.showBranchDirectory,
                     "showPullRequests": SidebarWorkspaceDetailDefaults.showPullRequests,
@@ -145,6 +166,8 @@ extension CmuxSettingsFileStore {
                     "suppressSubagentNotifications": AgentSubagentNotificationSettings.defaultSuppressNotifications,
                     "cursorIntegration": CursorIntegrationSettings.defaultHooksEnabled,
                     "geminiIntegration": GeminiIntegrationSettings.defaultHooksEnabled,
+                    "kiroIntegration": KiroIntegrationSettings.defaultHooksEnabled,
+                    "kiroNotificationLevel": KiroIntegrationSettings.defaultNotificationLevel.rawValue,
                     "portBase": AutomationSettings.defaultPortBase,
                     "portRange": AutomationSettings.defaultPortRange,
                 ],
@@ -152,6 +175,8 @@ extension CmuxSettingsFileStore {
             [
                 "browser": [
                     "defaultSearchEngine": BrowserSearchSettings.defaultSearchEngine.rawValue,
+                    "customSearchEngineName": BrowserSearchSettings.defaultCustomSearchEngineName,
+                    "customSearchEngineURLTemplate": BrowserSearchSettings.defaultCustomSearchEngineURLTemplate,
                     "showSearchSuggestions": BrowserSearchSettings.defaultSearchSuggestionsEnabled,
                     "theme": BrowserThemeSettings.defaultMode.rawValue,
                     "discardHiddenWebViews": BrowserHiddenWebViewDiscardPolicy.defaultEnabled,
