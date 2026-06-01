@@ -2144,6 +2144,11 @@ struct BrowserPanelView: View {
     }
 
     private func refreshEmptyStateImportBrowsers() {
+        // Panecho privacy mode: do not kick off the installed-browser scan.
+        if PrivacyMode.isEnabled {
+            emptyStateImportBrowsers = []
+            return
+        }
         emptyStateImportBrowserRefreshTask?.cancel()
         emptyStateImportBrowserRefreshGeneration &+= 1
         let generation = emptyStateImportBrowserRefreshGeneration

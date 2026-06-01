@@ -9192,6 +9192,13 @@ enum InstalledBrowserDetector {
         applicationSearchDirectories: [URL]? = nil,
         fileManager: FileManager = .default
     ) -> [InstalledBrowserCandidate] {
+        // Panecho privacy mode: never enumerate other browsers' data
+        // (~/Library/Application Support/<Browser>, ~/Library/Cookies, ...). That
+        // read is what triggers the macOS "access data from other apps" prompt on
+        // every launch (confirmed: all browser data dirs are atime-touched at
+        // launch via the empty-state import overlay). A privacy fork must not
+        // scan other apps' data; browser-profile import is disabled here.
+        guard !PrivacyMode.isEnabled else { return [] }
         let lookup = bundleLookup ?? { bundleIdentifier in
             NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
         }
