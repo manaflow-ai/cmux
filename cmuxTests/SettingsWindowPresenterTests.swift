@@ -157,6 +157,18 @@ final class SettingsWindowPresenterTests: XCTestCase {
         XCTAssertTrue(settingsWindow.isVisible)
     }
 
+    func testAdoptCmuxPeerWindowLevelBringsFloatingWindowToNormal() {
+        let window = makeWindow(identifier: "cmux.peer.\(UUID().uuidString)")
+        defer { window.orderOut(nil) }
+
+        window.level = .floating
+        XCTAssertEqual(window.level, .floating)
+
+        window.adoptCmuxPeerWindowLevel()
+
+        XCTAssertEqual(window.level, .normal)
+    }
+
     func testConfigureClampsOversizedSettingsFrameToVisibleArea() throws {
         guard let screen = NSScreen.main else {
             throw XCTSkip("No screen available for Settings frame clamping")
