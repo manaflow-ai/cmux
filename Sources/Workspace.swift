@@ -18401,6 +18401,9 @@ extension Workspace: BonsplitDelegate {
         let shouldClearSplitZoom = postCloseClearSplitZoomTabIds.remove(tabId) != nil
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
         let isDetaching = detachingTabIds.remove(tabId) != nil || isDetachingCloseTransaction
+        if shouldClearSplitZoom {
+            clearSplitZoom()
+        }
 
         // Clean up our panel
         guard let panelId = panelIdFromSurfaceId(tabId) else {
@@ -18487,9 +18490,6 @@ extension Workspace: BonsplitDelegate {
         clearRemoteConfigurationIfWorkspaceBecameLocal()
         if !isDetaching, let cleanupConfiguration = closedRemoteCleanupConfiguration {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: cleanupConfiguration)
-        }
-        if shouldClearSplitZoom {
-            clearSplitZoom()
         }
 
         // Keep the workspace invariant for normal close paths.

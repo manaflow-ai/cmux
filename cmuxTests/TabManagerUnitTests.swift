@@ -2262,6 +2262,8 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         XCTAssertTrue(workspace.bonsplitController.isSplitZoomed, "Expected workspace to start zoomed")
 
         XCTAssertTrue(workspace.closePanel(secondTabPanel.id, force: true), "Expected selected tab close to succeed")
+        drainMainQueue()
+        drainMainQueue()
 
         XCTAssertEqual(workspace.focusedPanelId, firstPanelId, "Expected the surviving tab in the pane to become focused")
         XCTAssertFalse(
