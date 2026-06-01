@@ -1766,6 +1766,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil
     var notifications: [SessionNotificationSnapshot]? = nil
+    var terminalScrollBarHidden: Bool?
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot

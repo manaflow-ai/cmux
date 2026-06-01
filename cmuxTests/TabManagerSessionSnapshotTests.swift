@@ -3148,6 +3148,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             customDescription: nil,
             customColor: nil,
             isPinned: false,
+            terminalScrollBarHidden: nil,
             currentDirectory: NSHomeDirectory(),
             focusedPanelId: focusedPanelId,
             layout: .pane(SessionPaneLayoutSnapshot(

@@ -6063,6 +6063,24 @@ class TabManager: ObservableObject {
         applyWorkspaceColor(color, toWorkspaceIds: workspaceIds)
     }
 
+    func setWorkspaceTerminalScrollBarHidden(tabId: UUID, hidden: Bool) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.setTerminalScrollBarHidden(hidden)
+    }
+
+    func setWorkspaceTerminalScrollBarHidden(hidden: Bool, forWorkspaceIds workspaceIds: [UUID]) {
+        guard !workspaceIds.isEmpty else { return }
+        if workspaceIds.count == 1, let workspaceId = workspaceIds.first {
+            setWorkspaceTerminalScrollBarHidden(tabId: workspaceId, hidden: hidden)
+            return
+        }
+
+        let targetIds = Set(workspaceIds)
+        for tab in tabs where targetIds.contains(tab.id) {
+            tab.setTerminalScrollBarHidden(hidden)
+        }
+    }
+
     func togglePin(tabId: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let tab = tabs[index]
