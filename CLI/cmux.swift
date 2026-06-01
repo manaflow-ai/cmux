@@ -17327,9 +17327,10 @@ struct CMUXCLI {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
             return
         }
-        if let existing = processEnvironment["NODE_OPTIONS"] {
+        if let existing = processEnvironment["NODE_OPTIONS"],
+           let originalNodeOptions = normalizedNodeOptionsForRestore(existing) {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existing), 1)
+            setenv("CMUX_ORIGINAL_NODE_OPTIONS", originalNodeOptions, 1)
         } else {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -17371,12 +17372,42 @@ struct CMUXCLI {
     }
 
     private func createClaudeNodeOptionsRestoreModule() throws -> URL {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
-        let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
-        try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
-        return restoreModuleURL
+        var candidates: [URL] = []
+        let environment = ProcessInfo.processInfo.environment
+        let homePath: String = {
+            guard let rawHome = environment["HOME"] else {
+                return NSHomeDirectory()
+            }
+            let trimmedHome = rawHome.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmedHome.isEmpty ? NSHomeDirectory() : trimmedHome
+        }()
+        // The NODE_OPTIONS helpers below use whitespace tokenization, so use
+        // the TMPDIR fallback when HOME would require quote-aware parsing.
+        if !homePath.isEmpty,
+           homePath.rangeOfCharacter(from: .whitespacesAndNewlines) == nil {
+            candidates.append(
+                URL(fileURLWithPath: homePath, isDirectory: true)
+                    .appendingPathComponent(".claude", isDirectory: true)
+                    .appendingPathComponent("cmux", isDirectory: true)
+            )
+        }
+        candidates.append(
+            URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+                .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
+        )
+
+        var lastError: Error?
+        for root in candidates {
+            do {
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
+                let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
+                try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
+                return restoreModuleURL
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? CocoaError(.fileWriteUnknown)
     }
 
     private func runClaudeTeams(
@@ -19376,9 +19407,10 @@ struct CMUXCLI {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
             return
         }
-        if let existing = processEnvironment["NODE_OPTIONS"] {
+        if let existing = processEnvironment["NODE_OPTIONS"],
+           let originalNodeOptions = normalizedNodeOptionsForRestore(existing) {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existing), 1)
+            setenv("CMUX_ORIGINAL_NODE_OPTIONS", originalNodeOptions, 1)
         } else {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -23935,48 +23967,88 @@ struct CMUXCLI {
     }
 
     private func cleanedNodeOptions(_ existing: String?) -> String {
+        walkNodeOptions(existing).joined(separator: " ")
+    }
+
+    private func normalizedNodeOptionsForRestore(_ existing: String) -> String? {
+        let joined = walkNodeOptions(existing)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return joined.isEmpty ? nil : joined
+    }
+
+    private func walkNodeOptions(_ existing: String?) -> [String] {
         let tokens = (existing ?? "")
             .split(whereSeparator: \.isWhitespace)
             .map(String.init)
-        guard !tokens.isEmpty else { return "" }
+        guard !tokens.isEmpty else { return [] }
 
         var filtered: [String] = []
         var index = 0
+        var shouldDropInjectedHeapCap = false
         while index < tokens.count {
             let token = tokens[index]
-            if token == "--max-old-space-size" {
-                index += min(2, tokens.count - index)
+            if shouldDropInjectedHeapCap, isInjectedNodeHeapCap(tokens, index: index) {
+                index += nodeHeapCapWidth(tokens, index: index)
+                shouldDropInjectedHeapCap = false
                 continue
             }
-            if token.hasPrefix("--max-old-space-size=") {
+            shouldDropInjectedHeapCap = false
+
+            if isRequireOption(token), index + 1 < tokens.count,
+               isCmuxNodeOptionsRestoreModulePath(tokens[index + 1]) {
+                index += 2
+                shouldDropInjectedHeapCap = true
+                continue
+            }
+            if let path = inlineRequireOptionPath(token),
+               isCmuxNodeOptionsRestoreModulePath(path) {
                 index += 1
+                shouldDropInjectedHeapCap = true
+                continue
+            }
+            if token == "--max-old-space-size", index + 1 < tokens.count {
+                filtered.append("--max-old-space-size=\(tokens[index + 1])")
+                index += 2
                 continue
             }
             filtered.append(token)
             index += 1
         }
-        return filtered.joined(separator: " ")
+        return filtered
     }
 
-    private func normalizedNodeOptionsForRestore(_ existing: String) -> String {
-        let tokens = existing
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
-        guard !tokens.isEmpty else { return "" }
+    private func isRequireOption(_ token: String) -> Bool {
+        token == "--require" || token == "-r"
+    }
 
-        var normalized: [String] = []
-        var index = 0
-        while index < tokens.count {
-            let token = tokens[index]
-            if token == "--max-old-space-size", index + 1 < tokens.count {
-                normalized.append("--max-old-space-size=\(tokens[index + 1])")
-                index += 2
-                continue
-            }
-            normalized.append(token)
-            index += 1
+    private func inlineRequireOptionPath(_ token: String) -> String? {
+        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
+            return String(token.dropFirst(prefix.count))
         }
-        return normalized.joined(separator: " ")
+        return nil
+    }
+
+    private func isCmuxNodeOptionsRestoreModulePath(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+        guard URL(fileURLWithPath: trimmed).lastPathComponent == "restore-node-options.cjs" else {
+            return false
+        }
+        return trimmed.contains("/cmux-") || trimmed.contains("/.claude/cmux/")
+    }
+
+    private func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {
+        guard index < tokens.count else { return false }
+        let token = tokens[index]
+        if token == "--max-old-space-size" {
+            return index + 1 < tokens.count && tokens[index + 1] == "4096"
+        }
+        return token == "--max-old-space-size=4096"
+    }
+
+    private func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
+        guard index < tokens.count else { return 1 }
+        return tokens[index] == "--max-old-space-size" ? min(2, tokens.count - index) : 1
     }
 
     // MARK: - Codex hooks
