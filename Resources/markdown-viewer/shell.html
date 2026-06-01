@@ -549,8 +549,8 @@ html { scroll-behavior: smooth; }
     }
   }
 
-  function rewriteLocalImageSources() {
-    contentEl.querySelectorAll('img[src]').forEach(function(img) {
+  function rewriteLocalImageSources(root) {
+    (root || contentEl).querySelectorAll('img[src]').forEach(function(img) {
       var raw = img.getAttribute('src') || '';
       var rewritten = cmuxLocalImageURL(raw);
       if (!rewritten) { return; }
@@ -787,8 +787,8 @@ html { scroll-behavior: smooth; }
     }
   }
 
-  function rewriteRemoteImageSources() {
-    contentEl.querySelectorAll('img[data-cmux-remote-src]').forEach(ensureRemoteImagePlaceholder);
+  function rewriteRemoteImageSources(root) {
+    (root || contentEl).querySelectorAll('img[data-cmux-remote-src]').forEach(ensureRemoteImagePlaceholder);
   }
 
   function isSafeURLAttribute(name, value) {
@@ -1253,19 +1253,20 @@ html { scroll-behavior: smooth; }
     });
   }
 
-  function postProcessSpecialBlocks() {
-    if (contentEl.querySelector('.cmux-mermaid:not([data-rendered])')) {
+  function postProcessSpecialBlocks(root) {
+    var scope = root || contentEl;
+    if (scope.querySelector('.cmux-mermaid:not([data-rendered])')) {
       loadLib('mermaid', renderMermaidBlocks);
     }
-    if (contentEl.querySelector('.cmux-vega:not([data-rendered])')) {
+    if (scope.querySelector('.cmux-vega:not([data-rendered])')) {
       loadLib('vega-lite', renderVegaBlocks);
     }
-    addCodeCopyButtons();
-    markMarkdownFileLinks();
+    addCodeCopyButtons(scope);
+    markMarkdownFileLinks(scope);
   }
 
-  function addCodeCopyButtons() {
-    contentEl.querySelectorAll('pre > code.hljs').forEach(function(code) {
+  function addCodeCopyButtons(root) {
+    (root || contentEl).querySelectorAll('pre > code.hljs').forEach(function(code) {
       var pre = code.parentElement;
       if (!pre || pre.closest('.cmux-source') || pre.closest('.cmux-frontmatter')) { return; }
       if (pre.parentElement && pre.parentElement.classList.contains('cmux-code-block')) { return; }
@@ -1369,15 +1370,16 @@ html { scroll-behavior: smooth; }
     } catch (e) { /* no bridge */ }
   }
 
-  function markMarkdownFileLinks() {
-    contentEl.querySelectorAll('code:not([data-cmux-file])').forEach(function(code) {
+  function markMarkdownFileLinks(root) {
+    var scope = root || contentEl;
+    scope.querySelectorAll('code:not([data-cmux-file])').forEach(function(code) {
       if (code.closest && code.closest('pre, .cmux-source')) { return; }
       var raw = code.textContent || '';
       if (isMarkdownPathLike(raw)) {
         code.setAttribute('data-cmux-file', escapeDataAttribute(raw));
       }
     });
-    contentEl.querySelectorAll('a[href]').forEach(function(a) {
+    scope.querySelectorAll('a[href]').forEach(function(a) {
       var href = a.getAttribute('href') || '';
       if (isMarkdownPathLike(href)) {
         a.setAttribute('data-cmux-file-candidate', href);
@@ -1417,24 +1419,327 @@ html { scroll-behavior: smooth; }
     openMarkdownCandidate(rawPath);
   }, true);
 
+  var markdownRenderGeneration = 0;
+  var markdownRenderState = {
+    generation: 0,
+    large: false,
+    complete: true,
+    renderedChunks: 0,
+    totalChunks: 0,
+    renderedTokens: 0,
+    totalTokens: 0
+  };
+  var markdownRenderCompletionResolvers = [];
+  var largeMarkdownCharacterThreshold = 128 * 1024;
+  var largeMarkdownTokenThreshold = 450;
+  var firstChunkTargetCharacters = 24 * 1024;
+  var nextChunkTargetCharacters = 64 * 1024;
+  var fastFirstPaintMinCharacters = 4 * 1024;
+  var fastFirstPaintSearchSlack = 16 * 1024;
+
+  function updateMarkdownRenderState(next) {
+    Object.keys(next || {}).forEach(function(key) {
+      markdownRenderState[key] = next[key];
+    });
+  }
+
+  function resolveMarkdownRenderCompletionIfNeeded() {
+    if (!markdownRenderState.complete) { return; }
+    var resolvers = markdownRenderCompletionResolvers;
+    markdownRenderCompletionResolvers = [];
+    resolvers.forEach(function(resolve) {
+      try { resolve(window.__cmuxMarkdownRenderState()); } catch (e) {}
+    });
+  }
+
+  window.__cmuxMarkdownRenderState = function() {
+    return {
+      generation: markdownRenderState.generation,
+      large: markdownRenderState.large,
+      complete: markdownRenderState.complete,
+      renderedChunks: markdownRenderState.renderedChunks,
+      totalChunks: markdownRenderState.totalChunks,
+      renderedTokens: markdownRenderState.renderedTokens,
+      totalTokens: markdownRenderState.totalTokens
+    };
+  };
+
+  window.__cmuxWhenMarkdownRenderComplete = function() {
+    if (markdownRenderState.complete) {
+      return Promise.resolve(window.__cmuxMarkdownRenderState());
+    }
+    return new Promise(function(resolve) {
+      markdownRenderCompletionResolvers.push(resolve);
+    });
+  };
+
+  function tokenSourceLength(token) {
+    if (!token) { return 0; }
+    if (typeof token.raw === 'string') { return token.raw.length; }
+    if (typeof token.text === 'string') { return token.text.length; }
+    if (typeof token.tokens !== 'undefined') {
+      try { return JSON.stringify(token.tokens).length; } catch (e) { return 0; }
+    }
+    return 0;
+  }
+
+  function chunkMarkdownTokens(tokens) {
+    var chunks = [];
+    var current = [];
+    var currentSize = 0;
+    var targetSize = firstChunkTargetCharacters;
+    (tokens || []).forEach(function(token) {
+      current.push(token);
+      currentSize += tokenSourceLength(token);
+      if (currentSize >= targetSize) {
+        chunks.push(current);
+        current = [];
+        currentSize = 0;
+        targetSize = nextChunkTargetCharacters;
+      }
+    });
+    if (current.length) {
+      chunks.push(current);
+    }
+    return chunks.length ? chunks : [[]];
+  }
+
+  function splitMarkdownForFastFirstPaint(markdown) {
+    var source = String(markdown || '');
+    if (source.length <= firstChunkTargetCharacters) {
+      return { first: source, rest: '' };
+    }
+
+    var target = Math.min(firstChunkTargetCharacters, source.length);
+    var hardLimit = Math.min(source.length, target + fastFirstPaintSearchSlack);
+    var lastSafeCut = -1;
+    var fallbackCut = -1;
+    var index = 0;
+    var inFence = false;
+    var fenceChar = '';
+    var fenceLength = 0;
+
+    while (index < source.length && index <= hardLimit) {
+      var lineStart = index;
+      var newlineIndex = source.indexOf('\n', index);
+      var lineEnd = newlineIndex >= 0 ? newlineIndex + 1 : source.length;
+      var line = source.slice(lineStart, lineEnd);
+      var trimmed = line.replace(/\r?\n$/, '').trim();
+      var fenceMatch = trimmed.match(/^(`{3,}|~{3,})/);
+      if (fenceMatch) {
+        var marker = fenceMatch[1];
+        if (!inFence) {
+          inFence = true;
+          fenceChar = marker.charAt(0);
+          fenceLength = marker.length;
+        } else if (marker.charAt(0) === fenceChar && marker.length >= fenceLength) {
+          inFence = false;
+          fenceChar = '';
+          fenceLength = 0;
+        }
+      }
+
+      if (!inFence && trimmed === '' && lineEnd >= fastFirstPaintMinCharacters) {
+        lastSafeCut = lineEnd;
+      }
+      if (lineEnd >= fastFirstPaintMinCharacters) {
+        fallbackCut = lineEnd;
+      }
+      if (lineEnd >= target && lastSafeCut >= fastFirstPaintMinCharacters) {
+        break;
+      }
+      if (newlineIndex < 0) { break; }
+      index = lineEnd;
+    }
+
+    var cut = lastSafeCut >= fastFirstPaintMinCharacters ? lastSafeCut : fallbackCut;
+    if (cut <= 0 || cut >= source.length) {
+      cut = Math.min(target, source.length);
+    }
+    return {
+      first: source.slice(0, cut),
+      rest: source.slice(cut)
+    };
+  }
+
+  function renderTokenChunk(tokens) {
+    return sanitizeRenderedHTML(marked.parser(tokens || []));
+  }
+
+  function appendRenderedHTML(html) {
+    var template = document.createElement('template');
+    template.innerHTML = String(html || '');
+    var fragment = template.content;
+    rewriteLocalImageSources(fragment);
+    rewriteRemoteImageSources(fragment);
+    postProcessSpecialBlocks(fragment);
+    contentEl.appendChild(fragment);
+    postProcessSpecialBlocks(contentEl);
+  }
+
+  function scheduleMarkdownRenderStep(callback) {
+    if (window.requestIdleCallback) {
+      window.requestIdleCallback(callback, { timeout: 80 });
+    } else {
+      window.setTimeout(callback, 0);
+    }
+  }
+
+  function renderLargeMarkdownDocument(frontmatterHTML, tokens, scrollState, generation) {
+    var chunks = chunkMarkdownTokens(tokens);
+    var nextChunkIndex = 0;
+    var renderedTokens = 0;
+
+    contentEl.innerHTML = '';
+    if (frontmatterHTML) {
+      appendRenderedHTML(frontmatterHTML);
+    }
+
+    updateMarkdownRenderState({
+      generation: generation,
+      large: true,
+      complete: false,
+      renderedChunks: 0,
+      totalChunks: chunks.length,
+      renderedTokens: 0,
+      totalTokens: tokens.length
+    });
+
+    function renderOneChunk() {
+      if (generation !== markdownRenderGeneration) { return; }
+      if (nextChunkIndex >= chunks.length) {
+        updateMarkdownRenderState({ complete: true });
+        restoreMarkdownScrollState(scrollState);
+        resolveMarkdownRenderCompletionIfNeeded();
+        return;
+      }
+
+      var chunk = chunks[nextChunkIndex];
+      nextChunkIndex += 1;
+      renderedTokens += chunk.length;
+      appendRenderedHTML(renderTokenChunk(chunk));
+      updateMarkdownRenderState({
+        renderedChunks: nextChunkIndex,
+        renderedTokens: renderedTokens,
+        complete: nextChunkIndex >= chunks.length
+      });
+      restoreMarkdownScrollState(scrollState);
+
+      if (nextChunkIndex < chunks.length) {
+        scheduleMarkdownRenderStep(renderOneChunk);
+      } else {
+        resolveMarkdownRenderCompletionIfNeeded();
+      }
+    }
+
+    renderOneChunk();
+  }
+
+  function renderLargeMarkdownDocumentFromSource(frontmatterHTML, body, scrollState, generation) {
+    var split = splitMarkdownForFastFirstPaint(body);
+    var firstTokens = marked.lexer(split.first);
+    var firstRenderedTokens = firstTokens.length;
+
+    contentEl.innerHTML = '';
+    if (frontmatterHTML) {
+      appendRenderedHTML(frontmatterHTML);
+    }
+
+    updateMarkdownRenderState({
+      generation: generation,
+      large: true,
+      complete: false,
+      renderedChunks: 0,
+      totalChunks: split.rest ? 2 : 1,
+      renderedTokens: 0,
+      totalTokens: firstRenderedTokens
+    });
+
+    appendRenderedHTML(renderTokenChunk(firstTokens));
+    updateMarkdownRenderState({
+      renderedChunks: 1,
+      renderedTokens: firstRenderedTokens,
+      complete: !split.rest
+    });
+    restoreMarkdownScrollState(scrollState);
+
+    if (!split.rest) {
+      resolveMarkdownRenderCompletionIfNeeded();
+      return;
+    }
+
+    scheduleMarkdownRenderStep(function() {
+      if (generation !== markdownRenderGeneration) { return; }
+      var tokens = marked.lexer(body);
+      if (generation !== markdownRenderGeneration) { return; }
+      headingSlugCounts = Object.create(null);
+      renderLargeMarkdownDocument(frontmatterHTML, tokens, scrollState, generation);
+    });
+  }
+
+  function renderSmallMarkdownDocument(html, scrollState, generation) {
+    var didReplaceContent = contentEl.innerHTML !== html;
+    if (didReplaceContent) {
+      contentEl.innerHTML = html;
+    }
+    rewriteLocalImageSources(contentEl);
+    rewriteRemoteImageSources(contentEl);
+    postProcessSpecialBlocks(contentEl);
+    if (didReplaceContent) {
+      restoreMarkdownScrollState(scrollState);
+    }
+    updateMarkdownRenderState({
+      generation: generation,
+      large: false,
+      complete: true,
+      renderedChunks: 1,
+      totalChunks: 1,
+      renderedTokens: 0,
+      totalTokens: 0
+    });
+    resolveMarkdownRenderCompletionIfNeeded();
+  }
+
   window.__cmuxRenderMarkdown = function(md) {
     try {
+      var generation = ++markdownRenderGeneration;
+      updateMarkdownRenderState({
+        generation: generation,
+        large: false,
+        complete: false,
+        renderedChunks: 0,
+        totalChunks: 0,
+        renderedTokens: 0,
+        totalTokens: 0
+      });
       headingSlugCounts = Object.create(null);
       var documentParts = extractFrontmatter(md || '');
-      var html = renderFrontmatter(documentParts.frontmatter)
-        + sanitizeRenderedHTML(marked.parse(documentParts.body || ''));
-      var didReplaceContent = contentEl.innerHTML !== html;
-      var scrollState = didReplaceContent ? captureMarkdownScrollState() : null;
-      if (didReplaceContent) {
-        contentEl.innerHTML = html;
+      var body = documentParts.body || '';
+      var frontmatterHTML = renderFrontmatter(documentParts.frontmatter);
+      var scrollState = captureMarkdownScrollState();
+      if (body.length >= largeMarkdownCharacterThreshold) {
+        renderLargeMarkdownDocumentFromSource(frontmatterHTML, body, scrollState, generation);
+        return;
       }
-      rewriteLocalImageSources();
-      rewriteRemoteImageSources();
-      postProcessSpecialBlocks();
-      if (didReplaceContent) {
-        restoreMarkdownScrollState(scrollState);
+
+      var tokens = marked.lexer(body);
+      if (tokens.length >= largeMarkdownTokenThreshold) {
+        renderLargeMarkdownDocument(frontmatterHTML, tokens, scrollState, generation);
+        return;
       }
+
+      var html = frontmatterHTML + sanitizeRenderedHTML(marked.parser(tokens));
+      renderSmallMarkdownDocument(html, scrollState, generation);
     } catch (e) {
+      updateMarkdownRenderState({
+        large: false,
+        complete: true,
+        renderedChunks: 1,
+        totalChunks: 1,
+        renderedTokens: 0,
+        totalTokens: 0
+      });
+      resolveMarkdownRenderCompletionIfNeeded();
       contentEl.innerHTML =
         '<div style="color:#f85149;font-family:ui-monospace,monospace;white-space:pre-wrap;padding:8px 12px;border:1px solid #f85149;border-radius:6px;margin-bottom:12px">'
         + 'markdown render error: ' + escapeHtml(String((e && e.message) || e))

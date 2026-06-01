@@ -72,37 +72,48 @@ struct MarkdownPanelView: View {
 
             markdownBody
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
     private var markdownBody: some View {
-        ZStack {
-            MarkdownWebRenderer(
-                markdown: panel.content,
-                theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
-                backgroundColor: appearance.contentBackgroundColor,
-                panelId: panel.id,
-                workspaceId: panel.workspaceId,
-                filePath: panel.filePath,
-                session: panel.rendererSession,
-                onRequestPanelFocus: onRequestPanelFocus
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .opacity(panel.displayMode == .preview ? 1 : 0)
-            .allowsHitTesting(panel.displayMode == .preview)
-            .accessibilityHidden(panel.displayMode != .preview)
-
-            if panel.displayMode == .text {
-                FilePreviewTextEditor(
-                    panel: panel,
-                    isVisibleInUI: isVisibleInUI,
-                    themeBackgroundColor: appearance.contentBackgroundColor,
-                    themeForegroundColor: themeForegroundColor,
-                    drawsBackground: appearance.drawsContentBackground
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        Group {
+            switch panel.displayMode {
+            case .preview:
+                markdownPreview
+            case .text:
+                markdownTextEditor
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .layoutPriority(1)
+    }
+
+    private var markdownPreview: some View {
+        MarkdownWebRenderer(
+            markdown: panel.content,
+            theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
+            backgroundColor: appearance.contentBackgroundColor,
+            panelId: panel.id,
+            workspaceId: panel.workspaceId,
+            filePath: panel.filePath,
+            session: panel.rendererSession,
+            onRequestPanelFocus: onRequestPanelFocus
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .layoutPriority(1)
+    }
+
+    private var markdownTextEditor: some View {
+        FilePreviewTextEditor(
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            themeBackgroundColor: appearance.contentBackgroundColor,
+            themeForegroundColor: themeForegroundColor,
+            drawsBackground: appearance.drawsContentBackground
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .layoutPriority(1)
     }
 
     private var filePathHeader: some View {

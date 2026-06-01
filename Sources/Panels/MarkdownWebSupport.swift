@@ -20,6 +20,12 @@ final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
 @MainActor
 final class MarkdownWebView: WKWebView {
     var onPointerDown: (() -> Void)?
+    var onMoveToWindow: ((MarkdownWebView) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onMoveToWindow?(self)
+    }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         PaneFirstClickFocusSettings.isEnabled()
