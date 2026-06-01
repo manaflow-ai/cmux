@@ -23,10 +23,12 @@ struct GitHubHost: Hashable, Sendable {
     let port: Int?
 
     /// Creates a host from a raw hostname and optional port. The hostname is
-    /// lowercased so that hosts compare and hash case-insensitively.
+    /// lowercased so that hosts compare and hash case-insensitively, and an
+    /// explicit default HTTPS port (443) is normalized to `nil` so that, e.g.,
+    /// `github.com:443` is still recognized as ``dotCom``.
     init(hostname: String, port: Int? = nil) {
         self.hostname = hostname.lowercased()
-        self.port = port
+        self.port = port == 443 ? nil : port
     }
 
     /// The canonical github.com host.

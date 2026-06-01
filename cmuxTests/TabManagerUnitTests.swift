@@ -3848,6 +3848,23 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         #expect(reference?.slug == "acme/widgets")
     }
 
+    @Test func ignoresSSHTransportPortForAPIBase() {
+        // An ssh:// port is the SSH transport port, not the HTTPS REST API port,
+        // so it must not end up in the API base URL.
+        let reference = GitHubRepositoryReference.parse(remoteURL: "ssh://git@ghe.example.com:2222/acme/widgets.git")
+        #expect(reference?.host == GitHubHost(hostname: "ghe.example.com"))
+        #expect(reference?.host.apiBaseURL.absoluteString == "https://ghe.example.com/api/v3/")
+    }
+
+    @Test func normalizesExplicitDefaultHTTPSPortToDotCom() {
+        // github.com:443 is still the public host; it must keep the GH_TOKEN /
+        // anonymous github.com path rather than targeting api on :443.
+        let reference = GitHubRepositoryReference.parse(remoteURL: "https://github.com:443/manaflow-ai/cmux.git")
+        #expect(reference?.host == .dotCom)
+        #expect(reference?.host.isDotCom == true)
+        #expect(reference?.host.apiBaseURL.absoluteString == "https://api.github.com/")
+    }
+
     @Test func parsesSCPRemoteWithBracketedIPv6Host() {
         // The host/path separator must be found after the bracketed address,
         // not at the first ':' inside the IPv6 literal.

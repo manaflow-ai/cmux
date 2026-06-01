@@ -50,10 +50,24 @@ struct GitHubRepositoryReference: Hashable, Sendable {
             return nil
         }
         return GitHubRepositoryReference(
-            host: GitHubHost(hostname: host, port: url.port),
+            host: GitHubHost(hostname: host, port: Self.apiPort(of: url)),
             owner: owner,
             repo: repo
         )
+    }
+
+    /// The HTTPS REST API port to carry for a remote, or `nil`.
+    ///
+    /// Only `http`/`https` remotes contribute a port. An `ssh://` or `git://`
+    /// port is a transport port (e.g. `2222`), not the REST API port, so it must
+    /// not leak into ``GitHubHost/apiBaseURL``.
+    private static func apiPort(of url: URL) -> Int? {
+        switch url.scheme?.lowercased() {
+        case "http", "https":
+            return url.port
+        default:
+            return nil
+        }
     }
 
     /// Parses SCP-style SSH remotes (`git@host:owner/repo.git`).
@@ -90,7 +104,7 @@ struct GitHubRepositoryReference: Hashable, Sendable {
             return nil
         }
         return GitHubRepositoryReference(
-            host: GitHubHost(hostname: host, port: webURL.port),
+            host: GitHubHost(hostname: host, port: Self.apiPort(of: webURL)),
             owner: owner,
             repo: repo
         )
