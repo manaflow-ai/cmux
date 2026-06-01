@@ -5584,6 +5584,7 @@ function renderDeferredBrowserShell(panel, body) {
     deferred = document.createElement("button");
     deferred.className = "browser-deferred browser-deferred-standalone";
     deferred.type = "button";
+    deferred.setAttribute("aria-label", "Browser paused. Click pane to load.");
     deferred.innerHTML = `
       <span class="browser-deferred-title">Browser paused</span>
       <span class="browser-deferred-url"></span>
@@ -6094,6 +6095,7 @@ function ensureBrowser(panel, body) {
   const deferredPane = document.createElement("button");
   deferredPane.className = "browser-deferred";
   deferredPane.type = "button";
+  deferredPane.setAttribute("aria-label", "Browser paused. Click pane to load.");
   deferredPane.hidden = true;
   deferredPane.innerHTML = `
     <span class="browser-deferred-title">Browser paused</span>
