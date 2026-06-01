@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSocketControl
 import SwiftUI
 import AppKit
 import Metal
@@ -6293,6 +6294,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !GeminiIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_GEMINI_HOOKS_DISABLED", "1")
         }
+        if !KiroIntegrationSettings.hooksEnabled() {
+            setManagedEnvironmentValue("CMUX_KIRO_HOOKS_DISABLED", "1")
+        }
+        setManagedEnvironmentValue(
+            "CMUX_KIRO_NOTIFICATION_LEVEL",
+            KiroIntegrationSettings.notificationLevel().rawValue
+        )
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]
@@ -11200,11 +11208,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
     private var lastSearchOverlayStateID: ObjectIdentifier?
-    private weak var cachedOwningWorkspace: Workspace?
-    private weak var observedWorkspaceTerminalScrollBar: Workspace?
     private var searchOverlayMutationGeneration: UInt64 = 0
     private var observers: [NSObjectProtocol] = []
-    private var workspaceTerminalScrollBarObserver: NSObjectProtocol?
     private var windowObservers: [NSObjectProtocol] = []
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
@@ -11752,9 +11757,6 @@ final class GhosttySurfaceScrollView: NSView {
         )
 #endif
         observers.forEach { NotificationCenter.default.removeObserver($0) }
-        if let workspaceTerminalScrollBarObserver {
-            NotificationCenter.default.removeObserver(workspaceTerminalScrollBarObserver)
-        }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         deferredSearchOverlayMutationWorkItem?.cancel()
         imageTransferIndicatorShowWorkItem?.cancel()
@@ -12077,9 +12079,6 @@ final class GhosttySurfaceScrollView: NSView {
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
         surfaceView.attachSurface(terminalSurface)
-        let workspace = terminalSurface.owningWorkspace()
-        cachedOwningWorkspace = workspace
-        updateWorkspaceTerminalScrollBarObserver(workspace)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }
@@ -14229,31 +14228,6 @@ final class GhosttySurfaceScrollView: NSView {
         _ = synchronizeGeometryAndContent()
     }
 
-    private func updateWorkspaceTerminalScrollBarObserver(_ workspace: Workspace?) {
-        if let observedWorkspaceTerminalScrollBar,
-           observedWorkspaceTerminalScrollBar === workspace,
-           workspaceTerminalScrollBarObserver != nil {
-            return
-        }
-
-        if let workspaceTerminalScrollBarObserver {
-            NotificationCenter.default.removeObserver(workspaceTerminalScrollBarObserver)
-            self.workspaceTerminalScrollBarObserver = nil
-        }
-
-        observedWorkspaceTerminalScrollBar = workspace
-
-        guard let workspace else { return }
-
-        workspaceTerminalScrollBarObserver = NotificationCenter.default.addObserver(
-            forName: Workspace.terminalScrollBarHiddenDidChangeNotification,
-            object: workspace,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handleTerminalScrollBarPreferenceChange()
-        }
-    }
-
     private func documentHeight() -> CGFloat {
         let contentHeight = scrollView.contentSize.height
         let cellHeight = surfaceView.cellSize.height
@@ -14265,23 +14239,9 @@ final class GhosttySurfaceScrollView: NSView {
         return contentHeight
     }
 
-    private func owningWorkspace() -> Workspace? {
-        let workspaceId = surfaceView.terminalSurface?.tabId
-        if let cachedOwningWorkspace,
-           cachedOwningWorkspace.id == workspaceId {
-            updateWorkspaceTerminalScrollBarObserver(cachedOwningWorkspace)
-            return cachedOwningWorkspace
-        }
-        let workspace = surfaceView.terminalSurface?.owningWorkspace()
-        cachedOwningWorkspace = workspace
-        updateWorkspaceTerminalScrollBarObserver(workspace)
-        return workspace
-    }
-
     private func terminalScrollBarAllowedBySettings() -> Bool {
         guard GhosttyApp.shared.scrollbarVisibility() != .never else { return false }
         guard TerminalScrollBarSettings.isVisible() else { return false }
-        guard owningWorkspace()?.terminalScrollBarHidden != true else { return false }
         return true
     }
 

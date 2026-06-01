@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSocketControl
 import CmuxSettings
 import CmuxSettingsUI
 import SwiftUI
@@ -40,6 +41,41 @@ struct cmuxApp: App {
         // shared static.
         let settingsCatalog = SettingCatalog()
         let configFileURL = CmuxConfigLocation().userConfigFile
+        // Secrets live in their own 0600 files under Application Support/cmux,
+        // the same directory (and `socket-control-password` file) the socket
+        // auth path reads via SocketControlPasswordStore, so the Settings UI
+        // and the listener share one source of truth.
+        let secretBaseDirectory = SocketControlPasswordStore.defaultPasswordFileURL()?
+            .deletingLastPathComponent()
+            ?? FileManager.default
+                .urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+                .appendingPathComponent("cmux", isDirectory: true)
+            ?? FileManager.default.temporaryDirectory
+        let secretStore = SecretFileStore(baseDirectory: secretBaseDirectory)
+
+        // Lift any plaintext socket-control password out of `cmux.json` into the
+        // secure store, then scrub it from the config. This runs here, in the App
+        // initializer, on purpose: it completes before the managed-config layer
+        // (`CmuxSettingsFileStore`, loaded later during app launch) reads the
+        // file, so removing the key can never be misread as a removed managed
+        // override that would trigger a restore. The secure file the migration
+        // writes is the same one both the Settings UI (via `secretStore`) and the
+        // socket listener (via `SocketControlPasswordStore`) read.
+        let socketPasswordStore = SocketControlPasswordStore()
+        let secretMigrationTimestamp: String = {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withYear, .withMonth, .withDay, .withTime]
+            return formatter.string(from: Date())
+                .replacingOccurrences(of: ":", with: "")
+                .replacingOccurrences(of: "-", with: "")
+        }()
+        PlaintextSecretMigration.scrub(
+            plaintextKeyPath: ["automation", "socketPassword"],
+            configURL: configFileURL,
+            loadCurrentSecret: { (try? socketPasswordStore.loadPassword()) ?? nil },
+            saveSecret: { try socketPasswordStore.savePassword($0) },
+            backupTimestamp: secretMigrationTimestamp
+        )
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: UserDefaultsSettingsStore(
@@ -47,6 +83,7 @@ struct cmuxApp: App {
                 migrating: settingsCatalog.all
             ),
             jsonStore: JSONConfigStore(fileURL: configFileURL),
+            secretStore: secretStore,
             errorLog: SettingsErrorLog(),
             accountFlow: HostAccountFlow(authManager: .shared),
             hostActions: HostSettingsActions(configFileURL: configFileURL)
@@ -109,7 +146,7 @@ struct cmuxApp: App {
         if !SocketControlSettings.isDebugLikeBundleIdentifier(bundleID)
             && !SocketControlSettings.isStagingBundleIdentifier(bundleID) {
             StartupBreadcrumbLog.append("app.init.keychainMigration.begin")
-            SocketControlPasswordStore.migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
+            SocketControlPasswordStore().migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
             StartupBreadcrumbLog.append("app.init.keychainMigration.complete")
         }
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
@@ -5019,6 +5056,47 @@ enum GeminiIntegrationSettings {
     }
 }
 
+enum KiroIntegrationSettings {
+    enum NotificationLevel: String, CaseIterable, Identifiable {
+        case minimal
+        case standard
+        case verbose
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .minimal:
+                return String(localized: "settings.automation.kiro.notificationLevel.minimal", defaultValue: "Minimal")
+            case .standard:
+                return String(localized: "settings.automation.kiro.notificationLevel.standard", defaultValue: "Standard")
+            case .verbose:
+                return String(localized: "settings.automation.kiro.notificationLevel.verbose", defaultValue: "Verbose")
+            }
+        }
+    }
+
+    static let hooksEnabledKey = "kiroHooksEnabled"
+    static let defaultHooksEnabled = true
+    static let notificationLevelKey = "kiroNotificationLevel"
+    static let defaultNotificationLevel = NotificationLevel.standard
+
+    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: hooksEnabledKey) == nil {
+            return defaultHooksEnabled
+        }
+        return defaults.bool(forKey: hooksEnabledKey)
+    }
+
+    static func notificationLevel(defaults: UserDefaults = .standard) -> NotificationLevel {
+        guard let raw = defaults.string(forKey: notificationLevelKey),
+              let level = NotificationLevel(rawValue: raw) else {
+            return defaultNotificationLevel
+        }
+        return level
+    }
+}
+
 enum WelcomeSettings {
     static let shownKey = "cmuxWelcomeShown"
 }
@@ -5342,6 +5420,14 @@ struct SettingsView: View {
     @Setting(\.integrations.suppressSubagentNotifications) private var suppressSubagentNotifications
     @Setting(\.integrations.cursorHooksEnabled) private var cursorHooksEnabled
     @Setting(\.integrations.geminiHooksEnabled) private var geminiHooksEnabled
+    // Kiro stays on @AppStorage here: this legacy SettingsView is no longer
+    // the presented settings window (CmuxSettingsUI's AutomationSection is),
+    // and Kiro's live toggle lives there. Both read the same UserDefaults
+    // keys, so they stay in sync.
+    @AppStorage(KiroIntegrationSettings.hooksEnabledKey)
+    private var kiroHooksEnabled = KiroIntegrationSettings.defaultHooksEnabled
+    @AppStorage(KiroIntegrationSettings.notificationLevelKey)
+    private var kiroNotificationLevel = KiroIntegrationSettings.defaultNotificationLevel.rawValue
     @Setting(\.app.sendAnonymousTelemetry) private var sendAnonymousTelemetry
     @Setting(\.app.preferredEditor) private var preferredEditorCommand
     @Setting(\.app.openSupportedFilesInCmux) private var openSupportedFilesInCmux
@@ -6005,7 +6091,7 @@ struct SettingsView: View {
     }
 
     private var hasSocketPasswordConfigured: Bool {
-        SocketControlPasswordStore.hasConfiguredPassword()
+        SocketControlPasswordStore().hasConfiguredPassword()
     }
 
     private var browserHistorySubtitle: String {
@@ -6337,7 +6423,7 @@ struct SettingsView: View {
         }
 
         do {
-            try SocketControlPasswordStore.savePassword(trimmed)
+            try SocketControlPasswordStore().savePassword(trimmed)
             draftState.socketPasswordDraft = ""
             socketPasswordStatusMessage = String(localized: "settings.automation.socketPassword.saved", defaultValue: "Password saved.")
             socketPasswordStatusIsError = false
@@ -6349,7 +6435,7 @@ struct SettingsView: View {
 
     private func clearSocketPassword() {
         do {
-            try SocketControlPasswordStore.clearPassword()
+            try SocketControlPasswordStore().clearPassword()
             draftState.socketPasswordDraft = ""
             socketPasswordStatusMessage = String(localized: "settings.automation.socketPassword.cleared", defaultValue: "Password cleared.")
             socketPasswordStatusIsError = false
@@ -6994,7 +7080,7 @@ struct SettingsView: View {
                             configurationReview: .json("terminal.showScrollBar"),
                             String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
                             subtitle: showTerminalScrollBar
-                                ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace.")
+                                ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces.")
                                 : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
                         ) {
                             Toggle("", isOn: showTerminalScrollBarBinding)
@@ -7598,6 +7684,41 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardNote(String(localized: "settings.automation.gemini.note", defaultValue: "Hooks must be installed with `cmux hooks gemini install`. They no-op outside cmux terminals."))
+                    }
+
+                    SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("automation.kiroIntegration"),
+                            String(localized: "settings.automation.kiro", defaultValue: "Kiro CLI Integration"),
+                            subtitle: kiroHooksEnabled
+                                ? String(localized: "settings.automation.kiro.subtitleOn", defaultValue: "Sidebar shows Kiro session status, notifications, and Feed tool events.")
+                                : String(localized: "settings.automation.kiro.subtitleOff", defaultValue: "Kiro runs without cmux integration.")
+                        ) {
+                            Toggle("", isOn: $kiroHooksEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsKiroHooksToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("automation.kiroNotificationLevel"),
+                            String(localized: "settings.automation.kiro.notificationLevel", defaultValue: "Kiro Notification Level"),
+                            subtitle: String(localized: "settings.automation.kiro.notificationLevel.subtitle", defaultValue: "Controls how many Kiro tool events appear in Feed.")
+                        ) {
+                            Picker("", selection: $kiroNotificationLevel) {
+                                ForEach(KiroIntegrationSettings.NotificationLevel.allCases) { level in
+                                    Text(level.title).tag(level.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 150)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote(String(localized: "settings.automation.kiro.note", defaultValue: "Hooks must be installed with `cmux hooks kiro install`. They no-op outside cmux terminals."))
                     }
 
                     SettingsCard {
@@ -8429,6 +8550,8 @@ struct SettingsView: View {
         suppressSubagentNotifications = AgentSubagentNotificationSettings.defaultSuppressNotifications
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
+        kiroHooksEnabled = KiroIntegrationSettings.defaultHooksEnabled
+        kiroNotificationLevel = KiroIntegrationSettings.defaultNotificationLevel.rawValue
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         preferredEditorCommand = ""
         CmdClickSupportedFileRouteSettings.setEnabled(CmdClickSupportedFileRouteSettings.defaultValue)
