@@ -33,7 +33,9 @@ struct WorkspaceRemoteDaemonVersionSnapshotTests {
         remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
 
         let snapshot = manager.sessionSnapshot(includeScrollback: false)
-        let persistedWorkspace = try #require(snapshot.workspaces.first)
+        let persistedWorkspace = try #require(
+            snapshot.workspaces.first { $0.remote?.persistentDaemonSlot == persistentDaemonSlot }
+        )
 
         #expect(persistedWorkspace.remote?.persistentDaemonSlot == persistentDaemonSlot)
         #expect(persistedWorkspace.remote?.remoteDaemonVersion == Workspace.currentRemoteDaemonVersion())
