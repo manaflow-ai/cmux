@@ -23,6 +23,7 @@ const defaultBrowserHomeUrl = "https://www.google.com";
 const terminalMetadataBroadcastDelayMs = 160;
 const gitBranchCacheTtlMs = 5000;
 const apiRequestBodyLimitBytes = 1024 * 1024;
+const pipeReadBufferLimitBytes = 1024 * 1024;
 
 const workspaceColors = [
   "oklch(62% 0.22 255)",
@@ -1324,13 +1325,20 @@ class CmuxWindowsRuntime {
       }
       this.pipeServer = net.createServer((socket) => {
         let buffer = "";
+        let bufferedBytes = 0;
         let authenticated = false;
         socket.on("data", (chunk) => {
+          if (bufferedBytes + chunk.length > pipeReadBufferLimitBytes) {
+            socket.destroy();
+            return;
+          }
           buffer += chunk.toString("utf8");
+          bufferedBytes += chunk.length;
           let index = buffer.indexOf("\n");
           while (index >= 0) {
             const line = buffer.slice(0, index).trim();
             buffer = buffer.slice(index + 1);
+            bufferedBytes = Buffer.byteLength(buffer);
             if (!authenticated) {
               if (this.authenticatePipeLine(line)) {
                 authenticated = true;
