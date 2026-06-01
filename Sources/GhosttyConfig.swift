@@ -23,6 +23,7 @@ struct GhosttyConfig {
     var fontFamily: String = "Menlo"
     var fontSize: CGFloat = 12
     var surfaceTabBarFontSize: CGFloat = Self.defaultSurfaceTabBarFontSize
+    var surfaceTabsFillPaneWidth: Bool = CmuxGhosttyConfigSettingEditor.defaultSurfaceTabsFillPaneWidth
     var sidebarFontSize: CGFloat = Self.defaultSidebarFontSize
     var theme: String?
     var workingDirectory: String?
@@ -407,6 +408,10 @@ struct GhosttyConfig {
                 case "surface-tab-bar-font-size":
                     if let size = Double(value), size.isFinite {
                         surfaceTabBarFontSize = Self.clampedSurfaceTabBarFontSize(CGFloat(size))
+                    }
+                case "surface-tabs-fill-pane-width":
+                    if let enabled = CmuxGhosttyConfigSettingEditor.parsedBoolLiteral(value) {
+                        surfaceTabsFillPaneWidth = enabled
                     }
                 case "sidebar-font-size":
                     if let size = Double(value), size.isFinite {
