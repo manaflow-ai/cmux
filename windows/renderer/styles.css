@@ -2442,6 +2442,10 @@ body.reduce-motion *::after {
   display: none;
 }
 
+.browser-tab-list.is-crowded {
+  gap: 3px;
+}
+
 .browser-tab {
   position: relative;
   min-width: 72px;
@@ -2461,6 +2465,27 @@ body.reduce-motion *::after {
   font-size: 11px;
 }
 
+.browser-tab-list.is-crowded .browser-tab {
+  min-width: 54px;
+  max-width: 116px;
+  flex-basis: 92px;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 4px;
+  padding: 0 5px;
+}
+
+.browser-tab-list.is-crowded .browser-tab::before {
+  content: attr(data-tab-index);
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: color-mix(in oklch, var(--color-line) 58%, var(--color-pane) 42%);
+  color: var(--color-text);
+  font: 9px/1 var(--font-mono);
+}
+
 .browser-tab:hover {
   color: var(--color-text);
   background: var(--color-pane);
@@ -2470,6 +2495,11 @@ body.reduce-motion *::after {
   border-color: var(--color-line);
   background: var(--color-pane-warm);
   color: var(--color-text);
+}
+
+.browser-tab-list.is-crowded .browser-tab.is-active::before {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
 }
 
 .browser-tab.is-dragging {
@@ -2519,11 +2549,31 @@ body.reduce-motion *::after {
     color var(--dur-fast) var(--ease-out);
 }
 
+.browser-tab-list.is-crowded .browser-tab-close {
+  position: absolute;
+  right: 2px;
+  top: 4px;
+  width: 17px;
+  height: 17px;
+  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-canvas) 16%);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-line) 70%, transparent);
+}
+
 .browser-tab:hover .browser-tab-close,
 .browser-tab.is-active .browser-tab-close,
 .browser-tab:focus-within .browser-tab-close {
   opacity: 1;
   pointer-events: auto;
+}
+
+.browser-tab-list.is-crowded .browser-tab.is-active:not(:hover):not(:focus-within) .browser-tab-close {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.browser-tab-list.is-crowded .browser-tab:hover .browser-tab-label,
+.browser-tab-list.is-crowded .browser-tab:focus-within .browser-tab-label {
+  padding-right: 16px;
 }
 
 .browser-tab-close:hover {
