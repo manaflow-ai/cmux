@@ -3443,6 +3443,12 @@ body.reduce-motion *::after {
   gap: var(--space-2);
 }
 
+@container (max-width: 380px) {
+  .settings-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
 .active-pane-panel {
   min-width: 0;
   display: grid;
@@ -3583,20 +3589,20 @@ body.reduce-motion *::after {
 .pane-shape-title,
 .pane-shape-meta {
   min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .pane-shape-title {
   color: var(--color-text);
   font-size: 13px;
   font-weight: 760;
+  line-height: 1.25;
 }
 
 .pane-shape-meta {
   color: var(--color-muted);
   font-size: 11px;
+  line-height: 1.3;
 }
 
 .pane-shape-slider {
@@ -3653,6 +3659,13 @@ body.reduce-motion *::after {
   border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-1);
   background: var(--color-canvas);
+}
+
+@container (max-width: 330px) {
+  .appearance-preview-frame {
+    aspect-ratio: auto;
+    min-height: 166px;
+  }
 }
 
 .appearance-preview-backdrop {
@@ -5554,20 +5567,25 @@ body.reduce-motion *::after {
 .pane-layout-preset-title,
 .pane-layout-preset-body {
   min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 .pane-layout-preset-title {
   font-size: 12px;
   font-weight: 760;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .pane-layout-preset-body {
   color: var(--color-muted);
   font-size: 11px;
-  line-height: 1.25;
+  line-height: 1.3;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
 }
 
 .swatch-grid {
@@ -6018,8 +6036,14 @@ body.reduce-motion *::after {
 .saved-background-add {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 94px;
+  grid-template-columns: minmax(0, 1fr) 104px;
   gap: var(--space-2);
+}
+
+@container (max-width: 330px) {
+  .saved-background-add {
+    grid-template-columns: 1fr;
+  }
 }
 
 .saved-background-actions,
