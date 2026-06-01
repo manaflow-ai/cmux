@@ -1004,6 +1004,17 @@ final class CmuxSettingsFileStore {
                     allowBareFirstStroke: action.allowsBareFirstStroke
                 )
             }
+            // Object form written by the CmuxSettings package recorder (the
+            // in-app Settings UI): { "first": { key, command, ... }, "second": { ... }? }.
+            // The package serializes StoredShortcut as nested stroke objects, so
+            // a rebinding made in Settings only reaches this store in that shape.
+            // Decode it here so every action resolved through this store — most
+            // visibly the system-wide Carbon hotkeys (globalSearch,
+            // showHideAllWindows) — honors the rebinding instead of silently
+            // dropping it and falling back to the built-in default.
+            if let object = rawValue as? [String: Any] {
+                return parseShortcutObjectForm(object)
+            }
             return nil
         }()
 
@@ -1011,6 +1022,39 @@ final class CmuxSettingsFileStore {
         // Settings-file parsing runs while the shared store may still be initializing.
         // Avoid the UI recorder's conflict lookup here because it reads the shared store.
         return action.normalizedSettingsFileShortcut(shortcut)
+    }
+
+    /// Decodes the nested-object binding the CmuxSettings package writes
+    /// (`{ "first": { stroke }, "second": { stroke }? }`) into the app-target
+    /// ``StoredShortcut``. An empty primary key is the package's explicit
+    /// "unbound" marker. Returns `nil` only when `first` is missing or
+    /// malformed, matching the silently-ignored behavior of the string forms.
+    private func parseShortcutObjectForm(_ object: [String: Any]) -> StoredShortcut? {
+        guard let firstValue = object["first"],
+              let first = parseShortcutStrokeObject(firstValue) else {
+            return nil
+        }
+        if first.key.isEmpty {
+            return .unbound
+        }
+        let second = object["second"].flatMap(parseShortcutStrokeObject)
+        return StoredShortcut(first: first, second: second)
+    }
+
+    private func parseShortcutStrokeObject(_ rawValue: Any) -> ShortcutStroke? {
+        if rawValue is NSNull { return nil }
+        guard let dict = rawValue as? [String: Any],
+              let key = jsonString(dict["key"]) else {
+            return nil
+        }
+        return ShortcutStroke(
+            key: key,
+            command: jsonBool(dict["command"]) ?? false,
+            shift: jsonBool(dict["shift"]) ?? false,
+            option: jsonBool(dict["option"]) ?? false,
+            control: jsonBool(dict["control"]) ?? false,
+            keyCode: jsonInt(dict["keyCode"]).map { UInt16(truncatingIfNeeded: $0) }
+        )
     }
 
     private func parseNullableHex(
