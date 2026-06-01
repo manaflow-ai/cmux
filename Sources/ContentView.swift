@@ -10380,6 +10380,19 @@ struct VerticalTabsSidebar: View {
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @AppStorage(CmuxExtensionSidebarSelection.enabledDefaultsKey)
     private var extensionsExperimentalEnabled = CmuxExtensionSidebarSelection.enabledDefault
+
+    // The provider to actually render. When the experimental Extensions feature
+    // is disabled, fall back to the default workspaces sidebar regardless of the
+    // persisted selection: turning extensions off hides the provider switcher,
+    // so a hosted-extension selection would otherwise strand the user with no
+    // way back. Deriving the effective provider (rather than mutating the
+    // persisted selection via an observer) routes correctly on the first render
+    // pass and restores the user's choice if extensions are re-enabled.
+    private var effectiveExtensionSidebarProviderId: String {
+        extensionsExperimentalEnabled
+            ? selectedExtensionSidebarProviderId
+            : CmuxExtensionSidebarSelection.defaultProviderId
+    }
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
@@ -10609,7 +10622,7 @@ struct VerticalTabsSidebar: View {
         )
 
         ZStack(alignment: .bottomLeading) {
-            if CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId).id == CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID {
+            if CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId).id == CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
@@ -10866,8 +10879,7 @@ struct VerticalTabsSidebar: View {
 
     @ViewBuilder
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        if extensionsExperimentalEnabled,
-           selectedExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
+        if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
             CMUXInstalledExtensionSidebarHostView(
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
                 snapshotUpdateToken: extensionSidebarUpdateToken,
@@ -11067,7 +11079,7 @@ struct VerticalTabsSidebar: View {
         snapshot: CmuxExtensionSidebarSnapshot,
         now: Date
     ) -> CmuxExtensionSidebarRenderModel {
-        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId)
+        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId)
         if let provider = CmuxExtensionSidebarSelection.provider(for: descriptor.id) {
             let context = CmuxExtensionSidebarRenderContext(now: now)
             if let contextualProvider = provider as? any CmuxExtensionSidebarContextualProvider {
@@ -11688,7 +11700,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func handleExtensionSidebarMutation(_ mutation: CmuxExtensionSidebarMutation) -> Bool {
-        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId)
+        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId)
         guard let provider = CmuxExtensionSidebarSelection.provider(for: descriptor.id) as? any CmuxExtensionSidebarMutableProvider else {
             return false
         }
