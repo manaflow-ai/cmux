@@ -1189,9 +1189,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertFalse(result.timedOut, "\(tool): \(result.stderr)")
             XCTAssertEqual(result.status, 0, "\(tool): \(result.stderr)")
             XCTAssertEqual(result.stdout, "{}\n", "\(tool) stdout")
-            // A non-suppressed event sends one feed.push; a suppressed event
+            // A non-suppressed event sends one feed.push, so wait for the
+            // server to record it (generous timeout to avoid flaking on the
+            // socket/process round-trip under CI load). A suppressed event
             // sends nothing, so this wait simply times out silently.
-            _ = XCTWaiter().wait(for: [serverHandled], timeout: 1.5)
+            _ = XCTWaiter().wait(for: [serverHandled], timeout: 5)
             return state.commands.filter { $0.contains("feed.push") }.count
         }
 
