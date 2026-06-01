@@ -3,12 +3,6 @@ import Foundation
 actor TextBoxMentionIndexStore {
     static let shared = TextBoxMentionIndexStore()
 
-    private struct CachedIndex {
-        let index: TextBoxMentionCandidateIndex
-        let createdAt: Date
-        let lastAccessedAt: Date
-    }
-
     private static let fileIndexTTL: TimeInterval = 30
     private static let maxCachedFileIndexes = 8
     private static let directorySeedBatchSize = 128
@@ -47,7 +41,7 @@ actor TextBoxMentionIndexStore {
         ".playground"
     ]
 
-    private var fileIndexesByRoot: [String: CachedIndex] = [:]
+    private var fileIndexesByRoot: [String: TextBoxMentionCachedIndex] = [:]
     private var fileIndexRefreshTasks: [String: Task<TextBoxMentionCandidateIndex, Never>] = [:]
     private var skillIndexesByRootKey: [String: TextBoxMentionCandidateIndex] = [:]
 
@@ -137,7 +131,7 @@ actor TextBoxMentionIndexStore {
             pruneFileIndexCache(now: now)
             return nil
         }
-        fileIndexesByRoot[rootDirectory] = CachedIndex(
+        fileIndexesByRoot[rootDirectory] = TextBoxMentionCachedIndex(
             index: cached.index,
             createdAt: cached.createdAt,
             lastAccessedAt: now
@@ -205,7 +199,7 @@ actor TextBoxMentionIndexStore {
         }
         fileIndexRefreshTasks[rootDirectory] = nil
         let storedAt = Date()
-        fileIndexesByRoot[rootDirectory] = CachedIndex(
+        fileIndexesByRoot[rootDirectory] = TextBoxMentionCachedIndex(
             index: index,
             createdAt: createdAt,
             lastAccessedAt: storedAt
