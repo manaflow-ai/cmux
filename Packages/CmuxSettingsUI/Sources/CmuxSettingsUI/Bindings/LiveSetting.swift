@@ -42,6 +42,7 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
     private enum Kind {
         case defaults(KeyPath<SettingCatalog, DefaultsKey<Value>>)
         case json(KeyPath<SettingCatalog, JSONKey<Value>>)
+        case secret(KeyPath<SettingCatalog, SecretFileKey>)
     }
 
     /// Binds to a UserDefaults-backed setting.
@@ -53,6 +54,13 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
     /// Binds to a JSON-config-backed setting.
     public init(_ keyPath: KeyPath<SettingCatalog, JSONKey<Value>>) {
         kind = .json(keyPath)
+        _value = State(initialValue: SettingCatalog()[keyPath: keyPath].defaultValue)
+    }
+
+    /// Binds to a secret-file-backed setting. Secrets are always strings, so
+    /// this overload is only available when `Value` is `String`.
+    public init(_ keyPath: KeyPath<SettingCatalog, SecretFileKey>) where Value == String {
+        kind = .secret(keyPath)
         _value = State(initialValue: SettingCatalog()[keyPath: keyPath].defaultValue)
     }
 
@@ -74,6 +82,23 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
         case .json(let keyPath):
             let key = runtime.catalog[keyPath: keyPath]
             driver.activate({ runtime.jsonStore.values(for: key) }, sink: $value)
+        case .secret(let keyPath):
+            let key = runtime.catalog[keyPath: keyPath]
+            let secretStore = runtime.secretStore
+            // The `.secret` case only exists via the `Value == String` init, so
+            // the secret store's `AsyncStream<String>` is an `AsyncStream<Value>`;
+            // map it through so the generic driver stays storage-agnostic.
+            driver.activate({
+                AsyncStream<Value> { continuation in
+                    let inner = Task {
+                        for await secret in secretStore.values(for: key) {
+                            continuation.yield(secret as! Value)
+                        }
+                        continuation.finish()
+                    }
+                    continuation.onTermination = { _ in inner.cancel() }
+                }
+            }, sink: $value)
         }
     }
 
@@ -92,6 +117,15 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
             let errorLog = runtime.errorLog
             Task {
                 do { try await runtime.jsonStore.set(newValue, for: key) }
+                catch { errorLog.record(error, keyID: key.id) }
+            }
+        case .secret(let keyPath):
+            guard let secret = newValue as? String else { return }
+            let key = runtime.catalog[keyPath: keyPath]
+            let secretStore = runtime.secretStore
+            let errorLog = runtime.errorLog
+            Task {
+                do { try await secretStore.set(secret, for: key) }
                 catch { errorLog.record(error, keyID: key.id) }
             }
         }
