@@ -1,0 +1,450 @@
+#!/usr/bin/env python3
+"""Inspect and edit ~/.config/cmux/cmux.json.
+
+cmux watches the file and auto-reloads on save, so writes take effect
+immediately. The file is JSONC (JSON with // and /* */ comments); this
+script writes comment-free formatting (2-space indent, trailing newline)
+and only writes when the parsed value actually changes.
+
+Usage:
+  cmux-settings path                    print the config path
+  cmux-settings dump [--no-comments]    print current settings (raw or stripped)
+  cmux-settings get <dotted.path>       print value at path (JSON)
+  cmux-settings set <dotted.path> <v>   set value (v parsed as JSON, falls back to string)
+  cmux-settings unset <dotted.path>     remove value at path
+  cmux-settings list-supported          print every settings path the schema recognizes
+  cmux-settings validate                check JSON parses and all set keys are recognized
+  cmux-settings open                    open the file in $EDITOR (or VS Code, then TextEdit)
+
+Examples:
+  cmux-settings set app.appearance dark
+  cmux-settings set notifications.dockBadge false
+  cmux-settings set shortcuts.bindings.toggleSidebar '"cmd+b"'
+  cmux-settings set shortcuts.bindings.newTab '["ctrl+b","c"]'
+  cmux-settings unset app.appearance
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+DEFAULT_PATH = Path.home() / ".config" / "cmux" / "cmux.json"
+SCHEMA_URL = (
+    "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
+)
+
+
+def strip_jsonc(text: str) -> str:
+    """Remove // line comments and /* block comments outside strings."""
+    out: list[str] = []
+    i, n = 0, len(text)
+    in_string = False
+    string_quote = ""
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if ch == string_quote:
+                in_string = False
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            in_string = True
+            string_quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "/":
+            j = text.find("\n", i + 2)
+            i = n if j == -1 else j
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "*":
+            j = text.find("*/", i + 2)
+            i = n if j == -1 else j + 2
+            continue
+        out.append(ch)
+        i += 1
+    # Drop trailing commas before ] or } (also legal in JSONC).
+    return strip_trailing_commas_outside_strings("".join(out))
+
+
+def strip_trailing_commas_outside_strings(text: str) -> str:
+    """Remove JSONC trailing commas without touching string contents."""
+    out: list[str] = []
+    i, n = 0, len(text)
+    in_string = False
+    string_quote = ""
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if ch == string_quote:
+                in_string = False
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            in_string = True
+            string_quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == ",":
+            j = i + 1
+            while j < n and text[j].isspace():
+                j += 1
+            if j < n and text[j] in "}]":
+                i += 1
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def load_settings(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"$schema": SCHEMA_URL, "schemaVersion": 1}
+    raw = path.read_text()
+    try:
+        return json.loads(strip_jsonc(raw))
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"error: {path} is not valid JSONC: {e}")
+
+
+def atomic_write(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=path.parent, delete=False, suffix=".tmp"
+    ) as tmp:
+        tmp.write(encoded)
+        tmp_path = Path(tmp.name)
+    os.replace(tmp_path, path)
+
+
+def split_path(dotted: str) -> list[str]:
+    if not dotted:
+        raise SystemExit("error: empty key path")
+    parts = dotted.split(".")
+    if any(part == "" for part in parts):
+        raise SystemExit("error: empty key path segment")
+    return parts
+
+
+def get_at(data: Any, parts: list[str]) -> Any:
+    cur = data
+    for p in parts:
+        if not isinstance(cur, dict) or p not in cur:
+            raise SystemExit(f"error: path not present: {'.'.join(parts)}")
+        cur = cur[p]
+    return cur
+
+
+def set_at(data: dict[str, Any], parts: list[str], value: Any) -> bool:
+    cur = data
+    for p in parts[:-1]:
+        if p not in cur:
+            cur[p] = {}
+        elif not isinstance(cur[p], dict):
+            raise SystemExit(
+                f"error: intermediate key '{p}' is not an object "
+                f"(got {type(cur[p]).__name__}); cannot set nested path"
+            )
+        cur = cur[p]
+    leaf = parts[-1]
+    changed = (leaf not in cur) or cur[leaf] != value
+    cur[leaf] = value
+    return changed
+
+
+def unset_at(data: dict[str, Any], parts: list[str]) -> bool:
+    trail: list[tuple[dict[str, Any], str]] = []
+    cur: Any = data
+    for p in parts[:-1]:
+        if not isinstance(cur, dict) or p not in cur:
+            return False
+        trail.append((cur, p))
+        cur = cur[p]
+    if not isinstance(cur, dict) or parts[-1] not in cur:
+        return False
+    del cur[parts[-1]]
+    # Drop now-empty ancestor objects so the file stays tidy.
+    for parent, key in reversed(trail):
+        if isinstance(parent[key], dict) and not parent[key]:
+            del parent[key]
+        else:
+            break
+    return True
+
+
+def parse_value(raw: str) -> Any:
+    """Try JSON first; if it fails, fall back to a plain string."""
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+
+
+def flatten(prefix: str, value: Any) -> list[str]:
+    if isinstance(value, dict):
+        out: list[str] = []
+        for k, v in value.items():
+            child = f"{prefix}.{k}" if prefix else k
+            out.extend(flatten(child, v))
+        return out
+    return [prefix]
+
+
+def supported_paths_from_source(source: Path) -> list[str]:
+    text = source.read_text()
+    known_sections = (
+        "app.",
+        "terminal.",
+        "notifications.",
+        "sidebar.",
+        "workspaceColors.",
+        "sidebarAppearance.",
+        "automation.",
+        "browser.",
+        "shortcuts.",
+    )
+    candidates = re.findall(r'"([a-zA-Z]+\.[a-zA-Z0-9_.]+)"', text)
+    return sorted({p for p in candidates if p.startswith(known_sections)})
+
+
+def supported_paths_from_reference(skill_root: Path | None) -> list[str]:
+    if skill_root is None:
+        return []
+    reference = skill_root / "references" / "all-keys.md"
+    if not reference.exists():
+        return []
+    text = reference.read_text()
+    return sorted(set(re.findall(r"^\| `([^`]+)` \|", text, re.MULTILINE)))
+
+
+def find_source_file() -> Path | None:
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        direct = parent / "Sources" / "CmuxSettingsJSONPathSupport.swift"
+        if direct.exists():
+            return direct
+        hq_checkout = parent / "repo" / "Sources" / "CmuxSettingsJSONPathSupport.swift"
+        if hq_checkout.exists():
+            return hq_checkout
+    return None
+
+
+def find_skill_root() -> Path | None:
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if parent.name == "cmux-settings" and (parent / "SKILL.md").exists():
+            return parent
+        if (parent / "references" / "all-keys.md").exists():
+            return parent
+    return None
+
+
+def supported_paths() -> list[str]:
+    source = find_source_file()
+    if source is not None:
+        return supported_paths_from_source(source)
+    return supported_paths_from_reference(find_skill_root())
+
+
+def cmd_path(args: argparse.Namespace) -> int:
+    print(args.file)
+    return 0
+
+
+def cmd_dump(args: argparse.Namespace) -> int:
+    path = Path(args.file)
+    if args.no_comments:
+        data = load_settings(path)
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+    else:
+        if path.exists():
+            sys.stdout.write(path.read_text())
+        else:
+            print(f"# {path} does not exist", file=sys.stderr)
+            return 1
+    return 0
+
+
+def cmd_get(args: argparse.Namespace) -> int:
+    data = load_settings(Path(args.file))
+    value = get_at(data, split_path(args.key))
+    print(json.dumps(value, indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_set(args: argparse.Namespace) -> int:
+    path = Path(args.file)
+    data = load_settings(path)
+    parts = split_path(args.key)
+    value = parse_value(args.value)
+    changed = set_at(data, parts, value)
+    if not changed:
+        print(f"unchanged: {args.key} = {json.dumps(value)}")
+        return 0
+    atomic_write(path, data)
+    print(f"set: {args.key} = {json.dumps(value)}")
+    return 0
+
+
+def cmd_unset(args: argparse.Namespace) -> int:
+    path = Path(args.file)
+    data = load_settings(path)
+    if not unset_at(data, split_path(args.key)):
+        print(f"unchanged: {args.key} (not present)")
+        return 0
+    atomic_write(path, data)
+    print(f"unset: {args.key}")
+    return 0
+
+
+def cmd_list_supported(args: argparse.Namespace) -> int:
+    paths = supported_paths()
+    if not paths:
+        print(
+            "error: could not load the supported-paths list; "
+            "run from a cmux checkout or reinstall the cmux-settings skill",
+            file=sys.stderr,
+        )
+        return 1
+    for p in paths:
+        print(p)
+    return 0
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    path = Path(args.file)
+    data = load_settings(path)
+    supported = set(supported_paths())
+    if not supported:
+        print(
+            "warn: could not load schema path list; only checked JSON parses",
+            file=sys.stderr,
+        )
+        print(f"ok: {path} parses")
+        return 0
+    unknown: list[str] = []
+    # Keep this in sync with top-level structural keys in web/data/cmux.schema.json.
+    structural = {
+        "$schema",
+        "schemaVersion",
+        "actions",
+        "ui",
+        "commands",
+        "vault",
+        "newWorkspaceCommand",
+        "surfaceTabBarButtons",
+        "rightSidebar",
+    }
+    for top, value in data.items():
+        if top in structural:
+            continue
+        if not isinstance(value, dict):
+            unknown.append(top)
+            continue
+        for full in flatten(top, value):
+            if full in supported:
+                continue
+            if any(full.startswith(s + ".") for s in supported):
+                continue
+            unknown.append(full)
+    if unknown:
+        print("unknown settings keys:")
+        for u in unknown:
+            print(f"  {u}")
+        return 1
+    print(f"ok: {path} parses and all settings keys are recognized")
+    return 0
+
+
+def cmd_open(args: argparse.Namespace) -> int:
+    path = Path(args.file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        atomic_write(path, {"$schema": SCHEMA_URL, "schemaVersion": 1})
+    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
+    if editor:
+        try:
+            editor_args = shlex.split(editor)
+        except ValueError as e:
+            print(f"error: invalid editor command: {e}", file=sys.stderr)
+            return 1
+        if not editor_args:
+            print("error: editor command is empty", file=sys.stderr)
+            return 1
+        try:
+            return subprocess.call([*editor_args, str(path)])
+        except FileNotFoundError:
+            print(f"error: editor not found: {editor_args[0]}", file=sys.stderr)
+            return 1
+    for app in (["code", "--wait"], ["cursor", "--wait"], ["open", "-e"], ["xdg-open"]):
+        if shutil.which(app[0]):
+            try:
+                return subprocess.call([*app, str(path)])
+            except FileNotFoundError:
+                continue
+    print(
+        "error: no suitable editor found; set $EDITOR or install code, cursor, open, or xdg-open",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "--file",
+        default=str(DEFAULT_PATH),
+        help=f"settings file path (default: {DEFAULT_PATH})",
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("path").set_defaults(func=cmd_path)
+
+    p_dump = sub.add_parser("dump")
+    p_dump.add_argument("--no-comments", action="store_true")
+    p_dump.set_defaults(func=cmd_dump)
+
+    p_get = sub.add_parser("get")
+    p_get.add_argument("key")
+    p_get.set_defaults(func=cmd_get)
+
+    p_set = sub.add_parser("set")
+    p_set.add_argument("key")
+    p_set.add_argument("value")
+    p_set.set_defaults(func=cmd_set)
+
+    p_unset = sub.add_parser("unset")
+    p_unset.add_argument("key")
+    p_unset.set_defaults(func=cmd_unset)
+
+    sub.add_parser("list-supported").set_defaults(func=cmd_list_supported)
+    sub.add_parser("validate").set_defaults(func=cmd_validate)
+    sub.add_parser("open").set_defaults(func=cmd_open)
+
+    args = parser.parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,1274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
+  "title": "cmux.json",
+  "description": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json supports actions, commands, notification hooks, and UI action wiring.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "default": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
+      "description": "Optional schema URL for editor completion and validation."
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Schema version for forward-compatible migrations. Newer versions are parsed on a best-effort basis."
+    },
+    "actions": {
+      "title": "actions",
+      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu.",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "ui": {
+      "title": "ui",
+      "description": "UI action wiring, including surface tab bar buttons and plus-button behavior.",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "commands": {
+      "title": "commands",
+      "description": "Custom shell commands and workspace layout definitions.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "vault": {
+      "title": "vault",
+      "description": "Vault session restore agent registrations. cmux includes Pi by default; use this section to add or override JSONL-backed coding agents without an app update.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agents": {
+          "type": "array",
+          "description": "Custom coding agents that Vault can detect, list, and resume.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["id", "name", "sessionIdSource", "resumeCommand"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "description": "Stable lowercase-ish identifier used in Vault persistence, for example pi."
+              },
+              "name": {
+                "type": "string",
+                "description": "Display name shown in Vault."
+              },
+              "iconAssetName": {
+                "type": "string",
+                "description": "Optional asset catalog image name shown for this agent in Vault."
+              },
+              "detect": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Rules for detecting a running agent process inside a cmux terminal.",
+                "properties": {
+                  "processName": {
+                    "type": "string",
+                    "description": "Executable basename to match, for example pi."
+                  },
+                  "argvContains": {
+                    "oneOf": [
+                      { "type": "string" },
+                      {
+                        "type": "array",
+                        "items": { "type": "string" }
+                      }
+                    ],
+                    "description": "Substring or substrings that must appear in the process argv."
+                  }
+                }
+              },
+              "sessionIdSource": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "description": "Use piSessionFile for Pi JSONL discovery, or an argv option such as --session."
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["type"],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": ["argvOption", "piSessionFile"]
+                      },
+                      "argvOption": {
+                        "type": "string",
+                        "description": "Option whose following value is the session id, for example --session."
+                      }
+                    },
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "type": { "const": "argvOption" }
+                          }
+                        },
+                        "then": { "required": ["argvOption"] }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "type": { "const": "piSessionFile" }
+                          }
+                        },
+                        "then": {
+                          "not": { "required": ["argvOption"] }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "description": "Where cmux reads the native session id for an active process."
+              },
+              "resumeCommand": {
+                "type": "string",
+                "anyOf": [
+                  { "pattern": "\\{\\{sessionId\\}\\}" },
+                  { "pattern": "\\{\\{sessionPath\\}\\}" }
+                ],
+                "description": "Shell-like argv template used to resume a session. Supported placeholders: {{sessionId}}, {{sessionPath}}, {{executable}}, {{cwd}}, {{sessionDir}}. Must include {{sessionId}} or {{sessionPath}}."
+              },
+              "cwd": {
+                "type": "string",
+                "enum": ["preserve", "ignore"],
+                "default": "preserve",
+                "description": "Whether Vault should cd to the saved working directory before running resumeCommand."
+              },
+              "sessionDirectory": {
+                "type": "string",
+                "description": "Optional root directory for JSONL session discovery, such as ~/.pi/agent/sessions."
+              }
+            }
+          },
+          "default": []
+        }
+      }
+    },
+    "newWorkspaceCommand": {
+      "type": "string",
+      "description": "Legacy name of a workspace command to run when creating a new workspace. Prefer ui.newWorkspace.action for new configs."
+    },
+    "workspaceGroups": {
+      "type": "object",
+      "title": "workspaceGroups",
+      "description": "Per-cwd customization for sidebar workspace groups. The anchor workspace's cwd is matched against the keys in `byCwd`; longest-match wins. Keys containing `*` or `?` are matched as fnmatch globs (with `~` expanded); other keys are path prefixes.",
+      "additionalProperties": false,
+      "properties": {
+        "newWorkspacePlacement": {
+          "type": "string",
+          "enum": ["afterCurrent", "top", "end"],
+          "default": "afterCurrent",
+          "description": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",
+          "descriptionKey": "schemaDescriptions.workspaceGroups.newWorkspacePlacement"
+        },
+        "byCwd": {
+          "type": "object",
+          "description": "Map of cwd patterns to group customization. Empty when omitted.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "color": {
+                "type": "string",
+                "description": "Hex color (e.g. \"#7A4FD8\") applied as the group header tint when the group itself has no explicit customColor."
+              },
+              "icon": {
+                "type": "string",
+                "description": "SF Symbol name (e.g. \"folder.fill\", \"ladybug.fill\") for the group header. Falls back to \"folder.fill\" when omitted."
+              },
+              "contextMenu": {
+                "type": "array",
+                "description": "Items appearing in the right-click menu on the group's + button. Same schema as the global ui.newWorkspace.contextMenu entries.",
+                "items": {
+                  "oneOf": [
+                    { "type": "string" },
+                    { "type": "object", "additionalProperties": true }
+                  ]
+                }
+              },
+              "newWorkspacePlacement": {
+                "type": "string",
+                "enum": ["afterCurrent", "top", "end"],
+                "description": "Per-cwd override for where Cmd-N inside the group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member). Falls back to the global default when omitted.",
+                "descriptionKey": "schemaDescriptions.workspaceGroups.byCwd.newWorkspacePlacement"
+              }
+            }
+          }
+        }
+      }
+    },
+    "surfaceTabBarButtons": {
+      "title": "surfaceTabBarButtons",
+      "description": "Legacy root-level surface tab bar buttons. Prefer ui.surfaceTabBar.buttons for new configs.",
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "additionalProperties": true
+          }
+        ]
+      }
+    },
+    "app": {
+      "title": "app",
+      "description": "General app preferences from Settings > App.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "language": {
+          "type": "string",
+          "enum": [
+            "system",
+            "en",
+            "ar",
+            "bs",
+            "zh-Hans",
+            "zh-Hant",
+            "da",
+            "de",
+            "es",
+            "fr",
+            "it",
+            "ja",
+            "ko",
+            "nb",
+            "pl",
+            "pt-BR",
+            "ru",
+            "th",
+            "tr"
+          ],
+          "default": "system",
+          "description": "Preferred app language."
+        },
+        "appearance": {
+          "type": "string",
+          "enum": ["system", "light", "dark"],
+          "default": "system",
+          "description": "App appearance mode."
+        },
+        "appIcon": {
+          "type": "string",
+          "enum": ["automatic", "light", "dark"],
+          "default": "automatic",
+          "description": "Dock and app switcher icon style."
+        },
+        "menuBarOnly": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide the Dock icon and app switcher entry while keeping cmux available from the menu bar."
+        },
+        "newWorkspacePlacement": {
+          "type": "string",
+          "enum": ["top", "afterCurrent", "end"],
+          "default": "afterCurrent",
+          "description": "Where new workspaces are inserted in the sidebar."
+        },
+        "forkConversationDefaultDestination": {
+          "type": "string",
+          "enum": ["right", "left", "top", "bottom", "newTab", "newWorkspace"],
+          "default": "right",
+          "descriptionKey": "schemaDescriptions.app.forkConversationDefaultDestination",
+          "description": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination."
+        },
+        "workspaceInheritWorkingDirectory": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces leave the working directory unset so Ghostty's working-directory setting can provide the default."
+        },
+        "minimalMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide the workspace title bar and move controls into the sidebar."
+        },
+        "keepWorkspaceOpenWhenClosingLastSurface": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, closing the last surface keeps the workspace open."
+        },
+        "focusPaneOnFirstClick": {
+          "type": "boolean",
+          "default": true,
+          "description": "When cmux is inactive, the first click can activate and focus the clicked pane."
+        },
+        "preferredEditor": {
+          "type": "string",
+          "default": "",
+          "description": "Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default."
+        },
+        "openSupportedFilesInCmux": {
+          "type": "boolean",
+          "default": true,
+          "description": "When enabled, Cmd-clicking readable local files opens supported previews in cmux, including text, code, PDFs, images, audio, video, and Quick Look files. Preview headers include an Open With menu based on the user's default and compatible macOS apps for that file."
+        },
+        "openMarkdownInCmuxViewer": {
+          "type": "boolean",
+          "default": true,
+          "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
+        },
+        "reorderOnNotification": {
+          "type": "boolean",
+          "default": true,
+          "description": "Move workspaces with new notifications toward the top."
+        },
+        "iMessageMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Move a workspace to the top and show the submitted message when sending an agent prompt."
+        },
+        "sendAnonymousTelemetry": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow anonymous telemetry."
+        },
+        "confirmQuit": {
+          "type": "string",
+          "enum": ["always", "dirty-only", "never"],
+          "default": "always",
+          "descriptionKey": "schemaDescriptions.app.confirmQuit",
+          "description": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback."
+        },
+        "warnBeforeQuit": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.app.warnBeforeQuit",
+          "description": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs."
+        },
+        "warnBeforeClosingTab": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before closing a tab."
+        },
+        "warnBeforeClosingTabXButton": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.app.warnBeforeClosingTabXButton",
+          "description": "Show a confirmation before closing a tab with the tab close button."
+        },
+        "hideTabCloseButton": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.app.hideTabCloseButton",
+          "description": "Hide tab close buttons in the pane tab bar."
+        },
+        "renameSelectsExistingName": {
+          "type": "boolean",
+          "default": true,
+          "description": "Select the current name when opening rename flows."
+        },
+        "commandPaletteSearchesAllSurfaces": {
+          "type": "boolean",
+          "default": false,
+          "description": "Search every surface in the command palette switcher instead of only the active workspace."
+        }
+      }
+    },
+    "terminal": {
+      "title": "terminal",
+      "description": "Terminal presentation settings from Settings > Terminal.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "showScrollBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
+        },
+        "copyOnSelect": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
+          "description": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
+        },
+        "autoResumeAgentSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
+        },
+        "showTextBoxOnNewTerminals": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.showTextBoxOnNewTerminals",
+          "description": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits."
+        },
+        "focusTextBoxOnNewTerminals": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.focusTextBoxOnNewTerminals",
+          "description": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
+        },
+        "agentHibernation": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Opt-in Agent Hibernation settings. cmux can suspend old background terminals only when they run a restorable coding agent, the agent lifecycle reports idle, no terminal output has changed for the configured idle window, and the live-terminal limit is exceeded. Hibernated agents resume when their tab is visited; the placeholder Resume button is a manual fallback.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable Agent Hibernation."
+            },
+            "idleSeconds": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 604800,
+              "default": 3600,
+              "description": "Minimum seconds with no terminal output or input before an idle restorable agent terminal can hibernate."
+            },
+            "maxLiveTerminals": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256,
+              "default": 12,
+              "description": "Maximum live restorable agent terminals to keep before cmux hibernates eligible background terminals, oldest first."
+            }
+          }
+        },
+        "textBoxMaxLines": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 10,
+          "description": "Maximum number of lines the rich terminal TextBox input can grow to before it scrolls."
+        },
+        "resumeCommands": {
+          "type": "array",
+          "default": [],
+          "description": "Signed command-prefix approvals for restoring non-agent terminal surfaces. cmux writes this list when you approve a surface resume command.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["version", "id", "commandPrefix", "environmentKeys", "policy", "createdAt", "updatedAt", "signature"],
+            "properties": {
+              "version": {
+                "type": "integer",
+                "const": 1
+              },
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "commandPrefix": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Shell argv prefix that must match the saved resume command."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Optional working directory that must match the saved resume command."
+              },
+              "environment": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Optional non-sensitive environment values that must match the saved resume command."
+              },
+              "environmentKeys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "source": {
+                "type": "string"
+              },
+              "policy": {
+                "type": "string",
+                "enum": ["manual", "prompt", "auto"]
+              },
+              "createdAt": {
+                "type": "number"
+              },
+              "updatedAt": {
+                "type": "number"
+              },
+              "lastUsedAt": {
+                "type": "number"
+              },
+              "signature": {
+                "type": "string",
+                "description": "HMAC signature for the record. Changing signed fields invalidates the approval."
+              }
+            }
+          }
+        }
+      }
+    },
+    "notifications": {
+      "title": "notifications",
+      "description": "Notification behavior from Settings > Notifications.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dockBadge": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the unread count in the Dock tile."
+        },
+        "showInMenuBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the menu bar extra."
+        },
+        "unreadPaneRing": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight panes with unread notifications."
+        },
+        "paneFlash": {
+          "type": "boolean",
+          "default": true,
+          "description": "Flash the focused pane when requested."
+        },
+        "sound": {
+          "type": "string",
+          "enum": [
+            "default",
+            "Basso",
+            "Blow",
+            "Bottle",
+            "Frog",
+            "Funk",
+            "Glass",
+            "Hero",
+            "Morse",
+            "Ping",
+            "Pop",
+            "Purr",
+            "Sosumi",
+            "Submarine",
+            "Tink",
+            "custom_file",
+            "none"
+          ],
+          "default": "default",
+          "description": "Notification sound preset."
+        },
+        "customSoundFilePath": {
+          "type": "string",
+          "default": "",
+          "description": "Local path to the custom notification sound file."
+        },
+        "command": {
+          "type": "string",
+          "default": "",
+          "description": "Optional shell command to run alongside notification delivery."
+        },
+        "hooksMode": {
+          "type": "string",
+          "enum": ["append", "replace"],
+          "default": "append",
+          "description": "Controls whether project-local notification hooks append to inherited hooks or replace them."
+        },
+        "hooks": {
+          "type": "array",
+          "default": [],
+          "description": "Composable shell hooks that receive notification policy JSON on stdin and return updated policy JSON on stdout.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "command"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Stable hook identifier used in logs and failure alerts."
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": ".*\\S.*",
+                "description": "Shell command run with notification policy JSON on stdin."
+              },
+              "timeoutSeconds": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "default": 20,
+                "description": "Maximum time cmux waits for this hook before falling back to default notification behavior."
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Disable this hook without removing it."
+              }
+            }
+          }
+        }
+      }
+    },
+    "sidebar": {
+      "title": "sidebar",
+      "description": "Sidebar content and metadata visibility from Settings > Sidebar.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hideAllDetails": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide all per-workspace detail rows."
+        },
+        "wrapWorkspaceTitles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line."
+        },
+        "showWorkspaceDescription": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show custom workspace descriptions in the sidebar."
+        },
+        "branchLayout": {
+          "type": "string",
+          "enum": ["vertical", "inline"],
+          "default": "vertical",
+          "description": "Show git branch details stacked vertically or inline."
+        },
+        "showNotificationMessage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the latest notification text in the sidebar."
+        },
+        "showBranchDirectory": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the workspace working directory."
+        },
+        "showPullRequests": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show pull request metadata in the sidebar."
+        },
+        "watchGitStatus": {
+          "type": "boolean",
+          "default": true,
+          "description": "Watch repository files for sidebar branch and pull request metadata without polling git."
+        },
+        "makePullRequestsClickable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow sidebar pull request metadata to open links when clicked."
+        },
+        "openPullRequestLinksInCmuxBrowser": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open sidebar pull request links in the embedded cmux browser."
+        },
+        "openPortLinksInCmuxBrowser": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open sidebar port links in the embedded cmux browser."
+        },
+        "showSSH": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show SSH connection details."
+        },
+        "showPorts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show listening ports."
+        },
+        "showLog": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show recent log snippets."
+        },
+        "showProgress": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show progress indicators."
+        },
+        "showCustomMetadata": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show custom metadata pills."
+        }
+      }
+    },
+    "workspaceColors": {
+      "title": "workspaceColors",
+      "description": "Workspace tab and badge colors from Settings > Workspace Colors.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "indicatorStyle": {
+          "type": "string",
+          "enum": [
+            "leftRail",
+            "solidFill",
+            "rail",
+            "border",
+            "wash",
+            "lift",
+            "typography",
+            "washRail",
+            "blueWashColorRail"
+          ],
+          "default": "leftRail",
+          "description": "Active workspace indicator style. Legacy aliases are accepted and normalized."
+        },
+        "selectionColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Override the selected workspace background color."
+        },
+        "notificationBadgeColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Override the unread notification badge color."
+        },
+        "colors": {
+          "type": "object",
+          "description": "Full named workspace color palette. Include built-in entries you want to keep, remove keys to remove colors, and add more named entries to extend the picker.",
+          "default": {
+            "Red": "#C0392B",
+            "Crimson": "#922B21",
+            "Orange": "#A04000",
+            "Amber": "#7D6608",
+            "Olive": "#4A5C18",
+            "Green": "#196F3D",
+            "Teal": "#006B6B",
+            "Aqua": "#0E6B8C",
+            "Blue": "#1565C0",
+            "Navy": "#1A5276",
+            "Indigo": "#283593",
+            "Purple": "#6A1B9A",
+            "Magenta": "#AD1457",
+            "Rose": "#880E4F",
+            "Brown": "#7B3F00",
+            "Charcoal": "#3E4B5E"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/colorHex"
+          }
+        },
+        "paletteOverrides": {
+          "type": "object",
+          "description": "Legacy workspace color overrides for built-in palette names. Prefer workspaceColors.colors for new configs.",
+          "default": {},
+          "deprecated": true,
+          "additionalProperties": {
+            "$ref": "#/$defs/colorHex"
+          }
+        },
+        "customColors": {
+          "type": "array",
+          "description": "Legacy list of custom workspace colors. Prefer workspaceColors.colors for new configs.",
+          "default": [],
+          "deprecated": true,
+          "items": {
+            "$ref": "#/$defs/colorHex"
+          }
+        }
+      }
+    },
+    "sidebarAppearance": {
+      "title": "sidebarAppearance",
+      "description": "Sidebar tint settings from Settings > Sidebar Appearance.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "matchTerminalBackground": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use the terminal background instead of the sidebar tint."
+        },
+        "tintColor": {
+          "$ref": "#/$defs/colorHex",
+          "default": "#000000",
+          "description": "Base sidebar tint color used when light/dark overrides are not set."
+        },
+        "lightModeTintColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Sidebar tint override for light appearance."
+        },
+        "darkModeTintColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Sidebar tint override for dark appearance."
+        },
+        "tintOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.03,
+          "description": "Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`."
+        }
+      }
+    },
+    "automation": {
+      "title": "automation",
+      "description": "Socket control and automation settings from Settings > Automation.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "socketControlMode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "cmuxOnly",
+            "automation",
+            "password",
+            "allowAll",
+            "openAccess",
+            "fullOpenAccess",
+            "notifications",
+            "full"
+          ],
+          "default": "cmuxOnly",
+          "description": "Socket control mode. Legacy aliases are accepted and normalized."
+        },
+        "socketPassword": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "",
+          "description": "Password for password-mode socket access. Use null or an empty string to clear it."
+        },
+        "claudeCodeIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable cmux integration hooks for Claude Code."
+        },
+        "claudeBinaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the claude binary."
+        },
+        "ripgrepBinaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the ripgrep (rg) binary used by project search."
+        },
+        "suppressSubagentNotifications": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.automation.suppressSubagentNotifications",
+          "description": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+        },
+        "cursorIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable cmux integration hooks for Cursor."
+        },
+        "geminiIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable cmux integration hooks for Gemini."
+        },
+        "kiroIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable cmux integration hooks for Kiro CLI."
+        },
+        "kiroNotificationLevel": {
+          "type": "string",
+          "enum": [
+            "minimal",
+            "standard",
+            "verbose"
+          ],
+          "default": "standard",
+          "description": "Controls how many Kiro tool events appear in Feed."
+        },
+        "portBase": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 9100,
+          "description": "Starting value for workspace CMUX_PORT assignments."
+        },
+        "portRange": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10,
+          "description": "Number of ports reserved per workspace."
+        }
+      }
+    },
+    "browser": {
+      "title": "browser",
+      "description": "Embedded browser settings from Settings > Browser.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultSearchEngine": {
+          "type": "string",
+          "enum": ["google", "duckduckgo", "bing", "kagi", "startpage", "brave", "perplexity", "exa", "yahoo", "ecosia", "qwant", "mojeek", "wikipedia", "github", "baidu", "yandex", "custom"],
+          "default": "google",
+          "descriptionKey": "schemaDescriptions.browser.defaultSearchEngine",
+          "description": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers."
+        },
+        "customSearchEngineName": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.browser.customSearchEngineName",
+          "description": "Display name used when defaultSearchEngine is custom."
+        },
+        "customSearchEngineURLTemplate": {
+          "type": "string",
+          "default": "https://www.google.com/search?q={query}",
+          "descriptionKey": "schemaDescriptions.browser.customSearchEngineURLTemplate",
+          "description": "Search URL used when defaultSearchEngine is custom. Include {query} or %s for the encoded query. If omitted, cmux appends q= to the URL."
+        },
+        "showSearchSuggestions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show omnibar search suggestions."
+        },
+        "theme": {
+          "type": "string",
+          "enum": ["system", "light", "dark"],
+          "default": "system",
+          "description": "Embedded browser theme."
+        },
+        "discardHiddenWebViews": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow hidden browser tabs to release page memory and restore when shown again."
+        },
+        "hiddenWebViewDiscardDelaySeconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3600,
+          "default": 300,
+          "description": "Seconds a browser tab must stay hidden before cmux frees its page memory."
+        },
+        "openTerminalLinksInCmuxBrowser": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open clicked terminal links in the embedded browser."
+        },
+        "interceptTerminalOpenCommandInCmuxBrowser": {
+          "type": "boolean",
+          "default": true,
+          "description": "Intercept terminal open http(s) commands and route them through the embedded browser."
+        },
+        "hostsToOpenInEmbeddedBrowser": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Allowlist of hosts that should stay inside the embedded browser."
+        },
+        "urlsToAlwaysOpenExternally": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Rules that always open matching URLs in the system browser."
+        },
+        "insecureHttpHostsAllowedInEmbeddedBrowser": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "localhost",
+            "*.localhost",
+            "127.0.0.1",
+            "::1",
+            "0.0.0.0",
+            "*.localtest.me"
+          ],
+          "description": "HTTP hosts allowed in the embedded browser without a warning prompt."
+        },
+        "showImportHintOnBlankTabs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the browser import hint on blank tabs."
+        },
+        "reactGrabVersion": {
+          "type": "string",
+          "default": "0.1.29",
+          "description": "Pinned react-grab version for the browser toolbar helper."
+        }
+      }
+    },
+    "shortcuts": {
+      "title": "shortcuts",
+      "description": "Keyboard shortcut settings from Settings > Keyboard Shortcuts.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "type": "object",
+          "default": {},
+          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, an array for a chord, null, an empty string, none, clear, unbound, or disabled to unbind.",
+          "propertyNames": {
+            "enum": [
+              "openSettings",
+              "reloadConfiguration",
+              "showHideAllWindows",
+              "globalSearch",
+              "newWindow",
+              "closeWindow",
+              "toggleFullScreen",
+              "quit",
+              "toggleSidebar",
+              "newTab",
+              "openFolder",
+              "reopenPreviousSession",
+              "goToWorkspace",
+              "commandPalette",
+              "commandPaletteNext",
+              "commandPalettePrevious",
+              "sendFeedback",
+              "showNotifications",
+              "jumpToUnread",
+              "toggleUnread",
+              "markOldestUnreadAndJumpNext",
+              "focusRightSidebar",
+              "switchRightSidebarToFiles",
+              "switchRightSidebarToFind",
+              "switchRightSidebarToSessions",
+              "switchRightSidebarToFeed",
+              "switchRightSidebarToDock",
+              "triggerFlash",
+              "nextSurface",
+              "prevSurface",
+              "selectSurfaceByNumber",
+              "nextSidebarTab",
+              "prevSidebarTab",
+              "focusHistoryBack",
+              "focusHistoryForward",
+              "selectWorkspaceByNumber",
+              "renameTab",
+              "renameWorkspace",
+              "editWorkspaceDescription",
+              "closeTab",
+              "closeOtherTabsInPane",
+              "closeWorkspace",
+              "groupSelectedWorkspaces",
+              "toggleFocusedWorkspaceGroupCollapsed",
+              "reopenClosedBrowserPanel",
+              "newSurface",
+              "toggleTerminalCopyMode",
+              "focusTextBoxInput",
+              "attachTextBoxFile",
+              "focusLeft",
+              "focusRight",
+              "focusUp",
+              "focusDown",
+              "splitRight",
+              "splitDown",
+              "toggleSplitZoom",
+              "equalizeSplits",
+              "splitBrowserRight",
+              "splitBrowserDown",
+              "toggleFileExplorer",
+              "saveFilePreview",
+              "openBrowser",
+              "focusBrowserAddressBar",
+              "browserBack",
+              "browserForward",
+              "browserReload",
+              "browserZoomIn",
+              "browserZoomOut",
+              "browserZoomReset",
+              "find",
+              "findInDirectory",
+              "findNext",
+              "findPrevious",
+              "hideFind",
+              "useSelectionForFind",
+              "toggleBrowserDeveloperTools",
+              "showBrowserJavaScriptConsole",
+              "toggleReactGrab",
+              "diffViewerScrollDown",
+              "diffViewerScrollUp",
+              "diffViewerScrollToBottom",
+              "diffViewerScrollToTop",
+              "diffViewerOpenFileSearch"
+            ]
+          },
+          "properties": {
+            "diffViewerScrollDown": {
+              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+            },
+            "diffViewerScrollUp": {
+              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+            },
+            "diffViewerScrollToBottom": {
+              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+            },
+            "diffViewerScrollToTop": {
+              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+            },
+            "diffViewerOpenFileSearch": {
+              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/shortcutBindingNullable"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "colorHex": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$",
+      "description": "Uppercase or lowercase 6-digit hex color."
+    },
+    "colorHexOrNull": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/colorHex"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "shortcutBinding": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/unboundShortcutBinding",
+          "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
+        },
+        {
+          "$ref": "#/$defs/shortcutFirstStroke",
+          "description": "Single-stroke shortcut, for example cmd+n or cmd+space."
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/shortcutFirstStroke"
+            },
+            {
+              "$ref": "#/$defs/shortcutStroke"
+            }
+          ],
+          "description": "Chorded shortcut. Example: [\"ctrl+b\", \"c\"]."
+        }
+      ]
+    },
+    "shortcutBindingNullable": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/shortcutBinding"
+        },
+        {
+          "type": "null",
+          "description": "Unbind this shortcut."
+        }
+      ]
+    },
+    "diffViewerShortcutBinding": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/unboundShortcutBinding",
+          "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
+        },
+        {
+          "$ref": "#/$defs/diffViewerShortcutFirstStroke",
+          "description": "Single-stroke diff viewer shortcut, for example j, k, /, or shift+g."
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/diffViewerShortcutFirstStroke"
+            },
+            {
+              "$ref": "#/$defs/shortcutStroke"
+            }
+          ],
+          "description": "Chorded diff viewer shortcut. Example: [\"g\", \"g\"]."
+        }
+      ]
+    },
+    "diffViewerShortcutBindingNullable": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/diffViewerShortcutBinding"
+        },
+        {
+          "type": "null",
+          "description": "Unbind this shortcut."
+        }
+      ]
+    },
+    "unboundShortcutBinding": {
+      "type": "string",
+      "enum": ["", "none", "clear", "unbound", "disabled"]
+    },
+    "shortcutFirstStroke": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStroke"
+        },
+        {
+          "anyOf": [
+            {
+              "pattern": "^(?:(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[sS][hH][iI][fF][tT]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⇧|⌥|⌃)\\+)+"
+            },
+            {
+              "pattern": "^(?: |[sS][pP][aA][cC][eE]|[sS][pP][aA][cC][eE][bB][aA][rR]|<[sS][pP][aA][cC][eE]>)$"
+            }
+          ]
+        }
+      ],
+      "description": "First or only shortcut stroke. Must include a modifier unless the key is Space."
+    },
+    "diffViewerShortcutFirstStroke": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStroke"
+        },
+        {
+          "anyOf": [
+            {
+              "pattern": "^(?:(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[sS][hH][iI][fF][tT]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⇧|⌥|⌃)\\+)+"
+            },
+            {
+              "pattern": "^(?: |[sS][pP][aA][cC][eE]|[sS][pP][aA][cC][eE][bB][aA][rR]|<[sS][pP][aA][cC][eE]>)$"
+            },
+            {
+              "pattern": "^(?:[A-Za-z0-9]|[,./\\\\;'`=\\[\\]-]|[cC][oO][mM][mM][aA]|[pP][eE][rR][iI][oO][dD]|[dD][oO][tT]|[sS][lL][aA][sS][hH]|[bB][aA][cC][kK][sS][lL][aA][sS][hH]|[sS][eE][mM][iI][cC][oO][lL][oO][nN]|[qQ][uU][oO][tT][eE]|[aA][pP][oO][sS][tT][rR][oO][pP][hH][eE]|[bB][aA][cC][kK][tT][iI][cC][kK]|[gG][rR][aA][vV][eE]|[mM][iI][nN][uU][sS]|[hH][yY][pP][hH][eE][nN]|[pP][lL][uU][sS]|[eE][qQ][uU][aA][lL][sS]|[lL][eE][fF][tT][bB][rR][aA][cC][kK][eE][tT]|[oO][pP][eE][nN][bB][rR][aA][cC][kK][eE][tT]|[rR][iI][gG][hH][tT][bB][rR][aA][cC][kK][eE][tT]|[cC][lL][oO][sS][eE][bB][rR][aA][cC][kK][eE][tT])$"
+            }
+          ]
+        }
+      ],
+      "description": "First or only diff viewer shortcut stroke. Bare printable keys are accepted."
+    },
+    "shortcutStroke": {
+      "type": "string",
+      "pattern": "^(?:(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[sS][hH][iI][fF][tT]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⇧|⌥|⌃)\\+)*(?: |[A-Za-z0-9]|[lL][eE][fF][tT]|[aA][rR][rR][oO][wW][lL][eE][fF][tT]|[lL][eE][fF][tT][aA][rR][rR][oO][wW]|←|[rR][iI][gG][hH][tT]|[aA][rR][rR][oO][wW][rR][iI][gG][hH][tT]|[rR][iI][gG][hH][tT][aA][rR][rR][oO][wW]|→|[uU][pP]|[aA][rR][rR][oO][wW][uU][pP]|[uU][pP][aA][rR][rR][oO][wW]|↑|[dD][oO][wW][nN]|[aA][rR][rR][oO][wW][dD][oO][wW][nN]|[dD][oO][wW][nN][aA][rR][rR][oO][wW]|↓|[tT][aA][bB]|[rR][eE][tT][uU][rR][nN]|[eE][nN][tT][eE][rR]|↩|[sS][pP][aA][cC][eE]|[sS][pP][aA][cC][eE][bB][aA][rR]|<[sS][pP][aA][cC][eE]>|[,./\\\\;'`=\\[\\]-]|[cC][oO][mM][mM][aA]|[pP][eE][rR][iI][oO][dD]|[dD][oO][tT]|[sS][lL][aA][sS][hH]|[bB][aA][cC][kK][sS][lL][aA][sS][hH]|[sS][eE][mM][iI][cC][oO][lL][oO][nN]|[qQ][uU][oO][tT][eE]|[aA][pP][oO][sS][tT][rR][oO][pP][hH][eE]|[bB][aA][cC][kK][tT][iI][cC][kK]|[gG][rR][aA][vV][eE]|[mM][iI][nN][uU][sS]|[hH][yY][pP][hH][eE][nN]|[pP][lL][uU][sS]|[eE][qQ][uU][aA][lL][sS]|[lL][eE][fF][tT][bB][rR][aA][cC][kK][eE][tT]|[oO][pP][eE][nN][bB][rR][aA][cC][kK][eE][tT]|[rR][iI][gG][hH][tT][bB][rR][aA][cC][kK][eE][tT]|[cC][lL][oO][sS][eE][bB][rR][aA][cC][kK][eE][tT]|[fF](?:[1-9]|1[0-9]|20)|[vV][oO][lL][uU][mM][eE][uU][pP]|[mM][eE][dD][iI][aA][vV][oO][lL][uU][mM][eE][uU][pP]|[mM][eE][dD][iI][aA]\\.[vV][oO][lL][uU][mM][eE][uU][pP]|[vV][oO][lL][uU][mM][eE][dD][oO][wW][nN]|[mM][eE][dD][iI][aA][vV][oO][lL][uU][mM][eE][dD][oO][wW][nN]|[mM][eE][dD][iI][aA]\\.[vV][oO][lL][uU][mM][eE][dD][oO][wW][nN]|[bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][uU][pP]|[mM][eE][dD][iI][aA][bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][uU][pP]|[mM][eE][dD][iI][aA]\\.[bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][uU][pP]|[bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][dD][oO][wW][nN]|[mM][eE][dD][iI][aA][bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][dD][oO][wW][nN]|[mM][eE][dD][iI][aA]\\.[bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][dD][oO][wW][nN]|[mM][uU][tT][eE]|[mM][eE][dD][iI][aA][mM][uU][tT][eE]|[mM][eE][dD][iI][aA]\\.[mM][uU][tT][eE]|[pP][lL][aA][yY][pP][aA][uU][sS][eE]|[mM][eE][dD][iI][aA][pP][lL][aA][yY][pP][aA][uU][sS][eE]|[mM][eE][dD][iI][aA]\\.[pP][lL][aA][yY][pP][aA][uU][sS][eE]|[nN][eE][xX][tT][tT][rR][aA][cC][kK]|[mM][eE][dD][iI][aA][nN][eE][xX][tT]|[mM][eE][dD][iI][aA]\\.[nN][eE][xX][tT]|[mM][eE][dD][iI][aA]\\.[nN][eE][xX][tT][tT][rR][aA][cC][kK]|[pP][rR][eE][vV][iI][oO][uU][sS][tT][rR][aA][cC][kK]|[mM][eE][dD][iI][aA][pP][rR][eE][vV][iI][oO][uU][sS]|[mM][eE][dD][iI][aA]\\.[pP][rR][eE][vV][iI][oO][uU][sS]|[mM][eE][dD][iI][aA]\\.[pP][rR][eE][vV][iI][oO][uU][sS][tT][rR][aA][cC][kK])$",
+      "description": "One keyboard shortcut stroke using modifier+key syntax. Supported key names include space, Space, <space>, and <Space>."
+    }
+  }
+}

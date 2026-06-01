@@ -7,13 +7,23 @@ struct GhosttyConfig {
         case dark
     }
 
-    private static let cmuxReleaseBundleIdentifier = "com.cmuxterm.app"
+    // Native fallback for fresh installs when the user hasn't chosen terminal colors yet.
+    static let cmuxDefaultLightThemeName = "Apple System Colors Light"
+    static let cmuxDefaultDarkThemeName = "Apple System Colors"
+
     private static let loadCacheLock = NSLock()
     private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
+    static let defaultSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize)
+    static let minSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.minSidebarFontSize)
+    static let maxSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSidebarFontSize)
+    static let defaultSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize)
+    static let minSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize)
+    static let maxSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize)
 
     var fontFamily: String = "Menlo"
     var fontSize: CGFloat = 12
-    var surfaceTabBarFontSize: CGFloat = 11
+    var surfaceTabBarFontSize: CGFloat = Self.defaultSurfaceTabBarFontSize
+    var sidebarFontSize: CGFloat = Self.defaultSidebarFontSize
     var theme: String?
     var workingDirectory: String?
     // Ghostty measures scrollback-limit in bytes, not lines.
@@ -24,12 +34,29 @@ struct GhosttyConfig {
 
     // Colors (from theme or config)
     var backgroundColor: NSColor = NSColor(hex: "#272822")!
+    var hasBackgroundColorDirective = false
+    var hasParsedBackgroundColor = false
     var backgroundOpacity: Double = 1.0
+    var hasBackgroundOpacityDirective = false
+    var hasParsedBackgroundOpacity = false
+    var backgroundBlur: GhosttyBackgroundBlur = .disabled
+    var hasBackgroundBlurDirective = false
+    var hasParsedBackgroundBlur = false
     var foregroundColor: NSColor = NSColor(hex: "#fdfff1")!
+    var hasForegroundColorDirective = false
+    var hasParsedForegroundColor = false
     var cursorColor: NSColor = NSColor(hex: "#c0c1b5")!
+    var hasCursorColorDirective = false
+    var hasParsedCursorColor = false
     var cursorTextColor: NSColor = NSColor(hex: "#8d8e82")!
+    var hasCursorTextColorDirective = false
+    var hasParsedCursorTextColor = false
     var selectionBackground: NSColor = NSColor(hex: "#57584f")!
+    var hasSelectionBackgroundDirective = false
+    var hasParsedSelectionBackground = false
     var selectionForeground: NSColor = NSColor(hex: "#fdfff1")!
+    var hasSelectionForegroundDirective = false
+    var hasParsedSelectionForeground = false
 
     // Sidebar appearance
     var rawSidebarBackground: String?
@@ -105,42 +132,11 @@ struct GhosttyConfig {
             return []
         }
 
-        func paths(for bundleIdentifier: String) -> [String] {
-            let directory = appSupport.appendingPathComponent(bundleIdentifier, isDirectory: true)
-            return [
-                directory.appendingPathComponent("config", isDirectory: false).path,
-                directory.appendingPathComponent("config.ghostty", isDirectory: false).path,
-            ]
-        }
-
-        func hasConfig(_ paths: [String]) -> Bool {
-            paths.contains { path in
-                guard let attributes = try? fileManager.attributesOfItem(atPath: path),
-                      let type = attributes[.type] as? FileAttributeType,
-                      type == .typeRegular,
-                      let size = attributes[.size] as? NSNumber else {
-                    return false
-                }
-                return size.intValue > 0
-            }
-        }
-
-        let releasePaths = paths(for: cmuxReleaseBundleIdentifier)
-        guard let currentBundleIdentifier, !currentBundleIdentifier.isEmpty else {
-            return releasePaths
-        }
-        if currentBundleIdentifier == cmuxReleaseBundleIdentifier {
-            return releasePaths
-        }
-
-        let currentPaths = paths(for: currentBundleIdentifier)
-        if hasConfig(currentPaths) {
-            return currentPaths
-        }
-        if SocketControlSettings.isDebugLikeBundleIdentifier(currentBundleIdentifier) {
-            return releasePaths
-        }
-        return []
+        return GhosttyApp.cmuxAppSupportConfigURLs(
+            currentBundleIdentifier: currentBundleIdentifier,
+            appSupportDirectory: appSupport,
+            fileManager: fileManager
+        ).map(\.path)
     }
 
     mutating func resolveSidebarBackground(preferredColorScheme: ColorSchemePreference) {
@@ -195,28 +191,67 @@ struct GhosttyConfig {
         var config = GhosttyConfig()
 
         // Match Ghostty's default load order on macOS.
-        let configPaths = [
+        let appSupportGhosttyDirectory = NSString(
+            string: "~/Library/Application Support/com.mitchellh.ghostty"
+        ).expandingTildeInPath
+        let appSupportConfigGhostty = (appSupportGhosttyDirectory as NSString)
+            .appendingPathComponent("config.ghostty")
+        let appSupportLegacyConfig = (appSupportGhosttyDirectory as NSString)
+            .appendingPathComponent("config")
+        var configPaths = [
             "~/.config/ghostty/config",
             "~/.config/ghostty/config.ghostty",
-            "~/Library/Application Support/com.mitchellh.ghostty/config",
-            "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
-        ].map { NSString(string: $0).expandingTildeInPath } + cmuxConfigPaths()
-
-        for path in configPaths {
-            if let contents = readConfigFile(at: path) {
-                config.parse(contents)
-            }
+        ].map { NSString(string: $0).expandingTildeInPath }
+        configPaths.append(appSupportConfigGhostty)
+        if shouldIncludeLegacyGhosttyConfigInResolvedLoad(
+            newConfigFileSize: configFileSize(at: appSupportConfigGhostty),
+            legacyConfigFileSize: configFileSize(at: appSupportLegacyConfig)
+        ) {
+            configPaths.append(appSupportLegacyConfig)
         }
+        configPaths.append(contentsOf: cmuxConfigPaths())
 
-        // Load theme if specified
-        if let themeName = config.theme {
-            config.loadTheme(
-                themeName,
+        #if DEBUG
+        let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
+        if startupPreviewProfile.loadsRealUserConfig {
+            loadConfigFiles(
+                configPaths,
+                into: &config,
+                preferredColorScheme: preferredColorScheme
+            )
+
+            if config.theme == nil,
+               GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: configPaths) {
+                config.applyCmuxDefaultAppearance(
+                    environment: ProcessInfo.processInfo.environment,
+                    bundleResourceURL: Bundle.main.resourceURL,
+                    preferredColorScheme: preferredColorScheme
+                )
+            }
+        } else if let contents = startupPreviewProfile.previewConfigContents(
+            preferredColorScheme: preferredColorScheme
+        ) {
+            config.parse(
+                contents,
+                loadingThemesImmediatelyFor: preferredColorScheme
+            )
+        }
+        #else
+        loadConfigFiles(
+            configPaths,
+            into: &config,
+            preferredColorScheme: preferredColorScheme
+        )
+
+        if config.theme == nil,
+           GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: configPaths) {
+            config.applyCmuxDefaultAppearance(
                 environment: ProcessInfo.processInfo.environment,
                 bundleResourceURL: Bundle.main.resourceURL,
                 preferredColorScheme: preferredColorScheme
             )
         }
+        #endif
 
         config.resolveSidebarBackground(preferredColorScheme: preferredColorScheme)
         config.applySidebarAppearanceToUserDefaults()
@@ -224,10 +259,135 @@ struct GhosttyConfig {
         return config
     }
 
-    mutating func parse(_ contents: String) {
+    mutating func applyCmuxDefaultAppearance(
+        environment: [String: String],
+        bundleResourceURL: URL?,
+        preferredColorScheme: ColorSchemePreference
+    ) {
+        parse(
+            Self.cmuxDefaultThemeConfigContents(
+                preferredColorScheme: preferredColorScheme,
+                environment: environment,
+                bundleResourceURL: bundleResourceURL
+            )
+        )
+    }
+
+    static func cmuxDefaultThemeName(preferredColorScheme: ColorSchemePreference) -> String {
+        switch preferredColorScheme {
+        case .light:
+            return cmuxDefaultLightThemeName
+        case .dark:
+            return cmuxDefaultDarkThemeName
+        }
+    }
+
+    static func cmuxDefaultThemeConfigContents(
+        preferredColorScheme: ColorSchemePreference,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleResourceURL: URL? = Bundle.main.resourceURL
+    ) -> String {
+        if let url = cmuxDefaultThemeConfigURL(
+            preferredColorScheme: preferredColorScheme,
+            environment: environment,
+            bundleResourceURL: bundleResourceURL
+        ), let contents = try? String(contentsOf: url, encoding: .utf8) {
+            return contents
+        }
+
+        return cmuxDefaultFallbackConfigContents(preferredColorScheme: preferredColorScheme)
+    }
+
+    static func cmuxDefaultThemeConfigURL(
+        preferredColorScheme: ColorSchemePreference,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleResourceURL: URL? = Bundle.main.resourceURL
+    ) -> URL? {
+        let themeName = cmuxDefaultThemeName(preferredColorScheme: preferredColorScheme)
+        for candidateName in themeNameCandidates(from: themeName) {
+            for path in themeSearchPaths(
+                forThemeName: candidateName,
+                environment: environment,
+                bundleResourceURL: bundleResourceURL
+            ) where (try? String(contentsOfFile: path, encoding: .utf8)) != nil {
+                return URL(fileURLWithPath: path)
+            }
+        }
+
+        return nil
+    }
+
+    private static func cmuxDefaultFallbackConfigContents(
+        preferredColorScheme: ColorSchemePreference
+    ) -> String {
+        switch preferredColorScheme {
+        case .light:
+            return """
+            palette = 0=#1a1a1a
+            palette = 1=#cc372e
+            palette = 2=#26a439
+            palette = 3=#cdac08
+            palette = 4=#0869cb
+            palette = 5=#9647bf
+            palette = 6=#479ec2
+            palette = 7=#98989d
+            palette = 8=#464646
+            palette = 9=#ff453a
+            palette = 10=#32d74b
+            palette = 11=#e5bc00
+            palette = 12=#0a84ff
+            palette = 13=#bf5af2
+            palette = 14=#69c9f2
+            palette = 15=#ffffff
+            background = #feffff
+            foreground = #000000
+            cursor-color = #98989d
+            cursor-text = #ffffff
+            selection-background = #abd8ff
+            selection-foreground = #000000
+            """
+        case .dark:
+            return """
+            palette = 0=#1a1a1a
+            palette = 1=#cc372e
+            palette = 2=#26a439
+            palette = 3=#cdac08
+            palette = 4=#0869cb
+            palette = 5=#9647bf
+            palette = 6=#479ec2
+            palette = 7=#98989d
+            palette = 8=#464646
+            palette = 9=#ff453a
+            palette = 10=#32d74b
+            palette = 11=#ffd60a
+            palette = 12=#0a84ff
+            palette = 13=#bf5af2
+            palette = 14=#76d6ff
+            palette = 15=#ffffff
+            background = #1e1e1e
+            foreground = #ffffff
+            cursor-color = #98989d
+            cursor-text = #ffffff
+            selection-background = #3f638b
+            selection-foreground = #ffffff
+            """
+        }
+    }
+
+    mutating func parse(
+        _ contents: String,
+        loadingThemesImmediatelyFor preferredColorScheme: ColorSchemePreference? = nil
+    ) {
         let lines = contents.components(separatedBy: .newlines)
         for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            var trimmed = line.trimmingCharacters(in: .whitespaces)
+            // Strip a leading UTF-8 BOM so a BOM-encoded first line (e.g. a
+            // `sidebar-font-size` setting) is still parsed instead of silently
+            // ignored, matching `CmuxGhosttyConfigSettingEditor.parsedSetting`.
+            if trimmed.hasPrefix("\u{FEFF}") {
+                trimmed.removeFirst()
+                trimmed = trimmed.trimmingCharacters(in: .whitespaces)
+            }
             if trimmed.isEmpty || trimmed.hasPrefix("#") {
                 continue
             }
@@ -245,11 +405,23 @@ struct GhosttyConfig {
                         fontSize = CGFloat(size)
                     }
                 case "surface-tab-bar-font-size":
-                    if let size = Double(value) {
-                        surfaceTabBarFontSize = CGFloat(size)
+                    if let size = Double(value), size.isFinite {
+                        surfaceTabBarFontSize = Self.clampedSurfaceTabBarFontSize(CGFloat(size))
+                    }
+                case "sidebar-font-size":
+                    if let size = Double(value), size.isFinite {
+                        sidebarFontSize = Self.clampedSidebarFontSize(CGFloat(size))
                     }
                 case "theme":
                     theme = value
+                    if let preferredColorScheme {
+                        loadTheme(
+                            value,
+                            environment: ProcessInfo.processInfo.environment,
+                            bundleResourceURL: Bundle.main.resourceURL,
+                            preferredColorScheme: preferredColorScheme
+                        )
+                    }
                 case "working-directory":
                     workingDirectory = value
                 case "scrollback-limit":
@@ -257,32 +429,68 @@ struct GhosttyConfig {
                         scrollbackLimit = limit
                     }
                 case "background":
+                    hasBackgroundColorDirective = true
                     if let color = NSColor(hex: value) {
                         backgroundColor = color
+                        hasParsedBackgroundColor = true
+                    } else {
+                        hasParsedBackgroundColor = false
                     }
                 case "background-opacity":
+                    hasBackgroundOpacityDirective = true
                     if let opacity = Double(value) {
-                        backgroundOpacity = opacity
+                        backgroundOpacity = min(1.0, max(0.0, opacity))
+                        hasParsedBackgroundOpacity = true
+                    } else {
+                        hasParsedBackgroundOpacity = false
+                    }
+                case "background-blur":
+                    hasBackgroundBlurDirective = true
+                    if let parsedBlur = Self.parseBackgroundBlur(value) {
+                        backgroundBlur = parsedBlur
+                        hasParsedBackgroundBlur = true
+                    } else {
+                        hasParsedBackgroundBlur = false
                     }
                 case "foreground":
+                    hasForegroundColorDirective = true
                     if let color = NSColor(hex: value) {
                         foregroundColor = color
+                        hasParsedForegroundColor = true
+                    } else {
+                        hasParsedForegroundColor = false
                     }
                 case "cursor-color":
+                    hasCursorColorDirective = true
                     if let color = NSColor(hex: value) {
                         cursorColor = color
+                        hasParsedCursorColor = true
+                    } else {
+                        hasParsedCursorColor = false
                     }
                 case "cursor-text":
+                    hasCursorTextColorDirective = true
                     if let color = NSColor(hex: value) {
                         cursorTextColor = color
+                        hasParsedCursorTextColor = true
+                    } else {
+                        hasParsedCursorTextColor = false
                     }
                 case "selection-background":
+                    hasSelectionBackgroundDirective = true
                     if let color = NSColor(hex: value) {
                         selectionBackground = color
+                        hasParsedSelectionBackground = true
+                    } else {
+                        hasParsedSelectionBackground = false
                     }
                 case "selection-foreground":
+                    hasSelectionForegroundDirective = true
                     if let color = NSColor(hex: value) {
                         selectionForeground = color
+                        hasParsedSelectionForeground = true
+                    } else {
+                        hasParsedSelectionForeground = false
                     }
                 case "palette":
                     // Parse palette entries like "0=#272822"
@@ -317,6 +525,144 @@ struct GhosttyConfig {
         }
     }
 
+    private static func loadConfigFiles(
+        _ paths: [String],
+        into config: inout GhosttyConfig,
+        preferredColorScheme: ColorSchemePreference
+    ) {
+        var recursiveConfigPaths: [String] = []
+        var loadedConfigPaths = Set<String>()
+
+        for path in paths.map({ NSString(string: $0).expandingTildeInPath }) {
+            loadConfigFile(
+                at: path,
+                into: &config,
+                preferredColorScheme: preferredColorScheme,
+                recursiveConfigPaths: &recursiveConfigPaths,
+                loadedConfigPaths: &loadedConfigPaths,
+                markLoadedPath: false
+            )
+        }
+
+        while !recursiveConfigPaths.isEmpty {
+            let path = recursiveConfigPaths.removeFirst()
+            loadConfigFile(
+                at: path,
+                into: &config,
+                preferredColorScheme: preferredColorScheme,
+                recursiveConfigPaths: &recursiveConfigPaths,
+                loadedConfigPaths: &loadedConfigPaths,
+                markLoadedPath: true
+            )
+        }
+    }
+
+    private static func loadConfigFile(
+        at path: String,
+        into config: inout GhosttyConfig,
+        preferredColorScheme: ColorSchemePreference,
+        recursiveConfigPaths: inout [String],
+        loadedConfigPaths: inout Set<String>,
+        markLoadedPath: Bool
+    ) {
+        let resolved = (path as NSString).standardizingPath
+        if markLoadedPath {
+            guard !loadedConfigPaths.contains(resolved) else { return }
+        }
+        guard let contents = readConfigFile(at: resolved) else { return }
+        if markLoadedPath {
+            loadedConfigPaths.insert(resolved)
+        }
+
+        config.parse(
+            contents,
+            loadingThemesImmediatelyFor: preferredColorScheme
+        )
+
+        let parentDir = (resolved as NSString).deletingLastPathComponent
+        collectRecursiveConfigPaths(
+            from: contents,
+            parentDir: parentDir,
+            recursiveConfigPaths: &recursiveConfigPaths
+        )
+    }
+
+    private static func collectRecursiveConfigPaths(
+        from contents: String,
+        parentDir: String,
+        recursiveConfigPaths: inout [String]
+    ) {
+        for line in contents.components(separatedBy: .newlines) {
+            guard let entry = parsedConfigEntry(from: line),
+                  entry.key == "config-file" else {
+                continue
+            }
+            guard let value = entry.value else { continue }
+            applyConfigFileDirective(
+                value,
+                valueWasQuoted: entry.valueWasQuoted,
+                parentDir: parentDir,
+                recursiveConfigPaths: &recursiveConfigPaths
+            )
+        }
+    }
+
+    private static func parsedConfigEntry(
+        from rawLine: String
+    ) -> (key: String, value: String?, valueWasQuoted: Bool)? {
+        var trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("\u{FEFF}") {
+            trimmed.removeFirst()
+        }
+        if trimmed.isEmpty || trimmed.hasPrefix("#") { return nil }
+
+        guard let separatorIndex = trimmed.firstIndex(of: "=") else {
+            return (trimmed.trimmingCharacters(in: .whitespacesAndNewlines), nil, false)
+        }
+
+        let key = trimmed[..<separatorIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+        var value = trimmed[trimmed.index(after: separatorIndex)...]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let valueWasQuoted = value.count >= 2 && value.hasPrefix("\"") && value.hasSuffix("\"")
+
+        if valueWasQuoted {
+            value.removeFirst()
+            value.removeLast()
+        }
+
+        return (String(key), String(value), valueWasQuoted)
+    }
+
+    private static func applyConfigFileDirective(
+        _ value: String,
+        valueWasQuoted: Bool,
+        parentDir: String,
+        recursiveConfigPaths: inout [String]
+    ) {
+        if value.isEmpty {
+            recursiveConfigPaths.removeAll()
+            return
+        }
+
+        var includePath = value
+        if !valueWasQuoted, includePath.hasPrefix("?") {
+            includePath.removeFirst()
+            if includePath.count >= 2,
+               includePath.hasPrefix("\""),
+               includePath.hasSuffix("\"") {
+                includePath.removeFirst()
+                includePath.removeLast()
+            }
+        }
+        guard !includePath.isEmpty else { return }
+
+        let expanded = NSString(string: includePath).expandingTildeInPath
+        let absolute = (expanded as NSString).isAbsolutePath
+            ? expanded
+            : (parentDir as NSString).appendingPathComponent(expanded)
+        recursiveConfigPaths.append(absolute)
+    }
+
     private static func parseIntegerLiteral(_ value: String) -> Int? {
         // Strip digit-group separators (for example 10_000_000).
         // Hex and float literals are intentionally unsupported here.
@@ -325,6 +671,32 @@ struct GhosttyConfig {
             return nil
         }
         return parsed
+    }
+
+    static func clampedSidebarFontSize(_ value: CGFloat) -> CGFloat {
+        CGFloat(CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(Double(value)))
+    }
+
+    static func clampedSurfaceTabBarFontSize(_ value: CGFloat) -> CGFloat {
+        CGFloat(CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize(Double(value)))
+    }
+
+    private static func parseBackgroundBlur(_ value: String) -> GhosttyBackgroundBlur? {
+        switch value {
+        case "false", "0":
+            return .disabled
+        case "true":
+            return .radius(20)
+        case "macos-glass-regular":
+            return .macosGlassRegular
+        case "macos-glass-clear":
+            return .macosGlassClear
+        default:
+            guard let radius = parseIntegerLiteral(value), radius > 0, radius <= Int(UInt8.max) else {
+                return nil
+            }
+            return .radius(radius)
+        }
     }
 
     mutating func loadTheme(_ name: String) {
@@ -345,6 +717,13 @@ struct GhosttyConfig {
             from: name,
             preferredColorScheme: preferredColorScheme ?? Self.currentColorSchemePreference()
         )
+        let expandedThemePath = NSString(string: resolvedThemeName).expandingTildeInPath
+        if (expandedThemePath as NSString).isAbsolutePath,
+           let contents = try? String(contentsOfFile: expandedThemePath, encoding: .utf8) {
+            parse(contents)
+            return
+        }
+
         for candidateName in Self.themeNameCandidates(from: resolvedThemeName) {
             for path in Self.themeSearchPaths(
                 forThemeName: candidateName,
@@ -360,10 +739,11 @@ struct GhosttyConfig {
     }
 
     static func currentColorSchemePreference(
-        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+        appAppearance _: NSAppearance? = nil,
+        defaults: UserDefaults = .standard,
+        systemAppearance: AppearanceSettings.SystemAppearance? = nil
     ) -> ColorSchemePreference {
-        let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
-        return bestMatch == .darkAqua ? .dark : .light
+        return AppearanceSettings.terminalColorSchemePreference(defaults: defaults, systemAppearance: systemAppearance)
     }
 
     static func resolveThemeName(
@@ -427,6 +807,39 @@ struct GhosttyConfig {
             return lightTheme
         }
         return rawThemeValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func themeValueUsesSameResolvedThemeInBothColorSchemes(_ rawThemeValue: String) -> Bool {
+        let lightTheme = resolveThemeName(from: rawThemeValue, preferredColorScheme: .light)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let darkTheme = resolveThemeName(from: rawThemeValue, preferredColorScheme: .dark)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lightTheme.isEmpty, !darkTheme.isEmpty else { return false }
+        return lightTheme.caseInsensitiveCompare(darkTheme) == .orderedSame
+    }
+
+    static func lastThemeDirective(in contents: String) -> String? {
+        var lastValue: String?
+
+        for line in contents.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") {
+                continue
+            }
+
+            let parts = trimmed.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { continue }
+            guard parts[0].trimmingCharacters(in: .whitespacesAndNewlines) == "theme" else { continue }
+
+            let value = parts[1]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            if !value.isEmpty {
+                lastValue = value
+            }
+        }
+
+        return lastValue
     }
 
     static func themeNameCandidates(from rawName: String) -> [String] {
@@ -533,6 +946,15 @@ struct GhosttyConfig {
         // 4) Common system/user fallback locations.
         appendUniquePath("/Applications/Ghostty.app/Contents/Resources/ghostty/themes/\(themeName)")
         appendUniquePath("~/.config/ghostty/themes/\(themeName)")
+        for appSupportDirectory in CmuxApplicationSupportDirectories.userDirectories(environment: environment) {
+            appendUniquePath(
+                appSupportDirectory
+                    .appendingPathComponent(CmuxGhosttyConfigPathResolver.releaseBundleIdentifier, isDirectory: true)
+                    .appendingPathComponent("themes", isDirectory: true)
+                    .appendingPathComponent(themeName, isDirectory: false)
+                    .path
+            )
+        }
         appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes/\(themeName)")
 
         return paths
@@ -553,6 +975,23 @@ struct GhosttyConfig {
         }
 
         return try? String(contentsOfFile: path, encoding: .utf8)
+    }
+
+    private static func configFileSize(at path: String) -> Int? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attributes[.size] as? NSNumber else {
+            return nil
+        }
+        return size.intValue
+    }
+
+    private static func shouldIncludeLegacyGhosttyConfigInResolvedLoad(
+        newConfigFileSize: Int?,
+        legacyConfigFileSize: Int?
+    ) -> Bool {
+        guard let legacyConfigFileSize, legacyConfigFileSize > 0 else { return false }
+        guard let newConfigFileSize else { return true }
+        return newConfigFileSize == 0
     }
 }
 
