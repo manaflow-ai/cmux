@@ -5685,8 +5685,10 @@ function createBrowserTabButton(session) {
 function updateBrowserTabButton(session, button, tab) {
   const label = browserTabLabel(session, tab);
   const fullTitle = tab.title || browserTabTitle(tab.url);
+  const ordinal = Math.max(1, (session?.tabs || []).findIndex((candidate) => candidate.id === tab.id) + 1);
   setClassNameIfChanged(button, `browser-tab${tab.id === session.activeTabId ? " is-active" : ""}`);
   setDatasetIfChanged(button, "browserTabId", tab.id);
+  setDatasetIfChanged(button, "tabIndex", String(ordinal));
   setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""} - ${tab.url}`);
   setTextIfChanged(button.querySelector(".browser-tab-label"), label);
   setTitleIfChanged(button.querySelector(".browser-tab-close"), session.tabs.length <= 1 ? "Reset tab" : "Close tab");

@@ -2434,22 +2434,48 @@ body.reduce-motion *::after {
 
 @container (max-width: 260px) {
   .browser-tab-list {
-    gap: 0;
+    gap: 3px;
   }
 
   .browser-tab {
-    min-width: 0;
-    max-width: none;
-    flex: 1 1 auto;
-  }
-
-  .browser-tab:not(.is-active) {
-    display: none;
+    min-width: 34px;
+    max-width: 44px;
+    flex: 0 0 36px;
+    grid-template-columns: 14px 16px;
+    justify-content: center;
+    gap: 2px;
+    padding: 0 2px;
   }
 
   .browser-tab-new {
     flex-basis: 26px;
     width: 26px;
+  }
+
+  .browser-tab::before {
+    content: attr(data-tab-index);
+    display: grid;
+    place-items: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    background: color-mix(in oklch, var(--color-line) 58%, var(--color-pane) 42%);
+    color: var(--color-text);
+    font: 9px/1 var(--font-mono);
+  }
+
+  .browser-tab.is-active::before {
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+  }
+
+  .browser-tab-label {
+    display: none;
+  }
+
+  .browser-tab-close {
+    width: 16px;
+    height: 16px;
   }
 }
 
