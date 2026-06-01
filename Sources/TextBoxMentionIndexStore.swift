@@ -169,7 +169,7 @@ actor TextBoxMentionIndexStore {
         let scanTask = fileIndexRefreshTask(rootDirectory: rootDirectory)
         Task { [rootDirectory, now, scanTask] in
             let index = await scanTask.value
-            await self.storeFileIndex(rootDirectory: rootDirectory, index: index, createdAt: now)
+            self.storeFileIndex(rootDirectory: rootDirectory, index: index, createdAt: now)
         }
     }
 
@@ -388,10 +388,11 @@ actor TextBoxMentionIndexStore {
     }
 
     private static func scanFilesWithRipgrep(rootURL: URL) async -> [TextBoxMentionCandidate]? {
+        guard let executable = RipgrepExecutableResolver.resolve() else { return nil }
+
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        var arguments = [
-            "rg",
+        process.executableURL = executable.url
+        var arguments = executable.prefixArguments + [
             "--files",
             "--color", "never",
             "--no-messages"
