@@ -102,14 +102,15 @@ struct FocusSurfaceBroadcasterTests {
         #expect(delivered == [third])
     }
 
-    @Test("a re-entrant emit during delivery is bounded and cannot recurse unbounded")
-    func reentrantEmitDuringDeliveryIsBounded() {
+    @Test("a re-entrant emit is bounded per turn, never recurses, and never hangs")
+    func reentrantEmitIsBoundedPerTurn() {
         let scheduler = ManualScheduler()
         var delivered: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
         var boundExceeded: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
         var broadcaster: FocusSurfaceBroadcaster!
+        let reentryTarget = Self.payload(99)
         // Simulates the .onReceive → focusTab → applyTabSelectionNow → emit cycle:
-        // every delivery re-focuses, far more often than the drain bound allows.
+        // every delivery re-focuses, far more often than the per-turn bound allows.
         var reentryBudget = 100
 
         broadcaster = FocusSurfaceBroadcaster(
@@ -120,23 +121,37 @@ struct FocusSurfaceBroadcasterTests {
                 delivered.append(payload)
                 if reentryBudget > 0 {
                     reentryBudget -= 1
-                    broadcaster.emit(Self.payload(99))
+                    broadcaster.emit(reentryTarget)
                 }
             }
         )
 
         broadcaster.emit(Self.payload(0))
-        scheduler.runAll()
 
-        // Without the fix the deliver closure recurses `reentryBudget` deep
-        // (delivered.count == 101). The bounded drain caps it instead.
+        // The first flush delivers at most the bound, then defers the rest instead
+        // of recursing `reentryBudget` deep (the un-fixed behavior delivers 101 in a
+        // single synchronous call).
+        scheduler.runAll()
         #expect(delivered.count == 8)
         #expect(boundExceeded.count == 1)
-        // Re-entrant emits updated `pending` in place; no extra flush was scheduled,
-        // so the storm is fully contained within the one flush.
-        #expect(scheduler.count == 0)
-        // The observer kept asking to re-focus, but the bound stopped the cycle.
-        #expect(reentryBudget < 100)
+        #expect(scheduler.count == 1)   // a continuation was scheduled, not dropped
+
+        // Each subsequent turn also stays bounded; the cycle eventually drains.
+        var turns = 1
+        while scheduler.count > 0 {
+            turns += 1
+            #expect(turns < 1000)       // converges — not an infinite cross-turn loop
+            if turns >= 1000 { break }
+            let before = delivered.count
+            scheduler.runAll()
+            #expect(delivered.count - before <= 8)   // never more than the bound per turn
+        }
+
+        // Nothing was dropped: the initial focus plus all re-emits were delivered,
+        // and the system settled on the final selection.
+        #expect(delivered.count == 101)
+        #expect(delivered.last == reentryTarget)
+        #expect(reentryBudget == 0)
     }
 
     @Test("a converging re-entrant cycle settles on the final selection")

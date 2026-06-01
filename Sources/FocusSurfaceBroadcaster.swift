@@ -24,8 +24,11 @@ import Foundation
 /// - Multiple emits before a flush coalesce to the most recent payload.
 /// - If an observer synchronously emits again during delivery, that emit updates the
 ///   pending payload instead of recursing; the active flush drains it in a bounded
-///   loop (at most ``maxCoalescedDeliveries`` deliveries) and then stops. A
-///   notification-driven focus cycle can therefore no longer hang the app.
+///   loop (at most ``maxCoalescedDeliveries`` deliveries per turn). If the cycle has
+///   not settled within that bound, the still-pending payload is carried to a fresh
+///   scheduled flush rather than delivered synchronously or dropped — so work stays
+///   bounded per runloop turn (the app keeps responding) while the final selection is
+///   never lost. A notification-driven focus cycle can therefore no longer hang.
 ///
 /// The type is fully testable without AppKit: inject ``deliver`` to capture
 /// broadcasts, and inject ``schedule`` to drive flushes deterministically.
@@ -140,18 +143,35 @@ final class FocusSurfaceBroadcaster {
         // while one is already draining.
         guard !isDelivering else { return }
         isDelivering = true
-        defer { isDelivering = false }
 
         var iterations = 0
         while let next = pending {
             pending = nil
             iterations += 1
             if iterations > maxCoalescedDeliveries {
-                // Re-entrancy did not converge: stop rather than hang, and surface it.
+                // Re-entrancy did not converge within this turn. Don't hang
+                // (delivering synchronously forever) and don't drop the focus
+                // update: keep the latest payload and let the post-loop reschedule
+                // continue it on a fresh runloop turn. Work stays bounded *per turn*
+                // (so the app keeps responding) while still settling on the final
+                // selection.
+                pending = next
                 onDrainBoundExceeded(next)
                 break
             }
             deliver(next)
+        }
+
+        isDelivering = false
+        // A delivery (or `onDrainBoundExceeded`) may have left a payload pending —
+        // either because the per-turn bound tripped, or because a re-entrant emit
+        // raced the `isDelivering` window and returned without scheduling. Schedule
+        // one more flush so the final focus selection is never stranded.
+        if pending != nil, !flushScheduled {
+            flushScheduled = true
+            schedule { @Sendable [weak self] in
+                self?.flush()
+            }
         }
     }
 }
