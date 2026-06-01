@@ -104,6 +104,20 @@ import Testing
         #expect(elapsed < 3)
     }
 
+    @Test func zeroTimeoutTerminatesWithoutCrashing() async {
+        // A 0s deadline fires the timer immediately; arming it only after launch (and
+        // guarding terminate with isRunning) must yield a timed-out result rather than
+        // calling terminate() on an unlaunched Process (which raises).
+        let result = await runner.run(
+            directory: tempDir,
+            executable: "sleep",
+            arguments: ["10"],
+            timeout: 0
+        )
+        #expect(result.timedOut == true)
+        #expect(result.exitStatus == nil)
+    }
+
     @Test func handlesLargeOutputWithoutDeadlock() async {
         // ~1 MiB of output exceeds the pipe buffer; concurrent draining must avoid deadlock.
         let result = await runner.run(

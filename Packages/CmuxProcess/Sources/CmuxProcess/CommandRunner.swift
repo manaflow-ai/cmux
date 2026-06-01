@@ -146,30 +146,6 @@ public struct CommandRunner: CommandRunning, Sendable {
                 recordAndCompleteIfReady { $0.stderr = data }
             }
 
-            if let timeout {
-                // One-shot DispatchSource timer for the command deadline. A real deadline
-                // needs a timer and the async-native timers are disallowed here (Task.sleep
-                // / DispatchQueue.asyncAfter); it is hidden behind this runner. The deadline
-                // bounds the WHOLE capture: it is cancelled only when the continuation
-                // resumes (see the two `claim`/`record` helpers), never on process exit, so
-                // a descendant that exits the immediate child but keeps a pipe open cannot
-                // strand `run` without a deadline.
-                let timer = DispatchSource.makeTimerSource(queue: Self.timerQueue)
-                timer.schedule(deadline: .now() + timeout)
-                timer.setEventHandler {
-                    let timedOut = CommandResult(
-                        stdout: nil, stderr: nil, exitStatus: nil, timedOut: true, executionError: nil
-                    )
-                    if claimImmediate(timedOut) {
-                        process.terminate()
-                        Self.scheduleSigkill(pid: process.processIdentifier)
-                    }
-                    timer.cancel()
-                }
-                state.withLock { $0.deadlineTimer = timer }
-                timer.resume()
-            }
-
             process.terminationHandler = { finished in
                 let status = finished.terminationStatus
                 recordAndCompleteIfReady {
@@ -194,6 +170,40 @@ public struct CommandRunner: CommandRunning, Sendable {
             // descendants that inherited them) close their copies.
             try? stdoutPipe.fileHandleForWriting.close()
             try? stderrPipe.fileHandleForWriting.close()
+
+            // Arm the deadline only after a successful launch, so the timeout handler can
+            // never call `terminate()` on an unlaunched Process (which raises). The deadline
+            // bounds the WHOLE capture: it is cancelled only when the continuation resumes
+            // (see the two `claim`/`record` helpers), never on process exit, so a descendant
+            // that exits the immediate child but keeps a pipe open cannot strand `run`
+            // without a deadline. A real deadline needs a timer and the async-native timers
+            // are disallowed here (Task.sleep / DispatchQueue.asyncAfter); it is hidden
+            // behind this runner.
+            if let timeout {
+                let timer = DispatchSource.makeTimerSource(queue: Self.timerQueue)
+                timer.schedule(deadline: .now() + timeout)
+                timer.setEventHandler {
+                    let timedOut = CommandResult(
+                        stdout: nil, stderr: nil, exitStatus: nil, timedOut: true, executionError: nil
+                    )
+                    if claimImmediate(timedOut), process.isRunning {
+                        process.terminate()
+                        Self.scheduleSigkill(pid: process.processIdentifier)
+                    }
+                    timer.cancel()
+                }
+                // If the command already resumed before we armed the timer, drop it.
+                let alreadyResumed = state.withLock { s -> Bool in
+                    if s.resumed { return true }
+                    s.deadlineTimer = timer
+                    return false
+                }
+                if alreadyResumed {
+                    timer.cancel()
+                } else {
+                    timer.resume()
+                }
+            }
         }
     }
 
