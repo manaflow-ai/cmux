@@ -140,6 +140,7 @@
 		C0DE46000000000000000001 /* CMUXExtensionClient in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE46000000000000000002 /* CMUXExtensionClient */; };
 		C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE45000000000000000002 /* CmuxExtensionKit */; };
 		CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CF00F00000000000000000A2 /* CmuxFoundation */; };
+		C61700000000000000000A3 /* CmuxGitHub in Frameworks */ = {isa = PBXBuildFile; productRef = C61700000000000000000A2 /* CmuxGitHub */; };
 		C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000003 /* CmuxHelpCommands.swift */; };
 		C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000004 /* CmuxHelpResource.swift */; };
 		C0DE46010000000000000001 /* CMUXInstalledExtensionSidebarHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */; };
@@ -1202,6 +1203,7 @@
 				C0DE46000000000000000001 /* CMUXExtensionClient in Frameworks */,
 				C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */,
 				CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */,
+				C61700000000000000000A3 /* CmuxGitHub in Frameworks */,
 				3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */,
 				C8000303C8000303C8000303 /* CmuxProcess in Frameworks */,
 				A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */,
@@ -1922,6 +1924,7 @@
 				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
 				CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */,
 				CF00F00000000000000000A2 /* CmuxFoundation */,
+				C61700000000000000000A2 /* CmuxGitHub */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 			);
 			productName = cmux;
@@ -2062,6 +2065,7 @@
 				CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */,
 				CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */,
 				CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */,
+				C61700000000000000000A1 /* XCLocalSwiftPackageReference "CmuxGitHub" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
 			);
 			productRefGroup = A5001042 /* Products */;
@@ -3215,6 +3219,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxFoundation;
 		};
+		C61700000000000000000A1 /* XCLocalSwiftPackageReference "CmuxGitHub" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxGitHub;
+		};
 		A5001260 /* XCLocalSwiftPackageReference "bonsplit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = vendor/bonsplit;
@@ -3326,6 +3334,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */;
 			productName = CmuxFoundation;
+		};
+		C61700000000000000000A2 /* CmuxGitHub */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C61700000000000000000A1 /* XCLocalSwiftPackageReference "CmuxGitHub" */;
+			productName = CmuxGitHub;
 		};
 		A5001231 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
