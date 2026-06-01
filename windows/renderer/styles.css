@@ -1816,6 +1816,40 @@ body.reduce-motion *::after {
   }
 }
 
+@container (max-width: 72px) {
+  .pane-header {
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+  }
+
+  .pane-grip {
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    opacity: .55;
+  }
+
+  .pane-type,
+  .pane-title,
+  .pane-toolbar {
+    display: none;
+  }
+
+  .terminal-host {
+    padding-inline: 0;
+  }
+
+  .pane-body {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .terminal-host::after {
+    display: none;
+  }
+}
+
 .shell.pane-header-hidden .pane {
   grid-template-rows: minmax(0, 1fr);
 }
