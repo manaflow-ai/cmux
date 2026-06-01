@@ -86,7 +86,7 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
           persist-credentials: false
-          submodules: false
+          submodules: recursive
 
       - name: Select Xcode
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
@@ -105,6 +105,16 @@ jobs:
           echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
+
+      - name: Provision GhosttyKit
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          # Downloads the prebuilt GhosttyKit.xcframework pinned in
+          # scripts/ghosttykit-checksums.txt for the current ghostty SHA, or
+          # falls back to a from-source build. The iOS app links GhosttyKit via
+          # a local-path binaryTarget, so it must exist before package resolve.
+          ./scripts/install-zig-ci.sh
+          ./scripts/ensure-ghosttykit.sh
 
       - name: Pick simulator
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
