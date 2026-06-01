@@ -102,6 +102,41 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         XCTAssertEqual(resultIDs.first, "palette.checkForUpdates")
     }
 
+    func testNucleoFFIPrefersVisibleTitlePrefixOverHiddenMetadataKeyword() throws {
+        // Regression: in the workspace switcher, a workspace whose visible title starts with the
+        // query must rank above one that only matched a hidden metadata token (a branch or
+        // description word produced by commandPaletteWorkspaceSearchMetadata). For short queries
+        // an exact match on such a hidden line scored 30_030 and beat the visible title prefix,
+        // which only reached nucleo(~88) + 2_000. The "ios" row shown to the user therefore had
+        // no highlighted title yet sat at the top. https://github.com/manaflow-ai/cmux/pull/0000
+        let library = try NucleoLibrary()
+        let entries = [
+            FixtureEntry(
+                id: "workspace.iosMobileTerminal",
+                rank: 0,
+                title: "iOS Mobile Terminal",
+                searchableTexts: ["iOS Mobile Terminal", "Workspace", "workspace", "switch", "go"]
+            ),
+            FixtureEntry(
+                id: "workspace.forkSessionNotFound",
+                rank: 1,
+                title: "Fork Session Not Found",
+                // "ios" here stands in for a hidden branch/description token, the field that the
+                // switcher indexes but never highlights in the row.
+                searchableTexts: [
+                    "Fork Session Not Found", "Workspace", "workspace", "switch", "go",
+                    "branch", "ios",
+                ]
+            ),
+        ]
+        let index = try NucleoIndex(library: library, entries: entries)
+
+        let resultIDs = try index.search(query: "ios", limit: 5).map(\.id)
+
+        XCTAssertEqual(resultIDs.first, "workspace.iosMobileTerminal")
+        XCTAssertTrue(resultIDs.contains("workspace.forkSessionNotFound"))
+    }
+
     func testNucleoFFIDoesNotMatchSingleTokenAcrossSearchFields() throws {
         let library = try NucleoLibrary()
         let entries = [
