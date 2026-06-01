@@ -52,6 +52,14 @@ func performConfirmedCloseWindowShortcut<Window>(
     return true
 }
 
+func shouldBypassShortcutRoutingForUnresolvedEventWindow(
+    hasEventWindowContext: Bool,
+    didSynchronizeShortcutContext: Bool,
+    allowsFocusedCloseShortcutFallback: Bool
+) -> Bool {
+    hasEventWindowContext && !didSynchronizeShortcutContext && !allowsFocusedCloseShortcutFallback
+}
+
 func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
     flags: NSEvent.ModifierFlags,

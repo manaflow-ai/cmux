@@ -12885,7 +12885,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
         let allowsFocusedCloseShortcutFallback = isFocusedCloseShortcutEvent(event)
-        if hasEventWindowContext && !didSynchronizeShortcutContext && !allowsFocusedCloseShortcutFallback {
+        if shouldBypassShortcutRoutingForUnresolvedEventWindow(
+            hasEventWindowContext: hasEventWindowContext,
+            didSynchronizeShortcutContext: didSynchronizeShortcutContext,
+            allowsFocusedCloseShortcutFallback: allowsFocusedCloseShortcutFallback
+        ) {
 #if DEBUG
             cmuxDebugLog("handleCustomShortcut: unresolved event window context; bypassing app shortcut handling")
 #endif
