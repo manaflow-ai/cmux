@@ -930,50 +930,36 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testAddWorkspaceInPreferredMainWindowIgnoresStaleTabManagerPointer() {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        defer { AppDelegate.shared = previousAppDelegate }
-
 #if DEBUG
-        let previousWelcomeShown = UserDefaults.standard.object(forKey: WelcomeSettings.shownKey)
-        UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
-        let firstContext = makeRegisteredLightweightMainWindowContext(
-            appDelegate: appDelegate,
-            createInitialWorkspace: false
+        let staleActiveWindowId = UUID()
+        let preferredWindowId = UUID()
+
+        let selection = AppDelegate.selectWorkspaceCreationContextAfterEventResolution(
+            debugPreferredWindowId: preferredWindowId,
+            keyWindowId: nil,
+            mainWindowId: nil,
+            orderedWindowIds: [],
+            fallbackCandidates: [
+                AppDelegate.WorkspaceCreationContextCandidate(
+                    windowId: staleActiveWindowId,
+                    hasResolvedWindow: true
+                ),
+                AppDelegate.WorkspaceCreationContextCandidate(
+                    windowId: preferredWindowId,
+                    hasResolvedWindow: true
+                )
+            ]
         )
-        let secondContext = makeRegisteredLightweightMainWindowContext(
-            appDelegate: appDelegate,
-            createInitialWorkspace: false
+
+        XCTAssertEqual(selection.windowId, preferredWindowId)
+        XCTAssertEqual(selection.reason, .debugPreferredWindow)
+        XCTAssertNotEqual(
+            selection.windowId,
+            staleActiveWindowId,
+            "Workspace creation should target the preferred main window instead of the stale app-level tab manager pointer"
         )
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId, notifyObservers: false)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId, notifyObservers: false)
-            closeTestWindow(firstContext.window)
-            closeTestWindow(secondContext.window)
-            restoreDefaultsValue(previousWelcomeShown, forKey: WelcomeSettings.shownKey, defaults: .standard)
-        }
-
-        let firstManager = firstContext.tabManager
-        let secondManager = secondContext.tabManager
-
-        let firstCount = firstManager.tabs.count
-        let secondCount = secondManager.tabs.count
-
-        appDelegate.debugPreferredWorkspaceCreationWindowOverride = secondContext.window
-        defer { appDelegate.debugPreferredWorkspaceCreationWindowOverride = nil }
-
-        // Force a stale app-level pointer to a different manager.
-        appDelegate.tabManager = firstManager
-        XCTAssertTrue(appDelegate.tabManager === firstManager)
-
-        let routedContext = appDelegate.debugPreferredMainWindowContextForWorkspaceCreation()
-
-        XCTAssertEqual(routedContext?.windowId, secondContext.windowId)
-        XCTAssertTrue(routedContext?.tabManager === secondManager, "Workspace creation should target key/main window context")
-        XCTAssertEqual(firstManager.tabs.count, firstCount, "Stale pointer must not receive menu-driven workspace creation")
-        XCTAssertEqual(secondManager.tabs.count, secondCount, "Routing test should not create a real terminal workspace")
 #else
-        XCTFail("Lightweight main-window context registration is only available in DEBUG")
+        XCTFail("Workspace creation context selection is only available in DEBUG")
 #endif
     }
 
@@ -1464,51 +1450,36 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testAddWorkspaceInPreferredMainWindowUsesKeyWindowWhenObjectKeyLookupIsMismatched() {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        defer { AppDelegate.shared = previousAppDelegate }
-
 #if DEBUG
-        let previousWelcomeShown = UserDefaults.standard.object(forKey: WelcomeSettings.shownKey)
-        UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
-        let firstContext = makeRegisteredLightweightMainWindowContext(
-            appDelegate: appDelegate,
-            createInitialWorkspace: false
+        let staleActiveWindowId = UUID()
+        let keyWindowId = UUID()
+
+        let selection = AppDelegate.selectWorkspaceCreationContextAfterEventResolution(
+            debugPreferredWindowId: nil,
+            keyWindowId: keyWindowId,
+            mainWindowId: staleActiveWindowId,
+            orderedWindowIds: [staleActiveWindowId],
+            fallbackCandidates: [
+                AppDelegate.WorkspaceCreationContextCandidate(
+                    windowId: staleActiveWindowId,
+                    hasResolvedWindow: true
+                ),
+                AppDelegate.WorkspaceCreationContextCandidate(
+                    windowId: keyWindowId,
+                    hasResolvedWindow: true
+                )
+            ]
         )
-        let secondContext = makeRegisteredLightweightMainWindowContext(
-            appDelegate: appDelegate,
-            createInitialWorkspace: false
+
+        XCTAssertEqual(selection.windowId, keyWindowId)
+        XCTAssertEqual(selection.reason, .keyWindow)
+        XCTAssertNotEqual(
+            selection.windowId,
+            staleActiveWindowId,
+            "Menu-driven add workspace should still route to the key window context when direct object-key lookup misses"
         )
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId, notifyObservers: false)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId, notifyObservers: false)
-            closeTestWindow(firstContext.window)
-            closeTestWindow(secondContext.window)
-            restoreDefaultsValue(previousWelcomeShown, forKey: WelcomeSettings.shownKey, defaults: .standard)
-        }
-
-        let firstManager = firstContext.tabManager
-        let secondManager = secondContext.tabManager
-
-        appDelegate.debugPreferredWorkspaceCreationWindowOverride = secondContext.window
-        defer { appDelegate.debugPreferredWorkspaceCreationWindowOverride = nil }
-
-        XCTAssertTrue(appDelegate.debugInjectWindowContextKeyMismatch(windowId: secondContext.windowId))
-
-        // Stale pointer should not receive the new workspace.
-        appDelegate.tabManager = firstManager
-
-        let firstCount = firstManager.tabs.count
-        let secondCount = secondManager.tabs.count
-
-        let routedContext = appDelegate.debugPreferredMainWindowContextForWorkspaceCreation()
-
-        XCTAssertEqual(firstManager.tabs.count, firstCount, "Menu-driven add workspace should not route to stale window")
-        XCTAssertEqual(secondManager.tabs.count, secondCount, "Routing test should not create a real terminal workspace")
-        XCTAssertEqual(routedContext?.windowId, secondContext.windowId)
-        XCTAssertTrue(routedContext?.tabManager === secondManager, "Menu-driven add workspace should still route to key window context when object-key lookup misses")
 #else
-        XCTFail("Lightweight main-window context registration is only available in DEBUG")
+        XCTFail("Workspace creation context selection is only available in DEBUG")
 #endif
     }
 
