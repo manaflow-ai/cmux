@@ -8,9 +8,9 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "socketControlMode"
     )
 
-    public let socketPassword = JSONKey<String>(
+    public let socketPassword = SecretFileKey(
         id: "automation.socketPassword",
-        defaultValue: ""
+        fileName: "socket-control-password"
     )
 
     public let claudeCodeIntegration = DefaultsKey<Bool>(

@@ -30,7 +30,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxSocketControlTests",
-            dependencies: ["CmuxSocketControl"]
+            dependencies: [
+                "CmuxSocketControl",
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
+            ]
         ),
     ]
 )
