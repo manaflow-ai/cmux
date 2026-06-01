@@ -376,6 +376,29 @@ fn weighted_query_score(
     tokens: &[SearchToken],
     candidate: &Candidate,
 ) -> Option<f64> {
+    let token_score = token_sum_score(state, query, tokens, candidate);
+
+    // A literal title match (the whole query equals, or is a leading prefix of, the candidate
+    // title) is the strongest, most user-legible signal: the row the user sees in the switcher
+    // starts with exactly what they typed. It must outrank an exact match on a hidden search
+    // field (branch, directory, description), which otherwise wins via the 30_030 short-query
+    // jackpot in `exact_search_text_line_score`. `title_literal_score` sits above every keyword
+    // tier so the visible title wins. This mirrors the Swift `CommandPaletteSearchEngine`
+    // reference ordering (title prefix > exact keyword).
+    match (token_score, title_literal_score(candidate, query)) {
+        (Some(token), Some(literal)) => Some(token.max(literal)),
+        (Some(token), None) => Some(token),
+        (None, Some(literal)) => Some(literal),
+        (None, None) => None,
+    }
+}
+
+fn token_sum_score(
+    state: &mut SearchState,
+    query: &str,
+    tokens: &[SearchToken],
+    candidate: &Candidate,
+) -> Option<f64> {
     if tokens.len() == 1 {
         return weighted_token_score(state, &tokens[0], candidate);
     }
@@ -480,6 +503,48 @@ fn keyword_exact_line_score(query_char_count: usize) -> f64 {
         return 30_000.0 + f64::from(query_char_count as u32) * 10.0;
     }
     1_800.0 + f64::from(query_char_count as u32) * 10.0
+}
+
+/// Tier scores for a literal title match. Keyword-exact tops out at `30_030`
+/// (`keyword_exact_line_score`), so both literal-title tiers stay strictly above it: a workspace
+/// whose visible title matches the query always outranks one that only matched a hidden field.
+const TITLE_EXACT_SCORE: f64 = 34_000.0;
+const TITLE_PREFIX_SCORE: f64 = 32_000.0;
+const TITLE_PREFIX_MIN_SCORE: f64 = 31_000.0;
+
+/// Scores a whole-query literal match against the candidate title: the full query equal to the
+/// title (`TITLE_EXACT_SCORE`), or a leading prefix of it (`TITLE_PREFIX_SCORE` minus a
+/// per-extra-character penalty so shorter, closer titles win, floored at `TITLE_PREFIX_MIN_SCORE`
+/// so even a long title prefix beats keyword-exact). Returns `None` when the query is not a title
+/// prefix; the fuzzy/keyword tiers still apply in that case. Diacritic-only differences fall
+/// through to `None` and are handled by the fuzzy matcher (`Normalization::Smart`).
+fn title_literal_score(candidate: &Candidate, query: &str) -> Option<f64> {
+    let query = query.trim();
+    if query.is_empty() {
+        return None;
+    }
+    let title = candidate.title.trim();
+
+    let mut title_chars = title.chars();
+    let mut matched = 0usize;
+    for query_char in query.chars() {
+        match title_chars.next() {
+            Some(title_char) if chars_equal_ignoring_case(title_char, query_char) => {
+                matched += 1;
+            }
+            _ => return None,
+        }
+    }
+
+    if title_chars.next().is_none() {
+        return Some(TITLE_EXACT_SCORE);
+    }
+    let extra = title.chars().count().saturating_sub(matched) as f64;
+    Some((TITLE_PREFIX_SCORE - extra).max(TITLE_PREFIX_MIN_SCORE))
+}
+
+fn chars_equal_ignoring_case(lhs: char, rhs: char) -> bool {
+    lhs == rhs || lhs.to_ascii_lowercase() == rhs.to_ascii_lowercase()
 }
 
 fn initialism_query(query: &str) -> Option<InitialismQuery> {
