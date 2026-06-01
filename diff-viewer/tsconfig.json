@@ -10,7 +10,7 @@
     "noEmit": true,
     "noImplicitAny": false,
     "skipLibCheck": true,
-    "strict": false,
+    "strict": true,
     "target": "ES2022",
     "useDefineForClassFields": true,
     "types": ["vite/client"]

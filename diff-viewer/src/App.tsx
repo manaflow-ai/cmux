@@ -158,7 +158,7 @@ export function App({ config }: ConfigProps) {
       return;
     }
     started.current = true;
-    queueMicrotask(() => startDiffViewer(config));
+    startDiffViewer(config);
   }, [config]);
 
   return (

@@ -485,7 +485,6 @@ body[data-loading="false"] .diff-loading-placeholder {
   overscroll-behavior: contain;
   overflow-anchor: none;
   contain: strict;
-  will-change: scroll-position;
   border-bottom: 1px solid var(--cmux-diff-border);
   background: inherit;
 }

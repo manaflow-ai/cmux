@@ -1,5 +1,134 @@
 import type { DiffViewerConfig } from "./types";
 
+type GitStatusPatchEntry = {
+  path: string;
+  status: string;
+};
+
+type GitStatusPatch = {
+  remove?: string[];
+  set?: GitStatusPatchEntry[];
+};
+
+type DiffStats = {
+  addedLines: number;
+  deletedLines: number;
+  fileCount: number;
+  totalLinesOfCode: number;
+};
+
+type FileStats = {
+  added: number;
+  deleted: number;
+};
+
+type DiffItem = {
+  collapsed?: boolean;
+  fileDiff?: unknown;
+  id: string;
+  type?: string;
+  version?: number;
+};
+
+type TreeEntry = {
+  item: DiffItem;
+  path: string;
+  stats: FileStats;
+  status: string;
+};
+
+type FileTreeSource = {
+  diffStats?: DiffStats;
+  entries?: TreeEntry[];
+  gitStatus?: GitStatusPatchEntry[];
+  gitStatusPatch?: GitStatusPatch;
+  pathCount?: number;
+  paths?: string[];
+  pathToItemId?: Map<string, string>;
+  previousSource?: FileTreeSource;
+  statsChanged?: boolean;
+  statsByPath?: Map<string, FileStats>;
+  treePathByItemId?: Map<string, string>;
+};
+
+type PathState = {
+  currentItem: DiffItem;
+  currentItemId: string;
+  currentType?: string;
+  fileOrder: number;
+  sawDeleted: boolean;
+};
+
+type StreamingDiffModel = {
+  diffStats: DiffStats;
+  fileIndex: number;
+  gitStatusByPath: Map<string, GitStatusPatchEntry>;
+  itemIdByTreePath: Map<string, string>;
+  itemIdToFile: Map<string, { fileOrder: number; path: string }>;
+  items: DiffItem[];
+  lastTreeSource?: FileTreeSource;
+  nextCollisionSuffixByBase: Map<string, number>;
+  paths: string[];
+  pathStateByTreePath: Map<string, PathState>;
+  pathToItemId: Map<string, string>;
+  pendingGitStatusRemovePaths: Set<string>;
+  pendingGitStatusSetByPath: Map<string, GitStatusPatchEntry>;
+  pendingItemById: Map<string, DiffItem>;
+  pendingItems: DiffItem[];
+  pendingStatsChanged: boolean;
+  statsByPath: Map<string, FileStats>;
+  treePathByItemId: Map<string, string>;
+};
+
+type RenameDiffItem = {
+  newId: string;
+  oldId: string;
+};
+
+type ShortcutStroke = {
+  command: boolean;
+  control: boolean;
+  key: string;
+  option: boolean;
+  shift: boolean;
+};
+
+type ShortcutBinding = {
+  first: ShortcutStroke;
+  second: ShortcutStroke | null;
+};
+
+type PendingChord = {
+  action: () => void;
+  shortcut: ShortcutBinding;
+};
+
+type PatchTextPromiseState = {
+  value: Promise<string> | null;
+};
+
+type OptionsMenuActionItem = {
+  action?: () => void;
+  checked?: boolean;
+  disabled?: boolean;
+  icon: string;
+  kind?: "action";
+  label: string;
+};
+
+type OptionsMenuSegmentItem = {
+  icon: string;
+  kind: "segment";
+  label: string;
+  options: Array<{
+    icon: string;
+    label: string;
+    value: string;
+  }>;
+};
+
+type OptionsMenuItem = "separator" | OptionsMenuActionItem | OptionsMenuSegmentItem;
+
 export function startDiffViewer(config: DiffViewerConfig) {
   const requireElement = <T extends HTMLElement>(id: string) => {
     const element = document.getElementById(id);
@@ -58,20 +187,20 @@ const appState = {
 let codeView;
 let workerPool;
 let fileTree;
-const diffItems = [];
-const codeViewItems = [];
-const diffItemById = new Map();
-let codeViewItemIds = new Set();
-let fileTreeSource = null;
-let currentTreeSource = null;
-let fileTreeStatsByPath = new Map();
-let patchTextPromise = { value: null };
+const diffItems: DiffItem[] = [];
+const codeViewItems: DiffItem[] = [];
+const diffItemById = new Map<string, DiffItem>();
+let codeViewItemIds = new Set<string>();
+let fileTreeSource: FileTreeSource | null = null;
+let currentTreeSource: FileTreeSource | null = null;
+let fileTreeStatsByPath = new Map<string, FileStats>();
+let patchTextPromise: PatchTextPromiseState = { value: null };
 let activeFileId = "";
 let activeTreePath = "";
 let suppressTreeSelectionChange = false;
 let itemIdByTreePath = new Map();
 let treePathByItemId = new Map();
-document.title = payload.title;
+document.title = payload.title ?? document.title;
 applyViewerAppearance(payload.appearance);
 setupToolbar();
 setupSourceSelector(payload.sourceOptions ?? []);
@@ -421,14 +550,16 @@ async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile,
     model.pendingGitStatusRemovePaths.add(treePath);
   }
 
-  function applyRenamedDiffItem(rename) {
+  function applyRenamedDiffItem(rename: RenameDiffItem) {
     if (codeViewItemIds.delete(rename.oldId)) {
       codeViewItemIds.add(rename.newId);
     }
     if (diffItemById.has(rename.oldId)) {
       const item = diffItemById.get(rename.oldId);
       diffItemById.delete(rename.oldId);
-      diffItemById.set(rename.newId, item);
+      if (item) {
+        diffItemById.set(rename.newId, item);
+      }
     }
     renameJumpOption(rename.oldId, rename.newId);
     codeView?.updateItemId?.(rename.oldId, rename.newId);
@@ -491,7 +622,9 @@ async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile,
         codeView.setup(viewerElement);
         codeView.setItems(codeViewItems);
         codeView.render(true);
-        window.__cmuxDiffViewer.codeView = codeView;
+        if (window.__cmuxDiffViewer) {
+          window.__cmuxDiffViewer.codeView = codeView;
+        }
       } else {
         codeView.addItems(codeBatch);
       }
@@ -512,9 +645,11 @@ async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile,
     if (!hadCodeItems) {
       updateActiveFile(codeViewItems[0]?.id ?? diffItems[0]?.id ?? "");
     }
-    window.__cmuxDiffViewer.items = diffItems;
-    window.__cmuxDiffViewer.codeViewItems = codeViewItems;
-    window.__cmuxDiffViewer.streamMetrics = streamMetrics;
+    if (window.__cmuxDiffViewer) {
+      window.__cmuxDiffViewer.items = diffItems;
+      window.__cmuxDiffViewer.codeViewItems = codeViewItems;
+      window.__cmuxDiffViewer.streamMetrics = streamMetrics;
+    }
   }
 
   function finalizeCodeViewLayout() {
@@ -777,7 +912,7 @@ async function appendParsedPatchText(patchText, parsePatchFiles, enqueueFileDiff
   }
 }
 
-function createStreamingDiffModel() {
+function createStreamingDiffModel(): StreamingDiffModel {
   return {
     diffStats: {
       addedLines: 0,
@@ -805,7 +940,7 @@ function createStreamingDiffModel() {
   };
 }
 
-function createFileTreeSourceFromModel(model) {
+function createFileTreeSourceFromModel(model: StreamingDiffModel): FileTreeSource {
   const previousSource = model.lastTreeSource;
   const gitStatusPatch = buildGitStatusPatch(model);
   const source = {
@@ -825,11 +960,11 @@ function createFileTreeSourceFromModel(model) {
   return source;
 }
 
-function buildGitStatusPatch(model) {
+function buildGitStatusPatch(model: StreamingDiffModel): GitStatusPatch | undefined {
   if (model.pendingGitStatusRemovePaths.size === 0 && model.pendingGitStatusSetByPath.size === 0) {
     return undefined;
   }
-  const patch: { remove?: string[]; set?: any[] } = {};
+  const patch: GitStatusPatch = {};
   if (model.pendingGitStatusRemovePaths.size > 0) {
     patch.remove = Array.from(model.pendingGitStatusRemovePaths);
     model.pendingGitStatusRemovePaths.clear();
@@ -936,7 +1071,7 @@ function setupKeyboardShortcuts() {
   const scrollBottomShortcut = normalizeShortcut(shortcuts.diffViewerScrollToBottom);
   const scrollTopShortcut = normalizeShortcut(shortcuts.diffViewerScrollToTop);
   const fileSearchShortcut = normalizeShortcut(shortcuts.diffViewerOpenFileSearch);
-  let pendingChord = null;
+  let pendingChord: PendingChord | null = null;
   let chordTimeout = 0;
   document.addEventListener("keydown", (event) => {
     if (event.defaultPrevented || isTypingShortcutTarget(event.target)) {
@@ -972,7 +1107,7 @@ function setupKeyboardShortcuts() {
       setFileSearchOpen(true);
       return;
     }
-    if (shortcutStartsChord(scrollTopShortcut, event)) {
+    if (scrollTopShortcut && shortcutStartsChord(scrollTopShortcut, event)) {
       event.preventDefault();
       pendingChord = {
         shortcut: scrollTopShortcut,
@@ -1209,7 +1344,7 @@ function setOptionsMenuOpen(open) {
 
 function renderOptionsMenu() {
   optionsMenu.textContent = "";
-  const items: any[] = [
+  const items: OptionsMenuItem[] = [
     { label: label("refresh"), icon: "refresh", action: () => window.location.reload() },
     { label: appState.wordWrap ? label("disableWordWrap") : label("enableWordWrap"), icon: "wrap", checked: appState.wordWrap, action: () => {
       appState.wordWrap = !appState.wordWrap;
@@ -1254,8 +1389,14 @@ function renderOptionsMenu() {
       row.className = "menu-item menu-segment";
       row.setAttribute("role", "presentation");
       row.innerHTML = `${icon(item.icon)}<span class="menu-label"></span><span class="menu-segment-controls"></span>`;
-      row.querySelector(".menu-label").textContent = item.label;
-      const controls = row.querySelector(".menu-segment-controls");
+      const labelElement = row.querySelector<HTMLElement>(".menu-label");
+      if (labelElement) {
+        labelElement.textContent = item.label;
+      }
+      const controls = row.querySelector<HTMLElement>(".menu-segment-controls");
+      if (!controls) {
+        continue;
+      }
       for (const option of item.options) {
         const button = document.createElement("button");
         button.type = "button";
@@ -1284,7 +1425,10 @@ function renderOptionsMenu() {
     }
     button.disabled = Boolean(item.disabled);
     button.innerHTML = `${icon(item.icon)}<span class="menu-label"></span><span class="menu-check">${item.checked ? icon("check") : ""}</span>`;
-    button.querySelector(".menu-label").textContent = item.label;
+    const labelElement = button.querySelector<HTMLElement>(".menu-label");
+    if (labelElement) {
+      labelElement.textContent = item.label;
+    }
     button.addEventListener("click", () => {
       if (button.disabled) {
         return;
@@ -1509,8 +1653,10 @@ function refreshPierreFileTree(source, treesModule) {
   fileTreeSource = source;
   updateFileTreeStatsFromSource(source);
   let resetTree = false;
-  if (previousSource && (source.previousSource === previousSource || isPathPrefix(previousSource, source)) && source.pathCount >= previousSource.pathCount) {
-    const addedPaths = source.paths.slice(previousSource.pathCount, source.pathCount);
+  const previousPathCount = previousSource?.pathCount ?? 0;
+  const sourcePathCountValue = source.pathCount ?? paths.length;
+  if (previousSource && (source.previousSource === previousSource || isPathPrefix(previousSource, source)) && sourcePathCountValue >= previousPathCount) {
+    const addedPaths = paths.slice(previousPathCount, sourcePathCountValue);
     if (addedPaths.length > 0) {
       try {
         fileTree.batch(addedPaths.map((path) => ({ type: "add", path })));
@@ -1649,7 +1795,10 @@ function setupFlatFileExplorer(entries) {
         <span class="stat-del">-${stats.deleted}</span>
       </span>
     `;
-    button.querySelector(".file-name").textContent = fileName(fileDiff);
+    const fileNameElement = button.querySelector<HTMLElement>(".file-name");
+    if (fileNameElement) {
+      fileNameElement.textContent = fileName(fileDiff);
+    }
     button.addEventListener("click", () => scrollToItem(item.id));
     fileList.append(button);
   }

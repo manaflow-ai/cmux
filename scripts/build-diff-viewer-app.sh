@@ -13,11 +13,14 @@ if [ "${1:-}" = "--check" ]; then
     bun install --frozen-lockfile
     CMUX_DIFF_VIEWER_OUT_DIR="$tmp_dir" bun run build
   )
-  if ! diff -qr "$OUT_DIR" "$tmp_dir" >/tmp/cmux-diff-viewer-app-diff.txt; then
-    cat /tmp/cmux-diff-viewer-app-diff.txt >&2
+  diff_output="$(mktemp)"
+  if ! diff -qr "$OUT_DIR" "$tmp_dir" >"$diff_output"; then
+    cat "$diff_output" >&2
+    rm -f "$diff_output"
     echo "diff viewer app assets are stale; run ./scripts/build-diff-viewer-app.sh" >&2
     exit 1
   fi
+  rm -f "$diff_output"
   exit 0
 fi
 
