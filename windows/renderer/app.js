@@ -212,30 +212,52 @@ const browserPausedStatusText = "Paused while inactive";
 const embeddedGoogleHomeUrl = "https://www.google.com/webhp?igu=1";
 // Google can cover embedded Chromium with a Chrome install sheet; keep the home pane usable.
 const embeddedGooglePromoDismissScript = `(() => {
+  const observerKey = "__cmuxGooglePromoObserver";
   const textOf = (node) => (node?.innerText || node?.textContent || "").replace(/\\s+/g, " ").trim();
-  const elements = Array.from(document.querySelectorAll("*"));
-  const dismiss = elements.find((node) => {
-    const text = textOf(node);
-    if (!/^do not .*chrome$/i.test(text) && !/^no thanks$/i.test(text) && !/^not now$/i.test(text)) return false;
-    const rect = node.getBoundingClientRect();
-    return rect.width >= 80 && rect.width <= 260 && rect.height >= 24 && rect.height <= 90;
-  });
-  if (dismiss) {
-    dismiss.click();
-    return "clicked";
+  const cleanup = () => {
+    window[observerKey]?.disconnect?.();
+    window[observerKey] = null;
+  };
+  const dismissPromo = () => {
+    const elements = Array.from(document.querySelectorAll("*"));
+    const dismiss = elements.find((node) => {
+      const text = textOf(node);
+      if (!/^do not .*chrome$/i.test(text) && !/^no thanks$/i.test(text) && !/^not now$/i.test(text)) return false;
+      const rect = node.getBoundingClientRect();
+      return rect.width >= 80 && rect.width <= 260 && rect.height >= 24 && rect.height <= 90;
+    });
+    if (dismiss) {
+      dismiss.click();
+      return "clicked";
+    }
+    let hidden = 0;
+    for (const node of elements) {
+      if (node.tagName === "HTML" || node.tagName === "BODY") continue;
+      const text = textOf(node);
+      if (!/built by Google/i.test(text) || !/Download Chrome/i.test(text)) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.width < 250 || rect.height < 100) continue;
+      node.style.display = "none";
+      node.setAttribute("aria-hidden", "true");
+      hidden += 1;
+    }
+    return hidden ? "hidden" : "";
+  };
+  const immediateResult = dismissPromo();
+  if (immediateResult) {
+    cleanup();
+    return immediateResult;
   }
-  let hidden = 0;
-  for (const node of elements) {
-    if (node.tagName === "HTML" || node.tagName === "BODY") continue;
-    const text = textOf(node);
-    if (!/built by Google/i.test(text) || !/Download Chrome/i.test(text)) continue;
-    const rect = node.getBoundingClientRect();
-    if (rect.width < 250 || rect.height < 100) continue;
-    node.style.display = "none";
-    node.setAttribute("aria-hidden", "true");
-    hidden += 1;
+  const root = document.documentElement || document.body;
+  if (!root || typeof MutationObserver !== "function") return "";
+  if (!window[observerKey]) {
+    window[observerKey] = new MutationObserver(() => {
+      if (!dismissPromo()) return;
+      cleanup();
+    });
+    window[observerKey].observe(root, { childList: true, subtree: true });
   }
-  return hidden ? "hidden" : "";
+  return "watching";
 })()`;
 const paneResizeFitThrottleMs = 90;
 const panePointerDragThreshold = 6;
@@ -5424,18 +5446,14 @@ function browserDisplayUrl(value) {
 
 function scheduleEmbeddedGoogleHomePolish(view, value) {
   if (!isGoogleHomeUrl(value || view?.src)) return;
+  if (!view?.isConnected) return;
   if (typeof view?.executeJavaScript !== "function") return;
-  const run = () => {
-    try {
-      const result = view.executeJavaScript(embeddedGooglePromoDismissScript, true);
-      result?.catch?.(() => {});
-    } catch {
-      // Webviews can detach while panes or workspaces are being rearranged.
-    }
-  };
-  run();
-  setTimeout(run, 500);
-  setTimeout(run, 1400);
+  try {
+    const result = view.executeJavaScript(embeddedGooglePromoDismissScript, true);
+    result?.catch?.(() => {});
+  } catch {
+    // Webviews can detach while panes or workspaces are being rearranged.
+  }
 }
 
 function loadDeferredBrowserSession(session) {
