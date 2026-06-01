@@ -112,6 +112,7 @@ enum KeyboardShortcutSettings {
         case toggleTerminalCopyMode
         case focusTextBoxInput
         case attachTextBoxFile
+        case sendCtrlFToTerminal
 
         // Panes / splits
         case focusLeft
@@ -206,6 +207,7 @@ enum KeyboardShortcutSettings {
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
+            case .sendCtrlFToTerminal: return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
             case .focusLeft: return String(localized: "shortcut.focusPaneLeft.label", defaultValue: "Focus Pane Left")
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
@@ -387,6 +389,13 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)
             case .attachTextBoxFile:
                 return StoredShortcut(key: "a", command: true, shift: true, option: true, control: false)
+            case .sendCtrlFToTerminal:
+                // Unbound by default: this is a deliberate escape hatch for forwarding a
+                // control chord (e.g. Claude Code's Ctrl-F force-stop) to the focused
+                // terminal. Binding it to plain Ctrl-F would be self-referential, so users
+                // opt in via Settings; it stays reachable through the command palette and
+                // the `send_key ctrl-f` socket command.
+                return .unbound
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
             case .toggleRightSidebar:
