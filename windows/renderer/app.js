@@ -69,6 +69,7 @@ import {
   paneTreeDirection,
   paneTreeLeaf,
   paneTreeLeafIds,
+  paneTreeLayoutsStorageKey,
   paneTreeRatio,
   paneTreeSplit,
   paneTreeSplitForPanel,
@@ -7212,6 +7213,9 @@ function settingsInspectorSignature() {
   if (searching || ["workspace", "layout", "blueprints", "appearance", "performance", "actions"].includes(category)) {
     parts.push(activeWorkspaceSettingsSignature());
   }
+  if (searching || ["layout", "data", "actions"].includes(category)) {
+    parts.push(stableJson(Object.fromEntries(state.paneLayouts)), stableJson(Object.fromEntries(state.paneTrees)));
+  }
   if (searching || category === "quick") {
     parts.push(quickSettingsSignature());
   }
@@ -8323,6 +8327,14 @@ function dataStorageEntries() {
       terms: "split layout pane size"
     },
     {
+      id: "paneTreeLayouts",
+      label: "Split shapes",
+      key: paneTreeLayoutsStorageKey,
+      count: String(state.paneTrees.size),
+      category: "layout",
+      terms: "split tree layout pane shape nested resize"
+    },
+    {
       id: "recentFolders",
       label: "Recent folders",
       key: recentFoldersStorageKey,
@@ -8422,7 +8434,8 @@ function settingsDataMetrics() {
     ["Empty workspaces", String(emptyWorkspaces().length)],
     ["Saved colors", `${state.customColorPalette.length}/${customColorPaletteLimit}`],
     ["Backgrounds", `${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit}`],
-    ["Pane layouts", formatBytes(storageEntryBytes(paneLayoutStorageKey))]
+    ["Pane layouts", formatBytes(storageEntryBytes(paneLayoutStorageKey))],
+    ["Split shapes", formatBytes(storageEntryBytes(paneTreeLayoutsStorageKey))]
   ];
 }
 
@@ -13300,13 +13313,18 @@ async function pasteClipboardToTerminal(panel = activePanel()) {
 
 async function exportSettings() {
   const payload = JSON.stringify({
-    version: 7,
+    version: 8,
     settings: state.settings,
+    paneLayouts: Object.fromEntries(state.paneLayouts),
+    paneTreeLayouts: Object.fromEntries(state.paneTrees),
+    browserTabs: Object.fromEntries(state.browserTabSnapshots),
     commandSnippets: state.customCommandSnippets,
     settingsProfiles: state.savedSettingsProfiles,
     workspaceBlueprints: state.workspaceBlueprints,
     customColorPalette: state.customColorPalette,
     savedBackgroundImages: state.savedBackgroundImages,
+    recentFolders: state.recentFolders,
+    recentCommands: state.recentCommands,
     recentBrowserPages: state.recentBrowserPages
   }, null, 2);
   if (await writeClipboardText(payload)) {
@@ -13321,6 +13339,10 @@ async function exportSettings() {
     multiline: true,
     readOnly: true
   });
+}
+
+function importedObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 
 async function importSettings() {
@@ -13339,6 +13361,21 @@ async function importSettings() {
     const parsed = JSON.parse(raw);
     state.settings = normalizeSettings(parsed?.settings && typeof parsed.settings === "object" ? parsed.settings : parsed);
     state.terminalFontSize = state.settings.terminalFontSize;
+    const importedPaneLayouts = importedObject(parsed?.paneLayouts || parsed?.paneLayout);
+    if (importedPaneLayouts) {
+      localStorage.setItem(paneLayoutStorageKey, JSON.stringify(importedPaneLayouts));
+      state.paneLayouts = loadPaneLayouts();
+    }
+    const importedPaneTreeLayouts = importedObject(parsed?.paneTreeLayouts || parsed?.splitLayouts);
+    if (importedPaneTreeLayouts) {
+      localStorage.setItem(paneTreeLayoutsStorageKey, JSON.stringify(importedPaneTreeLayouts));
+      state.paneTrees = loadPaneTreeLayouts();
+    }
+    const importedBrowserTabs = importedObject(parsed?.browserTabs || parsed?.browserTabSnapshots);
+    if (importedBrowserTabs) {
+      localStorage.setItem(browserTabsStorageKey, JSON.stringify(importedBrowserTabs));
+      state.browserTabSnapshots = loadBrowserTabSnapshots();
+    }
     if (Array.isArray(parsed?.commandSnippets)) {
       state.customCommandSnippets = [];
       for (const entry of parsed.commandSnippets) {
@@ -13411,6 +13448,32 @@ async function importSettings() {
       }
       saveSavedBackgroundImages();
     }
+    if (Array.isArray(parsed?.recentFolders)) {
+      state.recentFolders = [];
+      const seenRecentFolders = new Set();
+      for (const entry of parsed.recentFolders) {
+        if (state.recentFolders.length >= recentFoldersLimit) break;
+        const folder = String(entry || "").trim();
+        const key = folderKey(folder);
+        if (!folder || seenRecentFolders.has(key)) continue;
+        seenRecentFolders.add(key);
+        state.recentFolders.push(folder);
+      }
+      saveRecentFolders();
+    }
+    if (Array.isArray(parsed?.recentCommands)) {
+      state.recentCommands = [];
+      const seenRecentCommands = new Set();
+      for (const entry of parsed.recentCommands) {
+        if (state.recentCommands.length >= recentCommandsLimit) break;
+        const command = normalizeTerminalCommand(entry);
+        const key = command.toLowerCase();
+        if (!command || seenRecentCommands.has(key)) continue;
+        seenRecentCommands.add(key);
+        state.recentCommands.push(command);
+      }
+      saveRecentCommands();
+    }
     if (Array.isArray(parsed?.recentBrowserPages)) {
       state.recentBrowserPages = [];
       const seenRecentPages = new Set();
@@ -13427,6 +13490,7 @@ async function importSettings() {
     saveSettings();
     applySettings();
     scheduleTerminalAppearanceRefresh();
+    render();
     renderSettingsInspector();
     toast("Settings imported.");
   } catch {
