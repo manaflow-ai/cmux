@@ -384,7 +384,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let context = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: true
+        )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
@@ -442,7 +445,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let context = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: true
+        )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
@@ -623,7 +629,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let context = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: true
+        )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
@@ -755,7 +764,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let context = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: true
+        )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
@@ -822,7 +834,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let context = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: true
+        )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
@@ -1939,7 +1954,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let context = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: true
+        )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
@@ -2002,7 +2020,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let context = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: true
+        )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
@@ -2322,7 +2343,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
 #if DEBUG
         let previousTabManager = appDelegate.tabManager
-        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let context = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: true
+        )
         let manager = context.tabManager
         appDelegate.tabManager = manager
         defer {
@@ -9897,7 +9921,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
     private func makeRegisteredLightweightMainWindowContext(
         appDelegate: AppDelegate,
-        createInitialWorkspace: Bool = true
+        createInitialWorkspace: Bool = false
     ) -> (windowId: UUID, window: NSWindow, tabManager: TabManager) {
         let windowId = UUID()
         let window = makeRegisteredShortcutRoutingWindow(id: windowId)
