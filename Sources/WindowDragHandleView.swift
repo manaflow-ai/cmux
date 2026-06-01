@@ -412,11 +412,13 @@ func withTemporaryWindowMovableEnabled(window: NSWindow?, _ body: () -> Void) ->
 
 /// SwiftUI/AppKit hosting wrappers can appear as the top hit even for empty
 /// titlebar space. Treat those as pass-through so explicit sibling checks decide.
+///
+/// Interactive titlebar controls are *not* identified here by their hit view.
+/// They register their region with ``MinimalModeTitlebarControlHitRegionRegistry``
+/// instead, which ``windowDragHandleShouldCaptureHit(_:in:eventType:eventWindow:)``
+/// consults (via `isMinimalModeTitlebarControlHit`) before this sibling walk runs,
+/// so a registered control already makes the drag handle yield.
 func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
-    if windowDragHandleHitBelongsToTitlebarInteractiveControl(view) {
-        return false
-    }
-
     let className = String(describing: type(of: view))
     if className.contains("HostContainerView")
         || className.contains("AppKitWindowHostingView")
@@ -425,21 +427,6 @@ func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
     }
     if let window = view.window, view === window.contentView {
         return true
-    }
-    return false
-}
-
-private func windowDragHandleHitBelongsToTitlebarInteractiveControl(_ view: NSView) -> Bool {
-    let contentView = view.window?.contentView
-    var candidate: NSView? = view
-    while let current = candidate {
-        if current.identifier == TitlebarInteractiveHostingView<AnyView>.viewIdentifier {
-            return true
-        }
-        if let contentView, current === contentView {
-            break
-        }
-        candidate = current.superview
     }
     return false
 }
@@ -531,6 +518,50 @@ enum MinimalModeTitlebarControlHitRegionRegistry {
             }
         }
         return nil
+    }
+}
+
+/// Marks the region occupied by an interactive titlebar control so window-drag,
+/// resize-drag, and double-click-zoom routing yields to the control's own clicks.
+///
+/// This is the backing of `titlebarInteractiveControl()`. It is applied as a
+/// `.background(...)` of the control, so it matches the control's frame but never
+/// reparents the control out of its SwiftUI host. The view is transparent to
+/// hit-testing (`hitTest` returns `nil`) — it exists only to register its bounds
+/// with ``MinimalModeTitlebarControlHitRegionRegistry``. Every titlebar
+/// drag/double-click surface consults that registry (via
+/// `isMinimalModeTitlebarControlHit`) and skips any registered region, so the
+/// control keeps receiving mouse-downs in place.
+///
+/// Reparenting interactive controls into a nested `NSHostingView` instead (the
+/// previous approach) silently dropped their clicks when the control lived in the
+/// full-size-content titlebar band, e.g. the right-sidebar mode bar (issue #5099).
+struct TitlebarInteractiveControlRegion: NSViewRepresentable {
+    final class RegisteredView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil {
+                MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
+            } else {
+                MinimalModeTitlebarControlHitRegionRegistry.register(self)
+            }
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override var mouseDownCanMoveWindow: Bool { false }
+
+        deinit {
+            MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
+        }
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        RegisteredView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        MinimalModeTitlebarControlHitRegionRegistry.register(nsView)
     }
 }
 
