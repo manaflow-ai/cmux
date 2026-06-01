@@ -153,10 +153,13 @@ jobs:
             --output perf-results/activation-session.json \
             --junit perf-results/activation-session.junit.xml
           BENCH_SCRIPT
+          sudo -n chown -R "$(id -un):$(id -gn)" perf-results
 
       - name: Run Cmd-Tab activation benchmark
         run: |
           set -euo pipefail
+          mkdir -p perf-results
+          sudo -n chown -R "$(id -un):$(id -gn)" perf-results
           APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
           # The GitHub Actions runner process runs in launchd's system
           # bootstrap, not the console user's Aqua session, so windows
