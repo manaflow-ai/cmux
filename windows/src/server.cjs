@@ -307,27 +307,21 @@ function gitBranch(rawPath) {
   if (cached && now - cached.at < gitBranchCacheTtlMs) return cached.branch;
   let branch = "";
   try {
-    let current = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
+    const current = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
       ? resolved
       : path.dirname(resolved);
-    while (current) {
-      const dotGit = path.join(current, ".git");
-      if (fs.existsSync(dotGit)) {
-        const stat = fs.statSync(dotGit);
-        if (stat.isDirectory()) {
-          branch = branchFromGitDir(dotGit);
-        } else if (stat.isFile()) {
-          const match = fs.readFileSync(dotGit, "utf8").match(/^gitdir:\s*(.+)\s*$/im);
-          if (match) {
-            const gitDir = path.isAbsolute(match[1]) ? match[1] : path.resolve(current, match[1]);
-            branch = branchFromGitDir(gitDir);
-          }
+    const dotGit = path.join(current, ".git");
+    if (fs.existsSync(dotGit)) {
+      const stat = fs.statSync(dotGit);
+      if (stat.isDirectory()) {
+        branch = branchFromGitDir(dotGit);
+      } else if (stat.isFile()) {
+        const match = fs.readFileSync(dotGit, "utf8").match(/^gitdir:\s*(.+)\s*$/im);
+        if (match) {
+          const gitDir = path.isAbsolute(match[1]) ? match[1] : path.resolve(current, match[1]);
+          branch = branchFromGitDir(gitDir);
         }
-        break;
       }
-      const parent = path.dirname(current);
-      if (parent === current) break;
-      current = parent;
     }
   } catch {
     branch = "";
