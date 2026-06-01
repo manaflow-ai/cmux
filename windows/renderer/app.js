@@ -2144,9 +2144,7 @@ function adjustActivePaneLayoutPercent(delta) {
     activePaneLayoutPercent(workspace) + Number(delta || 0),
     { save: true, toast: true }
   );
-  if (state.inspectorMode === "settings" && state.settingsCategory === "layout") {
-    renderSettingsInspector();
-  }
+  refreshLayoutSettings();
   return nextPercent;
 }
 
@@ -3947,6 +3945,7 @@ function setPaneSplitterPercent(splitter, percent, options = {}) {
   savePaneTreeLayouts(state.paneTrees);
   scheduleRender();
   scheduleWorkspaceTerminalFits(workspace.id, true);
+  if (options.toast) refreshLayoutSettings();
   if (options.toast) toast(`Split ${nextPercent}% / ${100 - nextPercent}%.`);
   return true;
 }
@@ -4132,6 +4131,7 @@ function finishPaneResize(event) {
   }
   state.resizing = null;
   flushPendingRender();
+  refreshLayoutSettings();
   requestAnimationFrame(() => {
     if (splitId) {
       previousPane.style.flex = "";
@@ -4181,9 +4181,7 @@ function finishSidebarResize(event) {
   elements.shell.classList.remove("sidebar-resizing");
   saveSettings();
   applySettings();
-  if (state.inspectorMode === "settings" && state.settingsCategory === "layout") {
-    renderSettingsInspector();
-  }
+  refreshLayoutSettings();
 }
 
 function startInspectorResize(event) {
@@ -4222,9 +4220,7 @@ function finishInspectorResize(event) {
   elements.shell.classList.remove("inspector-resizing");
   saveSettings();
   applySettings();
-  if (state.inspectorMode === "settings" && state.settingsCategory === "layout") {
-    renderSettingsInspector();
-  }
+  refreshLayoutSettings();
 }
 
 function createPane(panel) {
@@ -6091,6 +6087,7 @@ function renderSettingsInspector(options = {}) {
     const quickSection = settingsSection("Quick setup");
     quickSection.append(quickSetupOverviewPanel());
     quickSection.append(quickSetupActionGrid());
+    quickSection.append(paneShapePanel(workspace));
     quickSection.append(...quickColorControlRows(workspace));
     quickSection.append(settingRow(
       "Background preset",
@@ -6759,6 +6756,8 @@ function activeWorkspaceSettingsSignature() {
     splitDirection: workspace.splitDirection,
     terminalCount: workspace.terminalCount,
     browserCount: workspace.browserCount,
+    paneTree: state.paneTrees.get(workspace.id) || null,
+    paneLayouts: workspace.panels.map((panel) => [panel.id, state.paneLayouts.get(panel.id) || null]),
     panels: workspace.panels.map((panel) => ({
       id: panel.id,
       type: panel.type,
@@ -6800,6 +6799,19 @@ function stableJson(value) {
   } catch {
     return "";
   }
+}
+
+function shouldRefreshLayoutSettings() {
+  return state.inspectorMode === "settings"
+    && (
+      state.settingsCategory === "layout"
+      || state.settingsCategory === "quick"
+      || Boolean(normalizeSettingsQuery(state.settingsQuery))
+    );
+}
+
+function refreshLayoutSettings(options = {}) {
+  if (shouldRefreshLayoutSettings()) renderSettingsInspector(options);
 }
 
 function unmountSettingsChrome() {
@@ -8317,7 +8329,7 @@ function paneShapePanel(workspace = activeWorkspace()) {
   const directionLabel = direction === "down" ? t("paneShape.stackedRows") : t("paneShape.sideBySideColumns");
   const panelTitle = panel ? panelDisplayTitle(panel, true) : t("paneShape.noPane");
   const wrapper = document.createElement("div");
-  wrapper.className = "pane-shape-panel";
+  wrapper.className = `pane-shape-panel${direction === "down" ? " is-stacked" : ""}`;
   wrapper.dataset.settingsSearch = normalizeSettingsQuery("pane shape split layout resize active pane percent range slider exact smaller bigger equal side by side stacked rows columns");
   wrapper.innerHTML = `
     <span class="pane-shape-meter" aria-hidden="true">
@@ -8381,13 +8393,9 @@ function paneShapePanel(workspace = activeWorkspace()) {
   exact.disabled = !multiPane;
   const equal = settingsActionButton(t("paneShape.equal"), resetActivePaneLayout, "", "pane shape equalize reset split layout");
   equal.disabled = !multiPane;
-  const side = settingsActionButton(t("paneShape.columns"), async () => {
-    if (await applyPaneLayoutPreset("sideBySide")) renderSettingsInspector();
-  }, "", "pane shape side by side columns");
+  const side = settingsActionButton(t("paneShape.columns"), () => applyPaneLayoutPreset("sideBySide"), "", "pane shape side by side columns");
   side.disabled = !multiPane;
-  const stack = settingsActionButton(t("paneShape.rows"), async () => {
-    if (await applyPaneLayoutPreset("stacked")) renderSettingsInspector();
-  }, "", "pane shape stacked rows");
+  const stack = settingsActionButton(t("paneShape.rows"), () => applyPaneLayoutPreset("stacked"), "", "pane shape stacked rows");
   stack.disabled = !multiPane;
   actions.append(smaller, bigger, exact, equal, side, stack);
   return wrapper;
@@ -12241,9 +12249,7 @@ function toggleFocusMode(nextValue = !state.settings.focusMode, options = {}) {
     if (options.toast !== false) toast(`Focus mode already ${enabled ? "on" : "off"}.`);
     return false;
   }
-  if (state.inspectorMode === "settings" && state.settingsCategory === "layout") {
-    renderSettingsInspector({ ifChanged: true });
-  }
+  refreshLayoutSettings({ ifChanged: true });
   if (options.toast !== false) toast(`Focus mode ${enabled ? "on" : "off"}.`);
   return true;
 }
@@ -12256,9 +12262,7 @@ function resetWorkspaceChrome() {
     toast("Workspace chrome already reset.");
     return;
   }
-  if (state.inspectorMode === "settings" && state.settingsCategory === "layout") {
-    renderSettingsInspector();
-  }
+  refreshLayoutSettings();
   toast("Workspace chrome reset.");
 }
 
@@ -12273,6 +12277,7 @@ function resetActivePaneLayout() {
   for (const panel of workspace.panels) state.paneLayouts.delete(panel.id);
   savePaneLayouts();
   render();
+  refreshLayoutSettings();
   requestAnimationFrame(() => {
     for (const panel of workspace.panels) {
       const terminal = state.terminals.get(panel.id);
@@ -12307,6 +12312,7 @@ async function applyPaneLayoutPreset(presetId) {
   state.paneTrees.set(nextWorkspace.id, tree);
   savePaneTreeLayouts(state.paneTrees);
   render();
+  refreshLayoutSettings();
   requestAnimationFrame(() => {
     for (const panel of nextWorkspace.panels) {
       const terminal = state.terminals.get(panel.id);
@@ -12337,7 +12343,7 @@ async function promptActivePaneLayoutPercent() {
     return false;
   }
   applyActivePaneLayoutPercent(parsed, { save: true, toast: true });
-  if (state.inspectorMode === "settings" && state.settingsCategory === "layout") renderSettingsInspector();
+  refreshLayoutSettings();
   return true;
 }
 

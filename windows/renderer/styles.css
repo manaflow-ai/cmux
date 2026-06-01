@@ -3361,6 +3361,16 @@ body.reduce-motion *::after {
   background: color-mix(in oklch, var(--color-accent) 42%, var(--color-pane) 58%);
 }
 
+.pane-shape-panel.is-stacked .pane-shape-meter-fill {
+  right: 7px;
+  bottom: auto;
+  width: auto;
+  height: calc(var(--pane-shape-fill, 50%) - 14px);
+  min-width: 0;
+  min-height: 7px;
+  max-height: calc(100% - 14px);
+}
+
 .pane-shape-copy {
   min-width: 0;
   display: grid;
