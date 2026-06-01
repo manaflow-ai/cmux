@@ -4679,12 +4679,12 @@ struct SurfaceTabBarFontSizeConfigTests {
             useCache: false,
             loadFromDisk: { _ in
                 var config = GhosttyConfig()
-                config.parse("surface-tab-bar-font-size = 16")
+                config.parse("surface-tab-bar-font-size = 14")
                 return config
             }
         )
 
-        #expect(abs(loaded.surfaceTabBarFontSize - 16) <= 0.0001)
+        #expect(abs(loaded.surfaceTabBarFontSize - 14) <= 0.0001)
     }
 
     @Test func editorParsesLastSurfaceTabBarValueAndClamps() {
