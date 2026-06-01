@@ -3427,9 +3427,11 @@ function getNewSurfaceTab(workspace) {
     state.newTabButton = document.createElement("button");
     state.newTabButton.className = "surface-tab surface-new-tab";
     state.newTabButton.type = "button";
-    state.newTabButton.title = "New terminal";
+    state.newTabButton.title = "Add pane";
+    state.newTabButton.setAttribute("aria-label", "Add pane");
     state.newTabButton.textContent = "+";
-    state.newTabButton.onclick = () => createPanel("terminal", "right");
+    state.newTabButton.onclick = (event) => showNewSurfaceTabMenu(event, newSurfaceTabWorkspace());
+    state.newTabButton.addEventListener("contextmenu", (event) => showNewSurfaceTabMenu(event, newSurfaceTabWorkspace()));
     state.newTabButton.addEventListener("dragover", (event) => {
       if (!state.dragPanelId) return;
       event.preventDefault();
@@ -3444,7 +3446,36 @@ function getNewSurfaceTab(workspace) {
   }
   setDatasetIfChanged(state.newTabButton, "workspaceId", workspace.id);
   state.newTabButton.disabled = paneCreationButtonsDisabled();
+  setTitleIfChanged(state.newTabButton, state.newTabButton.disabled ? currentUiOperationLabel() || "Pane is being added" : "Add pane");
   return state.newTabButton;
+}
+
+function newSurfaceTabWorkspace() {
+  const workspaceId = state.newTabButton?.dataset.workspaceId || activeWorkspace()?.id || "";
+  return state.data?.workspaces.find((candidate) => candidate.id === workspaceId) || activeWorkspace();
+}
+
+function showNewSurfaceTabMenu(event, workspace = activeWorkspace()) {
+  event.preventDefault();
+  event.stopPropagation();
+  if (!workspace) return;
+  const menu = ensureContextMenu();
+  menu.className = "context-menu";
+  const title = document.createElement("div");
+  title.className = "context-title";
+  title.textContent = "Add pane";
+  const actions = contextMenuActionGroup(
+    contextMenuButton("New terminal", () => createPanel("terminal", "right", { workspaceId: workspace.id }), paneCreationButtonsDisabled()),
+    contextMenuButton("New browser pane", () => openBrowserHome(workspace.id, { mode: "pane" }), paneCreationButtonsDisabled()),
+    contextMenuButton("Reopen closed pane", reopenClosedPanel, state.closedPanels.length === 0 || paneCreationButtonsDisabled())
+  );
+  menu.replaceChildren(title, actions);
+  if (event.type === "contextmenu") {
+    showContextMenuAt(menu, event.clientX, event.clientY);
+  } else {
+    const rect = event.currentTarget.getBoundingClientRect();
+    showContextMenuAt(menu, rect.left, rect.bottom + 6);
+  }
 }
 
 function renderPanes(workspace) {
