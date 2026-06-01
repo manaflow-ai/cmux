@@ -10,6 +10,7 @@ export function createAppearancePreview({
   terminalTheme,
   backgroundImage,
   backgroundSize,
+  backgroundRepeat,
   backgroundPosition
 }) {
   const panel = document.createElement("div");
@@ -17,6 +18,7 @@ export function createAppearancePreview({
   panel.style.setProperty("--preview-background-image", backgroundImage || "none");
   panel.style.setProperty("--preview-background-opacity", String(Math.max(0, Math.min(0.42, Number(settings.backgroundOpacity) / 100 || 0))));
   panel.style.setProperty("--preview-background-size", backgroundSize || "cover");
+  panel.style.setProperty("--preview-background-repeat", backgroundRepeat || "repeat");
   panel.style.setProperty("--preview-background-position", backgroundPosition || "center");
   panel.style.setProperty("--preview-terminal-background", terminalTheme.background);
   panel.style.setProperty("--preview-terminal-foreground", terminalTheme.foreground);

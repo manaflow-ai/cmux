@@ -738,6 +738,11 @@ function backgroundSizeCss(value) {
   return "cover";
 }
 
+function backgroundRepeatCss(value) {
+  const normalized = normalizeBackgroundValue(value);
+  return normalized && !isBackgroundPreset(normalized) ? "no-repeat" : "repeat";
+}
+
 function backgroundPositionCss(value) {
   if (["top", "bottom", "left", "right", "center"].includes(value)) return value;
   return "center";
@@ -1771,6 +1776,7 @@ function applySettings() {
   elements.shell.style.setProperty("--background-image", css);
   elements.shell.style.setProperty("--background-opacity", String(state.settings.backgroundOpacity / 100));
   elements.shell.style.setProperty("--background-size", backgroundSizeCss(state.settings.backgroundFit));
+  elements.shell.style.setProperty("--background-repeat", backgroundRepeatCss(state.settings.backgroundImage));
   elements.shell.style.setProperty("--background-position", backgroundPositionCss(state.settings.backgroundPosition));
   scheduleCommandStripOverflowRefresh();
   return true;
@@ -7059,6 +7065,7 @@ function appearancePreviewPanel() {
     terminalTheme: terminalTheme(),
     backgroundImage: backgroundCss(state.settings.backgroundImage),
     backgroundSize: backgroundSizeCss(state.settings.backgroundFit),
+    backgroundRepeat: backgroundRepeatCss(state.settings.backgroundImage),
     backgroundPosition: backgroundPositionCss(state.settings.backgroundPosition)
   });
   preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme gallery accent background image strength terminal colors font");
@@ -7081,6 +7088,7 @@ function activeBackgroundPanel() {
   panel.className = `active-background-panel${hasBackground ? " has-image" : ""}`;
   panel.dataset.settingsSearch = normalizeSettingsQuery("active background image wallpaper current preview source choose save open clear");
   panel.style.setProperty("--active-background-image", backgroundCss(background));
+  panel.style.setProperty("--active-background-repeat", backgroundRepeatCss(background));
   panel.innerHTML = `
     <button class="active-background-preview" type="button" title="Choose background image"></button>
     <span class="active-background-copy">
@@ -9069,6 +9077,7 @@ function savedBackgroundImagesPanel() {
     preview.type = "button";
     preview.title = `Apply ${background.label}`;
     preview.style.setProperty("--saved-background-image", backgroundCss(background.url));
+    preview.style.setProperty("--saved-background-repeat", backgroundRepeatCss(background.url));
     preview.onclick = () => applySavedBackgroundImage(background.id);
     const text = document.createElement("div");
     text.className = "saved-background-text";

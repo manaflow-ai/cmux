@@ -183,6 +183,7 @@ button {
   pointer-events: none;
   background-image: var(--background-image, none);
   background-size: var(--background-size, cover);
+  background-repeat: var(--background-repeat, repeat);
   background-position: var(--background-position, center);
   opacity: 0;
   transition: opacity var(--dur-med) var(--ease-out);
@@ -3482,6 +3483,7 @@ body.reduce-motion *::after {
   opacity: var(--preview-background-opacity);
   background-image: var(--preview-background-image);
   background-size: var(--preview-background-size, cover);
+  background-repeat: var(--preview-background-repeat, repeat);
   background-position: var(--preview-background-position, center);
   pointer-events: none;
 }
@@ -5620,6 +5622,7 @@ body.reduce-motion *::after {
     var(--active-background-image),
     linear-gradient(135deg, color-mix(in oklch, var(--color-text) 8%, transparent), transparent);
   background-size: cover;
+  background-repeat: var(--active-background-repeat, repeat), no-repeat;
   background-position: center;
 }
 
@@ -5767,6 +5770,7 @@ body.reduce-motion *::after {
   background-color: var(--color-canvas);
   background-image: var(--saved-background-image);
   background-size: cover;
+  background-repeat: var(--saved-background-repeat, no-repeat);
   background-position: center;
 }
 
