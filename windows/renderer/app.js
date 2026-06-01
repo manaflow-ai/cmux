@@ -5745,6 +5745,12 @@ function createBrowserTabButton(session) {
     event.stopPropagation();
     closeBrowserTab(session, button.dataset.browserTabId);
   });
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== "Delete") return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeBrowserTab(session, button.dataset.browserTabId);
+  });
   button.addEventListener("contextmenu", (event) => showBrowserTabContextMenu(event, session, button.dataset.browserTabId));
   button.addEventListener("dragstart", (event) => {
     const tabId = button.dataset.browserTabId;
@@ -5783,12 +5789,14 @@ function updateBrowserTabButton(session, button, tab) {
   const label = browserTabLabel(session, tab);
   const fullTitle = tab.title || browserTabTitle(tab.url);
   const ordinal = Math.max(1, (session?.tabs || []).findIndex((candidate) => candidate.id === tab.id) + 1);
+  const closeLabel = session.tabs.length <= 1 ? t("browser.resetTab") : t("browser.closeTab");
   setClassNameIfChanged(button, `browser-tab${tab.id === session.activeTabId ? " is-active" : ""}`);
   setDatasetIfChanged(button, "browserTabId", tab.id);
   setDatasetIfChanged(button, "tabIndex", String(ordinal));
   setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""} - ${tab.url}`);
+  button.setAttribute("aria-label", `${label}. ${tab.url}. ${closeLabel} with Delete.`);
   setTextIfChanged(button.querySelector(".browser-tab-label"), label);
-  setTitleIfChanged(button.querySelector(".browser-tab-close"), session.tabs.length <= 1 ? "Reset tab" : "Close tab");
+  setTitleIfChanged(button.querySelector(".browser-tab-close"), closeLabel);
 }
 
 function browserTabLabel(session, tab) {
@@ -6016,7 +6024,8 @@ function ensureBrowser(panel, body) {
   const tabNew = document.createElement("button");
   tabNew.className = "browser-tab-new";
   tabNew.type = "button";
-  tabNew.title = "New browser tab";
+  tabNew.title = t("browser.newTab");
+  tabNew.setAttribute("aria-label", t("browser.newTab"));
   tabNew.textContent = "+";
   tabStrip.append(tabList, tabNew);
   const bar = document.createElement("div");

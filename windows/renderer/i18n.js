@@ -6,6 +6,8 @@ const windowsMessages = {
     "appearance.terminal": "Terminal",
     "browser.fallbackTitle": "Browser",
     "browser.newTab": "New tab",
+    "browser.closeTab": "Close tab",
+    "browser.resetTab": "Reset tab",
     "browser.systemDefault": "System default browser",
     "browser.system": "System",
     "browser.defaultProfile": "Default",

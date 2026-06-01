@@ -2529,18 +2529,20 @@ body.reduce-motion *::after {
   }
 
   .browser-tab {
-    min-width: 34px;
-    max-width: 44px;
-    flex: 0 0 36px;
-    grid-template-columns: 14px 16px;
+    min-width: 32px;
+    max-width: 42px;
+    flex: 0 0 34px;
+    grid-template-columns: minmax(0, 1fr);
     justify-content: center;
-    gap: 2px;
-    padding: 0 2px;
+    justify-items: center;
+    gap: 0;
+    padding: 0;
+    overflow: visible;
   }
 
   .browser-tab-new {
-    flex-basis: 26px;
-    width: 26px;
+    flex-basis: 24px;
+    width: 24px;
   }
 
   .browser-tab::before {
@@ -2565,8 +2567,24 @@ body.reduce-motion *::after {
   }
 
   .browser-tab-close {
+    position: absolute;
+    right: 1px;
+    top: 4px;
     width: 16px;
     height: 16px;
+    background: color-mix(in oklch, var(--color-pane) 82%, var(--color-canvas) 18%);
+    box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-line) 72%, transparent);
+  }
+
+  .browser-tab.is-active:not(:hover):not(:focus-within) .browser-tab-close {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .browser-tab:hover .browser-tab-close,
+  .browser-tab:focus-within .browser-tab-close {
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 
