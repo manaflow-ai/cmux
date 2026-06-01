@@ -5186,6 +5186,11 @@ body.reduce-motion *::after {
   cursor: default;
 }
 
+.settings-action.is-busy {
+  opacity: .72;
+  cursor: progress;
+}
+
 .settings-action.danger {
   color: oklch(88% 0.08 28);
 }

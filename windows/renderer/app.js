@@ -9697,8 +9697,40 @@ function settingsActionButton(label, onClick, tone = "", searchTerms = "") {
   button.textContent = label;
   button.title = label;
   button.dataset.settingsSearch = normalizeSettingsQuery(`${label} ${searchTerms}`);
-  button.onclick = onClick;
+  button.onclick = (event) => {
+    if (button.disabled || button.classList.contains("is-busy")) return;
+    let result = null;
+    try {
+      result = onClick?.(event);
+    } catch (error) {
+      console.error(error);
+      toast(`${label} failed.`);
+      return;
+    }
+    if (!result || typeof result.then !== "function") return;
+    runSettingsAction(button, label, result);
+  };
   return button;
+}
+
+async function runSettingsAction(button, label, promise) {
+  const previousText = button.textContent;
+  button.disabled = true;
+  button.classList.add("is-busy");
+  button.setAttribute("aria-busy", "true");
+  button.textContent = "Working";
+  try {
+    await promise;
+  } catch (error) {
+    console.error(error);
+    toast(`${label} failed.`);
+  } finally {
+    if (!button.isConnected) return;
+    button.disabled = false;
+    button.classList.remove("is-busy");
+    button.removeAttribute("aria-busy");
+    button.textContent = previousText || label;
+  }
 }
 
 async function chooseBackgroundImage(options = {}) {
