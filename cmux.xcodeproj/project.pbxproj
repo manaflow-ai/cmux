@@ -180,9 +180,6 @@
 		C0DEC0DE000000000000F204 /* CommandPaletteNucleoFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F203 /* CommandPaletteNucleoFixtures.swift */; };
 		C0DEFF100000000000000001 /* CommandPaletteNucleoSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFF100000000000000002 /* CommandPaletteNucleoSearch.swift */; };
 		C0DEFF200000000000000001 /* CommandPaletteOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFF200000000000000002 /* CommandPaletteOverlay.swift */; };
-		C0DEFA100000000000000001 /* CommandPaletteRankingContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFA100000000000000002 /* CommandPaletteRankingContext.swift */; };
-		C0DEFA300000000000000001 /* CommandPaletteRankingContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFA300000000000000002 /* CommandPaletteRankingContextTests.swift */; };
-		C0DEFA200000000000000001 /* CommandPaletteRankingFixtureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFA200000000000000002 /* CommandPaletteRankingFixtureTests.swift */; };
 		A8CBA43C2DA5AB9E3A1E65A4 /* CommandPaletteSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A09EB2E92203B2E95923A7 /* CommandPaletteSearch.swift */; };
 		A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008382 /* CommandPaletteSearchEngineTests.swift */; };
 		C0DEFF300000000000000001 /* CommandPaletteSearchOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFF300000000000000002 /* CommandPaletteSearchOrchestrator.swift */; };
@@ -808,9 +805,6 @@
 		C0DEC0DE000000000000F203 /* CommandPaletteNucleoFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteNucleoFixtures.swift; sourceTree = "<group>"; };
 		C0DEFF100000000000000002 /* CommandPaletteNucleoSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteNucleoSearch.swift; sourceTree = "<group>"; };
 		C0DEFF200000000000000002 /* CommandPaletteOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteOverlay.swift; sourceTree = "<group>"; };
-		C0DEFA100000000000000002 /* CommandPaletteRankingContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteRankingContext.swift; sourceTree = "<group>"; };
-		C0DEFA300000000000000002 /* CommandPaletteRankingContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteRankingContextTests.swift; sourceTree = "<group>"; };
-		C0DEFA200000000000000002 /* CommandPaletteRankingFixtureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteRankingFixtureTests.swift; sourceTree = "<group>"; };
 		38A09EB2E92203B2E95923A7 /* CommandPaletteSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteSearch.swift; sourceTree = "<group>"; };
 		A5008382 /* CommandPaletteSearchEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSearchEngineTests.swift; sourceTree = "<group>"; };
 		C0DEFF300000000000000002 /* CommandPaletteSearchOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteSearchOrchestrator.swift; sourceTree = "<group>"; };
@@ -1440,7 +1434,6 @@
 				A5001801A1B2C3D4E5F60718 /* WindowBackdropController.swift */,
 				D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */,
 				38A09EB2E92203B2E95923A7 /* CommandPaletteSearch.swift */,
-				C0DEFA100000000000000002 /* CommandPaletteRankingContext.swift */,
 				C0DEFF100000000000000002 /* CommandPaletteNucleoSearch.swift */,
 				C0DEFF200000000000000002 /* CommandPaletteOverlay.swift */,
 				C0DEFF300000000000000002 /* CommandPaletteSearchOrchestrator.swift */,
@@ -1784,8 +1777,6 @@
 					A5008380 /* BrowserFindJavaScriptTests.swift */,
 					C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */,
 					A5008382 /* CommandPaletteSearchEngineTests.swift */,
-					C0DEFA200000000000000002 /* CommandPaletteRankingFixtureTests.swift */,
-				C0DEFA300000000000000002 /* CommandPaletteRankingContextTests.swift */,
 					C0DEC0DE000000000000F101 /* CommandPaletteNucleoFFITests.swift */,
 					C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */,
 					C0DEC0DE000000000000F203 /* CommandPaletteNucleoFixtures.swift */,
@@ -2287,7 +2278,6 @@
 				C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */,
 				C0DEFF100000000000000001 /* CommandPaletteNucleoSearch.swift in Sources */,
 				C0DEFF200000000000000001 /* CommandPaletteOverlay.swift in Sources */,
-				C0DEFA100000000000000001 /* CommandPaletteRankingContext.swift in Sources */,
 				A8CBA43C2DA5AB9E3A1E65A4 /* CommandPaletteSearch.swift in Sources */,
 				C0DEFF300000000000000001 /* CommandPaletteSearchOrchestrator.swift in Sources */,
 				C0DEF4110000000000000001 /* CommandPaletteSettingsToggle.swift in Sources */,
@@ -2668,8 +2658,6 @@
 				C0DEC0DE000000000000F202 /* CommandPaletteNucleoFFILibrarySupport.swift in Sources */,
 				C0DEC0DE000000000000F102 /* CommandPaletteNucleoFFITests.swift in Sources */,
 				C0DEC0DE000000000000F204 /* CommandPaletteNucleoFixtures.swift in Sources */,
-				C0DEFA300000000000000001 /* CommandPaletteRankingContextTests.swift in Sources */,
-				C0DEFA200000000000000001 /* CommandPaletteRankingFixtureTests.swift in Sources */,
 				A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */,
 				C0DEF4120000000000000001 /* CommandPaletteSettingsToggleTests.swift in Sources */,
 					C1713006C1713006C1713006 /* CommandPaletteShortcutCustomizationTests.swift in Sources */,
