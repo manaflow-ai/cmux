@@ -1107,6 +1107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
+    private var shortcutRoutingPreferredWindowOverride: NSWindow?
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
@@ -6184,6 +6185,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func mainWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
+        if let preferredWindow = shortcutRoutingPreferredWindowOverride,
+           let context = contextForMainTerminalWindow(preferredWindow),
+           let window = resolvedWindow(for: context) {
+            return window
+        }
         if let context = mainWindowContext(forShortcutEvent: event, debugSource: "shortcut.window"),
            let window = resolvedWindow(for: context) {
             return window
@@ -7963,6 +7969,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 #endif
+        if let preferredWindow = shortcutRoutingPreferredWindowOverride,
+           let context = contextForMainTerminalWindow(preferredWindow) {
+            return context
+        }
+
         if let context = mainWindowContext(forShortcutEvent: event, debugSource: "shortcut.routing") {
             return context
         }
@@ -14466,8 +14477,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Route AppKit key-equivalent fallbacks through the same configured shortcut
     /// dispatcher as the local key monitor before any stale menu item can run.
     @discardableResult
-    func handleConfiguredShortcutKeyEquivalent(_ event: NSEvent) -> Bool {
-        handleCustomShortcut(event: event)
+    func handleConfiguredShortcutKeyEquivalent(_ event: NSEvent, preferredWindow: NSWindow? = nil) -> Bool {
+        withShortcutRoutingPreferredWindow(preferredWindow) {
+            handleCustomShortcut(event: event)
+        }
+    }
+
+    private func withShortcutRoutingPreferredWindow<T>(
+        _ preferredWindow: NSWindow?,
+        perform body: () -> T
+    ) -> T {
+        guard let preferredWindow else {
+            return body()
+        }
+        let previousPreferredWindow = shortcutRoutingPreferredWindowOverride
+        shortcutRoutingPreferredWindowOverride = preferredWindow
+        defer { shortcutRoutingPreferredWindowOverride = previousPreferredWindow }
+        return body()
     }
 
     @discardableResult
@@ -14484,7 +14510,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if shouldSuppressStaleCmuxMenuShortcut(event: event) {
-            if handleConfiguredShortcutKeyEquivalent(event) {
+            if handleConfiguredShortcutKeyEquivalent(event, preferredWindow: preferredWindow) {
 #if DEBUG
                 cmuxDebugLog("app.sendEvent routed configured shortcut before stale cmux menu shortcut")
 #endif
