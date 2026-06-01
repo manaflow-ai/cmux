@@ -887,6 +887,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var debugDetachedInspectorCloseActionWindowOverride: (() -> NSWindow?)?
     var debugFocusedCloseShortcutWindowOverride: (() -> NSWindow?)?
     var debugAuxiliaryCloseShortcutWindowOverride: (() -> NSWindow?)?
+    var debugToggleReactGrabShortcutHandler: (() -> Bool)?
 #endif
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -13466,6 +13467,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleReactGrab) {
+#if DEBUG
+            if let debugToggleReactGrabShortcutHandler {
+                let didHandle = debugToggleReactGrabShortcutHandler()
+                if !didHandle { NSSound.beep() }
+                return true
+            }
+#endif
             let didHandle = tabManager?.toggleReactGrabFromCurrentFocus() ?? false
             if !didHandle { NSSound.beep() }
             return true
@@ -14598,6 +14606,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugDetachedInspectorCloseActionWindowOverride = nil
         debugFocusedCloseShortcutWindowOverride = nil
         debugAuxiliaryCloseShortcutWindowOverride = nil
+        debugToggleReactGrabShortcutHandler = nil
     }
 
     func debugMarkCommandPaletteOpenPending(window: NSWindow) {

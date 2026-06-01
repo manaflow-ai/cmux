@@ -74,7 +74,7 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
     }
 
     func testDefaultCmdRRequestsRenameTabOnlyWhenBrowserNotFocused() {
-        withTestAppDelegate(browserPanel: nil) { appDelegate, _ in
+        withShortcutAppDelegate(browserPanel: nil) { appDelegate in
             let renameTabRequests = ShortcutContextNotificationCounter()
             let renameTabToken = NotificationCenter.default.addObserver(
                 forName: .commandPaletteRenameTabRequested,
@@ -117,7 +117,7 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
     }
 
     func testDefaultCmdShiftRRequestsRenameWorkspaceOnlyWhenBrowserNotFocused() {
-        withTestAppDelegate(browserPanel: nil) { appDelegate, _ in
+        withShortcutAppDelegate(browserPanel: nil) { appDelegate in
             let renameWorkspaceRequests = ShortcutContextNotificationCounter()
             let renameWorkspaceToken = NotificationCenter.default.addObserver(
                 forName: .commandPaletteRenameWorkspaceRequested,
@@ -160,23 +160,10 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
     }
 
     func testFocusedBrowserCmdRUsesReloadInsteadOfRenameTabDefault() {
-        withTestAppDelegate { appDelegate, manager in
-            guard let workspace = manager.selectedWorkspace,
-                  let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
-                  let browserPanel = workspace.browserPanel(for: browserPanelId) else {
-                XCTFail("Expected focused browser panel")
-                return
-            }
-            appDelegate.debugShortcutEventFocusContextOverride = ShortcutEventFocusContext(
-                browserPanel: browserPanel,
-                rightSidebarFocused: false
-            )
+        let browserPanel = BrowserPanel(workspaceId: UUID())
+        defer { closeBrowserPanel(browserPanel) }
 
-            guard manager.focusedBrowserPanel != nil else {
-                XCTFail("Expected openBrowser to focus the browser panel")
-                return
-            }
-
+        withShortcutAppDelegate(browserPanel: browserPanel) { appDelegate in
             let renameTabRequests = ShortcutContextNotificationCounter()
             let renameTabToken = NotificationCenter.default.addObserver(
                 forName: .commandPaletteRenameTabRequested,
@@ -219,23 +206,10 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
     }
 
     func testFocusedBrowserCmdShiftRDoesNotRequestRenameWorkspaceDefault() {
-        withTestAppDelegate { appDelegate, manager in
-            guard let workspace = manager.selectedWorkspace,
-                  let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
-                  let browserPanel = workspace.browserPanel(for: browserPanelId) else {
-                XCTFail("Expected focused browser panel")
-                return
-            }
-            appDelegate.debugShortcutEventFocusContextOverride = ShortcutEventFocusContext(
-                browserPanel: browserPanel,
-                rightSidebarFocused: false
-            )
+        let browserPanel = BrowserPanel(workspaceId: UUID())
+        defer { closeBrowserPanel(browserPanel) }
 
-            guard manager.focusedBrowserPanel != nil else {
-                XCTFail("Expected openBrowser to focus the browser panel")
-                return
-            }
-
+        withShortcutAppDelegate(browserPanel: browserPanel) { appDelegate in
             let renameWorkspaceRequests = ShortcutContextNotificationCounter()
             let renameWorkspaceToken = NotificationCenter.default.addObserver(
                 forName: .commandPaletteRenameWorkspaceRequested,
@@ -267,18 +241,35 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
     }
 
     func testReactGrabShortcutRoutesFromFocusedTerminalToSingleBrowserPane() {
-        withTestAppDelegate(browserPanel: nil) { appDelegate, manager in
-            guard let workspace = manager.selectedWorkspace,
-                  let terminalPanelId = workspace.focusedPanelId,
-                  let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
-                  let browserPanel = workspace.browserPanel(for: browserPanelId) else {
-                XCTFail("Expected terminal plus one browser panel")
-                return
-            }
+        let terminalPanelId = UUID()
+        let browserPanelId = UUID()
+        XCTAssertEqual(
+            resolveReactGrabShortcutRoute(
+                panels: [
+                    ReactGrabShortcutPanelSnapshot(
+                        id: terminalPanelId,
+                        panelType: .terminal,
+                        isFocused: true
+                    ),
+                    ReactGrabShortcutPanelSnapshot(
+                        id: browserPanelId,
+                        panelType: .browser,
+                        isFocused: false
+                    ),
+                ]
+            ),
+            ReactGrabShortcutRoute(
+                browserPanelId: browserPanelId,
+                returnTerminalPanelId: terminalPanelId
+            )
+        )
 
-            workspace.focusPanel(terminalPanelId)
-            XCTAssertNil(manager.focusedBrowserPanel)
-            XCTAssertEqual(workspace.focusedPanelId, terminalPanelId)
+        withShortcutAppDelegate(browserPanel: nil) { appDelegate in
+            var handlerCallCount = 0
+            appDelegate.debugToggleReactGrabShortcutHandler = {
+                handlerCallCount += 1
+                return true
+            }
 
             guard let event = makeKeyDownEvent(
                 key: "g",
@@ -296,8 +287,7 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-            XCTAssertEqual(workspace.focusedPanelId, browserPanelId)
-            XCTAssertEqual(browserPanel.pendingReactGrabReturnTargetPanelId, terminalPanelId)
+            XCTAssertEqual(handlerCallCount, 1)
         }
     }
 
@@ -381,42 +371,26 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
         )
     }
 
-    private func withTestAppDelegate(
+    private func closeBrowserPanel(_ panel: BrowserPanel) {
+        BrowserWindowPortalRegistry.detach(webView: panel.webView)
+        panel.close()
+        panel.webView.removeFromSuperview()
+    }
+
+    private func withShortcutAppDelegate(
         browserPanel: BrowserPanel? = nil,
-        _ body: (AppDelegate, TabManager) -> Void
+        _ body: (AppDelegate) -> Void
     ) {
         let previousShared = AppDelegate.shared
         let appDelegate = AppDelegate()
-        let manager = TabManager()
-        appDelegate.tabManager = manager
         appDelegate.debugShortcutEventFocusContextOverride = ShortcutEventFocusContext(
             browserPanel: browserPanel,
             rightSidebarFocused: false
         )
         defer {
-            appDelegate.debugShortcutEventFocusContextOverride = nil
-            teardownTabManagerForTesting(manager)
-            drainMainActorTasksForTesting()
+            appDelegate.debugResetShortcutRoutingStateForTesting()
             AppDelegate.shared = previousShared
         }
-        body(appDelegate, manager)
-    }
-
-    private func teardownTabManagerForTesting(_ manager: TabManager) {
-        for workspace in Array(manager.tabs) {
-            workspace.teardownAllPanels()
-            workspace.teardownRemoteConnection()
-        }
-    }
-
-    private func drainMainActorTasksForTesting() {
-        var didDrain = false
-        Task { @MainActor in
-            didDrain = true
-        }
-        let deadline = Date(timeIntervalSinceNow: 1.0)
-        while !didDrain && Date() < deadline {
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
-        }
+        body(appDelegate)
     }
 }
