@@ -1,0 +1,6 @@
+/target
+/ghostty
+*.swp
+*.swo
+*~
+.DS_Store

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=cmux
+Comment=Terminal multiplexer powered by Ghostty
+TryExec=cmux-app
+Exec=cmux-app
+Icon=ai.manaflow.cmux
+Terminal=false
+Type=Application
+Categories=System;TerminalEmulator;
+Keywords=terminal;multiplexer;ghostty;
+StartupNotify=true
+StartupWMClass=ai.manaflow.cmux
