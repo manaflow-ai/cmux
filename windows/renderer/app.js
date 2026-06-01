@@ -3787,7 +3787,7 @@ function updateEmptyWorkspaceActions(node, workspace) {
   const canReopen = state.closedPanels.length > 0;
   setTextIfChanged(
     node.querySelector(".empty-workspace-body"),
-    canReopen ? "Reopen the last pane or start fresh." : "Start with a shell, browser, or ready layout."
+    canReopen ? "Reopen the last pane or start fresh." : "Start with a shell or browser. Layouts stay in Settings."
   );
   renderEmptyWorkspaceLaunchers(node, workspace);
 }
@@ -3824,16 +3824,17 @@ function emptyWorkspaceLaunchers() {
       meta: "home",
       kind: "panel",
       type: "browser"
-    },
-    ...workspaceStarters.map((starter) => ({
-      id: starter.id,
-      icon: String(starter.panels.length),
-      label: starter.label,
-      meta: starter.panels.map((type) => type === "browser" ? "web" : "term").join(" + "),
-      kind: "starter",
-      starterId: starter.id
-    }))
+    }
   ];
+  if (workspaceStarters.length > 0 || state.workspaceBlueprints.length > 0) {
+    launchers.push({
+      id: "layouts",
+      icon: "2x",
+      label: "Layouts",
+      meta: "settings",
+      kind: "layouts"
+    });
+  }
   if (state.closedPanels.length > 0) {
     launchers.unshift({
       id: "reopen",
@@ -3857,9 +3858,9 @@ async function runEmptyWorkspaceLauncher(launcher, workspace) {
     await createEmptyWorkspacePanel(launcher.type, workspace);
     return;
   }
-  if (launcher.kind === "starter") {
-    const targetWorkspace = await workspaceForEmptyAction(workspace);
-    if (targetWorkspace?.id) await applyWorkspaceStarter(launcher.starterId, targetWorkspace.id);
+  if (launcher.kind === "layouts") {
+    openSettingsCategory("blueprints");
+    return;
   }
 }
 
