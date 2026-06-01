@@ -1,10 +1,10 @@
-import Foundation
+public import Foundation
 
 /// A host-qualified reference to a GitHub-family repository (`host` + `owner` + `repo`).
 ///
-/// Parsed from a git remote URL (or a web URL), this is the unit of identity the
-/// workspace pull-request poller keys its caches and requests on. Carrying the
-/// ``GitHubHost`` alongside `owner`/`repo` is what lets the poller work against
+/// Parsed from a git remote URL (or a web URL), this is the unit of identity a
+/// pull-request poller keys its caches and requests on. Carrying the
+/// ``GitHubHost`` alongside `owner`/`repo` is what lets a poller work against
 /// GitHub Enterprise Server hosts instead of only github.com: two repositories
 /// with the same `owner/repo` slug on different hosts are distinct references.
 ///
@@ -12,19 +12,31 @@ import Foundation
 /// parses into a reference just like a GHES URL would. Whether a reference is
 /// actually polled is decided later by token availability
 /// (``GitHubHost/isPollable(token:)``), not by an allowlist of hostnames.
-struct GitHubRepositoryReference: Hashable, Sendable {
+public struct GitHubRepositoryReference: Hashable, Sendable {
     /// The host the repository lives on.
-    let host: GitHubHost
+    public let host: GitHubHost
     /// The repository owner (user or organization).
-    let owner: String
+    public let owner: String
     /// The repository name, without any trailing `.git`.
-    let repo: String
+    public let repo: String
+
+    /// Creates a reference from its components.
+    ///
+    /// - Parameters:
+    ///   - host: The host the repository lives on.
+    ///   - owner: The repository owner.
+    ///   - repo: The repository name (without `.git`).
+    public init(host: GitHubHost, owner: String, repo: String) {
+        self.host = host
+        self.owner = owner
+        self.repo = repo
+    }
 
     /// The `owner/repo` path used in REST API endpoints (e.g. `repos/<slug>/pulls`).
-    var slug: String { "\(owner)/\(repo)" }
+    public var slug: String { "\(owner)/\(repo)" }
 
     /// A stable `host/owner/repo` description, useful for debug logging and tests.
-    var hostQualifiedSlug: String { "\(host.hostname)/\(slug)" }
+    public var hostQualifiedSlug: String { "\(host.hostname)/\(slug)" }
 
     /// Parses a git remote URL into a host-qualified reference.
     ///
@@ -34,7 +46,7 @@ struct GitHubRepositoryReference: Hashable, Sendable {
     ///   trailing slashes.
     /// - Returns: The parsed reference, or `nil` when the URL has no host or no
     ///   `owner/repo` path.
-    static func parse(remoteURL: String) -> GitHubRepositoryReference? {
+    public static func parse(remoteURL: String) -> GitHubRepositoryReference? {
         let trimmed = remoteURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
@@ -60,9 +72,7 @@ struct GitHubRepositoryReference: Hashable, Sendable {
     ///
     /// Only `http`/`https` remotes contribute a port. An `ssh://` or `git://`
     /// port is a transport port (e.g. `2222`), not the REST API port, so it must
-    /// not leak into ``GitHubHost/apiBaseURL``. An explicit default port (80 for
-    /// http, 443 for https) is normalized to `nil` so that, e.g.,
-    /// `http://github.com:80/...` is still recognized as ``GitHubHost/dotCom``.
+    /// not leak into ``GitHubHost/apiBaseURL``.
     private static func apiPort(of url: URL) -> Int? {
         switch url.scheme?.lowercased() {
         case "http":
@@ -102,7 +112,7 @@ struct GitHubRepositoryReference: Hashable, Sendable {
     /// - Parameter webURL: A `https://host/owner/repo/...` URL.
     /// - Returns: The parsed reference, or `nil` when the URL has no host or no
     ///   `owner/repo` path.
-    static func parse(webURL: URL) -> GitHubRepositoryReference? {
+    public static func parse(webURL: URL) -> GitHubRepositoryReference? {
         guard let host = webURL.host, !host.isEmpty,
               let (owner, repo) = Self.ownerRepo(fromPath: webURL.path) else {
             return nil

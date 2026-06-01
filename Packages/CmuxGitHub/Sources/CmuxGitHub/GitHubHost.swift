@@ -1,18 +1,21 @@
-import Foundation
+public import Foundation
 
 /// A GitHub-family host that cmux can talk to through the GitHub REST API.
 ///
 /// A host is either github.com (the public SaaS) or a GitHub Enterprise Server
-/// (GHES) instance such as `ghe.example.com`. The workspace pull-request poller
-/// in `TabManager` uses this type to derive a per-host REST API base URL and to
-/// look up a per-host authentication token, instead of hardcoding `github.com`.
+/// (GHES) instance such as `ghe.example.com`. Callers use this type to derive a
+/// per-host REST API base URL and to look up a per-host authentication token,
+/// instead of hardcoding `github.com`.
 ///
-/// The same helper is intended to be adopted by other GitHub-talking subsystems
-/// (for example `CLI/cmux_open.swift`) so that GHES support does not have to be
-/// re-derived ad hoc at every call site.
-struct GitHubHost: Hashable, Sendable {
+/// ```swift
+/// let host = GitHubHost(hostname: "ghe.example.com")
+/// host.apiBaseURL?.absoluteString   // "https://ghe.example.com/api/v3/"
+/// let token = await host.authToken { exe, args in await run(exe, args) }
+/// if host.isPollable(token: token) { /* query host.apiURL(endpoint:) */ }
+/// ```
+public struct GitHubHost: Hashable, Sendable {
     /// The bare, lowercased hostname, e.g. `github.com` or `ghe.example.com`.
-    let hostname: String
+    public let hostname: String
 
     /// An explicit, non-default port from the remote URL, if any.
     ///
@@ -20,26 +23,31 @@ struct GitHubHost: Hashable, Sendable {
     /// served on a non-standard port (e.g. `https://ghe.example.com:8443/...`)
     /// keeps that port here so ``apiBaseURL`` targets the same port the remote
     /// uses, rather than silently falling back to 443.
-    let port: Int?
+    public let port: Int?
 
-    /// Creates a host from a raw hostname and optional port. The hostname is
-    /// lowercased so that hosts compare and hash case-insensitively, and an
-    /// explicit default HTTPS port (443) is normalized to `nil` so that, e.g.,
-    /// `github.com:443` is still recognized as ``dotCom``.
-    init(hostname: String, port: Int? = nil) {
+    /// Creates a host from a raw hostname and optional port.
+    ///
+    /// The hostname is lowercased so that hosts compare and hash
+    /// case-insensitively, and an explicit default HTTPS port (443) is normalized
+    /// to `nil` so that, e.g., `github.com:443` is still recognized as ``dotCom``.
+    ///
+    /// - Parameters:
+    ///   - hostname: The bare host, e.g. `github.com` or `ghe.example.com`.
+    ///   - port: An explicit port from the remote URL, or `nil` for the default.
+    public init(hostname: String, port: Int? = nil) {
         self.hostname = hostname.lowercased()
         self.port = port == 443 ? nil : port
     }
 
     /// The canonical github.com host.
-    static let dotCom = GitHubHost(hostname: "github.com")
+    public static let dotCom = GitHubHost(hostname: "github.com")
 
     /// Whether this host is github.com (the public SaaS host) on the default port.
     ///
-    /// github.com serves public repositories without authentication, so the
-    /// poller may query it even when no token is available; every other host
-    /// requires a token (see ``isPollable(token:)``).
-    var isDotCom: Bool { hostname == "github.com" && port == nil }
+    /// github.com serves public repositories without authentication, so a poller
+    /// may query it even when no token is available; every other host requires a
+    /// token (see ``isPollable(token:)``).
+    public var isDotCom: Bool { hostname == "github.com" && port == nil }
 
     /// The REST API base URL for this host, or `nil` if the host is not
     /// representable as a URL.
@@ -50,11 +58,11 @@ struct GitHubHost: Hashable, Sendable {
     /// paths can be appended relative to it (see ``apiURL(endpoint:)``).
     ///
     /// This is optional rather than trapping so that a malformed host (which a
-    /// real git remote never produces) makes the poller silently skip the host
-    /// instead of crashing the app. Returning `nil` — rather than falling back
-    /// to github.com — also keeps a per-host enterprise token from ever leaking
-    /// to the wrong host.
-    var apiBaseURL: URL? {
+    /// real git remote never produces) makes a caller silently skip the host
+    /// instead of crashing. Returning `nil` — rather than falling back to
+    /// github.com — also keeps a per-host enterprise token from ever leaking to
+    /// the wrong host.
+    public var apiBaseURL: URL? {
         if isDotCom {
             return URL(string: "https://api.github.com/")
         }
@@ -73,7 +81,7 @@ struct GitHubHost: Hashable, Sendable {
     ///   base, e.g. `repos/owner/repo/pulls?state=all`.
     /// - Returns: The absolute URL, or `nil` if the host or `endpoint` is not a
     ///   valid URL component.
-    func apiURL(endpoint: String) -> URL? {
+    public func apiURL(endpoint: String) -> URL? {
         guard let base = apiBaseURL else { return nil }
         return URL(string: endpoint, relativeTo: base)?.absoluteURL
     }
@@ -84,23 +92,22 @@ struct GitHubHost: Hashable, Sendable {
     /// captured standard output, or `nil` if the command failed or produced no
     /// output. Injecting the runner keeps ``authToken(using:)`` testable without
     /// spawning a real process.
-    typealias TokenCommandRunner = @Sendable (_ executable: String, _ arguments: [String]) async -> String?
+    public typealias TokenCommandRunner = @Sendable (_ executable: String, _ arguments: [String]) async -> String?
 
     /// Looks up an authentication token for this host via the GitHub CLI.
     ///
     /// Absence of a token is **not** an error: it means the user is not
-    /// authenticated to this host, and the poller should silently skip it.
+    /// authenticated to this host, and a poller should silently skip it.
     ///
     /// - Parameter runner: The shell-out closure used to invoke `gh`.
     /// - Returns: The trimmed token, or `nil` when `gh` reports no token.
-    func authToken(using runner: TokenCommandRunner) async -> String? {
+    public func authToken(using runner: TokenCommandRunner) async -> String? {
         let raw = await runner("gh", ["auth", "token", "--hostname", hostname])
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// Whether the workspace pull-request poller should issue requests to this
-    /// host given a resolved token.
+    /// Whether a poller should issue requests to this host given a resolved token.
     ///
     /// github.com is pollable even without a token (it serves public
     /// repositories anonymously); every other host requires a non-empty token.
@@ -109,7 +116,7 @@ struct GitHubHost: Hashable, Sendable {
     ///
     /// - Parameter token: The token resolved for this host, or `nil`.
     /// - Returns: `true` if the poller may query this host.
-    func isPollable(token: String?) -> Bool {
+    public func isPollable(token: String?) -> Bool {
         isDotCom || (token?.isEmpty == false)
     }
 }
