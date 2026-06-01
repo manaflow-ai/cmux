@@ -2427,7 +2427,14 @@ struct ContentView: View {
                     // not the sidebar" intent. The left sidebar's titlebar controls live in
                     // the AppKit titlebar accessory (above this band), so only the trailing
                     // (right-sidebar) edge needs to be ceded here.
-                    .padding(.trailing, rightSidebarVisible ? rightSidebarWidth : 0)
+                    //
+                    // `rightSidebarWidth` is already `rightSidebarVisible ? fileExplorerWidth : 0`,
+                    // so it collapses to 0 when the sidebar is hidden. The sidebar panel itself
+                    // snaps without animation (`.transaction { $0.animation = nil }`), so we match
+                    // that here — otherwise this inset could animate out of step with the panel on
+                    // toggle and momentarily expose (or re-cover) the mode bar mid-transition.
+                    .padding(.trailing, rightSidebarWidth)
+                    .animation(nil, value: rightSidebarWidth)
             }
             .overlay(alignment: .topLeading) {
                 if isFullScreen && sidebarState.isVisible {
