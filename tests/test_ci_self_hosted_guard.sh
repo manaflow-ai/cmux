@@ -13,6 +13,7 @@ CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
+PERF_FILE="$ROOT_DIR/.github/workflows/perf-activation.yml"
 NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 RELEASE_FILE="$ROOT_DIR/.github/workflows/release.yml"
 
@@ -29,6 +30,25 @@ check_macos_runner() {
     exit 1
   fi
   echo "PASS: $job in $(basename "$file") uses a paid macOS runner"
+}
+
+check_self_hosted_workspace_prep() {
+  local file="$1" job="$2"
+  if ! awk -v job="$job" '
+    $0 ~ "^  "job":" { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && index($0, "- name: Prepare self-hosted workspace") { saw_prep=1; if (!saw_checkout) prep_before_checkout=1 }
+    in_job && index($0, "sudo -n chown -R \"$(id -un):$(id -gn)\" \"$GITHUB_WORKSPACE\"") { saw_chown=1 }
+    in_job && index($0, "chmod -R u+rwX \"$GITHUB_WORKSPACE\"") { saw_chmod=1 }
+    in_job && index($0, "find \"$GITHUB_WORKSPACE\" -mindepth 1 -maxdepth 1 -exec rm -rf {} +") { saw_clean=1 }
+    in_job && /uses: actions\/checkout/ { saw_checkout=1 }
+    END { exit(saw_prep && prep_before_checkout && saw_chown && saw_chmod && saw_clean ? 0 : 1) }
+  ' "$file"; then
+    echo "FAIL: $job in $(basename "$file") must normalize and clean GITHUB_WORKSPACE before checkout so root-owned leftovers cannot break self-hosted macOS jobs"
+    exit 1
+  fi
+
+  echo "PASS: $job in $(basename "$file") normalizes self-hosted workspace before checkout"
 }
 
 check_e2e_runner_fallbacks() {
@@ -112,6 +132,7 @@ check_workflow_yaml_parse() {
     "$GHOSTTYKIT_FILE" \
     "$COMPAT_FILE" \
     "$E2E_FILE" \
+    "$PERF_FILE" \
     "$NIGHTLY_FILE" \
     "$RELEASE_FILE"
 
@@ -281,16 +302,31 @@ check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-build"
 check_macos_runner "$CI_FILE" "ui-regressions"
+check_self_hosted_workspace_prep "$CI_FILE" "tests"
+check_self_hosted_workspace_prep "$CI_FILE" "tests-build-and-lag"
+check_self_hosted_workspace_prep "$CI_FILE" "release-build"
+check_self_hosted_workspace_prep "$CI_FILE" "ui-regressions"
 
 # build-ghosttykit.yml
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
+check_self_hosted_workspace_prep "$GHOSTTYKIT_FILE" "build-ghosttykit"
 
 # ci-macos-compat.yml (matrix.os routed through the MACOS_RUNNER_* repo vars)
 check_macos_runner "$COMPAT_FILE" "compat-tests"
+check_self_hosted_workspace_prep "$COMPAT_FILE" "compat-tests"
 
 # test-e2e.yml is manual, so keep the Depot GUI runner choices but cancel
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
+check_self_hosted_workspace_prep "$E2E_FILE" "e2e"
+
+# perf-activation.yml
+check_macos_runner "$PERF_FILE" "activation-session"
+check_self_hosted_workspace_prep "$PERF_FILE" "activation-session"
+
+# release lanes
+check_self_hosted_workspace_prep "$NIGHTLY_FILE" "build-sign-notarize-nightly"
+check_self_hosted_workspace_prep "$RELEASE_FILE" "build-sign-notarize"
 
 check_xcode_selection
 check_workflow_yaml_parse
