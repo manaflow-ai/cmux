@@ -4,14 +4,59 @@ import Sparkle
 /// SPUUserDriver that updates the view model for custom update UI.
 class UpdateDriver: NSObject, SPUUserDriver {
     let viewModel: UpdateViewModel
-    private let minimumCheckDuration: TimeInterval = UpdateTiming.minimumCheckDisplayDuration
+    var updateCycleDidFinish: (() -> Void)?
+    var updateResultDidArrive: (() -> Void)?
+    private let minimumCheckDuration: TimeInterval
+    private let checkingTimeoutDuration: TimeInterval
+    private let downloadingTimeoutDuration: TimeInterval
+    private let preparingTimeoutDuration: TimeInterval
+    private let scheduler: UpdateOperationScheduling
     private var lastCheckStart: Date?
-    private var pendingCheckTransition: DispatchWorkItem?
-    private var checkTimeoutWorkItem: DispatchWorkItem?
+    private var pendingCheckTransition: PendingCheckTransition?
+    private var stateTimeoutAction: UpdateScheduledAction?
+    private var currentOperationGeneration: Int = 0
+    private var timedOutOperationGeneration: Int?
     private var lastFeedURLString: String?
 
-    init(viewModel: UpdateViewModel, hostBundle _: Bundle) {
+    private enum TimeoutStage {
+        case checking
+        case downloading
+        case preparing
+
+        var errorStage: UpdateTimeoutError.Stage {
+            switch self {
+            case .checking: return .checking
+            case .downloading: return .downloading
+            case .preparing: return .preparing
+            }
+        }
+
+        var logName: String {
+            switch self {
+            case .checking: return "checking"
+            case .downloading: return "downloading"
+            case .preparing: return "preparing"
+            }
+        }
+    }
+
+    private struct PendingCheckTransition {
+        let id: UUID
+        let state: UpdateState
+        let action: UpdateScheduledAction
+    }
+
+    init(viewModel: UpdateViewModel,
+         hostBundle _: Bundle,
+         minimumCheckDuration: TimeInterval = UpdateTiming.minimumCheckDisplayDuration,
+         stateTimeoutDuration: TimeInterval? = nil,
+         scheduler: UpdateOperationScheduling = DispatchUpdateOperationScheduler.shared) {
         self.viewModel = viewModel
+        self.minimumCheckDuration = minimumCheckDuration
+        self.checkingTimeoutDuration = stateTimeoutDuration ?? UpdateTiming.checkingTimeoutDuration
+        self.downloadingTimeoutDuration = stateTimeoutDuration ?? UpdateTiming.downloadingInactivityTimeoutDuration
+        self.preparingTimeoutDuration = stateTimeoutDuration ?? UpdateTiming.preparingTimeoutDuration
+        self.scheduler = scheduler
         super.init()
     }
 
@@ -43,8 +88,39 @@ class UpdateDriver: NSObject, SPUUserDriver {
     func showUpdateFound(with appcastItem: SUAppcastItem,
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        showUpdateFound(with: appcastItem, userInitiated: state.userInitiated, reply: reply)
+    }
+
+    func showUpdateFoundForTesting(with appcastItem: SUAppcastItem,
+                                   userInitiated: Bool,
+                                   reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        showUpdateFound(with: appcastItem, userInitiated: userInitiated, reply: reply)
+    }
+
+    private func showUpdateFound(with appcastItem: SUAppcastItem,
+                                 userInitiated: Bool,
+                                 reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         UpdateLogStore.shared.append("show update found: \(appcastItem.displayVersionString)")
-        setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)))
+        runOnMain { [weak self] in
+            guard let self else {
+                reply(.dismiss)
+                return
+            }
+            var generation = currentOperationGeneration
+            if operationHasTimedOut {
+                if userInitiated, isCheckingState(viewModel.state) {
+                    generation = acceptUserRetryResultAfterTimedOutOperation(resultDescription: "update found")
+                } else if !userInitiated {
+                    generation = acceptBackgroundResultAfterTimedOutOperation(resultDescription: "update found")
+                }
+            }
+            guard callbackCanMutateState(generation: generation, resultDescription: "update found") else {
+                reply(.dismiss)
+                return
+            }
+            updateResultDidArrive?()
+            setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)), generation: generation)
+        }
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
@@ -55,79 +131,174 @@ class UpdateDriver: NSObject, SPUUserDriver {
         // Release notes are handled via link buttons.
     }
 
+    func prepareForNewCheck() {
+        runSynchronouslyOnMain { [weak self] in
+            guard let self else { return }
+            cancelPendingCheckTransition(acknowledge: true)
+            cancelStateTimeout()
+            currentOperationGeneration += 1
+            timedOutOperationGeneration = nil
+            lastCheckStart = nil
+            UpdateLogStore.shared.append("prepared update driver for new check")
+        }
+    }
+
     func showUpdateNotFoundWithError(_ error: any Error,
                                      acknowledgement: @escaping () -> Void) {
         UpdateLogStore.shared.append("show update not found: \(formatErrorForLog(error))")
-        setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)))
+        runOnMain { [weak self] in
+            guard let self else {
+                acknowledgement()
+                return
+            }
+            let generation = currentOperationGeneration
+            guard callbackCanMutateState(generation: generation, resultDescription: "update not found") else {
+                acknowledgement()
+                return
+            }
+            updateResultDidArrive?()
+            setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)), generation: generation)
+        }
     }
 
     func showUpdaterError(_ error: any Error,
                           acknowledgement: @escaping () -> Void) {
-        let details = formatErrorForLog(error)
-        UpdateLogStore.shared.append("show updater error: \(details)")
-        setState(.error(.init(
-            error: error,
-            retry: { [weak viewModel] in
-                viewModel?.state = .idle
-                DispatchQueue.main.async {
-                    guard let delegate = NSApp.delegate as? AppDelegate else { return }
-                    delegate.checkForUpdates(nil)
-                }
-            },
-            dismiss: { [weak viewModel] in
-                viewModel?.state = .idle
-            },
-            technicalDetails: details,
-            feedURLString: lastFeedURLString
-        )))
-        acknowledgement()
+        runOnMain { [weak self] in
+            guard let self else {
+                acknowledgement()
+                return
+            }
+            let generation = currentOperationGeneration
+            let details = formatErrorForLog(error)
+            UpdateLogStore.shared.append("show updater error: \(details)")
+            guard callbackCanMutateState(generation: generation, resultDescription: "updater error") else {
+                acknowledgement()
+                return
+            }
+            updateResultDidArrive?()
+            setState(.error(.init(
+                error: error,
+                retry: {
+                    DispatchQueue.main.async {
+                        guard let delegate = NSApp.delegate as? AppDelegate else { return }
+                        delegate.checkForUpdates(nil)
+                    }
+                },
+                dismiss: { [weak viewModel] in
+                    viewModel?.state = .idle
+                },
+                technicalDetails: details,
+                feedURLString: lastFeedURLString
+            )), generation: generation)
+            acknowledgement()
+        }
     }
 
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
         UpdateLogStore.shared.append("show download initiated")
-        setState(.downloading(.init(
-            cancel: cancellation,
-            expectedLength: nil,
-            progress: 0)))
+        runOnMain { [weak self] in
+            guard let self else {
+                cancellation()
+                return
+            }
+            let generation = currentOperationGeneration
+            guard callbackCanMutateState(generation: generation, resultDescription: "download initiation") else {
+                cancellation()
+                return
+            }
+            setState(.downloading(.init(
+                cancel: cancellation,
+                expectedLength: nil,
+                progress: 0)),
+                generation: generation,
+                timeoutStage: .downloading,
+                timeoutCancellation: cancellation)
+        }
     }
 
     func showDownloadDidReceiveExpectedContentLength(_ expectedContentLength: UInt64) {
         UpdateLogStore.shared.append("download expected length: \(expectedContentLength)")
-        guard case let .downloading(downloading) = viewModel.state else {
-            return
-        }
+        runOnMain { [weak self] in
+            guard let self else { return }
+            let generation = currentOperationGeneration
+            guard callbackCanMutateState(generation: generation, resultDescription: "download expected length") else {
+                return
+            }
+            guard case let .downloading(downloading) = viewModel.state else {
+                return
+            }
 
-        setState(.downloading(.init(
-            cancel: downloading.cancel,
-            expectedLength: expectedContentLength,
-            progress: 0)))
+            setState(.downloading(.init(
+                cancel: downloading.cancel,
+                expectedLength: expectedContentLength,
+                progress: 0)),
+                generation: generation,
+                timeoutStage: .downloading,
+                timeoutCancellation: downloading.cancel)
+        }
     }
 
     func showDownloadDidReceiveData(ofLength length: UInt64) {
         UpdateLogStore.shared.append("download received data: \(length)")
-        guard case let .downloading(downloading) = viewModel.state else {
-            return
-        }
+        runOnMain { [weak self] in
+            guard let self else { return }
+            let generation = currentOperationGeneration
+            guard callbackCanMutateState(generation: generation, resultDescription: "download data") else {
+                return
+            }
+            guard case let .downloading(downloading) = viewModel.state else {
+                return
+            }
 
-        setState(.downloading(.init(
-            cancel: downloading.cancel,
-            expectedLength: downloading.expectedLength,
-            progress: downloading.progress + length)))
+            setState(.downloading(.init(
+                cancel: downloading.cancel,
+                expectedLength: downloading.expectedLength,
+                progress: downloading.progress + length)),
+                generation: generation,
+                timeoutStage: .downloading,
+                timeoutCancellation: downloading.cancel)
+        }
     }
 
     func showDownloadDidStartExtractingUpdate() {
         UpdateLogStore.shared.append("show extraction started")
-        setState(.extracting(.init(progress: 0)))
+        runOnMain { [weak self] in
+            guard let self else { return }
+            let generation = currentOperationGeneration
+            guard callbackCanMutateState(generation: generation, resultDescription: "extraction start") else {
+                return
+            }
+            setState(.extracting(.init(progress: 0)), generation: generation, timeoutStage: .preparing)
+        }
     }
 
     func showExtractionReceivedProgress(_ progress: Double) {
         UpdateLogStore.shared.append(String(format: "show extraction progress: %.2f", progress))
-        setState(.extracting(.init(progress: progress)))
+        runOnMain { [weak self] in
+            guard let self else { return }
+            let generation = currentOperationGeneration
+            guard callbackCanMutateState(generation: generation, resultDescription: "extraction progress") else {
+                return
+            }
+            setState(.extracting(.init(progress: progress)), generation: generation, timeoutStage: .preparing)
+        }
     }
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         UpdateLogStore.shared.append("show ready to install")
-        reply(.install)
+        runOnMain { [weak self] in
+            guard let self else {
+                reply(.dismiss)
+                return
+            }
+            let generation = currentOperationGeneration
+            guard callbackCanMutateState(generation: generation, resultDescription: "ready to install") else {
+                reply(.dismiss)
+                return
+            }
+            cancelStateTimeout()
+            reply(.install)
+        }
     }
 
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
@@ -137,12 +308,12 @@ class UpdateDriver: NSObject, SPUUserDriver {
             dismiss: { [weak viewModel] in
                 viewModel?.state = .idle
             }
-        )))
+        )), generation: currentOperationGeneration)
     }
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
         UpdateLogStore.shared.append("show update installed (relaunched=\(relaunched))")
-        setState(.idle)
+        setState(.idle, generation: currentOperationGeneration)
         acknowledgement()
     }
 
@@ -164,30 +335,32 @@ class UpdateDriver: NSObject, SPUUserDriver {
             UpdateLogStore.shared.append("dismiss update installation ignored (checking)")
             return
         }
-        setState(.idle)
+        setState(.idle, generation: currentOperationGeneration)
     }
 
     private func beginChecking(cancel: @escaping () -> Void) {
         runOnMain { [weak self] in
             guard let self else { return }
             viewModel.overrideState = nil
-            pendingCheckTransition?.cancel()
-            pendingCheckTransition = nil
-            checkTimeoutWorkItem?.cancel()
-            checkTimeoutWorkItem = nil
+            cancelPendingCheckTransition(acknowledge: true)
+            cancelStateTimeout()
+            currentOperationGeneration += 1
+            timedOutOperationGeneration = nil
+            let generation = currentOperationGeneration
             lastCheckStart = Date()
-            applyState(.checking(.init(cancel: cancel)))
-            scheduleCheckTimeout()
+            applyState(.checking(.init(cancel: cancel, waitsForCancellation: true)))
+            scheduleStateTimeout(stage: .checking, generation: generation, cancellation: cancel)
         }
     }
 
-    private func setStateAfterMinimumCheckDelay(_ newState: UpdateState) {
+    private func setStateAfterMinimumCheckDelay(_ newState: UpdateState, generation: Int) {
         runOnMain { [weak self] in
             guard let self else { return }
-            pendingCheckTransition?.cancel()
-            pendingCheckTransition = nil
-            checkTimeoutWorkItem?.cancel()
-            checkTimeoutWorkItem = nil
+            cancelPendingCheckTransition(acknowledge: true)
+            cancelStateTimeout()
+            guard callbackCanMutateState(generation: generation, resultDescription: "delayed state \(describe(newState))") else {
+                return
+            }
 
             guard let start = lastCheckStart else {
                 lastCheckStart = nil
@@ -203,37 +376,169 @@ class UpdateDriver: NSObject, SPUUserDriver {
             }
 
             let delay = minimumCheckDuration - elapsed
-            let workItem = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                guard case .checking = self.viewModel.state else { return }
-                self.lastCheckStart = nil
-                self.applyState(newState)
+            let transitionID = UUID()
+            let action = scheduler.schedule(after: delay) { [weak self] in
+                self?.applyPendingCheckTransition(id: transitionID, generation: generation)
             }
-            pendingCheckTransition = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+            pendingCheckTransition = PendingCheckTransition(
+                id: transitionID,
+                state: newState,
+                action: action
+            )
         }
     }
 
-    private func setState(_ newState: UpdateState) {
+    private func setState(_ newState: UpdateState,
+                          generation: Int,
+                          timeoutStage: TimeoutStage? = nil,
+                          timeoutCancellation: (() -> Void)? = nil) {
         runOnMain { [weak self] in
             guard let self else { return }
-            pendingCheckTransition?.cancel()
-            pendingCheckTransition = nil
-            checkTimeoutWorkItem?.cancel()
-            checkTimeoutWorkItem = nil
+            cancelPendingCheckTransition(acknowledge: true)
+            cancelStateTimeout()
+            guard callbackCanMutateState(generation: generation, resultDescription: "state \(describe(newState))") else {
+                return
+            }
             lastCheckStart = nil
             applyState(newState)
+            if let timeoutStage {
+                scheduleStateTimeout(stage: timeoutStage, generation: generation, cancellation: timeoutCancellation)
+            }
         }
     }
 
-    private func scheduleCheckTimeout() {
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            guard case .checking = self.viewModel.state else { return }
-            self.setState(.notFound(.init(acknowledgement: {})))
+    private var operationHasTimedOut: Bool {
+        timedOutOperationGeneration == currentOperationGeneration
+    }
+
+    private func isCheckingState(_ state: UpdateState) -> Bool {
+        switch state {
+        case .checking:
+            return true
+        default:
+            return false
         }
-        checkTimeoutWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + UpdateTiming.checkTimeoutDuration, execute: workItem)
+    }
+
+    private func callbackCanMutateState(generation: Int, resultDescription: String) -> Bool {
+        guard generation == currentOperationGeneration else {
+            UpdateLogStore.shared.append("ignoring stale \(resultDescription) for generation \(generation); current generation is \(currentOperationGeneration)")
+            return false
+        }
+        guard timedOutOperationGeneration != generation else {
+            UpdateLogStore.shared.append("ignoring \(resultDescription) after timeout")
+            return false
+        }
+        return true
+    }
+
+    private func acceptBackgroundResultAfterTimedOutOperation(resultDescription: String) -> Int {
+        UpdateLogStore.shared.append("accepting background \(resultDescription) after timed out user operation")
+        return acceptResultAfterTimedOutOperation()
+    }
+
+    private func acceptUserRetryResultAfterTimedOutOperation(resultDescription: String) -> Int {
+        UpdateLogStore.shared.append("accepting user retry \(resultDescription) after timed out operation")
+        return acceptResultAfterTimedOutOperation()
+    }
+
+    private func acceptResultAfterTimedOutOperation() -> Int {
+        timedOutOperationGeneration = nil
+        currentOperationGeneration += 1
+        cancelPendingCheckTransition(acknowledge: true)
+        cancelStateTimeout()
+        lastCheckStart = nil
+        return currentOperationGeneration
+    }
+
+    private func cancelStateTimeout() {
+        stateTimeoutAction?.cancel()
+        stateTimeoutAction = nil
+    }
+
+    private func cancelPendingCheckTransition(acknowledge: Bool) {
+        guard let pendingCheckTransition else { return }
+        self.pendingCheckTransition = nil
+        pendingCheckTransition.action.cancel()
+        if acknowledge {
+            UpdateLogStore.shared.append("acknowledging delayed \(describe(pendingCheckTransition.state)) before cancellation")
+            pendingCheckTransition.state.cancel()
+        }
+    }
+
+    private func applyPendingCheckTransition(id: UUID, generation: Int) {
+        guard let pendingCheckTransition else { return }
+        guard pendingCheckTransition.id == id else { return }
+        self.pendingCheckTransition = nil
+        guard case .checking = viewModel.state else {
+            UpdateLogStore.shared.append("acknowledging delayed \(describe(pendingCheckTransition.state)) because checking ended")
+            pendingCheckTransition.state.cancel()
+            return
+        }
+        guard callbackCanMutateState(generation: generation, resultDescription: "delayed check result \(describe(pendingCheckTransition.state))") else {
+            pendingCheckTransition.state.cancel()
+            return
+        }
+        lastCheckStart = nil
+        applyState(pendingCheckTransition.state)
+    }
+
+    private func scheduleStateTimeout(stage: TimeoutStage,
+                                      generation: Int,
+                                      cancellation: (() -> Void)? = nil) {
+        stateTimeoutAction = scheduler.schedule(after: timeoutDuration(for: stage)) { [weak self] in
+            guard let self else { return }
+            self.failOperationIfStillCurrent(stage: stage, generation: generation, cancellation: cancellation)
+        }
+    }
+
+    private func timeoutDuration(for stage: TimeoutStage) -> TimeInterval {
+        switch stage {
+        case .checking:
+            return checkingTimeoutDuration
+        case .downloading:
+            return downloadingTimeoutDuration
+        case .preparing:
+            return preparingTimeoutDuration
+        }
+    }
+
+    private func failOperationIfStillCurrent(stage: TimeoutStage,
+                                             generation: Int,
+                                             cancellation: (() -> Void)?) {
+        guard generation == currentOperationGeneration else { return }
+        guard !operationHasTimedOut else { return }
+        switch stage {
+        case .checking:
+            guard case .checking = viewModel.state else { return }
+        case .downloading:
+            guard case .downloading = viewModel.state else { return }
+        case .preparing:
+            guard case .extracting = viewModel.state else { return }
+        }
+
+        let timeoutDuration = timeoutDuration(for: stage)
+        UpdateLogStore.shared.append("\(stage.logName) timed out after \(Int(timeoutDuration.rounded()))s")
+        timedOutOperationGeneration = generation
+        cancelPendingCheckTransition(acknowledge: true)
+        stateTimeoutAction?.cancel()
+        stateTimeoutAction = nil
+        lastCheckStart = nil
+        cancellation?()
+        applyState(.error(.init(
+            error: UpdateTimeoutError.make(stage: stage.errorStage),
+            retry: {
+                DispatchQueue.main.async {
+                    guard let delegate = NSApp.delegate as? AppDelegate else { return }
+                    delegate.checkForUpdates(nil)
+                }
+            },
+            dismiss: { [weak viewModel] in
+                viewModel?.state = .idle
+            },
+            technicalDetails: "\(stage.logName) timed out after \(Int(timeoutDuration.rounded()))s",
+            feedURLString: lastFeedURLString
+        )))
     }
 
     private func applyState(_ newState: UpdateState) {
@@ -307,6 +612,14 @@ class UpdateDriver: NSObject, SPUUserDriver {
             action()
         } else {
             DispatchQueue.main.async(execute: action)
+        }
+    }
+
+    private func runSynchronouslyOnMain(_ action: @escaping () -> Void) {
+        if Thread.isMainThread {
+            action()
+        } else {
+            DispatchQueue.main.sync(execute: action)
         }
     }
 }
