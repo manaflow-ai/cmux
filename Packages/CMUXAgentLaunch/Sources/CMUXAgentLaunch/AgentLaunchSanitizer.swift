@@ -103,6 +103,15 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(tail, policy: cursorPolicy)
         case "gemini":
             return preserveOptions(args, policy: geminiPolicy)
+        case "kiro":
+            var tail = args
+            if tail.first == "chat" {
+                tail.removeFirst()
+            } else if let command = tail.first,
+                      !command.hasPrefix("-") {
+                return nil
+            }
+            return preserveOptions(tail, policy: kiroPolicy)
         case "antigravity":
             return preserveOptions(args, policy: antigravityPolicy)
         case "opencode":
@@ -129,7 +138,8 @@ public enum AgentLaunchSanitizer {
                       !command.hasPrefix("-") {
                 return nil
             }
-            return preserveOptions(tail, policy: hermesAgentPolicy)
+            guard let preserved = preserveOptions(tail, policy: hermesAgentPolicy) else { return nil }
+            return HermesAgentCodexEnvironment.argumentsByReplacingOpenAICodexProvider(preserved)
         case "copilot":
             return preserveOptions(args, policy: copilotPolicy)
         case "codebuddy":

@@ -397,7 +397,7 @@ enum AgentResumeCommandBuilder {
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment, kind: kind.rawValue)
         for key in selectedEnvironment.keys.sorted() {
             guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
@@ -531,6 +531,10 @@ enum AgentResumeCommandBuilder {
                 option: "--resume",
                 sessionId: sessionId
             )
+        case .kiro:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "kiro-cli")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "kiro", args: original.tail) else { return nil }
+            return [original.executable, "chat", "--resume-id", sessionId] + preserved
         case .antigravity:
             return resumeWithOption(
                 kind: "antigravity",

@@ -45,7 +45,7 @@
     "taglinePrefix": "Terminalen bygget for ",
     "typingCodingAgents": "kodeagenter",
     "typingMultitasking": "multitasking",
-    "subtitle": "Nativ macOS-app bygget på Ghostty. Vertikale faner, varselsringer når agenter trenger oppmerksomhet, delte paneler og en socket-API for automatisering.",
+    "subtitle": "Nativ macOS-app bygget på Ghostty. Vertikale faner, varselsringer når agenter trenger oppmerksomhet, delte paneler og en <cliLink>CLI</cliLink> for programmerbarhet.",
     "features": "Funksjoner",
     "faq": "Vanlige spørsmål",
     "communitySection": "Fellesskap",
@@ -495,15 +495,24 @@
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
           "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner.",
           "warnBeforeClosingTabXButton": "Vis en bekreftelse før en fane lukkes med fanens lukkeknapp.",
-          "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten."
+          "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten.",
+          "forkConversationDefaultDestination": "Standardmål for den primære Fork Conversation-handlingen i fanehurtigmenyen. Undermenyen viser fortsatt alle mål."
         },
         "terminal": {
-          "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk."
+          "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk.",
+          "showTextBoxOnNewTerminals": "Viser beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",
+          "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox."
         },
         "browser": {
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
           "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
           "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, + knappen i gruppehodet og konfigurerte gruppehandlinger plasserer det nye workspace: `afterCurrent` (etter aktivt workspace i gruppen, med top som fallback), `top` (andre plass, rett etter ankeret) eller `end` (etter siste medlem).",
+          "byCwd": {
+            "newWorkspacePlacement": "Cwd-spesifikk overstyring for hvor Cmd-N i gruppen, + knappen i gruppehodet og konfigurerte gruppehandlinger plasserer det nye workspace: `afterCurrent` (etter aktivt workspace i gruppen, med top som fallback), `top` (andre plass, rett etter ankeret) eller `end` (etter siste medlem). Hvis utelatt brukes global standard."
+          }
         }
       }
     },
@@ -626,7 +635,8 @@
         "notifications": "Varsler",
         "find": "Finn",
         "terminal": "Terminal",
-        "window": "Vindu"
+        "window": "Vindu",
+        "diffViewer": "Diff-viser"
       },
       "sc": {
         "ws-new": "Nytt arbeidsområde",
@@ -672,7 +682,7 @@
       "metaTitle": "Tastatursnarveier"
     },
     "api": {
-      "title": "API-referanse",
+      "title": "CLI-referanse",
       "metaDescription": "cmux CLI og Unix socket API-referanse. Arbeidsområdeadministrasjon, delte paneler, inndatakontroll, varsler, sidefeltmetadata, miljøvariabler og deteksjonsmetoder.",
       "intro": "cmux tilbyr både et CLI-verktøy og en Unix-socket for programmatisk kontroll. Hver kommando er tilgjengelig gjennom begge grensesnittene.",
       "socket": "Socket",
@@ -751,7 +761,7 @@
       "pythonClient": "Python-klient",
       "shellScript": "Shell-skript",
       "buildScriptNotification": "Build-skript med varsel",
-      "metaTitle": "API-referanse"
+      "metaTitle": "CLI-referanse"
     },
     "notifications": {
       "title": "Varsler",
@@ -894,7 +904,7 @@
       "authoringCallout": "Når du legger til en ny ferdighet, inkluder <code>agents/openai.yaml</code> slik at installasjonsprogrammet viser et tydelig navn, en kort beskrivelse og en standardprompt.",
       "relatedTitle": "Relatert dokumentasjon",
       "relatedBrowserAutomation": "Nettleserautomatisering",
-      "relatedApi": "API-referanse",
+      "relatedApi": "CLI-referanse",
       "relatedCustomCommands": "Egendefinerte kommandoer"
     },
     "changelog": {
@@ -909,7 +919,7 @@
       "sessionRestore": "Sesjongjenoppretting",
       "customCommands": "Egendefinerte kommandoer",
       "keyboardShortcuts": "Tastatursnarveier",
-      "apiReference": "API-referanse",
+      "apiReference": "CLI-referanse",
       "browserAutomation": "Nettleserautomatisering",
       "skills": "Ferdigheter",
       "notifications": "Varsler",
@@ -919,7 +929,8 @@
       "changelog": "Endringslogg",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (beta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1053,6 +1064,21 @@
       "daemonSession": "Sesjonsledelse",
       "daemonSessionHow": "Vedvarer økter på tvers av gjentilkoblinger, koordinerer PTY-endring på tvers av flere vedlegg",
       "daemonPath": "Daemon-binæren er lagret på ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote på den eksterne verten og verifisert mot et SHA-256-manifest innebygd i appen."
+    },
+    "textBox": {
+      "title": "TextBox (beta)",
+      "metaTitle": "TextBox (beta)",
+      "metaDescription": "Konfigurer cmux sin beta-TextBox-inndata for nye terminalfaner, splitt og arbeidsområder.",
+      "intro": "TextBox er cmux sin rike terminalflate for å skrive prompter før de sendes til en terminal.",
+      "betaCallout": "TextBox er en betafunksjon. Standardverdier og oppførsel kan endres mens den testes.",
+      "defaultsTitle": "Standardverdier",
+      "defaultsDesc": "TextBox-innstillingene ligger i Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals åpner nye arbeidsområder, terminalfaner og terminalsplitt med TextBox synlig, mens fokus blir i terminalen.",
+      "focusSetting": "Focus TextBox on New Terminals setter tastaturfokus i TextBox. Fokus viser også TextBox.",
+      "maxLinesSetting": "TextBox Max Lines begrenser høyden på TextBox før innholdet begynner å rulle.",
+      "configTitle": "cmux.json",
+      "configDesc": "Sett de samme standardverdiene i ~/.config/cmux/cmux.json under terminal:",
+      "focusNote": "Gjenopprettede økter beholder lagret TextBox-synlighet og fokusstatus. Disse standardverdiene gjelder bare nyopprettede terminalflater."
     }
   },
   "legal": {

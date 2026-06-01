@@ -89,7 +89,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         console.log(answer);
         """.write(to: url, atomically: true, encoding: .utf8)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
@@ -103,7 +103,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data.append(Data("export const answer: number = 42;\n".utf8))
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
@@ -117,7 +117,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data.append(contentsOf: [0x00, 0x00])
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
@@ -134,7 +134,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             + "\nexport const answer: number = 42;\n"
         try source.write(to: url, atomically: true, encoding: .utf8)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
@@ -155,7 +155,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data[191] = 0x10
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
     }
 
@@ -176,7 +176,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data[199] = 0x10
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
     }
 
@@ -393,6 +393,53 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             charactersIgnoringModifiers: key,
             isARepeat: false,
             keyCode: keyCode
+        )
+    }
+
+    // Regression test for manaflow-ai/cmux#4576: drag-selecting deep into a large file pegged the
+    // main thread because TextKit 2's `NSTextSelectionNavigation` hit-tests are O(N) in line
+    // fragments. Selection hit-testing near the bottom of a large file must stay responsive.
+    func testLargeFileSelectionHitTestStaysResponsive() {
+        let lineCount = 60_000
+        let text = (0..<lineCount)
+            .map { "  \"row_\($0)\": { \"id\": \($0), \"value\": \"item-\($0)-payload\" }," }
+            .joined(separator: "\n")
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = text
+        // Realize layout so hit-testing measures steady-state cost (as it would after the file is
+        // displayed and the user has scrolled), not first-layout cost. Deliberately do NOT touch
+        // `layoutManager`/`textLayoutManager` here: that would force a TextKit mode in the test view
+        // and the test could no longer detect a production regression back to TextKit 2.
+        textView.sizeToFit()
+
+        // Geometry precondition: the hit-tests below must actually land deep in the document. If
+        // headless layout left the view collapsed, `bottomY` would sit at the top where even
+        // TextKit 2 is cheap, turning this into a silent false negative. Fail loudly instead.
+        let documentHeight = textView.bounds.height
+        XCTAssertGreaterThan(
+            documentHeight,
+            100_000,
+            "Test precondition failed: a \(lineCount)-line document laid out to only "
+                + "\(documentHeight)pt, so hit-tests would not reach the bottom. The timing "
+                + "assertion below would be meaningless."
+        )
+
+        let bottomY = max(documentHeight - 5, 1)
+        let start = ProcessInfo.processInfo.systemUptime
+        for offset in 0..<20 {
+            _ = textView.characterIndexForInsertion(at: CGPoint(x: 200, y: bottomY - CGFloat(offset)))
+        }
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
+
+        // TextKit 2 takes several seconds here; TextKit 1 + non-contiguous layout takes a few ms.
+        // The 1.0s ceiling sits far from both, so it is a clean, non-flaky regression signal.
+        XCTAssertLessThan(
+            elapsed,
+            1.0,
+            "Selection hit-testing near the bottom of a \(lineCount)-line file took \(elapsed)s. "
+                + "File Preview likely regressed to TextKit 2 O(N) selection navigation (see "
+                + "manaflow-ai/cmux#4576)."
         )
     }
 

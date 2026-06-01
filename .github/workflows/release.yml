@@ -16,7 +16,10 @@ env:
 
 jobs:
   build-sign-notarize:
-    runs-on: warp-macos-26-arm64-6x
+    # Keep publishing builds on macOS 15 until Zig can link the real universal
+    # Ghostty CLI helper on macOS 26. ci-macos-compat.yml covers macOS 26 with
+    # CMUX_SKIP_ZIG_BUILD=1, but release needs the real universal helper.
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 20
     steps:
       - name: Checkout
