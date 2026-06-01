@@ -2156,6 +2156,7 @@ body.reduce-motion *::after {
 }
 
 .browser-tabs {
+  grid-row: 1;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -2313,6 +2314,7 @@ body.reduce-motion *::after {
 }
 
 .browser-bar {
+  grid-row: 2;
   min-width: 0;
   display: grid;
   grid-template-columns: 24px 24px 24px 24px minmax(0, 1fr) 32px 26px;
@@ -2388,6 +2390,7 @@ body.reduce-motion *::after {
 }
 
 .browser-content {
+  grid-row: 4;
   min-width: 0;
   min-height: 0;
   position: relative;
@@ -2600,6 +2603,10 @@ body.reduce-motion *::after {
   .browser-status {
     display: none;
   }
+
+  .browser-content {
+    grid-row: 1;
+  }
 }
 
 .browser-view {
@@ -2686,6 +2693,7 @@ body.reduce-motion *::after {
 }
 
 .browser-status {
+  grid-row: 3;
   display: none;
   align-items: center;
   gap: var(--space-2);
@@ -2703,6 +2711,10 @@ body.reduce-motion *::after {
   border-bottom: 1px solid color-mix(in oklch, var(--color-line) 72%, transparent);
   background: color-mix(in oklch, var(--color-pane) 78%, var(--color-canvas) 22%);
   color: var(--color-muted);
+}
+
+.browser-shell.is-browser-deferred .browser-content {
+  grid-row: 2;
 }
 
 @media (prefers-reduced-motion: reduce) {
