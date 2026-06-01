@@ -3975,7 +3975,8 @@ class GhosttyApp {
         return Float(min(1.0, max(0.0, value)))
     }
 
-    private func ringBell() {
+    @MainActor
+    private func ringBell(tabId: UUID?, surfaceId: UUID?) {
         let features = bellFeatures()
 
         if (features & (1 << 0)) != 0 {
@@ -3995,6 +3996,52 @@ class GhosttyApp {
         if (features & (1 << 2)) != 0 {
             NSApp.requestUserAttention(.informationalRequest)
         }
+
+        // Bit 3 = `title`: per-surface visual indicator. cmux renders this on
+        // both the workspace's sidebar row (any surface in the workspace rang)
+        // and the bonsplit pane tab strip (the specific surface that rang).
+        // The app-target bell action (no surface context) skips this with a
+        // DEBUG log rather than mis-attributing the bell.
+        if (features & (1 << 3)) != 0, let tabId, let surfaceId {
+            Self.recordBellForTitleIndicator(tabId: tabId, surfaceId: surfaceId)
+        }
+#if DEBUG
+        if (features & (1 << 3)) != 0, (tabId == nil || surfaceId == nil) {
+            cmuxDebugLog("bell.title.skipped reason=missingTabIdOrSurfaceId tab=\(tabId?.uuidString.prefix(5) ?? "nil") surface=\(surfaceId?.uuidString.prefix(5) ?? "nil")")
+        }
+#endif
+    }
+
+    /// Visibility-aware entry point for recording a `bell-features = title`
+    /// indicator. Suppresses when the user has eyes on this exact surface so
+    /// no badge is needed. Centralizes the suppression logic at the bell
+    /// handling layer, keeping `TerminalNotificationStore` a pure write sink.
+    /// Also reused by the `bell.simulate` socket command for test coverage.
+    ///
+    /// "Visible" requires:
+    ///   * the surface is selected in its owning workspace, AND
+    ///   * the surface is the focused pane in that workspace, AND
+    ///   * the owning workspace's window is the active cmux window.
+    ///     `AppFocusState.isOwningWindowActive(_:)` requires both the app
+    ///     being active and the specific window being key/main, so a bell
+    ///     from a background-window surface in a multi-window session does
+    ///     not mis-suppress.
+    @MainActor
+    static func recordBellForTitleIndicator(tabId: UUID, surfaceId: UUID) {
+        let app = AppDelegate.shared
+        let owningManager = app?.tabManagerFor(tabId: tabId) ?? app?.tabManager
+
+        let owningWindow: NSWindow? = {
+            guard let app, let owningManager,
+                  let windowId = app.windowId(for: owningManager) else { return nil }
+            return app.mainWindow(for: windowId)
+        }()
+
+        let isCurrentlyVisible = owningManager?.selectedTabId == tabId
+            && owningManager?.focusedSurfaceId(for: tabId) == surfaceId
+            && AppFocusState.isOwningWindowActive(owningWindow)
+        guard !isCurrentlyVisible else { return }
+        TerminalNotificationStore.shared.noteBellRang(tabId: tabId, surfaceId: surfaceId)
     }
 
     private func applyDefaultBackground(
@@ -4385,7 +4432,7 @@ class GhosttyApp {
 
             if action.tag == GHOSTTY_ACTION_RING_BELL {
                 performOnMain {
-                    self.ringBell()
+                    self.ringBell(tabId: nil, surfaceId: nil)
                 }
                 return true
             }
@@ -4496,7 +4543,21 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_RING_BELL:
             performOnMain {
-                self.ringBell()
+                // Prefer callbackContext ids (still valid during view churn /
+                // reparenting) and fall back to surfaceView lookup. Keep the
+                // pair from the same lifetime — never mix a callback id with a
+                // surfaceView id, which would risk routing the bell to the
+                // wrong workspace/pane after reparenting.
+                let bellTabId: UUID?
+                let bellSurfaceId: UUID?
+                if let callbackTabId, let callbackSurfaceId {
+                    bellTabId = callbackTabId
+                    bellSurfaceId = callbackSurfaceId
+                } else {
+                    bellTabId = surfaceView.tabId
+                    bellSurfaceId = surfaceView.terminalSurface?.id
+                }
+                self.ringBell(tabId: bellTabId, surfaceId: bellSurfaceId)
             }
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:

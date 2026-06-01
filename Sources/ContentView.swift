@@ -12062,6 +12062,7 @@ struct VerticalTabsSidebar: View {
             target: contextMenuPinTarget
         )
         let liveUnreadCount = notificationStore.unreadCount(forTabId: tab.id)
+        let liveHasBell = notificationStore.hasBell(forTabId: tab.id)
         let liveLatestNotificationText: String? = {
             guard showsSidebarNotificationMessage,
                   let notification = notificationStore.latestNotification(forTabId: tab.id) else {
@@ -12139,6 +12140,7 @@ struct VerticalTabsSidebar: View {
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
             latestNotificationText: liveLatestNotificationText,
+            hasBell: liveHasBell,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
@@ -14616,6 +14618,7 @@ struct TabItemView: View, Equatable {
         lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
+        lhs.hasBell == rhs.hasBell &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
@@ -14644,6 +14647,7 @@ struct TabItemView: View, Equatable {
     let accessibilityWorkspaceCount: Int
     let unreadCount: Int
     let latestNotificationText: String?
+    let hasBell: Bool
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
@@ -15006,6 +15010,17 @@ struct TabItemView: View, Equatable {
                             .foregroundColor(activeUnreadBadgeTextColor)
                     }
                     .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+                } else if hasBell {
+                    Image(systemName: "bell.fill")
+                        .font(.system(size: scaledFontSize(11), weight: .semibold))
+                        .foregroundColor(activeUnreadBadgeFillColor)
+                        .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+                        .accessibilityLabel(
+                            String(
+                                localized: "sidebar.workspace.bellRang.accessibilityLabel",
+                                defaultValue: "Bell rang in this workspace"
+                            )
+                        )
                 }
 
                 if workspaceSnapshot.isPinned {

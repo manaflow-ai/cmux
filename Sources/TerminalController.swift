@@ -3592,6 +3592,10 @@ class TerminalController {
             return v2Result(id: id, self.v2NotificationOpen(params: params))
         case "notification.jump_to_unread":
             return v2Result(id: id, self.v2NotificationJumpToUnread())
+        case "bell.simulate":
+            return v2Result(id: id, self.v2BellSimulate(params: params))
+        case "bell.list":
+            return v2Ok(id: id, result: self.v2BellList())
 
         // App focus
         case "app.focus_override.set":
@@ -4006,6 +4010,8 @@ class TerminalController {
             "notification.mark_read",
             "notification.open",
             "notification.jump_to_unread",
+            "bell.simulate",
+            "bell.list",
             "app.focus_override.set",
             "app.simulate_active",
             "file.open",
@@ -11280,6 +11286,74 @@ class TerminalController {
     private func v2NotificationClear() -> V2CallResult {
         TerminalMutationBus.shared.enqueueClearAllNotifications()
         return .ok([:])
+    }
+
+    /// Simulates ghostty's `bell-features = title` indicator firing on a given
+    /// surface. Goes through the same suppression-aware code path as a real
+    /// bell from the terminal action callback so tests exercise the actual
+    /// production logic, not a mocked shortcut.
+    private func v2BellSimulate(params: [String: Any]) -> V2CallResult {
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to simulate bell", data: nil)
+        v2MainSync {
+            // Try the resolved-via-params tab manager first (handles the explicit
+            // `workspace_id` case and the active-window default). If that manager
+            // doesn't actually own the target surface, fall back to a global
+            // lookup so background-window surfaces aren't reported as not_found
+            // — same pattern as other surface_id-only routes in this file.
+            var ws: Workspace? = nil
+            if let preferredManager = v2ResolveTabManager(params: params),
+               let preferredWorkspace = v2ResolveWorkspace(params: params, tabManager: preferredManager),
+               preferredWorkspace.panels[surfaceId] != nil {
+                ws = preferredWorkspace
+            } else if let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceId),
+                      let owningWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) {
+                ws = owningWorkspace
+            }
+
+            guard let workspace = ws else {
+                result = .err(
+                    code: "not_found",
+                    message: "Surface not found",
+                    data: ["surface_id": surfaceId.uuidString]
+                )
+                return
+            }
+
+            GhosttyApp.recordBellForTitleIndicator(tabId: workspace.id, surfaceId: surfaceId)
+            let suppressed = !TerminalNotificationStore.shared.hasBell(forTabId: workspace.id, surfaceId: surfaceId)
+            result = .ok([
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "suppressed": suppressed,
+            ])
+        }
+        return result
+    }
+
+    /// Returns the current per-surface bell-rang state from
+    /// `TerminalNotificationStore`. Used by tests to assert observable
+    /// behavior of the bell-features = title indicator.
+    private func v2BellList() -> [String: Any] {
+        var entries: [[String: Any]] = []
+        v2MainSync {
+            // Sort by tabId so the JSON workspaces array is deterministic for
+            // tests; surface_ids inside each entry are already sorted.
+            let snapshot = TerminalNotificationStore.shared.bellRangSurfacesByTab
+            for tabId in snapshot.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
+                guard let surfaceIds = snapshot[tabId] else { continue }
+                entries.append([
+                    "workspace_id": tabId.uuidString,
+                    "surface_ids": surfaceIds.map { $0.uuidString }.sorted(),
+                ])
+            }
+        }
+        return ["workspaces": entries]
     }
 
     private func v2FeedbackOpen(params: [String: Any]) -> V2CallResult {

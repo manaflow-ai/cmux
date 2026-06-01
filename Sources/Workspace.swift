@@ -11889,6 +11889,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard panels[panelId] != nil else { return }
         let notificationStore = AppDelegate.shared?.notificationStore
         notificationStore?.markRead(forTabId: id, surfaceId: panelId)
+        notificationStore?.clearBell(forTabId: id, surfaceId: panelId)
         _ = clearManualUnreadState(panelId: panelId)
         let restoredIndicator = restoredUnreadPanelIndicators[panelId]
         let didClearRestored = clearRestoredUnreadIndicatorState(panelId: panelId)

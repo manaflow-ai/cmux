@@ -1369,6 +1369,18 @@ class TabManager: ObservableObject {
                             tabId: selectedTabId,
                             context: notificationDismissalContext
                         )
+                        // Clear the bell badge for the surface the user is now
+                        // looking at. Other surfaces in the workspace keep their
+                        // bonsplit-tab badge until those tabs are interacted with.
+                        // Gate on AppFocusState so background/programmatic selection
+                        // changes don't dismiss badges before the user sees them.
+                        if AppFocusState.isAppActive(),
+                           let focusedSurfaceId = self.focusedSurfaceId(for: selectedTabId) {
+                            AppDelegate.shared?.notificationStore?.clearBell(
+                                forTabId: selectedTabId,
+                                surfaceId: focusedSurfaceId
+                            )
+                        }
                     }
                 }
                 if suppressFocusHistory {
@@ -8240,7 +8252,8 @@ class TabManager: ObservableObject {
                 notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: $0)
             }
         }
-        guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator else { return false }
+        let hasBell = surfaceId.map { notificationStore.hasBell(forTabId: tabId, surfaceId: $0) } ?? false
+        guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator || hasBell else { return false }
         if hasUnreadNotification {
             if notificationSurfaceIds.isEmpty {
                 notificationStore.markRead(forTabId: tabId, surfaceId: nil)
@@ -8276,6 +8289,9 @@ class TabManager: ObservableObject {
             for surfaceId in notificationSurfaceIds {
                 notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
             }
+        }
+        if let surfaceId, hasBell {
+            notificationStore.clearBell(forTabId: tabId, surfaceId: surfaceId)
         }
         if let targetPanelId,
            let workspace {

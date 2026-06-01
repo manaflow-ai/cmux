@@ -318,6 +318,9 @@ struct WorkspaceContentView: View {
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
         }
+        .onChange(of: notificationStore.bellRangSurfacesByTab) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
         .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
             syncBonsplitNotificationBadges()
         }
@@ -380,7 +383,7 @@ struct WorkspaceContentView: View {
                         hasPanelUnreadIndicator: manualUnread.contains($0) || restoredUnread.contains($0),
                         isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
                         isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == $0
-                    )
+                    ) || notificationStore.hasBell(forTabId: workspace.id, surfaceId: $0)
                 } ?? false
                 let kindUpdate: String?? = expectedKind.map { .some($0) }
 
@@ -482,7 +485,7 @@ struct WorkspaceContentView: View {
                     workspace.restoredUnreadPanelIds.contains(panelId),
                 isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
                 isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panelId
-            )
+            ) || notificationStore.hasBell(forTabId: workspace.id, surfaceId: panelId)
             guard shouldShowUnread else { return nil }
 
             let paneRect = pane.frame.cgRect

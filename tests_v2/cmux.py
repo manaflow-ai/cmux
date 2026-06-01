@@ -864,6 +864,60 @@ class cmux:
     def clear_notifications(self) -> None:
         self._call("notification.clear")
 
+    def simulate_bell(self, surface: Union[str, int], workspace: Union[str, int, None] = None) -> dict:
+        target_workspace_id: Optional[str] = None
+        if workspace is not None:
+            target_workspace_id = self._resolve_workspace_id(workspace)
+        sid = self._resolve_surface_id(surface, workspace_id=target_workspace_id)
+        if not sid:
+            raise cmuxError(f"Invalid surface: {surface!r}")
+        params: dict = {"surface_id": sid}
+        if target_workspace_id:
+            params["workspace_id"] = target_workspace_id
+        return self._call("bell.simulate", params) or {}
+
+    def list_bell_surfaces(self, workspace: Union[str, int, None] = None) -> list[str]:
+        """Return the surface IDs that have an active bell-features=title indicator.
+
+        If `workspace` is provided, returns only surfaces in that workspace.
+        Otherwise returns surfaces across all workspaces.
+        """
+        res = self._call("bell.list") or {}
+        entries = res.get("workspaces") or []
+        if workspace is None:
+            out: list[str] = []
+            for entry in entries:
+                out.extend(entry.get("surface_ids") or [])
+            return sorted(out)
+        # bell.list returns workspace_id as a UUID. _resolve_workspace_id may
+        # return a ref string (e.g. "workspace:1"); normalize to UUID via
+        # workspace.list lookup so the filter matches the response shape.
+        target = self._resolve_workspace_id(workspace)
+        if target and ":" in target:
+            ws_items = (self._call("workspace.list") or {}).get("workspaces") or []
+            ref_index_str = target.split(":", 1)[1]
+            try:
+                ref_index = int(ref_index_str)
+            except ValueError:
+                ref_index = -1
+            resolved: Optional[str] = None
+            for row in ws_items:
+                if int(row.get("index", -1)) == ref_index:
+                    resolved = str(row.get("id"))
+                    break
+            if resolved is None:
+                # Fail fast on unknown ref so caller mistakes don't masquerade
+                # as "no bells" — matches the behavior of other workspace-scoped
+                # helpers that raise on bad indexes.
+                raise cmuxError(f"Workspace index not found: {ref_index}")
+            target = resolved
+        if not target:
+            return []
+        for entry in entries:
+            if entry.get("workspace_id") == target:
+                return sorted(list(entry.get("surface_ids") or []))
+        return []
+
     def set_app_focus(self, active: Union[bool, None]) -> None:
         if active is None:
             state = "clear"
