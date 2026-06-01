@@ -1365,7 +1365,7 @@ body.reduce-motion *::after {
 }
 
 .pane-splitter {
-  flex: 0 0 10px;
+  flex: 0 0 12px;
   position: relative;
   z-index: 4;
   background: transparent;
@@ -1399,7 +1399,7 @@ body.reduce-motion *::after {
 .pane-splitter::before {
   content: "";
   position: absolute;
-  inset: 14% calc(50% - 1px);
+  inset: 12% calc(50% - 1px);
   border-radius: 999px;
   background: color-mix(in oklch, var(--color-line-strong) 76%, transparent);
   opacity: .72;
@@ -1411,7 +1411,7 @@ body.reduce-motion *::after {
 
 .pane-split.direction-down > .pane-splitter::before,
 .pane-grid.direction-down > .pane-splitter::before {
-  inset: calc(50% - 1px) 14%;
+  inset: calc(50% - 1px) 12%;
 }
 
 .pane-splitter:hover::before,
@@ -3958,6 +3958,10 @@ body.reduce-motion *::after {
 .layout-preview-topbar span {
   height: 10px;
   background: color-mix(in oklch, var(--color-text) 12%, transparent);
+}
+
+.layout-settings-preview.toolbar-minimal .layout-preview-topbar span:nth-child(2) {
+  width: 24%;
 }
 
 .layout-settings-preview.toolbar-compact .layout-preview-topbar span:nth-child(2) {

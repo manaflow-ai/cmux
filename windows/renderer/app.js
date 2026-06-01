@@ -8018,7 +8018,7 @@ function quickSetupOverviewPanel() {
 const quickSettingsShortcuts = [
   ["workspace", "Workspace", "Rename, folders, colors.", workspaceCountLabel],
   ["appearance", "Look", "Themes, colors, backgrounds.", () => appearanceBackgroundLabel(state.settings.backgroundImage)],
-  ["layout", "Layout", "Tabs, panes, chrome.", () => optionLabel(toolbarModeOptions, state.settings.toolbarMode, "Compact")],
+  ["layout", "Layout", "Tabs, panes, chrome.", () => optionLabel(toolbarModeOptions, state.settings.toolbarMode, "Minimal")],
   ["terminal", "Terminal", "Font, cursor, shell.", () => optionLabel(terminalProfiles, state.settings.terminalProfile, "Auto")],
   ["browser", "Browser", "Home page and history.", () => hostnameOf(state.settings.browserHomeUrl)],
   ["performance", "Performance", "Lag tuning and diagnostics.", performanceModeLabel],
@@ -8403,7 +8403,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     backgroundOpacity: Math.min(state.settings.backgroundOpacity, 8),
     backgroundEffects: "flat",
     density: "compact",
-    toolbarMode: "compact",
+    toolbarMode: "minimal",
     paneActionMode: "essential",
     showStatusbar: false,
     terminalPadding: Math.min(state.settings.terminalPadding, 4),
