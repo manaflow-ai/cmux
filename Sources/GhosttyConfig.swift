@@ -380,7 +380,14 @@ struct GhosttyConfig {
     ) {
         let lines = contents.components(separatedBy: .newlines)
         for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            var trimmed = line.trimmingCharacters(in: .whitespaces)
+            // Strip a leading UTF-8 BOM so a BOM-encoded first line (e.g. a
+            // `sidebar-font-size` setting) is still parsed instead of silently
+            // ignored, matching `CmuxGhosttyConfigSettingEditor.parsedSetting`.
+            if trimmed.hasPrefix("\u{FEFF}") {
+                trimmed.removeFirst()
+                trimmed = trimmed.trimmingCharacters(in: .whitespaces)
+            }
             if trimmed.isEmpty || trimmed.hasPrefix("#") {
                 continue
             }
