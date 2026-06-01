@@ -127,6 +127,25 @@ extension WindowAppearanceSnapshot {
         )
     }
 
+    func replacingTerminalBackgroundColor(_ color: NSColor) -> Self {
+        Self(
+            terminalBackgroundColor: color,
+            terminalBackgroundOpacity: terminalBackgroundOpacity,
+            terminalBackgroundBlur: terminalBackgroundBlur,
+            terminalRenderingMode: terminalRenderingMode,
+            unifySurfaceBackdrops: unifySurfaceBackdrops,
+            sidebarSettings: sidebarSettings,
+            windowGlassSettings: WindowGlassSettingsSnapshot(
+                sidebarBlendModeRawValue: windowGlassSettings.sidebarBlendModeRawValue,
+                isEnabled: windowGlassSettings.isEnabled,
+                tintHex: windowGlassSettings.tintHex,
+                tintOpacity: windowGlassSettings.tintOpacity,
+                terminalBackgroundBlur: terminalBackgroundBlur,
+                terminalGlassTintColor: color.withAlphaComponent(terminalBackgroundOpacity)
+            )
+        )
+    }
+
     var appKitWindowMutationID: String {
         backdropPlan().appKitMutationID
     }
