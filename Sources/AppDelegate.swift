@@ -2423,6 +2423,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     payload["lastCommandError"] = "Selection or hover suppression failed"
                 }
 
+            case "context_menu_token":
+                guard let hitPoint = commandPoint(
+                    from: command,
+                    defaultPayloadKey: "tokenHitPointInTerminal",
+                    in: terminalPanel
+                ) else {
+                    payload["lastCommandError"] = "Missing command point"
+                    break
+                }
+
+                let result = terminalPanel.hostedView.debugContextMenuDetails(at: hitPoint)
+                payload["lastCommandResult"] = result
+                payload["lastCommandMenuTitles"] = result["menuTitles"]
+                if result["hasLookUp"] as? String == "1",
+                   result["hasPaste"] as? String == "1",
+                   result["hasSplitHorizontally"] as? String == "1",
+                   result["hasResetTerminal"] as? String == "1",
+                   result["hasCopy"] as? String != "1" {
+                    payload["lastCommandSucceeded"] = "1"
+                } else if let error = result["error"] as? String {
+                    payload["lastCommandError"] = error
+                } else {
+                    payload["lastCommandError"] = "Unselected token context menu did not include expected text and pane actions"
+                }
+
+            case "context_menu_selected_token":
+                guard let selectionStart = pointFromPayload("tokenSelectionStartInTerminal", in: terminalPanel),
+                      let selectionEnd = pointFromPayload("tokenSelectionEndInTerminal", in: terminalPanel) else {
+                    payload["lastCommandError"] = "Missing token selection points"
+                    break
+                }
+
+                let selectionActive = terminalPanel.hostedView.debugSimulateSelection(
+                    from: selectionStart,
+                    to: selectionEnd
+                )
+                let result = terminalPanel.hostedView.debugContextMenuDetails(at: selectionEnd)
+                payload["lastCommandSelectionActive"] = selectionActive ? "1" : "0"
+                payload["lastCommandResult"] = result
+                payload["lastCommandMenuTitles"] = result["menuTitles"]
+                if selectionActive,
+                   result["hasCopy"] as? String == "1",
+                   result["hasLookUp"] as? String == "1",
+                   result["hasPaste"] as? String == "1",
+                   result["hasSplitHorizontally"] as? String == "1",
+                   result["hasResetTerminal"] as? String == "1" {
+                    payload["lastCommandSucceeded"] = "1"
+                } else if let error = result["error"] as? String {
+                    payload["lastCommandError"] = error
+                } else {
+                    payload["lastCommandError"] = "Selected token context menu did not include expected text and pane actions"
+                }
+
             case "capture_window":
                 let label = (command["label"] as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)

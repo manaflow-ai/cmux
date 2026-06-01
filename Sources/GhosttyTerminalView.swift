@@ -8457,8 +8457,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func lookUpMenuTitle(for text: String) -> String {
-        let previewLimit = 40
+    static let textServicePasteboardTypes: Set<NSPasteboard.PasteboardType> = [
+        .string,
+        NSPasteboard.PasteboardType("public.utf8-plain-text")
+    ]
+
+    static func supportsTextServiceRequest(
+        sendType: NSPasteboard.PasteboardType?,
+        returnType: NSPasteboard.PasteboardType?,
+        hasSelection: Bool
+    ) -> Bool {
+        guard returnType == nil else { return false }
+        guard sendType.map({ textServicePasteboardTypes.contains($0) }) ?? true else { return false }
+        guard let sendType else { return true }
+        return textServicePasteboardTypes.contains(sendType) && hasSelection
+    }
+
+    static func lookUpMenuTitle(for text: String, previewLimit: Int = 40) -> String {
         let normalized = text
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\t", with: " ")
@@ -8558,27 +8573,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         forSendType sendType: NSPasteboard.PasteboardType?,
         returnType: NSPasteboard.PasteboardType?
     ) -> Any? {
-        let textTypes: Set<NSPasteboard.PasteboardType> = [
-            .string,
-            NSPasteboard.PasteboardType("public.utf8-plain-text")
-        ]
-        let supportsReturnType = returnType.map { textTypes.contains($0) } ?? true
-        let supportsSendType = sendType.map { textTypes.contains($0) } ?? true
-        guard supportsReturnType, supportsSendType else {
+        let hasSelection = surface.map { ghostty_surface_has_selection($0) } ?? false
+        guard Self.supportsTextServiceRequest(
+            sendType: sendType,
+            returnType: returnType,
+            hasSelection: hasSelection
+        ) else {
             return super.validRequestor(forSendType: sendType, returnType: returnType)
-        }
-
-        if let sendType, textTypes.contains(sendType) {
-            guard let surface, ghostty_surface_has_selection(surface) else {
-                return super.validRequestor(forSendType: sendType, returnType: returnType)
-            }
         }
 
         return self
     }
 
     @objc func writeSelection(to pasteboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
-        guard (types.contains(.string) || types.contains(NSPasteboard.PasteboardType("public.utf8-plain-text"))),
+        guard !Self.textServicePasteboardTypes.isDisjoint(with: Set(types)),
               let snapshot = readSelectionSnapshot(),
               !snapshot.string.isEmpty else {
             return false
@@ -10603,7 +10611,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         let lookUpItem = menu.addItem(
-            withTitle: lookUpMenuTitle(for: snapshot.string),
+            withTitle: Self.lookUpMenuTitle(for: snapshot.string),
             action: #selector(lookUpContextMenuText(_:)),
             keyEquivalent: ""
         )
@@ -10614,6 +10622,38 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             menu.addItem(shareItem)
         }
     }
+
+#if DEBUG
+    func debugContextMenuDetails(at point: NSPoint) -> [String: Any] {
+        guard let window else { return ["error": "Missing window"] }
+        let locationInWindow = convert(point, to: nil)
+        guard let event = NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: locationInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ) else {
+            return ["error": "Failed to create right-click event"]
+        }
+        guard let menu = menu(for: event) else { return ["error": "No context menu"] }
+        let titles = menu.items
+            .filter { !$0.isSeparatorItem }
+            .map(\.title)
+        return [
+            "menuTitles": titles,
+            "hasCopy": titles.contains(String(localized: "terminalContextMenu.copy", defaultValue: "Copy")) ? "1" : "0",
+            "hasLookUp": titles.contains { $0.hasPrefix("Look Up ") } ? "1" : "0",
+            "hasPaste": titles.contains(String(localized: "terminalContextMenu.paste", defaultValue: "Paste")) ? "1" : "0",
+            "hasSplitHorizontally": titles.contains(String(localized: "terminalContextMenu.splitHorizontally", defaultValue: "Split Horizontally")) ? "1" : "0",
+            "hasResetTerminal": titles.contains(String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal")) ? "1" : "0"
+        ]
+    }
+#endif
 
     private func appendTerminalPaneContextMenuItems(to menu: NSMenu) {
         let pasteItem = menu.addItem(
@@ -11513,6 +11553,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugSimulateCommandClick(at point: NSPoint) -> [String: Any] {
         surfaceView.debugSimulateCommandClick(at: debugPointInSurface(point))
+    }
+
+    func debugContextMenuDetails(at point: NSPoint) -> [String: Any] {
+        surfaceView.debugContextMenuDetails(at: debugPointInSurface(point))
     }
 #endif
 

@@ -939,6 +939,62 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
     }
 }
 
+final class GhosttyTerminalContextMenuTests: XCTestCase {
+    func testLookUpTitleIncludesQuotedSelectionPreview() {
+        XCTAssertEqual(
+            GhosttyNSView.lookUpMenuTitle(for: "hello"),
+            "Look Up “hello”"
+        )
+    }
+
+    func testLookUpTitleNormalizesWhitespaceAndTruncatesLongText() {
+        let title = GhosttyNSView.lookUpMenuTitle(
+            for: "  abc\tdef\n" + String(repeating: "x", count: 80),
+            previewLimit: 10
+        )
+
+        XCTAssertEqual(title, "Look Up “abc def xx…”")
+    }
+
+    func testTextServicesRequireSendOnlyTextAndSelection() {
+        XCTAssertTrue(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: .string,
+                returnType: nil,
+                hasSelection: true
+            )
+        )
+        XCTAssertTrue(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: NSPasteboard.PasteboardType("public.utf8-plain-text"),
+                returnType: nil,
+                hasSelection: true
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: .string,
+                returnType: nil,
+                hasSelection: false
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: .string,
+                returnType: .string,
+                hasSelection: true
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: .png,
+                returnType: nil,
+                hasSelection: true
+            )
+        )
+    }
+}
+
 @MainActor
 final class TerminalOffscreenStartupTests: XCTestCase {
     func testPlainSurfaceDoesNotStartRuntimeBeforeWindowAttachmentOrInput() {
