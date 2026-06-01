@@ -131,6 +131,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     private static var retainedTextBoxRestoreViews: [TextBoxInputTextView] = []
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
+    private var mainWindowIdsAtTestStart: Set<UUID> = []
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
 
     private func makeKeyEvent(
@@ -193,6 +194,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         KeyboardShortcutRecorderActivity.resetForTesting()
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
         #endif
+        mainWindowIdsAtTestStart = mainWindowIds()
         actionsWithPersistedShortcut = Set(
             KeyboardShortcutSettings.Action.allCases.filter {
                 UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
@@ -211,9 +213,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     override func tearDown() {
-        for windowId in mainWindowIds() {
+        for windowId in mainWindowIds().subtracting(mainWindowIdsAtTestStart) {
             closeWindow(withId: windowId)
         }
+        mainWindowIdsAtTestStart.removeAll()
         #if DEBUG
         KeyboardShortcutRecorderActivity.resetForTesting()
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
@@ -3282,8 +3285,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
               let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
-              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
-              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id) else {
             XCTFail("Expected focused browser panel")
             return
         }
