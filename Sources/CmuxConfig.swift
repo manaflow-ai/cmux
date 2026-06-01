@@ -1893,6 +1893,9 @@ final class CmuxConfigStore: ObservableObject {
     /// configured.
     @Published private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
+    /// Resolved `ui.paneDivider` override (project-scoped config takes
+    /// precedence over global). Empty when no divider override is configured.
+    @Published private(set) var paneDividerOverride: CmuxPaneDividerOverride = .none
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
@@ -2329,7 +2332,35 @@ final class CmuxConfigStore: ObservableObject {
             )
         }
         applySurfaceTabBarButtonsToCurrentManager()
+        let resolvedPaneDivider = Self.resolvePaneDividerOverride(
+            localConfig: localConfig,
+            globalConfig: globalConfig
+        )
+        paneDividerOverride = resolvedPaneDivider
+        // Push into the app-wide cache the workspace chrome code reads, and
+        // ask visible workspaces to re-apply chrome when the divider changed so
+        // `cmux reload-config` refreshes dividers in place without a restart.
+        if PaneDividerConfigState.shared.update(resolvedPaneDivider) {
+            NotificationCenter.default.post(name: .cmuxPaneDividerConfigDidChange, object: nil)
+        }
         configRevision &+= 1
+    }
+
+    /// Merge the `ui.paneDivider` blocks from the project-scoped and global
+    /// config files. Project config wins per field, so a project can override
+    /// only the color while inheriting the global thickness.
+    private static func resolvePaneDividerOverride(
+        localConfig: CmuxConfigFile?,
+        globalConfig: CmuxConfigFile?
+    ) -> CmuxPaneDividerOverride {
+        let local = localConfig?.ui?.paneDivider
+        let global = globalConfig?.ui?.paneDivider
+        if local == nil, global == nil { return .none }
+        let merged = CmuxConfigPaneDivider(
+            color: local?.color ?? global?.color,
+            thickness: local?.thickness ?? global?.thickness
+        )
+        return CmuxPaneDividerOverride(config: merged)
     }
 
     private func resolvedLocalNotificationHookPaths(fallbackLocalPath: String?) -> [String] {

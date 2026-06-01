@@ -333,6 +333,12 @@ struct WorkspaceContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
         }
+        .onReceive(NotificationCenter.default.publisher(for: .cmuxPaneDividerConfigDidChange)) { _ in
+            // The cmux-config pane-divider override changed; force a chrome
+            // re-apply so the divider color/thickness updates in place even when
+            // the Ghostty appearance signature is otherwise unchanged.
+            refreshGhosttyAppearanceConfig(reason: "cmuxPaneDividerConfigDidChange", forceInitialApply: true)
+        }
         .onChange(of: colorScheme) { oldValue, newValue in
             // Keep split overlay color/opacity in sync with light/dark theme transitions.
             refreshGhosttyAppearanceConfig(reason: "colorSchemeChanged:\(oldValue)->\(newValue)")
