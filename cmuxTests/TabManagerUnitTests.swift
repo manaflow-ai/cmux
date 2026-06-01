@@ -3803,6 +3803,13 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 /// against any GitHub-family host `gh` is authenticated to (github.com plus any
 /// GitHub Enterprise Server host), not only github.com.
 @Suite struct GitHubHostHelperTests {
+    // TEMPORARY CI-execution proof for #5080 — deliberately fails so we can
+    // confirm this Swift Testing suite actually runs in the cmuxTests target.
+    // Reverted in the next commit once CI shows it red.
+    @Test func ciExecutionProofDeliberateFailureIssue5080() {
+        #expect(1 == 2)
+    }
+
     // MARK: Remote URL parsing
 
     @Test func parsesGitHubDotComSSHRemote() {
