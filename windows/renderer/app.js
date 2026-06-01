@@ -4054,7 +4054,7 @@ function emptyWorkspaceLaunchers() {
     },
     {
       id: "browser",
-      icon: "www",
+      icon: "○",
       label: "Browser",
       meta: "home",
       kind: "panel",
@@ -4064,7 +4064,7 @@ function emptyWorkspaceLaunchers() {
   if (workspaceStarters.length > 0 || state.workspaceBlueprints.length > 0) {
     launchers.push({
       id: "layouts",
-      icon: "2x",
+      icon: "▦",
       label: "Layouts",
       meta: "settings",
       kind: "layouts"
@@ -4073,7 +4073,7 @@ function emptyWorkspaceLaunchers() {
   if (state.closedPanels.length > 0) {
     launchers.unshift({
       id: "reopen",
-      icon: "...",
+      icon: "↺",
       label: "Reopen",
       meta: "last pane",
       kind: "reopen",

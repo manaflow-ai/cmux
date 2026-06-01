@@ -3241,11 +3241,14 @@ body.reduce-motion *::after {
   height: 32px;
   display: grid;
   place-items: center;
+  overflow: hidden;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
   background: var(--color-pane);
   color: var(--color-muted);
-  font: 11px/1 var(--font-mono);
+  font: 700 14px/1 var(--font-mono);
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .empty-workspace-launcher-text {
