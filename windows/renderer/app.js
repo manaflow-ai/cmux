@@ -11432,9 +11432,9 @@ function optimisticFocusWorkspace(workspaceId) {
   state.lastInteractedPanelId = panel?.id || null;
   if (state.data.activeWorkspaceId !== workspaceId) {
     state.data.activeWorkspaceId = workspaceId;
-    scheduleRender();
+    render();
   } else if (workspace.activePanelId !== previousPanelId) {
-    scheduleRender();
+    render();
   }
   return true;
 }
@@ -11447,7 +11447,7 @@ function optimisticFocusPanel(panelId) {
   clearDifferentZoomedPanelOnFocus(found.workspace, panelId);
   found.workspace.activePanelId = panelId;
   state.data.activeWorkspaceId = found.workspace.id;
-  scheduleRender();
+  render();
   return true;
 }
 
