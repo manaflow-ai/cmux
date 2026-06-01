@@ -85,7 +85,8 @@ final class FocusSurfaceBroadcaster {
     ///   - schedule: Schedules deferred flush work on the main queue. Defaults to
     ///     `DispatchQueue.main.async`. Injected by tests to flush deterministically.
     ///   - onDrainBoundExceeded: Invoked with the still-pending payload when a flush
-    ///     hits ``maxCoalescedDeliveries`` and stops. Used for structured logging.
+    ///     hits ``maxCoalescedDeliveries`` and defers the remainder to a follow-up
+    ///     flush. Used for structured logging of a non-converging focus cycle.
     ///   - deliver: Performs the actual broadcast. Defaults to posting
     ///     `.ghosttyDidFocusSurface`. Injected by tests to capture deliveries.
     init(
