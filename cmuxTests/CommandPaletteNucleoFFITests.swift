@@ -108,7 +108,7 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         // description word produced by commandPaletteWorkspaceSearchMetadata). For short queries
         // an exact match on such a hidden line scored 30_030 and beat the visible title prefix,
         // which only reached nucleo(~88) + 2_000. The "ios" row shown to the user therefore had
-        // no highlighted title yet sat at the top. https://github.com/manaflow-ai/cmux/pull/0000
+        // no highlighted title yet sat at the top. https://github.com/manaflow-ai/cmux/pull/5148
         let library = try NucleoLibrary()
         let entries = [
             FixtureEntry(
