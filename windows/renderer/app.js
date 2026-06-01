@@ -206,6 +206,7 @@ const terminalWheelZoomThreshold = 120;
 const terminalWheelZoomIdleResetMs = 450;
 const terminalWheelZoomMaxSteps = 3;
 const deferredTerminalInitIdleTimeoutMs = 700;
+const browserLoadTimeoutMs = 15000;
 const paneResizeFitThrottleMs = 90;
 const panePointerDragThreshold = 6;
 const closedPanelLimit = 12;
@@ -5533,18 +5534,33 @@ function ensureBrowser(panel, body) {
   const isWebview = view.tagName.toLowerCase() === "webview";
   let webviewReady = !isWebview;
   let loadingStatusTimer = 0;
+  let browserLoadTimer = 0;
   let browserLoadFailed = false;
   let session = null;
+
+  const clearBrowserLoadTimer = () => {
+    if (!browserLoadTimer) return;
+    clearTimeout(browserLoadTimer);
+    browserLoadTimer = 0;
+  };
 
   const setLoading = (loading = false) => {
     const visible = Boolean(loading);
     const targetUrl = normalizeUrl(address.value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+    clearBrowserLoadTimer();
     loadingPane.hidden = !visible;
     content.classList.toggle("is-loading", visible);
     if (!visible) return;
     loadingPane.querySelector(".browser-loading-title").textContent = `Loading ${hostnameOf(targetUrl)}`;
     loadingPane.querySelector(".browser-loading-url").textContent = targetUrl;
     loadingPane.querySelector(".browser-loading-url").title = targetUrl;
+    browserLoadTimer = setTimeout(() => {
+      browserLoadTimer = 0;
+      if (!content.classList.contains("is-loading") || browserLoadFailed || deferredPane.hidden === false) return;
+      browserLoadFailed = true;
+      showBrowserError("The page is taking too long to respond. Try again, open it externally, or return home.", targetUrl);
+      updateNavState();
+    }, browserLoadTimeoutMs);
   };
 
   const setStatus = (message = "") => {
@@ -5570,6 +5586,7 @@ function ensureBrowser(panel, body) {
   };
   const showBrowserError = (message = "This page could not be shown inside cmux.", detail = address.value) => {
     const targetUrl = normalizeUrl(detail || address.value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+    clearBrowserLoadTimer();
     setLoading(false);
     errorPane.querySelector(".browser-error-title").textContent = "Page did not load";
     errorPane.querySelector(".browser-error-body").textContent = message;
