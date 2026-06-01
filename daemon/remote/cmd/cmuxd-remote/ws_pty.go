@@ -146,6 +146,7 @@ type wsPTYSession struct {
 	id             string
 	key            wsPTYSessionKey
 	cmd            *exec.Cmd
+	tmpScript      string // temp file path for large startup scripts; cleaned up on exit
 	ptyFile        *os.File
 	ttyFile        *os.File
 	attachments    map[string]*wsPTYAttachment
@@ -711,8 +712,25 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 	shellPath := resolvePTYShell(h.shell)
 	trimmedCommand := strings.TrimSpace(command)
 	var cmd *exec.Cmd
+	var tmpScript string
 	if trimmedCommand == "" {
 		cmd = exec.Command(shellPath)
+	} else if len(trimmedCommand) > 120*1024 {
+		// Startup script exceeds Linux's MAX_ARG_STRLEN (~128KB). Write to a
+		// temp file and exec /bin/sh <file> to avoid E2BIG from execve.
+		f, err := os.CreateTemp("", "cmuxd-startup-*.sh")
+		if err != nil {
+			return nil, fmt.Errorf("could not create startup script temp file: %w", err)
+		}
+		tmpScript = f.Name()
+		if _, err := f.WriteString(trimmedCommand); err != nil {
+			_ = f.Close()
+			_ = os.Remove(tmpScript)
+			return nil, fmt.Errorf("could not write startup script: %w", err)
+		}
+		_ = f.Chmod(0o700)
+		_ = f.Close()
+		cmd = exec.Command("/bin/sh", tmpScript)
 	} else {
 		cmd = exec.Command("/bin/sh", "-c", trimmedCommand)
 	}
@@ -725,6 +743,7 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 		id:            sessionID,
 		key:           sessionKey,
 		cmd:           cmd,
+		tmpScript:     tmpScript,
 		ptyFile:       ptyFile,
 		ttyFile:       ttyFile,
 		attachments:   map[string]*wsPTYAttachment{},
@@ -989,6 +1008,9 @@ func (h *wsPTYHub) sessionSnapshotLocked(session *wsPTYSession) map[string]any {
 func (h *wsPTYHub) waitSessionProcess(session *wsPTYSession) {
 	if session.cmd != nil {
 		_ = session.cmd.Wait()
+	}
+	if session.tmpScript != "" {
+		_ = os.Remove(session.tmpScript)
 	}
 	session.closeTTYFile()
 }
