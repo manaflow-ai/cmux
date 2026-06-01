@@ -823,7 +823,7 @@ class CmuxWindowsRuntime {
     if (this.closed || !panel || panel.type !== "terminal" || !this.hasRendererEventSocket()) return;
     if (this.terminals.has(panel.id) || this.pendingTerminalPrewarms.has(panel.id)) return;
     const panelId = panel.id;
-    const pending = { canceled: false, handle: null };
+    const pending = { canceled: false, handle: null, handleType: "" };
     const run = () => {
       if (pending.canceled) return;
       this.pendingTerminalPrewarms.delete(panelId);
@@ -838,10 +838,14 @@ class CmuxWindowsRuntime {
       }
     };
     this.pendingTerminalPrewarms.set(panelId, pending);
-    if (typeof queueMicrotask === "function") {
-      queueMicrotask(run);
-    } else {
+    // Let the panel-create response reach the renderer before terminal spawn can
+    // spend time in native process startup.
+    if (typeof setImmediate === "function") {
+      pending.handleType = "immediate";
       pending.handle = setImmediate(run);
+    } else {
+      pending.handleType = "timeout";
+      pending.handle = setTimeout(run, 0);
     }
   }
 
@@ -1545,7 +1549,9 @@ class CmuxWindowsRuntime {
     }
     for (const pending of this.pendingTerminalPrewarms.values()) {
       pending.canceled = true;
-      if (pending.handle) clearImmediate(pending.handle);
+      if (!pending.handle) continue;
+      if (pending.handleType === "timeout") clearTimeout(pending.handle);
+      else clearImmediate(pending.handle);
     }
     this.pendingTerminalPrewarms.clear();
     for (const terminal of this.terminals.values()) terminal.close();
