@@ -1,5 +1,4 @@
 import XCTest
-import Testing
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -3802,163 +3801,171 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 /// Regression coverage for issue #5080: the sidebar pull-request poller must work
 /// against any GitHub-family host `gh` is authenticated to (github.com plus any
 /// GitHub Enterprise Server host), not only github.com.
-@Suite struct GitHubHostHelperTests {
+///
+/// These are XCTest, not Swift Testing: the `cmux-unit` scheme's CI invocation
+/// only executes XCTest cases, so a Swift Testing `@Suite` here compiles but
+/// never runs (verified empirically — a deliberately-failing `@Test` left the
+/// `tests` check green).
+final class GitHubHostHelperTests: XCTestCase {
     // TEMPORARY CI-execution proof for #5080 — deliberately fails so we can
-    // confirm this Swift Testing suite actually runs in the cmuxTests target.
+    // confirm this XCTest case actually runs in the cmuxTests target.
     // Reverted in the next commit once CI shows it red.
-    @Test func ciExecutionProofDeliberateFailureIssue5080() {
-        #expect(1 == 2)
+    func testCIExecutionProofDeliberateFailureIssue5080() {
+        XCTAssertEqual(1, 2)
     }
 
     // MARK: Remote URL parsing
 
-    @Test func parsesGitHubDotComSSHRemote() {
+    func testParsesGitHubDotComSSHRemote() {
         let reference = GitHubRepositoryReference.parse(remoteURL: "git@github.com:manaflow-ai/cmux.git")
-        #expect(reference?.host == .dotCom)
-        #expect(reference?.owner == "manaflow-ai")
-        #expect(reference?.repo == "cmux")
-        #expect(reference?.slug == "manaflow-ai/cmux")
+        XCTAssertEqual(reference?.host, .dotCom)
+        XCTAssertEqual(reference?.owner, "manaflow-ai")
+        XCTAssertEqual(reference?.repo, "cmux")
+        XCTAssertEqual(reference?.slug, "manaflow-ai/cmux")
     }
 
-    @Test func parsesGitHubDotComHTTPSRemote() {
+    func testParsesGitHubDotComHTTPSRemote() {
         let reference = GitHubRepositoryReference.parse(remoteURL: "https://github.com/manaflow-ai/cmux.git")
-        #expect(reference?.host == .dotCom)
-        #expect(reference?.slug == "manaflow-ai/cmux")
+        XCTAssertEqual(reference?.host, .dotCom)
+        XCTAssertEqual(reference?.slug, "manaflow-ai/cmux")
     }
 
-    @Test func parsesEnterpriseSSHRemoteWithoutDroppingHost() {
+    func testParsesEnterpriseSSHRemoteWithoutDroppingHost() {
         let reference = GitHubRepositoryReference.parse(remoteURL: "git@ghe.example.com:acme/widgets.git")
-        #expect(reference?.host == GitHubHost(hostname: "ghe.example.com"))
-        #expect(reference?.owner == "acme")
-        #expect(reference?.repo == "widgets")
+        XCTAssertEqual(reference?.host, GitHubHost(hostname: "ghe.example.com"))
+        XCTAssertEqual(reference?.owner, "acme")
+        XCTAssertEqual(reference?.repo, "widgets")
     }
 
-    @Test func parsesEnterpriseHTTPSRemoteWithoutDroppingHost() {
+    func testParsesEnterpriseHTTPSRemoteWithoutDroppingHost() {
         let reference = GitHubRepositoryReference.parse(remoteURL: "https://ghe.example.com/acme/widgets")
-        #expect(reference?.host == GitHubHost(hostname: "ghe.example.com"))
-        #expect(reference?.slug == "acme/widgets")
+        XCTAssertEqual(reference?.host, GitHubHost(hostname: "ghe.example.com"))
+        XCTAssertEqual(reference?.slug, "acme/widgets")
     }
 
-    @Test func preservesExplicitPortFromEnterpriseHTTPSRemote() {
+    func testPreservesExplicitPortFromEnterpriseHTTPSRemote() {
         // A GHES instance served on a non-default port must keep that port so
         // the REST API base targets it instead of silently falling back to 443.
         let reference = GitHubRepositoryReference.parse(remoteURL: "https://ghe.example.com:8443/acme/widgets.git")
-        #expect(reference?.host == GitHubHost(hostname: "ghe.example.com", port: 8443))
-        #expect(reference?.host.apiBaseURL?.absoluteString == "https://ghe.example.com:8443/api/v3/")
+        XCTAssertEqual(reference?.host, GitHubHost(hostname: "ghe.example.com", port: 8443))
+        XCTAssertEqual(reference?.host.apiBaseURL?.absoluteString, "https://ghe.example.com:8443/api/v3/")
         // A distinct port is a distinct host identity.
-        #expect(reference?.host != GitHubHost(hostname: "ghe.example.com"))
+        XCTAssertNotEqual(reference?.host, GitHubHost(hostname: "ghe.example.com"))
     }
 
-    @Test func parsesEnterpriseSSHSchemeRemoteWithCustomUser() {
+    func testParsesEnterpriseSSHSchemeRemoteWithCustomUser() {
         let reference = GitHubRepositoryReference.parse(remoteURL: "ssh://org-1@ghe.example.com/acme/widgets.git/")
-        #expect(reference?.host == GitHubHost(hostname: "ghe.example.com"))
-        #expect(reference?.slug == "acme/widgets")
+        XCTAssertEqual(reference?.host, GitHubHost(hostname: "ghe.example.com"))
+        XCTAssertEqual(reference?.slug, "acme/widgets")
     }
 
-    @Test func ignoresSSHTransportPortForAPIBase() {
+    func testIgnoresSSHTransportPortForAPIBase() {
         // An ssh:// port is the SSH transport port, not the HTTPS REST API port,
         // so it must not end up in the API base URL.
         let reference = GitHubRepositoryReference.parse(remoteURL: "ssh://git@ghe.example.com:2222/acme/widgets.git")
-        #expect(reference?.host == GitHubHost(hostname: "ghe.example.com"))
-        #expect(reference?.host.apiBaseURL?.absoluteString == "https://ghe.example.com/api/v3/")
+        XCTAssertEqual(reference?.host, GitHubHost(hostname: "ghe.example.com"))
+        XCTAssertEqual(reference?.host.apiBaseURL?.absoluteString, "https://ghe.example.com/api/v3/")
     }
 
-    @Test func normalizesExplicitDefaultHTTPSPortToDotCom() {
+    func testNormalizesExplicitDefaultHTTPSPortToDotCom() {
         // github.com:443 is still the public host; it must keep the GH_TOKEN /
         // anonymous github.com path rather than targeting api on :443.
         let reference = GitHubRepositoryReference.parse(remoteURL: "https://github.com:443/manaflow-ai/cmux.git")
-        #expect(reference?.host == .dotCom)
-        #expect(reference?.host.isDotCom == true)
-        #expect(reference?.host.apiBaseURL?.absoluteString == "https://api.github.com/")
+        XCTAssertEqual(reference?.host, .dotCom)
+        XCTAssertEqual(reference?.host.isDotCom, true)
+        XCTAssertEqual(reference?.host.apiBaseURL?.absoluteString, "https://api.github.com/")
     }
 
-    @Test func parsesSCPRemoteWithBracketedIPv6Host() {
+    func testParsesSCPRemoteWithBracketedIPv6Host() {
         // The host/path separator must be found after the bracketed address,
         // not at the first ':' inside the IPv6 literal.
         let reference = GitHubRepositoryReference.parse(remoteURL: "git@[::1]:acme/widgets.git")
-        #expect(reference?.host == GitHubHost(hostname: "::1"))
-        #expect(reference?.slug == "acme/widgets")
+        XCTAssertEqual(reference?.host, GitHubHost(hostname: "::1"))
+        XCTAssertEqual(reference?.slug, "acme/widgets")
         // The API base must re-bracket the IPv6 literal — building it must not
         // trap (the host is reachable once a token exists).
-        #expect(reference?.host.apiBaseURL?.absoluteString == "https://[::1]/api/v3/")
+        XCTAssertEqual(reference?.host.apiBaseURL?.absoluteString, "https://[::1]/api/v3/")
     }
 
-    @Test func normalizesExplicitDefaultHTTPPortToDotCom() {
+    func testNormalizesExplicitDefaultHTTPPortToDotCom() {
         let reference = GitHubRepositoryReference.parse(remoteURL: "http://github.com:80/manaflow-ai/cmux.git")
-        #expect(reference?.host == .dotCom)
-        #expect(reference?.host.isDotCom == true)
+        XCTAssertEqual(reference?.host, .dotCom)
+        XCTAssertEqual(reference?.host.isDotCom, true)
     }
 
-    @Test func parsesNonGitHubHostVerbatim() {
+    func testParsesNonGitHubHostVerbatim() {
         // Parsing is host-agnostic; gitlab.com is preserved and only gated out
         // later by token availability (see pollability tests below).
         let reference = GitHubRepositoryReference.parse(remoteURL: "https://gitlab.com/group/project.git")
-        #expect(reference?.host == GitHubHost(hostname: "gitlab.com"))
-        #expect(reference?.slug == "group/project")
+        XCTAssertEqual(reference?.host, GitHubHost(hostname: "gitlab.com"))
+        XCTAssertEqual(reference?.slug, "group/project")
     }
 
-    @Test func rejectsRemoteWithoutOwnerRepo() {
-        #expect(GitHubRepositoryReference.parse(remoteURL: "https://github.com/manaflow-ai") == nil)
-        #expect(GitHubRepositoryReference.parse(remoteURL: "") == nil)
+    func testRejectsRemoteWithoutOwnerRepo() {
+        XCTAssertNil(GitHubRepositoryReference.parse(remoteURL: "https://github.com/manaflow-ai"))
+        XCTAssertNil(GitHubRepositoryReference.parse(remoteURL: ""))
     }
 
     // MARK: REST API base URL
 
-    @Test func dotComUsesPublicAPIBase() {
-        #expect(GitHubHost.dotCom.apiBaseURL?.absoluteString == "https://api.github.com/")
+    func testDotComUsesPublicAPIBase() {
+        XCTAssertEqual(GitHubHost.dotCom.apiBaseURL?.absoluteString, "https://api.github.com/")
     }
 
-    @Test func enterpriseUsesPerHostAPIV3Base() {
-        #expect(
-            GitHubHost(hostname: "ghe.example.com").apiBaseURL?.absoluteString
-                == "https://ghe.example.com/api/v3/"
+    func testEnterpriseUsesPerHostAPIV3Base() {
+        XCTAssertEqual(
+            GitHubHost(hostname: "ghe.example.com").apiBaseURL?.absoluteString,
+            "https://ghe.example.com/api/v3/"
         )
     }
 
-    @Test func apiURLAppendsEndpointRelativeToBase() {
+    func testAPIURLAppendsEndpointRelativeToBase() {
         let dotCom = GitHubHost.dotCom.apiURL(endpoint: "repos/acme/widgets/pulls?state=all")
-        #expect(dotCom?.absoluteString == "https://api.github.com/repos/acme/widgets/pulls?state=all")
+        XCTAssertEqual(dotCom?.absoluteString, "https://api.github.com/repos/acme/widgets/pulls?state=all")
         let enterprise = GitHubHost(hostname: "ghe.example.com")
             .apiURL(endpoint: "repos/acme/widgets/pulls?state=all")
-        #expect(enterprise?.absoluteString == "https://ghe.example.com/api/v3/repos/acme/widgets/pulls?state=all")
+        XCTAssertEqual(enterprise?.absoluteString, "https://ghe.example.com/api/v3/repos/acme/widgets/pulls?state=all")
     }
 
     // MARK: Auth token lookup
 
-    @Test func authTokenLookupPassesHostnameToGh() async {
+    func testAuthTokenLookupPassesHostnameToGh() async {
         let captured = TokenRunnerProbe()
         let runner: GitHubHost.TokenCommandRunner = { _, arguments in
             await captured.record(arguments)
             return "ghs_enterprise\n"
         }
         let token = await GitHubHost(hostname: "ghe.example.com").authToken(using: runner)
-        #expect(token == "ghs_enterprise")
-        #expect(await captured.arguments == ["auth", "token", "--hostname", "ghe.example.com"])
+        XCTAssertEqual(token, "ghs_enterprise")
+        let arguments = await captured.arguments
+        XCTAssertEqual(arguments, ["auth", "token", "--hostname", "ghe.example.com"])
     }
 
-    @Test func authTokenLookupTrimsAndTreatsEmptyAsAbsent() async {
+    func testAuthTokenLookupTrimsAndTreatsEmptyAsAbsent() async {
         let blank: GitHubHost.TokenCommandRunner = { _, _ in "   \n" }
-        #expect(await GitHubHost(hostname: "ghe.example.com").authToken(using: blank) == nil)
+        let blankToken = await GitHubHost(hostname: "ghe.example.com").authToken(using: blank)
+        XCTAssertNil(blankToken)
         let missing: GitHubHost.TokenCommandRunner = { _, _ in nil }
-        #expect(await GitHubHost(hostname: "ghe.example.com").authToken(using: missing) == nil)
+        let missingToken = await GitHubHost(hostname: "ghe.example.com").authToken(using: missing)
+        XCTAssertNil(missingToken)
     }
 
     // MARK: Pollability gating
 
-    @Test func dotComIsPollableWithoutToken() {
-        #expect(GitHubHost.dotCom.isPollable(token: nil))
+    func testDotComIsPollableWithoutToken() {
+        XCTAssertTrue(GitHubHost.dotCom.isPollable(token: nil))
     }
 
-    @Test func enterpriseRequiresTokenToPoll() {
+    func testEnterpriseRequiresTokenToPoll() {
         let host = GitHubHost(hostname: "ghe.example.com")
-        #expect(host.isPollable(token: "ghs_enterprise"))
-        #expect(!host.isPollable(token: nil))
-        #expect(!host.isPollable(token: ""))
+        XCTAssertTrue(host.isPollable(token: "ghs_enterprise"))
+        XCTAssertFalse(host.isPollable(token: nil))
+        XCTAssertFalse(host.isPollable(token: ""))
     }
 
-    @Test func nonGitHubHostIsNotPollableWithoutToken() {
-        #expect(!GitHubHost(hostname: "gitlab.com").isPollable(token: nil))
-        #expect(!GitHubHost(hostname: "bitbucket.org").isPollable(token: nil))
+    func testNonGitHubHostIsNotPollableWithoutToken() {
+        XCTAssertFalse(GitHubHost(hostname: "gitlab.com").isPollable(token: nil))
+        XCTAssertFalse(GitHubHost(hostname: "bitbucket.org").isPollable(token: nil))
     }
 }
 
