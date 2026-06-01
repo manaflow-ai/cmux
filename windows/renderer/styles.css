@@ -36,6 +36,8 @@
   --ease-out: cubic-bezier(.16, 1, .3, 1);
   --ease-in-out: cubic-bezier(.65, 0, .35, 1);
   --scrollbar-size: 10px;
+  --pane-min-width: 8px;
+  --pane-min-height: 8px;
   --scrollbar-thumb: color-mix(in oklch, var(--color-line-strong) 74%, transparent);
   --scrollbar-thumb-hover: color-mix(in oklch, var(--color-muted) 72%, transparent);
   --shadow-soft: 0 10px 36px color-mix(in oklch, var(--color-canvas) 64%, transparent);
@@ -1353,21 +1355,21 @@ body.reduce-motion *::after {
 }
 
 .pane-grid:not(.direction-down) .pane {
-  min-width: 32px;
+  min-width: var(--pane-min-width);
 }
 
 .pane-grid.direction-down .pane {
-  min-height: 28px;
+  min-height: var(--pane-min-height);
 }
 
 .pane-split.direction-right > .pane,
 .pane-split.direction-right > .pane-split {
-  min-width: 32px;
+  min-width: var(--pane-min-width);
 }
 
 .pane-split.direction-down > .pane,
 .pane-split.direction-down > .pane-split {
-  min-height: 28px;
+  min-height: var(--pane-min-height);
 }
 
 .pane-splitter {

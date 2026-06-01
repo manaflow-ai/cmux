@@ -197,8 +197,8 @@ const customColorPaletteLimit = 18;
 const savedBackgroundImagesLimit = 12;
 const paneLayoutScale = 1000;
 const paneLayoutMaxWeight = 10000;
-const paneResizeMinWidth = 32;
-const paneResizeMinHeight = 28;
+const paneResizeMinWidth = 8;
+const paneResizeMinHeight = 8;
 const settingsSaveDelay = 140;
 const browserTabSnapshotSaveDelay = 180;
 const terminalFontSizeMin = 10;
@@ -10457,7 +10457,7 @@ function showPaneSplitterContextMenu(event, splitter) {
   meta.className = "context-meta";
   meta.textContent = splitter?.dataset.orientation === "down" ? "Rows" : "Columns";
   const presets = contextMenuActionGroup(
-    ...[25, 33, 50, 67, 75].map((nextPercent) => (
+    ...[10, 25, 33, 50, 67, 75, 90].map((nextPercent) => (
       contextMenuButton(`${nextPercent}% / ${100 - nextPercent}%`, () => setPaneSplitterPercent(splitter, nextPercent, { toast: true }), percent === nextPercent)
     ))
   );
