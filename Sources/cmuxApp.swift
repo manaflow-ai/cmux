@@ -364,20 +364,28 @@ struct cmuxApp: App {
                     debugPaperWorkspace(action: "toggle")?.togglePaperLayoutModeForDebug()
                 }
 
-                Button("Paper View Left") {
-                    debugPaperWorkspace(action: "viewLeft")?.movePaperViewportForDebug(dx: -1200, dy: 0)
+                Button("Paper Focus Left") {
+                    debugPaperWorkspace(action: "focusLeft")?.movePaperViewportForDebug(dx: -1200, dy: 0)
                 }
 
-                Button("Paper View Right") {
-                    debugPaperWorkspace(action: "viewRight")?.movePaperViewportForDebug(dx: 1200, dy: 0)
+                Button("Paper Focus Right") {
+                    debugPaperWorkspace(action: "focusRight")?.movePaperViewportForDebug(dx: 1200, dy: 0)
                 }
 
-                Button("Paper View Up") {
-                    debugPaperWorkspace(action: "viewUp")?.movePaperViewportForDebug(dx: 0, dy: -800)
+                Button("Paper Focus Up") {
+                    debugPaperWorkspace(action: "focusUp")?.movePaperViewportForDebug(dx: 0, dy: -800)
                 }
 
-                Button("Paper View Down") {
-                    debugPaperWorkspace(action: "viewDown")?.movePaperViewportForDebug(dx: 0, dy: 800)
+                Button("Paper Focus Down") {
+                    debugPaperWorkspace(action: "focusDown")?.movePaperViewportForDebug(dx: 0, dy: 800)
+                }
+
+                Button("Paper Workspace Up") {
+                    debugMovePaperWorkspace(delta: -1, createIfNeeded: false, action: "workspaceUp")
+                }
+
+                Button("Paper Workspace Down") {
+                    debugMovePaperWorkspace(delta: 1, createIfNeeded: true, action: "workspaceDown")
                 }
 
                 Divider()
@@ -921,16 +929,28 @@ struct cmuxApp: App {
         debugPaperWorkspace(logAction: action)
     }
 
-    private func debugPaperWorkspace(logAction action: String?) -> Workspace? {
+    private func debugPaperTabManager(action: String) -> (manager: TabManager, preferredWindow: NSWindow?) {
         let preferredWindow = debugPaperPreferredMainWindow()
         let manager = AppDelegate.shared?.activeTabManagerForCommands(
             preferredWindow: preferredWindow
         ) ?? activeTabManager
+        cmuxDebugLog(
+            "paper.debugMenu action=\(action) " +
+            "window=\(preferredWindow?.windowNumber ?? -1) " +
+            "workspace=\(manager.selectedWorkspace?.id.uuidString.prefix(5) ?? "nil") " +
+            "workspaceCount=\(manager.tabs.count)"
+        )
+        return (manager, preferredWindow)
+    }
+
+    private func debugPaperWorkspace(logAction action: String?) -> Workspace? {
+        let context = debugPaperTabManager(action: action ?? "lookup")
+        let manager = context.manager
         let workspace = manager.selectedWorkspace
         if let action {
             cmuxDebugLog(
                 "paper.debugMenu action=\(action) " +
-                "window=\(preferredWindow?.windowNumber ?? -1) " +
+                "window=\(context.preferredWindow?.windowNumber ?? -1) " +
                 "workspace=\(workspace?.id.uuidString.prefix(5) ?? "nil") " +
                 "mode=\(workspace?.layoutMode.rawValue ?? "nil")"
             )
@@ -938,6 +958,43 @@ struct cmuxApp: App {
             cmuxDebugLog("paper.debugMenu action=nil workspace=nil")
         }
         return workspace
+    }
+
+    private func debugMovePaperWorkspace(delta: Int, createIfNeeded: Bool, action: String) {
+        let context = debugPaperTabManager(action: action)
+        let manager = context.manager
+        guard let workspace = manager.selectedWorkspace,
+              let currentIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else {
+            cmuxDebugLog("paper.workspace.move action=\(action) result=noSelection")
+            return
+        }
+
+        let targetIndex = currentIndex + delta
+        if manager.tabs.indices.contains(targetIndex) {
+            let targetWorkspace = manager.tabs[targetIndex]
+            manager.selectWorkspace(targetWorkspace)
+            cmuxDebugLog(
+                "paper.workspace.move action=\(action) result=selected " +
+                "fromIndex=\(currentIndex) toIndex=\(targetIndex) " +
+                "workspace=\(targetWorkspace.id.uuidString.prefix(5))"
+            )
+            return
+        }
+
+        if createIfNeeded, delta > 0, targetIndex == manager.tabs.count {
+            let newWorkspace = manager.addWorkspace(select: true)
+            cmuxDebugLog(
+                "paper.workspace.move action=\(action) result=created " +
+                "fromIndex=\(currentIndex) toIndex=\(manager.tabs.count - 1) " +
+                "workspace=\(newWorkspace.id.uuidString.prefix(5))"
+            )
+            return
+        }
+
+        cmuxDebugLog(
+            "paper.workspace.move action=\(action) result=noTarget " +
+            "fromIndex=\(currentIndex) targetIndex=\(targetIndex) workspaceCount=\(manager.tabs.count)"
+        )
     }
 
     private func debugPaperPreferredMainWindow() -> NSWindow? {

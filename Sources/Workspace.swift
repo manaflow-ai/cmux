@@ -9451,31 +9451,60 @@ struct PaperLayoutState: Codable, Equatable, Sendable {
     }
 
     func paneInDirection(dx: CGFloat, dy: CGFloat) -> PaperPane? {
-        guard let sourcePane = paneNearestViewportOrigin() ?? focusedPane else { return nil }
+        guard let sourcePane = focusedPane ?? paneNearestViewportOrigin() else { return nil }
         let sourceCenterX = sourcePane.frame.midX
         let sourceCenterY = sourcePane.frame.midY
+        let sourceColumnX = sourcePane.frame.minX
         let epsilon: CGFloat = 0.5
 
         let candidates: [PaperPane]
         if abs(dx) >= abs(dy), dx > 0 {
-            candidates = panes.filter { $0.id != sourcePane.id && $0.frame.midX > sourceCenterX + epsilon }
-            return candidates.min {
-                directionalScore($0, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: true) <
-                    directionalScore($1, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: true)
-            }
+            candidates = panes.filter { $0.id != sourcePane.id && $0.frame.minX > sourceColumnX + epsilon }
+            guard let targetColumnX = candidates.map(\.frame.minX).min() else { return nil }
+            return candidates
+                .filter { abs($0.frame.minX - targetColumnX) <= epsilon }
+                .min {
+                    columnScore($0, sourceCenterY: sourceCenterY) <
+                        columnScore($1, sourceCenterY: sourceCenterY)
+                }
         } else if abs(dx) >= abs(dy), dx < 0 {
-            candidates = panes.filter { $0.id != sourcePane.id && $0.frame.midX < sourceCenterX - epsilon }
-            return candidates.min {
-                directionalScore($0, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: true) <
-                    directionalScore($1, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: true)
-            }
+            candidates = panes.filter { $0.id != sourcePane.id && $0.frame.minX < sourceColumnX - epsilon }
+            guard let targetColumnX = candidates.map(\.frame.minX).max() else { return nil }
+            return candidates
+                .filter { abs($0.frame.minX - targetColumnX) <= epsilon }
+                .min {
+                    columnScore($0, sourceCenterY: sourceCenterY) <
+                        columnScore($1, sourceCenterY: sourceCenterY)
+                }
         } else if dy > 0 {
+            let sameColumnCandidates = panes.filter {
+                $0.id != sourcePane.id &&
+                    abs($0.frame.minX - sourceColumnX) <= epsilon &&
+                    $0.frame.midY > sourceCenterY + epsilon
+            }
+            if let sameColumnPane = sameColumnCandidates.min(by: { lhs, rhs in
+                verticalScore(lhs, sourceCenterY: sourceCenterY) <
+                    verticalScore(rhs, sourceCenterY: sourceCenterY)
+            }) {
+                return sameColumnPane
+            }
             candidates = panes.filter { $0.id != sourcePane.id && $0.frame.midY > sourceCenterY + epsilon }
             return candidates.min {
                 directionalScore($0, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: false) <
                     directionalScore($1, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: false)
             }
         } else if dy < 0 {
+            let sameColumnCandidates = panes.filter {
+                $0.id != sourcePane.id &&
+                    abs($0.frame.minX - sourceColumnX) <= epsilon &&
+                    $0.frame.midY < sourceCenterY - epsilon
+            }
+            if let sameColumnPane = sameColumnCandidates.min(by: { lhs, rhs in
+                verticalScore(lhs, sourceCenterY: sourceCenterY) <
+                    verticalScore(rhs, sourceCenterY: sourceCenterY)
+            }) {
+                return sameColumnPane
+            }
             candidates = panes.filter { $0.id != sourcePane.id && $0.frame.midY < sourceCenterY - epsilon }
             return candidates.min {
                 directionalScore($0, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: false) <
@@ -9484,6 +9513,14 @@ struct PaperLayoutState: Codable, Equatable, Sendable {
         }
 
         return nil
+    }
+
+    private func columnScore(_ pane: PaperPane, sourceCenterY: CGFloat) -> CGFloat {
+        (abs(pane.frame.midY - sourceCenterY) * 10_000) + pane.frame.minY
+    }
+
+    private func verticalScore(_ pane: PaperPane, sourceCenterY: CGFloat) -> CGFloat {
+        abs(pane.frame.midY - sourceCenterY)
     }
 
     private func directionalScore(
@@ -9566,11 +9603,11 @@ struct PaperLayoutState: Codable, Equatable, Sendable {
         switch orientation {
         case .horizontal:
             let shift = sourceFrame.width + gap
+            let epsilon: CGFloat = 0.5
             for index in panes.indices {
                 guard panes[index].id != sourcePane.id,
                       panes[index].id != newPaneId.id,
-                      panes[index].frame.midX > sourceFrame.midX,
-                      verticallyOverlaps(panes[index].frame, sourceFrame) else {
+                      panes[index].frame.minX > sourceFrame.minX + epsilon else {
                     continue
                 }
                 panes[index].frame.x += shift
@@ -10020,7 +10057,15 @@ final class Workspace: Identifiable, ObservableObject {
             PaperPoint(x: max(0, $0.frame.minX), y: max(0, $0.frame.minY))
         } ?? tentativeOrigin
         paperState.viewportOrigin = newOrigin
+        if let snappedPane {
+            paperState.focusedPaneId = snappedPane.id
+        }
         paperLayoutState = paperState
+        if let snappedPane,
+           let selectedTabId = snappedPane.selectedTabId ?? snappedPane.tabIds.first,
+           let panelId = panelIdFromSurfaceId(TabID(uuid: selectedTabId)) {
+            focusPaperPanel(tabId: TabID(uuid: selectedTabId), panelId: panelId)
+        }
 
         cmuxDebugLog(
             "paper.viewport.move workspace=\(id.uuidString.prefix(5)) " +
