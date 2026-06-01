@@ -3035,13 +3035,15 @@ function workspaceListSignature() {
   return stableJson([
     activeId,
     paletteColor,
+    state.settings.sidebarDetailMode,
     ...(state.data?.workspaces || []).map((workspace, index) => {
       const attentionTotal = workspace.panels.filter((panel) => panel.needsAttention).length;
+      const branch = workspaceRowBranch(workspace);
       return [
         workspace.id,
         workspace.title || `Workspace ${index + 1}`,
         workspace.cwdShort || "~",
-        workspace.branch || "",
+        branch,
         workspace.color || paletteColor,
         workspace.terminalCount || 0,
         workspace.browserCount || 0,
@@ -3126,12 +3128,17 @@ function workspaceDropPlacement(event, row) {
   return y < 0.5 ? "before" : "after";
 }
 
+function workspaceRowBranch(workspace) {
+  if (state.settings.sidebarDetailMode !== "detailed") return "";
+  return String(workspace?.branch || "").trim();
+}
+
 function updateWorkspaceRow(button, workspace, index, activeId) {
   const hasAttention = workspace.panels.some((panel) => panel.needsAttention);
   const attentionTotal = workspace.panels.filter((panel) => panel.needsAttention).length;
   const title = workspaceDisplayTitle(workspace, `Workspace ${index + 1}`);
   const cwd = isAppHomeWorkspace(workspace) ? "home" : workspace.cwdShort || "~";
-  const branch = String(workspace.branch || "").trim();
+  const branch = workspaceRowBranch(workspace);
   const paneSummary = `${workspace.terminalCount || 0} terminal${workspace.terminalCount === 1 ? "" : "s"} / ${workspace.browserCount || 0} browser${workspace.browserCount === 1 ? "" : "s"}`;
   setDatasetIfChanged(button, "workspaceId", workspace.id);
   setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}`);
