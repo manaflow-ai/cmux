@@ -7,9 +7,11 @@ import SwiftUI
 @MainActor
 public struct BetaFeaturesSection: View {
     @State private var dock: DefaultsValueModel<Bool>
+    @State private var sidebarExtensions: DefaultsValueModel<Bool>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
+        _sidebarExtensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.sidebarExtensions))
     }
 
     public var body: some View {
@@ -21,6 +23,8 @@ public struct BetaFeaturesSection: View {
                 )
                 SettingsCardDivider()
                 dockRow
+                SettingsCardDivider()
+                sidebarExtensionsRow
             }
         }
     }
@@ -39,6 +43,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaDockToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var sidebarExtensionsRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:sidebar-extensions",
+            String(localized: "settings.betaFeatures.sidebarExtensions", defaultValue: "Sidebar Extensions"),
+            subtitle: sidebarExtensions.current
+                ? String(localized: "settings.betaFeatures.sidebarExtensions.subtitleOn", defaultValue: "Lets a custom extension replace the default workspace sidebar.")
+                : String(localized: "settings.betaFeatures.sidebarExtensions.subtitleOff", defaultValue: "Hides the extension sidebar picker until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { sidebarExtensions.current }, set: { sidebarExtensions.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaSidebarExtensionToggle")
         }
     }
 }

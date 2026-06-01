@@ -97,6 +97,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Beta
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),
+            .init(section: .betaFeatures, id: "sidebar-extensions", title: "Sidebar Extensions", synonyms: "sidebar extension extensions provider custom left workspace list beta unstable"),
 
             // Automation
             .init(section: .automation, id: "socket-mode", title: "Socket Control Mode", synonyms: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),

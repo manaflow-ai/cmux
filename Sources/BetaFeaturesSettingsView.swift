@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BetaFeaturesSettingsView: View {
     @Binding var dockEnabled: Bool
+    @Binding var sidebarExtensionsEnabled: Bool
 
     private var dockSubtitle: String {
         if dockEnabled {
@@ -13,6 +14,19 @@ struct BetaFeaturesSettingsView: View {
         return String(
             localized: "settings.betaFeatures.dock.subtitleOff",
             defaultValue: "Hides Dock from the right sidebar until you enable it here."
+        )
+    }
+
+    private var sidebarExtensionsSubtitle: String {
+        if sidebarExtensionsEnabled {
+            return String(
+                localized: "settings.betaFeatures.sidebarExtensions.subtitleOn",
+                defaultValue: "Lets a custom extension replace the default workspace sidebar."
+            )
+        }
+        return String(
+            localized: "settings.betaFeatures.sidebarExtensions.subtitleOff",
+            defaultValue: "Hides the extension sidebar picker until you enable it here."
         )
     }
 
@@ -41,6 +55,23 @@ struct BetaFeaturesSettingsView: View {
                     .accessibilityIdentifier("SettingsBetaDockToggle")
                     .accessibilityLabel(
                         String(localized: "settings.betaFeatures.dock", defaultValue: "Dock")
+                    )
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.betaFeatures.sidebarExtensions", defaultValue: "Sidebar Extensions"),
+                subtitle: sidebarExtensionsSubtitle,
+                searchAnchorID: SettingsSearchIndex.settingID(for: .betaFeatures, idSuffix: "sidebar-extensions")
+            ) {
+                Toggle("", isOn: $sidebarExtensionsEnabled)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsBetaSidebarExtensionToggle")
+                    .accessibilityLabel(
+                        String(localized: "settings.betaFeatures.sidebarExtensions", defaultValue: "Sidebar Extensions")
                     )
             }
         }

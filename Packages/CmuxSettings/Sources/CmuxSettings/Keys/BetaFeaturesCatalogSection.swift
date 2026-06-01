@@ -15,5 +15,15 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "rightSidebar.beta.dock.enabled"
     )
 
+    /// Sidebar extensions: an experimental left-sidebar provider system
+    /// that lets a custom ExtensionKit extension replace the default
+    /// workspace list. Defaults off; flagged as unstable in the Settings
+    /// UI. When off, the sidebar always renders the default workspace list.
+    public let sidebarExtensions = DefaultsKey<Bool>(
+        id: "sidebar.beta.extensions.enabled",
+        defaultValue: false,
+        userDefaultsKey: "sidebar.beta.extensions.enabled"
+    )
+
     public init() {}
 }

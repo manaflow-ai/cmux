@@ -5451,6 +5451,7 @@ struct SettingsView: View {
     // DefaultsValueModel observation. UserDefaults key is the same
     // ("rightSidebar.beta.dock.enabled") so existing values round-trip.
     @Setting(\.betaFeatures.rightSidebarDock) private var rightSidebarDockEnabled
+    @Setting(\.betaFeatures.sidebarExtensions) private var sidebarExtensionsEnabled
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @ObservedObject private var authManager = AuthManager.shared
@@ -7425,7 +7426,8 @@ struct SettingsView: View {
                     }
 
                     BetaFeaturesSettingsView(
-                        dockEnabled: $rightSidebarDockEnabled
+                        dockEnabled: $rightSidebarDockEnabled,
+                        sidebarExtensionsEnabled: $sidebarExtensionsEnabled
                     )
 
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
@@ -8448,6 +8450,7 @@ struct SettingsView: View {
         showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
         isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
         rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+        sidebarExtensionsEnabled = SidebarExtensionBetaFeatureSettings.defaultEnabled
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist

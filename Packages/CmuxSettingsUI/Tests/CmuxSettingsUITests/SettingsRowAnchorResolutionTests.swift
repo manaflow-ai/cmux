@@ -125,6 +125,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:app:desktop-notifications",
         "setting:account:account",
         "setting:betaFeatures:dock",
+        "setting:betaFeatures:sidebar-extensions",
         "setting:browser:history",
         "setting:browser:http-allowlist",
         "setting:workspaceColors:palette",

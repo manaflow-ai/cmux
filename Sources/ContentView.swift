@@ -6720,17 +6720,19 @@ struct ContentView: View {
                 keywords: ["toggle", "sidebar", "left", "layout"]
             )
         )
-        for descriptor in CmuxExtensionSidebarSelection.descriptors {
-            let title = CmuxExtensionSidebarSelection.localizedTitle(for: descriptor)
-            let titleFormat = String(localized: "command.switchExtensionSidebar.title", defaultValue: "Sidebar: %@")
-            contributions.append(
-                CommandPaletteCommandContribution(
-                    commandId: commandPaletteExtensionSidebarCommandID(descriptor.id),
-                    title: constant(String.localizedStringWithFormat(titleFormat, title)),
-                    subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar")),
-                    keywords: ["sidebar", "switch", "extension", title.lowercased()]
+        if SidebarExtensionBetaFeatureSettings.isEnabled() {
+            for descriptor in CmuxExtensionSidebarSelection.descriptors {
+                let title = CmuxExtensionSidebarSelection.localizedTitle(for: descriptor)
+                let titleFormat = String(localized: "command.switchExtensionSidebar.title", defaultValue: "Sidebar: %@")
+                contributions.append(
+                    CommandPaletteCommandContribution(
+                        commandId: commandPaletteExtensionSidebarCommandID(descriptor.id),
+                        title: constant(String.localizedStringWithFormat(titleFormat, title)),
+                        subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar")),
+                        keywords: ["sidebar", "switch", "extension", title.lowercased()]
+                    )
                 )
-            )
+            }
         }
         contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
         contributions.append(contentsOf: Self.commandPaletteRightSidebarToolPaneCommandContributions())
@@ -7827,9 +7829,11 @@ struct ContentView: View {
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
         }
-        for descriptor in CmuxExtensionSidebarSelection.descriptors {
-            registry.register(commandId: commandPaletteExtensionSidebarCommandID(descriptor.id)) {
-                CmuxExtensionSidebarSelection.setProviderId(descriptor.id)
+        if SidebarExtensionBetaFeatureSettings.isEnabled() {
+            for descriptor in CmuxExtensionSidebarSelection.descriptors {
+                registry.register(commandId: commandPaletteExtensionSidebarCommandID(descriptor.id)) {
+                    CmuxExtensionSidebarSelection.setProviderId(descriptor.id)
+                }
             }
         }
         for mode in RightSidebarMode.allCases {
@@ -9991,6 +9995,7 @@ enum CmuxExtensionSidebarSelection {
 
     @MainActor
     static func showMenu(anchorView: NSView, event: NSEvent?) {
+        guard SidebarExtensionBetaFeatureSettings.isEnabled() else { return }
         let menu = NSMenu()
         let selectedProviderId = descriptor(
             for: UserDefaults.standard.string(forKey: defaultsKey) ?? defaultProviderId
@@ -10252,6 +10257,20 @@ struct VerticalTabsSidebar: View {
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
+    @AppStorage(SidebarExtensionBetaFeatureSettings.enabledKey)
+    private var extensionSidebarBetaEnabled = SidebarExtensionBetaFeatureSettings.defaultEnabled
+
+    /// The provider id the sidebar actually renders. Collapses the
+    /// persisted selection and the beta flag into one value: while the
+    /// beta is off, the effective provider is always the default
+    /// workspace list, so a stale persisted extension id can never
+    /// surface. Reads `extensionSidebarBetaEnabled` (an `@AppStorage`)
+    /// so toggling the flag re-renders the sidebar live.
+    private var effectiveExtensionSidebarProviderId: String {
+        extensionSidebarBetaEnabled
+            ? selectedExtensionSidebarProviderId
+            : CmuxExtensionSidebarSelection.defaultProviderId
+    }
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
@@ -10487,7 +10506,7 @@ struct VerticalTabsSidebar: View {
         )
 
         ZStack(alignment: .bottomLeading) {
-            if CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId).id == CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID {
+            if CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId).id == CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
@@ -10757,7 +10776,7 @@ struct VerticalTabsSidebar: View {
 
     @ViewBuilder
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        if selectedExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
+        if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
             CMUXInstalledExtensionSidebarHostView(
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
                 snapshotUpdateToken: extensionSidebarUpdateToken,
@@ -10957,7 +10976,7 @@ struct VerticalTabsSidebar: View {
         snapshot: CmuxExtensionSidebarSnapshot,
         now: Date
     ) -> CmuxExtensionSidebarRenderModel {
-        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId)
+        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId)
         if let provider = CmuxExtensionSidebarSelection.provider(for: descriptor.id) {
             let context = CmuxExtensionSidebarRenderContext(now: now)
             if let contextualProvider = provider as? any CmuxExtensionSidebarContextualProvider {
@@ -11578,7 +11597,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func handleExtensionSidebarMutation(_ mutation: CmuxExtensionSidebarMutation) -> Bool {
-        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId)
+        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId)
         guard let provider = CmuxExtensionSidebarSelection.provider(for: descriptor.id) as? any CmuxExtensionSidebarMutableProvider else {
             return false
         }

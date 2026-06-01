@@ -673,6 +673,17 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: RightSidebarBetaFeatureSettings.dockEnabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "sidebarExtensions",
+                settingsKey: "betaFeatures.sidebarExtensions",
+                title: {
+                    String(localized: "settings.betaFeatures.sidebarExtensions", defaultValue: "Sidebar Extensions")
+                },
+                sectionTitle: beta,
+                keywords: ["betaFeatures.sidebarExtensions", "sidebar", "extension", "extensions", "beta", "provider", "custom"],
+                defaultValue: SidebarExtensionBetaFeatureSettings.defaultEnabled,
+                defaultsKey: SidebarExtensionBetaFeatureSettings.enabledKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",
                 settingsKey: "automation.claudeCodeIntegration",
                 title: {
