@@ -6849,6 +6849,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         guard let host = nsView as? HostContainerView else { return false }
         let slotView = host.ensureLocalInlineSlotView()
         let isAlreadyInLocalHost = host.containsManagedLocalInlineContent(webView)
+        let wasDeveloperToolsVisibleBeforeHostUpdate = panel.isDeveloperToolsVisible()
         let shouldPreserveExternalFullscreenHost = Self.shouldPreserveExternalFullscreenHost(
             for: webView,
             relativeTo: host.window
@@ -6958,9 +6959,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.lastPortalHostId = nil
         coordinator.lastSynchronizedHostGeometryRevision = 0
         if host.window != nil && !shouldPreserveExternalFullscreenHost {
-            let wasDeveloperToolsVisible = panel.isDeveloperToolsVisible()
-            panel.noteDeveloperToolsHostAttached()
-            panel.restoreDeveloperToolsAfterAttachIfNeeded()
+            panel.reconcileDeveloperToolsAfterHostUpdate(
+                wasVisibleBeforeHostUpdate: wasDeveloperToolsVisibleBeforeHostUpdate,
+                didAttachHost: didAttachWebViewToLocalHost,
+                didChangeHostVisibility: false
+            )
             if let sourceSuperview = Self.localInlineTransferRoot(for: webView),
                didAttachWebViewToLocalHost || sourceSuperview === slotView {
                 Self.moveWebKitRelatedSubviewsIntoHostIfNeeded(
@@ -6974,7 +6977,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             host.setHostedInspectorFrontendWebView(webView.cmuxInspectorFrontendWebView())
             let didRevealDeveloperToolsAfterAttach =
-                !wasDeveloperToolsVisible && panel.isDeveloperToolsVisible()
+                !wasDeveloperToolsVisibleBeforeHostUpdate && panel.isDeveloperToolsVisible()
             webView.needsLayout = true
             webView.layoutSubtreeIfNeeded()
             slotView.layoutSubtreeIfNeeded()
@@ -7038,6 +7041,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
+        let wasDeveloperToolsVisibleBeforeHostUpdate = panel.isDeveloperToolsVisible()
         if panel.shouldUseLocalInlineDeveloperToolsHosting() {
             host.clearStaleHostedInspectorOwnershipState()
             host.releaseHostedWebViewConstraints()
@@ -7068,13 +7072,20 @@ struct WebViewRepresentable: NSViewRepresentable {
         let hostId = ObjectIdentifier(host)
         let previousVisible = coordinator.desiredPortalVisibleInUI
         let previousZPriority = coordinator.desiredPortalZPriority
+        let portalAnchorView = panel.portalAnchorView
         coordinator.desiredPortalVisibleInUI = shouldAttachWebView && isCurrentPaneOwner
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.attachGeneration += 1
+        let portalEntryMissing = !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView)
+        let didReattachPortalHost =
+            coordinator.lastPortalHostId != hostId ||
+            webView.superview == nil ||
+            portalEntryMissing
+        let didChangeHostVisibility = previousVisible != coordinator.desiredPortalVisibleInUI
+        let didChangeZPriority = previousZPriority != portalZPriority
         let generation = coordinator.attachGeneration
         let activePaneDropContext = coordinator.desiredPortalVisibleInUI ? paneDropContext : nil
         let activeSearchOverlay = coordinator.desiredPortalVisibleInUI ? searchOverlay : nil
-        let portalAnchorView = panel.portalAnchorView
         let portalHideReason = !isCurrentPaneOwner ? "lostPaneOwnership" : "hidden"
         let didReleasePortalHost: Bool
         if !shouldAttachWebView || !isCurrentPaneOwner {
@@ -7212,13 +7223,10 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         if host.window != nil, portalHostAccepted {
             let geometryRevision = host.geometryRevision
-            let portalEntryMissing = !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView)
             let shouldBindNow =
-                coordinator.lastPortalHostId != hostId ||
-                webView.superview == nil ||
-                portalEntryMissing ||
-                previousVisible != shouldAttachWebView ||
-                previousZPriority != portalZPriority
+                didReattachPortalHost ||
+                didChangeHostVisibility ||
+                didChangeZPriority
             if shouldBindNow {
                 Self.installPortalAnchorView(portalAnchorView, in: host)
                 BrowserWindowPortalRegistry.bind(
@@ -7277,7 +7285,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
         }
 
-        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        if host.window != nil, portalHostAccepted {
+            panel.reconcileDeveloperToolsAfterHostUpdate(
+                wasVisibleBeforeHostUpdate: wasDeveloperToolsVisibleBeforeHostUpdate,
+                didAttachHost: didReattachPortalHost,
+                didChangeHostVisibility: didChangeHostVisibility,
+                preserveVisibleIntentWhileDetached: panel.shouldPreserveDeveloperToolsIntentWhileDetached()
+            )
+        }
 
         #if DEBUG
         Self.logDevToolsState(
