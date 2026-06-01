@@ -7527,10 +7527,10 @@ function settingsCategoryNav() {
   head.className = "settings-page-head";
   const labelText = document.createElement("span");
   labelText.className = "settings-page-label";
-  labelText.textContent = "Page";
+  labelText.textContent = t("settings.pageLabel");
   const select = document.createElement("select");
   select.className = "setting-select settings-page-select";
-  select.setAttribute("aria-label", "Settings page");
+  select.setAttribute("aria-label", t("settings.pageAriaLabel"));
   for (const [id, label] of settingsCategories) {
     const option = document.createElement("option");
     option.value = id;
@@ -7548,14 +7548,14 @@ function settingsCategoryNav() {
   const tabs = document.createElement("div");
   tabs.className = "settings-page-tabs";
   tabs.setAttribute("role", "tablist");
-  tabs.setAttribute("aria-label", "Settings pages");
+  tabs.setAttribute("aria-label", t("settings.pagesAriaLabel"));
   for (const [id, label] of settingsCategories) {
     const button = document.createElement("button");
     const active = id === state.settingsCategory;
     button.className = `settings-page-tab${active ? " is-active" : ""}`;
     button.type = "button";
     button.textContent = label;
-    button.title = `${label} settings`;
+    button.title = formatMessage("settings.tabTitle", { label });
     button.dataset.settingsCategory = id;
     button.dataset.settingsSearch = normalizeSettingsQuery(`settings page ${label} ${id} ${settingsCategorySearchAliases.get(id) || ""}`);
     button.setAttribute("role", "tab");
@@ -7577,7 +7577,7 @@ function settingsCategoryNav() {
 }
 
 function settingsCategoryLabel(id) {
-  return settingsCategories.find(([categoryId]) => categoryId === id)?.[1] || "Quick";
+  return settingsCategories.find(([categoryId]) => categoryId === id)?.[1] || t("config.settingsCategory.quick");
 }
 
 function optionLabel(options, value, fallback = "") {
@@ -7586,11 +7586,11 @@ function optionLabel(options, value, fallback = "") {
 
 function appearanceBackgroundLabel(value) {
   const normalized = normalizeBackgroundValue(value);
-  if (!normalized) return "None";
+  if (!normalized) return t("config.background.none");
   const preset = backgroundPresetMap.get(normalized);
   const label = preset ? preset.label : defaultBackgroundLabel(normalized);
-  const fit = optionLabel(backgroundFitOptions, state.settings.backgroundFit, "Fill");
-  const effects = optionLabel(backgroundEffectsOptions, state.settings.backgroundEffects, "Flat");
+  const fit = optionLabel(backgroundFitOptions, state.settings.backgroundFit, t("config.backgroundFit.cover"));
+  const effects = optionLabel(backgroundEffectsOptions, state.settings.backgroundEffects, t("config.backgroundEffects.flat"));
   return `${label} / ${fit} / ${effects}`;
 }
 
