@@ -5370,6 +5370,8 @@ struct SettingsView: View {
     @State private var searchHighlightToken = 0
     @State private var searchHighlightStartedAt: Date?
     @State private var settingsNavigationGeneration = 0
+    @State private var agentHibernationMissingHooksWarning: String?
+    @State private var agentHibernationPrerequisiteWarningGeneration = 0
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -5809,6 +5811,30 @@ struct SettingsView: View {
                 agentHibernationMaxLiveTerminals = sanitized
             }
         )
+    }
+
+    private func refreshAgentHibernationPrerequisiteWarning() {
+        agentHibernationPrerequisiteWarningGeneration += 1
+        let generation = agentHibernationPrerequisiteWarningGeneration
+
+        guard agentHibernationEnabled else {
+            agentHibernationMissingHooksWarning = nil
+            return
+        }
+        let builtInClaudeWrapperEnabled = ClaudeCodeIntegrationSettings.hooksEnabled()
+
+        Task.detached(priority: .userInitiated) {
+            let hasInstalledHook = AgentHibernationHookPrerequisites.hasAnyInstalledAgentHook()
+            await MainActor.run {
+                guard generation == agentHibernationPrerequisiteWarningGeneration else { return }
+                guard agentHibernationEnabled else { return }
+                agentHibernationMissingHooksWarning = hasInstalledHook
+                    ? nil
+                    : AgentHibernationHookPrerequisites.missingHooksWarningMessage(
+                        builtInClaudeWrapperEnabled: builtInClaudeWrapperEnabled
+                    )
+            }
+        }
     }
 
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
@@ -7109,6 +7135,13 @@ struct SettingsView: View {
                                 )
                         }
 
+                        if let agentHibernationMissingHooksWarning {
+                            SettingsCardDivider()
+
+                            SettingsCardNote(agentHibernationMissingHooksWarning)
+                                .accessibilityIdentifier("SettingsTerminalAgentHibernationMissingHooksWarning")
+                        }
+
                         SettingsCardDivider()
 
                         SettingsCardRow(
@@ -8368,6 +8401,7 @@ struct SettingsView: View {
             browserHistoryEntryCount = didLoadBrowserHistoryForSettings ? BrowserHistoryStore.shared.entries.count : 0
             draftState.syncBrowserInsecureHTTPAllowlistFromSavedValue(browserInsecureHTTPAllowlist)
             reloadWorkspaceTabColorSettings()
+            refreshAgentHibernationPrerequisiteWarning()
             refreshNotificationCustomSoundStatus()
             refreshDefaultTerminalStatus()
             let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
@@ -8391,6 +8425,12 @@ struct SettingsView: View {
         .onChange(of: browserInsecureHTTPAllowlist) { _, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.
             draftState.syncBrowserInsecureHTTPAllowlistFromSavedValue(newValue)
+        }
+        .onChange(of: agentHibernationEnabled) { _, _ in
+            refreshAgentHibernationPrerequisiteWarning()
+        }
+        .onChange(of: claudeCodeHooksEnabled) { _, _ in
+            refreshAgentHibernationPrerequisiteWarning()
         }
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in
             guard BrowserHistoryStore.shared.isLoaded else { return }

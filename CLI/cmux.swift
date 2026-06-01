@@ -21372,7 +21372,7 @@ struct CMUXCLI {
         let response: String
         switch subcommand {
         case "on", "enable":
-            response = try sendV1Command("agent_hibernation on", client: client)
+            response = try sendV1Command(agentHibernationEnableSocketCommand(), client: client)
         case "off", "disable":
             response = try sendV1Command("agent_hibernation off", client: client)
         default:
@@ -21380,8 +21380,18 @@ struct CMUXCLI {
         }
 
         if jsonOutput {
-            let ok = response == "OK"
+            let lines = response
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .map(String.init)
+            let ok = lines.first == "OK"
             var fallback: [String: Any] = ["ok": ok]
+            let warnings = lines.dropFirst().compactMap { line -> String? in
+                guard line.hasPrefix("WARNING: ") else { return nil }
+                return String(line.dropFirst("WARNING: ".count))
+            }
+            if !warnings.isEmpty {
+                fallback["warnings"] = Array(warnings)
+            }
             if !ok {
                 fallback["message"] = response
             }
@@ -21389,6 +21399,38 @@ struct CMUXCLI {
         } else {
             print(response)
         }
+    }
+
+    private func agentHibernationEnableSocketCommand() -> String {
+        guard let encodedEnvironment = agentHibernationHookEnvironmentPayload() else {
+            return "agent_hibernation on"
+        }
+        return "agent_hibernation on --hook-env-b64=\(encodedEnvironment)"
+    }
+
+    private func agentHibernationHookEnvironmentPayload() -> String? {
+        let allowedKeys: Set<String> = [
+            "HOME",
+            "CODEX_HOME",
+            "GROK_HOME",
+            "OPENCODE_CONFIG_DIR",
+            "PI_CODING_AGENT_DIR",
+            "HERMES_HOME",
+            "COPILOT_HOME",
+            "CODEBUDDY_CONFIG_DIR",
+            "QODER_CONFIG_DIR",
+        ]
+        let environment = ProcessInfo.processInfo.environment.compactMapValues { value -> String? in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }.filter { allowedKeys.contains($0.key) }
+
+        guard !environment.isEmpty,
+              JSONSerialization.isValidJSONObject(environment),
+              let data = try? JSONSerialization.data(withJSONObject: environment, options: [.sortedKeys]) else {
+            return nil
+        }
+        return data.base64EncodedString()
     }
 
     private func shouldApplyClaudeHookVisibleMutation(
