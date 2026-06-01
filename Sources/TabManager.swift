@@ -1279,6 +1279,9 @@ class TabManager: ObservableObject {
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
+#if DEBUG
+    var suppressSelectionSideEffectsForTesting = false
+#endif
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -1364,6 +1367,9 @@ class TabManager: ObservableObject {
                 "ws.select.didSet id=\(switchId) from=\(Self.debugShortWorkspaceId(previousTabId)) " +
                 "to=\(Self.debugShortWorkspaceId(selectedTabId)) dt=\(Self.debugMsText(switchDtMs))"
             )
+            if suppressSelectionSideEffectsForTesting {
+                return
+            }
 #endif
             selectionSideEffectsGeneration &+= 1
             let generation = selectionSideEffectsGeneration

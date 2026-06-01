@@ -228,6 +228,9 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         let app = AppDelegate()
         let windowId = UUID()
         let manager = TabManager(debugCreateInitialWorkspace: false)
+#if DEBUG
+        manager.suppressSelectionSideEffectsForTesting = true
+#endif
         app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
         defer {
             teardownTabManagerForTesting(manager)
