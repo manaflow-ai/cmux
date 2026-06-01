@@ -2861,6 +2861,7 @@ function applyPendingPanelsToState(nextData) {
         state.focusedPanelId = resolvedPanel.id;
         state.lastInteractedPanelId = resolvedPanel.id;
       }
+      deferCreatedTerminalInitUntilPaint(resolvedPanel, workspace);
       continue;
     }
     if (workspace.panels.some((panel) => panel.id === pendingPanel.id)) continue;
@@ -3352,6 +3353,8 @@ function clearSurfaceTabs() {
   replaceChildrenIfChanged(elements.surfaceTabs, []);
   toggleClassIfChanged(elements.surfaceTabs, "has-overflow", false);
   toggleClassIfChanged(elements.surfaceTabs, "is-crowded", false);
+  toggleClassIfChanged(elements.surfaceTabs, "can-scroll-left", false);
+  toggleClassIfChanged(elements.surfaceTabs, "can-scroll-right", false);
 }
 
 function surfaceTabsSignature(workspace) {
@@ -3412,6 +3415,14 @@ function surfaceTabsOverflowing() {
   return elements.surfaceTabs.scrollWidth > elements.surfaceTabs.clientWidth + 1;
 }
 
+function updateSurfaceTabScrollState(strip, overflowing = surfaceTabsOverflowing()) {
+  if (!strip) return;
+  const maxScrollLeft = Math.max(0, strip.scrollWidth - strip.clientWidth);
+  const scrollLeft = Math.max(0, strip.scrollLeft);
+  toggleClassIfChanged(strip, "can-scroll-left", overflowing && scrollLeft > 1);
+  toggleClassIfChanged(strip, "can-scroll-right", overflowing && scrollLeft < maxScrollLeft - 1);
+}
+
 function updateSurfaceTabsOverflow() {
   if (!elements.surfaceTabs) return;
   const strip = elements.surfaceTabs;
@@ -3424,6 +3435,7 @@ function updateSurfaceTabsOverflow() {
   toggleClassIfChanged(strip, "is-crowded", crowded);
   const finalOverflow = surfaceTabsOverflowing();
   toggleClassIfChanged(strip, "has-overflow", finalOverflow);
+  updateSurfaceTabScrollState(strip, finalOverflow);
   if (!finalOverflow && strip.scrollLeft) strip.scrollLeft = 0;
 }
 
@@ -3485,6 +3497,7 @@ function observeSurfaceTabOverflow() {
   }
   window.addEventListener("resize", scheduleSurfaceTabsOverflowRefresh, { passive: true });
   window.visualViewport?.addEventListener("resize", scheduleSurfaceTabsOverflowRefresh, { passive: true });
+  elements.surfaceTabs.addEventListener("scroll", () => updateSurfaceTabScrollState(elements.surfaceTabs), { passive: true });
   requestAnimationFrame(() => {
     updateSurfaceTabsOverflow();
   });
@@ -4740,6 +4753,7 @@ function markTerminalOutputReady(session) {
 
 function shouldDeferInitialTerminalLoad(panel, workspace, visibleCount = 1) {
   return shouldDeferTerminalInitUntilPaint(panel, workspace)
+    || shouldKeepTerminalInitDeferred(panel)
     || (visibleCount > 1
     && panel?.type === "terminal"
     && !state.terminals.has(panel.id)
@@ -4752,6 +4766,14 @@ function shouldDeferTerminalInitUntilPaint(panel, workspace) {
   return panel?.type === "terminal"
     && panel.id === workspace?.activePanelId
     && state.paintDeferredTerminalInitPanelIds.has(panel.id)
+    && !state.terminals.has(panel.id)
+    && !isPanelMinimized(panel)
+    && !isPendingPanel(panel);
+}
+
+function shouldKeepTerminalInitDeferred(panel) {
+  return panel?.type === "terminal"
+    && state.deferredTerminalInitQueue.has(panel.id)
     && !state.terminals.has(panel.id)
     && !isPanelMinimized(panel)
     && !isPendingPanel(panel);
@@ -11618,6 +11640,21 @@ function addPendingPanel(workspace, panel, anchorPanelId, direction, options = {
   return added;
 }
 
+function deferCreatedTerminalInitUntilPaint(panel, workspace) {
+  if (
+    panel?.type !== "terminal"
+    || !workspace
+    || workspace.activePanelId !== panel.id
+    || state.terminals.has(panel.id)
+    || isPanelMinimized(panel)
+    || isPendingPanel(panel)
+  ) {
+    return false;
+  }
+  state.paintDeferredTerminalInitPanelIds.add(panel.id);
+  return true;
+}
+
 function remapPanelStateId(previousPanelId, nextPanelId, workspaceId) {
   if (!previousPanelId || !nextPanelId || previousPanelId === nextPanelId) return;
   const tree = state.paneTrees.get(workspaceId);
@@ -11711,6 +11748,7 @@ async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, op
     workspace.cwd = nextPanel.cwd || workspace.cwd;
     refreshWorkspaceCounts(workspace);
     if (options.focus !== false) state.data.activeWorkspaceId = workspace.id;
+    deferCreatedTerminalInitUntilPaint(nextPanel, workspace);
     render();
     return true;
   }
@@ -11723,6 +11761,7 @@ async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, op
   workspace.cwd = nextPanel.cwd || workspace.cwd;
   refreshWorkspaceCounts(workspace);
   if (options.focus !== false) state.data.activeWorkspaceId = workspace.id;
+  deferCreatedTerminalInitUntilPaint(nextPanel, workspace);
   render();
   return true;
 }
