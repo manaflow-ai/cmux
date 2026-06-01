@@ -1287,6 +1287,45 @@ body.reduce-motion *::after {
   }
 }
 
+@container (max-width: 440px) {
+  .surface-tabs {
+    gap: 4px;
+    padding-inline: 5px;
+  }
+
+  .surface-tab:not(.surface-new-tab),
+  .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab) {
+    flex-basis: 54px;
+    min-width: 42px;
+    max-width: 64px;
+    grid-template-columns: 16px 18px;
+    justify-content: center;
+    gap: 3px;
+    padding: 0 2px;
+  }
+
+  .surface-tab:not(.surface-new-tab):hover,
+  .surface-tab:not(.surface-new-tab).is-active,
+  .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab):hover,
+  .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab).is-active {
+    padding: 0 2px;
+  }
+
+  .surface-label {
+    display: none;
+  }
+
+  .surface-close,
+  .surface-tab:hover .surface-close,
+  .surface-tab.is-active .surface-close,
+  .surface-tabs.is-crowded .surface-close,
+  .surface-tabs.is-crowded .surface-tab:hover .surface-close,
+  .surface-tabs.is-crowded .surface-tab.is-active .surface-close {
+    width: 18px;
+    height: 18px;
+  }
+}
+
 .surface-tab:hover .surface-close,
 .surface-tab.is-active .surface-close,
 .surface-close:focus-visible {
@@ -1343,6 +1382,16 @@ body.reduce-motion *::after {
   flex-basis: 34px;
   min-width: 34px;
   max-width: 34px;
+}
+
+@container (max-width: 440px) {
+  .surface-new-tab,
+  .shell.density-compact .surface-new-tab {
+    right: 5px;
+    flex-basis: 30px;
+    min-width: 30px;
+    max-width: 30px;
+  }
 }
 
 .pane-grid {
