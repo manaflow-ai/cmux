@@ -12,7 +12,7 @@ import SwiftUI
 /// store-agnostic — it only needs an `AsyncStream<Value>` — so the same path
 /// works for every key kind (UserDefaults, JSON, secret).
 @MainActor
-final class SettingReadDriver<Value> {
+final class SettingReadDriver<Value: Sendable> {
     private var task: Task<Void, Never>?
 
     /// Starts forwarding `makeStream()`'s elements into `sink`. Idempotent:
