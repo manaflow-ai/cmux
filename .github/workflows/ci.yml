@@ -127,6 +127,10 @@ jobs:
       - name: Verify generated diff viewer assets
         run: ./scripts/build-diff-viewer-app.sh --check
 
+      - name: Typecheck diff viewer
+        working-directory: diff-viewer
+        run: bun run typecheck
+
       - name: React Doctor
         working-directory: diff-viewer
         run: bun run react-doctor:ci

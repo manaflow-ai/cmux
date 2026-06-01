@@ -13,7 +13,7 @@ export default defineConfig({
     minify: "esbuild",
     outDir,
     lib: {
-      entry: "src/main.jsx",
+      entry: "src/main.tsx",
       formats: ["es"],
       fileName: () => "main.mjs",
     },

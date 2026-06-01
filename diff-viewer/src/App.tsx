@@ -1,11 +1,16 @@
 import { useCallback, useRef } from "react";
-import { startDiffViewer } from "./legacy-viewer.js";
+import { startDiffViewer } from "./legacy-viewer";
+import type { DiffViewerConfig } from "./types";
 
-function label(config, key) {
+type ConfigProps = {
+  config: DiffViewerConfig;
+};
+
+function label(config: DiffViewerConfig, key: string): string {
   return config.payload?.labels?.[key] ?? key;
 }
 
-function SourceControls({ config }) {
+function SourceControls({ config }: ConfigProps) {
   return (
     <div className="toolbar-left">
       <select id="source-select" aria-label={label(config, "diffTarget")} hidden />
@@ -16,7 +21,7 @@ function SourceControls({ config }) {
   );
 }
 
-function Toolbar({ config }) {
+function Toolbar({ config }: ConfigProps) {
   return (
     <header id="toolbar">
       <SourceControls config={config} />
@@ -64,7 +69,7 @@ function Toolbar({ config }) {
   );
 }
 
-function FilesSidebar({ config }) {
+function FilesSidebar({ config }: ConfigProps) {
   return (
     <aside id="files-sidebar" aria-label={label(config, "changedFiles")}>
       <div id="files-header">
@@ -107,9 +112,9 @@ function FilesSidebar({ config }) {
   );
 }
 
-export function App({ config }) {
+export function App({ config }: ConfigProps) {
   const started = useRef(false);
-  const rootRef = useCallback((node) => {
+  const rootRef = useCallback((node: HTMLDivElement | null) => {
     if (!node || started.current) {
       return;
     }

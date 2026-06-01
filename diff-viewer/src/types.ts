@@ -1,0 +1,14 @@
+export type DiffViewerPayload = {
+  externalURL?: string;
+  labels?: Record<string, string>;
+  pendingReplacement?: boolean;
+  statusMessage?: string;
+  title?: string;
+  [key: string]: any;
+};
+
+export type DiffViewerConfig = {
+  assets?: Record<string, string | undefined>;
+  payload?: DiffViewerPayload;
+  [key: string]: any;
+};

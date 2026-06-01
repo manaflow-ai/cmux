@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "bun run typecheck && vite build",
+    "typecheck": "tsc --noEmit",
     "react-doctor": "react-doctor . --full --no-score --fail-on none",
     "react-doctor:ci": "react-doctor . --full --no-score --fail-on error"
   },
@@ -15,6 +16,8 @@
     "vite": "^7.2.7"
   },
   "devDependencies": {
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
     "react-doctor": "^0.2.4",
     "typescript": "^5.9.3"
   }

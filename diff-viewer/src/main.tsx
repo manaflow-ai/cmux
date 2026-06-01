@@ -1,8 +1,9 @@
 import { createRoot } from "react-dom/client";
-import { App } from "./App.jsx";
+import { App } from "./App";
 import styles from "./styles.css?inline";
+import type { DiffViewerConfig } from "./types";
 
-function readConfig() {
+function readConfig(): DiffViewerConfig {
   const element = document.getElementById("cmux-diff-viewer-config");
   if (!element?.textContent) {
     throw new Error("Missing cmux diff viewer config");
@@ -23,4 +24,9 @@ document.title = config.payload?.title ?? document.title;
 document.body.dataset.filesHidden = "false";
 document.body.dataset.statusOnly = config.payload?.statusMessage || config.payload?.pendingReplacement ? "true" : "false";
 
-createRoot(document.getElementById("root")).render(<App config={config} />);
+const rootElement = document.getElementById("root");
+if (!rootElement) {
+  throw new Error("Missing cmux diff viewer root");
+}
+
+createRoot(rootElement).render(<App config={config} />);

@@ -1,4 +1,13 @@
-export function startDiffViewer(config) {
+import type { DiffViewerConfig } from "./types";
+
+export function startDiffViewer(config: DiffViewerConfig) {
+  const requireElement = <T extends HTMLElement>(id: string) => {
+    const element = document.getElementById(id);
+    if (!element) {
+      throw new Error(`Missing cmux diff viewer element: ${id}`);
+    }
+    return element as T;
+  };
   const assets = config.assets ?? {};
   const resolveAssetURL = (value, name) => {
     if (typeof value !== "string" || value.length === 0) {
@@ -12,27 +21,27 @@ export function startDiffViewer(config) {
   const DIFF_WORKER_URL = resolveAssetURL(assets.workerModuleURL, "workerModuleURL");
   const payload = config.payload ?? {};
   const labels = payload.labels ?? {};
-const viewerElement = document.getElementById("viewer");
-const status = document.getElementById("status");
-const toolbar = document.getElementById("toolbar");
-const sourceSelect = document.getElementById("source-select");
-const repoSelect = document.getElementById("repo-select");
-const baseSelect = document.getElementById("base-select");
-const sourceDetail = document.getElementById("source-detail");
-const jumpSelect = document.getElementById("jump-select");
-const externalLink = document.getElementById("external-link");
-const filesToggle = document.getElementById("files-toggle");
-const layoutToggle = document.getElementById("layout-toggle");
-const optionsButton = document.getElementById("options-button");
-const optionsMenu = document.getElementById("options-menu");
-const filesSidebar = document.getElementById("files-sidebar");
-const fileList = document.getElementById("file-list");
-const filesCount = document.getElementById("files-count");
-const fileSearchToggle = document.getElementById("file-search-toggle");
-const fileCollapseToggle = document.getElementById("file-collapse-toggle");
-const statsFiles = document.getElementById("stats-files");
-const statsAdded = document.getElementById("stats-added");
-const statsDeleted = document.getElementById("stats-deleted");
+const viewerElement = requireElement<HTMLElement>("viewer");
+const status = requireElement<HTMLDivElement>("status");
+const toolbar = requireElement<HTMLElement>("toolbar");
+const sourceSelect = requireElement<HTMLSelectElement>("source-select");
+const repoSelect = requireElement<HTMLSelectElement>("repo-select");
+const baseSelect = requireElement<HTMLSelectElement>("base-select");
+const sourceDetail = requireElement<HTMLElement>("source-detail");
+const jumpSelect = requireElement<HTMLSelectElement>("jump-select");
+const externalLink = requireElement<HTMLAnchorElement>("external-link");
+const filesToggle = requireElement<HTMLButtonElement>("files-toggle");
+const layoutToggle = requireElement<HTMLButtonElement>("layout-toggle");
+const optionsButton = requireElement<HTMLButtonElement>("options-button");
+const optionsMenu = requireElement<HTMLElement>("options-menu");
+const filesSidebar = requireElement<HTMLElement>("files-sidebar");
+const fileList = requireElement<HTMLElement>("file-list");
+const filesCount = requireElement<HTMLElement>("files-count");
+const fileSearchToggle = requireElement<HTMLButtonElement>("file-search-toggle");
+const fileCollapseToggle = requireElement<HTMLButtonElement>("file-collapse-toggle");
+const statsFiles = requireElement<HTMLElement>("stats-files");
+const statsAdded = requireElement<HTMLElement>("stats-added");
+const statsDeleted = requireElement<HTMLElement>("stats-deleted");
 const label = (key) => labels[key] ?? key;
 const appState = {
   layout: payload.layout === "unified" ? "unified" : "split",
@@ -135,7 +144,7 @@ async function renderDiff() {
   }
 }
 
-function showStatusMessage(message, options = {}) {
+function showStatusMessage(message, options: { error?: boolean; pending?: boolean } = {}) {
   if (!status.isConnected) {
     viewerElement.replaceChildren(status);
   }
@@ -257,7 +266,15 @@ async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile,
     timeout: 0,
     treesModule: null,
   };
-  const streamMetrics = {
+  const streamMetrics: {
+    completedAt: number;
+    fileCount?: number;
+    flushCount: number;
+    maxBatchSize: number;
+    renderableFileCount?: number;
+    startedAt: number;
+    treeRefreshCount: number;
+  } = {
     startedAt: performance.now(),
     completedAt: 0,
     flushCount: 0,
@@ -802,7 +819,7 @@ function buildGitStatusPatch(model) {
   if (model.pendingGitStatusRemovePaths.size === 0 && model.pendingGitStatusSetByPath.size === 0) {
     return undefined;
   }
-  const patch = {};
+  const patch: { remove?: string[]; set?: any[] } = {};
   if (model.pendingGitStatusRemovePaths.size > 0) {
     patch.remove = Array.from(model.pendingGitStatusRemovePaths);
     model.pendingGitStatusRemovePaths.clear();
@@ -815,7 +832,7 @@ function buildGitStatusPatch(model) {
 }
 
 function yieldToNextFrame() {
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve) => {
     let resolved = false;
     let timeout = 0;
     const done = () => {
@@ -888,7 +905,7 @@ function setupToolbar() {
   layoutToggle.addEventListener("click", () => setLayout(appState.layout === "split" ? "unified" : "split"));
   optionsButton.addEventListener("click", () => setOptionsMenuOpen(optionsMenu.hidden));
   document.addEventListener("click", (event) => {
-    if (optionsMenu.hidden || toolbar.contains(event.target)) {
+    if (optionsMenu.hidden || (event.target instanceof Node && toolbar.contains(event.target))) {
       return;
     }
     setOptionsMenuOpen(false);
@@ -1182,7 +1199,7 @@ function setOptionsMenuOpen(open) {
 
 function renderOptionsMenu() {
   optionsMenu.textContent = "";
-  const items = [
+  const items: any[] = [
     { label: label("refresh"), icon: "refresh", action: () => window.location.reload() },
     { label: appState.wordWrap ? label("disableWordWrap") : label("enableWordWrap"), icon: "wrap", checked: appState.wordWrap, action: () => {
       appState.wordWrap = !appState.wordWrap;
@@ -1850,7 +1867,7 @@ function updateActiveFile(itemId) {
   }
   activeFileId = itemId;
   syncFileTreeSelection(itemId);
-  for (const entry of fileList.querySelectorAll(".file-entry")) {
+  for (const entry of fileList.querySelectorAll<HTMLElement>(".file-entry")) {
     entry.setAttribute("aria-current", entry.dataset.itemId === itemId ? "true" : "false");
   }
   if (jumpSelect.value !== itemId) {
