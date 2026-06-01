@@ -41,15 +41,22 @@ struct GitHubHost: Hashable, Sendable {
     /// requires a token (see ``isPollable(token:)``).
     var isDotCom: Bool { hostname == "github.com" && port == nil }
 
-    /// The REST API base URL for this host.
+    /// The REST API base URL for this host, or `nil` if the host is not
+    /// representable as a URL.
     ///
     /// github.com maps to `https://api.github.com/`; any GitHub Enterprise
-    /// Server host maps to `https://<host>[:<port>]/api/v3/`. The returned URL
-    /// always ends in a trailing slash so endpoint paths can be appended
-    /// relative to it (see ``apiURL(endpoint:)``).
-    var apiBaseURL: URL {
+    /// Server host maps to `https://<host>[:<port>]/api/v3/`, with IPv6 literals
+    /// bracketed. The returned URL always ends in a trailing slash so endpoint
+    /// paths can be appended relative to it (see ``apiURL(endpoint:)``).
+    ///
+    /// This is optional rather than trapping so that a malformed host (which a
+    /// real git remote never produces) makes the poller silently skip the host
+    /// instead of crashing the app. Returning `nil` — rather than falling back
+    /// to github.com — also keeps a per-host enterprise token from ever leaking
+    /// to the wrong host.
+    var apiBaseURL: URL? {
         if isDotCom {
-            return URL(string: "https://api.github.com/")!
+            return URL(string: "https://api.github.com/")
         }
         // Bracket IPv6 literals (RFC 2732) — `URLComponents`/`URL` reject a bare
         // `::1` host — and append an explicit non-default port. String building
@@ -57,23 +64,18 @@ struct GitHubHost: Hashable, Sendable {
         // hosts on common Foundation builds.
         let encodedHost = hostname.contains(":") ? "[\(hostname)]" : hostname
         let portSuffix = port.map { ":\($0)" } ?? ""
-        // A host that came from a parsed git remote is always representable here;
-        // trapping (rather than falling back to the public github.com API) keeps
-        // a per-host enterprise token from leaking to the wrong host.
-        guard let url = URL(string: "https://\(encodedHost)\(portSuffix)/api/v3/") else {
-            preconditionFailure("GitHubHost: could not build API URL for hostname '\(hostname)'")
-        }
-        return url
+        return URL(string: "https://\(encodedHost)\(portSuffix)/api/v3/")
     }
 
     /// Builds an absolute REST API URL for an endpoint path relative to ``apiBaseURL``.
     ///
     /// - Parameter endpoint: A path (and optional query) relative to the API
     ///   base, e.g. `repos/owner/repo/pulls?state=all`.
-    /// - Returns: The absolute URL, or `nil` if `endpoint` is not a valid URL
-    ///   component.
+    /// - Returns: The absolute URL, or `nil` if the host or `endpoint` is not a
+    ///   valid URL component.
     func apiURL(endpoint: String) -> URL? {
-        URL(string: endpoint, relativeTo: apiBaseURL)?.absoluteURL
+        guard let base = apiBaseURL else { return nil }
+        return URL(string: endpoint, relativeTo: base)?.absoluteURL
     }
 
     /// A shell-out closure used to resolve an auth token for a host.

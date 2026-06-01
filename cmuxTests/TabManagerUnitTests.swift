@@ -3837,7 +3837,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         // the REST API base targets it instead of silently falling back to 443.
         let reference = GitHubRepositoryReference.parse(remoteURL: "https://ghe.example.com:8443/acme/widgets.git")
         #expect(reference?.host == GitHubHost(hostname: "ghe.example.com", port: 8443))
-        #expect(reference?.host.apiBaseURL.absoluteString == "https://ghe.example.com:8443/api/v3/")
+        #expect(reference?.host.apiBaseURL?.absoluteString == "https://ghe.example.com:8443/api/v3/")
         // A distinct port is a distinct host identity.
         #expect(reference?.host != GitHubHost(hostname: "ghe.example.com"))
     }
@@ -3853,7 +3853,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         // so it must not end up in the API base URL.
         let reference = GitHubRepositoryReference.parse(remoteURL: "ssh://git@ghe.example.com:2222/acme/widgets.git")
         #expect(reference?.host == GitHubHost(hostname: "ghe.example.com"))
-        #expect(reference?.host.apiBaseURL.absoluteString == "https://ghe.example.com/api/v3/")
+        #expect(reference?.host.apiBaseURL?.absoluteString == "https://ghe.example.com/api/v3/")
     }
 
     @Test func normalizesExplicitDefaultHTTPSPortToDotCom() {
@@ -3862,7 +3862,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         let reference = GitHubRepositoryReference.parse(remoteURL: "https://github.com:443/manaflow-ai/cmux.git")
         #expect(reference?.host == .dotCom)
         #expect(reference?.host.isDotCom == true)
-        #expect(reference?.host.apiBaseURL.absoluteString == "https://api.github.com/")
+        #expect(reference?.host.apiBaseURL?.absoluteString == "https://api.github.com/")
     }
 
     @Test func parsesSCPRemoteWithBracketedIPv6Host() {
@@ -3873,7 +3873,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         #expect(reference?.slug == "acme/widgets")
         // The API base must re-bracket the IPv6 literal — building it must not
         // trap (the host is reachable once a token exists).
-        #expect(reference?.host.apiBaseURL.absoluteString == "https://[::1]/api/v3/")
+        #expect(reference?.host.apiBaseURL?.absoluteString == "https://[::1]/api/v3/")
     }
 
     @Test func normalizesExplicitDefaultHTTPPortToDotCom() {
@@ -3898,12 +3898,12 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
     // MARK: REST API base URL
 
     @Test func dotComUsesPublicAPIBase() {
-        #expect(GitHubHost.dotCom.apiBaseURL.absoluteString == "https://api.github.com/")
+        #expect(GitHubHost.dotCom.apiBaseURL?.absoluteString == "https://api.github.com/")
     }
 
     @Test func enterpriseUsesPerHostAPIV3Base() {
         #expect(
-            GitHubHost(hostname: "ghe.example.com").apiBaseURL.absoluteString
+            GitHubHost(hostname: "ghe.example.com").apiBaseURL?.absoluteString
                 == "https://ghe.example.com/api/v3/"
         )
     }
