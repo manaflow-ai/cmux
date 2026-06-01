@@ -207,6 +207,7 @@ const terminalWheelZoomIdleResetMs = 450;
 const terminalWheelZoomMaxSteps = 3;
 const deferredTerminalInitIdleTimeoutMs = 700;
 const browserLoadTimeoutMs = 15000;
+const browserPausedStatusText = "Paused while inactive";
 const paneResizeFitThrottleMs = 90;
 const panePointerDragThreshold = 6;
 const closedPanelLimit = 12;
@@ -5242,10 +5243,15 @@ function updateBrowserPaneActivity(visiblePanelIds = new Set()) {
     if (active || (visible && !state.settings.browserSuspendInactive)) {
       loadDeferredBrowserSession(session);
     }
+    const hasStalePausedStatus = session.statusText === browserPausedStatusText && !suspended;
+    const isMissingPausedStatus = session.statusText !== browserPausedStatusText && suspended;
     if (
       session.visible === visible
       && session.active === active
+      && session.suspended === suspended
       && session.suspendInactive === state.settings.browserSuspendInactive
+      && !hasStalePausedStatus
+      && !isMissingPausedStatus
     ) continue;
     session.visible = visible;
     session.active = active;
@@ -5253,8 +5259,8 @@ function updateBrowserPaneActivity(visiblePanelIds = new Set()) {
     session.suspendInactive = state.settings.browserSuspendInactive;
     session.shell?.classList.toggle("is-browser-suspended", suspended);
     if (suspended) {
-      session.setStatus?.("Paused while inactive");
-    } else if (session.statusText === "Paused while inactive") {
+      session.setStatus?.(browserPausedStatusText);
+    } else if (session.statusText === browserPausedStatusText) {
       session.setStatus?.("");
     }
     setBrowserAudioMuted(session.view, suspended);
@@ -5766,6 +5772,7 @@ function ensureBrowser(panel, body) {
   };
 
   const setStatus = (message = "") => {
+    if (!message && session?.suspended) message = browserPausedStatusText;
     if (loadingStatusTimer) {
       clearTimeout(loadingStatusTimer);
       loadingStatusTimer = 0;
