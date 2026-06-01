@@ -24768,11 +24768,12 @@ struct CMUXCLI {
                 break
             }
         }
-        // Layer in Feed bridge entries with a long timeout so blocking
-        // user decisions don't trip the agent's default per-event timeout.
+        // Layer in Feed bridge entries. The installed shell command
+        // backgrounds cmux work and returns immediately, so this timeout is
+        // only a watchdog if the shell cannot hand off.
         // Most nested agents use milliseconds; Grok's and Antigravity's
         // current hook schemas use seconds, so normalize before writing.
-        let feedTimeoutMs = 120_000
+        let feedTimeoutMs = 5_000
         for agentEvent in def.feedHookEvents {
             let feedCmd = feedHookCommand(for: def, agentEvent: agentEvent)
             switch def.format {
@@ -24848,7 +24849,7 @@ struct CMUXCLI {
 // Installed by `cmux hooks opencode install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -24978,13 +24979,15 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   };
   const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
   try {
-    spawnSync(cmux, ["hooks", "opencode", subcommand], {
-      input: JSON.stringify(payload),
-      encoding: "utf8",
+    const child = spawn(cmux, ["hooks", "opencode", subcommand], {
       env: hookEnvironment(cwd),
       stdio: ["pipe", "ignore", "ignore"],
-      timeout: 5000,
+      detached: true,
     });
+    child.on("error", () => {});
+    child.stdin.on("error", () => {});
+    child.stdin.end(JSON.stringify(payload));
+    child.unref();
   } catch (_) {}
 }
 
@@ -25249,7 +25252,7 @@ export default CMUXSessionRestore;
 // Installed by `cmux hooks pi install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -25376,13 +25379,15 @@ function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<strin
   };
   const cmux = process.env.CMUX_PI_CMUX_BIN || "cmux";
   try {
-    spawnSync(cmux, ["hooks", "pi", subcommand], {
-      input: JSON.stringify(payload),
-      encoding: "utf8",
+    const child = spawn(cmux, ["hooks", "pi", subcommand], {
       env: hookEnvironment(cwd),
       stdio: ["pipe", "ignore", "ignore"],
-      timeout: 5000,
+      detached: true,
     });
+    child.on("error", () => {});
+    child.stdin.on("error", () => {});
+    child.stdin.end(JSON.stringify(payload));
+    child.unref();
   } catch (_) {}
 }
 
@@ -30053,22 +30058,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     // MARK: - Feed (workstream) hook bridge
 
-    /// Reads an agent hook JSON payload from stdin, forwards it to the
-    /// running cmux app via the `feed.push` V2 socket verb, and (for
-    /// actionable events: ExitPlanMode, AskUserQuestion, permission-
-    /// requiring tools) blocks until the user resolves the item. The
-    /// decision JSON is emitted on stdout in the agent's expected format
-    /// so the agent honors the user's choice.
+    /// Reads an agent hook JSON payload from stdin and forwards it to the
+    /// running cmux app via the `feed.push` V2 socket verb. Installed hook
+    /// shims start this command in the background and return `{}` to the
+    /// agent immediately, so this bridge can wait on async Feed replies
+    /// without delaying the foreground agent hook.
     ///
     /// Usage:
     ///   echo "<hook_json>" | cmux hooks feed --source <claude|codex|...>
     ///
-    /// Designed so agents and wrappers can point a native decision hook
-    /// at it and have permission/plan/question events surface in the
-    /// Feed sidebar. Agent-specific lifecycle/status hooks can be
-    /// chained separately. For Claude, `hooks claude pre-tool-use` is
-    /// async status-only telemetry; blocking decisions come through
-    /// PermissionRequest.
+    /// Designed so agents and wrappers can have permission/plan/question
+    /// events surface in the Feed sidebar. Agent-specific lifecycle/status
+    /// hooks can be chained separately.
     private func runFeedHook(
         commandArgs: [String],
         client: SocketClient,
@@ -30180,16 +30181,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         eventDict["_opencode_request_id"] = requestId
 
-        // Sync. For actionable events we block up to 120s waiting
-        // for the user's Feed click; the hook's stdout is then a
-        // proper hookSpecificOutput that Claude honors directly
-        // (no keystroke injection, no guessing the TUI layout).
-        // If the user doesn't click in time the hook emits {}
-        // and Claude falls back to its native TUI prompt.
-        //
-        // Wait is capped at 120s and the wrapper's hook timeout
-        // is 125s so the socket always returns before Claude
-        // would kill the hook subprocess itself.
+        // Installed hooks start this bridge in the background and return
+        // to the agent immediately. Keep a long socket wait here so
+        // integrations with async reply channels can still receive Feed
+        // decisions after the foreground hook has already resolved.
         let waitTimeout: Double = isActionable ? 120 : 0
         let params: [String: Any] = [
             "event": eventDict,
@@ -30661,9 +30656,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
             return true
 
+        case "claude":
+            let rest = Array(commandArgs.dropFirst())
+            if rest.first?.lowercased() == "cron-create-guard" {
+                let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                let parsedInput = parseClaudeHookInput(rawInput: rawInput)
+                print(claudeCronCreateGuardResponse(parsedInput.rawObject))
+                return true
+            }
+            return false
+
         default:
             guard let def = Self.agentDef(named: first) else {
-                if first == "feed" || first == "claude" {
+                if first == "feed" {
                     return false
                 }
                 throw CLIError(message: "Unknown hooks target: \(first)")

@@ -920,6 +920,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
             allCommands.contains { $0.contains(#"[ -n "$CMUX_SURFACE_ID" ]"#) },
             "Antigravity hooks must still dispatch when agy does not preserve CMUX_SURFACE_ID, saw \(allCommands)"
         )
+        XCTAssertTrue(
+            allCommands.allSatisfy {
+                $0.contains("cmux_hook_input")
+                    && $0.contains(") &")
+                    && $0.contains("echo '{}'")
+            },
+            "Antigravity hooks should return immediately and dispatch cmux work in the background, saw \(allCommands)"
+        )
 
         let preToolUse = try XCTUnwrap(cmuxGroup["PreToolUse"] as? [[String: Any]])
         let preToolCommands = preToolUse
@@ -928,7 +936,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             preToolCommands.contains {
                 ($0["command"] as? String)?.contains("hooks feed --source antigravity --event PreToolUse") == true
-                    && ($0["timeout"] as? Int) == 120
+                    && ($0["timeout"] as? Int) == 5
             },
             "Expected Antigravity PreToolUse feed hook with second-based timeout, saw \(preToolCommands)"
         )
@@ -2764,7 +2772,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Grok Notification should not use the generic stop handler, saw \(notificationCommands)"
         )
         XCTAssertEqual(notificationTimeouts, [5])
-        XCTAssertEqual(preToolUseTimeouts, [120])
+        XCTAssertEqual(preToolUseTimeouts, [5])
         XCTAssertFalse(
             allCommands.contains { $0.contains("[ -n \"$CMUX_SURFACE_ID\" ]") },
             "Grok strips CMUX_* from hook subprocesses, so installed commands must not gate on CMUX_SURFACE_ID. Saw \(allCommands)"
@@ -2772,6 +2780,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(
             allCommands.contains { $0.contains("$CMUX_") },
             "Grok treats $VAR references as required hook environment, so installed commands must avoid CMUX variable interpolation. Saw \(allCommands)"
+        )
+        XCTAssertTrue(
+            allCommands.allSatisfy {
+                $0.contains("cmux_hook_input")
+                    && $0.contains(") &")
+                    && $0.contains("echo '{}'")
+            },
+            "Grok hook commands should return immediately and dispatch cmux work in the background, saw \(allCommands)"
         )
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: legacyHookURL.path),
@@ -3021,8 +3037,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             allCommands.contains {
                 $0.contains("CMUX_BUNDLED_CLI_PATH")
                     && $0.contains("\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks codex prompt-submit")
+                    && $0.contains("cmux_hook_input")
+                    && $0.contains(") &")
+                    && $0.contains("echo '{}'")
             },
-            "Codex hooks should route through the launching app's bundled CLI, saw \(allCommands)"
+            "Codex hooks should route through the launching app's bundled CLI in the background, saw \(allCommands)"
         )
         XCTAssertFalse(
             allCommands.contains { $0.contains("command -v cmux >/dev/null 2>&1 && cmux hooks codex") },
