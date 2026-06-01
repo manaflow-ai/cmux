@@ -4384,7 +4384,8 @@ class TabManager: ObservableObject {
                 let token = tokensByHost[reference.host]
                 guard reference.host.isPollable(token: token) else {
                     // No token for a non-github host: silently skip — no HTTP
-                    // request is issued and the candidate resolves to "not found".
+                    // request is issued. A candidate whose references are all
+                    // skipped resolves to `.unsupportedRepository`.
                     continue
                 }
                 let authHeader = token.map { "Bearer \($0)" }
