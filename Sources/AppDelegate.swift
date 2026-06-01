@@ -6221,21 +6221,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // paths can preserve stale event window metadata after a new window becomes
         // key, so prefer the actual focused window before falling back to event data.
 #if DEBUG
-        if let debugWindow = debugFocusedCloseShortcutWindowOverride?(),
-           isMainTerminalWindow(debugWindow) {
-            return debugWindow
+        let debugFocusedWindow = debugFocusedCloseShortcutWindowOverride?().flatMap {
+            isMainTerminalWindow($0) ? $0 : nil
         }
+#else
+        let debugFocusedWindow: NSWindow? = nil
 #endif
-        if let keyWindow = NSApp.keyWindow, isMainTerminalWindow(keyWindow) {
-            return keyWindow
-        }
-        if let mainWindow = NSApp.mainWindow, isMainTerminalWindow(mainWindow) {
-            return mainWindow
-        }
-        for window in NSApp.orderedWindows where isMainTerminalWindow(window) {
-            return window
-        }
-        return mainWindowForShortcutEvent(event)
+        return selectFocusedCloseShortcutTarget(
+            debugFocusedWindow: debugFocusedWindow,
+            keyWindow: NSApp.keyWindow.flatMap { isMainTerminalWindow($0) ? $0 : nil },
+            mainWindow: NSApp.mainWindow.flatMap { isMainTerminalWindow($0) ? $0 : nil },
+            orderedWindows: NSApp.orderedWindows.filter { isMainTerminalWindow($0) },
+            eventWindow: mainWindowForShortcutEvent(event)
+        )
     }
 
     private func tabManagerForFocusedCloseShortcut(event: NSEvent) -> TabManager? {

@@ -378,6 +378,28 @@ func shouldHandleCommandPaletteShortcutEvent(
     return false
 }
 
+func selectFocusedCloseShortcutTarget<Window>(
+    debugFocusedWindow: Window?,
+    keyWindow: Window?,
+    mainWindow: Window?,
+    orderedWindows: [Window],
+    eventWindow: Window?
+) -> Window? {
+    if let debugFocusedWindow {
+        return debugFocusedWindow
+    }
+    if let keyWindow {
+        return keyWindow
+    }
+    if let mainWindow {
+        return mainWindow
+    }
+    if let orderedWindow = orderedWindows.first {
+        return orderedWindow
+    }
+    return eventWindow
+}
+
 enum BrowserZoomShortcutAction: Equatable {
     case zoomIn
     case zoomOut

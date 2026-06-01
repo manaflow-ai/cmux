@@ -9090,11 +9090,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared", file: file, line: line)
-            return
-        }
-
         for shortcut in shortcuts {
             guard shortcut.expectedAction == .closeTab || shortcut.expectedAction == .closeWorkspace else {
                 XCTFail("Unexpected close shortcut action \(shortcut.expectedAction)", file: file, line: line)
@@ -9102,18 +9097,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             }
         }
 
-#if DEBUG
         let originalWindowId = UUID()
         let focusedWindowId = UUID()
-        let originalWindow = makeRegisteredShortcutRoutingWindow(id: originalWindowId)
-        let focusedWindow = makeRegisteredShortcutRoutingWindow(id: focusedWindowId)
-        defer {
-            appDelegate.debugFocusedCloseShortcutWindowOverride = nil
-            closeTestWindow(originalWindow)
-            closeTestWindow(focusedWindow)
-        }
-
-        appDelegate.debugFocusedCloseShortcutWindowOverride = { focusedWindow }
+        let staleEventWindowNumber = 901
 
         // Model the observed bug: the user-visible focused window is the new window,
         // but the key event still carries the original window number.
@@ -9122,7 +9108,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 key: "w",
                 modifiers: shortcut.modifiers,
                 keyCode: 13,
-                windowNumber: originalWindow.windowNumber
+                windowNumber: staleEventWindowNumber
             ) else {
                 XCTFail("Failed to construct \(shortcut.actionName) event", file: file, line: line)
                 return
@@ -9136,15 +9122,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             )
 
             XCTAssertTrue(
-                appDelegate.debugMainWindowForFocusedCloseShortcut(event: event) === focusedWindow,
+                selectFocusedCloseShortcutTarget(
+                    debugFocusedWindow: focusedWindowId,
+                    keyWindow: nil,
+                    mainWindow: nil,
+                    orderedWindows: [],
+                    eventWindow: originalWindowId
+                ) == focusedWindowId,
                 "\(shortcut.actionName) should resolve the focused window before stale event-window metadata",
                 file: file,
                 line: line
             )
         }
-#else
-        XCTFail("focused close shortcut debug routing hooks are only available in DEBUG", file: file, line: line)
-#endif
     }
 
     @discardableResult
