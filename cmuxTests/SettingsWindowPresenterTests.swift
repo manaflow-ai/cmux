@@ -1,5 +1,5 @@
 import AppKit
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,14 +8,14 @@ import XCTest
 #endif
 
 #if DEBUG
+// `.serialized`: every test mutates `SettingsWindowPresenter`'s shared static
+// state and resets it on exit, so they must not run concurrently with each
+// other (Swift Testing parallelizes by default).
 @MainActor
-final class SettingsWindowPresenterTests: XCTestCase {
-    override func tearDown() {
-        SettingsWindowPresenter.resetForTests()
-        super.tearDown()
-    }
-
-    func testConfigureWindowAppliesModernSettingsChrome() {
+@Suite(.serialized)
+struct SettingsWindowPresenterTests {
+    @Test func configureWindowAppliesModernSettingsChrome() {
+        defer { SettingsWindowPresenter.resetForTests() }
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
         defer {
             settingsWindow.orderOut(nil)
@@ -23,15 +23,16 @@ final class SettingsWindowPresenterTests: XCTestCase {
 
         SettingsWindowPresenter.configure(window: settingsWindow)
 
-        XCTAssertEqual(settingsWindow.toolbarStyle, .unifiedCompact)
-        XCTAssertTrue(settingsWindow.styleMask.contains(.fullSizeContentView))
-        XCTAssertTrue(settingsWindow.titlebarAppearsTransparent)
-        XCTAssertEqual(settingsWindow.titleVisibility, .hidden)
-        XCTAssertEqual(settingsWindow.titlebarSeparatorStyle, .none)
-        XCTAssertNotNil(settingsWindow.toolbar)
+        #expect(settingsWindow.toolbarStyle == .unifiedCompact)
+        #expect(settingsWindow.styleMask.contains(.fullSizeContentView))
+        #expect(settingsWindow.titlebarAppearsTransparent)
+        #expect(settingsWindow.titleVisibility == .hidden)
+        #expect(settingsWindow.titlebarSeparatorStyle == .none)
+        #expect(settingsWindow.toolbar != nil)
     }
 
-    func testConfigureWindowLeavesPendingNavigationForSettingsViews() {
+    @Test func configureWindowLeavesPendingNavigationForSettingsViews() {
+        defer { SettingsWindowPresenter.resetForTests() }
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
         var didOpen = false
         defer {
@@ -44,14 +45,15 @@ final class SettingsWindowPresenterTests: XCTestCase {
         )
         SettingsWindowPresenter.configure(window: settingsWindow)
 
-        XCTAssertTrue(didOpen)
-        XCTAssertEqual(SettingsWindowPresenter.consumePendingNavigationTarget(), .browserImport)
-        XCTAssertEqual(SettingsWindowPresenter.consumePendingContentNavigationTarget(), .browserImport)
-        XCTAssertNil(SettingsWindowPresenter.consumePendingNavigationTarget())
-        XCTAssertNil(SettingsWindowPresenter.consumePendingContentNavigationTarget())
+        #expect(didOpen)
+        #expect(SettingsWindowPresenter.consumePendingNavigationTarget() == .browserImport)
+        #expect(SettingsWindowPresenter.consumePendingContentNavigationTarget() == .browserImport)
+        #expect(SettingsWindowPresenter.consumePendingNavigationTarget() == nil)
+        #expect(SettingsWindowPresenter.consumePendingContentNavigationTarget() == nil)
     }
 
-    func testRepeatedConfigureForSameSettingsWindowDoesNotRefocus() async {
+    @Test func repeatedConfigureForSameSettingsWindowDoesNotRefocus() async {
+        defer { SettingsWindowPresenter.resetForTests() }
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
         var focusedWindows: [NSWindow] = []
         defer {
@@ -67,11 +69,12 @@ final class SettingsWindowPresenterTests: XCTestCase {
         SettingsWindowPresenter.configure(window: settingsWindow)
         await Task.yield()
 
-        XCTAssertEqual(focusedWindows.count, 1)
-        XCTAssertTrue(focusedWindows.first === settingsWindow)
+        #expect(focusedWindows.count == 1)
+        #expect(focusedWindows.first === settingsWindow)
     }
 
-    func testShowPreservesPendingNavigationWhenExistingSettingsWindowIsMiniaturized() async {
+    @Test func showPreservesPendingNavigationWhenExistingSettingsWindowIsMiniaturized() async {
+        defer { SettingsWindowPresenter.resetForTests() }
         let settingsWindow = makeWindow(
             identifier: SettingsWindowPresenter.windowIdentifier,
             isMiniaturizedForTests: true
@@ -90,12 +93,13 @@ final class SettingsWindowPresenterTests: XCTestCase {
             openWindowOverride: { didOpen = true }
         )
 
-        XCTAssertFalse(didOpen)
-        XCTAssertEqual(SettingsWindowPresenter.consumePendingNavigationTarget(), .browserImport)
-        XCTAssertEqual(SettingsWindowPresenter.consumePendingContentNavigationTarget(), .browserImport)
+        #expect(!didOpen)
+        #expect(SettingsWindowPresenter.consumePendingNavigationTarget() == .browserImport)
+        #expect(SettingsWindowPresenter.consumePendingContentNavigationTarget() == .browserImport)
     }
 
-    func testParentsSettingsAbovePreferredMainWindow() {
+    @Test func parentsSettingsAbovePreferredMainWindow() {
+        defer { SettingsWindowPresenter.resetForTests() }
         let parentWindow = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
         defer {
@@ -109,11 +113,12 @@ final class SettingsWindowPresenterTests: XCTestCase {
         )
         SettingsWindowPresenter.configure(window: settingsWindow)
 
-        XCTAssertTrue(settingsWindow.parent === parentWindow)
-        XCTAssertTrue(parentWindow.childWindows?.contains(where: { $0 === settingsWindow }) == true)
+        #expect(settingsWindow.parent === parentWindow)
+        #expect(parentWindow.childWindows?.contains(where: { $0 === settingsWindow }) == true)
     }
 
-    func testReparentsSettingsWhenPreferredMainWindowChanges() {
+    @Test func reparentsSettingsWhenPreferredMainWindowChanges() {
+        defer { SettingsWindowPresenter.resetForTests() }
         let firstParent = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
         let secondParent = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
@@ -129,21 +134,22 @@ final class SettingsWindowPresenterTests: XCTestCase {
             parentWindowProvider: { preferredParent }
         )
         SettingsWindowPresenter.configure(window: settingsWindow)
-        XCTAssertTrue(settingsWindow.parent === firstParent)
+        #expect(settingsWindow.parent === firstParent)
 
         preferredParent = secondParent
         SettingsWindowPresenter.refocusIfVisible()
-        XCTAssertTrue(settingsWindow.parent === firstParent)
+        #expect(settingsWindow.parent === firstParent)
 
         settingsWindow.orderFront(nil)
         SettingsWindowPresenter.refocusIfVisible()
 
-        XCTAssertTrue(settingsWindow.parent === secondParent)
-        XCTAssertFalse(firstParent.childWindows?.contains(where: { $0 === settingsWindow }) == true)
-        XCTAssertTrue(secondParent.childWindows?.contains(where: { $0 === settingsWindow }) == true)
+        #expect(settingsWindow.parent === secondParent)
+        #expect(firstParent.childWindows?.contains(where: { $0 === settingsWindow }) != true)
+        #expect(secondParent.childWindows?.contains(where: { $0 === settingsWindow }) == true)
     }
 
-    func testDetachesSettingsBeforePreferredMainWindowCloses() {
+    @Test func detachesSettingsBeforePreferredMainWindowCloses() {
+        defer { SettingsWindowPresenter.resetForTests() }
         let parentWindow = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
         defer {
@@ -157,19 +163,20 @@ final class SettingsWindowPresenterTests: XCTestCase {
         )
         SettingsWindowPresenter.configure(window: settingsWindow)
         settingsWindow.orderFront(nil)
-        XCTAssertTrue(settingsWindow.parent === parentWindow)
+        #expect(settingsWindow.parent === parentWindow)
 
         NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: parentWindow)
 
-        XCTAssertNil(settingsWindow.parent)
-        XCTAssertFalse(parentWindow.childWindows?.contains(where: { $0 === settingsWindow }) == true)
-        XCTAssertTrue(settingsWindow.isVisible)
+        #expect(settingsWindow.parent == nil)
+        #expect(parentWindow.childWindows?.contains(where: { $0 === settingsWindow }) != true)
+        #expect(settingsWindow.isVisible)
     }
 
-    func testConfigureClampsOversizedSettingsFrameToVisibleArea() throws {
-        guard let screen = NSScreen.main else {
-            throw XCTSkip("No screen available for Settings frame clamping")
-        }
+    @Test func configureClampsOversizedSettingsFrameToVisibleArea() {
+        defer { SettingsWindowPresenter.resetForTests() }
+        // Skip when no screen is available (headless runner): there is no
+        // visible area to clamp against. Mirrors the previous `XCTSkip`.
+        guard let screen = NSScreen.main else { return }
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
         let visibleFrame = screen.visibleFrame
         settingsWindow.setFrame(
@@ -197,15 +204,15 @@ final class SettingsWindowPresenterTests: XCTestCase {
             visibleFrame.height - 2 * inset
         )
         let frame = settingsWindow.frame
-        XCTAssertLessThanOrEqual(frame.width, availableWidth)
-        XCTAssertLessThanOrEqual(frame.height, availableHeight)
-        XCTAssertGreaterThanOrEqual(frame.minX, visibleFrame.minX + inset)
-        XCTAssertGreaterThanOrEqual(frame.minY, visibleFrame.minY + inset)
+        #expect(frame.width <= availableWidth)
+        #expect(frame.height <= availableHeight)
+        #expect(frame.minX >= visibleFrame.minX + inset)
+        #expect(frame.minY >= visibleFrame.minY + inset)
         if frame.width <= visibleFrame.width - 2 * inset {
-            XCTAssertLessThanOrEqual(frame.maxX, visibleFrame.maxX - inset)
+            #expect(frame.maxX <= visibleFrame.maxX - inset)
         }
         if frame.height <= visibleFrame.height - 2 * inset {
-            XCTAssertLessThanOrEqual(frame.maxY, visibleFrame.maxY - inset)
+            #expect(frame.maxY <= visibleFrame.maxY - inset)
         }
     }
 
