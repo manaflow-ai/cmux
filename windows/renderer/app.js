@@ -6096,6 +6096,7 @@ function renderSettingsInspector(options = {}) {
       true,
       "quick setup background preset wallpaper image look customize"
     ));
+    quickSection.append(activeBackgroundPanel());
     quickSection.append(quickSettingsShortcutGrid());
     quickSection.append(settingsPresetGrid());
     nodes.push(quickSection);
@@ -7072,8 +7073,9 @@ function scheduleAppearancePreviewRefresh() {
 function refreshAppearancePreview() {
   const preview = elements.inspectorBody.querySelector(".appearance-preview");
   if (preview) preview.replaceWith(appearancePreviewPanel());
-  const activeBackground = elements.inspectorBody.querySelector(".active-background-panel");
-  if (activeBackground) activeBackground.replaceWith(activeBackgroundPanel());
+  for (const activeBackground of elements.inspectorBody.querySelectorAll(".active-background-panel")) {
+    activeBackground.replaceWith(activeBackgroundPanel());
+  }
   const themeSelect = elements.inspectorBody.querySelector('[data-setting-control="theme"]');
   if (themeSelect && themeSelect.value !== state.settings.theme) themeSelect.value = state.settings.theme;
   for (const button of elements.inspectorBody.querySelectorAll("[data-theme-choice]")) {
