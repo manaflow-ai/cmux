@@ -508,16 +508,20 @@ fn keyword_exact_line_score(query_char_count: usize) -> f64 {
 /// Tier scores for a literal title match. Keyword-exact tops out at `30_030`
 /// (`keyword_exact_line_score`), so both literal-title tiers stay strictly above it: a workspace
 /// whose visible title matches the query always outranks one that only matched a hidden field.
+/// Exact beats prefix; ties within a tier fall back to the existing `(rank, index)` order.
 const TITLE_EXACT_SCORE: f64 = 34_000.0;
 const TITLE_PREFIX_SCORE: f64 = 32_000.0;
-const TITLE_PREFIX_MIN_SCORE: f64 = 31_000.0;
 
 /// Scores a whole-query literal match against the candidate title: the full query equal to the
-/// title (`TITLE_EXACT_SCORE`), or a leading prefix of it (`TITLE_PREFIX_SCORE` minus a
-/// per-extra-character penalty so shorter, closer titles win, floored at `TITLE_PREFIX_MIN_SCORE`
-/// so even a long title prefix beats keyword-exact). Returns `None` when the query is not a title
-/// prefix; the fuzzy/keyword tiers still apply in that case. Diacritic-only differences fall
-/// through to `None` and are handled by the fuzzy matcher (`Normalization::Smart`).
+/// title (`TITLE_EXACT_SCORE`) or a leading prefix of it (`TITLE_PREFIX_SCORE`). Returns `None`
+/// when the query is not a title prefix; the fuzzy/keyword tiers still apply in that case.
+///
+/// All prefix matches share one flat score on purpose: a per-length penalty would invent a
+/// "shortest title wins" rule that mis-ranks when one title is a character-prefix of another
+/// (e.g. query "workspace 1901" preferring "Workspace 19010" over "Workspace 1901 ..."). Equal
+/// scores instead defer to `scored_candidate_order`'s `(rank, index)` tiebreak, which keeps the
+/// switcher's natural order. Diacritic-only differences fall through to `None` and are handled by
+/// the fuzzy matcher (`Normalization::Smart`).
 fn title_literal_score(candidate: &Candidate, query: &str) -> Option<f64> {
     let query = query.trim();
     if query.is_empty() {
@@ -526,21 +530,18 @@ fn title_literal_score(candidate: &Candidate, query: &str) -> Option<f64> {
     let title = candidate.title.trim();
 
     let mut title_chars = title.chars();
-    let mut matched = 0usize;
     for query_char in query.chars() {
         match title_chars.next() {
-            Some(title_char) if chars_equal_ignoring_case(title_char, query_char) => {
-                matched += 1;
-            }
+            Some(title_char) if chars_equal_ignoring_case(title_char, query_char) => {}
             _ => return None,
         }
     }
 
     if title_chars.next().is_none() {
-        return Some(TITLE_EXACT_SCORE);
+        Some(TITLE_EXACT_SCORE)
+    } else {
+        Some(TITLE_PREFIX_SCORE)
     }
-    let extra = title.chars().count().saturating_sub(matched) as f64;
-    Some((TITLE_PREFIX_SCORE - extra).max(TITLE_PREFIX_MIN_SCORE))
 }
 
 fn chars_equal_ignoring_case(lhs: char, rhs: char) -> bool {
