@@ -13,7 +13,7 @@ struct UpdateBadge: View {
     private var badgeContent: some View {
         if model.showsDetectedBackgroundUpdate {
             if let iconName = model.iconName {
-                Image(systemName: iconName)
+                badgeImage(iconName)
             }
         } else {
             switch model.effectiveState {
@@ -22,7 +22,7 @@ struct UpdateBadge: View {
                     let progress = min(1, max(0, Double(download.progress) / Double(expectedLength)))
                     ProgressRingView(progress: progress)
                 } else {
-                    Image(systemName: "arrow.down.circle")
+                    badgeImage("arrow.down.circle")
                 }
 
             case .extracting(let extracting):
@@ -33,10 +33,18 @@ struct UpdateBadge: View {
 
             default:
                 if let iconName = model.iconName {
-                    Image(systemName: iconName)
+                    badgeImage(iconName)
                 }
             }
         }
+    }
+
+    private func badgeImage(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 13, weight: .semibold))
+            .symbolRenderingMode(.monochrome)
+            .foregroundStyle(model.foregroundColor)
+            .frame(width: 14, height: 14)
     }
 }
 

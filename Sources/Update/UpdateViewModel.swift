@@ -125,7 +125,7 @@ class UpdateViewModel: ObservableObject {
 
     var iconName: String? {
         if showsDetectedBackgroundUpdate {
-            return "shippingbox.fill"
+            return "arrow.down.circle.fill"
         }
         switch effectiveState {
         case .idle:
@@ -135,7 +135,7 @@ class UpdateViewModel: ObservableObject {
         case .checking:
             return "arrow.triangle.2.circlepath"
         case .updateAvailable:
-            return "shippingbox.fill"
+            return "arrow.down.circle.fill"
         case .downloading:
             return "arrow.down.circle"
         case .extracting:
