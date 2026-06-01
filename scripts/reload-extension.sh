@@ -138,19 +138,16 @@ build_install_example() {
   ditto "$built_app" "$dest"
   echo "==> installed ${dest}"
 
+  # Do NOT re-sign. xcodebuild already ad-hoc signs with the appex's entitlements
+  # (App Sandbox + the co.manaflow.cmux.sidebar app group) bound in. Those entitlements
+  # are required for the extension's XPC connection to the host; a bare
+  # `codesign --force --sign -` re-sign strips them, and the extension then connects and
+  # immediately drops ("Extension Blocked / lost the connection") with no recovery.
+  # pkd ingests the as-built bundle fine because its bundle id is per-tag distinct
+  # (CMUX_BUNDLE_ID_SUFFIX); resealing the Info.plist is unnecessary.
   local appex
   appex="$(find "$dest/Contents/Extensions" -maxdepth 1 -name "*.appex" | head -1)"
   if [[ -n "$appex" ]]; then
-    # pkd only ingests bundles whose Info.plist is sealed by a signature. If the build
-    # did not bind it, ad-hoc re-sign (appex first, then host app) without --preserve so
-    # the Info.plist reseals.
-    if ! codesign -dvv "$appex" 2>&1 | grep -qi 'Info.plist='; then
-      echo "==> Info.plist not bound after build; ad-hoc re-signing"
-      codesign --force --sign - "$appex"
-      codesign --force --sign - "$dest"
-    fi
-    echo -n "==> appex codesign: "
-    codesign -dvv "$appex" 2>&1 | grep -i 'Info.plist=' || echo "(no Info.plist line)"
     pluginkit -a "$appex" 2>/dev/null || true
   else
     echo "warning: no .appex found in $dest/Contents/Extensions" >&2
