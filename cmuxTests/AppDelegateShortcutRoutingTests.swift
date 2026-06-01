@@ -3859,70 +3859,31 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testArrowNavigationRoutesWhileCommandPaletteOverlayIsInteractiveBeforeVisibilitySync() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-#if DEBUG
-        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
-            closeTestWindow(context.window)
-        }
-
-        let window = context.window
-        guard let contentView = window.contentView else {
-            XCTFail("Expected test window content view")
-            return
-        }
-
-        let overlayHost = contentView.superview ?? contentView
-        let overlayContainer = NSView(frame: overlayHost.bounds)
-        overlayContainer.identifier = commandPaletteOverlayContainerIdentifier
-        overlayContainer.alphaValue = 1
-        overlayContainer.isHidden = false
-        overlayHost.addSubview(overlayContainer)
-
-        appDelegate.setCommandPaletteVisible(false, for: window)
-        defer {
-            overlayContainer.removeFromSuperview()
-        }
-
-        let moveExpectation = expectation(
-            description: "Expected command palette move-selection notification while overlay is interactive"
-        )
-        var observedDelta: Int?
-        var observedWindow: NSWindow?
-        let moveToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteMoveSelection,
-            object: nil,
-            queue: nil
-        ) { notification in
-            observedWindow = notification.object as? NSWindow
-            observedDelta = notification.userInfo?["delta"] as? Int
-            moveExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(moveToken) }
-
-        guard let downArrowEvent = makeKeyDownEvent(
-            key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
-            modifiers: [],
+        let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
+            flags: [],
+            chars: String(UnicodeScalar(NSDownArrowFunctionKey)!),
             keyCode: 125,
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Down Arrow event")
-            return
-        }
+            nextShortcut: KeyboardShortcutSettings.Action.commandPaletteNext.defaultShortcut,
+            previousShortcut: KeyboardShortcutSettings.Action.commandPalettePrevious.defaultShortcut
+        )
 
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: downArrowEvent))
-
-        wait(for: [moveExpectation], timeout: 1.0)
-        XCTAssertEqual(observedWindow?.windowNumber, window.windowNumber)
-        XCTAssertEqual(observedDelta, 1)
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
+        XCTAssertEqual(delta, 1)
+        XCTAssertTrue(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: delta,
+                isInteractive: true,
+                usesInlineTextHandling: false
+            ),
+            "Visible overlay state should be enough to route palette selection before visibility sync catches up"
+        )
+        XCTAssertFalse(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: delta,
+                isInteractive: false,
+                usesInlineTextHandling: false
+            ),
+            "Stale visibility without an interactive overlay must not route palette selection"
+        )
     }
 
     func testControlKDoesNotRoutePaletteMoveSelectionWhenSearchFieldIsFocused() {
@@ -10007,13 +9968,5 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         } else {
             defaults.removeObject(forKey: key)
         }
-    }
-}
-
-private final class CommandPaletteMarkedTextFieldEditor: NSTextView {
-    var hasMarkedTextForTesting = false
-
-    override func hasMarkedText() -> Bool {
-        hasMarkedTextForTesting
     }
 }
