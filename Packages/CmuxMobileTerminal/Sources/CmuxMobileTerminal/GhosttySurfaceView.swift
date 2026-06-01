@@ -625,6 +625,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// thread wedged (vs. an idle terminal or a stuck letterbox pin, where the
     /// heartbeat keeps ticking). Distinguishes the three on the next dogfood.
     private var lastHeartbeatTime: CFTimeInterval = 0
+    /// Time of the most recent applied render-grid output, for the heartbeat's
+    /// `sinceOutput` field (ties an idle blank to a stream gap).
+    private var lastOutputAppliedTime: CFTimeInterval = 0
     #endif
     /// Set by any geometry trigger (resize/zoom/keyboard/effective-grid pin);
     /// the display link applies geometry at most once per frame. Coalescing
@@ -1126,6 +1129,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.needsDraw = true
+                #if DEBUG
+                self.lastOutputAppliedTime = CACurrentMediaTime()
+                #endif
                 if !self.surfaceHasReceivedOutput {
                     self.surfaceHasReceivedOutput = true
                     self.snapshotFallbackView.isHidden = true
@@ -1368,11 +1374,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @objc func handleDisplayLinkFire() {
         guard let surface else { return }
         #if DEBUG
-        // Main-thread liveness heartbeat. Time-gated, no behavior change.
+        // Main-thread liveness heartbeat + presented-surface state. Time-gated,
+        // no behavior change. The `contents`/size fields let an IDLE blank be
+        // classified without a fresh output/geometry event: contents=false ⇒
+        // the IOSurface lost its frame and nothing re-triggered a draw (redraw
+        // bug); contents=true while the screen looks blank ⇒ the render-grid
+        // content itself is empty (sync/producer). `sinceOutput` ties a blank
+        // to a render-grid stream gap or rules it out. CALayer reads only — no
+        // libghostty call, so no futex/main-thread-wedge risk.
         let nowHeartbeat = CACurrentMediaTime()
         if nowHeartbeat - lastHeartbeatTime >= 2.0 {
             lastHeartbeatTime = nowHeartbeat
-            liveAnchormuxLog("tick.alive win=\(window != nil) renderInFlight=\(renderInFlight)")
+            let renderLayer = (layer.sublayers ?? []).first(where: { isGhosttyRendererLayer($0) })
+            let renderSize = renderLayer?.bounds.size ?? .zero
+            let sinceOutputMs = lastOutputAppliedTime > 0
+                ? Int((nowHeartbeat - lastOutputAppliedTime) * 1000)
+                : -1
+            liveAnchormuxLog(
+                "tick.alive win=\(window != nil) renderInFlight=\(renderInFlight) "
+                + "needsDraw=\(needsDraw) contents=\(renderLayer?.contents != nil) "
+                + "surf=\(Int(renderSize.width))x\(Int(renderSize.height)) "
+                + "sinceOutput=\(sinceOutputMs)ms"
+            )
         }
         #endif
         // Apply at most one coalesced zoom per frame. This only changes the
