@@ -275,6 +275,33 @@ When in doubt, **extract leaf-first**: pull out the package that has no internal
 
 The existing packages under `Packages/` predate this policy and should not be used as design references.
 
+**Wiring a new local package into the project.** `cmux.xcodeproj` lists package dependencies explicitly (it is not a synchronized-folder project). Adding `Packages/CmuxFoo` means mirroring an existing package's `project.pbxproj` entries — one `XCLocalSwiftPackageReference` (in the project's `packageReferences`), one `XCSwiftPackageProductDependency`, and a `PBXBuildFile` linked in the Frameworks phase of **every** target that imports it. The app-target packages link into **both** `cmux` and `cmux-unit` (so tests can `import` and inject them); copy a recent leaf like `CmuxSocketControl` for the exact shape, then run `scripts/normalize-pbxproj.py` and `scripts/check-pbxproj.sh`. A package the app builds against but `cmux-unit` does not link will compile the app yet fail the test target.
+
+## Refactor architecture: layers, Coordinator/Service/Repository, dependency inversion
+
+These higher-level patterns are binding on every new or moved/meaningfully-rewritten file. (The full blueprint, with worked examples and the per-god decomposition, lives in the cmuxterm-hq control repo under `docs/cmux-refactor-audit/blueprint/`; the enforceable core is below.)
+
+**Layered, downward-only DAG.** Packages form a strict acyclic graph in five layers; dependencies point only downward:
+1. **Core** (e.g. `CmuxCore`) — pure `Sendable` values, IDs, DTOs, errors, and the protocol seams shared across domains. No AppKit/SwiftUI/I/O. The lift target when two domains need the same type.
+2. **Services / infrastructure** — `actor`s implementing core protocols against the outside world (process/PTY, filesystem, sockets, web API, notifications, auth). One package per cohesive capability.
+3. **Domain / state** — `@MainActor @Observable` models + Coordinators, one package per feature domain; owns that domain's mutable state. `CmuxSettings` is the exemplar.
+4. **UI** — SwiftUI/AppKit views, one UI package per domain package, depending only on its domain package + Core, never on a Service directly. `CmuxSettingsUI` is the exemplar.
+5. **Executable** (`cmuxApp` / `AppDelegate`) — a thin composition shim, no business logic.
+
+**Classify every extracted entity by intent:**
+- **Coordinator** — a `@MainActor @Observable` orchestrator that sequences a user flow and owns navigation/selection/lifecycle state, calling Services and child models. Does no I/O itself.
+- **Service** — an `actor` (or `@MainActor` only when an AppKit main-thread API forces it) performing one outside-world capability; exposes `async`/`await` + `AsyncStream`, holds only its own resource handles, holds no UI state.
+- **Repository** — an `actor` mediating one persistence source of truth (file, defaults, web API) behind CRUD-shaped async methods returning value types. Precedents: `JSONConfigStore`, `UserDefaultsSettingsStore`.
+
+**Dependency inversion.** Lower packages publish protocols; concrete Services/Repositories conform; higher layers depend on `any Protocol`, never the concrete type. Share a type by lifting it to Core or defining a protocol seam in the consumer — never a stored property reaching across modules. Injection is constructor (`init`) injection only: no global container, no singleton, no `static let shared`. The **executable app target is the single composition root** — the one place concretes are named and the object graph is assembled. SwiftUI `Environment` may carry already-constructed `@Observable` models down a view tree (as `SettingsRuntime` does), but is never the source of truth for service wiring.
+
+**State + SwiftUI wiring.** Domain state lives in `@MainActor @Observable` models (never `ObservableObject`/`@Published`). A god model decomposes into cohesive child `@Observable` sub-models owned by their domain packages and composed by the home object via held references; cross-domain reads go behind read-only protocols. In views use `@State` (owned), `@Bindable` / plain `let` (passed-in), or `@Environment(M.self)` + `.environment(...)` (injected) — never `@StateObject` / `@ObservedObject` / `@EnvironmentObject` / `.environmentObject(_:)`.
+
+**Executable-target boundary (three hard constraints — invert, never work around):**
+1. `@main` `cmuxApp` and `AppDelegate` stay in the executable target as the thin composition shim; that residual is the intended end state, not debt.
+2. A type is declared in exactly one module and a lower package cannot extend a higher-owned type, so `AppDelegate+*` / `cmuxApp+*` / `Workspace+*` extensions do not move down: extract the behavior into a Coordinator/Service/Repository, have the god object own an instance, and reduce the extension to a one-line forward.
+3. Stored properties cannot cross module boundaries: decompose god-model state into child `@Observable` sub-models owned by domain packages, composed by held reference, with cross-cutting reads behind read-only protocols.
+
 ## File organization
 
 One major type per file. Each `struct`, `class`, `enum`, `actor`, or `protocol` that is part of a public API (or has any meaningful body) lives in its own file named after the type (`Control.swift`, `LabeledChoice.swift`, `ListControl.swift` — not one shared `SettingControl.swift`). This rule applies to all new code in `Packages/` and to any new files added to the app target.
@@ -315,6 +342,7 @@ Every public type added to `Packages/` must be **testable from a test target** w
 
 - **No global state in package code.** Every public type that needs `UserDefaults`, `FileManager`, an on-disk path, an environment variable, or a clock takes it via initializer parameter. Tests pass a `UserDefaults(suiteName:)` scoped to the test, a temp directory URL, a fixed `Date`, etc.
 - **No reliance on `.shared` / `.standard`.** A public type that hardcodes `UserDefaults.standard` or `FileManager.default` inside its implementation cannot be tested without polluting the developer's actual settings. Inject these at the seam.
+- **Test through injected seams, never a static test hook.** A `nonisolated(unsafe) static var fooForTesting` (or any global mutable "override" a test swaps in) is global state by another name: it leaks across tests, forces `nonisolated(unsafe)`, and usually needs a lock. Replace it with a protocol seam injected through `init` (e.g. `init(commandRunner: any CommandRunning = CommandRunner())`); the test passes a conforming fake. When you extract such a type into a package, deleting the static hook (and the lock it required) is part of the extraction, not a follow-up.
 - **Public APIs return values, not side effects, where possible.** A function that mutates global UserDefaults and returns `Void` is harder to test than one that returns the changed value and lets the caller persist. Prefer pure transformations + thin imperative layers.
 - **Asynchronous APIs surface their observation as `AsyncStream`.** Tests can iterate `AsyncStream` deterministically and assert the sequence of yielded values. Avoid `NotificationCenter`-only patterns where the test has to spin a runloop.
 - **Document the test pattern** alongside any non-trivial public surface. The package's `README.md` and any DocC catalog should show how to instantiate the type with test-friendly dependencies.
@@ -325,11 +353,15 @@ If a design is hard to test, it is wrong. Reach for the constructor parameter li
 
 All new code in `Packages/` and any new files added to the app target use Swift 6 concurrency primitives: `actor`, `async`/`await`, `AsyncStream`/`AsyncSequence`, `@Observable`, `@MainActor`. Old primitives — locks, manual KVO, `@Published`, completion handlers, `DispatchQueue` used as a serial lock — are not allowed.
 
-If you find yourself reaching for a lock, the type is the wrong shape. Promote it to an `actor`.
+If you find yourself reaching for a lock to protect ongoing mutable shared state, the type is almost always the wrong shape — promote it to an `actor`. The exception is the narrow lock carve-out below.
+
+**Do not introduce a single-method `actor` purely as a mutex.** An `actor Guard { func claim() -> Bool }` whose only job is to guard a flag is a lock with extra ceremony: it forces synchronous callers — a `Process` termination handler, a `DispatchSource` event handler, a `withCheckedContinuation` resume race — through `Task { await guard.claim() }`, which adds suspension points, ordering hops, and reentrancy surface to what is fundamentally a synchronous compare-and-set. That makes the code worse, not safer. A tiny synchronous guard like that belongs in the lock carve-out, not an actor.
+
+When **extracting** existing code that uses a forbidden primitive into a package, reconsider the shape at the seam rather than copying it blindly — usually it wants an `actor`. But a one-shot single-resume guard (a `Process` termination handler vs. a timeout vs. a spawn failure racing to resume one `withCheckedContinuation`) is exactly a case the lock carve-out covers: keep a synchronous primitive, hidden behind the type. Drain `Process` pipes concurrently on detached tasks keyed by the raw fd (an `Int32` is `Sendable`; a `FileHandle` is not).
 
 **Forbidden in new code (no exceptions without a written justification in the PR description):**
 
-- **Locks.** `NSLock`, `NSRecursiveLock`, `os_unfair_lock`, `OSAllocatedUnfairLock`, `pthread_mutex_t`, `Synchronization.Mutex`, `DispatchSemaphore` used as a lock. Use `actor` isolation. Mutable shared state belongs in an actor; reads and writes are `async`.
+- **Locks.** `NSLock`, `NSRecursiveLock`, `os_unfair_lock`, `OSAllocatedUnfairLock`, `pthread_mutex_t`, `Synchronization.Mutex`, `DispatchSemaphore` used as a lock. Use `actor` isolation. Mutable shared state belongs in an actor; reads and writes are `async`. (Narrow carve-out below: a lock is allowed where the `actor`/`async` alternative would genuinely worsen the code, with justification.)
 - **KVO via `NSObject` subclassing.** Any `class Foo: NSObject` whose purpose is to override `observeValue(forKeyPath:...)` or call `addObserver(_:forKeyPath:...)`. Replace with `NotificationCenter.default.notifications(named:)` `AsyncSequence`, or the `NSKeyValueObservation` token API at the seam only.
 - **`DispatchQueue` used as a synchronization primitive.** A `DispatchQueue(label:)` accessed via `queue.sync { ... }` to serialize mutable state is a lock with different syntax. Use an `actor`. Queues are fine for *event delivery* (e.g. a `DispatchSource` handler), not for protecting state.
 - **Combine for change propagation.** No `@Published`, no `ObservableObject`, no `PassthroughSubject`/`CurrentValueSubject`, no `AnyCancellable` for change observation. Use `@Observable` (Observation framework, Swift 5.9+) for SwiftUI state, or `AsyncStream`/`AsyncSequence` for cross-actor change propagation.
@@ -350,6 +382,8 @@ These low-level primitives have no async-native replacement. They must be hidden
 
 - `DispatchSource.makeFileSystemObjectSource` for file watching (no Foundation async equivalent).
 - `DispatchSource.makeReadSource`/`makeWriteSource` for low-level socket I/O.
+- `DispatchSource.makeTimerSource` (one-shot) for a genuine deadline/timeout, e.g. a subprocess time limit. A real deadline needs a timer, and the async-native timers are disallowed here (`Task.sleep` is banned in runtime code; `DispatchQueue.asyncAfter` is a forbidden timing hack). Hide the timer behind the type and cancel it on the non-timeout path. This is for true deadlines only, never to poll or to fake a sleep.
+- A **lock for a synchronous compare-and-set called from non-async callbacks**, where promoting to an `actor` would only add `Task`/`await` hops and reentrancy. The canonical case is a one-shot resume guard: several synchronous `Process`/`DispatchSource` callbacks race to resume one `withCheckedContinuation` exactly once. `OSAllocatedUnfairLock(initialState:)` guarding a `Bool` (claimed once, checked synchronously in each callback) is correct, deterministic, and lets the callback resume the continuation inline. This carve-out is for short, non-blocking critical sections over a tiny flag/counter — not for guarding ongoing domain state (that is still an `actor`). Keep it private to the type, with a one-line justification.
 - `NSKeyValueObservation` token (the closure-based API) when wrapping a Foundation/AppKit type that exposes change only via KVO.
 
 **`@unchecked Sendable` and `nonisolated(unsafe)`:**
@@ -370,7 +404,7 @@ Without a justification comment, the diff is rejected. `@unchecked Sendable` on 
 
 - Applies to: every new file in `Packages/`, every new file in the app target, every meaningful rewrite of an existing Swift file.
 - Existing app target code may continue to use the old primitives until rewritten. Do not retrofit blindly.
-- Code review checklist (Codex, CodeRabbit, Greptile, and human reviewers): reject diffs that introduce `NSLock`/`NSRecursiveLock`/`@Published`/`ObservableObject`/`DispatchQueue.main.async`/`addObserver(_:forKeyPath:...)`/`Task.sleep` outside tests in new code. Reject `@unchecked Sendable` or `nonisolated(unsafe)` without a justification comment.
+- Code review checklist (Codex, CodeRabbit, Greptile, and human reviewers): reject diffs that introduce `@Published`/`ObservableObject`/`DispatchQueue.main.async`/`addObserver(_:forKeyPath:...)`/`Task.sleep` outside tests in new code. Reject a lock (`NSLock`/`OSAllocatedUnfairLock`/etc.) or `@unchecked Sendable`/`nonisolated(unsafe)` unless it falls under a documented carve-out *and* carries a one-line justification — and reject a single-method `actor` that exists only to guard a flag (use the lock carve-out instead).
 
 ## Test quality policy
 
@@ -415,6 +449,7 @@ Swift Testing is the current Apple-supported primitive for tests on this codebas
 
 - **E2E / UI tests:** trigger via `gh workflow run test-e2e.yml` (see cmuxterm-hq CLAUDE.md for details)
 - **Unit tests:** `xcodebuild -scheme cmux-unit` is safe (no app launch), but prefer CI
+- **`reload.sh` does not compile the test target.** It builds only the `cmux` scheme, so a green `reload.sh` says nothing about whether `cmuxTests`/`cmuxUITests` still compile. A symbol that is moved or renamed can keep the `cmux` app building while breaking the test target (real case: a `write(to:atomically:)` typo and a removed `TabManager.CommandResult` only surfaced in the `tests` job). Before pushing package/refactor changes, build the `cmux-unit` scheme (with `-derivedDataPath /tmp/cmux-<tag>` and, for `cmuxApp`/`AppDelegate` churn, the GlobalISel workaround flag) or let the `tests` CI job gate it — never treat `reload.sh` alone as proof the tests build.
 - **Python socket tests (tests_v2/):** these connect to a running cmux instance's socket. Never launch an untagged `cmux DEV.app` to run them. If you must test locally, use a tagged build's socket (`/tmp/cmux-debug-<tag>.sock`) with `CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock`
 - **Never `open` an untagged `cmux DEV.app`** from DerivedData. It conflicts with the user's running debug instance.
 

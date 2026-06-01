@@ -12,7 +12,7 @@ struct cmuxApp: App {
     /// Dependency container for the new settings packages. Constructed
     /// once at app launch and injected into the SwiftUI environment via
     /// `.settingsRuntime(_:)`; descendant views resolve their settings
-    /// through it via the `@Setting` property wrapper.
+    /// through it via the `@LiveSetting` property wrapper.
     private let settingsRuntime: SettingsRuntime
 
     @StateObject private var tabManager: TabManager
@@ -155,7 +155,7 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         StartupBreadcrumbLog.append("app.init.delegate.configure.begin")
-        appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+        appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState, settingsRuntime: settingsRuntime)
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
 
