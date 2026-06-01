@@ -5828,6 +5828,12 @@ body.reduce-motion *::after {
   gap: var(--space-1);
 }
 
+@container (max-width: 330px) {
+  .active-background-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .background-preset {
   min-width: 0;
   height: 48px;
