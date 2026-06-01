@@ -298,7 +298,13 @@ enum CmuxGhosttyConfigSettingEditor {
     }
 
     private static func parsedSetting(in line: String) -> (key: String, value: String)? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        var trimmed = line.trimmingCharacters(in: .whitespaces)
+        // Strip a leading UTF-8 BOM so a BOM-encoded first line still matches its
+        // key (otherwise the setting reads as absent and a duplicate is appended).
+        if trimmed.hasPrefix("\u{FEFF}") {
+            trimmed.removeFirst()
+            trimmed = trimmed.trimmingCharacters(in: .whitespaces)
+        }
         guard !trimmed.isEmpty, !trimmed.hasPrefix("#"), let separator = trimmed.firstIndex(of: "=") else {
             return nil
         }

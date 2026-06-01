@@ -15,6 +15,9 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
 
+    /// Serializes font-size config writes so rapid slider saves persist in order.
+    private let fontConfigWriter = FontConfigWriter()
+
     /// AppKit window identifier the dedicated terminal-config window carries.
     /// Matches the value `ConfigSettingsView.configureWindow` assigns so the
     /// host reuses a config window opened from any entrypoint (the legacy
@@ -194,29 +197,45 @@ final class HostSettingsActions: SettingsHostActions {
     /// Writes a clamped font-size value to cmux's editable Ghostty config and
     /// triggers a live reload so open windows re-render at the new size.
     ///
-    /// The disk write runs on a detached task so the main actor is never blocked
-    /// on file I/O during a slider drag or Reset tap; the reload then resumes on
-    /// the main actor.
+    /// The disk write runs on the serial ``fontConfigWriter`` actor so the main
+    /// actor is never blocked on file I/O during a slider drag or Reset tap, and
+    /// rapid successive saves persist in submission order (last value wins). The
+    /// reload then resumes on the main actor.
     ///
-    /// - Returns: `true` on success, `false` if the write failed (the error is
-    ///   logged here; the Settings UI surfaces a generic save-failed message).
+    /// - Returns: `true` on success, `false` if the write failed (a generic
+    ///   warning is logged here; the Settings UI surfaces a save-failed message).
     private func persistFontSize(key: String, points: Double, reloadSource: String) async -> Bool {
         let formatted = CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
-        let logger = hostSettingsLogger
-        let wrote = await Task.detached(priority: .userInitiated) {
-            do {
-                try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, value: formatted)
-                return true
-            } catch {
-                logger.warning(
-                    "failed to persist \(key, privacy: .public): \(String(describing: error), privacy: .private(mask: .hash))"
-                )
-                return false
-            }
-        }.value
-        guard wrote else { return false }
+        guard await fontConfigWriter.write(key: key, value: formatted) else {
+            hostSettingsLogger.warning("failed to persist \(key, privacy: .public)")
+            return false
+        }
         GhosttyApp.shared.reloadConfiguration(source: reloadSource)
         return true
+    }
+}
+
+/// Serializes cmux Ghostty config writes for the font-size settings so rapid
+/// successive saves apply in submission order instead of racing.
+///
+/// The Settings sliders fire a save on every release and Reset tap. Routed
+/// through this single actor, the writes run one-at-a-time in arrival order —
+/// each write is a full overwrite of the key, so the most recently submitted
+/// value is always the one left on disk. The work runs off the main actor.
+private actor FontConfigWriter {
+    /// Writes a single cmux-editable Ghostty config setting to disk.
+    ///
+    /// - Parameters:
+    ///   - key: The Ghostty config key to write (e.g. `sidebar-font-size`).
+    ///   - value: The already-formatted value to persist.
+    /// - Returns: `true` if the write succeeded, `false` otherwise.
+    func write(key: String, value: String) -> Bool {
+        do {
+            try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, value: value)
+            return true
+        } catch {
+            return false
+        }
     }
 }
 

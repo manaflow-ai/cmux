@@ -34,6 +34,20 @@ target_arch_for_triple() {
   esac
 }
 
+# Real host arch, accounting for Rosetta where `uname -m` reports x86_64 on
+# Apple Silicon. Used so the default single-arch stub targets the true host.
+detected_host_arch() {
+  local host_arch=""
+  case "$(uname -m)" in
+    arm64 | aarch64) host_arch="arm64" ;;
+    x86_64) host_arch="x86_64" ;;
+  esac
+  if [[ "$host_arch" == "x86_64" && "$(sysctl -in hw.optional.arm64 2>/dev/null || echo 0)" == "1" ]]; then
+    host_arch="arm64"
+  fi
+  echo "$host_arch"
+}
+
 zig_has_required_version() {
   local zig_path="$1"
   [[ -x "$zig_path" ]] || return 1
@@ -212,7 +226,7 @@ if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
     case "$TARGET_TRIPLE" in
       aarch64-macos) write_macho_stub "$OUTPUT_PATH" "arm64-apple-macos14" "$STUB_TMP_DIR" ;;
       x86_64-macos) write_macho_stub "$OUTPUT_PATH" "x86_64-apple-macos14" "$STUB_TMP_DIR" ;;
-      *) write_macho_stub "$OUTPUT_PATH" "$(uname -m)-apple-macos14" "$STUB_TMP_DIR" ;;
+      *) write_macho_stub "$OUTPUT_PATH" "$(detected_host_arch)-apple-macos14" "$STUB_TMP_DIR" ;;
     esac
   fi
   chmod +x "$OUTPUT_PATH"

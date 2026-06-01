@@ -308,16 +308,29 @@ extension CMUXCLI {
     private func cmuxGhosttyConfigURLForCLI() throws -> URL {
         let environment = ProcessInfo.processInfo.environment
         let fileManager = FileManager.default
-        guard let appSupportDirectory = CmuxApplicationSupportDirectories
+        let appSupportDirectories = CmuxApplicationSupportDirectories
             .userDirectories(environment: environment, fileManager: fileManager)
-            .first else {
+        guard let firstAppSupportDirectory = appSupportDirectories.first else {
             throw CLIError(message: "Could not resolve the user Application Support directory")
         }
         let bundleIdentifier = normalizedConfigValue(environment["CMUX_BUNDLE_ID"])
             ?? CLISocketPathResolver.currentAppBundleIdentifier()
+        // Prefer an existing config under any candidate root (the app loads config
+        // across all Application Support locations, including CFFIXED_USER_HOME),
+        // so `config get/set` touches the same file the app reads. Fall back to
+        // creating one under the first candidate when none exists yet.
+        for appSupportDirectory in appSupportDirectories {
+            if let existing = CmuxGhosttyConfigPathResolver.loadConfigURLs(
+                currentBundleIdentifier: bundleIdentifier,
+                appSupportDirectory: appSupportDirectory,
+                fileManager: fileManager
+            ).first {
+                return existing
+            }
+        }
         return CmuxGhosttyConfigPathResolver.activeOrEditableConfigURL(
             currentBundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory,
+            appSupportDirectory: firstAppSupportDirectory,
             fileManager: fileManager
         )
     }
