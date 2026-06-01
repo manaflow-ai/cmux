@@ -4548,6 +4548,7 @@ function cleanupPanel(panelId) {
     state.terminals.delete(panelId);
   }
   const browserSession = state.browserViews.get(panelId);
+  if (browserSession?.initialLoadFrame) cancelAnimationFrame(browserSession.initialLoadFrame);
   if (browserSession?.tabRenderFrame) cancelAnimationFrame(browserSession.tabRenderFrame);
   if (browserSession?.tabScrollFrame) cancelAnimationFrame(browserSession.tabScrollFrame);
   browserSession?.detachTabWheelScroll?.();
@@ -5938,6 +5939,23 @@ function ensureBrowser(panel, body) {
     shell.classList.add("is-browser-deferred");
     setStatus("");
   };
+  const scheduleInitialBrowserLoad = () => {
+    if (session?.initialLoadFrame) cancelAnimationFrame(session.initialLoadFrame);
+    const load = () => {
+      if (!session || state.browserViews.get(panel.id) !== session || session.loadDeferred) return;
+      const targetUrl = normalizeUrl(address.value || initialBrowserUrl, state.settings.browserHomeUrl);
+      browserLoadFailed = false;
+      hideBrowserError();
+      setLoading(true);
+      setStatus("Loading");
+      if (view.src !== targetUrl) view.src = targetUrl;
+      updateNavState();
+    };
+    session.initialLoadFrame = requestAnimationFrame(() => {
+      session.initialLoadFrame = 0;
+      load();
+    });
+  };
 
   const updateNavState = () => {
     try {
@@ -6144,7 +6162,8 @@ function ensureBrowser(panel, body) {
     active: panel.id === activeWorkspace()?.activePanelId,
     suspended: false,
     suspendInactive: state.settings.browserSuspendInactive,
-    loadDeferred: false
+    loadDeferred: false,
+    initialLoadFrame: 0
   };
   session.detachTabWheelScroll = attachHorizontalWheelScroll(tabList);
   state.browserViews.set(panel.id, session);
@@ -6155,8 +6174,7 @@ function ensureBrowser(panel, body) {
     session.loadDeferred = true;
     showDeferredBrowser();
   } else {
-    setLoading(true);
-    view.src = initialBrowserUrl;
+    scheduleInitialBrowserLoad();
   }
   updateNavState();
 }
