@@ -985,6 +985,63 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(unknown.stderr.contains("unrecognized"), unknown.stderr)
     }
 
+    /// At the default `standard` notification level, Kiro read-only tool
+    /// events (`fs_read`) are suppressed (no Feed telemetry) while mutating
+    /// tools (`fs_write`) still emit. Guards that suppression keys off the
+    /// classified wire name (`PostToolUse`) rather than the raw camelCase hook
+    /// event — i.e. the suppression actually triggers for real Kiro events.
+    func testKiroStandardLevelSuppressesReadOnlyToolFeedEvents() throws {
+        func feedPushCount(forTool tool: String) throws -> Int {
+            let cliPath = try bundledCLIPath()
+            let socketPath = makeSocketPath("kiro-suppress")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-kiro-suppress-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+                try? FileManager.default.removeItem(at: root)
+            }
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line), let id = payload["id"] as? String else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+                return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "feed", "--source", "kiro", "--event", "postToolUse"],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "PWD": root.path,
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
+                    "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
+                    "CMUX_KIRO_PID": "525252",
+                    "CMUX_KIRO_NOTIFICATION_LEVEL": "standard",
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                ],
+                standardInput: #"{"hook_event_name":"postToolUse","session_id":"kiro-suppress","cwd":"\#(root.path)","tool_name":"\#(tool)"}"#,
+                timeout: 5
+            )
+            XCTAssertFalse(result.timedOut, "\(tool): \(result.stderr)")
+            XCTAssertEqual(result.status, 0, "\(tool): \(result.stderr)")
+            XCTAssertEqual(result.stdout, "{}\n", "\(tool) stdout")
+            // A non-suppressed event sends one feed.push; a suppressed event
+            // sends nothing, so this wait simply times out silently.
+            _ = XCTWaiter().wait(for: [serverHandled], timeout: 1.5)
+            return state.commands.filter { $0.contains("feed.push") }.count
+        }
+
+        XCTAssertEqual(try feedPushCount(forTool: "fs_read"), 0,
+                       "read-only kiro tool at standard level must be suppressed")
+        XCTAssertGreaterThan(try feedPushCount(forTool: "fs_write"), 0,
+                             "mutating kiro tool at standard level must still emit telemetry")
+    }
+
     func testLowercaseGenericFeedToolsStayTelemetryOutsideKiro() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("generic-lowercase-feed-tool")
