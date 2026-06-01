@@ -45,7 +45,7 @@
     "taglinePrefix": "Terminal napravljen za ",
     "typingCodingAgents": "agente za kodiranje",
     "typingMultitasking": "multitasking",
-    "subtitle": "Nativna macOS aplikacija izgrađena na Ghostty-ju. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i socket API za automatizaciju.",
+    "subtitle": "Nativna macOS aplikacija izgrađena na Ghostty-ju. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i <cliLink>CLI</cliLink> za programabilnost.",
     "features": "Funkcionalnosti",
     "faq": "Česta pitanja",
     "communitySection": "Zajednica",
@@ -495,15 +495,24 @@
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
-          "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna."
+          "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
+          "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta."
         },
         "terminal": {
-          "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom."
+          "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom.",
+          "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
+          "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
         },
         "browser": {
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
           "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "Globalna zadana vrijednost za mjesto gdje Cmd-N unutar grupe, + dugme u zaglavlju grupe i podešene grupne akcije stavljaju novi workspace: `afterCurrent` (poslije aktivnog workspacea u grupi, uz povratak na top), `top` (druga pozicija, odmah poslije sidra) ili `end` (poslije zadnjeg člana).",
+          "byCwd": {
+            "newWorkspacePlacement": "Podešavanje po cwd za mjesto gdje Cmd-N unutar grupe, + dugme u zaglavlju grupe i podešene grupne akcije stavljaju novi workspace: `afterCurrent` (poslije aktivnog workspacea u grupi, uz povratak na top), `top` (druga pozicija, odmah poslije sidra) ili `end` (poslije zadnjeg člana). Ako je izostavljeno, koristi se globalna zadana vrijednost."
+          }
         }
       }
     },
@@ -626,7 +635,8 @@
         "notifications": "Notifikacije",
         "find": "Pretraga",
         "terminal": "Terminal",
-        "window": "Prozor"
+        "window": "Prozor",
+        "diffViewer": "Preglednik diffa"
       },
       "sc": {
         "ws-new": "Novi radni prostor",
@@ -672,7 +682,7 @@
       "metaTitle": "Prečice na tastaturi"
     },
     "api": {
-      "title": "API Referenca",
+      "title": "CLI Referenca",
       "metaDescription": "cmux CLI i Unix socket API referenca. Upravljanje radnim prostorima, podijeljeni paneli, kontrola unosa, notifikacije, metapodaci bočne trake, varijable okruženja i metode detekcije.",
       "intro": "cmux pruža i CLI alat i Unix socket za programsku kontrolu. Svaka komanda je dostupna kroz oba interfejsa.",
       "socket": "Socket",
@@ -751,7 +761,7 @@
       "pythonClient": "Python klijent",
       "shellScript": "Shell skripta",
       "buildScriptNotification": "Build skripta sa notifikacijom",
-      "metaTitle": "API referenca"
+      "metaTitle": "CLI Referenca"
     },
     "notifications": {
       "title": "Notifikacije",
@@ -894,7 +904,7 @@
       "authoringCallout": "Kada dodajete novu vještinu, uključite <code>agents/openai.yaml</code> da instalater prikaže jasno ime, kratak opis i zadani prompt.",
       "relatedTitle": "Povezana dokumentacija",
       "relatedBrowserAutomation": "Automatizacija preglednika",
-      "relatedApi": "API referenca",
+      "relatedApi": "CLI referenca",
       "relatedCustomCommands": "Prilagođene komande"
     },
     "changelog": {
@@ -909,7 +919,7 @@
       "sessionRestore": "Obnova sesije",
       "customCommands": "Prilagođene komande",
       "keyboardShortcuts": "Prečice na tastaturi",
-      "apiReference": "API Referenca",
+      "apiReference": "CLI Referenca",
       "browserAutomation": "Automatizacija preglednika",
       "skills": "Vještine",
       "notifications": "Notifikacije",
@@ -919,7 +929,8 @@
       "changelog": "Zapisnik promjena",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (Beta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1053,6 +1064,21 @@
       "daemonSession": "Upravljanje sesijama",
       "daemonSessionHow": "Zadržava sesije preko ponovnog povezivanja, koordinira promjenu veličine PTY-a u više priloga",
       "daemonPath": "Daemon binarni fajl je pohranjen na ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote na udaljenom hostu i provjeren prema SHA-256 manifestu ugrađenom u aplikaciju."
+    },
+    "textBox": {
+      "title": "TextBox (Beta)",
+      "metaTitle": "TextBox (Beta)",
+      "metaDescription": "Podesite cmux beta TextBox unos za nove terminalske tabove, podjele i radne prostore.",
+      "intro": "TextBox je cmuxova bogata terminalska površina za unos, za sastavljanje promptova prije slanja u terminal.",
+      "betaCallout": "TextBox je beta funkcija. Zadane vrijednosti i ponašanje mogu se promijeniti tokom testiranja.",
+      "defaultsTitle": "Zadane vrijednosti",
+      "defaultsDesc": "TextBox postavke su u Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals otvara nove radne prostore, terminalske tabove i podjele s vidljivim TextBoxom, dok fokus ostaje u terminalu.",
+      "focusSetting": "Focus TextBox on New Terminals postavlja fokus tastature u TextBox. Fokusiranje također prikazuje TextBox.",
+      "maxLinesSetting": "TextBox Max Lines ograničava visinu TextBoxa prije nego što se sadržaj počne skrolati.",
+      "configTitle": "cmux.json",
+      "configDesc": "Iste zadane vrijednosti postavite u ~/.config/cmux/cmux.json pod terminal:",
+      "focusNote": "Obnovljene sesije zadržavaju spremljenu vidljivost TextBoxa i stanje fokusa. Ove zadane vrijednosti važe samo za novokreirane terminalske površine."
     }
   },
   "legal": {

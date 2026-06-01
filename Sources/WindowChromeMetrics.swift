@@ -19,10 +19,12 @@ enum MinimalModeChromeMetrics {
 }
 
 enum HeaderChromeControlMetrics {
+    // Release-era (v0.64.10) titlebar chrome sizing: 15pt icons in 24pt button lanes.
     static let buttonSize: CGFloat = 24
     static let iconSize: CGFloat = 15
     static let iconFrameSize: CGFloat = 17
     static let cornerRadius: CGFloat = 8
+    static let titlebarControlsLeadingPadding: CGFloat = 4
 
     static func iconFrameSize(forIconSize iconSize: CGFloat) -> CGFloat {
         max(Self.iconFrameSize, iconSize + 2)

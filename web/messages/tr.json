@@ -45,7 +45,7 @@
     "taglinePrefix": "Şunun için tasarlanmış terminal: ",
     "typingCodingAgents": "kodlama ajanları",
     "typingMultitasking": "çoklu görev",
-    "subtitle": "Ghostty üzerine kurulu yerel macOS uygulaması. Dikey sekmeler, ajanlar dikkat istediğinde bildirim halkaları, bölünmüş paneller ve otomasyon için socket API.",
+    "subtitle": "Ghostty üzerine kurulu yerel macOS uygulaması. Dikey sekmeler, ajanlar dikkat istediğinde bildirim halkaları, bölünmüş paneller ve programlanabilirlik için <cliLink>CLI</cliLink>.",
     "features": "Özellikler",
     "faq": "SSS",
     "communitySection": "Topluluk",
@@ -495,15 +495,24 @@
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
-          "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle."
+          "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
+          "forkConversationDefaultDestination": "Sekme bağlam menüsündeki birincil Fork Conversation eylemi için varsayılan hedef. Alt menü tüm hedefleri göstermeye devam eder."
         },
         "terminal": {
-          "copyOnSelect": "Seçim kesinleştiğinde seçilen terminal metnini sistem panosuna kopyalar; çift ve üçlü tıklamayla yapılan sözcük ve satır seçimleri dahil."
+          "copyOnSelect": "Seçim kesinleştiğinde seçilen terminal metnini sistem panosuna kopyalar; çift ve üçlü tıklamayla yapılan sözcük ve satır seçimleri dahil.",
+          "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
+          "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
         },
         "browser": {
           "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
           "customSearchEngineName": "defaultSearchEngine custom olduğunda kullanılan görünen ad.",
           "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "Bir grup içindeki Cmd-N, grup başlığındaki + düğmesi ve yapılandırılmış grup eylemlerinin yeni workspace’i nereye yerleştireceğine dair genel varsayılan: `afterCurrent` (gruptaki aktif workspace’ten sonra, yoksa top), `top` (ankordan hemen sonraki ikinci konum) veya `end` (son üyeden sonra).",
+          "byCwd": {
+            "newWorkspacePlacement": "Bir grup içindeki Cmd-N, grup başlığındaki + düğmesi ve yapılandırılmış grup eylemlerinin yeni workspace’i nereye yerleştireceğine dair cwd bazlı geçersiz kılma: `afterCurrent` (gruptaki aktif workspace’ten sonra, yoksa top), `top` (ankordan hemen sonraki ikinci konum) veya `end` (son üyeden sonra). Atlanırsa genel varsayılan kullanılır."
+          }
         }
       }
     },
@@ -626,7 +635,8 @@
         "notifications": "Bildirimler",
         "find": "Bul",
         "terminal": "Terminal",
-        "window": "Pencere"
+        "window": "Pencere",
+        "diffViewer": "Diff görüntüleyici"
       },
       "sc": {
         "ws-new": "Yeni çalışma alanı",
@@ -672,7 +682,7 @@
       "metaTitle": "Klavye kısayolları"
     },
     "api": {
-      "title": "API Referansı",
+      "title": "CLI Referansı",
       "metaDescription": "cmux CLI ve Unix socket API referansı. Çalışma alanı yönetimi, bölünmüş paneller, girdi kontrolü, bildirimler, kenar çubuğu meta verileri, ortam değişkenleri ve algılama yöntemleri.",
       "intro": "cmux, programatik kontrol için hem bir CLI aracı hem de bir Unix soketi sağlar. Her komut her iki arayüz aracılığıyla kullanılabilir.",
       "socket": "Socket",
@@ -751,7 +761,7 @@
       "pythonClient": "Python istemcisi",
       "shellScript": "Shell betiği",
       "buildScriptNotification": "Bildirimli build betiği",
-      "metaTitle": "API referansı"
+      "metaTitle": "CLI Referansı"
     },
     "notifications": {
       "title": "Bildirimler",
@@ -894,7 +904,7 @@
       "authoringCallout": "Yeni bir yetenek eklerken <code>agents/openai.yaml</code> ekleyin ki installer net bir ad, kısa açıklama ve varsayılan prompt gösterebilsin.",
       "relatedTitle": "İlgili dokümanlar",
       "relatedBrowserAutomation": "Tarayıcı otomasyonu",
-      "relatedApi": "API Referansı",
+      "relatedApi": "CLI Referansı",
       "relatedCustomCommands": "Özel Komutlar"
     },
     "changelog": {
@@ -909,7 +919,7 @@
       "sessionRestore": "Oturum geri yükleme",
       "customCommands": "Özel Komutlar",
       "keyboardShortcuts": "Klavye Kısayolları",
-      "apiReference": "API Referansı",
+      "apiReference": "CLI Referansı",
       "browserAutomation": "Tarayıcı Otomasyonu",
       "skills": "Yetenekler",
       "notifications": "Bildirimler",
@@ -919,7 +929,8 @@
       "changelog": "Değişiklik Günlüğü",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (Beta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1053,6 +1064,21 @@
       "daemonSession": "Oturum yönetimi",
       "daemonSessionHow": "Yeniden bağlantılarda oturumları sürdürür, birden fazla ekte PTY'nin yeniden boyutlandırılmasını koordine eder",
       "daemonPath": "Arka plan programı ikili dosyası, uzak ana bilgisayarda ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote konumunda depolanır ve uygulamaya katıştırılmış bir SHA-256 bildirimine göre doğrulanır."
+    },
+    "textBox": {
+      "title": "TextBox (Beta)",
+      "metaTitle": "TextBox (Beta)",
+      "metaDescription": "Yeni terminal sekmeleri, bölmeleri ve çalışma alanları için cmux beta TextBox girişini yapılandırın.",
+      "intro": "TextBox, istemleri terminale göndermeden önce yazmak için cmux'un zengin terminal giriş yüzeyidir.",
+      "betaCallout": "TextBox bir beta özelliğidir. Varsayılanlar ve davranış test süresince değişebilir.",
+      "defaultsTitle": "Varsayılanlar",
+      "defaultsDesc": "TextBox ayarları Settings > TextBox içindedir:",
+      "showSetting": "Show TextBox on New Terminals yeni çalışma alanlarını, terminal sekmelerini ve terminal bölmelerini TextBox görünür halde açar ve odağı terminalde tutar.",
+      "focusSetting": "Focus TextBox on New Terminals klavye odağını TextBox'a taşır. Odaklamak TextBox'ı da gösterir.",
+      "maxLinesSetting": "TextBox Max Lines, içerik kaymaya başlamadan önce TextBox yüksekliğini sınırlar.",
+      "configTitle": "cmux.json",
+      "configDesc": "Aynı varsayılanları ~/.config/cmux/cmux.json içinde terminal altında ayarlayın:",
+      "focusNote": "Geri yüklenen oturumlar kayıtlı TextBox görünürlüğünü ve odak durumunu korur. Bu varsayılanlar yalnızca yeni oluşturulan terminal yüzeylerine uygulanır."
     }
   },
   "legal": {

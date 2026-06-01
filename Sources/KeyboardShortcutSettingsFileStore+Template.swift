@@ -61,6 +61,7 @@ extension CmuxSettingsFileStore {
                     "appIcon": AppIconSettings.defaultMode.rawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
                     "newWorkspacePlacement": WorkspacePlacementSettings.defaultPlacement.rawValue,
+                    "forkConversationDefaultDestination": AgentConversationForkDefaultSettings.defaultDestination.rawValue,
                     "workspaceInheritWorkingDirectory": WorkspaceWorkingDirectoryInheritanceSettings.defaultValue,
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
@@ -80,10 +81,17 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "workspaceGroups": [
+                    "newWorkspacePlacement": WorkspaceGroupNewWorkspacePlacementSettings.defaultValue.rawValue,
+                ],
+            ],
+            [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
                     "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
+                    "showTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultShowOnNewTerminals,
+                    "focusTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultFocusOnNewTerminals,
                     "agentHibernation": [
                         "enabled": AgentHibernationSettings.defaultEnabled,
                         "idleSeconds": Int(AgentHibernationSettings.defaultIdleSeconds),

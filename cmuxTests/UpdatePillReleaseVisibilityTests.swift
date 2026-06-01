@@ -243,7 +243,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             buttonCount: TitlebarShortcutHintActionSlot.sidebarChromeSlots.count,
             reservesShortcutHintOverflow: true
         )
-        XCTAssertEqual(sidebarClassicWithShortcutHints.width, 118, accuracy: 0.001)
+        XCTAssertEqual(sidebarClassicWithShortcutHints.width, 104, accuracy: 0.001)
         XCTAssertLessThanOrEqual(
             sidebarClassicWithShortcutHints.width,
             MinimalModeSidebarTitlebarControlsMetrics.hostWidth
@@ -264,7 +264,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         let roomySidebarConfig = titlebarControlsSidebarChromeConfig(for: .roomy)
         XCTAssertEqual(roomySidebarConfig.iconSize, 16, accuracy: 0.001)
         XCTAssertEqual(roomySidebarConfig.buttonSize, 28, accuracy: 0.001)
-        XCTAssertEqual(roomySidebarConfig.spacing, 7, accuracy: 0.001)
+        XCTAssertEqual(roomySidebarConfig.spacing, 14, accuracy: 0.001)
 
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
         XCTAssertEqual(compact.width, 128, accuracy: 0.001)
@@ -274,7 +274,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             config: TitlebarControlsStyle.classic.config,
             reservesShortcutHintOverflow: true
         )
-        XCTAssertEqual(classicWithShortcutHints.width, 186, accuracy: 0.001)
+        XCTAssertEqual(classicWithShortcutHints.width, 172, accuracy: 0.001)
     }
 
     func testTitlebarControlStylesKeepReleaseIconMetrics() {
@@ -309,6 +309,43 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
 
             XCTAssertEqual(config.spacing, expected.spacing, accuracy: 0.001)
         }
+    }
+
+    func testTitlebarControlsLeadingOffsetDoesNotDoubleApplyTrafficLightPosition() {
+        let snapshot = MinimalModeTitlebarDebugSnapshot(
+            leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+            leftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
+            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+        )
+        let trafficLightFrame = NSRect(x: 18, y: 7, width: 14, height: 14)
+
+        XCTAssertEqual(
+            TitlebarControlsLayoutMetrics.leadingOffset(
+                trafficLightFrame: trafficLightFrame,
+                debugSnapshot: snapshot
+            ),
+            0,
+            accuracy: 0.001
+        )
+    }
+
+    func testTitlebarControlsLeadingOffsetDoesNotFollowSidebarTrailingEdge() {
+        let snapshot = MinimalModeTitlebarDebugSnapshot(
+            leftControlsLeadingInset: 150,
+            leftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
+            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+        )
+
+        XCTAssertEqual(
+            TitlebarControlsLayoutMetrics.leadingOffset(
+                trafficLightFrame: NSRect(x: 18, y: 7, width: 14, height: 14),
+                debugSnapshot: snapshot
+            ),
+            78,
+            accuracy: 0.001
+        )
     }
 
     func testTitlebarControlsVerticalOffsetAlignsToTrafficLightsWhenAvailable() {

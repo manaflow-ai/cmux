@@ -51,6 +51,104 @@ final class GhosttyConfigTests: XCTestCase {
         let blue: Int
     }
 
+    func testLaunchGhosttyResourcesPreferCurrentBundleOverInheritedEnvironment() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-launch-resources-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let inheritedResources = root.appendingPathComponent("inherited/ghostty", isDirectory: true)
+        let bundleResources = root.appendingPathComponent("BundleResources", isDirectory: true)
+        let bundledGhostty = bundleResources.appendingPathComponent("ghostty", isDirectory: true)
+        try fileManager.createDirectory(
+            at: inheritedResources.appendingPathComponent("themes", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: bundledGhostty.appendingPathComponent("themes", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+            currentValue: inheritedResources.path,
+            bundleResourceURL: bundleResources,
+            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(resolved, bundledGhostty.path)
+    }
+
+    func testLaunchGhosttyResourcesKeepInheritedEnvironmentWhenBundleHasNoResources() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-launch-resource-fallback-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let inheritedResources = root.appendingPathComponent("inherited/ghostty", isDirectory: true)
+        let emptyBundleResources = root.appendingPathComponent("BundleResources", isDirectory: true)
+        try fileManager.createDirectory(at: inheritedResources, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: emptyBundleResources, withIntermediateDirectories: true)
+
+        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+            currentValue: inheritedResources.path,
+            bundleResourceURL: emptyBundleResources,
+            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(resolved, inheritedResources.path)
+    }
+
+    func testLaunchGhosttyResourcesKeepInheritedEnvironmentWhenBundleLacksThemes() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-launch-incomplete-resource-fallback-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let inheritedResources = root.appendingPathComponent("inherited/ghostty", isDirectory: true)
+        let bundleResources = root.appendingPathComponent("BundleResources", isDirectory: true)
+        let bundledGhostty = bundleResources.appendingPathComponent("ghostty", isDirectory: true)
+        try fileManager.createDirectory(
+            at: inheritedResources.appendingPathComponent("themes", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(at: bundledGhostty, withIntermediateDirectories: true)
+
+        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+            currentValue: inheritedResources.path,
+            bundleResourceURL: bundleResources,
+            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(resolved, inheritedResources.path)
+    }
+
+    func testLaunchGhosttyResourcesUseIncompleteBundleOnlyAsLastFallback() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-launch-incomplete-resource-last-fallback-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let bundleResources = root.appendingPathComponent("BundleResources", isDirectory: true)
+        let bundledGhostty = bundleResources.appendingPathComponent("ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: bundledGhostty, withIntermediateDirectories: true)
+
+        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+            currentValue: root.appendingPathComponent("missing-inherited", isDirectory: true).path,
+            bundleResourceURL: bundleResources,
+            ghosttyAppResources: root.appendingPathComponent("missing-app", isDirectory: true).path,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(resolved, bundledGhostty.path)
+    }
+
     func testResolveThemeNamePrefersLightEntryForPairedTheme() {
         let resolved = GhosttyConfig.resolveThemeName(
             from: "light:Builtin Solarized Light,dark:Builtin Solarized Dark",
@@ -2428,6 +2526,48 @@ final class WorkspaceRemoteConfigurationTransportKeyTests: XCTestCase {
 
         XCTAssertEqual(first.proxyBrokerTransportKey, second.proxyBrokerTransportKey)
     }
+
+    func testPersistentPTYIdentityRequiresSameRelayPort() {
+        let first = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 22,
+            identityFile: "~/.ssh/id_ed25519",
+            sshOptions: [
+                "Compression=yes",
+                "ControlMaster=auto",
+                "ControlPath=/tmp/cmux-ssh-501-64000-%C",
+            ],
+            localProxyPort: nil,
+            relayPort: 64000,
+            relayID: "relay-a",
+            relayToken: "token-a",
+            localSocketPath: "/tmp/cmux-a.sock",
+            terminalStartupCommand: "ssh cmux-macmini",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-test-slot"
+        )
+        let second = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 22,
+            identityFile: "~/.ssh/id_ed25519",
+            sshOptions: [
+                "Compression=yes",
+                "ControlMaster=auto",
+                "ControlPath=/tmp/cmux-ssh-501-64001-%C",
+            ],
+            localProxyPort: nil,
+            relayPort: 64001,
+            relayID: "relay-b",
+            relayToken: "token-b",
+            localSocketPath: "/tmp/cmux-b.sock",
+            terminalStartupCommand: "ssh cmux-macmini",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-test-slot"
+        )
+
+        XCTAssertFalse(first.hasSamePersistentPTYIdentity(as: second))
+        XCTAssertFalse(second.hasSamePersistentPTYIdentity(as: first))
+    }
 }
 
 final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
@@ -2435,6 +2575,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         let psOutput = """
           101 1 /usr/bin/ssh -N -T -S none -o ControlPath=/tmp/cmux-ssh-501-56080-%C -R 127.0.0.1:56080:127.0.0.1:64048 cmux-macmini
           102 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
+          107 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote 'serve' '--stdio' '--persistent' '--slot' 'ssh-test''
           103 999 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56081:127.0.0.1:64049 cmux-macmini
           104 1 /usr/bin/ssh -tt cmux-macmini
           105 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56082:127.0.0.1:64050 other-host
@@ -2446,7 +2587,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
                 psOutput: psOutput,
                 destination: "cmux-macmini"
             ),
-            [101, 102]
+            [101, 102, 107]
         )
     }
 
@@ -2455,7 +2596,19 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
           201 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56080:127.0.0.1:64048 cmux-macmini
           202 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56081:127.0.0.1:64049 cmux-macmini
           203 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
+          204 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote 'serve' '--stdio' '--persistent' '--slot' 'ssh-test''
+          205 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote 'serve' '--stdio' '--persistent' '--slot' 'ssh-other''
         """
+
+        XCTAssertEqual(
+            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+                psOutput: psOutput,
+                destination: "cmux-macmini",
+                relayPort: 56081,
+                persistentDaemonSlot: "ssh-test"
+            ),
+            [202, 204]
+        )
 
         XCTAssertEqual(
             WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
@@ -2464,6 +2617,59 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
                 relayPort: 56081
             ),
             [202]
+        )
+    }
+
+    func testOrphanedCMUXRemoteSSHPIDsMatchesBackslashEscapedPersistentDaemonSlot() {
+        let psOutput = """
+          211 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec '\''.cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote'\'' '\''serve'\'' '\''--stdio'\'' '\''--persistent'\'' '\''--slot'\'' '\''ssh-test'\'''
+          212 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec '\''.cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote'\'' '\''serve'\'' '\''--stdio'\'' '\''--persistent'\'' '\''--slot'\'' '\''ssh-other'\'''
+        """
+
+        XCTAssertEqual(
+            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+                psOutput: psOutput,
+                destination: "cmux-macmini",
+                relayPort: 56081,
+                persistentDaemonSlot: "ssh-test"
+            ),
+            [211]
+        )
+    }
+
+    func testOrphanedCMUXRemoteSSHPIDsMatchesEqualsQuotedPersistentDaemonSlot() {
+        let psOutput = """
+          221 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote serve --stdio --persistent --slot='ssh-test''
+          222 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote serve --stdio --persistent --slot="ssh-other"'
+        """
+
+        XCTAssertEqual(
+            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+                psOutput: psOutput,
+                destination: "cmux-macmini",
+                relayPort: 56081,
+                persistentDaemonSlot: "ssh-test"
+            ),
+            [221]
+        )
+    }
+
+    func testOrphanedCMUXRemoteSSHPIDsWithSlotAndNoRelayKeepsGenericCleanup() {
+        let psOutput = """
+          301 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56080:127.0.0.1:64048 cmux-macmini
+          302 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
+          303 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote 'serve' '--stdio' '--persistent' '--slot' 'ssh-test''
+          304 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote 'serve' '--stdio' '--persistent' '--slot' 'ssh-other''
+          305 1 /usr/bin/ssh -T -S none -o RequestTTY=no other-host sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
+        """
+
+        XCTAssertEqual(
+            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+                psOutput: psOutput,
+                destination: "cmux-macmini",
+                persistentDaemonSlot: "ssh-test"
+            ),
+            [301, 302, 303]
         )
     }
 }
@@ -2747,9 +2953,25 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
         XCTAssertNil(stack.pop())
     }
 
-    private func makeSnapshot(index: Int) -> ClosedBrowserPanelRestoreSnapshot {
+    func testRemoveSnapshotsDropsOnlyEntriesForGivenWorkspaceId() {
+        let workspaceA = UUID()
+        let workspaceB = UUID()
+        var stack = RecentlyClosedBrowserStack(capacity: 20)
+        stack.push(makeSnapshot(index: 1, workspaceId: workspaceA))
+        stack.push(makeSnapshot(index: 2, workspaceId: workspaceB))
+        stack.push(makeSnapshot(index: 3, workspaceId: workspaceA))
+        stack.push(makeSnapshot(index: 4, workspaceId: workspaceB))
+
+        stack.removeSnapshots(forWorkspaceId: workspaceA)
+
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 4)
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 2)
+        XCTAssertNil(stack.pop())
+    }
+
+    private func makeSnapshot(index: Int, workspaceId: UUID = UUID()) -> ClosedBrowserPanelRestoreSnapshot {
         ClosedBrowserPanelRestoreSnapshot(
-            workspaceId: UUID(),
+            workspaceId: workspaceId,
             url: URL(string: "https://example.com/\(index)"),
             profileID: nil,
             originalPaneId: UUID(),
@@ -4045,6 +4267,52 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
+    func testConditionalThemeOverrideResolvesSplitThemeForPreferredScheme() throws {
+        try withTempConfig("theme = light:Catppuccin Latte,dark:Apple System Colors\n") { path in
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path]
+                ),
+                "theme = Apple System Colors"
+            )
+        }
+    }
+
+    func testConditionalThemeOverrideResolvesLightSplitThemeForPreferredScheme() throws {
+        try withTempConfig("theme = light:Catppuccin Latte,dark:Apple System Colors\n") { path in
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .light,
+                    configPaths: [path]
+                ),
+                "theme = Catppuccin Latte"
+            )
+        }
+    }
+
+    func testConditionalThemeOverrideSkipsPlainSingleTheme() throws {
+        try withTempConfig("theme = Catppuccin Mocha\n") { path in
+            XCTAssertNil(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path]
+                )
+            )
+        }
+    }
+
+    func testConditionalThemeOverrideSkipsSameThemePair() throws {
+        try withTempConfig("theme = light:Catppuccin Mocha,dark:Catppuccin Mocha\n") { path in
+            XCTAssertNil(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path]
+                )
+            )
+        }
+    }
+
     func testShouldApplyManagedDefaultAppearanceFollowsConfigFileIncludes() throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-test-theme-include-\(UUID().uuidString)")
@@ -5033,6 +5301,106 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(output.contains("LAST_PR_ACTION=\n"), output)
         XCTAssertFalse(output.contains("clear_pr"), output)
         XCTAssertFalse(output.contains("report_pr_action"), output)
+    }
+
+    func testZshNoPullRequestWatchSkipsLegacyGhPRProbe() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-no-pr-watch-\(UUID().uuidString)")
+        let repoURL = root.appendingPathComponent("repo", isDirectory: true)
+        let fakeBinURL = root.appendingPathComponent("fake-bin", isDirectory: true)
+        let markerURL = root.appendingPathComponent("gh-pr-invoked", isDirectory: false)
+        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
+
+        try fileManager.createDirectory(at: repoURL.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        try "ref: refs/heads/issue-2746-rate-limit\n".write(
+            to: repoURL.appendingPathComponent(".git/HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try writeExecutableScript(
+            at: fakeBinURL.appendingPathComponent("gh"),
+            contents: """
+            #!/bin/sh
+            printf invoked > "$CMUX_GH_MARKER"
+            printf '2746\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/2746\\n'
+            """
+        )
+        let socketFD = try bindUnixSocket(at: socketPath.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketPath.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_send() { :; }
+            _cmux_send_bg() { :; }
+            _cmux_report_pr_for_path "\(repoURL.path)" || true
+            [[ -e "\(markerURL.path)" ]] && print MARKER=1 || print MARKER=0
+            """,
+            extraEnvironment: [
+                "CMUX_NO_PR_WATCH": "1",
+                "CMUX_GH_MARKER": markerURL.path,
+                "CMUX_SOCKET_PATH": socketPath.path,
+                "PATH": "\(fakeBinURL.path):/usr/bin:/bin",
+            ]
+        )
+
+        XCTAssertTrue(output.contains("MARKER=0"), output)
+    }
+
+    func testBashNoPullRequestWatchSkipsLegacyGhPRProbe() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-no-pr-watch-\(UUID().uuidString)")
+        let repoURL = root.appendingPathComponent("repo", isDirectory: true)
+        let fakeBinURL = root.appendingPathComponent("fake-bin", isDirectory: true)
+        let markerURL = root.appendingPathComponent("gh-pr-invoked", isDirectory: false)
+        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
+
+        try fileManager.createDirectory(at: repoURL.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        try "ref: refs/heads/issue-2746-rate-limit\n".write(
+            to: repoURL.appendingPathComponent(".git/HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try writeExecutableScript(
+            at: fakeBinURL.appendingPathComponent("gh"),
+            contents: """
+            #!/bin/sh
+            printf invoked > "$CMUX_GH_MARKER"
+            printf '2746\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/2746\\n'
+            """
+        )
+        let socketFD = try bindUnixSocket(at: socketPath.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketPath.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_send() { :; }
+            _cmux_report_pr_for_path "\(repoURL.path)" || true
+            [[ -e "\(markerURL.path)" ]] && printf 'MARKER=1\\n' || printf 'MARKER=0\\n'
+            """,
+            extraEnvironment: [
+                "CMUX_NO_PR_WATCH": "1",
+                "CMUX_GH_MARKER": markerURL.path,
+                "CMUX_SOCKET_PATH": socketPath.path,
+                "PATH": "\(fakeBinURL.path):/usr/bin:/bin",
+            ]
+        )
+
+        XCTAssertTrue(result.stdout.contains("MARKER=0"), result.stdout)
     }
 
     func testZshPromptResetsTerminalKeyboardProtocols() throws {

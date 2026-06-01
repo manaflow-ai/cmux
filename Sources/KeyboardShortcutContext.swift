@@ -49,9 +49,15 @@ extension KeyboardShortcutSettings.Action {
 
     var shortcutContext: ShortcutContext {
         switch self {
+        case .diffViewerScrollDown,
+             .diffViewerScrollUp,
+             .diffViewerScrollToBottom,
+             .diffViewerScrollToTop,
+             .diffViewerOpenFileSearch:
+            return .browserPanel
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .rightSidebarFocus
-        case .renameTab, .renameWorkspace:
+        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal:
             return .nonBrowserPanel
         case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
              .browserZoomIn, .browserZoomOut, .browserZoomReset:

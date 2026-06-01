@@ -45,7 +45,7 @@
     "taglinePrefix": "开源终端，专为 ",
     "typingCodingAgents": "编程 agent",
     "typingMultitasking": "多任务",
-    "subtitle": "基于 Ghostty 构建的原生 macOS 终端应用。开源免费。支持垂直标签页、agent 需要关注时的通知提醒环、分屏面板，以及用于自动化的 socket API。",
+    "subtitle": "基于 Ghostty 构建的原生 macOS 终端应用。开源免费。支持垂直标签页、agent 需要关注时的通知提醒环、分屏面板，以及用于可编程性的 <cliLink>CLI</cliLink>。",
     "features": "功能特性",
     "faq": "常见问题",
     "communitySection": "社区",
@@ -495,15 +495,24 @@
           "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
           "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用标签关闭按钮关闭标签前显示确认。",
-          "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。"
+          "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。",
+          "forkConversationDefaultDestination": "标签页上下文菜单中主要 Fork Conversation 操作的默认目标。子菜单仍会显示所有目标。"
         },
         "terminal": {
-          "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。"
+          "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。",
+          "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",
+          "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。"
         },
         "browser": {
           "defaultSearchEngine": "浏览器地址栏输入不是 URL 时使用的默认搜索引擎。对于任意提供商，请使用 custom 和 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 为 custom 时使用的显示名称。",
           "customSearchEngineURLTemplate": "defaultSearchEngine 为 custom 时使用的搜索 URL。使用查询占位符或 %s 表示已编码的查询。如果没有占位符，cmux 会向 URL 添加 q=。"
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "组内 Cmd-N、组标题中的 + 按钮以及已配置的组操作放置新 workspace 的全局默认位置：`afterCurrent`（在当前活动的组内 workspace 后面，没有时回退到 top）、`top`（第二个位置，紧跟锚点之后）或 `end`（最后一个成员之后）。",
+          "byCwd": {
+            "newWorkspacePlacement": "按 cwd 覆盖组内 Cmd-N、组标题中的 + 按钮以及已配置的组操作放置新 workspace 的位置：`afterCurrent`（在当前活动的组内 workspace 后面，没有时回退到 top）、`top`（第二个位置，紧跟锚点之后）或 `end`（最后一个成员之后）。省略时回退到全局默认值。"
+          }
         }
       }
     },
@@ -626,7 +635,8 @@
         "notifications": "通知",
         "find": "查找",
         "terminal": "终端",
-        "window": "窗口"
+        "window": "窗口",
+        "diffViewer": "差异查看器"
       },
       "sc": {
         "ws-new": "新建工作区",
@@ -672,7 +682,7 @@
       "metaTitle": "键盘快捷键"
     },
     "api": {
-      "title": "API 参考",
+      "title": "CLI 参考",
       "metaDescription": "cmux CLI 和 Unix socket API 参考文档。工作区管理、分屏面板、输入控制、通知、侧边栏元数据、环境变量和检测方法。",
       "intro": "cmux 提供 CLI 工具和 Unix socket 两种编程控制方式。每个命令都可以通过两种接口使用。",
       "socket": "Socket",
@@ -751,7 +761,7 @@
       "pythonClient": "Python 客户端",
       "shellScript": "Shell 脚本",
       "buildScriptNotification": "带通知的构建脚本",
-      "metaTitle": "API 参考"
+      "metaTitle": "CLI 参考"
     },
     "notifications": {
       "title": "通知",
@@ -894,7 +904,7 @@
       "authoringCallout": "添加新技能时，请包含 <code>agents/openai.yaml</code>，这样安装器就能显示清晰名称、简短说明和默认 prompt。",
       "relatedTitle": "相关文档",
       "relatedBrowserAutomation": "浏览器自动化",
-      "relatedApi": "API 参考",
+      "relatedApi": "CLI 参考",
       "relatedCustomCommands": "自定义命令"
     },
     "changelog": {
@@ -909,7 +919,7 @@
       "sessionRestore": "会话恢复",
       "customCommands": "自定义命令",
       "keyboardShortcuts": "快捷键",
-      "apiReference": "API 参考",
+      "apiReference": "CLI 参考",
       "browserAutomation": "浏览器自动化",
       "skills": "技能",
       "notifications": "通知",
@@ -919,7 +929,8 @@
       "changelog": "更新日志",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox（测试版）"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1053,6 +1064,21 @@
       "daemonSession": "会话管理",
       "daemonSessionHow": "在重新连接时保留会话，协调跨多个附件的 PTY 大小调整",
       "daemonPath": "守护程序二进制文件存储在远程主机上的 ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote 中，并根据应用程序中嵌入的 SHA-256 清单进行验证。"
+    },
+    "textBox": {
+      "title": "TextBox（测试版）",
+      "metaTitle": "TextBox（测试版）",
+      "metaDescription": "为新的终端标签页、分屏和工作区配置 cmux 的测试版 TextBox 输入。",
+      "intro": "TextBox 是 cmux 的富文本终端输入界面，可在发送到终端前编写提示。",
+      "betaCallout": "TextBox 是测试版功能。在测试期间，默认值和行为可能会变化。",
+      "defaultsTitle": "默认值",
+      "defaultsDesc": "TextBox 设置位于 Settings > TextBox：",
+      "showSetting": "Show TextBox on New Terminals 会让新的工作区、终端标签页和终端分屏在打开时显示 TextBox，同时将焦点保留在终端中。",
+      "focusSetting": "Focus TextBox on New Terminals 会将键盘焦点放入 TextBox。启用焦点也会显示 TextBox。",
+      "maxLinesSetting": "TextBox Max Lines 会限制 TextBox 在内容滚动前的最大高度。",
+      "configTitle": "cmux.json",
+      "configDesc": "也可以在 ~/.config/cmux/cmux.json 的 terminal 下设置相同默认值：",
+      "focusNote": "恢复的会话会保留已保存的 TextBox 可见性和焦点状态。这些默认值只适用于新建的终端界面。"
     }
   },
   "legal": {

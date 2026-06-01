@@ -427,7 +427,7 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertEqual(createdWorkspace?.currentDirectory, droppedDirectory.path)
     }
 
-    func testApplicationOpenURLsIgnoresBundleSelfPaths() {
+    func testApplicationOpenURLsIgnoresBundleSelfPaths() throws {
         _ = NSApplication.shared
         let app = AppDelegate()
 
@@ -449,8 +449,12 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         _ = app.synchronizeActiveMainWindowContext(preferredWindow: window)
 
         let existingWorkspaceIds = Set(manager.tabs.map(\.id))
-        let embeddedExecutableURL = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/MacOS/cmux", isDirectory: false)
+        let embeddedExecutableURL = try XCTUnwrap(Bundle.main.executableURL?.standardizedFileURL)
+        let executableValues = try embeddedExecutableURL.resourceValues(forKeys: [.isExecutableKey])
+        XCTAssertEqual(executableValues.isExecutable, true)
+        XCTAssertNotNil(
+            TerminalDefaultFileOpenRequest(fileURL: embeddedExecutableURL)
+        )
 
         app.application(
             NSApplication.shared,
@@ -465,6 +469,17 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
 
 @MainActor
 final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
+    func testDefaultTerminalRegistrationKeepsAllAdvertisedTargets() {
+        XCTAssertEqual(
+            DefaultTerminalRegistration.targetCount,
+            DefaultTerminalRegistration.urlSchemes.count + DefaultTerminalRegistration.contentTypeIdentifiers.count
+        )
+        XCTAssertEqual(
+            DefaultTerminalRegistration.contentType(forIdentifier: "com.apple.terminal.shell-script").identifier,
+            "com.apple.terminal.shell-script"
+        )
+    }
+
     func testScheduleLaunchServicesRegistrationDefersRegisterWork() {
         _ = NSApplication.shared
         let app = AppDelegate()
@@ -489,6 +504,53 @@ final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
         scheduledWork?()
 
         XCTAssertEqual(registerCallCount, 1)
+    }
+}
+
+final class TerminalDefaultFileOpenRequestTests: XCTestCase {
+    func testBuildsQuotedLaunchInputForTerminalCommandFile() throws {
+        let contentType = DefaultTerminalRegistration.contentType(forIdentifier: "com.apple.terminal.shell-script")
+        let url = URL(fileURLWithPath: "/tmp/cmux default's/Run Me.command")
+
+        let request = try XCTUnwrap(TerminalDefaultFileOpenRequest(fileURL: url, contentType: contentType))
+
+        XCTAssertEqual(request.workingDirectory, "/tmp/cmux default's")
+        XCTAssertEqual(request.initialInput, "'/tmp/cmux default'\\''s/Run Me.command'\n")
+    }
+
+    func testIgnoresPlainTextFiles() {
+        let url = URL(fileURLWithPath: "/tmp/notes.txt")
+
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .plainText))
+    }
+
+    func testBuildsLaunchInputForExtensionlessUnixExecutable() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-terminal-default-executable-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let executable = directory.appendingPathComponent("runme", isDirectory: false)
+        try "#!/bin/sh\necho cmux\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let request = try XCTUnwrap(TerminalDefaultFileOpenRequest(fileURL: executable))
+
+        XCTAssertEqual(request.workingDirectory, directory.path)
+        XCTAssertEqual(request.initialInput, "'\(executable.path)'\n")
+    }
+
+    func testIgnoresDirectoriesWithTerminalScriptExtension() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-terminal-default-directory-\(UUID().uuidString).command", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: directory, contentType: .directory))
     }
 }
 
@@ -805,7 +867,14 @@ final class WindowDragHandleHitTests: XCTestCase {
     func testTitlebarControlGapsAreOutsideButtonHitColumns() {
         let config = TitlebarControlsStyle.classic.config
         let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
+        XCTAssertEqual(ranges.count, TitlebarControlsHitRegions.sidebarChromeButtonCount)
         XCTAssertEqual(ranges.count, 3)
+        XCTAssertEqual(
+            ranges[0].lowerBound,
+            TitlebarControlsLayoutMetrics.hintLeadingPadding + config.groupPadding.leading,
+            accuracy: 0.001,
+            "Hidden titlebar hit regions should share the visible titlebar control leading position."
+        )
 
         XCTAssertTrue(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(
@@ -967,15 +1036,11 @@ final class WindowDragHandleHitTests: XCTestCase {
         }
 
         let trafficLightFrame = closeButtonSuperview.convert(closeButton.frame, to: contentView)
-        let opticalYOffset = MinimalModeSidebarTitlebarControlsMetrics.titlebarControlsOpticalYOffset(in: window)
-        let expectedHostCenterY = contentView.isFlipped
-            ? trafficLightFrame.midY + opticalYOffset
-            : trafficLightFrame.midY - opticalYOffset
         XCTAssertEqual(
             target.frame.midY,
-            expectedHostCenterY,
+            trafficLightFrame.midY,
             accuracy: 0.25,
-            "Minimal-mode sidebar controls should compensate for the titlebar icon padding by one backing pixel"
+            "Minimal-mode sidebar controls should share the traffic-light center Y"
         )
     }
 
