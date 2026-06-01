@@ -2761,17 +2761,23 @@ body.reduce-motion *::after {
 
 @container (max-width: 140px) {
   .browser-shell {
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: 28px 30px minmax(0, 1fr);
   }
 
-  .browser-tabs,
-  .browser-bar,
   .browser-status {
     display: none;
   }
 
+  .browser-tabs {
+    padding: 2px var(--space-1) 0;
+  }
+
+  .browser-bar {
+    padding-block: 3px;
+  }
+
   .browser-content {
-    grid-row: 1;
+    grid-row: 3;
   }
 }
 
