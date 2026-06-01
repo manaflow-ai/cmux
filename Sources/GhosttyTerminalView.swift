@@ -2435,13 +2435,27 @@ class GhosttyApp {
         // handling, while Ghostty split-theme pairs follow app appearance.
         let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme
 
+        // Panecho privacy mode: tell the C engine NOT to auto-load its default
+        // config files. On macOS the engine's default search probes
+        // ~/Library/Application Support/com.mitchellh.ghostty (another app's data)
+        // which triggers the macOS "access data from other apps" prompt. We load
+        // the user's own ~/.config/ghostty files explicitly instead.
+        if PrivacyMode.isEnabled {
+            loadInlineGhosttyConfig(
+                "config-default-files = false",
+                into: config,
+                prefix: "privacy-no-default-files",
+                logLabel: "privacyNoDefaultFiles"
+            )
+        }
+
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
         if startupPreviewProfile.loadsRealUserConfig {
             loadGhosttyDefaultFilesUnlessPrivacy(config)
             loadLegacyGhosttyConfigIfNeeded(config)
             loadCmuxAppSupportGhosttyConfigIfNeeded(config)
-            ghostty_config_load_recursive_files(config)
+            if !PrivacyMode.isEnabled { ghostty_config_load_recursive_files(config) }
             loadConditionalThemeOverrideIfNeeded(
                 config,
                 preferredColorScheme: themeColorScheme
@@ -2463,7 +2477,7 @@ class GhosttyApp {
         loadGhosttyDefaultFilesUnlessPrivacy(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
-        ghostty_config_load_recursive_files(config)
+        if !PrivacyMode.isEnabled { ghostty_config_load_recursive_files(config) }
         loadConditionalThemeOverrideIfNeeded(
             config,
             preferredColorScheme: themeColorScheme

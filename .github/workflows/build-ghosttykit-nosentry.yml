@@ -1,0 +1,106 @@
+name: Build GhosttyKit (no sentry)
+
+# Builds GhosttyKit.xcframework with Ghostty's crash reporter DISABLED
+# (-Dsentry=false). The upstream prebuilt links sentry-native, whose crash
+# handler writes ~/Library/Caches/com.mitchellh.ghostty/sentry at launch — a
+# foreign-app-data write that triggers the macOS "access data from other apps"
+# TCC prompt on every launch. This build removes it entirely (also the right
+# privacy posture for Panecho). The result is hosted on this fork's releases
+# and consumed by panecho-nightly via GHOSTTYKIT_URL.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-ghosttykit-nosentry-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash
+      ZIG_REQUIRED: 0.15.2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Ghostty SHA
+        id: sha
+        run: |
+          SHA=$(git -C ghostty rev-parse HEAD)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "ghostty sha: $SHA"
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          [ -d "$XCODE_DIR" ] || XCODE_DIR="$(ls -d /Applications/Xcode*.app/Contents/Developer 2>/dev/null | tail -1)"
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          xcodebuild -version
+
+      - name: Install Zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Cache Zig packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: zig-packages-
+
+      - name: Build GhosttyKit.xcframework WITHOUT sentry
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build \
+            -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" \
+            -Dsentry=false \
+            -Demit-xcframework=true \
+            -Demit-macos-app=false \
+            -Dxcframework-target=universal \
+            -Doptimize=ReleaseFast
+
+      - name: Package + checksum
+        id: pkg
+        run: |
+          set -euo pipefail
+          rm -rf GhosttyKit.xcframework
+          cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
+          COPYFILE_DISABLE=1 tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
+          python3 scripts/validate-xcframework-archive.py GhosttyKit.xcframework.tar.gz
+          SHA256=$(shasum -a 256 GhosttyKit.xcframework.tar.gz | awk '{print $1}')
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "=============================================================="
+          echo "NOSENTRY GhosttyKit ready"
+          echo "ghostty_sha: ${{ steps.sha.outputs.sha }}"
+          echo "archive_sha256: $SHA256"
+          echo "checksums line: ${{ steps.sha.outputs.sha }}  $SHA256"
+          echo "=============================================================="
+          # Confirm sentry is gone from the built binary
+          if strings GhosttyKit.xcframework/*/GhosttyKit.framework/Versions/A/GhosttyKit 2>/dev/null | grep -q "ghostty/sentry"; then
+            echo "WARNING: 'ghostty/sentry' string still present" >&2
+          else
+            echo "OK: no ghostty/sentry string in the built framework"
+          fi
+
+      - name: Upload to fork release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="ghosttykit-nosentry-${{ steps.sha.outputs.sha }}"
+          gh release delete "$TAG" -R xxshubhamxx/cmux-panecho --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" \
+            -R xxshubhamxx/cmux-panecho \
+            --title "GhosttyKit no-sentry (${{ steps.sha.outputs.sha }})" \
+            --notes "GhosttyKit.xcframework built with -Dsentry=false (no crash reporter). archive sha256: ${{ steps.pkg.outputs.sha256 }}" \
+            GhosttyKit.xcframework.tar.gz
+          echo "Published $TAG with sha256 ${{ steps.pkg.outputs.sha256 }}"
