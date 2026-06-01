@@ -100,6 +100,9 @@ Environment:
 | `new-workspace` | Create a workspace, optionally with cwd, command, description, and layout. |
 | `ssh` | Open an SSH-backed workspace. |
 | `remote-daemon-status` | Print bundled remote daemon version, asset, checksum, and cache status. |
+| `ssh-session-list` | List persisted SSH PTY sessions for one remote workspace or all remote workspaces. Supports `--json`. |
+| `ssh-session-attach` | Create a local terminal surface that reattaches to an existing persisted SSH PTY session. |
+| `ssh-session-cleanup` | Close one or all persisted SSH PTY sessions. Supports `--json`. |
 | `new-split` | Split from a surface in a direction. |
 | `list-panes` | List panes in a workspace. |
 | `list-pane-surfaces` | List surfaces in a pane. |
@@ -164,6 +167,7 @@ Environment:
 | `vm-pty-attach` | Internal VM PTY attach command. |
 | `vm-ssh-attach` | Hidden compatibility alias for older VM workspaces. |
 | `vm-pty-connect` | Internal helper that connects to a VM PTY from a config file. |
+| `ssh-pty-attach` | Internal helper used by SSH terminal startup scripts to bridge a local terminal surface to a remote PTY session. |
 | `ssh-session-end` | Internal helper that clears remote SSH session state. |
 | `__tmux-compat` | Internal tmux compatibility dispatcher. |
 
@@ -329,6 +333,13 @@ Config subcommands:
 | `config path`, `config paths` | Print cmux.json paths, docs URL, schema URL, backup reminder, and reload command without a socket. |
 | `config docs`, `config documentation` | Print the same output as `docs settings` without a socket. |
 | `config reload` | Ask the running cmux app to reload configuration. Requires a socket. |
+| `config get sidebar-font-size` | Print the effective sidebar text size. |
+| `config set sidebar-font-size <points>` | Write the sidebar text size to cmux's editable Ghostty config and reload the running app when available. |
+| `config sidebar-font-size [points]` | Get the sidebar text size, or set it when a point size is provided. |
+| `config get surface-tab-bar-font-size` | Print the effective workspace tab bar text size. |
+| `config set surface-tab-bar-font-size <points>` | Write the workspace tab bar text size to cmux's editable Ghostty config and reload the running app when available. |
+| `config surface-tab-bar-font-size [points]` | Get the workspace tab bar text size, or set it when a point size is provided. |
+| `config get <key>`, `config set <key> <points>` | Generic get/set for `sidebar-font-size` and `surface-tab-bar-font-size`. |
 
 `config doctor --json` outputs an object with `ok`, `error_count`,
 `findings`, `reload_command`, `docs_url`, and `schema_url`. Each finding includes
@@ -385,7 +396,7 @@ the expected text without connecting to a cmux socket.
 - `cmux settings --help` -> `Usage: cmux settings [open [target]|path|docs|<target>]`
 - `cmux settings path` -> `Config files:`
 - `cmux settings docs` -> `Config files:`
-- `cmux config --help` -> `Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload>`
+- `cmux config --help` -> `Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload|get|set|sidebar-font-size|surface-tab-bar-font-size>`
 - `cmux config path` -> `Config files:`
 - `cmux config docs` -> `Config files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`
@@ -425,6 +436,9 @@ the expected text without connecting to a cmux socket.
 - `cmux new-workspace --help` -> `Usage: cmux new-workspace`
 - `cmux list-workspaces --help` -> `Usage: cmux list-workspaces`
 - `cmux ssh --help` -> `Usage: cmux ssh <destination>`
+- `cmux ssh-session-list --help` -> `Usage: cmux ssh-session-list`
+- `cmux ssh-session-attach --help` -> `Usage: cmux ssh-session-attach --session-id <id>`
+- `cmux ssh-session-cleanup --help` -> `Usage: cmux ssh-session-cleanup`
 - `cmux new-split --help` -> `Usage: cmux new-split`
 - `cmux list-panes --help` -> `Usage: cmux list-panes`
 - `cmux list-pane-surfaces --help` -> `Usage: cmux list-pane-surfaces`

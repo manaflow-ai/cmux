@@ -2,14 +2,18 @@ import AppKit
 import SwiftUI
 import Foundation
 import Bonsplit
+import CmuxProcess
 import CoreVideo
 import Combine
 import CoreServices
 import Darwin
+import OSLog
 
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
 typealias Tab = Workspace
+
+private let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "TabManager")
 
 private final class WorkspaceGitMetadataWatcherCallbackBox: @unchecked Sendable {
     let handleEvent: @Sendable () -> Void
@@ -948,30 +952,74 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 /// Where a newly-created workspace lands inside its group when the user
 /// clicks the group header's + button (or invokes
 /// `workspace.group.new_workspace`).
+///   - `.afterCurrent` — immediately after the current in-group workspace,
+///     falling back to `.top` when no in-group reference is supplied.
 ///   - `.top` — second slot, immediately after the anchor.
 ///   - `.end` — last slot, after the existing trailing member.
-enum WorkspaceGroupNewPlacement: String, Sendable, CaseIterable {
+enum WorkspaceGroupNewPlacement: String, Sendable, CaseIterable, Identifiable {
+    case afterCurrent
     case top
     case end
 
+    var id: String { rawValue }
+
     init?(rawString: String?) {
-        guard let raw = rawString?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-              !raw.isEmpty,
-              let value = WorkspaceGroupNewPlacement(rawValue: raw) else { return nil }
-        self = value
+        guard let raw = rawString?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        switch raw.lowercased() {
+        case "aftercurrent", "after-current", "after_current":
+            self = .afterCurrent
+        case "top":
+            self = .top
+        case "end":
+            self = .end
+        default:
+            return nil
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .afterCurrent:
+            return String(localized: "workspaceGroup.placement.afterCurrent", defaultValue: "After current")
+        case .top:
+            return String(localized: "workspaceGroup.placement.top", defaultValue: "Top of group")
+        case .end:
+            return String(localized: "workspaceGroup.placement.end", defaultValue: "End of group")
+        }
+    }
+
+    var settingsDescription: String {
+        switch self {
+        case .afterCurrent:
+            return String(
+                localized: "workspaceGroup.placement.afterCurrent.description",
+                defaultValue: "Insert new group workspaces after the active workspace in that group."
+            )
+        case .top:
+            return String(
+                localized: "workspaceGroup.placement.top.description",
+                defaultValue: "Insert new group workspaces right after the group header."
+            )
+        case .end:
+            return String(
+                localized: "workspaceGroup.placement.end.description",
+                defaultValue: "Append new group workspaces after the last group member."
+            )
+        }
     }
 }
 
 /// UserDefaults-backed global default for the per-group `+` placement.
 /// Used when neither the per-cwd `cmux.json` entry nor an explicit call-site
-/// override pins a placement. Default ships as `.top`.
+/// override pins a placement.
 enum WorkspaceGroupNewWorkspacePlacementSettings {
     static let key = "workspaceGroup.newWorkspacePlacement"
-    static let defaultValue: WorkspaceGroupNewPlacement = .top
+    static let defaultValue: WorkspaceGroupNewPlacement = .afterCurrent
 
     static func resolved(defaults: UserDefaults = .standard) -> WorkspaceGroupNewPlacement {
         guard let raw = defaults.string(forKey: key),
-              let value = WorkspaceGroupNewPlacement(rawValue: raw) else {
+              let value = WorkspaceGroupNewPlacement(rawString: raw) else {
             return defaultValue
         }
         return value
@@ -1057,20 +1105,6 @@ class TabManager: ObservableObject {
         let generation: UInt64
         let directory: String
     }
-
-    struct CommandResult: Sendable {
-        let stdout: String?
-        let stderr: String?
-        let exitStatus: Int32?
-        let timedOut: Bool
-        let executionError: String?
-    }
-
-#if DEBUG
-    nonisolated(unsafe) static var commandRunnerForTesting: (
-        @Sendable (String, String, [String], TimeInterval?) -> CommandResult?
-    )?
-#endif
 
     private struct WorkspaceGitProbeKey: Hashable, Sendable {
         let workspaceId: UUID
@@ -1381,6 +1415,7 @@ class TabManager: ObservableObject {
     private var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
     private var workspaceGitMetadataFallbackTimer: DispatchSourceTimer?
     private var lastSidebarGitMetadataWatchEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
+    private var lastSidebarPullRequestPollingEnabled = SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
     private var workspacePullRequestProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
     private var workspacePullRequestNextPollAtByKey: [WorkspaceGitProbeKey: Date] = [:]
     private var workspacePullRequestLastTerminalStateRefreshAtByKey: [WorkspaceGitProbeKey: Date] = [:]
@@ -1431,12 +1466,18 @@ class TabManager: ObservableObject {
     private var uiTestCancellables = Set<AnyCancellable>()
 #endif
 
+    // Runs external commands (currently the `gh auth token` probe). Injected so
+    // tests can supply a fake without spawning a real process.
+    private let commandRunner: any CommandRunning
+
     init(
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
-        autoWelcomeIfNeeded: Bool = true
+        autoWelcomeIfNeeded: Bool = true,
+        commandRunner: any CommandRunning = CommandRunner()
     ) {
+        self.commandRunner = commandRunner
         addWorkspace(
             title: initialWorkspaceTitle,
             workingDirectory: initialWorkingDirectory,
@@ -1488,7 +1529,7 @@ class TabManager: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { [weak self] in
-                self?.sidebarGitMetadataWatchSettingsDidChange()
+                self?.sidebarMetadataSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
             }
         })
@@ -1528,7 +1569,7 @@ class TabManager: ObservableObject {
     }
 
     private func updateWorkspacePullRequestPollTimer() {
-        guard sidebarGitMetadataWatchEnabled else {
+        guard sidebarPullRequestPollingEnabled else {
             workspacePullRequestPollTimer?.cancel()
             workspacePullRequestPollTimer = nil
             return
@@ -1614,6 +1655,15 @@ class TabManager: ObservableObject {
         SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     }
 
+    private var sidebarPullRequestPollingEnabled: Bool {
+        SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
+    }
+
+    private func sidebarMetadataSettingsDidChange() {
+        sidebarGitMetadataWatchSettingsDidChange()
+        sidebarPullRequestPollingSettingsDidChange()
+    }
+
     private func sidebarGitMetadataWatchSettingsDidChange() {
         let isEnabled = sidebarGitMetadataWatchEnabled
         guard isEnabled != lastSidebarGitMetadataWatchEnabled else {
@@ -1644,6 +1694,22 @@ class TabManager: ObservableObject {
 
         restartWorkspaceGitMetadataWatching(reason: "gitWatchSettingEnabled")
         updateWorkspaceGitMetadataFallbackTimer()
+    }
+
+    private func sidebarPullRequestPollingSettingsDidChange() {
+        let isEnabled = sidebarPullRequestPollingEnabled
+        guard isEnabled != lastSidebarPullRequestPollingEnabled else {
+            return
+        }
+        lastSidebarPullRequestPollingEnabled = isEnabled
+
+        guard isEnabled else {
+            resetWorkspacePullRequestRefreshState()
+            clearAllWorkspaceSidebarPullRequestMetadata()
+            return
+        }
+
+        refreshTrackedWorkspacePullRequestsIfNeeded(reason: "pullRequestVisibilityEnabled")
     }
 
     private func restartWorkspaceGitMetadataWatching(reason: String) {
@@ -1773,9 +1839,9 @@ class TabManager: ObservableObject {
         reason: String,
         allowCachedResultsOverride: Bool? = nil
     ) {
-        guard sidebarGitMetadataWatchEnabled else {
+        guard sidebarPullRequestPollingEnabled else {
             resetWorkspacePullRequestRefreshState()
-            clearAllWorkspaceSidebarGitMetadata()
+            clearAllWorkspaceSidebarPullRequestMetadata()
             return
         }
 
@@ -1847,6 +1913,7 @@ class TabManager: ObservableObject {
         let cacheBySlug = workspacePullRequestRepoCacheBySlug
         let allowCachedResults = allowCachedResultsOverride
             ?? Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
+        let commandRunner = commandRunner
         workspacePullRequestRefreshTask = Task.detached(priority: .utility) { [weak self] in
             let candidateResolution = await Self.resolveWorkspacePullRequestCandidateSeeds(candidateSeeds)
             guard !Task.isCancelled else { return }
@@ -1855,7 +1922,8 @@ class TabManager: ObservableObject {
                 candidateBranchesByRepo: candidateResolution.candidateBranchesByRepo,
                 cacheBySlug: cacheBySlug,
                 now: now,
-                allowCachedResults: allowCachedResults
+                allowCachedResults: allowCachedResults,
+                commandRunner: commandRunner
             )
             let results = Self.resolveWorkspacePullRequestRefreshResults(
                 candidates: candidateResolution.candidates,
@@ -1961,8 +2029,8 @@ class TabManager: ObservableObject {
         reason: String
     ) {
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-        guard sidebarGitMetadataWatchEnabled else {
-            clearWorkspaceGitMetadata(for: key)
+        guard sidebarPullRequestPollingEnabled else {
+            clearWorkspacePullRequestMetadata(for: key)
             return
         }
         let shouldBypassRepoCache = !Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
@@ -1993,6 +2061,12 @@ class TabManager: ObservableObject {
         now: Date,
         reason: String
     ) {
+        guard sidebarPullRequestPollingEnabled else {
+            resetWorkspacePullRequestRefreshState()
+            clearAllWorkspaceSidebarPullRequestMetadata()
+            return
+        }
+
         for (repoSlug, repoResult) in repoResults {
             guard case .success(let cacheEntry, let usedCache, _) = repoResult,
                   !usedCache else {
@@ -2195,6 +2269,14 @@ class TabManager: ObservableObject {
         updateWorkspacePullRequestPollTimer()
     }
 
+    private func clearWorkspacePullRequestMetadata(for key: WorkspaceGitProbeKey) {
+        clearWorkspacePullRequestTracking(for: key)
+        guard let workspace = tabs.first(where: { $0.id == key.workspaceId }) else {
+            return
+        }
+        workspace.clearPanelPullRequest(panelId: key.panelId)
+    }
+
     private func resetWorkspacePullRequestRefreshState() {
         workspacePullRequestRefreshTask?.cancel()
         workspacePullRequestRefreshTask = nil
@@ -2298,7 +2380,7 @@ class TabManager: ObservableObject {
     }
 
     func sidebarGitMetadataWatchSettingsDidChangeForTesting() {
-        sidebarGitMetadataWatchSettingsDidChange()
+        sidebarMetadataSettingsDidChange()
     }
 
     func trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
@@ -2315,6 +2397,14 @@ class TabManager: ObservableObject {
     func activeWorkspaceGitProbePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
         let probeKeys = Set(workspaceGitProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitProbeTimersByKey.keys.filter { $0.workspaceId == workspaceId })
+        return Set(probeKeys.map(\.panelId))
+    }
+
+    func workspacePullRequestTrackedPanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
+        let probeKeys = Set(workspacePullRequestProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestNextPollAtByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestLastTerminalStateRefreshAtByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestTransientFailureCountByKey.keys.filter { $0.workspaceId == workspaceId })
         return Set(probeKeys.map(\.panelId))
     }
 
@@ -2541,6 +2631,33 @@ class TabManager: ObservableObject {
     func toggleFocusedTerminalCopyMode() -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
         return panel.surface.toggleKeyboardCopyMode()
+    }
+
+    /// Forwards a single Ctrl-F (`^F`) key press to the focused terminal surface,
+    /// faithfully encoded through Ghostty so it matches whatever the running TUI
+    /// would receive from a real keystroke.
+    ///
+    /// This is the non-keyboard escape hatch for control chords that a focused TUI
+    /// reads off the raw tty. The motivating case is Claude Code's force-stop, which
+    /// is only exposed as "press Ctrl-F twice"; invoke this action twice to deliver
+    /// it. Delivery bypasses cmux's shortcut/menu/responder layers entirely.
+    ///
+    /// - Returns: `true` when the chord was sent or queued for the focused terminal,
+    ///   `false` when no terminal panel is focused.
+    @discardableResult
+    func sendCtrlFToFocusedTerminal() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        let result = panel.sendNamedKeyResult("ctrl-f")
+        if result == .sent {
+            panel.surface.forceRefresh(reason: "tabManager.sendCtrlFToFocusedTerminal")
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "terminal.sendCtrlF workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+            "panel=\(panel.id.uuidString.prefix(5)) result=\(result)"
+        )
+#endif
+        return result.accepted
     }
 
     @discardableResult
@@ -2980,6 +3097,12 @@ class TabManager: ObservableObject {
         }
     }
 
+    private func clearAllWorkspaceSidebarPullRequestMetadata() {
+        for workspace in tabs {
+            workspace.clearSidebarPullRequestMetadata()
+        }
+    }
+
     private func clearWorkspaceGitProbes(workspaceId: UUID) {
         let keys = Set(workspaceGitProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitProbeTimersByKey.keys.filter { $0.workspaceId == workspaceId })
@@ -3013,7 +3136,9 @@ class TabManager: ObservableObject {
             if case .inFlight = workspaceGitProbeStateByKey[probeKey] { return true }
             return false
         }()
+        let shouldTrackPullRequests = sidebarPullRequestPollingEnabled
         let resolvedPullRequest: SidebarPullRequestState? = {
+            guard shouldTrackPullRequests else { return nil }
             guard case .resolved(let pullRequest) = snapshot.pullRequest else { return nil }
             return pullRequest
         }()
@@ -3136,24 +3261,31 @@ class TabManager: ObservableObject {
 
         switch snapshot.pullRequest {
         case .resolved(let pullRequest):
-            workspace.updatePanelPullRequest(
-                panelId: probeKey.panelId,
-                number: pullRequest.number,
-                label: pullRequest.label,
-                url: pullRequest.url,
-                status: pullRequest.status,
-                branch: pullRequest.branch,
-                isStale: false
-            )
+            if shouldTrackPullRequests {
+                workspace.updatePanelPullRequest(
+                    panelId: probeKey.panelId,
+                    number: pullRequest.number,
+                    label: pullRequest.label,
+                    url: pullRequest.url,
+                    status: pullRequest.status,
+                    branch: pullRequest.branch,
+                    isStale: false
+                )
+            } else if workspace.panelPullRequests[probeKey.panelId] != nil {
+                workspace.clearPanelPullRequest(panelId: probeKey.panelId)
+            }
         case .notFound:
             if workspace.panelPullRequests[probeKey.panelId] != nil {
                 workspace.clearPanelPullRequest(panelId: probeKey.panelId)
             }
         case .deferred, .unsupportedRepository, .transientFailure:
+            if !shouldTrackPullRequests, workspace.panelPullRequests[probeKey.panelId] != nil {
+                workspace.clearPanelPullRequest(panelId: probeKey.panelId)
+            }
             break
         }
 
-        if snapshot.branch != nil {
+        if snapshot.branch != nil, shouldTrackPullRequests {
             scheduleWorkspacePullRequestRefresh(
                 workspaceId: probeKey.workspaceId,
                 panelId: probeKey.panelId,
@@ -4223,7 +4355,8 @@ class TabManager: ObservableObject {
         candidateBranchesByRepo: [String: Set<String>],
         cacheBySlug: [String: WorkspacePullRequestRepoCacheEntry],
         now: Date,
-        allowCachedResults: Bool
+        allowCachedResults: Bool,
+        commandRunner: any CommandRunning
     ) async -> [String: WorkspacePullRequestRepoFetchResult] {
         guard !repoDirectoriesBySlug.isEmpty else { return [:] }
 
@@ -4231,7 +4364,7 @@ class TabManager: ObservableObject {
         configuration.timeoutIntervalForRequest = max(Self.workspacePullRequestProbeTimeout, 8)
         configuration.timeoutIntervalForResource = max(Self.workspacePullRequestProbeTimeout, 8)
         let session = URLSession(configuration: configuration)
-        let authHeader = await workspacePullRequestAuthHeaderValue()
+        let authHeader = await workspacePullRequestAuthHeaderValue(commandRunner: commandRunner)
         var results: [String: WorkspacePullRequestRepoFetchResult] = [:]
 
         let fetchedResults = await withTaskGroup(
@@ -4647,7 +4780,9 @@ class TabManager: ObservableObject {
         }
     }
 
-    private nonisolated static func workspacePullRequestAuthHeaderValue() async -> String? {
+    private nonisolated static func workspacePullRequestAuthHeaderValue(
+        commandRunner: any CommandRunning
+    ) async -> String? {
         let environment = ProcessInfo.processInfo.environment
         if let envToken = environment["GH_TOKEN"] ?? environment["GITHUB_TOKEN"] {
             let trimmed = envToken.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4657,7 +4792,7 @@ class TabManager: ObservableObject {
         }
 
         let directory = FileManager.default.currentDirectoryPath
-        let token = await runCommand(
+        let token = await commandRunner.runStandardOutput(
             directory: directory,
             executable: "gh",
             arguments: ["auth", "token"],
@@ -4811,291 +4946,6 @@ class TabManager: ObservableObject {
 
     private nonisolated static func decodeJSON<T: Decodable>(_ type: T.Type, from data: Data) -> T? {
         try? JSONDecoder().decode(T.self, from: data)
-    }
-
-    private nonisolated static let fallbackCommandSearchDirectories: [String] = [
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-        "/opt/local/bin",
-    ]
-
-    nonisolated static func resolvedCommandPathForTesting(
-        executable: String,
-        environment: [String: String],
-        fallbackDirectories: [String]
-    ) -> String? {
-        resolvedCommandPath(
-            executable: executable,
-            environment: environment,
-            fallbackDirectories: fallbackDirectories
-        )
-    }
-
-    private nonisolated static func resolvedCommandPath(
-        executable: String,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        fallbackDirectories: [String] = fallbackCommandSearchDirectories
-    ) -> String? {
-        guard !executable.isEmpty else { return nil }
-        let fileManager = FileManager.default
-        if executable.contains("/") {
-            return fileManager.isExecutableFile(atPath: executable) ? executable : nil
-        }
-
-        var searchDirectories: [String] = []
-        var seenDirectories: Set<String> = []
-
-        func appendSearchPath(_ path: String?) {
-            guard let path else { return }
-            for rawComponent in path.split(separator: ":") {
-                let component = String(rawComponent).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !component.isEmpty,
-                      seenDirectories.insert(component).inserted else {
-                    continue
-                }
-                searchDirectories.append(component)
-            }
-        }
-
-        appendSearchPath(environment["PATH"])
-        appendSearchPath(getenv("PATH").map { String(cString: $0) })
-        if let bundledBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
-            appendSearchPath(bundledBinPath)
-        }
-        fallbackDirectories.forEach { appendSearchPath($0) }
-        appendSearchPath("/usr/bin:/bin:/usr/sbin:/sbin")
-
-        for directory in searchDirectories {
-            let candidate = URL(fileURLWithPath: directory, isDirectory: true)
-                .appendingPathComponent(executable)
-                .path
-            if fileManager.isExecutableFile(atPath: candidate) {
-                return candidate
-            }
-        }
-        return nil
-    }
-
-    private final class CommandRunState: @unchecked Sendable {
-        fileprivate typealias Continuation = CheckedContinuation<CommandResult?, Never>
-
-        private let lock = NSLock()
-        private var continuation: Continuation?
-        private var stdoutData: Data?
-        private var stderrData: Data?
-        private var exitStatus: Int32?
-        private var didTerminate = false
-        private var didResume = false
-        private var timeoutWorkItem: DispatchWorkItem?
-
-        fileprivate init(continuation: Continuation) {
-            self.continuation = continuation
-        }
-
-        func setTimeoutWorkItem(_ item: DispatchWorkItem?) {
-            guard let item else { return }
-            lock.lock()
-            if didResume {
-                lock.unlock()
-                item.cancel()
-                return
-            }
-            timeoutWorkItem = item
-            lock.unlock()
-        }
-
-        func hasResumed() -> Bool {
-            lock.lock()
-            defer { lock.unlock() }
-            return didResume
-        }
-
-        func completeStdout(_ data: Data) {
-            complete {
-                stdoutData = data
-            }
-        }
-
-        func completeStderr(_ data: Data) {
-            complete {
-                stderrData = data
-            }
-        }
-
-        func completeTermination(exitStatus: Int32) {
-            complete {
-                self.exitStatus = exitStatus
-                didTerminate = true
-            }
-        }
-
-        func resume(returning result: CommandResult?) {
-            var continuationToResume: Continuation?
-            var timeoutToCancel: DispatchWorkItem?
-            lock.lock()
-            guard !didResume else {
-                lock.unlock()
-                return
-            }
-            didResume = true
-            continuationToResume = continuation
-            continuation = nil
-            timeoutToCancel = timeoutWorkItem
-            timeoutWorkItem = nil
-            lock.unlock()
-
-            timeoutToCancel?.cancel()
-            continuationToResume?.resume(returning: result)
-        }
-
-        private func complete(_ mutate: () -> Void) {
-            var continuationToResume: Continuation?
-            var timeoutToCancel: DispatchWorkItem?
-            var resultToResume: CommandResult?
-
-            lock.lock()
-            guard !didResume else {
-                lock.unlock()
-                return
-            }
-
-            mutate()
-            if let stdoutData,
-               let stderrData,
-               didTerminate {
-                didResume = true
-                resultToResume = CommandResult(
-                    stdout: String(data: stdoutData, encoding: .utf8),
-                    stderr: String(data: stderrData, encoding: .utf8),
-                    exitStatus: exitStatus,
-                    timedOut: false,
-                    executionError: nil
-                )
-                continuationToResume = continuation
-                continuation = nil
-                timeoutToCancel = timeoutWorkItem
-                timeoutWorkItem = nil
-            }
-            lock.unlock()
-
-            timeoutToCancel?.cancel()
-            if let resultToResume {
-                continuationToResume?.resume(returning: resultToResume)
-            }
-        }
-    }
-
-    private nonisolated static func runCommand(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval? = nil
-    ) async -> String? {
-        let result = await runCommandResult(
-            directory: directory,
-            executable: executable,
-            arguments: arguments,
-            timeout: timeout
-        )
-        guard let result,
-              result.exitStatus == 0,
-              !result.timedOut else {
-            return nil
-        }
-        return result.stdout
-    }
-
-    private nonisolated static func runCommandResult(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval? = nil
-    ) async -> CommandResult? {
-#if DEBUG
-        assert(!Thread.isMainThread, "TabManager.runCommandResult must not run on the main thread")
-        if let commandRunnerForTesting {
-            return commandRunnerForTesting(directory, executable, arguments, timeout)
-        }
-#endif
-        return await withCheckedContinuation { continuation in
-            let process = Process()
-            let stdout = Pipe()
-            let stderr = Pipe()
-            if let resolvedExecutable = resolvedCommandPath(executable: executable) {
-                process.executableURL = URL(fileURLWithPath: resolvedExecutable)
-                process.arguments = arguments
-            } else {
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                process.arguments = [executable] + arguments
-            }
-            process.currentDirectoryURL = URL(fileURLWithPath: directory)
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = stdout
-            process.standardError = stderr
-
-            let state = CommandRunState(continuation: continuation)
-            let timeoutWorkItem = timeout.map { _ in
-                DispatchWorkItem { [state, process] in
-                    guard !state.hasResumed() else { return }
-                    guard process.isRunning else { return }
-                    process.terminate()
-                    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.2) {
-                        if process.isRunning {
-                            kill(process.processIdentifier, SIGKILL)
-                        }
-                    }
-                    state.resume(
-                        returning: CommandResult(
-                            stdout: nil,
-                            stderr: nil,
-                            exitStatus: nil,
-                            timedOut: true,
-                            executionError: nil
-                        )
-                    )
-                }
-            }
-            state.setTimeoutWorkItem(timeoutWorkItem)
-            process.terminationHandler = { terminatedProcess in
-                state.completeTermination(exitStatus: terminatedProcess.terminationStatus)
-            }
-
-            do {
-                try process.run()
-            } catch {
-                try? stdout.fileHandleForWriting.close()
-                try? stderr.fileHandleForWriting.close()
-                state.resume(
-                    returning: CommandResult(
-                        stdout: nil,
-                        stderr: nil,
-                        exitStatus: nil,
-                        timedOut: false,
-                        executionError: String(describing: error)
-                    )
-                )
-                return
-            }
-
-            try? stdout.fileHandleForWriting.close()
-            try? stderr.fileHandleForWriting.close()
-
-            DispatchQueue.global(qos: .utility).async {
-                let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdout.fileHandleForReading)
-                state.completeStdout(data)
-            }
-            DispatchQueue.global(qos: .utility).async {
-                let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderr.fileHandleForReading)
-                state.completeStderr(data)
-            }
-            if let timeout,
-               let timeoutWorkItem {
-                DispatchQueue.global(qos: .utility).asyncAfter(
-                    deadline: .now() + timeout,
-                    execute: timeoutWorkItem
-                )
-            }
-        }
     }
 
     nonisolated static func githubRepositorySlugs(fromGitRemoteVOutput output: String) -> [String] {
@@ -6178,6 +6028,7 @@ class TabManager: ObservableObject {
     func createWorkspaceInGroup(
         groupId: UUID,
         placement: WorkspaceGroupNewPlacement = WorkspaceGroupNewWorkspacePlacementSettings.resolved(),
+        referenceWorkspaceId: UUID? = nil,
         select: Bool = true
     ) -> Workspace? {
         guard let group = workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
@@ -6189,7 +6040,12 @@ class TabManager: ObservableObject {
             autoWelcomeIfNeeded: false
         )
         assignGroup(workspaceId: newWorkspace.id, groupId: groupId)
-        placeWithinGroup(workspaceId: newWorkspace.id, groupId: groupId, placement: placement)
+        placeWithinGroup(
+            workspaceId: newWorkspace.id,
+            groupId: groupId,
+            placement: placement,
+            referenceWorkspaceId: referenceWorkspaceId
+        )
         // Expand the group when the new workspace is being focused. The
         // selectedTabId auto-expand hook fires inside `addWorkspace` BEFORE
         // assignGroup, so it can't see the new workspace's membership. Without
@@ -6207,17 +6063,36 @@ class TabManager: ObservableObject {
 
     /// Move an existing group member to the requested in-group slot. Called
     /// after `createWorkspaceInGroup` and any other path that needs to
-    /// pin the new member to top/end relative to the group's members.
+    /// pin the new member relative to the group's members.
     private func placeWithinGroup(
         workspaceId: UUID,
         groupId: UUID,
-        placement: WorkspaceGroupNewPlacement
+        placement: WorkspaceGroupNewPlacement,
+        referenceWorkspaceId: UUID? = nil
     ) {
         guard let group = workspaceGroups.first(where: { $0.id == groupId }),
               let currentIndex = tabs.firstIndex(where: { $0.id == workspaceId }) else { return }
         let memberIndices = tabs.indices.filter { tabs[$0].groupId == groupId && tabs[$0].id != workspaceId }
+        func logMissingPlacementAnchor(_ placementName: String) {
+            tabManagerLogger.info(
+                "workspaceGroup.placeWithinGroup missing placement anchor group=\(groupId.uuidString, privacy: .public) workspace=\(workspaceId.uuidString, privacy: .public) placement=\(placementName, privacy: .public)"
+            )
+        }
         let targetIndex: Int
         switch placement {
+        case .afterCurrent:
+            if let referenceWorkspaceId,
+               referenceWorkspaceId != workspaceId,
+               let referenceIndex = tabs.firstIndex(where: { $0.id == referenceWorkspaceId && $0.groupId == groupId }) {
+                targetIndex = referenceIndex + 1
+            } else if let anchorIndex = tabs.firstIndex(where: { $0.id == group.anchorWorkspaceId }) {
+                targetIndex = anchorIndex + 1
+            } else if let firstMember = memberIndices.first {
+                targetIndex = firstMember
+            } else {
+                logMissingPlacementAnchor("afterCurrent")
+                return
+            }
         case .top:
             if let anchorIndex = tabs.firstIndex(where: { $0.id == group.anchorWorkspaceId }) {
                 // Right after the anchor; the anchor stays first via
@@ -6226,6 +6101,7 @@ class TabManager: ObservableObject {
             } else if let firstMember = memberIndices.first {
                 targetIndex = firstMember
             } else {
+                logMissingPlacementAnchor("top")
                 return
             }
         case .end:
@@ -6236,6 +6112,7 @@ class TabManager: ObservableObject {
                 if let anchorIndex = tabs.firstIndex(where: { $0.id == group.anchorWorkspaceId }) {
                     targetIndex = anchorIndex + 1
                 } else {
+                    logMissingPlacementAnchor("end")
                     return
                 }
             }
@@ -6252,7 +6129,12 @@ class TabManager: ObservableObject {
     /// source group). If the workspace is the currently selected one and the
     /// target group is collapsed, the group auto-expands so the focused
     /// workspace stays visible.
-    func addWorkspaceToGroup(workspaceId: UUID, groupId: UUID) {
+    func addWorkspaceToGroup(
+        workspaceId: UUID,
+        groupId: UUID,
+        placement: WorkspaceGroupNewPlacement? = nil,
+        referenceWorkspaceId: UUID? = nil
+    ) {
         guard let tab = tabs.first(where: { $0.id == workspaceId }), !tab.isPinned else { return }
         guard workspaceGroups.contains(where: { $0.id == groupId }) else { return }
         guard tab.groupId != groupId else { return }
@@ -6274,6 +6156,14 @@ class TabManager: ObservableObject {
         normalizeWorkspaceGroupContiguity(
             preservingTopLevelIds: originalTopLevelIds.filter { $0 != workspaceId }
         )
+        if let placement {
+            placeWithinGroup(
+                workspaceId: workspaceId,
+                groupId: groupId,
+                placement: placement,
+                referenceWorkspaceId: referenceWorkspaceId
+            )
+        }
         postWorkspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
     }
 
@@ -6434,10 +6324,13 @@ class TabManager: ObservableObject {
         workspaceGroups[index].customColor = hex
     }
 
-    func setWorkspaceGroupIcon(groupId: UUID, symbol: String?) {
-        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
-        guard workspaceGroups[index].iconSymbol != symbol else { return }
-        workspaceGroups[index].iconSymbol = symbol
+    @discardableResult
+    func setWorkspaceGroupIcon(groupId: UUID, symbol: String?) -> String? {
+        let normalized = RenderableSystemSymbol.normalized(symbol)
+        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return nil }
+        guard workspaceGroups[index].iconSymbol != normalized else { return normalized }
+        workspaceGroups[index].iconSymbol = normalized
+        return normalized
     }
 
     /// Reassign which member workspace serves as the group's anchor.
@@ -7002,6 +6895,10 @@ class TabManager: ObservableObject {
         target: String?
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        guard sidebarPullRequestPollingEnabled else {
+            clearWorkspacePullRequestMetadata(for: WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId))
+            return
+        }
         reconcileLocalPullRequestActionIfPossible(
             workspace: tab,
             panelId: surfaceId,
@@ -7899,23 +7796,32 @@ class TabManager: ObservableObject {
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         guard tab.panels[surfaceId] != nil else { return }
-        let keepsRemoteWorkspaceOpen =
+        let keepsPersistentRemoteSurfaceOpen =
+            tab.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId)
+        let handlesRemoteExitThroughWorkspace =
             tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
 
 #if DEBUG
         cmuxDebugLog(
             "surface.close.childExited tab=\(tabId.uuidString.prefix(5)) " +
             "surface=\(surfaceId.uuidString.prefix(5)) panels=\(tab.panels.count) workspaces=\(tabs.count) " +
-            "remoteWorkspace=\(tab.isRemoteWorkspace ? 1 : 0) keepRemote=\(keepsRemoteWorkspaceOpen ? 1 : 0)"
+            "remoteWorkspace=\(tab.isRemoteWorkspace ? 1 : 0) keepRemote=\(handlesRemoteExitThroughWorkspace ? 1 : 0) " +
+            "keepPersistentRemote=\(keepsPersistentRemoteSurfaceOpen ? 1 : 0)"
         )
 #endif
 
-        // Exiting the last SSH surface should demote the workspace back to a local one.
-        // Route through Workspace close handling so remote teardown and replacement-panel
-        // logic run before TabManager considers removing the workspace itself, including
-        // session-end paths where remote configuration was cleared before Ghostty delivered
-        // the child-exit callback.
-        if keepsRemoteWorkspaceOpen {
+        // A persistent SSH workspace must never silently replace a failed remote attach with
+        // a local login shell. Keep the exited surface visible so the user can see the error
+        // and retry instead of making a detached remote workspace look local after relaunch.
+        if keepsPersistentRemoteSurfaceOpen {
+            tab.markPersistentRemotePTYAttachFailed(surfaceId: surfaceId)
+            return
+        }
+
+        // Exiting the last non-persistent SSH surface should demote the workspace back to a
+        // local one. Route through Workspace close handling so remote teardown and replacement
+        // panel logic run before TabManager considers removing the workspace itself.
+        if handlesRemoteExitThroughWorkspace {
             closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
             return
         }
@@ -11070,7 +10976,6 @@ extension TabManager {
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
             hasher.combine(workspace.isPinned)
-            hasher.combine(workspace.terminalScrollBarHidden)
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)
             hasher.combine(workspace.metadataBlocks.count)

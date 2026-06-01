@@ -15,8 +15,8 @@ enum SessionSnapshotSchema {
 enum SessionPersistencePolicy {
     static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
     static let defaultSidebarWidth: Double = 220
-    static let defaultMinimumSidebarWidth: Double = 190
-    static let minimumSidebarWidth: Double = 190
+    static let defaultMinimumSidebarWidth: Double = 216
+    static let minimumSidebarWidth: Double = 216
     static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
@@ -1373,6 +1373,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
     var textBoxDraft: SessionTextBoxInputDraftSnapshot?
+    var isRemoteTerminal: Bool?
     var remotePTYSessionID: String?
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
@@ -1386,6 +1387,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
+        isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil
     ) {
@@ -1396,6 +1398,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.hibernation = hibernation
         self.resumeBinding = resumeBinding
         self.textBoxDraft = textBoxDraft
+        self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
     }

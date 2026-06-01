@@ -53,11 +53,14 @@ extension TerminalSurface {
 
     static func applyManagedGitWatchEnvironment(
         watchGitStatusEnabled: Bool,
+        showPullRequestsEnabled: Bool = true,
         to environment: inout [String: String],
         protectedKeys: inout Set<String>
     ) {
         environment["CMUX_NO_GIT_WATCH"] = watchGitStatusEnabled ? "" : "1"
         protectedKeys.insert("CMUX_NO_GIT_WATCH")
+        environment["CMUX_NO_PR_WATCH"] = (watchGitStatusEnabled && showPullRequestsEnabled) ? "" : "1"
+        protectedKeys.insert("CMUX_NO_PR_WATCH")
     }
 
     static func mergedStartupEnvironment(
