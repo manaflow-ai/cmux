@@ -1205,9 +1205,7 @@ async function openExternalBrowser(url, options = {}) {
   return { ok: true };
 }
 
-async function showExternalBrowserProfileMenu(event, url = state.settings.browserHomeUrl) {
-  event.preventDefault();
-  event.stopPropagation();
+async function showExternalBrowserProfileMenuAt(preferredX, preferredY, url = state.settings.browserHomeUrl) {
   const target = normalizeUrl(url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
   const menu = ensureContextMenu();
   menu.className = "context-menu";
@@ -1218,7 +1216,7 @@ async function showExternalBrowserProfileMenu(event, url = state.settings.browse
   meta.className = "context-meta";
   meta.textContent = target;
   menu.replaceChildren(title, meta, contextMenuButton(t("browser.loadingProfiles"), () => {}, true));
-  showContextMenuAt(menu, event.clientX, event.clientY);
+  showContextMenuAt(menu, preferredX, preferredY);
 
   const profiles = await loadBrowserProfiles({ force: !state.browserProfilesLoaded, render: false });
   if (state.contextMenu !== menu || menu.hidden) return;
@@ -1240,7 +1238,13 @@ async function showExternalBrowserProfileMenu(event, url = state.settings.browse
     contextMenuSectionTitle(t("browser.default")),
     settingsActions
   );
-  showContextMenuAt(menu, event.clientX, event.clientY);
+  showContextMenuAt(menu, preferredX, preferredY);
+}
+
+async function showExternalBrowserProfileMenu(event, url = state.settings.browserHomeUrl) {
+  event.preventDefault();
+  event.stopPropagation();
+  return showExternalBrowserProfileMenuAt(event.clientX, event.clientY, url);
 }
 
 function hasRecentActivity() {
@@ -5844,7 +5848,8 @@ function showBrowserTabContextMenu(event, session, tabId) {
     contextMenuButton("New tab", () => createBrowserTab(session, state.settings.browserHomeUrl)),
     contextMenuButton("Duplicate tab", () => duplicateBrowserTab(session, tab.id)),
     contextMenuButton("Copy URL", () => copyBrowserTabUrl(tab)),
-    contextMenuButton("Open externally", () => openExternalBrowser(tab.url, { toast: true }))
+    contextMenuButton(t("browser.openExternally"), () => openExternalBrowser(tab.url, { toast: true })),
+    contextMenuButton(t("browser.openWithProfile"), () => showExternalBrowserProfileMenuAt(event.clientX, event.clientY, tab.url), false, "", { keepOpen: true })
   );
   const closeActions = contextMenuActionGroup(
     contextMenuButton("Close other tabs", () => closeOtherBrowserTabs(session, tab.id), session.tabs.length <= 1),
@@ -10439,6 +10444,7 @@ function showPanelContextMenu(event, panel) {
       contextMenuButton("Focus address", () => focusBrowserAddress(panel)),
       contextMenuButton("Reload page", () => reloadBrowserPanel(panel)),
       contextMenuButton("Open externally", () => openBrowserPanelExternally(panel)),
+      contextMenuButton(t("browser.openWithProfile"), () => showExternalBrowserProfileMenuAt(event.clientX, event.clientY, browserPanelUrl(panel)), false, "", { keepOpen: true }),
       contextMenuButton("Copy URL", () => copyBrowserPanelUrl(panel)),
       contextMenuButton("Browser settings", () => openSettingsCategory("browser"))
     );
@@ -10701,16 +10707,18 @@ function contextMenuActionGroup(...actions) {
   return group;
 }
 
-function contextMenuButton(label, action, disabled = false, tone = "") {
+function contextMenuButton(label, action, disabled = false, tone = "", options = {}) {
   const button = document.createElement("button");
   button.className = `context-action${tone ? ` ${tone}` : ""}`;
   button.type = "button";
   button.textContent = label;
   button.disabled = disabled;
-  button.onclick = () => {
+  button.onclick = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
     if (disabled) return;
     action();
-    hideContextMenu();
+    if (!options.keepOpen) hideContextMenu();
   };
   return button;
 }

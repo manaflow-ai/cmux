@@ -10,6 +10,7 @@ const windowsMessages = {
     "browser.system": "System",
     "browser.defaultProfile": "Default",
     "browser.openExternally": "Open externally",
+    "browser.openWithProfile": "Open with profile...",
     "browser.loadingProfiles": "Loading profiles...",
     "browser.profile": "Profile",
     "browser.default": "Default",
