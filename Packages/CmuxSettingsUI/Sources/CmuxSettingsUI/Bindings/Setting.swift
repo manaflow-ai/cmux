@@ -38,6 +38,7 @@ public struct Setting<Value: SettingCodable>: @preconcurrency DynamicProperty {
     private enum Kind {
         case defaults(KeyPath<SettingCatalog, DefaultsKey<Value>>)
         case json(KeyPath<SettingCatalog, JSONKey<Value>>)
+        case secret(KeyPath<SettingCatalog, SecretFileKey>)
     }
 
     /// Binds to a UserDefaults-backed setting.
@@ -50,12 +51,21 @@ public struct Setting<Value: SettingCodable>: @preconcurrency DynamicProperty {
         self.kind = .json(keyPath)
     }
 
+    /// Binds to a secret-file-backed setting. Secrets are always strings, so
+    /// this overload is only available when `Value` is `String`.
+    public init(_ keyPath: KeyPath<SettingCatalog, SecretFileKey>) where Value == String {
+        self.kind = .secret(keyPath)
+    }
+
     public var wrappedValue: Value {
         get {
             switch resolved {
             case .pending: return fallbackDefault
             case .defaults(let model): return model.current
             case .json(let model): return model.current
+            // The `.secret` case is only created via the `Value == String`
+            // overload, so `current` (a `String`) is always a `Value` here.
+            case .secret(let model): return (model.current as? Value) ?? fallbackDefault
             }
         }
         nonmutating set {
@@ -63,6 +73,8 @@ public struct Setting<Value: SettingCodable>: @preconcurrency DynamicProperty {
             case .pending: return
             case .defaults(let model): model.set(newValue)
             case .json(let model): model.set(newValue)
+            case .secret(let model):
+                if let string = newValue as? String { model.set(string) }
             }
         }
     }
@@ -87,6 +99,13 @@ public struct Setting<Value: SettingCodable>: @preconcurrency DynamicProperty {
                 key: key,
                 errorLog: runtime.errorLog
             ))
+        case .secret(let keyPath):
+            let key = runtime.catalog[keyPath: keyPath]
+            resolved = .secret(SecretValueModel(
+                store: runtime.secretStore,
+                key: key,
+                errorLog: runtime.errorLog
+            ))
         }
     }
 
@@ -98,11 +117,13 @@ public struct Setting<Value: SettingCodable>: @preconcurrency DynamicProperty {
             switch kind {
             case .defaults(let kp): return catalog[keyPath: kp].defaultValue
             case .json(let kp): return catalog[keyPath: kp].defaultValue
+            case .secret(let kp): return (catalog[keyPath: kp].defaultValue as? Value) ?? catalog[keyPath: kp].defaultValue as! Value
             }
         }
         switch kind {
         case .defaults(let kp): return runtime.catalog[keyPath: kp].defaultValue
         case .json(let kp): return runtime.catalog[keyPath: kp].defaultValue
+        case .secret(let kp): return runtime.catalog[keyPath: kp].defaultValue as! Value
         }
     }
 }
@@ -113,4 +134,5 @@ private enum ResolvedModel<Value: SettingCodable>: Sendable {
     case pending
     case defaults(DefaultsValueModel<Value>)
     case json(JSONValueModel<Value>)
+    case secret(SecretValueModel)
 }

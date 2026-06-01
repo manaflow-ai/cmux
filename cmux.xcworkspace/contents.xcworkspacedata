@@ -38,7 +38,7 @@
          location = "group:CmuxSettingsUI">
       </FileRef>
       <FileRef
-         location = "group:CMUXSocketPathDomain">
+         location = "group:CmuxSocketControl">
       </FileRef>
       <FileRef
          location = "group:CMUXWorkstream">

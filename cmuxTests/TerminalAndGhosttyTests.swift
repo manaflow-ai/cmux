@@ -1,4 +1,5 @@
 import XCTest
+import CmuxSocketControl
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
