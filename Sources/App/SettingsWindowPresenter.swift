@@ -262,6 +262,11 @@ enum SettingsWindowPresenter {
             window.toolbar = toolbar
         }
         window.toolbarStyle = .unifiedCompact
+        // `titlebarSeparatorStyle` is the authoritative, non-deprecated control
+        // for the window-level line under the titlebar/toolbar (NSToolbar's
+        // `showsBaselineSeparator` was deprecated in macOS 15). `.none` matches
+        // the seamless titlebar the `Settings { }` scene produced before #4975.
+        window.titlebarSeparatorStyle = .none
     }
 
     private static func clampToVisibleAreaIfNeeded(_ window: NSWindow) {

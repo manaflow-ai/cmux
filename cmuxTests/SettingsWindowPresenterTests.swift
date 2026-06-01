@@ -26,6 +26,8 @@ final class SettingsWindowPresenterTests: XCTestCase {
         XCTAssertEqual(settingsWindow.toolbarStyle, .unifiedCompact)
         XCTAssertTrue(settingsWindow.styleMask.contains(.fullSizeContentView))
         XCTAssertTrue(settingsWindow.titlebarAppearsTransparent)
+        XCTAssertEqual(settingsWindow.titleVisibility, .hidden)
+        XCTAssertEqual(settingsWindow.titlebarSeparatorStyle, .none)
         XCTAssertNotNil(settingsWindow.toolbar)
     }
 
