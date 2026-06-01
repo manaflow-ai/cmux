@@ -16,7 +16,7 @@ struct SocketControlPasswordStoreTests {
         let directory = makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let fileURL = directory.appendingPathComponent("socket-control-password")
-        try "hunter2".write(to: fileURL, atomic: true, encoding: .utf8)
+        try "hunter2".write(to: fileURL, atomically: true, encoding: .utf8)
 
         let store = SocketControlPasswordStore(environment: [:], fileURL: fileURL)
         #expect(try store.loadPassword() == "hunter2")
