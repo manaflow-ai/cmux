@@ -51,6 +51,86 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         }
     }
 
+    func testClaudeWrapperPassesAgentViewManagementCommandsThroughWithoutHooks() throws {
+        let wrapperPath = try bundledClaudeWrapperPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-wrapper-\(UUID().uuidString)", isDirectory: true)
+        let wrapperBinURL = root.appendingPathComponent("wrapper-bin", isDirectory: true)
+        let realBinURL = root.appendingPathComponent("real-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperBinURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fakeCmuxURL = wrapperBinURL.appendingPathComponent("cmux", isDirectory: false)
+        try writeExecutableScript(
+            """
+            #!/bin/bash
+            if [[ "$1" == "--socket" && "$3" == "ping" ]]; then
+                exit 0
+            fi
+            exit 1
+            """,
+            to: fakeCmuxURL
+        )
+
+        let fakeClaudeURL = realBinURL.appendingPathComponent("claude", isDirectory: false)
+        try writeExecutableScript(
+            """
+            #!/bin/bash
+            for arg in "$@"; do
+                printf '%s\\n' "$arg"
+            done
+            """,
+            to: fakeClaudeURL
+        )
+
+        let socketPath = root.appendingPathComponent("cmux.sock", isDirectory: false).path
+        let socketResponder = try UnixSocketResponder(path: socketPath, response: "PONG")
+        defer { socketResponder.stop() }
+
+        let commandCases: [[String]] = [
+            ["agents"],
+            ["attach", "agent-session-123"],
+            ["logs", "agent-session-123"],
+            ["stop", "agent-session-123"],
+            ["kill", "agent-session-123"],
+            ["respawn", "agent-session-123"],
+            ["respawn", "--all"],
+            ["rm", "agent-session-123"],
+        ]
+
+        for arguments in commandCases {
+            var environment = ProcessInfo.processInfo.environment
+            for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+                environment.removeValue(forKey: key)
+            }
+            environment["HOME"] = root.path
+            environment["PATH"] = [
+                wrapperBinURL.path,
+                realBinURL.path,
+                "/usr/bin",
+                "/bin",
+            ].joined(separator: ":")
+            environment["CMUX_SURFACE_ID"] = "surface:agent-view-test"
+            environment["CMUX_SOCKET_PATH"] = socketPath
+
+            let result = runProcess(
+                executablePath: "/bin/bash",
+                arguments: [wrapperPath] + arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stdout)
+            XCTAssertEqual(result.status, 0, result.stdout)
+            XCTAssertEqual(
+                result.stdout.split(separator: "\n").map(String.init),
+                arguments,
+                "claude \(arguments.joined(separator: " ")) should pass through without cmux hook/session flags"
+            )
+        }
+    }
+
     func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"
@@ -1265,6 +1345,14 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     }
 
     private func bundledCLIPath() throws -> String {
+        try bundledBinaryPath(named: "cmux", insideBinPath: ".app/Contents/Resources/bin/cmux")
+    }
+
+    private func bundledClaudeWrapperPath() throws -> String {
+        try bundledBinaryPath(named: "claude", insideBinPath: ".app/Contents/Resources/bin/claude")
+    }
+
+    private func bundledBinaryPath(named name: String, insideBinPath binPath: String) throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)
             .bundleURL
@@ -1274,14 +1362,22 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let enumerator = fileManager.enumerator(at: appBundleURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
 
         while let item = enumerator?.nextObject() as? URL {
-            guard item.lastPathComponent == "cmux",
-                  item.path.contains(".app/Contents/Resources/bin/cmux") else {
+            guard item.lastPathComponent == name,
+                  item.path.contains(binPath) else {
                 continue
             }
             return item.path
         }
 
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        throw XCTSkip("Bundled binary '\(name)' not found in \(appBundleURL.path)")
+    }
+
+    private func writeExecutableScript(_ contents: String, to url: URL) throws {
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: url.path
+        )
     }
 
     private func stableSocketURL() throws -> URL {
