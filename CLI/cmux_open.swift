@@ -376,9 +376,11 @@ extension CMUXCLI {
         var port: Int
         var pid: Int32
         var rootPath: String
+        var protocolVersion: String?
     }
 
-    private static let diffViewerHTTPServerHealthResponse = Data("ok wait-v2 remote-stream\n".utf8)
+    private static let diffViewerHTTPServerProtocolVersion = "wait-v2 remote-stream manifest-refresh react-app-v1"
+    private static let diffViewerHTTPServerHealthResponse = Data("ok \(diffViewerHTTPServerProtocolVersion)\n".utf8)
 
     private struct DiffViewerLabels {
         var values: [String: String]
@@ -3985,6 +3987,7 @@ extension CMUXCLI {
 
         if let state = try? readDiffViewerHTTPServerState(rootDirectory: rootDirectory),
            state.rootPath == rootDirectory.path,
+           state.protocolVersion == Self.diffViewerHTTPServerProtocolVersion,
            (1...65535).contains(state.port),
            diffViewerHTTPServerIsReachable(port: state.port) {
             guard let url = URL(string: "http://127.0.0.1:\(state.port)") else {
@@ -4142,7 +4145,12 @@ extension CMUXCLI {
         defer { close(serverFD) }
 
         try writeDiffViewerHTTPServerState(
-            DiffViewerHTTPServerState(port: port, pid: getpid(), rootPath: rootDirectory.path),
+            DiffViewerHTTPServerState(
+                port: port,
+                pid: getpid(),
+                rootPath: rootDirectory.path,
+                protocolVersion: Self.diffViewerHTTPServerProtocolVersion
+            ),
             rootDirectory: rootDirectory
         )
         FileHandle.standardOutput.write(Data("\(port)\n".utf8))
