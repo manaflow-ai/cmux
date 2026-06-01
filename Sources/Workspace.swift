@@ -18350,7 +18350,7 @@ extension Workspace: BonsplitDelegate {
         case .customizeSurfaceTabBar:
             AppDelegate.shared?.openPreferencesWindow(
                 debugSource: "surfaceTabBar.customize",
-                navigationTarget: .settingsJSON
+                navigationTarget: .paneTabBar
             )
         }
     }

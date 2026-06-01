@@ -14741,7 +14741,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             case .customizeSurfaceTabBar:
                 openPreferencesWindow(
                     debugSource: "configured.cmux.customizeSurfaceTabBar",
-                    navigationTarget: .settingsJSON
+                    navigationTarget: .paneTabBar
                 )
                 onExecuted?()
                 return true

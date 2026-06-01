@@ -136,8 +136,10 @@ struct SettingsRowAnchorResolutionTests {
         "setting:keyboardShortcuts:shortcuts",
         "setting:keyboardShortcuts:shortcut-chords",
         "setting:keyboardShortcuts:reset-defaults",
+        "setting:paneTabBar:documentation",
+        "setting:paneTabBar:global-config",
+        "setting:paneTabBar:project-config",
         "setting:settingsJSON:open-file",
-        "setting:settingsJSON:surface-tab-bar",
         "setting:settingsJSON:documentation",
         "setting:reset:reset-all",
     ]

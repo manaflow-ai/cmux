@@ -7136,6 +7136,61 @@ struct SettingsView: View {
                         }
                     }
 
+                    SettingsSectionHeader(title: String(localized: "settings.section.paneTabBar", defaultValue: "Pane Tab Bar"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .paneTabBar))
+                        .accessibilityIdentifier("PaneTabBarSettingsSection")
+                    SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .action,
+                            String(localized: "settings.paneTabBar.documentation", defaultValue: "Documentation"),
+                            subtitle: String(localized: "settings.paneTabBar.documentation.subtitle", defaultValue: "View supported buttons, More menu items, examples, and reload behavior."),
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .paneTabBar, idSuffix: "documentation")
+                        ) {
+                            Link(String(localized: "settings.settingsJSON.docsButton", defaultValue: "Open Docs"), destination: surfaceTabBarDocsURL)
+                                .font(.caption)
+                                .accessibilityIdentifier("PaneTabBarDocsLink")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .action,
+                            String(localized: "settings.paneTabBar.globalConfig", defaultValue: "Global cmux.json"),
+                            subtitle: String(localized: "settings.paneTabBar.globalConfig.subtitle", defaultValue: "Set default pane tab bar buttons for every workspace."),
+                            controlWidth: 330,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .paneTabBar, idSuffix: "global-config")
+                        ) {
+                            HStack(spacing: 8) {
+                                Text(KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath())
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+
+                                Button(String(localized: "settings.settingsJSON.openButton", defaultValue: "Open")) {
+                                    openCmuxSettingsFileInEditor()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .accessibilityIdentifier("PaneTabBarOpenGlobalConfigButton")
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .action,
+                            String(localized: "settings.paneTabBar.projectConfig", defaultValue: "Project .cmux/cmux.json"),
+                            subtitle: String(localized: "settings.paneTabBar.projectConfig.subtitle", defaultValue: "Put ui.surfaceTabBar.buttons in a project config to override buttons for that directory."),
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .paneTabBar, idSuffix: "project-config")
+                        ) {
+                            Link(String(localized: "settings.settingsJSON.docsButton", defaultValue: "Open Docs"), destination: surfaceTabBarDocsURL)
+                                .font(.caption)
+                                .accessibilityIdentifier("PaneTabBarProjectConfigDocsLink")
+                        }
+                    }
+
                     SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .sidebarAppearance))
                     SettingsCard {
@@ -8191,19 +8246,6 @@ struct SettingsView: View {
                                 .accessibilityIdentifier("SettingsJSONOpenButton")
                             }
                             .accessibilityIdentifier("SettingsJSONOpenFileRowActions")
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .action,
-                            String(localized: "settings.settingsJSON.surfaceTabBar", defaultValue: "Pane tab bar customization"),
-                            subtitle: String(localized: "settings.settingsJSON.surfaceTabBar.subtitle", defaultValue: "Customize pane buttons and the More menu globally or per directory with .cmux/cmux.json."),
-                            searchAnchorID: SettingsSearchIndex.settingID(for: .settingsJSON, idSuffix: "surface-tab-bar")
-                        ) {
-                            Link(String(localized: "settings.settingsJSON.docsButton", defaultValue: "Open Docs"), destination: surfaceTabBarDocsURL)
-                                .font(.caption)
-                                .accessibilityIdentifier("SettingsJSONSurfaceTabBarDocsLink")
                         }
 
                         SettingsCardDivider()
