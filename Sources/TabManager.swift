@@ -1501,7 +1501,11 @@ class TabManager: ObservableObject {
                 guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
                 guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
                 guard let title = notification.userInfo?[GhosttyNotificationKey.title] as? String else { return }
-                enqueuePanelTitleUpdate(tabId: tabId, panelId: surfaceId, title: title)
+                enqueuePanelTitleUpdate(
+                    tabId: tabId,
+                    panelId: surfaceId,
+                    title: Self.stableTerminalPanelTitle(title)
+                )
             }
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -8578,13 +8582,21 @@ class TabManager: ObservableObject {
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
+        if pendingPanelTitleUpdates[key] == trimmed {
+            return
+        }
+        if let tab = tabs.first(where: { $0.id == tabId }),
+           tab.alreadyReflectsPanelTitleUpdate(panelId: panelId, title: trimmed),
+           selectedTabId != tabId || window?.title == windowTitle(for: tab) {
+            return
+        }
 #if DEBUG
         cmuxDebugLog(
             "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(tabId)) " +
             "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
         )
 #endif
-        let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         pendingPanelTitleUpdates[key] = trimmed
         panelTitleUpdateCoalescer.signal { [weak self] in
             self?.flushPendingPanelTitleUpdates()
@@ -8611,6 +8623,28 @@ class TabManager: ObservableObject {
             }
         }
     }
+
+    private static func stableTerminalPanelTitle(_ title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first,
+              terminalTitleSpinnerCharacters.contains(first) else {
+            return title
+        }
+
+        let afterSpinner = trimmed.index(after: trimmed.startIndex)
+        guard afterSpinner < trimmed.endIndex,
+              trimmed[afterSpinner].isWhitespace else {
+            return title
+        }
+
+        let remainderStart = trimmed[afterSpinner...].firstIndex { !$0.isWhitespace }
+        guard let remainderStart else { return title }
+        return String(trimmed[remainderStart...])
+    }
+
+    private static let terminalTitleSpinnerCharacters = Set<Character>(
+        "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    )
 
     func focusedSurfaceTitleDidChange(tabId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }),
