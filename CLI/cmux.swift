@@ -21043,6 +21043,11 @@ struct CMUXCLI {
                 print("OK")
                 return
             }
+            // Capture the raw incoming subtitle before body-substitution may overwrite it.
+            // isGenuineBlock must classify based on the original notification, not the
+            // display-text restoration that follows.
+            let rawSubtitle = summary.subtitle
+
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
@@ -21062,6 +21067,23 @@ struct CMUXCLI {
             )
             let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
+            // Decide whether this notification is a genuine block requiring user action.
+            // Three paths to needsInput:
+            //   1. "Permission" or "Error" raw subtitle — explicit block regardless of session state.
+            //      Uses rawSubtitle (pre-substitution) so a permission notification whose body
+            //      triggers body-substitution is not silently reclassified as idle.
+            //   2. Session is already .needsInput — pre-tool-use fired for AskUserQuestion first;
+            //      the notification hook follows immediately to display the question text.
+            // Everything else (Waiting, Completed, Attention at turn end) is a standby signal:
+            // the notification fires to report Claude is done and at its idle prompt, which is
+            // not an alert the user needs to act on.
+            let currentLifecycle = mappedSession?.agentLifecycle ?? .unknown
+            let isGenuineBlock =
+                rawSubtitle == "Permission"
+                || rawSubtitle == "Error"
+                || currentLifecycle == .needsInput
+            let notifLifecycle: AgentHibernationLifecycleState = isGenuineBlock ? .needsInput : .idle
+
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
@@ -21069,27 +21091,32 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
+                    agentLifecycle: notifLifecycle,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
             }
 
-            setAgentLifecycle(
-                client: client,
-                key: Self.claudeCodeStatusKey,
-                lifecycle: .needsInput,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
-            _ = try? setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF"
-            )
+            // Only push UI updates for genuine blocks. For turn-end notifications
+            // (Waiting, Completed, Attention), the stop hook fires immediately after
+            // and owns the idle transition — updating here causes a visible flicker.
+            if isGenuineBlock {
+                setAgentLifecycle(
+                    client: client,
+                    key: Self.claudeCodeStatusKey,
+                    lifecycle: .needsInput,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+                _ = try? setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    value: "Needs input",
+                    icon: "bell.fill",
+                    color: "#4C8DFF"
+                )
+            }
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
 

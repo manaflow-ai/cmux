@@ -25,7 +25,15 @@ find_real_claude() {
     local IFS=:
     for d in $PATH; do
         [[ "$d" == "$self_dir" ]] && continue
-        [[ -x "$d/claude" ]] && printf '%s' "$d/claude" && return 0
+        if [[ -x "$d/claude" ]]; then
+            # Skip other cmux claude wrappers to prevent shim loops when both
+            # the debug build and release app bins are in PATH simultaneously.
+            # Read only the first two lines (shebang + marker) using shell builtins
+            # to avoid spawning subprocesses on every PATH entry.
+            { IFS= read -r _cr_l1; IFS= read -r _cr_l2; } < "$d/claude" 2>/dev/null
+            [[ "$_cr_l1$_cr_l2" == *"cmux claude wrapper - injects hooks and session tracking"* ]] && continue
+            printf '%s' "$d/claude" && return 0
+        fi
     done
     return 1
 }
