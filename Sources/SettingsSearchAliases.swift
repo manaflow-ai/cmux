@@ -106,6 +106,7 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:show-progress": localized("settings.search.alias.setting.app.show-progress", defaultValue: "sidebar.showProgress progress bar percent status set_progress"),
         "sidebarAppearance:show-metadata": localized("settings.search.alias.setting.app.show-metadata", defaultValue: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
         "betaFeatures:dock": localized("settings.search.alias.setting.betaFeatures.dock", defaultValue: "dock right sidebar terminal controls tui beta unstable"),
+        "betaFeatures:sidebar-extensions": localized("settings.search.alias.setting.betaFeatures.sidebar-extensions", defaultValue: "sidebar extension extensions provider custom left workspace list beta unstable"),
         "automation:socket-mode": localized("settings.search.alias.setting.automation.socket-mode", defaultValue: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
         "automation:socket-password": localized("settings.search.alias.setting.automation.socket-password", defaultValue: "automation.socketPassword auth token credential secret password access key"),
         "automation:claude-code": localized("settings.search.alias.setting.automation.claude-code", defaultValue: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),

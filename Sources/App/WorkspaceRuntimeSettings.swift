@@ -386,6 +386,17 @@ enum RightSidebarBetaFeatureSettings {
     }
 }
 
+enum SidebarExtensionBetaFeatureSettings {
+    static let enabledKey = "sidebar.beta.extensions.enabled"
+
+    static let defaultEnabled = false
+
+    nonisolated static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: enabledKey) != nil else { return defaultEnabled }
+        return defaults.bool(forKey: enabledKey)
+    }
+}
+
 enum UITestLaunchManifest {
     static let argumentName = "-cmuxUITestLaunchManifest"
 
