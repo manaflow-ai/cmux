@@ -4,6 +4,7 @@ import Bonsplit
 import Combine
 import CMUXExtensionClient
 import CmuxExtensionKit
+import CmuxSettings
 import ImageIO
 import Observation
 import SwiftUI
@@ -6752,17 +6753,22 @@ struct ContentView: View {
                 keywords: ["toggle", "sidebar", "left", "layout"]
             )
         )
-        for descriptor in CmuxExtensionSidebarSelection.descriptors {
-            let title = CmuxExtensionSidebarSelection.localizedTitle(for: descriptor)
-            let titleFormat = String(localized: "command.switchExtensionSidebar.title", defaultValue: "Sidebar: %@")
-            contributions.append(
-                CommandPaletteCommandContribution(
-                    commandId: commandPaletteExtensionSidebarCommandID(descriptor.id),
-                    title: constant(String.localizedStringWithFormat(titleFormat, title)),
-                    subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar")),
-                    keywords: ["sidebar", "switch", "extension", title.lowercased()]
+        // "Sidebar: <provider>" switch commands only make sense when there
+        // is more than one provider, which is the experimental Extensions
+        // feature. Omit them entirely while it is disabled.
+        if CmuxExtensionSidebarSelection.isEnabled {
+            for descriptor in CmuxExtensionSidebarSelection.descriptors {
+                let title = CmuxExtensionSidebarSelection.localizedTitle(for: descriptor)
+                let titleFormat = String(localized: "command.switchExtensionSidebar.title", defaultValue: "Sidebar: %@")
+                contributions.append(
+                    CommandPaletteCommandContribution(
+                        commandId: commandPaletteExtensionSidebarCommandID(descriptor.id),
+                        title: constant(String.localizedStringWithFormat(titleFormat, title)),
+                        subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar")),
+                        keywords: ["sidebar", "switch", "extension", title.lowercased()]
+                    )
                 )
-            )
+            }
         }
         contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
         contributions.append(contentsOf: Self.commandPaletteRightSidebarToolPaneCommandContributions())
@@ -9968,6 +9974,23 @@ enum CmuxExtensionSidebarSelection {
     static let defaultProviderId = CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID
     static let hostedExtensionsProviderId = "cmux.sidebar.extensions"
 
+    /// The UserDefaults key and default for the experimental Extensions flag,
+    /// resolved from the settings catalog (`BetaFeaturesCatalogSection.extensions`)
+    /// so the key and default are never re-declared. The sidebar lives in an
+    /// AppKit-hosted subtree where the `SettingsRuntime` environment does not
+    /// reach, so SwiftUI views observe the flag with `@AppStorage(enabledDefaultsKey)`
+    /// (reactive and environment-independent) rather than `@Setting`.
+    static var enabledDefaultsKey: String { SettingCatalog().betaFeatures.extensions.userDefaultsKey }
+    static var enabledDefault: Bool { SettingCatalog().betaFeatures.extensions.defaultValue }
+
+    /// Synchronous read of the flag for the on-demand AppKit/static paths (the
+    /// toggle menu, the command-palette builder, the extensions-browser opener)
+    /// that have no `SettingsRuntime` in scope and run outside the SwiftUI cycle.
+    static var isEnabled: Bool {
+        let key = SettingCatalog().betaFeatures.extensions
+        return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
+    }
+
     static var providers: [any CmuxExtensionSidebarProvider] {
         []
     }
@@ -10023,6 +10046,11 @@ enum CmuxExtensionSidebarSelection {
 
     @MainActor
     static func showMenu(anchorView: NSView, event: NSEvent?) {
+        // The sidebar-toggle right-click menu only switches between sidebar
+        // providers, which exists solely for the experimental Extensions
+        // feature. While it is disabled there is nothing to choose, so the
+        // menu does not appear.
+        guard isEnabled else { return }
         let menu = NSMenu()
         let selectedProviderId = descriptor(
             for: UserDefaults.standard.string(forKey: defaultsKey) ?? defaultProviderId
@@ -10283,6 +10311,8 @@ struct VerticalTabsSidebar: View {
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
+    @AppStorage(CmuxExtensionSidebarSelection.enabledDefaultsKey)
+    private var extensionsExperimentalEnabled = CmuxExtensionSidebarSelection.enabledDefault
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
@@ -10769,7 +10799,8 @@ struct VerticalTabsSidebar: View {
 
     @ViewBuilder
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        if selectedExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
+        if extensionsExperimentalEnabled,
+           selectedExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
             CMUXInstalledExtensionSidebarHostView(
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
                 snapshotUpdateToken: extensionSidebarUpdateToken,
@@ -13026,28 +13057,34 @@ private struct SidebarFooterButtons: View {
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
     @State private var extensionBrowserAnchorView: NSView?
+    @AppStorage(CmuxExtensionSidebarSelection.enabledDefaultsKey)
+    private var extensionsExperimentalEnabled = CmuxExtensionSidebarSelection.enabledDefault
 
     var body: some View {
         HStack(spacing: 4) {
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
-            Button {
-                _ = AppDelegate.shared?.openSidebarExtensionBrowser(
-                    from: extensionBrowserAnchorView,
-                    title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
-                )
-            } label: {
-                Image(systemName: "puzzlepiece.extension")
-                    .symbolRenderingMode(.monochrome)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                    .frame(width: 22, height: 22, alignment: .center)
+            // The puzzle button opens the extensions browser; it only shows
+            // while the experimental Extensions feature is enabled.
+            if extensionsExperimentalEnabled {
+                Button {
+                    _ = AppDelegate.shared?.openSidebarExtensionBrowser(
+                        from: extensionBrowserAnchorView,
+                        title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+                    )
+                } label: {
+                    Image(systemName: "puzzlepiece.extension")
+                        .symbolRenderingMode(.monochrome)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                        .frame(width: 22, height: 22, alignment: .center)
+                }
+                .buttonStyle(SidebarFooterIconButtonStyle())
+                .frame(width: 22, height: 22, alignment: .center)
+                .safeHelp(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
+                .accessibilityLabel(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
+                .accessibilityIdentifier("SidebarExtensionMenuButton")
+                .background(TitlebarControlAnchorView { extensionBrowserAnchorView = $0 })
             }
-            .buttonStyle(SidebarFooterIconButtonStyle())
-            .frame(width: 22, height: 22, alignment: .center)
-            .safeHelp(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
-            .accessibilityLabel(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
-            .accessibilityIdentifier("SidebarExtensionMenuButton")
-            .background(TitlebarControlAnchorView { extensionBrowserAnchorView = $0 })
             UpdatePill(model: updateViewModel)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
