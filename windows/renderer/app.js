@@ -2797,9 +2797,71 @@ function scheduleEventReconnect(socketGeneration) {
   }, baseDelay + jitter);
 }
 
+function appendSignatureValue(parts, value) {
+  if (value === undefined) {
+    parts.push("u;");
+    return;
+  }
+  if (value === null) {
+    parts.push("n;");
+    return;
+  }
+  const text = String(value);
+  parts.push(typeof value, ":", String(text.length), ":", text, ";");
+}
+
+function appendSignatureArray(parts, values, appendItem) {
+  const items = Array.isArray(values) ? values : [];
+  parts.push("[", String(items.length), "]");
+  for (const item of items) appendItem(parts, item);
+}
+
+function appendPanelSignature(parts, panel = {}) {
+  appendSignatureValue(parts, panel.id);
+  appendSignatureValue(parts, panel.workspaceId);
+  appendSignatureValue(parts, panel.type);
+  appendSignatureValue(parts, panel.title);
+  appendSignatureValue(parts, Boolean(panel.titleLocked));
+  appendSignatureValue(parts, panel.color || "");
+  appendSignatureValue(parts, panel.cwd);
+  appendSignatureValue(parts, panel.cwdShort);
+  appendSignatureValue(parts, panel.branch || "");
+  appendSignatureValue(parts, panel.shellProfile || "");
+  appendSignatureValue(parts, panel.shellPath || "");
+  appendSignatureValue(parts, panel.terminalFontSize || 0);
+  appendSignatureValue(parts, panel.url);
+  appendSignatureValue(parts, Boolean(panel.needsAttention));
+  appendSignatureValue(parts, panel.notificationText || "");
+  appendSignatureValue(parts, Boolean(panel.pending));
+  appendSignatureValue(parts, panel.pendingStartedAt || 0);
+}
+
+function appendWorkspaceSignature(parts, workspace = {}) {
+  appendSignatureValue(parts, workspace.id);
+  appendSignatureValue(parts, workspace.title);
+  appendSignatureValue(parts, workspace.color || "");
+  appendSignatureValue(parts, workspace.activePanelId);
+  appendSignatureValue(parts, workspace.splitDirection);
+  appendSignatureValue(parts, workspace.terminalCount || 0);
+  appendSignatureValue(parts, workspace.browserCount || 0);
+  appendSignatureValue(parts, workspace.cwd);
+  appendSignatureValue(parts, workspace.cwdShort);
+  appendSignatureValue(parts, workspace.branch || "");
+  appendSignatureValue(parts, workspace.latestNotification || "");
+  appendSignatureArray(parts, workspace.panels, appendPanelSignature);
+}
+
 function appStateSignature(data) {
   try {
-    return JSON.stringify(data || null);
+    if (!data || typeof data !== "object") return "";
+    const parts = [];
+    appendSignatureValue(parts, data.activeWorkspaceId);
+    appendSignatureValue(parts, data.rendererPort || 0);
+    appendSignatureValue(parts, Boolean(data.ptyAvailable));
+    appendSignatureValue(parts, data.pipeName || "");
+    appendSignatureArray(parts, data.palette, appendSignatureValue);
+    appendSignatureArray(parts, data.workspaces, appendWorkspaceSignature);
+    return parts.join("");
   } catch {
     return "";
   }
