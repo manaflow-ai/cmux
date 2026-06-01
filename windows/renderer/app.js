@@ -4217,7 +4217,7 @@ function getPaneSplitter(workspace, splitNode) {
   const direction = paneTreeDirection(splitNode.direction);
   setDatasetIfChanged(splitter, "orientation", direction);
   setSplitterResizePercent(splitter, Math.round(paneTreeRatio(splitNode.ratio) * 100), direction);
-  setTitleIfChanged(splitter, "Drag to resize. Right-click for sizes. Double-click to equalize. Arrow keys adjust.");
+  setTitleIfChanged(splitter, "Drag to resize. Right-click for sizes. Double-click to equalize. Arrow keys adjust 1%; Shift+Arrow adjusts 10%.");
   return splitter;
 }
 
@@ -4306,7 +4306,7 @@ function handlePaneSplitterKeydown(event) {
   if (!growsFirst && !shrinksFirst) return;
   event.preventDefault();
   event.stopPropagation();
-  const step = event.shiftKey ? 10 : event.altKey ? 1 : 2;
+  const step = event.shiftKey ? 10 : 1;
   const currentPercent = clampPaneLayoutPercent(Number(splitter.dataset.resizePercent || 50));
   setPaneSplitterPercent(splitter, currentPercent + (growsFirst ? step : -step));
 }
