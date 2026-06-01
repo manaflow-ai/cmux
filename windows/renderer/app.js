@@ -3220,7 +3220,7 @@ function surfaceTabsSignature(workspace) {
       const minimized = isPanelMinimized(panel);
       return [
         panel.id,
-        panelDisplayTitle(panel, true),
+        surfaceTabLabel(workspace, panel),
         panelDisplayTitle(panel, false),
         panel.color || workspace.color || "var(--color-accent)",
         panel.id === workspace.activePanelId,
@@ -3404,13 +3404,13 @@ function createSurfaceTab() {
 }
 
 function updateSurfaceTab(button, workspace, panel) {
-  const label = panelDisplayTitle(panel, true);
+  const label = surfaceTabLabel(workspace, panel);
   const fullTitle = panelDisplayTitle(panel, false);
   const minimized = isPanelMinimized(panel);
   const pending = isPendingPanel(panel);
   setDatasetIfChanged(button, "panelId", panel.id);
   setClassNameIfChanged(button, `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${isPanelZoomed(panel, workspace) ? " is-zoomed" : ""}${minimized ? " is-minimized" : ""}${pending ? " is-pending" : ""}${panel.needsAttention ? " has-attention" : ""}`);
-  setTitleIfChanged(button, `${fullTitle}${pending ? " - starting" : ""}${minimized ? " - minimized, click to restore" : ""} - middle-click to ${pending ? "cancel" : "close"}, double-click to rename, right-click for pane options`);
+  setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""}${pending ? " - starting" : ""}${minimized ? " - minimized, click to restore" : ""} - middle-click to ${pending ? "cancel" : "close"}, double-click to rename, right-click for pane options`);
   setStylePropertyIfChanged(button, "--tab-color", panel.color || workspace.color || "var(--color-accent)");
   setTextIfChanged(button.querySelector(".surface-label"), label);
 }
@@ -3711,6 +3711,15 @@ function terminalPanelTitle(panel) {
   const name = panel.title || "Terminal";
   const cwd = panel.cwdShort || "~";
   return name === cwd ? name : `${name} · ${cwd}`;
+}
+
+function surfaceTabLabel(workspace, panel) {
+  const label = panelDisplayTitle(panel, true);
+  const duplicates = (workspace?.panels || [])
+    .filter((candidate) => panelDisplayTitle(candidate, true) === label);
+  if (duplicates.length <= 1) return label;
+  const duplicateIndex = duplicates.findIndex((candidate) => candidate.id === panel.id);
+  return duplicateIndex >= 0 ? `${label} ${duplicateIndex + 1}` : label;
 }
 
 function terminalPanelFolder(panel) {
