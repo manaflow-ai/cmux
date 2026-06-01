@@ -1833,6 +1833,36 @@ function updateSettings(updates, options = {}) {
   return true;
 }
 
+function bindDeferredSettingRange(input, row, options) {
+  const label = row.querySelector(".setting-label");
+  const settingKey = options.settingKey;
+  const formatLabel = typeof options.formatLabel === "function"
+    ? options.formatLabel
+    : (value) => String(value);
+  const parseValue = () => {
+    const value = typeof options.parse === "function"
+      ? options.parse(input.value)
+      : Number(input.value);
+    return typeof value === "number" && !Number.isFinite(value)
+      ? state.settings[settingKey]
+      : value;
+  };
+  const preview = (value) => {
+    setTextIfChanged(label, formatLabel(value));
+    options.preview?.(value);
+  };
+  const commit = () => {
+    const value = parseValue();
+    updateSettings({ [settingKey]: value });
+    const committedValue = state.settings[settingKey];
+    input.value = String(committedValue);
+    preview(committedValue);
+  };
+  input.addEventListener("input", () => preview(parseValue()));
+  input.addEventListener("change", commit);
+  input.addEventListener("blur", commit);
+}
+
 function normalizePaneWeight(value) {
   const weight = Number(value);
   if (!Number.isFinite(weight) || weight <= 0) return 0;
@@ -6471,10 +6501,11 @@ function renderSettingsInspector(options = {}) {
       false,
       "background image opacity strength wallpaper transparency"
     );
-    opacityInput.oninput = () => {
-      updateSettings({ backgroundOpacity: Number(opacityInput.value) });
-      opacityRow.querySelector(".setting-label").textContent = `Image strength ${state.settings.backgroundOpacity}%`;
-    };
+    bindDeferredSettingRange(opacityInput, opacityRow, {
+      settingKey: "backgroundOpacity",
+      formatLabel: (value) => `Image strength ${value}%`,
+      preview: (value) => elements.shell.style.setProperty("--background-opacity", String(value / 100))
+    });
     appearanceSection.append(opacityRow);
     nodes.push(appearanceSection);
   }
@@ -6651,10 +6682,11 @@ function renderSettingsInspector(options = {}) {
     sidebarWidthRange.step = "4";
     sidebarWidthRange.value = String(state.settings.sidebarWidth);
     const sidebarWidthRow = settingRow(`Sidebar ${state.settings.sidebarWidth}px`, sidebarWidthRange);
-    sidebarWidthRange.oninput = () => {
-      updateSettings({ sidebarWidth: Number(sidebarWidthRange.value) });
-      sidebarWidthRow.querySelector(".setting-label").textContent = `Sidebar ${state.settings.sidebarWidth}px`;
-    };
+    bindDeferredSettingRange(sidebarWidthRange, sidebarWidthRow, {
+      settingKey: "sidebarWidth",
+      formatLabel: (value) => `Sidebar ${value}px`,
+      preview: (value) => elements.shell.style.setProperty("--sidebar-width", `${value}px`)
+    });
     layoutSection.append(sidebarWidthRow);
     const inspectorWidthRange = document.createElement("input");
     inspectorWidthRange.className = "setting-control";
@@ -6664,10 +6696,11 @@ function renderSettingsInspector(options = {}) {
     inspectorWidthRange.step = "4";
     inspectorWidthRange.value = String(state.settings.inspectorWidth);
     const inspectorWidthRow = settingRow(`Settings panel ${state.settings.inspectorWidth}px`, inspectorWidthRange, false, "settings inspector right panel width preferences customization");
-    inspectorWidthRange.oninput = () => {
-      updateSettings({ inspectorWidth: Number(inspectorWidthRange.value) });
-      inspectorWidthRow.querySelector(".setting-label").textContent = `Settings panel ${state.settings.inspectorWidth}px`;
-    };
+    bindDeferredSettingRange(inspectorWidthRange, inspectorWidthRow, {
+      settingKey: "inspectorWidth",
+      formatLabel: (value) => `Settings panel ${value}px`,
+      preview: (value) => elements.shell.style.setProperty("--inspector-width", `${value}px`)
+    });
     layoutSection.append(inspectorWidthRow);
     layoutSection.append(paneShapePanel(workspace));
     const layoutActions = document.createElement("div");
@@ -6703,10 +6736,10 @@ function renderSettingsInspector(options = {}) {
     scrollbackRange.step = "2000";
     scrollbackRange.value = String(state.settings.terminalScrollback);
     const scrollbackRow = settingRow(`History ${state.settings.terminalScrollback}`, scrollbackRange, false, "terminal history scrollback memory output performance");
-    scrollbackRange.oninput = () => {
-      updateSettings({ terminalScrollback: Number(scrollbackRange.value) });
-      scrollbackRow.querySelector(".setting-label").textContent = `History ${state.settings.terminalScrollback}`;
-    };
+    bindDeferredSettingRange(scrollbackRange, scrollbackRow, {
+      settingKey: "terminalScrollback",
+      formatLabel: (value) => `History ${value}`
+    });
     performanceSection.append(scrollbackRow);
     const performanceActions = document.createElement("div");
     performanceActions.className = "settings-actions";
@@ -6762,10 +6795,10 @@ function renderSettingsInspector(options = {}) {
     fontRange.max = String(terminalFontSizeMax);
     fontRange.value = String(state.settings.terminalFontSize);
     const fontRow = settingRow(`Default text size ${state.settings.terminalFontSize}px`, fontRange);
-    fontRange.oninput = () => {
-      updateSettings({ terminalFontSize: Number(fontRange.value) });
-      fontRow.querySelector(".setting-label").textContent = `Default text size ${state.settings.terminalFontSize}px`;
-    };
+    bindDeferredSettingRange(fontRange, fontRow, {
+      settingKey: "terminalFontSize",
+      formatLabel: (value) => `Default text size ${value}px`
+    });
     terminalSection.append(fontRow);
     const lineHeightRange = document.createElement("input");
     lineHeightRange.className = "setting-control";
@@ -6775,10 +6808,10 @@ function renderSettingsInspector(options = {}) {
     lineHeightRange.step = "0.02";
     lineHeightRange.value = String(state.settings.terminalLineHeight);
     const lineHeightRow = settingRow(`Line height ${formatLineHeight(state.settings.terminalLineHeight)}`, lineHeightRange);
-    lineHeightRange.oninput = () => {
-      updateSettings({ terminalLineHeight: Number(lineHeightRange.value) });
-      lineHeightRow.querySelector(".setting-label").textContent = `Line height ${formatLineHeight(state.settings.terminalLineHeight)}`;
-    };
+    bindDeferredSettingRange(lineHeightRange, lineHeightRow, {
+      settingKey: "terminalLineHeight",
+      formatLabel: (value) => `Line height ${formatLineHeight(value)}`
+    });
     terminalSection.append(lineHeightRow);
     const paddingRange = document.createElement("input");
     paddingRange.className = "setting-control";
@@ -6787,10 +6820,11 @@ function renderSettingsInspector(options = {}) {
     paddingRange.max = "16";
     paddingRange.value = String(state.settings.terminalPadding);
     const paddingRow = settingRow(`Padding ${state.settings.terminalPadding}px`, paddingRange);
-    paddingRange.oninput = () => {
-      updateSettings({ terminalPadding: Number(paddingRange.value) });
-      paddingRow.querySelector(".setting-label").textContent = `Padding ${state.settings.terminalPadding}px`;
-    };
+    bindDeferredSettingRange(paddingRange, paddingRow, {
+      settingKey: "terminalPadding",
+      formatLabel: (value) => `Padding ${value}px`,
+      preview: (value) => elements.shell.style.setProperty("--terminal-padding", `${value}px`)
+    });
     terminalSection.append(paddingRow);
     const scrollbackRange = document.createElement("input");
     scrollbackRange.className = "setting-control";
@@ -6800,10 +6834,10 @@ function renderSettingsInspector(options = {}) {
     scrollbackRange.step = "2000";
     scrollbackRange.value = String(state.settings.terminalScrollback);
     const scrollbackRow = settingRow(`Scrollback ${state.settings.terminalScrollback}`, scrollbackRange);
-    scrollbackRange.oninput = () => {
-      updateSettings({ terminalScrollback: Number(scrollbackRange.value) });
-      scrollbackRow.querySelector(".setting-label").textContent = `Scrollback ${state.settings.terminalScrollback}`;
-    };
+    bindDeferredSettingRange(scrollbackRange, scrollbackRow, {
+      settingKey: "terminalScrollback",
+      formatLabel: (value) => `Scrollback ${value}`
+    });
     terminalSection.append(scrollbackRow);
     const cursorSelect = document.createElement("select");
     cursorSelect.className = "setting-select";
