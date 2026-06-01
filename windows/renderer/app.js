@@ -4337,6 +4337,10 @@ function createPane(panel) {
     const found = findPanelState(pane.dataset.panelId);
     if (found && !isPendingPanel(found.panel)) renamePanel(found.panel);
   });
+  header.addEventListener("contextmenu", (event) => {
+    const found = findPanelState(pane.dataset.panelId);
+    if (found) showPanelContextMenu(event, found.panel);
+  });
   header.addEventListener("pointerdown", (event) => startPanePointerDrag(event, pane));
   pane.querySelector(".split-right").onclick = (event) => {
     event.stopPropagation();
