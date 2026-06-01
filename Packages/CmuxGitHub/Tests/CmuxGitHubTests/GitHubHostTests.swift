@@ -74,6 +74,15 @@ import Testing
         #expect(reference?.host.isDotCom == true)
     }
 
+    @Test func githubDotComWithProxyPortStillUsesPublicAPI() {
+        // github.com's REST API is always api.github.com regardless of the clone
+        // port (e.g. behind a proxy on :8080), so it stays anonymous-pollable.
+        let reference = GitHubRepositoryReference.parse(remoteURL: "http://github.com:8080/manaflow-ai/cmux.git")
+        #expect(reference?.host.isDotCom == true)
+        #expect(reference?.host.apiBaseURL?.absoluteString == "https://api.github.com/")
+        #expect(reference?.host.isPollable(token: nil) == true)
+    }
+
     @Test func parsesSCPRemoteWithBracketedIPv6Host() {
         // The host/path separator must be found after the bracketed address,
         // not at the first ':' inside the IPv6 literal — and the API base must

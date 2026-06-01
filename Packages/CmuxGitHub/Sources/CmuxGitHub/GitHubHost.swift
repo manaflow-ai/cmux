@@ -42,12 +42,16 @@ public struct GitHubHost: Hashable, Sendable {
     /// The canonical github.com host.
     public static let dotCom = GitHubHost(hostname: "github.com")
 
-    /// Whether this host is github.com (the public SaaS host) on the default port.
+    /// Whether this host is github.com (the public SaaS host).
+    ///
+    /// The port is ignored: github.com's REST API is always `api.github.com`
+    /// regardless of how the remote was cloned (e.g. `github.com:443` or a
+    /// proxied `github.com:8080`), so any github.com remote uses the public API.
     ///
     /// github.com serves public repositories without authentication, so a poller
     /// may query it even when no token is available; every other host requires a
     /// token (see ``isPollable(token:)``).
-    public var isDotCom: Bool { hostname == "github.com" && port == nil }
+    public var isDotCom: Bool { hostname == "github.com" }
 
     /// The REST API base URL for this host, or `nil` if the host is not
     /// representable as a URL.
