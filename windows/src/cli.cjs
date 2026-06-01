@@ -25,9 +25,11 @@ if (args[0] === "help" || args[0] === "--help" || args[0] === "-h") {
 }
 const command = args.length > 0 ? args.join(" ") : "ping";
 const launchToken = process.env.CMUX_WINDOWS_TOKEN || "";
+const panelToken = process.env.CMUX_WINDOWS_PANEL_TOKEN || "";
+const panelId = process.env.CMUX_PANEL_ID || "";
 
-if (!launchToken) {
-  process.stderr.write("cmuxw: missing CMUX_WINDOWS_TOKEN\n");
+if (!launchToken && (!panelToken || !panelId)) {
+  process.stderr.write("cmuxw: missing CMUX_WINDOWS_TOKEN or panel-scoped cmux environment\n");
   process.exit(1);
 }
 
@@ -35,7 +37,10 @@ const socket = net.createConnection(pipeName);
 let output = "";
 
 socket.on("connect", () => {
-  socket.write(`auth ${launchToken}\n${command}\n`);
+  const authLine = launchToken
+    ? `auth ${launchToken}`
+    : `auth-panel ${panelId} ${panelToken}`;
+  socket.write(`${authLine}\n${command}\n`);
 });
 
 socket.on("data", (chunk) => {

@@ -415,6 +415,21 @@ function tokensMatch(expected, actual) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
+function terminalProcessEnv(panel, panelToken, extra = {}) {
+  const env = { ...process.env };
+  delete env.CMUX_WINDOWS_TOKEN;
+  delete env.CMUX_WINDOWS_PANEL_TOKEN;
+  return {
+    ...env,
+    ...extra,
+    CMUX_WINDOWS: "1",
+    CMUX_WINDOWS_PIPE: panel.runtime?.pipeName || defaultPipeName,
+    CMUX_WINDOWS_PANEL_TOKEN: panelToken,
+    CMUX_WORKSPACE_ID: panel.workspaceId,
+    CMUX_PANEL_ID: panel.id
+  };
+}
+
 class TerminalProcess {
   constructor(panel, options = {}) {
     this.panel = panel;
@@ -425,6 +440,7 @@ class TerminalProcess {
     this.closed = false;
     this.ptyProcess = null;
     this.child = null;
+    this.panelToken = crypto.randomBytes(32).toString("hex");
     this.start();
   }
 
@@ -439,16 +455,10 @@ class TerminalProcess {
         cols: this.cols,
         rows: this.rows,
         cwd,
-        env: {
-          ...process.env,
+        env: terminalProcessEnv(this.panel, this.panelToken, {
           TERM: "xterm-256color",
-          COLORTERM: "truecolor",
-          CMUX_WINDOWS: "1",
-          CMUX_WINDOWS_PIPE: this.panel.runtime?.pipeName || defaultPipeName,
-          CMUX_WINDOWS_TOKEN: this.panel.runtime?.launchToken || "",
-          CMUX_WORKSPACE_ID: this.panel.workspaceId,
-          CMUX_PANEL_ID: this.panel.id
-        }
+          COLORTERM: "truecolor"
+        })
       });
       this.ptyProcess.onData((data) => this.emitOutput(data));
       this.ptyProcess.onExit(({ exitCode }) => {
@@ -460,14 +470,7 @@ class TerminalProcess {
 
     this.child = spawn(shellPath, shellArgs(shellPath), {
       cwd,
-      env: {
-        ...process.env,
-        CMUX_WINDOWS: "1",
-        CMUX_WINDOWS_PIPE: this.panel.runtime?.pipeName || defaultPipeName,
-        CMUX_WINDOWS_TOKEN: this.panel.runtime?.launchToken || "",
-        CMUX_WORKSPACE_ID: this.panel.workspaceId,
-        CMUX_PANEL_ID: this.panel.id
-      },
+      env: terminalProcessEnv(this.panel, this.panelToken),
       stdio: "pipe",
       windowsHide: true
     });
@@ -1326,7 +1329,7 @@ class CmuxWindowsRuntime {
       this.pipeServer = net.createServer((socket) => {
         let buffer = "";
         let bufferedBytes = 0;
-        let authenticated = false;
+        let authContext = null;
         socket.on("data", (chunk) => {
           if (bufferedBytes + chunk.length > pipeReadBufferLimitBytes) {
             socket.destroy();
@@ -1339,9 +1342,9 @@ class CmuxWindowsRuntime {
             const line = buffer.slice(0, index).trim();
             buffer = buffer.slice(index + 1);
             bufferedBytes = Buffer.byteLength(buffer);
-            if (!authenticated) {
-              if (this.authenticatePipeLine(line)) {
-                authenticated = true;
+            if (!authContext) {
+              authContext = this.authenticatePipeLine(line);
+              if (authContext) {
                 index = buffer.indexOf("\n");
                 continue;
               }
@@ -1349,7 +1352,7 @@ class CmuxWindowsRuntime {
               socket.end();
               return;
             }
-            this.handlePipeLine(line).then((reply) => {
+            this.handlePipeLine(line, authContext).then((reply) => {
               socket.write(reply + "\n");
             }).catch((error) => {
               console.error(error);
@@ -1369,20 +1372,33 @@ class CmuxWindowsRuntime {
   }
 
   authenticatePipeLine(line) {
-    if (!line) return false;
-    if (tokensMatch(this.launchToken, line)) return true;
-    if (line.startsWith("auth ")) return tokensMatch(this.launchToken, line.slice(5).trim());
-    if (!line.startsWith("{")) return false;
+    if (!line) return null;
+    if (tokensMatch(this.launchToken, line)) return { scope: "full" };
+    if (line.startsWith("auth ")) {
+      return tokensMatch(this.launchToken, line.slice(5).trim()) ? { scope: "full" } : null;
+    }
+    const panelAuth = line.match(/^auth-panel\s+(\S+)\s+(\S+)$/);
+    if (panelAuth) return this.authenticatePanelPipe(panelAuth[1], panelAuth[2]);
+    if (!line.startsWith("{")) return null;
     try {
       const request = JSON.parse(line);
-      return tokensMatch(this.launchToken, request.token || request.params?.token);
+      if (tokensMatch(this.launchToken, request.token || request.params?.token)) return { scope: "full" };
+      return this.authenticatePanelPipe(request.params?.panelId, request.params?.panelToken);
     } catch {
-      return false;
+      return null;
     }
   }
 
-  async handlePipeLine(line) {
+  authenticatePanelPipe(panelId, panelToken) {
+    const terminal = this.terminals.get(String(panelId || ""));
+    if (!terminal || terminal.closed || !terminal.panelToken) return null;
+    if (!tokensMatch(terminal.panelToken, panelToken)) return null;
+    return { scope: "panel", panelId: terminal.panel.id };
+  }
+
+  async handlePipeLine(line, authContext = { scope: "full" }) {
     if (!line) return "ERROR empty command";
+    if (authContext.scope === "panel") return this.handlePanelPipeLine(line, authContext.panelId);
     if (line.startsWith("{")) {
       const request = JSON.parse(line);
       const result = this.handleRpc(request.method, request.params || {});
@@ -1410,6 +1426,29 @@ class CmuxWindowsRuntime {
         return this.sendInput(`${args.join(" ")}\r`) ? "OK" : "ERROR no active terminal";
       default:
         return `ERROR unknown command: ${command}`;
+    }
+  }
+
+  async handlePanelPipeLine(line, panelId) {
+    if (line.startsWith("{")) {
+      const request = JSON.parse(line);
+      if (request.method === "system.ping") {
+        return JSON.stringify({ jsonrpc: "2.0", id: request.id ?? null, result: { ok: true } });
+      }
+      if (request.method === "terminal.send") {
+        const result = { ok: this.sendInput(String(request.params?.text || ""), panelId) };
+        return JSON.stringify({ jsonrpc: "2.0", id: request.id ?? null, result });
+      }
+      return JSON.stringify({ jsonrpc: "2.0", id: request.id ?? null, error: { code: 403, message: "forbidden" } });
+    }
+    const [command, ...args] = line.split(/\s+/);
+    switch (command) {
+      case "ping":
+        return "OK";
+      case "send":
+        return this.sendInput(`${args.join(" ")}\r`, panelId) ? "OK" : "ERROR no terminal";
+      default:
+        return `ERROR unauthorized command: ${command}`;
     }
   }
 
