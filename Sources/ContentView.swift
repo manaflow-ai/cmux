@@ -2065,8 +2065,16 @@ struct ContentView: View {
             return 8
         }
 
-        _ = minimumSidebarWidth
-        return isSidebarVisible ? sidebarWidth + 12 : titlebarLeadingInset
+        let minimumSidebarTitleInset = max(titlebarLeadingInset, minimumSidebarWidth + 12)
+        guard isSidebarVisible else {
+            return minimumSidebarTitleInset
+        }
+
+        let visibleSidebarTitleInset = sidebarWidth + 12
+        guard sidebarWidth > minimumSidebarWidth + 0.5 else {
+            return minimumSidebarTitleInset
+        }
+        return max(minimumSidebarTitleInset, visibleSidebarTitleInset)
     }
 
     private func terminalContent(appearance: WindowAppearanceSnapshot) -> some View {
