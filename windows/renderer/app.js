@@ -11226,6 +11226,19 @@ function cancelPendingPanel(panelId) {
   return removed;
 }
 
+function deferCreatedTerminalInitUntilPaint(panel, workspace, options = {}) {
+  if (
+    panel?.type !== "terminal"
+    || !workspace
+    || state.terminals.has(panel.id)
+    || isPanelMinimized(panel)
+  ) {
+    return;
+  }
+  if (options.focus === false && workspace.activePanelId !== panel.id) return;
+  state.paintDeferredTerminalInitPanelIds.add(panel.id);
+}
+
 async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, options = {}) {
   if (state.canceledPendingPanelIds.delete(pendingPanelId)) {
     if (createdPanel?.id) {
@@ -11258,6 +11271,7 @@ async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, op
     workspace.cwd = nextPanel.cwd || workspace.cwd;
     refreshWorkspaceCounts(workspace);
     if (options.focus !== false) state.data.activeWorkspaceId = workspace.id;
+    deferCreatedTerminalInitUntilPaint(nextPanel, workspace, options);
     render();
     return true;
   }
@@ -11270,6 +11284,7 @@ async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, op
   workspace.cwd = nextPanel.cwd || workspace.cwd;
   refreshWorkspaceCounts(workspace);
   if (options.focus !== false) state.data.activeWorkspaceId = workspace.id;
+  deferCreatedTerminalInitUntilPaint(nextPanel, workspace, options);
   render();
   return true;
 }
