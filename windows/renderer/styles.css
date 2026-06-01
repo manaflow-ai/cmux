@@ -2379,6 +2379,10 @@ body.reduce-motion *::after {
   container-type: inline-size;
   height: 100%;
   display: grid;
+  grid-template-rows: 30px 34px minmax(0, 1fr);
+}
+
+.browser-shell.has-browser-status {
   grid-template-rows: 30px 34px auto minmax(0, 1fr);
 }
 
@@ -2678,7 +2682,7 @@ body.reduce-motion *::after {
 }
 
 .browser-content {
-  grid-row: 4;
+  grid-row: 3;
   grid-column: 1 / -1;
   min-width: 0;
   min-height: 0;
@@ -3047,6 +3051,10 @@ body.reduce-motion *::after {
   display: flex;
 }
 
+.browser-shell.has-browser-status .browser-content {
+  grid-row: 4;
+}
+
 .browser-shell.is-browser-suspended .browser-status {
   border-bottom: 1px solid color-mix(in oklch, var(--color-line) 72%, transparent);
   background: color-mix(in oklch, var(--color-pane) 78%, var(--color-canvas) 22%);
@@ -3055,6 +3063,30 @@ body.reduce-motion *::after {
 
 .browser-shell.is-browser-deferred .browser-content {
   grid-row: 2;
+}
+
+@container (max-width: 140px) {
+  .browser-shell.has-browser-status {
+    grid-template-rows: 28px 30px minmax(0, 1fr);
+  }
+
+  .browser-status.is-visible {
+    display: none;
+  }
+
+  .browser-shell.has-browser-status .browser-content {
+    grid-row: 3;
+  }
+}
+
+@container (max-width: 96px) {
+  .browser-shell.has-browser-status {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .browser-shell.has-browser-status .browser-content {
+    grid-row: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

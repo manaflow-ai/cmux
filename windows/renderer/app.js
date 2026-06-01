@@ -6156,6 +6156,7 @@ function ensureBrowser(panel, body) {
     if (session) session.statusText = message;
     status.textContent = message;
     status.classList.toggle("is-visible", Boolean(message));
+    shell.classList.toggle("has-browser-status", Boolean(message));
     if (message === "Loading") {
       loadingStatusTimer = setTimeout(() => {
         loadingStatusTimer = 0;
