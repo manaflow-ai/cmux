@@ -15,6 +15,20 @@ final class SettingsWindowPresenterTests: XCTestCase {
         super.tearDown()
     }
 
+    func testConfigureWindowAppliesModernSettingsChrome() {
+        let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
+        defer {
+            settingsWindow.orderOut(nil)
+        }
+
+        SettingsWindowPresenter.configure(window: settingsWindow)
+
+        XCTAssertEqual(settingsWindow.toolbarStyle, .unifiedCompact)
+        XCTAssertTrue(settingsWindow.styleMask.contains(.fullSizeContentView))
+        XCTAssertTrue(settingsWindow.titlebarAppearsTransparent)
+        XCTAssertNotNil(settingsWindow.toolbar)
+    }
+
     func testConfigureWindowLeavesPendingNavigationForSettingsViews() {
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
         var didOpen = false
