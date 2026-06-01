@@ -140,14 +140,18 @@ function localImagePathFromUrl(value) {
   }
 }
 
-function sanitizeBrowserUrl(value, fallback = defaultBrowserHomeUrl) {
+function validBrowserUrl(value) {
   try {
-    const parsed = new URL(String(value || fallback).trim());
-    if (!["http:", "https:"].includes(parsed.protocol)) return fallback;
-    return parsed.href.length <= 2048 ? parsed.href : fallback;
+    const parsed = new URL(String(value || "").trim());
+    if (!["http:", "https:"].includes(parsed.protocol)) return "";
+    return parsed.href.length <= 2048 ? parsed.href : "";
   } catch {
-    return fallback;
+    return "";
   }
+}
+
+function sanitizeBrowserUrl(value, fallback = defaultBrowserHomeUrl) {
+  return validBrowserUrl(value) || validBrowserUrl(fallback) || defaultBrowserHomeUrl;
 }
 
 const shellProfileIds = new Set(["auto", "pwsh", "powershell", "cmd", "wsl", "git-bash", "custom"]);
