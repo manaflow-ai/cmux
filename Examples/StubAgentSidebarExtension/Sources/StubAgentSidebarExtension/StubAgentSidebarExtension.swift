@@ -30,12 +30,16 @@ public final class StubAgentSidebarExtension: @MainActor CmuxSidebarExtension {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(snapshot?.workspaces ?? []) { workspace in
                 Button(workspace.title.isEmpty ? workspace.id.uuidString : workspace.title) {
-                    self.selectWorkspace(workspace.id)
+                    Task { @MainActor in
+                        try? await self.selectWorkspace(workspace.id)
+                    }
                 }
             }
 
             Button(String(localized: "stubAgent.createWorkspace", defaultValue: "Create Workspace")) {
-                self.createWorkspace()
+                Task { @MainActor in
+                    try? await self.createWorkspace()
+                }
             }
         }
         .padding()
@@ -46,20 +50,16 @@ public final class StubAgentSidebarExtension: @MainActor CmuxSidebarExtension {
         host = context.host
     }
 
-    private func selectWorkspace(_ id: UUID) {
+    private func selectWorkspace(_ id: UUID) async throws {
         guard let host else { return }
-        Task { @MainActor in
-            try? await host.selectWorkspace(id)
-        }
+        try await host.selectWorkspace(id)
     }
 
-    private func createWorkspace() {
+    private func createWorkspace() async throws {
         guard let host else { return }
-        Task { @MainActor in
-            try? await host.createWorkspace(
-                title: String(localized: "stubAgent.createdWorkspaceTitle", defaultValue: "SDK Proof"),
-                select: true
-            )
-        }
+        try await host.createWorkspace(
+            title: String(localized: "stubAgent.createdWorkspaceTitle", defaultValue: "SDK Proof"),
+            select: true
+        )
     }
 }

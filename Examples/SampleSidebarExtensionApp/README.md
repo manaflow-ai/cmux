@@ -67,22 +67,16 @@ final class SidebarConnectionModel {
         host = context.host
     }
 
-    func selectWorkspace(_ id: UUID) {
-        Task { @MainActor in
-            try? await host?.selectWorkspace(id)
-        }
+    func selectWorkspace(_ id: UUID) async {
+        try? await host?.selectWorkspace(id)
     }
 
-    func selectNextWorkspace() {
-        Task { @MainActor in
-            try? await host?.selectNextWorkspace()
-        }
+    func selectNextWorkspace() async {
+        try? await host?.selectNextWorkspace()
     }
 
-    func createTerminalSurface(in workspaceID: UUID?) {
-        Task { @MainActor in
-            try? await host?.createTerminalSurface(in: workspaceID)
-        }
+    func createTerminalSurface(in workspaceID: UUID?) async {
+        try? await host?.createTerminalSurface(in: workspaceID)
     }
 }
 ```

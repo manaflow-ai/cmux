@@ -174,6 +174,10 @@ public struct CmuxSidebarHost {
 }
 
 private final class CmuxSidebarActionReplyGate: @unchecked Sendable {
+    // The host transport completes actions through escaping XPC callbacks while
+    // task cancellation can arrive from any executor. A small lock keeps the
+    // continuation and transport cancellation token single-resume without
+    // adding actor hops to the callback path.
     private let lock = NSLock()
     private var continuation: CheckedContinuation<CmuxSidebarActionResult, Never>?
     private var cancellation: CmuxSidebarActionCancellation?

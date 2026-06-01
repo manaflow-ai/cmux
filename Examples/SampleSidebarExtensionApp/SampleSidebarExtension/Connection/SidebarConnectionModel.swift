@@ -37,53 +37,39 @@ final class SidebarConnectionModel {
         host?.refresh()
     }
 
-    func selectWorkspace(_ id: UUID) {
+    func selectWorkspace(_ id: UUID) async {
         guard let host else { return }
-        Task { @MainActor in
-            await apply { try await host.selectWorkspace(id) }
-        }
+        await apply { try await host.selectWorkspace(id) }
     }
 
-    func selectSurface(workspaceID: UUID, surfaceID: UUID) {
+    func selectSurface(workspaceID: UUID, surfaceID: UUID) async {
         guard let host else { return }
-        Task { @MainActor in
-            await apply { try await host.selectSurface(workspaceID: workspaceID, surfaceID: surfaceID) }
-        }
+        await apply { try await host.selectSurface(workspaceID: workspaceID, surfaceID: surfaceID) }
     }
 
-    func selectPreviousWorkspace() {
+    func selectPreviousWorkspace() async {
         guard let host else { return }
-        Task { @MainActor in
-            await apply { try await host.selectPreviousWorkspace() }
-        }
+        await apply { try await host.selectPreviousWorkspace() }
     }
 
-    func selectNextWorkspace() {
+    func selectNextWorkspace() async {
         guard let host else { return }
-        Task { @MainActor in
-            await apply { try await host.selectNextWorkspace() }
-        }
+        await apply { try await host.selectNextWorkspace() }
     }
 
-    func selectPreviousSurface() {
+    func selectPreviousSurface() async {
         guard let host else { return }
-        Task { @MainActor in
-            await apply { try await host.selectPreviousSurface() }
-        }
+        await apply { try await host.selectPreviousSurface() }
     }
 
-    func selectNextSurface() {
+    func selectNextSurface() async {
         guard let host else { return }
-        Task { @MainActor in
-            await apply { try await host.selectNextSurface() }
-        }
+        await apply { try await host.selectNextSurface() }
     }
 
-    func createTerminalSurface(in workspaceID: UUID?) {
+    func createTerminalSurface(in workspaceID: UUID?) async {
         guard let host else { return }
-        Task { @MainActor in
-            await apply { try await host.createTerminalSurface(in: workspaceID) }
-        }
+        await apply { try await host.createTerminalSurface(in: workspaceID) }
     }
 
     private func apply(_ operation: () async throws -> Void) async {
