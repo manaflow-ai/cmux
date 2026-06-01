@@ -289,6 +289,7 @@ enum AgentResumeCommandBuilder {
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
+        transcriptPath: String? = nil,
         registrationOverride: CmuxVaultAgentRegistration? = nil,
         includeWorkingDirectoryPrefix: Bool = true
     ) -> String? {
@@ -308,8 +309,10 @@ enum AgentResumeCommandBuilder {
         return shellCommand(
             argv: argv,
             kind: kind,
+            sessionId: sessionId,
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
+            transcriptPath: transcriptPath,
             customRegistration: customRegistration,
             includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
         )
@@ -320,6 +323,7 @@ enum AgentResumeCommandBuilder {
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
+        transcriptPath: String? = nil,
         registrationOverride: CmuxVaultAgentRegistration? = nil,
         includeWorkingDirectoryPrefix: Bool = true
     ) -> String? {
@@ -337,8 +341,10 @@ enum AgentResumeCommandBuilder {
         return shellCommand(
             argv: argv,
             kind: kind,
+            sessionId: sessionId,
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
+            transcriptPath: transcriptPath,
             customRegistration: customRegistration,
             includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
         )
@@ -347,8 +353,10 @@ enum AgentResumeCommandBuilder {
     private static func shellCommand(
         argv: [String],
         kind: RestorableAgentKind,
+        sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
+        transcriptPath: String?,
         customRegistration: CmuxVaultAgentRegistration?,
         includeWorkingDirectoryPrefix: Bool
     ) -> String {
@@ -360,9 +368,15 @@ enum AgentResumeCommandBuilder {
         }
         commandParts.append(contentsOf: argv)
 
-        let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
-            ? nil
-            : normalized(workingDirectory ?? launchCommand?.workingDirectory)
+        let cwd = shellWorkingDirectory(
+            kind: kind,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            transcriptPath: transcriptPath,
+            customRegistration: customRegistration,
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+        )
         let sanitizedCommandParts = customRegistration == nil
             ? AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: commandParts,
@@ -371,6 +385,79 @@ enum AgentResumeCommandBuilder {
             : commandParts
         let shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
+    }
+
+    private static func shellWorkingDirectory(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        transcriptPath: String?,
+        customRegistration: CmuxVaultAgentRegistration?,
+        includeWorkingDirectoryPrefix: Bool
+    ) -> String? {
+        guard includeWorkingDirectoryPrefix, customRegistration?.cwd != .ignore else {
+            return nil
+        }
+        let fallback = normalized(workingDirectory ?? launchCommand?.workingDirectory)
+        guard kind == .claude,
+              let projectDirName = claudeTranscriptProjectDirName(
+                  transcriptPath: transcriptPath,
+                  sessionId: sessionId
+              ) else {
+            return fallback
+        }
+
+        let candidates = [workingDirectory, launchCommand?.workingDirectory]
+        for candidate in candidates {
+            guard let cwd = normalized(candidate) else { continue }
+            if encodeClaudeProjectDir(cwd) == projectDirName {
+                return cwd
+            }
+            let expanded = (cwd as NSString).expandingTildeInPath
+            if expanded != cwd, encodeClaudeProjectDir(expanded) == projectDirName {
+                return expanded
+            }
+        }
+
+        return decodeClaudeProjectDir(projectDirName) ?? fallback
+    }
+
+    private static func claudeTranscriptProjectDirName(
+        transcriptPath: String?,
+        sessionId: String
+    ) -> String? {
+        guard let transcriptPath = normalized(transcriptPath),
+              !sessionId.isEmpty else {
+            return nil
+        }
+        let expanded = (transcriptPath as NSString).expandingTildeInPath
+        let url = URL(fileURLWithPath: expanded, isDirectory: false)
+        guard url.lastPathComponent == "\(sessionId).jsonl" else {
+            return nil
+        }
+        let projectDirectory = url.deletingLastPathComponent()
+        guard projectDirectory.deletingLastPathComponent().lastPathComponent == "projects" else {
+            return nil
+        }
+        let name = projectDirectory.lastPathComponent
+        return name.isEmpty ? nil : name
+    }
+
+    private static func encodeClaudeProjectDir(_ path: String) -> String {
+        path.replacingOccurrences(of: "/", with: "-")
+    }
+
+    private static func decodeClaudeProjectDir(_ raw: String) -> String? {
+        guard !raw.isEmpty else { return nil }
+        let stripped = raw.hasPrefix("-") ? String(raw.dropFirst()) : raw
+        let candidate = "/" + stripped.replacingOccurrences(of: "-", with: "/")
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        return candidate
     }
 
     static func openCodeVersionProbe(
@@ -803,6 +890,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var sessionId: String
     var workingDirectory: String?
     var launchCommand: AgentLaunchCommandSnapshot?
+    var transcriptPath: String? = nil
     var registration: CmuxVaultAgentRegistration? = nil
 
     var resumeCommand: String? {
@@ -811,6 +899,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             sessionId: sessionId,
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
+            transcriptPath: transcriptPath,
             registrationOverride: registration
         )
     }
@@ -821,6 +910,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             sessionId: sessionId,
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
+            transcriptPath: transcriptPath,
             registrationOverride: registration
         )
     }
@@ -1136,6 +1226,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     sessionId: normalizedSessionId,
                     workingDirectory: normalizedWorkingDirectory(record.cwd),
                     launchCommand: record.launchCommand,
+                    transcriptPath: normalizedNonEmptyValue(record.transcriptPath),
                     registration: registration
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
