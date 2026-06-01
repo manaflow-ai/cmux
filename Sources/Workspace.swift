@@ -147,6 +147,16 @@ extension Workspace {
         WorkspaceRemoteSessionController.remoteDaemonManifest(from: infoDictionary)
     }
 
+    nonisolated static func currentRemoteDaemonVersion(
+        infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String {
+        WorkspaceRemoteSessionController.currentRemoteDaemonVersion(
+            infoDictionary: infoDictionary,
+            environment: environment
+        )
+    }
+
     nonisolated static func remoteDaemonCachedBinaryURL(
         version: String,
         goOS: String,
@@ -8656,16 +8666,23 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
-    private static func remoteDaemonVersion() -> String {
-        let bundleVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)?
+    nonisolated static func currentRemoteDaemonVersion(
+        infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String {
+        let bundleVersion = (infoDictionary?["CFBundleShortVersionString"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let baseVersion = (bundleVersion?.isEmpty == false) ? bundleVersion! : "dev"
-        guard allowLocalDaemonBuildFallback(),
+        guard allowLocalDaemonBuildFallback(environment: environment),
               let sourceFingerprint = remoteDaemonSourceFingerprint(),
               !sourceFingerprint.isEmpty else {
             return baseVersion
         }
         return "\(baseVersion)-dev-\(sourceFingerprint)"
+    }
+
+    private static func remoteDaemonVersion() -> String {
+        currentRemoteDaemonVersion()
     }
 
     private static let cachedRemoteDaemonSourceFingerprint: String? = computeRemoteDaemonSourceFingerprint()
