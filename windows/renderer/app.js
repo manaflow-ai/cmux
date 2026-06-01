@@ -365,6 +365,10 @@ const state = {
   renderFrame: 0,
   paneLayoutFrame: 0,
   workspaceTerminalFitFrames: new Map(),
+  visibleTerminalFitFrame: 0,
+  visibleTerminalFitPanelIds: new Set(),
+  terminalFocusFrame: 0,
+  terminalFocusPanelId: "",
   scheduledRenderPrevious: null,
   pendingRender: false,
   pendingRenderPrevious: null,
@@ -3466,10 +3470,20 @@ function paneGridContainsPanels(panels) {
 }
 
 function scheduleVisibleTerminalFits(visiblePanels) {
-  requestAnimationFrame(() => {
-    for (const panel of visiblePanels) {
-      if (isPanelMinimized(panel)) continue;
-      const terminal = state.terminals.get(panel.id);
+  for (const panel of visiblePanels) {
+    if (!panel?.id || isPanelMinimized(panel)) continue;
+    state.visibleTerminalFitPanelIds.add(panel.id);
+  }
+  if (state.visibleTerminalFitFrame || state.visibleTerminalFitPanelIds.size === 0) return;
+  state.visibleTerminalFitFrame = requestAnimationFrame(() => {
+    state.visibleTerminalFitFrame = 0;
+    const panelIds = [...state.visibleTerminalFitPanelIds];
+    state.visibleTerminalFitPanelIds.clear();
+    const activeWorkspaceId = state.data?.activeWorkspaceId || "";
+    for (const panelId of panelIds) {
+      const found = findPanelState(panelId);
+      if (!found || found.workspace.id !== activeWorkspaceId || isPanelMinimized(found.panel)) continue;
+      const terminal = state.terminals.get(panelId);
       if (terminal) scheduleFitTerminal(terminal);
     }
   });
@@ -4411,6 +4425,12 @@ function cleanupPanel(panelId) {
   if (state.focusedPanelId === panelId) state.focusedPanelId = null;
   if (state.lastInteractedPanelId === panelId) state.lastInteractedPanelId = null;
   if (state.hoveredPanelId === panelId) state.hoveredPanelId = null;
+  state.visibleTerminalFitPanelIds.delete(panelId);
+  if (state.terminalFocusPanelId === panelId) {
+    state.terminalFocusPanelId = "";
+    if (state.terminalFocusFrame) cancelAnimationFrame(state.terminalFocusFrame);
+    state.terminalFocusFrame = 0;
+  }
   for (const [workspaceId, previousPanelId] of [...state.previousPanelIds.entries()]) {
     if (previousPanelId === panelId) state.previousPanelIds.delete(workspaceId);
   }
@@ -11888,10 +11908,25 @@ function focusWorkspaceByOrdinal(ordinal) {
 }
 
 function focusTerminalSession(panelId) {
-  const terminal = state.terminals.get(panelId);
-  if (!terminal) return;
-  requestAnimationFrame(() => {
-    if (!terminal.disposed) terminal.term.focus();
+  if (!state.terminals.has(panelId)) return;
+  state.terminalFocusPanelId = panelId;
+  if (state.terminalFocusFrame) cancelAnimationFrame(state.terminalFocusFrame);
+  state.terminalFocusFrame = requestAnimationFrame(() => {
+    const targetPanelId = state.terminalFocusPanelId;
+    state.terminalFocusFrame = 0;
+    state.terminalFocusPanelId = "";
+    const terminal = state.terminals.get(targetPanelId);
+    if (!terminal || terminal.disposed || !terminalFitCanRun(terminal)) return;
+    const found = findPanelState(targetPanelId);
+    if (
+      !found
+      || found.workspace.id !== state.data?.activeWorkspaceId
+      || found.workspace.activePanelId !== targetPanelId
+      || isPanelMinimized(found.panel)
+    ) {
+      return;
+    }
+    terminal.term.focus();
   });
 }
 
