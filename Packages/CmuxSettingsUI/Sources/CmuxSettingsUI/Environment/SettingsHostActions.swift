@@ -76,8 +76,11 @@ public protocol SettingsHostActions: AnyObject {
     ///   persistence failed. Callers should surface a save-failed message to
     ///   the user when this returns `false`, since the slider position no
     ///   longer reflects what is stored on disk.
+    ///
+    ///   The implementation performs the disk write off the main actor, so this
+    ///   is `async`; call it from a `Task` in the slider/reset action.
     @discardableResult
-    func setSidebarFontSize(_ points: Double) -> Bool
+    func setSidebarFontSize(_ points: Double) async -> Bool
 
     /// The current workspace tab-bar font size with its range + default.
     /// Backed by the Ghostty config file (`surface-tab-bar-font-size`).
@@ -88,9 +91,9 @@ public protocol SettingsHostActions: AnyObject {
     ///
     /// - Returns: `true` if the value was written and reloaded, `false` if
     ///   persistence failed. See ``setSidebarFontSize(_:)`` for how callers
-    ///   should react to a `false` result.
+    ///   should react to a `false` result and why this is `async`.
     @discardableResult
-    func setSurfaceTabBarFontSize(_ points: Double) -> Bool
+    func setSurfaceTabBarFontSize(_ points: Double) async -> Bool
 
     /// Formats a point size for display next to a font-size slider
     /// (e.g. `12`, `13.5`), trimming trailing zeros.
@@ -104,13 +107,13 @@ public extension SettingsHostActions {
         SettingsFontSize(points: 12.5, minimum: 10, maximum: 20, defaultValue: 12.5)
     }
 
-    func setSidebarFontSize(_ points: Double) -> Bool { true }
+    func setSidebarFontSize(_ points: Double) async -> Bool { true }
 
     func surfaceTabBarFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 11, minimum: 8, maximum: 24, defaultValue: 11)
     }
 
-    func setSurfaceTabBarFontSize(_ points: Double) -> Bool { true }
+    func setSurfaceTabBarFontSize(_ points: Double) async -> Bool { true }
 
     func formattedFontSize(_ points: Double) -> String {
         let scaled = (points * 100).rounded()

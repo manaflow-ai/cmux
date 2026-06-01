@@ -93,7 +93,10 @@ public struct SidebarSection: View {
                             in: sidebarFont.minimum...sidebarFont.maximum,
                             step: 0.5
                         ) { editing in
-                            if !editing { fontSaveFailed = !hostActions.setSidebarFontSize(sidebarFont.points) }
+                            if !editing {
+                                let points = sidebarFont.points
+                                Task { fontSaveFailed = !(await hostActions.setSidebarFontSize(points)) }
+                            }
                         }
                         .frame(width: 130)
                         .accessibilityIdentifier("SettingsSidebarFontSizeSlider")
@@ -105,7 +108,8 @@ public struct SidebarSection: View {
 
                         Button(String(localized: "settings.sidebarAppearance.fontSize.reset", defaultValue: "Reset")) {
                             sidebarFont.points = sidebarFont.defaultValue
-                            fontSaveFailed = !hostActions.setSidebarFontSize(sidebarFont.points)
+                            let points = sidebarFont.points
+                            Task { fontSaveFailed = !(await hostActions.setSidebarFontSize(points)) }
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)

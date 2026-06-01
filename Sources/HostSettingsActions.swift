@@ -151,16 +151,18 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func sidebarFontSize() -> SettingsFontSize {
+        // Reads the in-memory cache (kept current by config reloads) rather than
+        // forcing a synchronous disk read on the main actor when Settings opens.
         SettingsFontSize(
-            points: Double(GhosttyConfig.load(useCache: false).sidebarFontSize),
+            points: Double(GhosttyConfig.load().sidebarFontSize),
             minimum: CmuxGhosttyConfigSettingEditor.minSidebarFontSize,
             maximum: CmuxGhosttyConfigSettingEditor.maxSidebarFontSize,
             defaultValue: CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
         )
     }
 
-    func setSidebarFontSize(_ points: Double) -> Bool {
-        persistFontSize(
+    func setSidebarFontSize(_ points: Double) async -> Bool {
+        await persistFontSize(
             key: CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
             points: CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(points),
             reloadSource: "settings.sidebar.fontSize"
@@ -168,16 +170,17 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func surfaceTabBarFontSize() -> SettingsFontSize {
+        // See ``sidebarFontSize()`` — uses the cached config to avoid main-actor disk I/O.
         SettingsFontSize(
-            points: Double(GhosttyConfig.load(useCache: false).surfaceTabBarFontSize),
+            points: Double(GhosttyConfig.load().surfaceTabBarFontSize),
             minimum: CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize,
             maximum: CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize,
             defaultValue: CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize
         )
     }
 
-    func setSurfaceTabBarFontSize(_ points: Double) -> Bool {
-        persistFontSize(
+    func setSurfaceTabBarFontSize(_ points: Double) async -> Bool {
+        await persistFontSize(
             key: CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey,
             points: CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize(points),
             reloadSource: "settings.terminal.tabBarFontSize"
@@ -191,20 +194,29 @@ final class HostSettingsActions: SettingsHostActions {
     /// Writes a clamped font-size value to cmux's editable Ghostty config and
     /// triggers a live reload so open windows re-render at the new size.
     ///
+    /// The disk write runs on a detached task so the main actor is never blocked
+    /// on file I/O during a slider drag or Reset tap; the reload then resumes on
+    /// the main actor.
+    ///
     /// - Returns: `true` on success, `false` if the write failed (the error is
     ///   logged here; the Settings UI surfaces a generic save-failed message).
-    private func persistFontSize(key: String, points: Double, reloadSource: String) -> Bool {
+    private func persistFontSize(key: String, points: Double, reloadSource: String) async -> Bool {
         let formatted = CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
-        do {
-            try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, value: formatted)
-            GhosttyApp.shared.reloadConfiguration(source: reloadSource)
-            return true
-        } catch {
-            hostSettingsLogger.warning(
-                "failed to persist \(key, privacy: .public): \(String(describing: error), privacy: .private(mask: .hash))"
-            )
-            return false
-        }
+        let logger = hostSettingsLogger
+        let wrote = await Task.detached(priority: .userInitiated) {
+            do {
+                try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, value: formatted)
+                return true
+            } catch {
+                logger.warning(
+                    "failed to persist \(key, privacy: .public): \(String(describing: error), privacy: .private(mask: .hash))"
+                )
+                return false
+            }
+        }.value
+        guard wrote else { return false }
+        GhosttyApp.shared.reloadConfiguration(source: reloadSource)
+        return true
     }
 }
 

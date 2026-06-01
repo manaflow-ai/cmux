@@ -88,7 +88,10 @@ public struct TerminalSection: View {
                             in: surfaceTabBarFont.minimum...surfaceTabBarFont.maximum,
                             step: 0.5
                         ) { editing in
-                            if !editing { fontSaveFailed = !hostActions.setSurfaceTabBarFontSize(surfaceTabBarFont.points) }
+                            if !editing {
+                                let points = surfaceTabBarFont.points
+                                Task { fontSaveFailed = !(await hostActions.setSurfaceTabBarFontSize(points)) }
+                            }
                         }
                         .frame(width: 130)
                         .accessibilityIdentifier("SettingsTabBarFontSizeSlider")
@@ -100,7 +103,8 @@ public struct TerminalSection: View {
 
                         Button(String(localized: "settings.terminal.tabBarFontSize.reset", defaultValue: "Reset")) {
                             surfaceTabBarFont.points = surfaceTabBarFont.defaultValue
-                            fontSaveFailed = !hostActions.setSurfaceTabBarFontSize(surfaceTabBarFont.points)
+                            let points = surfaceTabBarFont.points
+                            Task { fontSaveFailed = !(await hostActions.setSurfaceTabBarFontSize(points)) }
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
