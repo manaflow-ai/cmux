@@ -64,6 +64,12 @@ extension CMUXCLI {
             let cmuxSubcommand: String
         }
 
+        struct HookInstallSpec {
+            let agentEvent: String
+            let command: String
+            let timeoutMs: Int
+        }
+
         enum PostInstallAction {
             case codexConfigToml // write codex_hooks = true to config.toml on install, remove on uninstall
         }
@@ -284,7 +290,7 @@ extension CMUXCLI {
             events: [
                 .init(agentEvent: "on_session_start", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "pre_llm_call", cmuxSubcommand: "prompt-submit"),
-                .init(agentEvent: "post_llm_call", cmuxSubcommand: "agent-response"),
+                .init(agentEvent: "post_llm_call", cmuxSubcommand: "stop"),
                 .init(agentEvent: "pre_approval_request", cmuxSubcommand: "notification"),
                 .init(agentEvent: "post_approval_response", cmuxSubcommand: "approval-response"),
                 .init(agentEvent: "on_session_end", cmuxSubcommand: "session-end"),
@@ -366,6 +372,43 @@ extension CMUXCLI {
         default:
             return agentHookShellCommand("cmux hooks feed --source \(def.name) --event \(agentEvent)", for: def)
         }
+    }
+
+    static func hookInstallSpecs(for def: AgentHookDef) -> [AgentHookDef.HookInstallSpec] {
+        let lifecycleTimeoutMs = lifecycleHookTimeoutMs(for: def)
+        let lifecycleSpecs = def.events.map { event in
+            AgentHookDef.HookInstallSpec(
+                agentEvent: event.agentEvent,
+                command: hookCommandString(for: def, event: event),
+                timeoutMs: lifecycleTimeoutMs
+            )
+        }
+        let feedSpecs = def.feedHookEvents.map { agentEvent in
+            AgentHookDef.HookInstallSpec(
+                agentEvent: agentEvent,
+                command: feedHookCommandString(for: def, agentEvent: agentEvent),
+                timeoutMs: 120_000
+            )
+        }
+        return lifecycleSpecs + feedSpecs
+    }
+
+    private static func lifecycleHookTimeoutMs(for def: AgentHookDef) -> Int {
+        switch def.format {
+        case .flat, .rovoDevYAML:
+            return 5_000
+        case .nested(let timeoutMs), .kiroAgentJSON(let timeoutMs):
+            return max(timeoutMs, 1)
+        case .antigravityJSON(let timeoutSeconds):
+            return max(timeoutSeconds, 1) * 1_000
+        case .hermesAgentYAML:
+            return 5_000
+        }
+    }
+
+    static func hookTimeoutSeconds(fromMilliseconds timeoutMs: Int) -> Int {
+        let positiveTimeoutMs = max(timeoutMs, 1)
+        return ((positiveTimeoutMs - 1) / 1000) + 1
     }
 
     private static let pinnedHookMarkers: [String: String] = [

@@ -7,21 +7,13 @@ extension CMUXCLI {
     }
 
     func hermesAgentEvents(def: AgentHookDef) -> [HermesAgentHookConfig.Event] {
-        var events = def.events.map { event in
+        Self.hookInstallSpecs(for: def).map { spec in
             HermesAgentHookConfig.Event(
-                name: event.agentEvent,
-                command: hermesAgentShellCommand(hookCommand(for: def, event: event)),
-                timeout: 5
+                name: spec.agentEvent,
+                command: hermesAgentShellCommand(spec.command),
+                timeout: Self.hookTimeoutSeconds(fromMilliseconds: spec.timeoutMs)
             )
         }
-        events.append(contentsOf: def.feedHookEvents.map { agentEvent in
-            HermesAgentHookConfig.Event(
-                name: agentEvent,
-                command: hermesAgentShellCommand(feedHookCommand(for: def, agentEvent: agentEvent)),
-                timeout: 120
-            )
-        })
-        return events
     }
 
     func installHermesAgentHooks(_ def: AgentHookDef) throws {

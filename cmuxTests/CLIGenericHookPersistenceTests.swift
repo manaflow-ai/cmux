@@ -2874,6 +2874,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let config = try String(contentsOf: configURL, encoding: .utf8)
         XCTAssertTrue(config.contains("cmux-hermes-agent-hook-v2"), config)
+        XCTAssertTrue(config.contains("hooks hermes-agent stop"), config)
+        XCTAssertFalse(config.contains("hooks hermes-agent agent-response"), config)
 
         let allowlistURL = hermesHome.appendingPathComponent("shell-hooks-allowlist.json", isDirectory: false)
         let allowlist = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: allowlistURL)) as? [String: Any])

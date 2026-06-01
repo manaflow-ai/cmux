@@ -24735,73 +24735,34 @@ struct CMUXCLI {
 
     private func buildHooksDict(for def: AgentHookDef) -> [String: Any] {
         var result: [String: Any] = [:]
-        for event in def.events {
-            let cmd = hookCommand(for: def, event: event)
+        for spec in Self.hookInstallSpecs(for: def) {
             switch def.format {
             case .flat:
-                var entries = result[event.agentEvent] as? [[String: Any]] ?? []
-                entries.append(["command": cmd])
-                result[event.agentEvent] = entries
-            case .kiroAgentJSON(let timeoutMs):
-                var entries = result[event.agentEvent] as? [[String: Any]] ?? []
-                entries.append([
-                    "command": cmd,
-                    "timeout_ms": max(timeoutMs, 1),
-                ] as [String: Any])
-                result[event.agentEvent] = entries
-            case .nested(let timeoutMs):
-                var groups = result[event.agentEvent] as? [[String: Any]] ?? []
-                let timeout = nestedHookTimeout(timeoutMs, for: def)
-                groups.append([
-                    "hooks": [["type": "command", "command": cmd, "timeout": timeout] as [String: Any]]
-                ] as [String: Any])
-                result[event.agentEvent] = groups
-            case .antigravityJSON(let timeoutSeconds):
-                var entries = result[event.agentEvent] as? [[String: Any]] ?? []
-                entries.append(Self.antigravityHookEntry(
-                    command: cmd,
-                    timeoutSeconds: timeoutSeconds,
-                    eventName: event.agentEvent
-                ))
-                result[event.agentEvent] = entries
-            case .rovoDevYAML, .hermesAgentYAML:
-                break
-            }
-        }
-        // Layer in Feed bridge entries with a long timeout so blocking
-        // user decisions don't trip the agent's default per-event timeout.
-        // Most nested agents use milliseconds; Grok's and Antigravity's
-        // current hook schemas use seconds, so normalize before writing.
-        let feedTimeoutMs = 120_000
-        for agentEvent in def.feedHookEvents {
-            let feedCmd = feedHookCommand(for: def, agentEvent: agentEvent)
-            switch def.format {
-            case .flat:
-                var entries = result[agentEvent] as? [[String: Any]] ?? []
-                entries.append(["command": feedCmd])
-                result[agentEvent] = entries
+                var entries = result[spec.agentEvent] as? [[String: Any]] ?? []
+                entries.append(["command": spec.command])
+                result[spec.agentEvent] = entries
             case .kiroAgentJSON:
-                var entries = result[agentEvent] as? [[String: Any]] ?? []
+                var entries = result[spec.agentEvent] as? [[String: Any]] ?? []
                 entries.append([
-                    "command": feedCmd,
-                    "timeout_ms": feedTimeoutMs,
+                    "command": spec.command,
+                    "timeout_ms": spec.timeoutMs,
                 ] as [String: Any])
-                result[agentEvent] = entries
+                result[spec.agentEvent] = entries
             case .nested:
-                var groups = result[agentEvent] as? [[String: Any]] ?? []
-                let timeout = nestedHookTimeout(feedTimeoutMs, for: def)
+                var groups = result[spec.agentEvent] as? [[String: Any]] ?? []
+                let timeout = nestedHookTimeout(spec.timeoutMs, for: def)
                 groups.append([
-                    "hooks": [["type": "command", "command": feedCmd, "timeout": timeout] as [String: Any]]
+                    "hooks": [["type": "command", "command": spec.command, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
-                result[agentEvent] = groups
+                result[spec.agentEvent] = groups
             case .antigravityJSON:
-                var entries = result[agentEvent] as? [[String: Any]] ?? []
+                var entries = result[spec.agentEvent] as? [[String: Any]] ?? []
                 entries.append(Self.antigravityHookEntry(
-                    command: feedCmd,
-                    timeoutSeconds: Self.timeoutSecondsFromMilliseconds(feedTimeoutMs),
-                    eventName: agentEvent
+                    command: spec.command,
+                    timeoutSeconds: Self.hookTimeoutSeconds(fromMilliseconds: spec.timeoutMs),
+                    eventName: spec.agentEvent
                 ))
-                result[agentEvent] = entries
+                result[spec.agentEvent] = entries
             case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
@@ -24811,12 +24772,7 @@ struct CMUXCLI {
 
     private func nestedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
         guard def.name == "grok" else { return timeoutMs }
-        return Self.timeoutSecondsFromMilliseconds(timeoutMs)
-    }
-
-    private static func timeoutSecondsFromMilliseconds(_ timeoutMs: Int) -> Int {
-        let positiveTimeoutMs = max(timeoutMs, 1)
-        return ((positiveTimeoutMs - 1) / 1000) + 1
+        return Self.hookTimeoutSeconds(fromMilliseconds: timeoutMs)
     }
 
     private static func antigravityHookEntry(
