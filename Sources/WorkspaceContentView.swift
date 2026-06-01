@@ -782,6 +782,8 @@ struct PaperCanvasWorkspaceView: View {
     let isWorkspaceManuallyUnread: Bool
     let workspaceManualUnreadPanelId: UUID?
     @EnvironmentObject var notificationStore: TerminalNotificationStore
+    private let paperColumnSpacing: CGFloat = 24
+    private let paperRowSpacing: CGFloat = 24
 
     var body: some View {
         GeometryReader { proxy in
@@ -803,16 +805,39 @@ struct PaperCanvasWorkspaceView: View {
 
     @ViewBuilder
     private func paperCanvasView(_ paperLayoutState: PaperLayoutState, viewportSize: CGSize) -> some View {
-        ZStack(alignment: .topLeading) {
-            if let activePane = paperLayoutState.paneNearestViewportOrigin() {
-                paperPaneView(activePane)
+        let visibleColumns = paperLayoutState.visibleColumns(count: workspace.paperVisibleColumnCount)
+        let visibleColumnCount = max(1, visibleColumns.count)
+        let requestedRowCount = min(4, max(1, workspace.paperVisibleRowCount))
+        let totalColumnSpacing = paperColumnSpacing * CGFloat(max(0, visibleColumnCount - 1))
+        let totalRowSpacing = paperRowSpacing * CGFloat(max(0, requestedRowCount - 1))
+        let paneSize = CGSize(
+            width: max(1, (viewportSize.width - totalColumnSpacing) / CGFloat(visibleColumnCount)),
+            height: max(1, (viewportSize.height - totalRowSpacing) / CGFloat(requestedRowCount))
+        )
+
+        HStack(alignment: .top, spacing: paperColumnSpacing) {
+            ForEach(visibleColumns, id: \.x) { column in
+                paperColumnView(column, paperLayoutState: paperLayoutState, paneSize: paneSize)
             }
         }
         .frame(width: viewportSize.width, height: viewportSize.height, alignment: .topLeading)
     }
 
     @ViewBuilder
-    private func paperPaneView(_ pane: PaperPane) -> some View {
+    private func paperColumnView(
+        _ column: PaperLayoutState.PaperColumn,
+        paperLayoutState: PaperLayoutState,
+        paneSize: CGSize
+    ) -> some View {
+        VStack(alignment: .leading, spacing: paperRowSpacing) {
+            ForEach(paperLayoutState.visiblePanes(in: column, rowCount: workspace.paperVisibleRowCount)) { pane in
+                paperPaneView(pane, paneSize: paneSize)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func paperPaneView(_ pane: PaperPane, paneSize: CGSize) -> some View {
         let paneId = PaneID(id: pane.id)
         let selectedTabId = pane.selectedTabId ?? pane.tabIds.first
         let panel = selectedTabId.flatMap { workspace.panel(for: TabID(uuid: $0)) }
@@ -876,12 +901,22 @@ struct PaperCanvasWorkspaceView: View {
                     onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )
             }
-            .frame(width: pane.frame.width, height: pane.frame.height)
+            .frame(width: paneSize.width, height: paneSize.height)
         } else {
             ZStack {
                 EmptyPanelView(workspace: workspace, paneId: paneId)
             }
-            .frame(width: pane.frame.width, height: pane.frame.height)
+            .frame(width: paneSize.width, height: paneSize.height)
+#if DEBUG
+            .onAppear {
+                let selectedTabDescription = selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+                cmuxDebugLog(
+                    "paper.render.missingPanel workspace=\(workspace.id.uuidString.prefix(5)) " +
+                    "pane=\(pane.id.uuidString.prefix(5)) selectedTab=\(selectedTabDescription) " +
+                    "tabIds=\(pane.tabIds.map { String($0.uuidString.prefix(5)) }.joined(separator: ","))"
+                )
+            }
+#endif
             .onTapGesture {
                 workspace.bonsplitController.focusPane(paneId)
             }

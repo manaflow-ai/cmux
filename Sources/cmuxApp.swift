@@ -363,29 +363,72 @@ struct cmuxApp: App {
                 Button("Toggle Selected Workspace Paper Layout") {
                     debugPaperWorkspace(action: "toggle")?.togglePaperLayoutModeForDebug()
                 }
+                .keyboardShortcut("p", modifiers: [.command, .option])
 
                 Button("Paper Focus Left") {
                     debugPaperWorkspace(action: "focusLeft")?.movePaperViewportForDebug(dx: -1200, dy: 0)
                 }
+                .keyboardShortcut("h", modifiers: [.control, .option])
 
                 Button("Paper Focus Right") {
                     debugPaperWorkspace(action: "focusRight")?.movePaperViewportForDebug(dx: 1200, dy: 0)
                 }
+                .keyboardShortcut("l", modifiers: [.control, .option])
 
                 Button("Paper Focus Up") {
                     debugPaperWorkspace(action: "focusUp")?.movePaperViewportForDebug(dx: 0, dy: -800)
                 }
+                .keyboardShortcut("k", modifiers: [.control, .option])
 
                 Button("Paper Focus Down") {
                     debugPaperWorkspace(action: "focusDown")?.movePaperViewportForDebug(dx: 0, dy: 800)
                 }
+                .keyboardShortcut("j", modifiers: [.control, .option])
 
                 Button("Paper Workspace Up") {
                     debugMovePaperWorkspace(delta: -1, createIfNeeded: false, action: "workspaceUp")
                 }
+                .keyboardShortcut("u", modifiers: [.control, .option])
 
                 Button("Paper Workspace Down") {
                     debugMovePaperWorkspace(delta: 1, createIfNeeded: true, action: "workspaceDown")
+                }
+                .keyboardShortcut("d", modifiers: [.control, .option])
+
+                Menu("Paper Visible Columns") {
+                    Button("Paper Visible Columns: 1") {
+                        debugPaperWorkspace(action: "visibleColumns1")?.setPaperVisibleColumnCountForDebug(1)
+                    }
+
+                    Button("Paper Visible Columns: 2") {
+                        debugPaperWorkspace(action: "visibleColumns2")?.setPaperVisibleColumnCountForDebug(2)
+                    }
+
+                    Button("Paper Visible Columns: 3") {
+                        debugPaperWorkspace(action: "visibleColumns3")?.setPaperVisibleColumnCountForDebug(3)
+                    }
+
+                    Button("Paper Visible Columns: 4") {
+                        debugPaperWorkspace(action: "visibleColumns4")?.setPaperVisibleColumnCountForDebug(4)
+                    }
+                }
+
+                Menu("Paper Visible Rows") {
+                    Button("Paper Visible Rows: 1") {
+                        debugPaperWorkspace(action: "visibleRows1")?.setPaperVisibleRowCountForDebug(1)
+                    }
+
+                    Button("Paper Visible Rows: 2") {
+                        debugPaperWorkspace(action: "visibleRows2")?.setPaperVisibleRowCountForDebug(2)
+                    }
+
+                    Button("Paper Visible Rows: 3") {
+                        debugPaperWorkspace(action: "visibleRows3")?.setPaperVisibleRowCountForDebug(3)
+                    }
+
+                    Button("Paper Visible Rows: 4") {
+                        debugPaperWorkspace(action: "visibleRows4")?.setPaperVisibleRowCountForDebug(4)
+                    }
                 }
 
                 Divider()
@@ -968,11 +1011,19 @@ struct cmuxApp: App {
             cmuxDebugLog("paper.workspace.move action=\(action) result=noSelection")
             return
         }
+        guard workspace.layoutMode == .paper else {
+            cmuxDebugLog(
+                "paper.workspace.move action=\(action) result=notPaper " +
+                "workspace=\(workspace.id.uuidString.prefix(5)) mode=\(workspace.layoutMode.rawValue)"
+            )
+            return
+        }
 
         let targetIndex = currentIndex + delta
         if manager.tabs.indices.contains(targetIndex) {
             let targetWorkspace = manager.tabs[targetIndex]
             manager.selectWorkspace(targetWorkspace)
+            debugEnsurePaperWorkspaceMode(targetWorkspace, action: action)
             cmuxDebugLog(
                 "paper.workspace.move action=\(action) result=selected " +
                 "fromIndex=\(currentIndex) toIndex=\(targetIndex) " +
@@ -983,6 +1034,7 @@ struct cmuxApp: App {
 
         if createIfNeeded, delta > 0, targetIndex == manager.tabs.count {
             let newWorkspace = manager.addWorkspace(select: true)
+            debugEnsurePaperWorkspaceMode(newWorkspace, action: action)
             cmuxDebugLog(
                 "paper.workspace.move action=\(action) result=created " +
                 "fromIndex=\(currentIndex) toIndex=\(manager.tabs.count - 1) " +
@@ -994,6 +1046,16 @@ struct cmuxApp: App {
         cmuxDebugLog(
             "paper.workspace.move action=\(action) result=noTarget " +
             "fromIndex=\(currentIndex) targetIndex=\(targetIndex) workspaceCount=\(manager.tabs.count)"
+        )
+    }
+
+    private func debugEnsurePaperWorkspaceMode(_ workspace: Workspace, action: String) {
+        guard workspace.layoutMode != .paper else { return }
+        workspace.layoutMode = .paper
+        _ = workspace.rebuildPaperLayoutStateFromBonsplitForDebug()
+        cmuxDebugLog(
+            "paper.workspace.mode.ensure action=\(action) " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) mode=paper"
         )
     }
 

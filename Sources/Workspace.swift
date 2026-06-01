@@ -9402,6 +9402,11 @@ struct PaperLayoutState: Codable, Equatable, Sendable {
     var focusedPaneId: UUID?
     var viewportOrigin: PaperPoint
 
+    struct PaperColumn: Equatable, Sendable {
+        var x: CGFloat
+        var panes: [PaperPane]
+    }
+
     var focusedPane: PaperPane? {
         if let focusedPaneId,
            let pane = panes.first(where: { $0.id == focusedPaneId }) {
@@ -9450,100 +9455,126 @@ struct PaperLayoutState: Codable, Equatable, Sendable {
         }
     }
 
+    func columns(epsilon: CGFloat = 0.5) -> [PaperColumn] {
+        let sortedPanes = panes.sorted { lhs, rhs in
+            if abs(lhs.frame.minX - rhs.frame.minX) > epsilon {
+                return lhs.frame.minX < rhs.frame.minX
+            }
+            if abs(lhs.frame.minY - rhs.frame.minY) > epsilon {
+                return lhs.frame.minY < rhs.frame.minY
+            }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+
+        var columns: [PaperColumn] = []
+        for pane in sortedPanes {
+            if let lastIndex = columns.indices.last,
+               abs(columns[lastIndex].x - pane.frame.minX) <= epsilon {
+                columns[lastIndex].panes.append(pane)
+            } else {
+                columns.append(PaperColumn(x: pane.frame.minX, panes: [pane]))
+            }
+        }
+
+        for index in columns.indices {
+            columns[index].panes.sort { lhs, rhs in
+                if abs(lhs.frame.minY - rhs.frame.minY) > epsilon {
+                    return lhs.frame.minY < rhs.frame.minY
+                }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
+        }
+
+        return columns
+    }
+
+    func visibleColumns(count rawCount: Int) -> [PaperColumn] {
+        let allColumns = columns()
+        guard !allColumns.isEmpty else { return [] }
+        guard let activePane = focusedPane ?? paneNearestViewportOrigin(),
+              let activeIndex = columnIndex(containing: activePane, in: allColumns) else {
+            return Array(allColumns.prefix(max(1, rawCount)))
+        }
+
+        let count = min(max(1, rawCount), allColumns.count)
+        let maxStartIndex = max(0, allColumns.count - count)
+        let startIndex = min(activeIndex, maxStartIndex)
+        return Array(allColumns[startIndex..<(startIndex + count)])
+    }
+
+    func visiblePanes(in column: PaperColumn, rowCount rawRowCount: Int) -> [PaperPane] {
+        guard !column.panes.isEmpty else { return [] }
+        let count = min(max(1, rawRowCount), column.panes.count)
+        guard let activePane = focusedPane ?? paneNearestViewportOrigin() else {
+            return Array(column.panes.prefix(count))
+        }
+
+        let activeRowIndex = column.panes.firstIndex { $0.id == activePane.id }
+            ?? column.panes.enumerated().min { lhs, rhs in
+                verticalScore(lhs.element, sourceCenterY: activePane.frame.midY) <
+                    verticalScore(rhs.element, sourceCenterY: activePane.frame.midY)
+            }?.offset
+            ?? 0
+        let maxStartIndex = max(0, column.panes.count - count)
+        let startIndex = min(activeRowIndex, maxStartIndex)
+        return Array(column.panes[startIndex..<(startIndex + count)])
+    }
+
     func paneInDirection(dx: CGFloat, dy: CGFloat) -> PaperPane? {
         guard let sourcePane = focusedPane ?? paneNearestViewportOrigin() else { return nil }
-        let sourceCenterX = sourcePane.frame.midX
         let sourceCenterY = sourcePane.frame.midY
-        let sourceColumnX = sourcePane.frame.minX
         let epsilon: CGFloat = 0.5
+        let allColumns = columns(epsilon: epsilon)
+        guard let sourceColumnIndex = columnIndex(containing: sourcePane, in: allColumns) else {
+            return nil
+        }
 
-        let candidates: [PaperPane]
         if abs(dx) >= abs(dy), dx > 0 {
-            candidates = panes.filter { $0.id != sourcePane.id && $0.frame.minX > sourceColumnX + epsilon }
-            guard let targetColumnX = candidates.map(\.frame.minX).min() else { return nil }
-            return candidates
-                .filter { abs($0.frame.minX - targetColumnX) <= epsilon }
-                .min {
-                    columnScore($0, sourceCenterY: sourceCenterY) <
-                        columnScore($1, sourceCenterY: sourceCenterY)
-                }
+            let targetIndex = sourceColumnIndex + 1
+            guard allColumns.indices.contains(targetIndex) else { return nil }
+            return pane(in: allColumns[targetIndex], closestToY: sourceCenterY)
         } else if abs(dx) >= abs(dy), dx < 0 {
-            candidates = panes.filter { $0.id != sourcePane.id && $0.frame.minX < sourceColumnX - epsilon }
-            guard let targetColumnX = candidates.map(\.frame.minX).max() else { return nil }
-            return candidates
-                .filter { abs($0.frame.minX - targetColumnX) <= epsilon }
-                .min {
-                    columnScore($0, sourceCenterY: sourceCenterY) <
-                        columnScore($1, sourceCenterY: sourceCenterY)
-                }
+            let targetIndex = sourceColumnIndex - 1
+            guard allColumns.indices.contains(targetIndex) else { return nil }
+            return pane(in: allColumns[targetIndex], closestToY: sourceCenterY)
         } else if dy > 0 {
-            let sameColumnCandidates = panes.filter {
-                $0.id != sourcePane.id &&
-                    abs($0.frame.minX - sourceColumnX) <= epsilon &&
-                    $0.frame.midY > sourceCenterY + epsilon
-            }
-            if let sameColumnPane = sameColumnCandidates.min(by: { lhs, rhs in
-                verticalScore(lhs, sourceCenterY: sourceCenterY) <
-                    verticalScore(rhs, sourceCenterY: sourceCenterY)
-            }) {
-                return sameColumnPane
-            }
-            candidates = panes.filter { $0.id != sourcePane.id && $0.frame.midY > sourceCenterY + epsilon }
-            return candidates.min {
-                directionalScore($0, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: false) <
-                    directionalScore($1, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: false)
-            }
+            return allColumns[sourceColumnIndex].panes
+                .filter { $0.id != sourcePane.id && $0.frame.midY > sourceCenterY + epsilon }
+                .min {
+                    verticalScore($0, sourceCenterY: sourceCenterY) <
+                        verticalScore($1, sourceCenterY: sourceCenterY)
+                }
         } else if dy < 0 {
-            let sameColumnCandidates = panes.filter {
-                $0.id != sourcePane.id &&
-                    abs($0.frame.minX - sourceColumnX) <= epsilon &&
-                    $0.frame.midY < sourceCenterY - epsilon
-            }
-            if let sameColumnPane = sameColumnCandidates.min(by: { lhs, rhs in
-                verticalScore(lhs, sourceCenterY: sourceCenterY) <
-                    verticalScore(rhs, sourceCenterY: sourceCenterY)
-            }) {
-                return sameColumnPane
-            }
-            candidates = panes.filter { $0.id != sourcePane.id && $0.frame.midY < sourceCenterY - epsilon }
-            return candidates.min {
-                directionalScore($0, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: false) <
-                    directionalScore($1, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: false)
-            }
+            return allColumns[sourceColumnIndex].panes
+                .filter { $0.id != sourcePane.id && $0.frame.midY < sourceCenterY - epsilon }
+                .min {
+                    verticalScore($0, sourceCenterY: sourceCenterY) <
+                        verticalScore($1, sourceCenterY: sourceCenterY)
+                }
         }
 
         return nil
     }
 
-    private func columnScore(_ pane: PaperPane, sourceCenterY: CGFloat) -> CGFloat {
-        (abs(pane.frame.midY - sourceCenterY) * 10_000) + pane.frame.minY
+    private func columnIndex(containing pane: PaperPane, in columns: [PaperColumn]) -> Int? {
+        columns.firstIndex { column in
+            column.panes.contains { $0.id == pane.id }
+        }
     }
 
-    private func verticalScore(_ pane: PaperPane, sourceCenterY: CGFloat) -> CGFloat {
-        abs(pane.frame.midY - sourceCenterY)
-    }
-
-    private func directionalScore(
-        _ pane: PaperPane,
-        sourceCenterX: CGFloat,
-        sourceCenterY: CGFloat,
-        horizontal: Bool
-    ) -> CGFloat {
-        let primary = horizontal
-            ? abs(pane.frame.midX - sourceCenterX)
-            : abs(pane.frame.midY - sourceCenterY)
-        let cross = horizontal
-            ? abs(pane.frame.midY - sourceCenterY)
-            : abs(pane.frame.midX - sourceCenterX)
-        return (primary * 10_000) + cross
-    }
-
-    private func verticallyOverlaps(_ lhs: PaperRect, _ rhs: PaperRect) -> Bool {
-        lhs.minY < rhs.maxY && rhs.minY < lhs.maxY
+    private func pane(in column: PaperColumn, closestToY sourceCenterY: CGFloat) -> PaperPane? {
+        column.panes.min {
+            verticalScore($0, sourceCenterY: sourceCenterY) <
+                verticalScore($1, sourceCenterY: sourceCenterY)
+        }
     }
 
     private func horizontallyOverlaps(_ lhs: PaperRect, _ rhs: PaperRect) -> Bool {
         lhs.minX < rhs.maxX && rhs.minX < lhs.maxX
+    }
+
+    private func verticalScore(_ pane: PaperPane, sourceCenterY: CGFloat) -> CGFloat {
+        abs(pane.frame.midY - sourceCenterY)
     }
 
     mutating func focusPane(containingTabId tabId: UUID) {
@@ -9739,6 +9770,20 @@ final class Workspace: Identifiable, ObservableObject {
     let bonsplitController: BonsplitController
     @Published var layoutMode: WorkspaceLayoutMode = .bonsplit
     @Published var paperLayoutState: PaperLayoutState?
+    @Published var paperVisibleColumnCount: Int = 1 {
+        didSet {
+            let clampedValue = min(4, max(1, paperVisibleColumnCount))
+            guard paperVisibleColumnCount != clampedValue else { return }
+            paperVisibleColumnCount = clampedValue
+        }
+    }
+    @Published var paperVisibleRowCount: Int = 1 {
+        didSet {
+            let clampedValue = min(4, max(1, paperVisibleRowCount))
+            guard paperVisibleRowCount != clampedValue else { return }
+            paperVisibleRowCount = clampedValue
+        }
+    }
 
     private struct SurfaceTabBarExecutableButton {
         let button: CmuxSurfaceTabBarButton
@@ -10076,6 +10121,38 @@ final class Workspace: Identifiable, ObservableObject {
             "tentative=(\(tentativeOrigin.x),\(tentativeOrigin.y)) " +
             "delta=(\(dx),\(dy)) " +
             "snappedPane=\(snappedPane?.id.uuidString.prefix(5) ?? "nil")"
+        )
+    }
+
+    func setPaperVisibleColumnCountForDebug(_ count: Int) {
+        guard layoutMode == .paper else {
+            cmuxDebugLog(
+                "paper.visibleColumns.set.skip workspace=\(id.uuidString.prefix(5)) " +
+                "reason=notPaper mode=\(layoutMode.rawValue) requested=\(count)"
+            )
+            return
+        }
+        let oldCount = paperVisibleColumnCount
+        paperVisibleColumnCount = count
+        cmuxDebugLog(
+            "paper.visibleColumns.set workspace=\(id.uuidString.prefix(5)) " +
+            "old=\(oldCount) new=\(paperVisibleColumnCount) requested=\(count)"
+        )
+    }
+
+    func setPaperVisibleRowCountForDebug(_ count: Int) {
+        guard layoutMode == .paper else {
+            cmuxDebugLog(
+                "paper.visibleRows.set.skip workspace=\(id.uuidString.prefix(5)) " +
+                "reason=notPaper mode=\(layoutMode.rawValue) requested=\(count)"
+            )
+            return
+        }
+        let oldCount = paperVisibleRowCount
+        paperVisibleRowCount = count
+        cmuxDebugLog(
+            "paper.visibleRows.set workspace=\(id.uuidString.prefix(5)) " +
+            "old=\(oldCount) new=\(paperVisibleRowCount) requested=\(count)"
         )
     }
 #endif
