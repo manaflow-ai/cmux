@@ -12713,7 +12713,6 @@ function applyTerminalWheelZoom(event, panel) {
   const terminalPanel = resolveTerminalPanel(panel);
   if (!terminalPanel) return false;
   if (!event.ctrlKey) return false;
-  markInteractedPanel(terminalPanel.id);
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation?.();
