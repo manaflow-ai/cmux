@@ -10004,7 +10004,7 @@ enum CmuxExtensionSidebarSelection {
     /// extensions-browser opener) that have no `SettingsRuntime` in scope and
     /// run outside the SwiftUI update cycle.
     ///
-    /// SwiftUI views bind reactively via `@DefaultsSetting(\.betaFeatures.extensions)`.
+    /// SwiftUI views bind reactively via `@LiveSetting(\.betaFeatures.extensions)`.
     /// This synchronous read resolves the same catalog key
     /// (`BetaFeaturesCatalogSection.extensions`) against `UserDefaults`, which is
     /// the same suite and key the store persists to, so the catalog stays the
