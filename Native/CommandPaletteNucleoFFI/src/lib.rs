@@ -26,6 +26,7 @@ pub struct CmuxNucleoMatch {
 
 struct Candidate {
     title: String,
+    title_lowercase: String,
     search_text: String,
     search_lines: Vec<String>,
     rank: i32,
@@ -125,6 +126,7 @@ pub unsafe extern "C" fn cmux_nucleo_index_create(
             return std::ptr::null_mut();
         };
         let ascii_prefilter_safe = title.is_ascii() && search_text.is_ascii();
+        let title_lowercase = title.to_lowercase();
         let (title_low, title_high) = ascii_mask(title);
         let (search_low, search_high) = ascii_mask(search_text);
         let title_initials = title_word_initials(title);
@@ -132,6 +134,7 @@ pub unsafe extern "C" fn cmux_nucleo_index_create(
         let search_lines = search_text.lines().map(str::to_owned).collect();
         candidates.push(Candidate {
             title: title.to_owned(),
+            title_lowercase,
             search_text: search_text.to_owned(),
             search_lines,
             rank: span.rank,
@@ -262,6 +265,7 @@ unsafe fn cmux_nucleo_index_search_impl(
     } else {
         let query_mask = ascii_mask_query(&normalized_query);
         let search_tokens = search_tokens(&normalized_query);
+        let normalized_query_lowercase = normalized_query.to_lowercase();
         let mut best_matches = BinaryHeap::with_capacity(output_limit);
 
         SEARCH_STATE.with(|state| {
@@ -277,9 +281,13 @@ unsafe fn cmux_nucleo_index_search_impl(
                     }
                 }
 
-                let Some(score) =
-                    weighted_query_score(&mut state, &normalized_query, &search_tokens, candidate)
-                else {
+                let Some(score) = weighted_query_score(
+                    &mut state,
+                    &normalized_query,
+                    &normalized_query_lowercase,
+                    &search_tokens,
+                    candidate,
+                ) else {
                     continue;
                 };
                 append_scored_candidate(
@@ -373,20 +381,25 @@ fn search_tokens(query: &str) -> Vec<SearchToken> {
 fn weighted_query_score(
     state: &mut SearchState,
     query: &str,
+    query_lowercase: &str,
     tokens: &[SearchToken],
     candidate: &Candidate,
 ) -> Option<f64> {
-    if tokens.len() == 1 {
-        return weighted_token_score(state, &tokens[0], candidate);
-    }
-
-    let mut total_score = 0.0;
-    for token in tokens {
-        total_score += weighted_token_score(state, token, candidate)?;
-    }
+    let mut total_score = if tokens.len() == 1 {
+        weighted_token_score(state, &tokens[0], candidate)?
+    } else {
+        let mut score = 0.0;
+        for token in tokens {
+            score += weighted_token_score(state, token, candidate)?;
+        }
+        score
+    };
 
     if let Some(exact_query_line_score) = exact_search_text_line_score(candidate, query) {
         total_score = total_score.max(exact_query_line_score);
+    }
+    if let Some(title_phrase_score) = title_phrase_score(candidate, query_lowercase, tokens.len()) {
+        total_score = total_score.max(title_phrase_score);
     }
     Some(total_score)
 }
@@ -480,6 +493,59 @@ fn keyword_exact_line_score(query_char_count: usize) -> f64 {
         return 30_000.0 + f64::from(query_char_count as u32) * 10.0;
     }
     1_800.0 + f64::from(query_char_count as u32) * 10.0
+}
+
+fn title_phrase_score(
+    candidate: &Candidate,
+    query_lowercase: &str,
+    query_token_count: usize,
+) -> Option<f64> {
+    if query_lowercase.is_empty() {
+        return None;
+    }
+
+    let title = &candidate.title_lowercase;
+    let Some(start_byte) = title.find(query_lowercase) else {
+        return None;
+    };
+    let end_byte = start_byte + query_lowercase.len();
+    let query_char_count = query_lowercase.chars().count();
+    let query_token_count = query_token_count.max(1);
+
+    if title == query_lowercase {
+        return Some(
+            80_000.0 * query_token_count as f64 + f64::from(query_char_count as u32) * 20.0,
+        );
+    }
+
+    let starts_on_boundary = start_byte == 0
+        || title[..start_byte]
+            .chars()
+            .last()
+            .is_some_and(is_title_word_boundary);
+    let ends_on_boundary = end_byte == title.len()
+        || title[end_byte..]
+            .chars()
+            .next()
+            .is_some_and(is_title_word_boundary);
+    if !starts_on_boundary || !ends_on_boundary {
+        return None;
+    }
+
+    let trailing_penalty = candidate.title_char_count.saturating_sub(query_char_count) as f64 * 6.0;
+    if start_byte == 0 {
+        return Some(
+            70_000.0 * query_token_count as f64 + f64::from(query_char_count as u32) * 20.0
+                - trailing_penalty,
+        );
+    }
+
+    let start_char_count = title[..start_byte].chars().count();
+    Some(
+        60_000.0 * query_token_count as f64 + f64::from(query_char_count as u32) * 20.0
+            - start_char_count as f64 * 30.0
+            - trailing_penalty,
+    )
 }
 
 fn initialism_query(query: &str) -> Option<InitialismQuery> {
@@ -597,5 +663,100 @@ fn set_ascii_mask_bit(byte: u8, low: &mut u64, high: &mut u64) {
         *low |= 1_u64 << u64::from(byte);
     } else if byte < 128 {
         *high |= 1_u64 << u64::from(byte - 64);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_candidate(title: &str, search_lines: &[&str], rank: i32) -> Candidate {
+        let search_text = search_lines.join("\n");
+        let ascii_prefilter_safe = title.is_ascii() && search_text.is_ascii();
+        let (title_low, title_high) = ascii_mask(title);
+        let (search_low, search_high) = ascii_mask(&search_text);
+        Candidate {
+            title: title.to_owned(),
+            title_lowercase: title.to_lowercase(),
+            search_text: search_text.clone(),
+            search_lines: search_text.lines().map(str::to_owned).collect(),
+            rank,
+            ascii_prefilter_safe,
+            ascii_mask_low: title_low | search_low,
+            ascii_mask_high: title_high | search_high,
+            title_initials: title_word_initials(title),
+            title_char_count: title.chars().count(),
+        }
+    }
+
+    fn search_candidate_indices(
+        candidates: Vec<Candidate>,
+        query: &str,
+        limit: usize,
+        boosts: Option<&[i32]>,
+    ) -> Vec<usize> {
+        let mut index = CmuxNucleoIndex { candidates };
+        let mut matches = vec![
+            CmuxNucleoMatch {
+                index: 0,
+                score: 0.0,
+                rank: 0,
+            };
+            limit
+        ];
+        let mut out_count = 0;
+
+        let status = unsafe {
+            cmux_nucleo_index_search_impl(
+                &mut index,
+                query.as_ptr(),
+                query.len(),
+                limit,
+                boosts
+                    .map(|values| values.as_ptr())
+                    .unwrap_or(std::ptr::null()),
+                boosts.map(|values| values.len()).unwrap_or(0),
+                matches.as_mut_ptr(),
+                matches.len(),
+                &mut out_count,
+            )
+        };
+
+        assert_eq!(status, 0);
+        matches.truncate(out_count);
+        matches.into_iter().map(|result| result.index).collect()
+    }
+
+    #[test]
+    fn title_phrase_prefix_beats_description_phrase_match() {
+        let matches = search_candidate_indices(
+            vec![
+                test_candidate(
+                    "owl browser engine",
+                    &[
+                        "owl browser engine",
+                        "Workspace",
+                        "workspace",
+                        "switch",
+                        "go",
+                        "open",
+                        "Use Owl 2 pieces that are ready: generated Mojo transports, Swift-owned pipe handles, and resize verification gates.",
+                        "owl",
+                        "2",
+                    ],
+                    0,
+                ),
+                test_candidate(
+                    "owl 2 aws",
+                    &["owl 2 aws", "Workspace", "workspace", "switch", "go", "open"],
+                    6,
+                ),
+            ],
+            "owl 2",
+            5,
+            None,
+        );
+
+        assert_eq!(matches.first(), Some(&1));
     }
 }

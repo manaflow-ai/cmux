@@ -510,6 +510,50 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(results.map(\.payload).first, "palette.forkAgentConversationRight")
     }
 
+    func testTitlePhrasePrefixBeatsDescriptionExactTokens() {
+        let entries = [
+            FixtureEntry(
+                id: "workspace.owlBrowserEngine",
+                rank: 0,
+                title: "owl browser engine",
+                searchableTexts: [
+                    "owl browser engine",
+                    "Workspace",
+                    "workspace",
+                    "switch",
+                    "go",
+                    "open",
+                    "Use Owl 2 pieces that are ready: generated Mojo transports.",
+                    "owl",
+                    "2",
+                ]
+            ),
+            FixtureEntry(
+                id: "workspace.owl2Aws",
+                rank: 6,
+                title: "owl 2 aws",
+                searchableTexts: ["owl 2 aws", "Workspace", "workspace", "switch", "go", "open"]
+            ),
+        ]
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "owl 2").first?.id,
+            "workspace.owl2Aws"
+        )
+    }
+
+    func testTitlePhraseScoreTreatsBackslashAsBoundary() throws {
+        let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery("project")
+        let preparedTitle = try XCTUnwrap(CommandPaletteFuzzyMatcher.prepareCandidateText("org\\project"))
+
+        XCTAssertNotNil(
+            CommandPaletteFuzzyMatcher.titlePhraseScore(
+                preparedQuery: preparedQuery,
+                preparedTitle: preparedTitle
+            )
+        )
+    }
+
     func testForkableAgentCacheKeepsPanelVisibleWithoutFallbackSnapshot() {
         let workspaceId = UUID()
         let panelId = UUID()
