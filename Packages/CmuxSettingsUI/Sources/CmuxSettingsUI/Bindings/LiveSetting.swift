@@ -94,9 +94,11 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
     public var wrappedValue: Value {
         get { value }
         nonmutating set {
-            // Optimistic local update (immediate UI); persist to the store, which
-            // yields the committed value back through the stream and reconciles.
-            value = newValue
+            // Persist only; the observation stream is the single writer of
+            // `value`, so the UI reflects the change once the write commits and
+            // the stream yields it back (a small storage round-trip). A failed
+            // JSON/secret write therefore leaves `value` at the last committed
+            // value instead of stranding an unsaved one. Mirrors DefaultsValueModel.
             if let runtime { persist(runtime, newValue) }
         }
     }
