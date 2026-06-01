@@ -382,6 +382,7 @@ const state = {
   paletteIndex: 0,
   paletteRenderFrame: 0,
   paletteRenderTimer: 0,
+  paletteFocusFrame: 0,
   paletteListSignature: "",
   surfaceTabScrollFrame: 0,
   surfaceTabScrollTargetId: "",
@@ -449,6 +450,7 @@ const state = {
   layoutSettingsPreviewFrame: 0,
   browserSettingsPreviewFrame: 0,
   settingsFilterFrame: 0,
+  settingsSearchFocusFrame: 0,
   renderStats: {
     count: 0,
     lastMs: 0,
@@ -7491,12 +7493,18 @@ function restoreSettingsSearchFocus() {
   input.setSelectionRange(input.value.length, input.value.length);
 }
 
+function cancelSettingsSearchFocus() {
+  if (!state.settingsSearchFocusFrame) return;
+  cancelAnimationFrame(state.settingsSearchFocusFrame);
+  state.settingsSearchFocusFrame = 0;
+}
+
 function scheduleSettingsSearchFocus() {
-  requestAnimationFrame(() => {
+  cancelSettingsSearchFocus();
+  state.settingsSearchFocusFrame = requestAnimationFrame(() => {
+    state.settingsSearchFocusFrame = 0;
+    if (state.inspectorMode !== "settings") return;
     restoreSettingsSearchFocus();
-    if (!elements.inspectorBody.querySelector(".settings-search-input:focus")) {
-      setTimeout(restoreSettingsSearchFocus, 0);
-    }
   });
 }
 
@@ -11550,16 +11558,32 @@ function paletteEntries() {
   return entries;
 }
 
+function cancelPaletteFocus() {
+  if (!state.paletteFocusFrame) return;
+  cancelAnimationFrame(state.paletteFocusFrame);
+  state.paletteFocusFrame = 0;
+}
+
+function schedulePaletteFocus() {
+  cancelPaletteFocus();
+  state.paletteFocusFrame = requestAnimationFrame(() => {
+    state.paletteFocusFrame = 0;
+    if (!state.paletteOpen) return;
+    elements.paletteInput.focus({ preventScroll: true });
+  });
+}
+
 function openPalette() {
   state.paletteOpen = true;
   state.paletteIndex = 0;
   renderPalette();
   elements.paletteList.scrollTop = 0;
-  setTimeout(() => elements.paletteInput.focus(), 0);
+  schedulePaletteFocus();
 }
 
 function closePalette() {
   state.paletteOpen = false;
+  cancelPaletteFocus();
   elements.paletteList.scrollTop = 0;
   renderPalette();
 }
@@ -12929,6 +12953,7 @@ function toggleSidebar() {
 
 function openInspector(mode) {
   state.inspectorMode = state.inspectorMode === mode ? null : mode;
+  if (state.inspectorMode !== "settings") cancelSettingsSearchFocus();
   updateRailButtons();
   render();
 }
@@ -13703,11 +13728,13 @@ document.getElementById("sessionsRailButton").onclick = () => openInspector("ses
 document.getElementById("settingsRailButton").onclick = () => openInspector("settings");
 document.getElementById("workspacesRailButton").onclick = () => {
   state.inspectorMode = null;
+  cancelSettingsSearchFocus();
   updateRailButtons();
   render();
 };
 document.getElementById("closeInspectorButton").onclick = () => {
   state.inspectorMode = null;
+  cancelSettingsSearchFocus();
   updateRailButtons();
   render();
 };

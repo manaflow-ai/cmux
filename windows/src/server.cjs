@@ -434,6 +434,29 @@ function terminalProcessEnv(panel, panelToken, extra = {}) {
   };
 }
 
+const terminalAttentionPatterns = [
+  /\bwaiting for (?:your )?input\b/i,
+  /\bneeds (?:your )?input\b/i,
+  /\brequires? (?:your )?input\b/i,
+  /\b(?:press|hit) (?:enter|return|y|n|a key) (?:to|for)\b/i,
+  /\bpermission (?:requested|required|needed|prompt|approval)\b/i,
+  /\b(?:approve|approval|confirm|authorize|allow|grant permission)\b.{0,120}\?/i,
+  /\b(?:continue|proceed)\?\s*$/i
+];
+
+function terminalAttentionText(data) {
+  return String(data || "")
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function terminalOutputNeedsAttention(data) {
+  const text = terminalAttentionText(data);
+  return Boolean(text && terminalAttentionPatterns.some((pattern) => pattern.test(text)));
+}
+
 class TerminalProcess {
   constructor(panel, options = {}) {
     this.panel = panel;
@@ -519,13 +542,7 @@ class TerminalProcess {
         this.panel.runtime.scheduleTerminalMetadataBroadcast();
       }
     }
-    const lower = data.toLowerCase();
-    if (
-      lower.includes("waiting for input") ||
-      lower.includes("needs your input") ||
-      lower.includes("permission") ||
-      lower.includes("approve")
-    ) {
+    if (terminalOutputNeedsAttention(data)) {
       const notificationText = data.replace(/\s+/g, " ").trim().slice(0, 160);
       if (!this.panel.needsAttention || this.panel.notificationText !== notificationText) {
         this.panel.needsAttention = true;
