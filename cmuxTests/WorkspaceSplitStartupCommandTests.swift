@@ -298,12 +298,11 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: projectRoot) }
         workspace.currentDirectory = projectRoot.path
 
-        let first = try XCTUnwrap(
-            await workspace.openAttachedNoteForWorkspace(inPane: paneId, focus: false)
-        )
-        let second = try XCTUnwrap(
-            await workspace.openAttachedNoteForWorkspace(inPane: paneId, focus: false)
-        )
+        // `await` cannot run inside XCTUnwrap's autoclosure, so resolve first.
+        let firstPanel = await workspace.openAttachedNoteForWorkspace(inPane: paneId, focus: false)
+        let first = try XCTUnwrap(firstPanel)
+        let secondPanel = await workspace.openAttachedNoteForWorkspace(inPane: paneId, focus: false)
+        let second = try XCTUnwrap(secondPanel)
 
         // Each "New Note" invocation must create a brand-new note rather than
         // refocusing the workspace's existing note. Regression: after the first
