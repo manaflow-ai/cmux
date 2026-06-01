@@ -977,6 +977,10 @@ body.reduce-motion *::after {
   display: inline-flex;
 }
 
+.shell.toolbar-minimal .command-strip .tool-button:not(#newTerminalButton):not(#toolsMenuButton):not(#settingsButton) {
+  display: none;
+}
+
 .tool-icon {
   min-width: 14px;
   display: inline-grid;
@@ -992,16 +996,19 @@ body.reduce-motion *::after {
   text-overflow: ellipsis;
 }
 
+.shell.toolbar-minimal .command-strip,
 .shell.toolbar-compact .command-strip {
   gap: 4px;
 }
 
+.shell.toolbar-minimal .tool-button,
 .shell.toolbar-compact .tool-button {
   width: 32px;
   padding: 0;
   gap: 0;
 }
 
+.shell.toolbar-minimal .tool-button .tool-label,
 .shell.toolbar-compact .tool-button .tool-label {
   position: absolute;
   width: 1px;

@@ -1748,6 +1748,7 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "sidebar-footer-workspace", state.settings.sidebarFooterMode === "workspace");
   toggleClassIfChanged(elements.shell, "sidebar-footer-compact", state.settings.sidebarFooterMode === "compact");
   toggleClassIfChanged(elements.shell, "sidebar-footer-full", state.settings.sidebarFooterMode === "full");
+  toggleClassIfChanged(elements.shell, "toolbar-minimal", state.settings.toolbarMode === "minimal");
   toggleClassIfChanged(elements.shell, "toolbar-compact", state.settings.toolbarMode === "compact");
   toggleClassIfChanged(elements.shell, "toolbar-standard", state.settings.toolbarMode === "standard");
   toggleClassIfChanged(elements.shell, "toolbar-expanded", state.settings.toolbarMode === "expanded");
@@ -8038,9 +8039,9 @@ function quickSetupActionGrid() {
     },
     {
       label: "Clean UI",
-      body: "Apply compact chrome and quieter pane controls.",
+      body: "Apply a minimal toolbar and quieter pane controls.",
       meta: activeSettingsPresetLabel,
-      search: "simple clean compact ui chrome pane controls preset",
+      search: "simple clean minimal compact ui chrome pane controls preset",
       run: () => applySettingsPresetById("simple")
     },
     {

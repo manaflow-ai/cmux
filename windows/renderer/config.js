@@ -19,7 +19,7 @@ export const defaultSettings = {
   paneActionMode: "essential",
   sidebarDetailMode: "compact",
   sidebarFooterMode: "workspace",
-  toolbarMode: "compact",
+  toolbarMode: "minimal",
   tabSize: "balanced",
   titleDetailMode: "smart",
   focusMode: false,
@@ -244,7 +244,8 @@ export const terminalFontOptions = [
 ];
 
 export const toolbarModeOptions = [
-  ["compact", label("toolbar.compact", "Compact"), label("toolbar.compact.body", "Icon-only main actions for the cleanest top bar.")],
+  ["minimal", label("toolbar.minimal", "Minimal"), label("toolbar.minimal.body", "Only terminal, tools, and settings stay on the top bar.")],
+  ["compact", label("toolbar.compact", "Compact"), label("toolbar.compact.body", "Icon-only main actions for a small top bar.")],
   ["standard", label("toolbar.standard", "Standard"), label("toolbar.standard.body", "Named main actions with advanced tools tucked away.")],
   ["expanded", label("toolbar.expanded", "Expanded"), label("toolbar.expanded.body", "Show every toolbar shortcut on the top bar.")]
 ];
@@ -376,7 +377,7 @@ export const settingsPresets = [
       paneActionMode: "essential",
       sidebarDetailMode: "compact",
       sidebarFooterMode: "workspace",
-      toolbarMode: "compact",
+      toolbarMode: "minimal",
       tabSize: "balanced",
       titleDetailMode: "smart",
       focusMode: false,
@@ -416,7 +417,7 @@ export const settingsPresets = [
       paneActionMode: "essential",
       sidebarDetailMode: "compact",
       sidebarFooterMode: "compact",
-      toolbarMode: "compact",
+      toolbarMode: "minimal",
       tabSize: "compact",
       titleDetailMode: "compact",
       focusMode: false,
@@ -456,7 +457,7 @@ export const settingsPresets = [
       paneActionMode: "essential",
       sidebarDetailMode: "compact",
       sidebarFooterMode: "workspace",
-      toolbarMode: "compact",
+      toolbarMode: "minimal",
       tabSize: "balanced",
       titleDetailMode: "compact",
       focusMode: true,
@@ -496,7 +497,7 @@ export const settingsPresets = [
       paneActionMode: "essential",
       sidebarDetailMode: "compact",
       sidebarFooterMode: "workspace",
-      toolbarMode: "compact",
+      toolbarMode: "minimal",
       tabSize: "compact",
       titleDetailMode: "compact",
       focusMode: false,
