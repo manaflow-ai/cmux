@@ -595,11 +595,12 @@ struct cmuxApp: App {
                     AppDelegate.shared?.showOpenFolderPanel()
                 }
 
-                Button(
-                    String(
+                splitCommandButton(
+                    title: String(
                         localized: "menu.file.openFolderInVSCodeInline",
                         defaultValue: "Open Folder in VS Code (Inline)…"
-                    )
+                    ),
+                    shortcut: menuShortcut(for: .openFolderInVSCodeInline)
                 ) {
                     AppDelegate.shared?.showOpenFolderInInlineVSCodePanel()
                 }
