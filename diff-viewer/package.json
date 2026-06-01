@@ -1,0 +1,21 @@
+{
+  "name": "@cmux/diff-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "react-doctor": "react-doctor . --full --no-score --fail-on none",
+    "react-doctor:ci": "react-doctor . --full --no-score --fail-on error"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.2",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "vite": "^7.2.7"
+  },
+  "devDependencies": {
+    "react-doctor": "^0.2.4",
+    "typescript": "^5.9.3"
+  }
+}
