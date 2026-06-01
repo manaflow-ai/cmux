@@ -676,8 +676,18 @@ function isBackgroundPreset(value) {
   return backgroundPresetMap.has(String(value || "").trim());
 }
 
-function localPathToFileUrl(value) {
+function stripWrappingQuotes(value) {
   const raw = String(value || "").trim();
+  const quote = raw[0];
+  return raw.length >= 2
+    && (quote === "\"" || quote === "'")
+    && raw.at(-1) === quote
+    ? raw.slice(1, -1).trim()
+    : raw;
+}
+
+function localPathToFileUrl(value) {
+  const raw = stripWrappingQuotes(value);
   if (!raw) return "";
   if (/^\\\\/.test(raw)) {
     const parts = raw.replace(/^\\\\/, "").split(/[\\/]+/).filter(Boolean);
@@ -691,7 +701,7 @@ function localPathToFileUrl(value) {
 }
 
 function normalizeBackgroundValue(value) {
-  let url = String(value || "").trim();
+  let url = stripWrappingQuotes(value);
   if (!url) return "";
   const fileUrl = localPathToFileUrl(url);
   if (fileUrl) return fileUrl;
