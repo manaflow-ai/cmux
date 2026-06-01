@@ -132,6 +132,24 @@ struct cmuxApp: App {
 
     private static func configureGhosttyEnvironment() {
         let fileManager = FileManager.default
+
+        // Panecho privacy mode: the bundled Ghostty engine otherwise writes its
+        // crash-reporter cache (and reads config) under
+        // ~/Library/.../com.mitchellh.ghostty — ANOTHER app's data namespace —
+        // which makes macOS prompt "would like to access data from other apps"
+        // on every launch. Pin the XDG base dirs to their conventional defaults
+        // so Ghostty uses ~/.cache/ghostty etc. instead. Only set when unset, so
+        // an explicit user XDG value is always preserved.
+        if PrivacyMode.isEnabled {
+            let home = NSHomeDirectory()
+            for (key, suffix) in [
+                ("XDG_CACHE_HOME", "/.cache"),
+                ("XDG_DATA_HOME", "/.local/share"),
+                ("XDG_STATE_HOME", "/.local/state"),
+            ] where getenv(key) == nil {
+                setenv(key, home + suffix, 1)
+            }
+        }
         let currentResourcesDir = getenv("GHOSTTY_RESOURCES_DIR").flatMap { String(cString: $0) }
         if let resolvedResourcesDir = resolvedGhosttyResourcesDirectory(
             currentValue: currentResourcesDir,

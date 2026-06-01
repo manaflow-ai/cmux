@@ -195,12 +195,18 @@ struct GhosttyConfig {
             "~/.config/ghostty/config",
             "~/.config/ghostty/config.ghostty",
         ].map { NSString(string: $0).expandingTildeInPath }
-        configPaths.append(appSupportConfigGhostty)
-        if shouldIncludeLegacyGhosttyConfigInResolvedLoad(
-            newConfigFileSize: configFileSize(at: appSupportConfigGhostty),
-            legacyConfigFileSize: configFileSize(at: appSupportLegacyConfig)
-        ) {
-            configPaths.append(appSupportLegacyConfig)
+        // Panecho privacy mode: skip the standalone Ghostty app config under
+        // ~/Library/Application Support/com.mitchellh.ghostty (another app's data
+        // -> triggers the macOS "access data from other apps" prompt). The
+        // ~/.config/ghostty/config paths above are still honored.
+        if !PrivacyMode.isEnabled {
+            configPaths.append(appSupportConfigGhostty)
+            if shouldIncludeLegacyGhosttyConfigInResolvedLoad(
+                newConfigFileSize: configFileSize(at: appSupportConfigGhostty),
+                legacyConfigFileSize: configFileSize(at: appSupportLegacyConfig)
+            ) {
+                configPaths.append(appSupportLegacyConfig)
+            }
         }
         configPaths.append(contentsOf: cmuxConfigPaths())
 
@@ -929,7 +935,10 @@ struct GhosttyConfig {
                     .path
             )
         }
-        appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes/\(themeName)")
+        // Panecho privacy mode: do not probe the standalone Ghostty app theme dir.
+        if !PrivacyMode.isEnabled {
+            appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes/\(themeName)")
+        }
 
         return paths
     }
