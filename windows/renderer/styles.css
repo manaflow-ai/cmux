@@ -1120,6 +1120,7 @@ body.reduce-motion *::after {
   color: var(--color-muted);
   font: inherit;
   user-select: none;
+  overflow: hidden;
 }
 
 .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab) {
@@ -1132,8 +1133,7 @@ body.reduce-motion *::after {
 
 .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab):hover,
 .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab).is-active {
-  grid-template-columns: 8px minmax(0, 1fr) 22px;
-  padding-right: 4px;
+  padding-right: 5px;
 }
 
 .surface-tab:hover {
@@ -1191,7 +1191,7 @@ body.reduce-motion *::after {
 
 .surface-tabs.is-crowded .surface-tab:hover .surface-label,
 .surface-tabs.is-crowded .surface-tab.is-active .surface-label {
-  padding-right: 0;
+  padding-right: 18px;
 }
 
 .surface-close {
@@ -1223,9 +1223,11 @@ body.reduce-motion *::after {
 
 .surface-tabs.is-crowded .surface-tab:hover .surface-close,
 .surface-tabs.is-crowded .surface-tab.is-active .surface-close {
-  position: static;
-  width: 22px;
-  height: 22px;
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
 }
 
 .surface-tab:hover .surface-close,

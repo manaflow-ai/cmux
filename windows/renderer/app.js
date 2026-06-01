@@ -325,6 +325,7 @@ const state = {
   surfaceTabScrollFrame: 0,
   surfaceTabScrollTargetId: "",
   surfaceTabOverflowFrame: 0,
+  surfaceTabEnsureActive: false,
   surfaceTabResizeObserver: null,
   commandStripOverflowFrame: 0,
   commandStripResizeObserver: null,
@@ -3185,16 +3186,17 @@ function renderSurfaceTabs(workspace) {
   nodes.push(getNewSurfaceTab(workspace));
   replaceChildrenIfChanged(elements.surfaceTabs, nodes);
   state.surfaceTabsSignature = signature;
-  scheduleActiveSurfaceTabIntoView(workspace.activePanelId);
-  scheduleSurfaceTabsOverflowRefresh();
+  scheduleSurfaceTabsOverflowRefresh({ ensureActive: true });
 }
 
 function clearSurfaceTabs() {
   for (const tab of state.surfaceTabButtons.values()) tab.remove();
   state.surfaceTabButtons.clear();
   state.surfaceTabsSignature = "";
+  state.surfaceTabEnsureActive = false;
   replaceChildrenIfChanged(elements.surfaceTabs, []);
   toggleClassIfChanged(elements.surfaceTabs, "has-overflow", false);
+  toggleClassIfChanged(elements.surfaceTabs, "is-crowded", false);
 }
 
 function surfaceTabsSignature(workspace) {
@@ -3239,21 +3241,37 @@ function scheduleActiveSurfaceTabIntoView(panelId) {
   });
 }
 
-function scheduleSurfaceTabsOverflowRefresh() {
+function scheduleSurfaceTabsOverflowRefresh(options = {}) {
+  if (options.ensureActive) state.surfaceTabEnsureActive = true;
   if (state.surfaceTabOverflowFrame) return;
   state.surfaceTabOverflowFrame = requestAnimationFrame(() => {
     state.surfaceTabOverflowFrame = 0;
+    const ensureActive = state.surfaceTabEnsureActive;
+    state.surfaceTabEnsureActive = false;
     updateSurfaceTabsOverflow();
-    scheduleActiveSurfaceTabIntoView(activeWorkspace()?.activePanelId);
+    if (ensureActive) scheduleActiveSurfaceTabIntoView(activeWorkspace()?.activePanelId);
   });
+}
+
+function surfaceTabsOverflowing() {
+  return elements.surfaceTabs.scrollWidth > elements.surfaceTabs.clientWidth + 1;
 }
 
 function updateSurfaceTabsOverflow() {
   if (!elements.surfaceTabs) return;
-  const overflow = elements.surfaceTabs.scrollWidth > elements.surfaceTabs.clientWidth + 1;
   const tabCount = Math.max(0, elements.surfaceTabs.querySelectorAll(".surface-tab:not(.surface-new-tab)").length);
+  let overflow = surfaceTabsOverflowing();
+  let crowded = overflow || tabCount >= 6;
+  const crowdedChanged = toggleClassIfChanged(elements.surfaceTabs, "is-crowded", crowded);
+  if (crowdedChanged) {
+    overflow = surfaceTabsOverflowing();
+    crowded = overflow || tabCount >= 6;
+    if (toggleClassIfChanged(elements.surfaceTabs, "is-crowded", crowded)) {
+      overflow = surfaceTabsOverflowing();
+    }
+  }
   toggleClassIfChanged(elements.surfaceTabs, "has-overflow", overflow);
-  toggleClassIfChanged(elements.surfaceTabs, "is-crowded", overflow || tabCount >= 6);
+  if (!overflow && elements.surfaceTabs.scrollLeft) elements.surfaceTabs.scrollLeft = 0;
 }
 
 function commandStripContentWidth() {
