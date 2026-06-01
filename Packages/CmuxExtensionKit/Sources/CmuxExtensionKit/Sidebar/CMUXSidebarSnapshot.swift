@@ -10,7 +10,7 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
     public var workspaces: [CmuxSidebarWorkspace]
 
     public init(
-        apiVersion: CmuxExtensionAPIVersion = .sidebarV1,
+        apiVersion: CmuxExtensionAPIVersion = .sidebarV2,
         sequence: UInt64,
         windowID: UUID? = nil,
         selectedWorkspaceID: UUID?,

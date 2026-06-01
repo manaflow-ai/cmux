@@ -26,7 +26,7 @@ public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable 
     ) {
         self.id = id
         self.displayName = displayName
-        self.minimumAPIVersion = .sidebarV1
+        self.minimumAPIVersion = .sidebarV2
         self.readScopes = readScopes
         self.actionScopes = actionScopes
     }
@@ -43,7 +43,7 @@ public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable 
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         displayName = try container.decode(String.self, forKey: .displayName)
-        minimumAPIVersion = try container.decodeIfPresent(CmuxExtensionAPIVersion.self, forKey: .minimumAPIVersion) ?? .sidebarV1
+        minimumAPIVersion = try container.decodeIfPresent(CmuxExtensionAPIVersion.self, forKey: .minimumAPIVersion) ?? .sidebarV2
         readScopes = try container.decode([CmuxExtensionScope].self, forKey: .readScopes)
         actionScopes = try container.decodeIfPresent(
             [CmuxExtensionActionScope].self,

@@ -34,13 +34,13 @@ struct CMUXExtensionKitTests {
         let decoded = try JSONDecoder().decode(CmuxSidebarSnapshot.self, from: encoded)
 
         #expect(decoded == snapshot)
-        #expect(decoded.apiVersion == CmuxExtensionAPIVersion.sidebarV1)
+        #expect(decoded.apiVersion == CmuxExtensionAPIVersion.sidebarV2)
         #expect(decoded.grantedReadScopes.contains(.workspaceMetadata))
         #expect(decoded.grantedActionScopes == [.selectWorkspace])
     }
 
     @Test
-    func testManifestValidationAcceptsSidebarV1() throws {
+    func testManifestValidationAcceptsSidebarV2() throws {
         let manifest = CmuxExtensionManifest(
             id: "dev.example.sidebar",
             displayName: "Example Sidebar",
@@ -57,7 +57,7 @@ struct CMUXExtensionKitTests {
         {
           "id": "dev.example.sidebar",
           "displayName": "Example Sidebar",
-          "minimumAPIVersion": { "major": 1, "minor": 0 },
+          "minimumAPIVersion": { "major": 2, "minor": 0 },
           "readScopes": ["workspaceMetadata"]
         }
         """.utf8)
@@ -148,7 +148,7 @@ struct CMUXExtensionKitTests {
 
         let filtered = snapshot.filtered(for: [CmuxExtensionScope]())
 
-        #expect(filtered.apiVersion == .sidebarV1)
+        #expect(filtered.apiVersion == .sidebarV2)
         #expect(filtered.sequence == 45)
         #expect(filtered.windowID == nil)
         #expect(filtered.selectedWorkspaceID == nil)
@@ -161,7 +161,7 @@ struct CMUXExtensionKitTests {
     func testSidebarSnapshotDecodingDefaultsMissingGrantedScopes() throws {
         let payload = Data("""
         {
-          "apiVersion": { "major": 1, "minor": 0 },
+          "apiVersion": { "major": 2, "minor": 0 },
           "sequence": 50,
           "selectedWorkspaceID": null,
           "workspaces": []
@@ -489,7 +489,7 @@ struct CMUXExtensionKitTests {
         {
           "id": "dev.example.sidebar",
           "displayName": "Example Sidebar",
-          "minimumAPIVersion": { "major": 1, "minor": 1 },
+          "minimumAPIVersion": { "major": 2, "minor": 1 },
           "readScopes": []
         }
         """.utf8)
@@ -501,8 +501,33 @@ struct CMUXExtensionKitTests {
         } catch {
             #expect(
                 error as? CmuxExtensionValidationError == .unsupportedAPIVersion(
-                    requested: CmuxExtensionAPIVersion(major: 1, minor: 1),
-                    supported: .sidebarV1
+                    requested: CmuxExtensionAPIVersion(major: 2, minor: 1),
+                    supported: .sidebarV2
+                )
+            )
+        }
+    }
+
+    @Test
+    func testManifestValidationRejectsOldMajorVersion() throws {
+        let payload = Data("""
+        {
+          "id": "dev.example.sidebar",
+          "displayName": "Example Sidebar",
+          "minimumAPIVersion": { "major": 1, "minor": 0 },
+          "readScopes": []
+        }
+        """.utf8)
+        let manifest = try JSONDecoder().decode(CmuxExtensionManifest.self, from: payload)
+
+        do {
+            try validateSidebarManifest(manifest)
+            Issue.record("Expected unsupported API version error")
+        } catch {
+            #expect(
+                error as? CmuxExtensionValidationError == .unsupportedAPIVersion(
+                    requested: CmuxExtensionAPIVersion(major: 1, minor: 0),
+                    supported: .sidebarV2
                 )
             )
         }
