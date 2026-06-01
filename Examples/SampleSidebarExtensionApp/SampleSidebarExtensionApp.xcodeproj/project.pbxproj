@@ -671,7 +671,8 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.CMUXExtKitSampleSidebarApp.Extension;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.CMUXExtKitSampleSidebarApp$(CMUX_BUNDLE_ID_SUFFIX).Extension";
 				PRODUCT_NAME = "CMUX ExtKit Sample Sidebar Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -703,7 +704,8 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.CMUXExtKitSampleSidebarApp.Extension;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.CMUXExtKitSampleSidebarApp$(CMUX_BUNDLE_ID_SUFFIX).Extension";
 				PRODUCT_NAME = "CMUX ExtKit Sample Sidebar Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
