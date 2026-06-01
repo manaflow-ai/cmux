@@ -184,6 +184,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
     }
 
     private func withRegisteredMoveContext(_ body: (AppDelegate, UUID, TabManager) throws -> Void) rethrows {
+        let previousShared = AppDelegate.shared
         let app = AppDelegate()
         let windowId = UUID()
         let manager = TabManager(debugCreateInitialWorkspace: false)
@@ -192,6 +193,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
             teardownTabManagerForTesting(manager)
             app.unregisterMainWindowContextForTesting(windowId: windowId)
             drainMainActorTasksForTesting()
+            AppDelegate.shared = previousShared
         }
         try body(app, windowId, manager)
     }
@@ -207,6 +209,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
             title: title,
             select: select
         ))
+        workspace.setPortalRenderingEnabled(false, reason: "AppDelegateMoveTabToNewWorkspaceTests.fixture")
         let panel = try XCTUnwrap(workspace.panels[transfer.panelId] as? ProjectPanel)
         return (workspace, panel)
     }
