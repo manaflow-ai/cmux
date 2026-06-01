@@ -2,17 +2,19 @@ import CmuxSettings
 import SwiftUI
 
 /// **Terminal** section — mirrors the legacy in-app section
-/// row-for-row: scroll bar, text-box max lines, copy on selection,
-/// resume agent sessions, agent hibernation enable + idle seconds +
-/// max live terminals, plus the JSON-backed Resume Commands editor.
+/// row-for-row: scroll bar, copy on selection, resume agent sessions,
+/// agent hibernation enable + idle seconds + max live terminals, plus
+/// the JSON-backed Resume Commands editor.
 @MainActor
 public struct TerminalSection: View {
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
 
+    @State private var surfaceTabBarFont: SettingsFontSize
+    @State private var fontSaveFailed = false
+    @State private var fontSaveTask: Task<Void, Never>?
     @State private var scrollBar: DefaultsValueModel<Bool>
-    @State private var textBoxLines: DefaultsValueModel<Int>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
@@ -28,8 +30,8 @@ public struct TerminalSection: View {
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.hostActions = hostActions
+        _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
-        _textBoxLines = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textBoxMaxLines))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
@@ -39,9 +41,20 @@ public struct TerminalSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"))
+            SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
             resumeCommandsCard
+        }
+    }
+
+    /// Persists a new tab-bar font size, cancelling any in-flight save so a
+    /// rapid sequence of slider releases only reflects the latest value (the
+    /// host serializes the underlying writes; this keeps the UI state in step).
+    private func saveSurfaceTabBarFontSize(_ points: Double) {
+        fontSaveTask?.cancel()
+        fontSaveTask = Task {
+            let saved = await hostActions.setSurfaceTabBarFontSize(points)
+            if !Task.isCancelled { fontSaveFailed = !saved }
         }
     }
 
@@ -75,34 +88,58 @@ public struct TerminalSection: View {
     private var mainCard: some View {
         SettingsCard {
             SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"),
+                subtitle: String(localized: "settings.terminal.tabBarFontSize.subtitle", defaultValue: "Controls the font size of the terminal and browser tab titles at the top of each pane."),
+                controlWidth: 250
+            ) {
+                VStack(alignment: .trailing, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Slider(
+                            value: Binding(get: { surfaceTabBarFont.points }, set: { surfaceTabBarFont.points = $0 }),
+                            in: surfaceTabBarFont.minimum...surfaceTabBarFont.maximum,
+                            step: 0.5
+                        ) { editing in
+                            if !editing { saveSurfaceTabBarFontSize(surfaceTabBarFont.points) }
+                        }
+                        .frame(width: 130)
+                        .accessibilityIdentifier("SettingsTabBarFontSizeSlider")
+
+                        Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), hostActions.formattedFontSize(surfaceTabBarFont.points)))
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .monospacedDigit()
+                            .frame(width: 44, alignment: .trailing)
+
+                        Button(String(localized: "settings.terminal.tabBarFontSize.reset", defaultValue: "Reset")) {
+                            surfaceTabBarFont.points = surfaceTabBarFont.defaultValue
+                            saveSurfaceTabBarFontSize(surfaceTabBarFont.points)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(surfaceTabBarFont.isDefault)
+                    }
+
+                    if fontSaveFailed {
+                        Text(String(localized: "settings.terminal.tabBarFontSize.saveFailed", defaultValue: "Couldn't save tab bar font size. Please try again."))
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.trailing)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
                 configurationReview: .json("terminal.showScrollBar"),
                 String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
                 subtitle: scrollBar.current
-                    ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace.")
+                    ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces.")
                     : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
             ) {
                 Toggle("", isOn: Binding(get: { scrollBar.current }, set: { scrollBar.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
-            }
-            SettingsCardDivider()
-            SettingsCardRow(
-                configurationReview: .json("terminal.textBoxMaxLines"),
-                String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines"),
-                subtitle: String(localized: "settings.terminal.textBoxMaxLines.subtitle", defaultValue: "Limits how tall the rich terminal input can grow before it scrolls."),
-                controlWidth: 196
-            ) {
-                Stepper(
-                    value: Binding(get: { textBoxLines.current }, set: { textBoxLines.set($0) }),
-                    in: 1...20
-                ) {
-                    Text(verbatim: "\(textBoxLines.current)")
-                        .monospacedDigit()
-                        .frame(width: 28, alignment: .trailing)
-                }
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsTerminalTextBoxMaxLinesStepper")
             }
             SettingsCardDivider()
             SettingsCardRow(

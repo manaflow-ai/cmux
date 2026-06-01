@@ -8,6 +8,7 @@ export type Shortcut = {
   combos: string[][];
   description: LocalizedText;
   note?: LocalizedText;
+  configValue?: string;
 };
 
 export type ShortcutCategory = {
@@ -135,6 +136,15 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "focusTextBoxInput", combos: [["⌘", "⇧", "A"]], description: { en: "Switch focus between terminal and TextBox input", ja: "ターミナルとTextBox入力のフォーカスを切り替え" } },
       { id: "attachTextBoxFile", combos: [["⌥", "⌘", "⇧", "A"]], description: { en: "Attach file to TextBox input", ja: "TextBox入力にファイルを添付" } },
       {
+        id: "sendCtrlFToTerminal",
+        combos: [],
+        description: { en: "Send Ctrl-F to terminal", ja: "ターミナルにCtrl-Fを送信" },
+        note: {
+          en: "unbound by default; forwards Ctrl-F to the focused terminal (Claude Code: invoke twice to force-stop hung background agents)",
+          ja: "デフォルトでは未割り当て。フォーカス中のターミナルにCtrl-Fを転送（Claude Code: 2回実行で停止しないバックグラウンドエージェントを強制停止）",
+        },
+      },
+      {
         id: "saveFilePreview",
         combos: [["⌘", "S"]],
         description: { en: "Save file preview", ja: "ファイルプレビューを保存" },
@@ -185,6 +195,43 @@ export const shortcutCategories: ShortcutCategory[] = [
           en: "focused browser, or the only browser pane when a terminal is focused",
           ja: "フォーカス中のブラウザ、またはターミナルにフォーカスがあるときは唯一のブラウザペイン",
         },
+      },
+    ],
+  },
+  {
+    id: "diff-viewer",
+    titleKey: "diffViewer",
+    shortcuts: [
+      {
+        id: "diffViewerScrollDown",
+        combos: [["J"]],
+        description: { en: "Scroll diff down", ja: "差分を下にスクロール" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+      },
+      {
+        id: "diffViewerScrollUp",
+        combos: [["K"]],
+        description: { en: "Scroll diff up", ja: "差分を上にスクロール" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+      },
+      {
+        id: "diffViewerScrollToBottom",
+        combos: [["⇧", "G"]],
+        description: { en: "Scroll diff to bottom", ja: "差分の末尾へスクロール" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+      },
+      {
+        id: "diffViewerScrollToTop",
+        combos: [["G", "G"]],
+        description: { en: "Scroll diff to top", ja: "差分の先頭へスクロール" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        configValue: '["g", "g"]',
+      },
+      {
+        id: "diffViewerOpenFileSearch",
+        combos: [["/"]],
+        description: { en: "Open diff file search", ja: "差分ファイル検索を開く" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
       },
     ],
   },

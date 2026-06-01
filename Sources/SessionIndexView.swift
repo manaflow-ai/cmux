@@ -121,6 +121,7 @@ struct SessionIndexView: View {
             .reportRightSidebarChromeNamedGeometryForBonsplitUITest(keyPrefix: "rightSidebarSecondaryControl_scope", isVisible: true)
             .disabled(store.currentDirectory == nil)
             .accessibilityIdentifier("SessionScopeToggle.thisFolder")
+            .titlebarInteractiveControl()
 
             Button {
                 store.reload()
@@ -131,6 +132,7 @@ struct SessionIndexView: View {
             .buttonStyle(.borderless)
             .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
             .disabled(store.isLoading)
+            .titlebarInteractiveControl()
         }
         .rightSidebarChromeBar()
         .rightSidebarChromeBottomBorder()
@@ -299,6 +301,7 @@ private struct GroupingButton: View {
             .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_\(mode.rawValue)")
         }
         .buttonStyle(.plain)
+        .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
         .help(mode.label)
         .accessibilityIdentifier("SessionGroupingButton.\(mode.rawValue)")

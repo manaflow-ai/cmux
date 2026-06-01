@@ -179,7 +179,10 @@ struct ConfigSettingsView: View {
         window.minSize = NSSize(width: 700, height: 500)
         window.tabbingMode = .disallowed
         window.animationBehavior = .utilityWindow
-        window.level = .floating
+        // The Config editor is a top-level peer window, not a floating
+        // inspector: clicking the main window must be able to raise it above
+        // the editor (https://github.com/manaflow-ai/cmux/issues/5081).
+        window.adoptCmuxPeerWindowLevel()
         window.collectionBehavior.insert(.fullScreenAuxiliary)
     }
 

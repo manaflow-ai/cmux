@@ -1437,7 +1437,7 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
     func testDefaultOffsetsMatchCurrentBadgePlacements() {
         XCTAssertEqual(ShortcutHintDebugSettings.defaultSidebarHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultSidebarHintY, 0.0)
-        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintX, 4.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintY, -5.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintY, 0.0)
