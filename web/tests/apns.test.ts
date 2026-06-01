@@ -1,0 +1,98 @@
+import crypto from "node:crypto";
+import { describe, expect, test } from "bun:test";
+import {
+  apnsHostForEnvironment,
+  buildApnsPayload,
+  shouldPruneToken,
+} from "../services/apns/payload";
+import { signApnsJwt, normalizeP8 } from "../services/apns/sender";
+
+describe("apns payload", () => {
+  test("builds a time-sensitive alert with deep-link keys", () => {
+    const payload = buildApnsPayload({
+      title: "claude",
+      subtitle: "issue-118",
+      body: "Agent finished",
+      workspaceId: "ws-1",
+      surfaceId: "sf-2",
+    }) as { aps: Record<string, unknown>; cmux: Record<string, string> };
+
+    expect(payload.aps.alert).toEqual({ title: "claude", subtitle: "issue-118", body: "Agent finished" });
+    expect(payload.aps["interruption-level"]).toBe("time-sensitive");
+    expect(payload.aps.sound).toBe("default");
+    expect(payload.cmux).toEqual({ workspaceId: "ws-1", surfaceId: "sf-2" });
+  });
+
+  test("omits cmux block when no ids", () => {
+    const payload = buildApnsPayload({ title: "t", body: "b" }) as Record<string, unknown>;
+    expect("cmux" in payload).toBe(false);
+  });
+
+  test("hideContent redacts title/subtitle/body but keeps deep-link", () => {
+    const payload = buildApnsPayload({
+      title: "secret-host",
+      subtitle: "secret",
+      body: "rm -rf secret output",
+      workspaceId: "ws-9",
+      hideContent: true,
+    }) as { aps: { alert: Record<string, string> }; cmux: Record<string, string> };
+
+    expect(payload.aps.alert.title).toBe("cmux");
+    expect(payload.aps.alert.body).toBe("An agent needs your attention");
+    expect(payload.aps.alert.subtitle).toBeUndefined();
+    expect(payload.cmux).toEqual({ workspaceId: "ws-9" });
+  });
+
+  test("empty title falls back to cmux", () => {
+    const payload = buildApnsPayload({ title: "   ", body: "b" }) as { aps: { alert: { title: string } } };
+    expect(payload.aps.alert.title).toBe("cmux");
+  });
+});
+
+describe("apns host + pruning", () => {
+  test("host selection", () => {
+    expect(apnsHostForEnvironment("sandbox")).toBe("api.sandbox.push.apple.com");
+    expect(apnsHostForEnvironment("production")).toBe("api.push.apple.com");
+    expect(apnsHostForEnvironment("unknown")).toBe("api.push.apple.com");
+  });
+
+  test("prunes only terminal failures", () => {
+    expect(shouldPruneToken(410, undefined)).toBe(true);
+    expect(shouldPruneToken(400, "BadDeviceToken")).toBe(true);
+    expect(shouldPruneToken(400, "DeviceTokenNotForTopic")).toBe(true);
+    expect(shouldPruneToken(200, undefined)).toBe(false);
+    expect(shouldPruneToken(0, "timeout")).toBe(false); // transient
+    expect(shouldPruneToken(503, "ServiceUnavailable")).toBe(false); // transient
+    expect(shouldPruneToken(429, "TooManyRequests")).toBe(false);
+  });
+});
+
+describe("apns jwt", () => {
+  test("normalizeP8 expands literal newlines", () => {
+    expect(normalizeP8("a\\nb\\nc")).toBe("a\nb\nc");
+    expect(normalizeP8("a\nb")).toBe("a\nb");
+  });
+
+  test("signs a verifiable ES256 JWT with kid/iss/iat", () => {
+    const { privateKey, publicKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+
+    const now = 1_700_000_000;
+    const jwt = signApnsJwt({ keyP8: p8, keyId: "KID123", teamId: "TEAM456" }, now);
+
+    const [headerB64, claimsB64, sigB64] = jwt.split(".");
+    const decode = (s: string) =>
+      JSON.parse(Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+    expect(decode(headerB64)).toEqual({ alg: "ES256", kid: "KID123" });
+    expect(decode(claimsB64)).toEqual({ iss: "TEAM456", iat: now });
+
+    const signature = Buffer.from(sigB64.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+    const valid = crypto.verify(
+      "sha256",
+      Buffer.from(`${headerB64}.${claimsB64}`),
+      { key: publicKey, dsaEncoding: "ieee-p1363" },
+      signature,
+    );
+    expect(valid).toBe(true);
+  });
+});
