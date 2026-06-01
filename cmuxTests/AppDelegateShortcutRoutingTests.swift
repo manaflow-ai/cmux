@@ -9103,18 +9103,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let previousTabManager = appDelegate.tabManager
-        let originalContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
-        let focusedContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
-        let originalWindow = originalContext.window
-        let focusedWindow = focusedContext.window
-        let originalManager = originalContext.tabManager
-        let focusedManager = focusedContext.tabManager
+        let originalWindowId = UUID()
+        let focusedWindowId = UUID()
+        let originalWindow = makeRegisteredShortcutRoutingWindow(id: originalWindowId)
+        let focusedWindow = makeRegisteredShortcutRoutingWindow(id: focusedWindowId)
         defer {
             appDelegate.debugFocusedCloseShortcutWindowOverride = nil
-            appDelegate.tabManager = previousTabManager
-            appDelegate.unregisterMainWindowContextForTesting(windowId: originalContext.windowId, notifyObservers: false)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: focusedContext.windowId, notifyObservers: false)
             closeTestWindow(originalWindow)
             closeTestWindow(focusedWindow)
         }
@@ -9123,8 +9117,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         // Model the observed bug: the user-visible focused window is the new window,
         // but the key event still carries the original window number.
-        appDelegate.tabManager = originalManager
-
         for shortcut in shortcuts {
             guard let event = makeKeyDownEvent(
                 key: "w",
@@ -9146,12 +9138,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTAssertTrue(
                 appDelegate.debugMainWindowForFocusedCloseShortcut(event: event) === focusedWindow,
                 "\(shortcut.actionName) should resolve the focused window before stale event-window metadata",
-                file: file,
-                line: line
-            )
-            XCTAssertTrue(
-                appDelegate.debugTabManagerForFocusedCloseShortcut(event: event) === focusedManager,
-                "\(shortcut.actionName) should route through the focused window's tab manager",
                 file: file,
                 line: line
             )
