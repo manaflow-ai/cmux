@@ -13443,14 +13443,19 @@ private struct SidebarFeedbackComposerSheet: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    @AppStorage(FeedbackComposerSettings.storedEmailKey) private var email = ""
+    @State private var email: String
     @State private var message = ""
     @State private var attachments: [FeedbackComposerAttachment] = []
     @State private var isSubmitting = false
     @State private var submissionErrorMessage: String?
     @State private var didSend = false
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        _email = State(initialValue: defaults.string(forKey: FeedbackComposerSettings.storedEmailKey) ?? "")
+    }
 
     private var trimmedMessage: String {
         message.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -13494,6 +13499,9 @@ private struct SidebarFeedbackComposerSheet: View {
             captureEmailDefaultsState(reason: "email-change")
         }
 #endif
+        .onDisappear {
+            persistEmail(email)
+        }
     }
 
     private var successView: some View {
@@ -13706,6 +13714,13 @@ private struct SidebarFeedbackComposerSheet: View {
         submissionErrorMessage = nil
     }
 
+    private func persistEmail(_ rawValue: String) {
+        defaults.set(
+            rawValue.trimmingCharacters(in: .whitespacesAndNewlines),
+            forKey: FeedbackComposerSettings.storedEmailKey
+        )
+    }
+
     private func clearStoredEmailForUITestIfNeeded() {
 #if DEBUG
         guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_FEEDBACK_EMAIL_CLEAR_STORED"] == "1" else {
@@ -13768,6 +13783,7 @@ private struct SidebarFeedbackComposerSheet: View {
 
         await MainActor.run {
             email = trimmedEmail
+            persistEmail(trimmedEmail)
             submissionErrorMessage = nil
             isSubmitting = true
         }
