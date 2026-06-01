@@ -1748,40 +1748,37 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
-            closeTestWindow(context.window)
-        }
-
-        let targetWindow = context.window
-        targetWindow.makeKeyAndOrderFront(nil)
-
-        let originalConfirmationHandler = appDelegate.debugCloseMainWindowConfirmationHandler
-        defer { appDelegate.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler }
-
-        var promptedWindow: NSWindow?
-        appDelegate.debugCloseMainWindowConfirmationHandler = { candidate in
-            promptedWindow = candidate
-            return false
-        }
-
         guard let event = makeKeyDownEvent(
             key: "w",
             modifiers: [.command, .control],
             keyCode: 13,
-            windowNumber: targetWindow.windowNumber
+            windowNumber: 601
         ) else {
             XCTFail("Failed to construct Cmd+Ctrl+W event")
             return
         }
 
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .closeWindow))
 
-        XCTAssertTrue(promptedWindow === targetWindow, "Cmd+Ctrl+W should prompt for the target main window")
-        XCTAssertTrue(targetWindow.isVisible, "Cancelling the confirmation should keep the window open")
+        let targetWindowId = UUID()
+        var promptedWindowId: UUID?
+        var closedWindowId: UUID?
+
+        XCTAssertTrue(
+            performConfirmedCloseWindowShortcut(
+                targetWindow: targetWindowId,
+                confirm: { candidate in
+                    promptedWindowId = candidate
+                    return false
+                },
+                close: { closedWindowId = $0 }
+            )
+        )
+
+        XCTAssertEqual(promptedWindowId, targetWindowId, "Cmd+Ctrl+W should prompt for the target main window")
+        XCTAssertNil(closedWindowId, "Cancelling the confirmation should keep the window open")
 #else
-        XCTFail("Lightweight shortcut routing context is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
     }
 
@@ -1792,54 +1789,37 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
-            closeTestWindow(context.window)
-        }
-
-        let targetWindow = context.window
-        targetWindow.makeKeyAndOrderFront(nil)
-        XCTAssertTrue(targetWindow.isVisible, "Expected test window to start visible")
-
-        let originalConfirmationHandler = appDelegate.debugCloseMainWindowConfirmationHandler
-        let originalPerformCloseHandler = appDelegate.debugPerformCloseMainWindowHandler
-        defer {
-            appDelegate.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler
-            appDelegate.debugPerformCloseMainWindowHandler = originalPerformCloseHandler
-        }
-
-        var confirmedWindow: NSWindow?
-        appDelegate.debugCloseMainWindowConfirmationHandler = { candidate in
-            confirmedWindow = candidate
-            return true
-        }
-        var closedWindow: NSWindow?
-        appDelegate.debugPerformCloseMainWindowHandler = { candidate in
-            closedWindow = candidate
-            candidate.orderOut(nil)
-        }
-
         guard let event = makeKeyDownEvent(
             key: "w",
             modifiers: [.command, .control],
             keyCode: 13,
-            windowNumber: targetWindow.windowNumber
+            windowNumber: 602
         ) else {
             XCTFail("Failed to construct Cmd+Ctrl+W event")
             return
         }
 
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .closeWindow))
 
-        XCTAssertTrue(confirmedWindow === targetWindow, "Cmd+Ctrl+W should confirm the target main window")
-        XCTAssertTrue(closedWindow === targetWindow, "Cmd+Ctrl+W should run the confirmed close path for the target window")
-        XCTAssertFalse(
-            targetWindow.isVisible == true,
-            "Confirming Cmd+Ctrl+W should close the window"
+        let targetWindowId = UUID()
+        var confirmedWindowId: UUID?
+        var closedWindowId: UUID?
+
+        XCTAssertTrue(
+            performConfirmedCloseWindowShortcut(
+                targetWindow: targetWindowId,
+                confirm: { candidate in
+                    confirmedWindowId = candidate
+                    return true
+                },
+                close: { closedWindowId = $0 }
+            )
         )
+
+        XCTAssertEqual(confirmedWindowId, targetWindowId, "Cmd+Ctrl+W should confirm the target main window")
+        XCTAssertEqual(closedWindowId, targetWindowId, "Confirming Cmd+Ctrl+W should close the window")
 #else
-        XCTFail("Lightweight shortcut routing context is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
     }
 

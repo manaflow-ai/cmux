@@ -36,6 +36,22 @@ func splitShortcutTarget(
     return nil
 }
 
+@discardableResult
+func performConfirmedCloseWindowShortcut<Window>(
+    targetWindow: Window?,
+    confirm: (Window) -> Bool,
+    close: (Window) -> Void,
+    missingTarget: () -> Void = {}
+) -> Bool {
+    guard let targetWindow else {
+        missingTarget()
+        return true
+    }
+    guard confirm(targetWindow) else { return true }
+    close(targetWindow)
+    return true
+}
+
 func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
     flags: NSEvent.ModifierFlags,
