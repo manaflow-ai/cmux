@@ -5502,6 +5502,7 @@ function createBrowserTabButton(session) {
     event.stopPropagation();
     closeBrowserTab(session, button.dataset.browserTabId);
   });
+  button.addEventListener("contextmenu", (event) => showBrowserTabContextMenu(event, session, button.dataset.browserTabId));
   button.addEventListener("dragstart", (event) => {
     const tabId = button.dataset.browserTabId;
     session.dragBrowserTabId = tabId;
@@ -5590,6 +5591,82 @@ function moveBrowserTabToEnd(session, tabId) {
   saveBrowserSessionTabsNow(session);
   renderBrowserTabs(session);
   return true;
+}
+
+function duplicateBrowserTab(session, tabId) {
+  if (!session) return false;
+  if (session.tabs.length >= browserTabLimit) {
+    toast(`Browser tab limit is ${browserTabLimit}. Close one first.`);
+    return false;
+  }
+  const index = session.tabs.findIndex((tab) => tab.id === tabId);
+  const source = session.tabs[index];
+  if (!source) return false;
+  const tab = normalizeBrowserTab({ url: source.url }, state.settings.browserHomeUrl);
+  if (!tab) return false;
+  tab.title = source.title || browserTabTitle(tab.url);
+  session.tabs.splice(index + 1, 0, tab);
+  activateBrowserTab(session, tab.id);
+  return true;
+}
+
+function closeOtherBrowserTabs(session, tabId) {
+  if (!session || session.tabs.length <= 1) return false;
+  const tab = session.tabs.find((candidate) => candidate.id === tabId);
+  if (!tab) return false;
+  session.tabs = [tab];
+  return activateBrowserTab(session, tab.id);
+}
+
+function closeBrowserTabsToRight(session, tabId) {
+  if (!session) return false;
+  const index = session.tabs.findIndex((tab) => tab.id === tabId);
+  if (index < 0 || index >= session.tabs.length - 1) return false;
+  const activeRemoved = session.tabs.slice(index + 1).some((tab) => tab.id === session.activeTabId);
+  session.tabs = session.tabs.slice(0, index + 1);
+  if (activeRemoved) return activateBrowserTab(session, tabId);
+  saveBrowserSessionTabsNow(session);
+  renderBrowserTabs(session);
+  return true;
+}
+
+async function copyBrowserTabUrl(tab) {
+  const url = normalizeUrl(tab?.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+  if (await writeClipboardText(url)) {
+    toast("Browser URL copied.");
+    return true;
+  }
+  toast("Clipboard is unavailable.");
+  return false;
+}
+
+function showBrowserTabContextMenu(event, session, tabId) {
+  event.preventDefault();
+  event.stopPropagation();
+  const tab = session?.tabs?.find((candidate) => candidate.id === tabId);
+  if (!tab) return;
+  const menu = ensureContextMenu();
+  menu.className = "context-menu";
+  const title = document.createElement("div");
+  title.className = "context-title";
+  title.textContent = browserTabLabel(session, tab);
+  const meta = document.createElement("div");
+  meta.className = "context-meta";
+  meta.textContent = tab.url;
+  const actions = contextMenuActionGroup(
+    contextMenuButton(tab.id === session.activeTabId ? "Focused" : "Focus tab", () => activateBrowserTab(session, tab.id), tab.id === session.activeTabId),
+    contextMenuButton("New tab", () => createBrowserTab(session, state.settings.browserHomeUrl)),
+    contextMenuButton("Duplicate tab", () => duplicateBrowserTab(session, tab.id)),
+    contextMenuButton("Copy URL", () => copyBrowserTabUrl(tab)),
+    contextMenuButton("Open externally", () => openExternalBrowser(tab.url, { toast: true }))
+  );
+  const closeActions = contextMenuActionGroup(
+    contextMenuButton("Close other tabs", () => closeOtherBrowserTabs(session, tab.id), session.tabs.length <= 1),
+    contextMenuButton("Close tabs to right", () => closeBrowserTabsToRight(session, tab.id), session.tabs.findIndex((candidate) => candidate.id === tab.id) >= session.tabs.length - 1),
+    contextMenuButton(session.tabs.length <= 1 ? "Reset tab" : "Close tab", () => closeBrowserTab(session, tab.id), false, "danger")
+  );
+  menu.replaceChildren(title, meta, contextMenuSectionTitle("Tab"), actions, contextMenuSectionTitle("Close"), closeActions);
+  showContextMenuAt(menu, event.clientX, event.clientY);
 }
 
 function updateActiveBrowserTabUrl(session, value) {
