@@ -1,0 +1,4 @@
+# GhosttyKit.xcframework.tar.gz built with -Dsentry=false (no crash reporter).
+# Format: <ghostty-sha> <sha256>. Hosted at:
+#   github.com/xxshubhamxx/cmux-panecho/releases/tag/ghosttykit-nosentry-<ghostty-sha>
+176bd550f6fedd29e85cd92470e5dfadf295ebf7  2270e02d4562d3a3e5a78a627ebe1e300543814aed1f5dce209d85758cd58412

@@ -58,8 +58,17 @@ jobs:
           sudo cp -rf "/tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib" /usr/local/lib/zig
           zig version
 
-      - name: Download pre-built GhosttyKit.xcframework
-        run: ./scripts/download-prebuilt-ghosttykit.sh
+      - name: Download sentry-free GhosttyKit.xcframework
+        run: |
+          set -euo pipefail
+          # Use the fork-built GhosttyKit with Ghostty's crash reporter disabled
+          # (-Dsentry=false). The upstream prebuilt links sentry-native, whose
+          # crash handler writes ~/Library/Caches/com.mitchellh.ghostty/sentry at
+          # launch -> macOS "access data from other apps" prompt every launch.
+          GHOSTTY_SHA="$(git -C ghostty rev-parse HEAD)"
+          GHOSTTYKIT_URL="https://github.com/xxshubhamxx/cmux-panecho/releases/download/ghosttykit-nosentry-${GHOSTTY_SHA}/GhosttyKit.xcframework.tar.gz" \
+          GHOSTTYKIT_CHECKSUMS_FILE="$GITHUB_WORKSPACE/scripts/ghosttykit-nosentry-checksums.txt" \
+            ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Swift packages
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
