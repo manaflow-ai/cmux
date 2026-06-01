@@ -23,6 +23,27 @@ private final class WorkspaceGitMetadataWatcherCallbackBox: @unchecked Sendable 
     }
 }
 
+#if DEBUG
+private final class WorkspaceGitMetadataWatcherRefreshRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private let startedAt = Date()
+    private var firstRefreshDelay: TimeInterval?
+
+    func recordFirstRefresh() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard firstRefreshDelay == nil else { return }
+        firstRefreshDelay = Date().timeIntervalSince(startedAt)
+    }
+
+    var delay: TimeInterval? {
+        lock.lock()
+        defer { lock.unlock() }
+        return firstRefreshDelay
+    }
+}
+#endif
+
 private let workspaceGitMetadataWatcherCallback: FSEventStreamCallback = { _, info, _, _, _, _ in
     guard let info else { return }
     let box = Unmanaged<WorkspaceGitMetadataWatcherCallbackBox>.fromOpaque(info).takeUnretainedValue()
@@ -121,6 +142,12 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
         debounceWorkItem = workItem
         queue.asyncAfter(deadline: .now() + 0.25, execute: workItem)
     }
+
+#if DEBUG
+    func simulateEventForTesting() {
+        scheduleChange()
+    }
+#endif
 
     deinit {
         stop()
@@ -4990,6 +5017,44 @@ class TabManager: ObservableObject {
 #if DEBUG
     nonisolated static func workspaceGitMetadataWatchedPathsForTesting(directory: String) -> [String] {
         workspaceGitMetadataWatcherDescriptor(for: directory)?.watchedPaths ?? []
+    }
+
+    nonisolated static func workspaceGitMetadataWatcherFirstRefreshDelayDuringStormForTesting(
+        eventCount: Int,
+        eventInterval: TimeInterval,
+        waitTimeout: TimeInterval
+    ) -> TimeInterval? {
+        let semaphore = DispatchSemaphore(value: 0)
+        let recorder = WorkspaceGitMetadataWatcherRefreshRecorder()
+
+        let createdWatcher = WorkspaceGitMetadataWatcher(
+            descriptor: WorkspaceGitMetadataWatcher.Descriptor(
+                directory: NSTemporaryDirectory(),
+                watchedPaths: [NSTemporaryDirectory()]
+            )
+        ) {
+            recorder.recordFirstRefresh()
+            semaphore.signal()
+        }
+        guard let watcher = createdWatcher else {
+            return nil
+        }
+        defer {
+            watcher.stop()
+        }
+
+        DispatchQueue.global(qos: .utility).async {
+            for _ in 0..<eventCount {
+                watcher.simulateEventForTesting()
+                Thread.sleep(forTimeInterval: eventInterval)
+            }
+        }
+
+        guard semaphore.wait(timeout: .now() + waitTimeout) == .success else {
+            return nil
+        }
+
+        return recorder.delay
     }
 
     nonisolated static func githubRepositorySlugs(fromGitConfigForTesting config: String) -> [String] {

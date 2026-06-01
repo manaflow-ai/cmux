@@ -1632,6 +1632,24 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    func testGitMetadataWatcherRefreshesDuringSustainedEventStorm() throws {
+        let firstRefreshDelay = TabManager.workspaceGitMetadataWatcherFirstRefreshDelayDuringStormForTesting(
+            eventCount: 80,
+            eventInterval: 0.02,
+            waitTimeout: 1.0
+        )
+
+        let delay = try XCTUnwrap(
+            firstRefreshDelay,
+            "A sustained FSEvents burst must not keep canceling and reallocating the pending refresh until the repo becomes quiet."
+        )
+        XCTAssertLessThan(
+            delay,
+            1.0,
+            "The git metadata watcher should refresh during the burst instead of waiting for a quiet period after every event."
+        )
+    }
+
     func testModeOnlyTrackedChangesMarkSidebarDirty() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
