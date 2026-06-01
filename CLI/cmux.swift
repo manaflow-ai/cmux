@@ -25244,8 +25244,8 @@ export default CMUXSessionRestore;
     private static let piExtensionMarker = "cmux-pi-session-extension-marker"
     private static let piExtensionFilename = "cmux-session.ts"
     private static let piExtensionSource = #"""
-// cmux-pi-session-extension-marker v1
-// Bridges Pi session lifecycle events into cmux's restorable session store.
+// cmux-pi-session-extension-marker v2
+// Bridges Pi session lifecycle and UI prompt events into cmux's restorable session store.
 // Installed by `cmux hooks pi install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
@@ -25330,6 +25330,10 @@ function eventName(subcommand: string): string {
       return "UserPromptSubmit";
     case "stop":
       return "Stop";
+    case "ui-prompt-start":
+      return "ui_prompt_start";
+    case "ui-prompt-end":
+      return "ui_prompt_end";
     default:
       return subcommand;
   }
@@ -25357,6 +25361,15 @@ function lastAssistantMessage(event: AgentEndEvent): string | undefined {
     if (text) return text;
   }
   return undefined;
+}
+
+function promptEventPayload(event: { kind?: unknown; title?: unknown }): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  const kind = firstString(event.kind);
+  const title = firstString(event.title);
+  if (kind) payload.kind = kind;
+  if (title) payload.title = title;
+  return payload;
 }
 
 function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): void {
@@ -25397,6 +25410,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
   pi.on("agent_end", async (event, ctx) => {
     sendHook("stop", ctx, { last_assistant_message: lastAssistantMessage(event) });
+  });
+
+  pi.on("ui_prompt_start", async (event: { kind?: unknown; title?: unknown }, ctx) => {
+    sendHook("ui-prompt-start", ctx, promptEventPayload(event));
+  });
+
+  pi.on("ui_prompt_end", async (event: { kind?: unknown; title?: unknown }, ctx) => {
+    sendHook("ui-prompt-end", ctx, promptEventPayload(event));
   });
 }
 """#
@@ -27134,6 +27155,23 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 client: client
             )
         }
+        func setRunningStatus(workspaceId: String, surfaceId: String) {
+            let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+            _ = try? sendV1Command(
+                "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                client: client
+            )
+        }
+        func setNeedsInputStatus(workspaceId: String, surfaceId: String) {
+            let statusValue = String.localizedStringWithFormat(
+                String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
+                def.displayName
+            )
+            _ = try? sendV1Command(
+                "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                client: client
+            )
+        }
         func sendAgentFeedTelemetry(workspaceId: String? = nil) {
             didSendFeedTelemetry = true
             sendFeedTelemetry(
@@ -27502,6 +27540,127 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     env: env,
                     telemetry: telemetry
                 )
+            }
+
+        case .uiPromptStart:
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
+            let workspaceId = target.workspaceId
+            let surfaceId = target.surfaceId
+            let pid = mapped?.pid ?? inferredPID
+            let launchCommand = agentLaunchCommandFromEnvironment(
+                env,
+                fallbackPID: pid,
+                fallbackKind: def.name,
+                cwd: hookCwd ?? mapped?.cwd
+            )
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
+            if !sessionId.isEmpty, !suppressVisibleMutations {
+                try? store.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid,
+                    launchCommand: launchCommand ?? mapped?.launchCommand,
+                    agentLifecycle: .needsInput,
+                    runtimeStatus: .needsInput,
+                    updateRuntimeStatus: true
+                )
+                publishAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    kind: def.name,
+                    displayName: def.displayName,
+                    sessionId: sessionId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    launchCommand: launchCommand ?? mapped?.launchCommand
+                )
+            }
+            if let pid, !suppressVisibleMutations {
+                _ = try? sendV1Command(
+                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            }
+            if !suppressVisibleMutations {
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: .needsInput,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+                setNeedsInputStatus(workspaceId: workspaceId, surfaceId: surfaceId)
+            } else {
+                telemetry.breadcrumb("\(def.name)-hook.ui-prompt-start.nested-suppressed")
+            }
+
+        case .uiPromptEnd:
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
+            let workspaceId = target.workspaceId
+            let surfaceId = target.surfaceId
+            let pid = mapped?.pid ?? inferredPID
+            let launchCommand = agentLaunchCommandFromEnvironment(
+                env,
+                fallbackPID: pid,
+                fallbackKind: def.name,
+                cwd: hookCwd ?? mapped?.cwd
+            )
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
+            let shouldRestoreRunning = mapped?.runtimeStatus == .needsInput || mapped == nil
+            if !sessionId.isEmpty, !suppressVisibleMutations, shouldRestoreRunning {
+                try? store.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid,
+                    launchCommand: launchCommand ?? mapped?.launchCommand,
+                    agentLifecycle: .running,
+                    runtimeStatus: .running,
+                    updateRuntimeStatus: true
+                )
+                publishAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    kind: def.name,
+                    displayName: def.displayName,
+                    sessionId: sessionId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    launchCommand: launchCommand ?? mapped?.launchCommand
+                )
+            }
+            if let pid, !suppressVisibleMutations, shouldRestoreRunning {
+                _ = try? sendV1Command(
+                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            }
+            if !suppressVisibleMutations, shouldRestoreRunning {
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: .running,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+                setRunningStatus(workspaceId: workspaceId, surfaceId: surfaceId)
+            } else if suppressVisibleMutations {
+                telemetry.breadcrumb("\(def.name)-hook.ui-prompt-end.nested-suppressed")
             }
 
         case .stop:

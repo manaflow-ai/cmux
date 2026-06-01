@@ -84,7 +84,7 @@ Installs supported agent hooks whose binaries are on `PATH`. See [Agent hook int
 | CodeBuddy    | `~/.codebuddy/settings.json`              | PreToolUse               |
 | Factory      | `~/.factory/settings.json`                | PreToolUse               |
 | Qoder        | `~/.qoder/settings.json`                  | PreToolUse               |
-| Pi           | `~/.pi/agent/extensions/cmux-session.ts`  | lifecycle only           |
+| Pi           | `~/.pi/agent/extensions/cmux-session.ts`  | lifecycle + UI prompt status |
 | Rovo Dev     | `~/.rovodev/config.yml`                   | lifecycle only           |
 
 Individual agents:
