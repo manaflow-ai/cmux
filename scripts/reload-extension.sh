@@ -146,6 +146,13 @@ build_install_example() {
   ditto "$built_app" "$dest"
   echo "==> installed ${dest}"
 
+  # Delete the throwaway build output. macOS auto-registers ANY extension bundle it
+  # sees on disk, so leaving the /tmp-built .app around makes pkd register a second copy
+  # of this extension alongside the ~/Applications install. That duplicate then shows up
+  # in the sidebar extension browser and, because the OS groups by display name, toggling
+  # it perturbs the real one. Removing the build dir keeps exactly one registered copy.
+  rm -rf "$derived" "$derived.log"
+
   # Do NOT re-sign. xcodebuild already ad-hoc signs with the appex's entitlements
   # (App Sandbox + the co.manaflow.cmux.sidebar app group) bound in. Those entitlements
   # are required for the extension's XPC connection to the host; a bare
