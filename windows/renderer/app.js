@@ -3937,7 +3937,9 @@ function getPaneSplitter(workspace, splitNode) {
 function setSplitterResizePercent(splitter, percent, direction = splitter?.dataset.orientation || "right") {
   if (!splitter) return 50;
   const nextPercent = clampPaneLayoutPercent(percent);
-  const label = `${nextPercent}% / ${100 - nextPercent}%`;
+  const label = direction === "down"
+    ? `Top ${nextPercent}% / bottom ${100 - nextPercent}%`
+    : `Left ${nextPercent}% / right ${100 - nextPercent}%`;
   setDatasetIfChanged(splitter, "resizePercent", String(nextPercent));
   setDatasetIfChanged(splitter, "resizeLabel", label);
   splitter.setAttribute("aria-label", "Resize pane split");
@@ -3974,7 +3976,7 @@ function setPaneSplitterPercent(splitter, percent, options = {}) {
   scheduleRender();
   scheduleWorkspaceTerminalFits(workspace.id, true);
   if (options.toast) refreshLayoutSettings();
-  if (options.toast) toast(`Split ${nextPercent}% / ${100 - nextPercent}%.`);
+  if (options.toast) toast(label + ".");
   return true;
 }
 
