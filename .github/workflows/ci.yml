@@ -131,6 +131,10 @@ jobs:
         working-directory: diff-viewer
         run: bun run typecheck
 
+      - name: Oxlint diff viewer
+        working-directory: diff-viewer
+        run: bun run lint:ci
+
       - name: React Doctor
         working-directory: diff-viewer
         run: bun run react-doctor:ci

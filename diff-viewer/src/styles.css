@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 :root {
   color-scheme: light dark;
   --cmux-diff-bg-light: #fff;
@@ -394,6 +396,9 @@ body[data-files-hidden="true"] #files-sidebar {
   --trees-status-renamed-override: light-dark(#a26300, #ffd166);
   --trees-status-deleted-override: light-dark(#b42318, #ff8a80);
 }
+body[data-loading="false"] .diff-loading-placeholder {
+  display: none;
+}
 #file-list file-tree-container {
   width: 100%;
   height: 100%;
@@ -494,13 +499,6 @@ body[data-files-hidden="true"] #files-sidebar {
     display: none;
   }
 }
-body[data-status-only="true"] #content {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "viewer";
-}
-body[data-status-only="true"] #files-sidebar {
-  display: none;
-}
 @media (prefers-reduced-motion: reduce) {
   #files-sidebar {
     transition: none;
@@ -518,21 +516,26 @@ body[data-status-only="true"] #files-sidebar {
   box-shadow: 0 -1px 0 var(--cmux-diff-border), 0 1px 0 var(--cmux-diff-border);
 }
 #status {
-  padding: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  background: color-mix(in lab, var(--cmux-diff-bg) 98%, var(--cmux-diff-fg));
   font-family: var(--cmux-diff-ui-font-family);
   font-size: 13px;
   line-height: var(--cmux-diff-ui-line-height);
   color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
 }
-#status[data-pending="true"] {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-#status[data-pending="true"]::before {
+#status[data-pending="true"]::before,
+body[data-loading="true"] #status::before {
   content: "";
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex: 0 0 auto;
   border: 2px solid color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
   border-top-color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
@@ -546,7 +549,8 @@ body[data-status-only="true"] #files-sidebar {
   to { transform: rotate(360deg); }
 }
 @media (prefers-reduced-motion: reduce) {
-  #status[data-pending="true"]::before {
+  #status[data-pending="true"]::before,
+  body[data-loading="true"] #status::before {
     animation: none;
   }
 }

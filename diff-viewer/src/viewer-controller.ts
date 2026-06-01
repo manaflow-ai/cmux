@@ -79,21 +79,21 @@ setupNavigationSelector(repoSelect, payload.repoOptions ?? [], payload.repoRoot 
 setupNavigationSelector(baseSelect, payload.baseOptions ?? [], payload.branchBaseRef ?? "", label("branchBase"));
 const scheduleRender = globalThis.queueMicrotask ?? ((callback) => setTimeout(callback, 0));
 if (payload.pendingReplacement === true) {
-  showStatusMessage(payload.statusMessage ?? label("loadingDiff"), { pending: true });
+  showStatusMessage(payload.statusMessage ?? label("loadingDiff"), { loading: true, pending: true });
   waitForReplacement();
 } else if (typeof payload.statusMessage === "string" && payload.statusMessage.length > 0) {
-  showStatusMessage(payload.statusMessage, { error: payload.statusIsError === true });
+  showStatusMessage(payload.statusMessage, { error: payload.statusIsError === true, loading: false });
 } else {
   scheduleRender(() => {
     renderDiff().catch((error) => {
       console.error("cmux diff viewer render failed", error);
-      showStatusMessage(label("renderFailed"), { error: true });
+      showStatusMessage(label("renderFailed"), { error: true, loading: false });
     });
   });
 }
 
 async function renderDiff() {
-  showStatusMessage(label("loadingRenderer"));
+  showStatusMessage(label("loadingRenderer"), { loading: true });
   const [
     {
       CodeView,
@@ -116,7 +116,7 @@ async function renderDiff() {
 
   registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.light);
   registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.dark);
-  showStatusMessage(label("parsingDiff"));
+  showStatusMessage(label("parsingDiff"), { loading: true });
   setWorkerPoolStatus("loading");
   workerPool = await createCodeViewWorkerPool();
   setupJumpSelector(diffItems);
@@ -147,11 +147,12 @@ async function renderDiff() {
   }
 }
 
-function showStatusMessage(message, options: { error?: boolean; pending?: boolean } = {}) {
+function showStatusMessage(message, options: { error?: boolean; loading?: boolean; pending?: boolean } = {}) {
   if (!status.isConnected) {
     viewerElement.replaceChildren(status);
   }
-  document.body.dataset.statusOnly = options.pending === true || options.error === true ? "true" : "false";
+  document.body.dataset.loading = options.loading === true || options.pending === true ? "true" : "false";
+  document.body.dataset.statusOnly = "false";
   status.dataset.error = options.error === true ? "true" : "false";
   status.dataset.pending = options.pending === true ? "true" : "false";
   status.textContent = message;
@@ -165,7 +166,7 @@ function replaceDocumentWith(text) {
 
 async function applyReplacementFrom(response) {
   if (!response.ok) {
-    showStatusMessage(label("renderFailed"), { error: true });
+    showStatusMessage(label("renderFailed"), { error: true, loading: false });
     return false;
   }
   const text = await response.text();
@@ -182,7 +183,7 @@ async function waitForReplacement() {
     await applyReplacementFrom(response);
   } catch (error) {
     document.documentElement.dataset.cmuxDiffWait = "failed";
-    showStatusMessage(label("renderFailed"), { error: true });
+    showStatusMessage(label("renderFailed"), { error: true, loading: false });
     console.warn("cmux diff viewer deferred load failed", error);
   }
 }
@@ -505,6 +506,7 @@ async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile,
     lastFlushAt = performance.now();
     if (firstRender) {
       firstRender = false;
+      document.body.dataset.loading = "false";
       status.remove();
     }
     if (!hadCodeItems) {
@@ -1404,10 +1406,6 @@ function setupNavigationSelector(selectElement, options, fallbackValue, labelTex
   });
 }
 
-function setupFileExplorer(items, treesModule) {
-  setupFileExplorerSource(createFileTreeSource(items), treesModule);
-}
-
 function setupFileExplorerSource(source, treesModule) {
   const itemCount = sourcePathCount(source);
   const canUsePierreTree = canUsePierreFileTree(treesModule);
@@ -1434,10 +1432,6 @@ function setupFileExplorerSource(source, treesModule) {
   syncFileTreeSelectionMaps(source, entries);
   setupFlatFileExplorer(entries);
   updateToolbarState();
-}
-
-function refreshFileExplorer(items, treesModule) {
-  refreshFileExplorerSource(createFileTreeSource(items), treesModule);
 }
 
 function refreshFileExplorerSource(source, treesModule) {
@@ -1543,25 +1537,6 @@ function refreshPierreFileTree(source, treesModule) {
   } else if (resetTree || source.statsChanged === true) {
     fileTree.setGitStatus(source.gitStatus);
   }
-}
-
-function createFileTreeSource(items) {
-  const entries = buildTreeEntries(items);
-  const paths = entries.map((entry) => entry.path);
-  const pathToItemId = new Map(entries.map((entry) => [entry.path, entry.item.id]));
-  const statsByPath = new Map(entries.map((entry) => [entry.path, entry.stats]));
-  const treePathByItemId = new Map(entries.map((entry) => [entry.item.id, entry.path]));
-  return {
-    entries,
-    gitStatus: entries.flatMap((entry) => (
-      entry.status === "modified" ? [] : [{ path: entry.path, status: entry.status }]
-    )),
-    pathCount: paths.length,
-    paths,
-    pathToItemId,
-    statsByPath,
-    treePathByItemId,
-  };
 }
 
 function canUsePierreFileTree(treesModule) {
@@ -1680,38 +1655,6 @@ function setupFlatFileExplorer(entries) {
   }
 }
 
-function resetTreePathMaps() {
-  activeTreePath = "";
-  itemIdByTreePath = new Map();
-  treePathByItemId = new Map();
-}
-
-function buildTreeEntries(items) {
-  resetTreePathMaps();
-  const pathCounts = new Map();
-  const pathOrdinals = new Map();
-  for (const item of items) {
-    const name = fileName(item.fileDiff ?? {});
-    pathCounts.set(name, (pathCounts.get(name) ?? 0) + 1);
-  }
-  return items.map((item) => {
-    const fileDiff = item.fileDiff ?? {};
-    const basePath = fileName(fileDiff);
-    const nextOrdinal = (pathOrdinals.get(basePath) ?? 0) + 1;
-    pathOrdinals.set(basePath, nextOrdinal);
-    const treePath = pathCounts.get(basePath) > 1 ? `${basePath} (${nextOrdinal})` : basePath;
-    const stats = fileStats(fileDiff);
-    treePathByItemId.set(item.id, treePath);
-    itemIdByTreePath.set(treePath, item.id);
-    return {
-      item,
-      path: treePath,
-      status: gitStatus(fileDiff),
-      stats,
-    };
-  });
-}
-
 function getInitialFileTreeRowCount() {
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
   if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) {
@@ -1748,13 +1691,6 @@ function fileTreeUnsafeCSS() {
   `;
 }
 
-function updateDiffStats(items) {
-  updateDiffStatsFromEntries(items.map((item) => ({
-    item,
-    stats: fileStats(item.fileDiff ?? {}),
-  })));
-}
-
 function updateDiffStatsFromSource(source) {
   const stats = source?.diffStats;
   if (stats && Number.isFinite(stats.addedLines) && Number.isFinite(stats.deletedLines) && Number.isFinite(stats.fileCount)) {
@@ -1776,13 +1712,6 @@ function updateDiffStatsFromEntries(entries) {
   statsFiles.textContent = `${entries.length}`;
   statsAdded.textContent = `+${totals.added}`;
   statsDeleted.textContent = `-${totals.deleted}`;
-}
-
-function updateDiffStatsFromModel(model) {
-  filesCount.textContent = `${model.diffStats.fileCount}`;
-  statsFiles.textContent = `${model.diffStats.fileCount}`;
-  statsAdded.textContent = `+${model.diffStats.addedLines}`;
-  statsDeleted.textContent = `-${model.diffStats.deletedLines}`;
 }
 
 function setupJumpSelector(items) {
