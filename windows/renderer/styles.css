@@ -1946,6 +1946,11 @@ body.reduce-motion *::after {
   font: 12px/1.2 var(--font-ui);
 }
 
+.pending-pane.is-slow {
+  border-color: color-mix(in oklch, var(--color-warning) 54%, var(--color-line) 46%);
+  background: color-mix(in oklch, var(--color-warning) 10%, var(--color-pane-warm) 90%);
+}
+
 .pending-pane-pulse {
   width: 7px;
   height: 7px;
@@ -1953,6 +1958,10 @@ body.reduce-motion *::after {
   border-radius: 50%;
   background: var(--color-accent);
   animation: cmux-pulse 900ms ease-in-out infinite;
+}
+
+.pending-pane.is-slow .pending-pane-pulse {
+  background: var(--color-warning);
 }
 
 .pending-pane-text {

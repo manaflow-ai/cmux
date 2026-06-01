@@ -344,6 +344,7 @@ const state = {
   pendingFocusSync: null,
   focusSyncTimer: 0,
   focusSyncRevision: 0,
+  pendingPaneTimer: 0,
   eventSocket: null,
   eventSocketGeneration: 0,
   eventSocketReconnectDelay: eventReconnectMinDelayMs,
@@ -2661,6 +2662,7 @@ function resolvePendingPanelFromAuthoritativeState(workspace, pendingPanel) {
 
 function applyPendingPanelsToState(nextData) {
   if (state.pendingPanels.size === 0 || !Array.isArray(nextData?.workspaces)) return nextData;
+  let removedPending = false;
   const activePendingPanelId = state.data?.workspaces
     ?.find((workspace) => workspace.id === state.data?.activeWorkspaceId)
     ?.activePanelId || "";
@@ -2670,6 +2672,7 @@ function applyPendingPanelsToState(nextData) {
     const resolvedPanel = resolvePendingPanelFromAuthoritativeState(workspace, pendingPanel);
     if (resolvedPanel) {
       state.pendingPanels.delete(pendingPanel.id);
+      removedPending = true;
       state.canceledPendingPanelIds.delete(pendingPanel.id);
       remapPanelStateId(pendingPanel.id, resolvedPanel.id, workspace.id);
       cleanupPanel(pendingPanel.id);
@@ -2690,6 +2693,7 @@ function applyPendingPanelsToState(nextData) {
       nextData.activeWorkspaceId = workspace.id;
     }
   }
+  if (removedPending) stopPendingPaneTimerIfIdle();
   return nextData;
 }
 
@@ -3565,15 +3569,51 @@ function renderPendingPane(panel, body) {
     cancelPendingPanel(panel.id);
   };
   const isBrowser = panel.type === "browser";
-  const meta = isBrowser
+  const elapsedSeconds = pendingPanelElapsedSeconds(panel);
+  const slow = elapsedSeconds >= 8;
+  toggleClassIfChanged(pending, "is-slow", slow);
+  const baseMeta = isBrowser
     ? hostnameOf(panel.url || state.settings.browserHomeUrl)
     : `${optionLabel(terminalProfiles, panel.shellProfile || state.settings.terminalProfile, "Shell")} / ${panel.cwdShort || "~"}`;
+  const meta = `${baseMeta} / ${elapsedSeconds}s`;
   setTextIfChanged(
     pending.querySelector(".pending-pane-text"),
-    isBrowser ? "Opening browser..." : "Starting terminal..."
+    slow
+      ? (isBrowser ? "Browser is still opening..." : "Terminal is still starting...")
+      : (isBrowser ? "Opening browser..." : "Starting terminal...")
   );
   setTextIfChanged(pending.querySelector(".pending-pane-meta"), meta);
   replaceChildrenIfChanged(body, [pending]);
+  ensurePendingPaneTimer();
+}
+
+function pendingPanelElapsedSeconds(panel) {
+  const startedAt = Number(panel?.pendingStartedAt || Date.now());
+  return Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+}
+
+function ensurePendingPaneTimer() {
+  if (state.pendingPaneTimer || state.pendingPanels.size === 0) return;
+  state.pendingPaneTimer = window.setInterval(updatePendingPaneTimers, 1000);
+}
+
+function stopPendingPaneTimerIfIdle() {
+  if (!state.pendingPaneTimer || state.pendingPanels.size > 0) return;
+  window.clearInterval(state.pendingPaneTimer);
+  state.pendingPaneTimer = 0;
+}
+
+function updatePendingPaneTimers() {
+  if (state.pendingPanels.size === 0) {
+    stopPendingPaneTimerIfIdle();
+    return;
+  }
+  for (const panel of state.pendingPanels.values()) {
+    const pane = state.paneCache.get(panel.id)
+      || [...elements.paneGrid.querySelectorAll(".pane[data-panel-id]")].find((candidate) => candidate.dataset.panelId === panel.id);
+    const body = pane?.querySelector(".pane-body");
+    if (body?.isConnected) renderPendingPane(panel, body);
+  }
 }
 
 function getPaneSplitNode(splitNode) {
@@ -10862,6 +10902,7 @@ function createPendingPanel(type, workspace, options = {}) {
     url: isBrowser ? options.url || state.settings.browserHomeUrl : "",
     needsAttention: false,
     notificationText: "",
+    pendingStartedAt: Date.now(),
     pending: true
   };
 }
@@ -10871,6 +10912,7 @@ function addPendingPanel(workspace, panel, anchorPanelId, direction, options = {
   state.pendingPanels.set(panel.id, panel);
   insertPanelInPaneTree(workspace.id, anchorPanelId, panel.id, direction);
   const added = optimisticAddPanel(panel, workspace.id, { direction, focus: options.focus });
+  ensurePendingPaneTimer();
   updateOperationChrome();
   return added;
 }
@@ -10901,6 +10943,7 @@ function remapPanelStateId(previousPanelId, nextPanelId, workspaceId) {
 function removePendingPanel(panelId, options = {}) {
   const found = findPanelState(panelId);
   state.pendingPanels.delete(panelId);
+  stopPendingPaneTimerIfIdle();
   removePanelFromAllPaneTrees(panelId);
   cleanupPanel(panelId);
   if (!found) return false;
@@ -10939,6 +10982,7 @@ async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, op
     return false;
   }
   state.pendingPanels.delete(pendingPanelId);
+  stopPendingPaneTimerIfIdle();
   if (!createdPanel?.id) {
     removePendingPanel(pendingPanelId);
     return false;
