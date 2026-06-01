@@ -1958,6 +1958,74 @@ final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
 }
 
 
+final class CustomTitlebarLeadingPaddingTests: XCTestCase {
+    func testHiddenSidebarUsesMinimumSidebarTitleInset() {
+        XCTAssertEqual(
+            ContentView.customTitlebarLeadingPadding(
+                isFullScreen: false,
+                isSidebarVisible: false,
+                sidebarWidth: 216,
+                minimumSidebarWidth: 216,
+                titlebarLeadingInset: 82
+            ),
+            228
+        )
+    }
+
+    func testMinimumWidthVisibleSidebarMatchesHiddenSidebarTitleInset() {
+        let hidden = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: false,
+            sidebarWidth: 216,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+        let visible = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: true,
+            sidebarWidth: 216,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+
+        XCTAssertEqual(visible, hidden)
+    }
+
+    func testWiderSidebarPushesTitlebarContentRight() {
+        let hidden = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: false,
+            sidebarWidth: 216,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+        let visible = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: true,
+            sidebarWidth: 320,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+
+        XCTAssertGreaterThan(visible, hidden)
+        XCTAssertEqual(visible, 332)
+    }
+
+    func testFullscreenHiddenSidebarKeepsCompactInset() {
+        XCTAssertEqual(
+            ContentView.customTitlebarLeadingPadding(
+                isFullScreen: true,
+                isSidebarVisible: false,
+                sidebarWidth: 216,
+                minimumSidebarWidth: 216,
+                titlebarLeadingInset: 82
+            ),
+            8
+        )
+    }
+}
+
+
 @MainActor
 final class FolderWindowMoveSuppressionTests: XCTestCase {
     private func makeWindow() -> NSWindow {
