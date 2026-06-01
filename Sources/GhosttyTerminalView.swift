@@ -1218,6 +1218,73 @@ private func cmuxShellEscapedTokenContainingColumn(
     return nil
 }
 
+private func cmuxWhitespaceDelimitedTokenContainingColumn(
+    in line: String,
+    column: Int
+) -> String? {
+    let characters = Array(line)
+    guard !characters.isEmpty, column >= 0, column < characters.count else { return nil }
+    guard !characters[column].isWhitespace else { return nil }
+
+    var start = column
+    while start > 0, !characters[start - 1].isWhitespace {
+        start -= 1
+    }
+
+    var end = column
+    while (end + 1) < characters.count, !characters[end + 1].isWhitespace {
+        end += 1
+    }
+
+    let candidate = String(characters[start...end]).trimmingCharacters(in: .whitespacesAndNewlines)
+    return candidate.isEmpty ? nil : candidate
+}
+
+private func cmuxVisibleBackslashJoinedTokenContainingColumn(
+    in line: String,
+    column: Int
+) -> String? {
+    let characters = Array(line)
+    guard !characters.isEmpty, column >= 0, column < characters.count else { return nil }
+
+    var index = 0
+    while index < characters.count {
+        while index < characters.count, characters[index].isWhitespace {
+            index += 1
+        }
+        let start = index
+
+        while index < characters.count {
+            guard characters[index].isWhitespace else {
+                index += 1
+                continue
+            }
+
+            if index > start, characters[index - 1] == "\\" {
+                index += 1
+                continue
+            }
+
+            break
+        }
+
+        if start < index, column >= start, column < index {
+            return String(characters[start..<index])
+        }
+    }
+
+    return nil
+}
+
+private func cmuxVisibleTextTokenContainingColumn(
+    in line: String,
+    column: Int
+) -> String? {
+    cmuxVisibleBackslashJoinedTokenContainingColumn(in: line, column: column)
+        ?? cmuxShellEscapedTokenContainingColumn(in: line, column: column)
+        ?? cmuxWhitespaceDelimitedTokenContainingColumn(in: line, column: column)
+}
+
 private func cmuxIsHardPathDelimiter(
     in characters: [Character],
     at index: Int
@@ -8715,8 +8782,77 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func readContextMenuTextSnapshot() -> TextMenuSnapshot? {
-        readSelectionTextMenuSnapshot() ?? readQuickLookWordTextMenuSnapshot()
+    private func readVisibleTextMenuSnapshot(at point: NSPoint) -> TextMenuSnapshot? {
+        guard let terminalSurface,
+              let workspace = terminalSurface.owningWorkspace(),
+              let panel = workspace.terminalPanel(for: terminalSurface.id),
+              let surface else {
+            return nil
+        }
+
+        let size = ghostty_surface_size(surface)
+        let rows = max(Int(size.rows), 1)
+        let cols = max(Int(size.columns), 1)
+        let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
+        let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
+        guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
+
+        let visibleText = TerminalController.shared.readTerminalTextForSnapshot(
+            terminalPanel: panel,
+            lineLimit: max(200, rows * 4)
+        ) ?? ""
+        let visibleLines = cmuxVisibleTerminalLines(from: visibleText, rows: rows)
+        let rowOffset = max(0, rows - visibleLines.count)
+        let xInset = max(0, (bounds.width - (CGFloat(cols) * resolvedCellWidth)) / 2)
+        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
+
+        let yFromTop = bounds.height - point.y
+        let xInGrid = point.x - xInset
+        let yInGrid = yFromTop - yInset
+        guard xInGrid >= 0,
+              xInGrid < CGFloat(cols) * resolvedCellWidth,
+              yInGrid >= 0,
+              yInGrid < CGFloat(rows) * resolvedCellHeight else {
+            return nil
+        }
+
+        let rowFromTop = Int(yInGrid / resolvedCellHeight)
+        let visibleRow = rowFromTop - rowOffset
+        guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
+
+        let column = Int(xInGrid / resolvedCellWidth)
+        guard let token = cmuxVisibleTextTokenContainingColumn(
+            in: visibleLines[visibleRow],
+            column: column
+        ) else {
+            return nil
+        }
+
+        return TextMenuSnapshot(
+            string: token,
+            topLeft: CGPoint(
+                x: xInset + (CGFloat(column) * resolvedCellWidth),
+                y: yInset + (CGFloat(rowFromTop) * resolvedCellHeight)
+            ),
+            isSelection: false
+        )
+    }
+
+    private func readContextMenuTextSnapshot(at point: NSPoint) -> TextMenuSnapshot? {
+        if let selectionSnapshot = readSelectionTextMenuSnapshot() {
+            return selectionSnapshot
+        }
+
+        let quickLookSnapshot = readQuickLookWordTextMenuSnapshot()
+        let visibleSnapshot = readVisibleTextMenuSnapshot(at: point)
+        if let quickLookSnapshot,
+           quickLookSnapshot.string.hasSuffix("\\"),
+           let visibleSnapshot,
+           visibleSnapshot.string.count > quickLookSnapshot.string.count {
+            return visibleSnapshot
+        }
+
+        return quickLookSnapshot ?? visibleSnapshot
     }
 
     private func visibleDocumentRectInScreenCoordinates() -> NSRect {
@@ -10580,7 +10716,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
-        contextMenuTextSnapshot = readContextMenuTextSnapshot()
+        contextMenuTextSnapshot = readContextMenuTextSnapshot(at: point)
 
         let menu = NSMenu()
         if let contextMenuTextSnapshot {
