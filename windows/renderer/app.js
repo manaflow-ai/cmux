@@ -4705,6 +4705,8 @@ function cleanupPanel(panelId) {
   if (browserSession?.initialLoadFrame) cancelAnimationFrame(browserSession.initialLoadFrame);
   if (browserSession?.tabRenderFrame) cancelAnimationFrame(browserSession.tabRenderFrame);
   if (browserSession?.tabScrollFrame) cancelAnimationFrame(browserSession.tabScrollFrame);
+  if (browserSession?.tabOverflowFrame) cancelAnimationFrame(browserSession.tabOverflowFrame);
+  browserSession?.tabResizeObserver?.disconnect?.();
   browserSession?.detachTabWheelScroll?.();
   const pane = state.paneCache.get(panelId);
   pane?.remove();
@@ -5654,6 +5656,7 @@ function renderBrowserTabs(session) {
   });
   replaceChildrenIfChanged(session.tabList, nodes);
   scheduleActiveBrowserTabIntoView(session);
+  scheduleBrowserTabOverflowRefresh(session);
 }
 
 function scheduleBrowserTabsRender(session) {
@@ -5662,6 +5665,26 @@ function scheduleBrowserTabsRender(session) {
     session.tabRenderFrame = 0;
     renderBrowserTabs(session);
   });
+}
+
+function scheduleBrowserTabOverflowRefresh(session) {
+  if (!session?.tabList || session.tabOverflowFrame) return;
+  session.tabOverflowFrame = requestAnimationFrame(() => {
+    session.tabOverflowFrame = 0;
+    updateBrowserTabOverflow(session);
+  });
+}
+
+function updateBrowserTabOverflow(session) {
+  const tabList = session?.tabList;
+  if (!tabList) return;
+  const overflowing = tabList.scrollWidth > tabList.clientWidth + 1;
+  const maxScrollLeft = Math.max(0, tabList.scrollWidth - tabList.clientWidth);
+  const scrollLeft = Math.max(0, tabList.scrollLeft);
+  toggleClassIfChanged(tabList, "has-overflow", overflowing);
+  toggleClassIfChanged(tabList, "can-scroll-left", overflowing && scrollLeft > 1);
+  toggleClassIfChanged(tabList, "can-scroll-right", overflowing && scrollLeft < maxScrollLeft - 1);
+  if (!overflowing && tabList.scrollLeft) tabList.scrollLeft = 0;
 }
 
 function scheduleActiveBrowserTabIntoView(session) {
@@ -5682,8 +5705,10 @@ function scheduleActiveBrowserTabIntoView(session) {
       nextLeft = maxRight;
     }
     nextLeft = clamp(nextLeft, 0, maxScroll);
-    if (Math.abs(nextLeft - session.tabList.scrollLeft) < 1) return;
-    session.tabList.scrollTo({ left: nextLeft, behavior: "auto" });
+    if (Math.abs(nextLeft - session.tabList.scrollLeft) >= 1) {
+      session.tabList.scrollTo({ left: nextLeft, behavior: "auto" });
+    }
+    scheduleBrowserTabOverflowRefresh(session);
   });
 }
 
@@ -6381,6 +6406,13 @@ function ensureBrowser(panel, body) {
     initialLoadFrame: 0
   };
   session.detachTabWheelScroll = attachHorizontalWheelScroll(tabList);
+  tabList.addEventListener("scroll", () => updateBrowserTabOverflow(session), { passive: true });
+  if (typeof ResizeObserver === "function") {
+    session.tabResizeObserver = new ResizeObserver(() => scheduleBrowserTabOverflowRefresh(session));
+    session.tabResizeObserver.observe(tabList);
+    session.tabResizeObserver.observe(tabStrip);
+    session.tabResizeObserver.observe(shell);
+  }
   state.browserViews.set(panel.id, session);
   renderBrowserTabs(session);
   const activeUrl = activeBrowserTab(session)?.url;

@@ -2322,6 +2322,7 @@ body.reduce-motion *::after {
 }
 
 .browser-tab-list {
+  position: relative;
   min-width: 0;
   flex: 1 1 auto;
   display: flex;
@@ -2330,6 +2331,20 @@ body.reduce-motion *::after {
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
+}
+
+.browser-tab-list.can-scroll-left {
+  box-shadow: inset 10px 0 10px -12px var(--color-canvas);
+}
+
+.browser-tab-list.can-scroll-right {
+  box-shadow: inset -18px 0 14px -16px var(--color-canvas);
+}
+
+.browser-tab-list.can-scroll-left.can-scroll-right {
+  box-shadow:
+    inset 10px 0 10px -12px var(--color-canvas),
+    inset -18px 0 14px -16px var(--color-canvas);
 }
 
 .browser-tab-list::-webkit-scrollbar {
