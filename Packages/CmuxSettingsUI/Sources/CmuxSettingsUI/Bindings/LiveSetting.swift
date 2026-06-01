@@ -45,6 +45,8 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
     private let persist: (SettingsRuntime, Value) -> Void
 
     /// Binds to a UserDefaults-backed setting.
+    ///
+    /// - Parameter keyPath: Key path to the catalog's ``DefaultsKey`` for this value.
     public init(_ keyPath: KeyPath<SettingCatalog, DefaultsKey<Value>>) {
         _value = State(initialValue: SettingCatalog()[keyPath: keyPath].defaultValue)
         makeStream = { runtime in
@@ -57,6 +59,8 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
     }
 
     /// Binds to a JSON-config-backed setting.
+    ///
+    /// - Parameter keyPath: Key path to the catalog's ``JSONKey`` for this value.
     public init(_ keyPath: KeyPath<SettingCatalog, JSONKey<Value>>) {
         _value = State(initialValue: SettingCatalog()[keyPath: keyPath].defaultValue)
         makeStream = { runtime in
@@ -76,6 +80,8 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
     /// this overload is only available when `Value` is `String`; with that
     /// constraint in scope the secret store's `AsyncStream<String>` is an
     /// `AsyncStream<Value>` directly.
+    ///
+    /// - Parameter keyPath: Key path to the catalog's ``SecretFileKey``.
     public init(_ keyPath: KeyPath<SettingCatalog, SecretFileKey>) where Value == String {
         _value = State(initialValue: SettingCatalog()[keyPath: keyPath].defaultValue)
         makeStream = { runtime in
@@ -91,6 +97,12 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
         }
     }
 
+    /// The current setting value.
+    ///
+    /// Reads return the latest value the observation stream has delivered into
+    /// the wrapper's `@State`. Writes persist to the backing store and do not
+    /// update `@State` directly; the stream yields the committed value back, so
+    /// a write that the store rejects leaves the displayed value unchanged.
     public var wrappedValue: Value {
         get { value }
         nonmutating set {
@@ -103,10 +115,17 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
         }
     }
 
+    /// A two-way `Binding` to the setting, e.g. for a `Toggle` or `TextField`.
+    ///
+    /// The getter reflects the current `@State` value; the setter persists
+    /// through ``wrappedValue``.
     public var projectedValue: Binding<Value> {
         Binding(get: { value }, set: { wrappedValue = $0 })
     }
 
+    /// `DynamicProperty` hook. On the first call with a resolved
+    /// ``SettingsRuntime`` it starts the ``SettingReadDriver`` that forwards the
+    /// store's change stream into the wrapper's `@State`; later calls are no-ops.
     public func update() {
         guard let runtime else { return }
         driver.activate({ makeStream(runtime) }, sink: $value)
