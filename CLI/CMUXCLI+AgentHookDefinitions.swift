@@ -64,6 +64,12 @@ extension CMUXCLI {
             let cmuxSubcommand: String
         }
 
+        struct HookInstallSpec {
+            let agentEvent: String
+            let command: String
+            let timeoutMs: Int
+        }
+
         enum PostInstallAction {
             case codexConfigToml // write codex_hooks = true to config.toml on install, remove on uninstall
         }
@@ -284,7 +290,7 @@ extension CMUXCLI {
             events: [
                 .init(agentEvent: "on_session_start", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "pre_llm_call", cmuxSubcommand: "prompt-submit"),
-                .init(agentEvent: "post_llm_call", cmuxSubcommand: "agent-response"),
+                .init(agentEvent: "post_llm_call", cmuxSubcommand: "stop"),
                 .init(agentEvent: "pre_approval_request", cmuxSubcommand: "notification"),
                 .init(agentEvent: "post_approval_response", cmuxSubcommand: "approval-response"),
                 .init(agentEvent: "on_session_end", cmuxSubcommand: "session-end"),
@@ -368,8 +374,48 @@ extension CMUXCLI {
         }
     }
 
-    private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
-    private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
+    static func hookInstallSpecs(for def: AgentHookDef) -> [AgentHookDef.HookInstallSpec] {
+        let lifecycleTimeoutMs = lifecycleHookTimeoutMs(for: def)
+        let lifecycleSpecs = def.events.map { event in
+            AgentHookDef.HookInstallSpec(
+                agentEvent: event.agentEvent,
+                command: hookCommandString(for: def, event: event),
+                timeoutMs: lifecycleTimeoutMs
+            )
+        }
+        let feedSpecs = def.feedHookEvents.map { agentEvent in
+            AgentHookDef.HookInstallSpec(
+                agentEvent: agentEvent,
+                command: feedHookCommandString(for: def, agentEvent: agentEvent),
+                timeoutMs: 120_000
+            )
+        }
+        return lifecycleSpecs + feedSpecs
+    }
+
+    private static func lifecycleHookTimeoutMs(for def: AgentHookDef) -> Int {
+        switch def.format {
+        case .flat, .rovoDevYAML:
+            return 5_000
+        case .nested(let timeoutMs), .kiroAgentJSON(let timeoutMs):
+            return max(timeoutMs, 1)
+        case .antigravityJSON(let timeoutSeconds):
+            return max(timeoutSeconds, 1) * 1_000
+        case .hermesAgentYAML:
+            return 5_000
+        }
+    }
+
+    static func hookTimeoutSeconds(fromMilliseconds timeoutMs: Int) -> Int {
+        let positiveTimeoutMs = max(timeoutMs, 1)
+        return ((positiveTimeoutMs - 1) / 1000) + 1
+    }
+
+    private static let pinnedHookMarkers: [String: String] = [
+        "grok": "cmux-grok-hook-v2",
+        "antigravity": "cmux-antigravity-hook-v2",
+        "hermes-agent": "cmux-hermes-agent-hook-v2",
+    ]
 
     private static func agentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         if usesPinnedHookDispatch(def) {
@@ -385,11 +431,11 @@ extension CMUXCLI {
     }
 
     private static func usesPinnedHookDispatch(_ def: AgentHookDef) -> Bool {
-        def.name == "grok" || def.name == "antigravity"
+        pinnedHookMarker(for: def) != nil
     }
 
-    private static func pinnedHookMarker(for def: AgentHookDef) -> String {
-        def.name == "antigravity" ? antigravityPinnedHookMarker : grokPinnedHookMarker
+    private static func pinnedHookMarker(for def: AgentHookDef) -> String? {
+        pinnedHookMarkers[def.name]
     }
 
     private static func pinnedAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
@@ -431,7 +477,8 @@ extension CMUXCLI {
         } else {
             dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || echo '{}'"
         }
-        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); echo '{}'; } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
+        let marker = pinnedHookMarker(for: def) ?? def.hookMarker
+        return ": \(marker); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); echo '{}'; } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
     }
 
     private static func pinnedHookInvocation(
@@ -541,7 +588,7 @@ extension CMUXCLI {
     }
 
     static func isCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef, includeLegacy: Bool = true) -> Bool {
-        if usesPinnedHookDispatch(def), command.contains(pinnedHookMarker(for: def)) {
+        if let marker = pinnedHookMarker(for: def), command.contains(marker) {
             return true
         }
         if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })
