@@ -14,11 +14,19 @@ if [ "${1:-}" = "--check" ]; then
     CMUX_DIFF_VIEWER_OUT_DIR="$tmp_dir" bun run build
   )
   diff_output="$(mktemp)"
-  if ! diff -qr "$OUT_DIR" "$tmp_dir" >"$diff_output"; then
+  set +e
+  diff -qr "$OUT_DIR" "$tmp_dir" >"$diff_output"
+  diff_status=$?
+  set -e
+  if [ "$diff_status" -ne 0 ]; then
     cat "$diff_output" >&2
     rm -f "$diff_output"
-    echo "diff viewer app assets are stale; run ./scripts/build-diff-viewer-app.sh" >&2
-    exit 1
+    if [ "$diff_status" -eq 1 ]; then
+      echo "diff viewer app assets are stale; run ./scripts/build-diff-viewer-app.sh" >&2
+      exit 1
+    fi
+    echo "failed to compare diff viewer assets (diff exit $diff_status)" >&2
+    exit 2
   fi
   rm -f "$diff_output"
   exit 0

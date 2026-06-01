@@ -291,6 +291,10 @@ body {
 body[data-files-hidden="true"] #content {
   grid-template-columns: minmax(0, 1fr) 0;
 }
+body[data-status-only="true"] #content {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "viewer";
+}
 #files-sidebar {
   grid-area: files;
   position: relative;
@@ -312,6 +316,9 @@ body[data-files-hidden="true"] #files-sidebar {
   pointer-events: none;
   visibility: hidden;
   transition: opacity 100ms ease, visibility 0s linear 100ms;
+}
+body[data-status-only="true"] #files-sidebar {
+  display: none;
 }
 #files-header {
   position: relative;

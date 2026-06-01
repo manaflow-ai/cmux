@@ -201,7 +201,9 @@ let activeTreePath = "";
 let suppressTreeSelectionChange = false;
 let itemIdByTreePath = new Map();
 let treePathByItemId = new Map();
-document.title = payload.title ?? document.title;
+if (typeof payload.title === "string" && payload.title.trim() !== "") {
+  document.title = payload.title;
+}
 applyViewerAppearance(payload.appearance);
 setupToolbar();
 setupSourceSelector(payload.sourceOptions ?? []);
@@ -212,12 +214,12 @@ if (payload.pendingReplacement === true) {
   showStatusMessage(payload.statusMessage ?? label("loadingDiff"), { loading: true, pending: true });
   waitForReplacement();
 } else if (typeof payload.statusMessage === "string" && payload.statusMessage.length > 0) {
-  showStatusMessage(payload.statusMessage, { error: payload.statusIsError === true, loading: false });
+  showStatusMessage(payload.statusMessage, { error: payload.statusIsError === true, loading: false, statusOnly: true });
 } else {
   scheduleRender(() => {
     renderDiff().catch((error) => {
       console.error("cmux diff viewer render failed", error);
-      showStatusMessage(label("renderFailed"), { error: true, loading: false });
+      showStatusMessage(label("renderFailed"), { error: true, loading: false, statusOnly: true });
     });
   });
 }
@@ -277,12 +279,12 @@ async function renderDiff() {
   }
 }
 
-function showStatusMessage(message, options: { error?: boolean; loading?: boolean; pending?: boolean } = {}) {
+function showStatusMessage(message, options: { error?: boolean; loading?: boolean; pending?: boolean; statusOnly?: boolean } = {}) {
   if (!status.isConnected) {
     viewerElement.replaceChildren(status);
   }
   document.body.dataset.loading = options.loading === true || options.pending === true ? "true" : "false";
-  document.body.dataset.statusOnly = "false";
+  document.body.dataset.statusOnly = options.statusOnly === true ? "true" : "false";
   status.dataset.error = options.error === true ? "true" : "false";
   status.dataset.pending = options.pending === true ? "true" : "false";
   status.textContent = message;
@@ -296,7 +298,7 @@ function replaceDocumentWith(text) {
 
 async function applyReplacementFrom(response) {
   if (!response.ok) {
-    showStatusMessage(label("renderFailed"), { error: true, loading: false });
+    showStatusMessage(label("renderFailed"), { error: true, loading: false, statusOnly: true });
     return false;
   }
   const text = await response.text();
@@ -313,7 +315,7 @@ async function waitForReplacement() {
     await applyReplacementFrom(response);
   } catch (error) {
     document.documentElement.dataset.cmuxDiffWait = "failed";
-    showStatusMessage(label("renderFailed"), { error: true, loading: false });
+    showStatusMessage(label("renderFailed"), { error: true, loading: false, statusOnly: true });
     console.warn("cmux diff viewer deferred load failed", error);
   }
 }
@@ -390,7 +392,7 @@ function commitMetadataLabel(metadata, index) {
   if (match?.[1]) {
     return new TextDecoder().decode(new TextEncoder().encode(match[1].slice(0, 5)));
   }
-  return `Commit ${index + 1}`;
+  return `${label("commit")} ${index + 1}`;
 }
 
 async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile, treesModule }) {

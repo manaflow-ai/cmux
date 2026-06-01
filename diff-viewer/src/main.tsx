@@ -20,10 +20,12 @@ function installStyles() {
 
 const config = readConfig();
 installStyles();
-document.title = config.payload?.title ?? document.title;
+if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
+  document.title = config.payload.title;
+}
 document.body.dataset.filesHidden = "false";
 document.body.dataset.loading = config.payload?.pendingReplacement || !config.payload?.statusMessage ? "true" : "false";
-document.body.dataset.statusOnly = "false";
+document.body.dataset.statusOnly = config.payload?.statusMessage && !config.payload.pendingReplacement ? "true" : "false";
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
