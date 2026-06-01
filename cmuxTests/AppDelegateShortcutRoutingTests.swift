@@ -2919,42 +2919,55 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+        let manager = TabManager()
 
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              manager.openBrowser(inWorkspace: workspace.id) != nil else {
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
+              let browserPanel = manager.focusedBrowserPanel else {
             XCTFail("Expected focused browser panel")
             return
         }
+        defer {
+            BrowserWindowPortalRegistry.detach(webView: browserPanel.webView)
+            browserPanel.close()
+            browserPanel.webView.cmuxSetUnitTestInspector(nil)
+            browserPanel.webView.removeFromSuperview()
+        }
 
-        XCTAssertNotNil(manager.focusedBrowserPanel)
-        XCTAssertNil(manager.focusedBrowserPanel?.searchState)
-        let initialMode = appDelegate.fileExplorerState?.mode
+        XCTAssertEqual(browserPanel.id, browserPanelId)
+        XCTAssertNil(browserPanel.searchState)
 
         guard let event = makeKeyDownEvent(
             key: "f",
             modifiers: [.command],
             keyCode: 3,
-            windowNumber: window.windowNumber
+            windowNumber: 0
         ) else {
             XCTFail("Failed to construct Cmd+F event")
             return
         }
 
 #if DEBUG
-        XCTAssertTrue(
-            appDelegate.debugHandleCustomShortcut(event: event),
-            "Cmd+F should open browser find when browser web content is focused"
-        )
+        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .find))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
 
-        XCTAssertNotNil(manager.focusedBrowserPanel?.searchState)
-        XCTAssertEqual(appDelegate.fileExplorerState?.mode, initialMode)
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: manager,
+            fileExplorerState: appDelegate.fileExplorerState
+        )
+        controller.noteRightSidebarInteraction(mode: .files)
+
+        XCTAssertEqual(
+            controller.findShortcutTarget(currentResponder: FocusableTestView()),
+            .mainPanelFind,
+            "Cmd+F should open browser find instead of right-sidebar file search when browser web content is focused"
+        )
+        XCTAssertTrue(manager.startSearch())
+        XCTAssertNotNil(browserPanel.searchState)
     }
 
     func testOmnibarArrowSelectionUsesResponderResolvedPanelWhenTrackedFocusWasCleared() {
