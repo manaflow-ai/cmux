@@ -11730,8 +11730,24 @@ function deferCreatedTerminalInitUntilPaint(panel, workspace) {
   return true;
 }
 
+function remapCachedPanelElement(previousPanelId, nextPanelId) {
+  const pane = state.paneCache.get(previousPanelId);
+  if (pane && !state.paneCache.has(nextPanelId)) {
+    state.paneCache.delete(previousPanelId);
+    state.paneCache.set(nextPanelId, pane);
+    setDatasetIfChanged(pane, "panelId", nextPanelId);
+  }
+  const tab = state.surfaceTabButtons.get(previousPanelId);
+  if (tab && !state.surfaceTabButtons.has(nextPanelId)) {
+    state.surfaceTabButtons.delete(previousPanelId);
+    state.surfaceTabButtons.set(nextPanelId, tab);
+    setDatasetIfChanged(tab, "panelId", nextPanelId);
+  }
+}
+
 function remapPanelStateId(previousPanelId, nextPanelId, workspaceId) {
   if (!previousPanelId || !nextPanelId || previousPanelId === nextPanelId) return;
+  remapCachedPanelElement(previousPanelId, nextPanelId);
   const tree = state.paneTrees.get(workspaceId);
   if (tree) {
     state.paneTrees.set(workspaceId, replacePaneTreePanelId(tree, previousPanelId, nextPanelId));
