@@ -41,6 +41,29 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
+    func testFeedModeCanOpenAsPane() {
+        XCTAssertTrue(
+            RightSidebarMode.feed.canOpenAsPane,
+            "Feed mode should be openable as a pane so the header 'Open as Pane' button is visible, matching Files/Find/Vault"
+        )
+        XCTAssertTrue(RightSidebarMode.paneModes.contains(.feed))
+        // Dock is a beta feature and intentionally stays excluded.
+        XCTAssertFalse(RightSidebarMode.dock.canOpenAsPane)
+        XCTAssertFalse(RightSidebarMode.paneModes.contains(.dock))
+    }
+
+    func testCommandPaletteOffersOpenFeedAsPane() {
+        let descriptors = ContentView.commandPaletteRightSidebarToolPaneCommandDescriptors()
+        XCTAssertTrue(
+            descriptors.contains { $0.mode == .feed },
+            "Command palette should expose an 'Open Feed as Pane' command, consistent with the header button"
+        )
+        XCTAssertFalse(
+            descriptors.contains { $0.mode == .dock },
+            "Dock stays excluded from open-as-pane entrypoints"
+        )
+    }
+
     func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {
         withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
