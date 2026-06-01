@@ -202,6 +202,81 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(payload["has_ssh_options"] as? Bool, true)
     }
 
+    func testRemoteConfigureRejectsInvalidPersistentDaemonSlot() throws {
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": UUID().uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "persistent_daemon_slot": "../bad",
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        XCTAssertEqual(
+            error["message"] as? String,
+            "persistent_daemon_slot must contain only letters, numbers, '.', '_' or '-'"
+        )
+    }
+
+    func testRemoteConfigureDefaultsPersistentDaemonSlotForBootstrapSSH() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "preserve_after_terminal_exit": true,
+                "auto_connect": false,
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(workspace.remoteConfiguration?.preserveAfterTerminalExit, true)
+        XCTAssertEqual(
+            workspace.remoteConfiguration?.persistentDaemonSlot,
+            "ssh-\(workspace.id.uuidString.lowercased())"
+        )
+    }
+
+    func testRemoteConfigureRejectsPersistentDaemonSlotWithoutPreserve() throws {
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": UUID().uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "persistent_daemon_slot": "ssh-test-slot",
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        XCTAssertEqual(
+            error["message"] as? String,
+            "preserve_after_terminal_exit is required when persistent_daemon_slot is set"
+        )
+    }
+
     func testRemotePTYResizeRunsOnSocketWorker() async throws {
         let socketPath = makeSocketPath("pty-worker")
         let tabManager = TabManager()
@@ -1110,6 +1185,34 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title),
             ["Socket Browser", "Socket Terminal"]
         )
+    }
+
+    func testBrowserOpenSplitDoesNotExternallyOpenDiffViewerWhenBrowserDisabled() throws {
+        let defaults = UserDefaults.standard
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        BrowserAvailabilitySettings.setDisabled(true)
+        defer {
+            if let previousBrowserDisabled {
+                defaults.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        TerminalController.shared.setActiveTabManager(TabManager())
+        let token = UUID().uuidString.lowercased()
+        let response = try handleV2Request(
+            method: "browser.open_split",
+            params: [
+                "url": "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/diff.html",
+                "diff_viewer_token": token
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(error["code"] as? String, "browser_disabled")
     }
 
     func testLegacyCloseSurfaceCommandRecordsRecentlyClosedHistory() throws {

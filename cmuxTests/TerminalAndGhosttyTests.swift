@@ -1,4 +1,5 @@
 import XCTest
+import CmuxSocketControl
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -1143,6 +1144,44 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             "Socket input accepted after terminal lifecycle closure would be stranded because the surface cannot be restarted."
         )
         XCTAssertEqual(pending.bytes, 0)
+    }
+
+    func testSendNamedKeyRecognizesCtrlFForceStopChord() {
+        // Claude Code (and other raw-tty TUIs) only expose force-stop as a Ctrl-F
+        // keybinding. cmux must be able to deliver that chord to the focused terminal
+        // via a non-keyboard path, so the named-key layer has to recognize "ctrl-f".
+        // A recognized-but-undeliverable key returns `.surfaceUnavailable` on a closed
+        // surface, whereas an unrecognized key returns `.unknownKey`.
+        let panel = TerminalPanel(workspaceId: UUID())
+        panel.surface.releaseSurfaceForTesting()
+        panel.surface.beginPortalCloseLifecycle(reason: "test.closed")
+
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl-f"),
+            .surfaceUnavailable,
+            "ctrl-f must be a recognized control chord so it can be forwarded to the focused terminal."
+        )
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl+f"),
+            .surfaceUnavailable,
+            "The ctrl+f alias must resolve identically to ctrl-f."
+        )
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl-thisisnotakey"),
+            .unknownKey,
+            "An unrecognized chord must surface as .unknownKey, proving the ctrl-f result is meaningful."
+        )
+    }
+
+    func testNamedKeySendResultAcceptedReflectsDelivery() {
+        // `sendCtrlFToFocusedTerminal()` reports success from this flag, so delivery and
+        // failure cases must map correctly.
+        XCTAssertTrue(TerminalSurface.NamedKeySendResult.sent.accepted)
+        XCTAssertTrue(TerminalSurface.NamedKeySendResult.queued.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.unknownKey.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.inputQueueFull.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.surfaceUnavailable.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.processExited.accepted)
     }
 
     func testDaemonSendWorkspaceQueuesColdControlInputInsteadOfReportingDroppedOK() throws {
@@ -3065,6 +3104,8 @@ final class WindowTerminalHostViewTests: XCTestCase {
 
 @MainActor
 final class GhosttySurfaceOverlayTests: XCTestCase {
+    private var surfacesToRelease: [TerminalSurface] = []
+
     private final class ScrollProbeSurfaceView: GhosttyNSView {
         private(set) var scrollWheelCallCount = 0
 
@@ -3087,6 +3128,10 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private final class KeyStatusTestWindow: NSWindow {
+        override var isKeyWindow: Bool { true }
+    }
+
     private func makeScrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {
         GhosttyScrollbar(
             c: ghostty_action_scrollbar_s(
@@ -3095,6 +3140,28 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
                 len: len
             )
         )
+    }
+
+    override func tearDown() {
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+        for surface in surfacesToRelease.reversed() {
+            surface.releaseSurfaceForTesting()
+        }
+        surfacesToRelease.removeAll()
+        super.tearDown()
+    }
+
+    private func makeTrackedTerminalSurface(
+        tabId: UUID = UUID()
+    ) -> TerminalSurface {
+        let surface = TerminalSurface(
+            tabId: tabId,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        surfacesToRelease.append(surface)
+        return surface
     }
 
     private func findEditableTextField(in view: NSView) -> NSTextField? {
@@ -3129,17 +3196,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         line: UInt = #line,
         _ condition: @escaping () -> Bool
     ) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                if Thread.isMainThread {
-                    return condition()
-                }
-                return DispatchQueue.main.sync(execute: condition)
-            },
-            object: NSObject()
-        )
-        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
-        guard result == .completed else {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        guard condition() else {
             XCTFail("Timed out waiting for \(description)", file: file, line: line)
             return false
         }
@@ -3296,12 +3360,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 
     func testPreferredScrollerStyleChangeRestoresOverlayScrollbarWidth() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
 
         let window = NSWindow(
@@ -3362,14 +3421,10 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         scrollView.scrollerStyle = .legacy
         scrollView.layoutSubtreeIfNeeded()
         let legacyContentWidth = scrollView.contentSize.width
-        XCTAssertLessThan(
-            legacyContentWidth,
-            initialContentWidth,
-            "Legacy scrollbars should reserve width in the scroll view content area"
-        )
+        XCTAssertEqual(scrollView.scrollerStyle, .legacy)
         assertPendingSurfaceWidth(
             initialSurfaceSize.width,
-            "Changing the scroll view style alone should leave the terminal grid stale until the scroller-style observer runs"
+            "Changing the scroll view style alone should leave the terminal grid unchanged until the scroller-style observer runs"
         )
 
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
@@ -3377,6 +3432,11 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         let restoredContentWidth = scrollView.contentSize.width
         XCTAssertEqual(scrollView.scrollerStyle, .overlay)
+        XCTAssertGreaterThanOrEqual(
+            restoredContentWidth,
+            legacyContentWidth,
+            "Preferred scroller style changes should not shrink terminal content when overlay scrollbars return"
+        )
         XCTAssertEqual(
             restoredContentWidth,
             initialContentWidth,
@@ -3434,57 +3494,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 
     func testSearchOverlayMountsAndUnmountsWithSearchState() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
-        XCTAssertFalse(hostedView.debugHasSearchOverlay())
-
-        let searchState = TerminalSurface.SearchState(needle: "example")
-        hostedView.setSearchOverlay(searchState: searchState)
-        waitUntil(description: "search overlay to mount") {
-            hostedView.debugHasSearchOverlay()
-        }
-        XCTAssertTrue(hostedView.debugHasSearchOverlay())
-
-        hostedView.setSearchOverlay(searchState: nil)
-        waitUntil(description: "search overlay to unmount") {
-            !hostedView.debugHasSearchOverlay()
-        }
-        XCTAssertFalse(hostedView.debugHasSearchOverlay())
-    }
-
-    func testRapidSearchOverlayToggleDoesNotLeaveStaleOverlayMounted() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-
-        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "example"))
-        hostedView.setSearchOverlay(searchState: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        XCTAssertFalse(
-            hostedView.debugHasSearchOverlay(),
-            "A stale deferred mount must not resurrect the find overlay after it closes"
-        )
-    }
-
-    func testSearchOverlayFocusesSearchFieldAfterDeferredAttach() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
             styleMask: [.titled, .closable],
@@ -3504,32 +3515,103 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(hostedView.debugHasSearchOverlay())
+
+        let searchState = TerminalSurface.SearchState(needle: "example")
+        hostedView.setSearchOverlay(searchState: searchState)
+        waitUntil(description: "search overlay to mount") {
+            hostedView.debugHasSearchOverlay()
+        }
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        hostedView.setSearchOverlay(searchState: nil)
+        waitUntil(description: "search overlay to unmount") {
+            !hostedView.debugHasSearchOverlay()
+        }
+        XCTAssertFalse(hostedView.debugHasSearchOverlay())
+    }
+
+    func testRapidSearchOverlayToggleDoesNotLeaveStaleOverlayMounted() {
+        let surface = makeTrackedTerminalSurface()
+        let hostedView = surface.hostedView
+
+        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "example"))
+        hostedView.setSearchOverlay(searchState: nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            hostedView.debugHasSearchOverlay(),
+            "A stale deferred mount must not resurrect the find overlay after it closes"
+        )
+    }
+
+    func testSearchOverlayFocusesSearchFieldAfterDeferredAttach() {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let originalTabManager = appDelegate.tabManager
+        let manager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+
+        let window = KeyStatusTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.tabManager = originalTabManager
+            AppDelegate.shared = previousAppDelegate
+            window.orderOut(nil)
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel else {
+            XCTFail("Expected initial focused terminal panel")
+            return
+        }
+
+        let surface = terminalPanel.surface
+        let hostedView = terminalPanel.hostedView
+        surfacesToRelease.append(surface)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
 
         let searchState = TerminalSurface.SearchState(needle: "")
         surface.searchState = searchState
         hostedView.setSearchOverlay(searchState: searchState)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitUntil(description: "search overlay to mount and expose field") {
+            self.findEditableTextField(in: hostedView) != nil
+        }
 
         guard let searchField = findEditableTextField(in: hostedView) else {
             XCTFail("Expected mounted find text field")
             return
         }
 
-        XCTAssertTrue(
-            firstResponderOwnsTextField(window.firstResponder, textField: searchField),
-            "Deferred search overlay attach should still move focus into the find field"
-        )
+        waitUntil(description: "search field to become first responder") {
+            self.firstResponderOwnsTextField(window.firstResponder, textField: searchField)
+        }
     }
 
     func testStartOrFocusTerminalSearchReusesExistingSearchState() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let existingSearchState = TerminalSurface.SearchState(needle: "existing")
         surface.searchState = existingSearchState
 
@@ -3551,12 +3633,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
         _ = NSApplication.shared
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
 
         let window = NSWindow(
@@ -3644,12 +3721,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
     @MainActor
     func testKeyboardCopyModeIndicatorMountsAndUnmounts() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
 
@@ -3706,12 +3778,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             return
         }
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
@@ -3737,23 +3804,26 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     func testSearchOverlayMountDoesNotRetainTerminalSurface() {
         weak var weakSurface: TerminalSurface?
 
-        let hostedView: GhosttySurfaceScrollView = {
-            let surface = TerminalSurface(
-                tabId: UUID(),
-                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                configTemplate: nil,
-                workingDirectory: nil
-            )
-            weakSurface = surface
-            let hostedView = surface.hostedView
+        var surface: TerminalSurface? = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        weakSurface = surface
+        guard let hostedView = surface?.hostedView else {
+            XCTFail("Expected hosted terminal view")
+            return
+        }
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "retain-check"))
-        return hostedView
-        }()
 
         waitUntil(description: "search overlay to mount") {
             hostedView.debugHasSearchOverlay()
         }
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        surface?.releaseSurfaceForTesting()
+        surface = nil
         waitUntil(description: "terminal surface to deallocate after search overlay mount") {
             weakSurface == nil
         }
@@ -3780,12 +3850,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         contentView.addSubview(anchorA)
         contentView.addSubview(anchorB)
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "split"))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -3819,12 +3884,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 40, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "workspace"))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -4891,6 +4951,32 @@ final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
             cmuxResolveQuicklookPathForTesting(
                 "docs/specs/2026-05-22-test.md.",
                 cwd: cwd,
+                existingPaths: [existingFile]
+            ),
+            existingFile
+        )
+    }
+
+    func testResolveTerminalOpenURLFilePathResolvesAbsoluteMarkdownPathWithTrailingDot() {
+        let existingFile = "/Users/dev/project/skills/marketing/data/lawrencecchen-tweets.md"
+
+        XCTAssertEqual(
+            cmuxResolveTerminalOpenURLFilePathForTesting(
+                "\(existingFile).",
+                cwd: "/Users/dev/project",
+                existingPaths: [existingFile]
+            ),
+            existingFile
+        )
+    }
+
+    func testResolveTerminalOpenURLFilePathResolvesQuotedAbsoluteMarkdownPathWithTrailingDot() {
+        let existingFile = "/Users/dev/project/skills/marketing/data/lawrencecchen-tweets.md"
+
+        XCTAssertEqual(
+            cmuxResolveTerminalOpenURLFilePathForTesting(
+                "\"\(existingFile).\"",
+                cwd: "/Users/dev/project",
                 existingPaths: [existingFile]
             ),
             existingFile

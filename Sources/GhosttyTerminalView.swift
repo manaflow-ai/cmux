@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSocketControl
 import SwiftUI
 import AppKit
 import Metal
@@ -978,6 +979,20 @@ func cmuxResolveQuicklookPathForTesting(
 func cmuxTrimTerminalPathTrailingPunctuationForTesting(_ token: String) -> String {
     cmuxTrimTerminalPathTrailingPunctuation(token)
 }
+
+func cmuxResolveTerminalOpenURLFilePathForTesting(
+    _ rawText: String,
+    cwd: String?,
+    existingPaths: Set<String>
+) -> String? {
+    cmuxResolveTerminalOpenURLFilePath(
+        rawText,
+        cwd: cwd,
+        fileExists: { path in
+            existingPaths.contains((path as NSString).standardizingPath)
+        }
+    )
+}
 #endif
 
 private func cmuxResolveQuicklookPath(
@@ -1271,6 +1286,17 @@ private func cmuxResolveVisibleLinePath(
         }
     }
     return nil
+}
+
+private func cmuxResolveTerminalOpenURLFilePath(
+    _ rawText: String,
+    cwd: String?,
+    fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+) -> String? {
+    let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    guard URL(string: trimmed)?.scheme == nil else { return nil }
+    return cmuxResolveQuicklookPath(trimmed, cwd: cwd, fileExists: fileExists)
 }
 
 enum TerminalOpenURLTarget: Equatable {
@@ -2381,10 +2407,31 @@ class GhosttyApp {
         )
     }
 
+    private func loadConditionalThemeOverrideIfNeeded(
+        _ config: ghostty_config_t,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
+        guard let contents = Self.conditionalThemeOverrideConfigContents(
+            preferredColorScheme: preferredColorScheme
+        ) else { return }
+
+        loadInlineGhosttyConfig(
+            contents,
+            into: config,
+            prefix: "cmux-conditional-theme",
+            logLabel: "conditional theme override"
+        )
+    }
+
     func loadDefaultConfigFilesWithLegacyFallback(
         _ config: ghostty_config_t,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference()
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference(),
+        conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) -> Bool {
+        // Surface-only reloads may use a terminal-derived scheme for background
+        // handling, while Ghostty split-theme pairs follow app appearance.
+        let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme
+
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
         if startupPreviewProfile.loadsRealUserConfig {
@@ -2392,6 +2439,10 @@ class GhosttyApp {
             loadLegacyGhosttyConfigIfNeeded(config)
             loadCmuxAppSupportGhosttyConfigIfNeeded(config)
             ghostty_config_load_recursive_files(config)
+            loadConditionalThemeOverrideIfNeeded(
+                config,
+                preferredColorScheme: themeColorScheme
+            )
             if Self.shouldApplyManagedDefaultAppearance() {
                 loadCmuxDefaultAppearanceConfig(
                     config,
@@ -2410,6 +2461,10 @@ class GhosttyApp {
         loadLegacyGhosttyConfigIfNeeded(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
+        loadConditionalThemeOverrideIfNeeded(
+            config,
+            preferredColorScheme: themeColorScheme
+        )
         if Self.shouldApplyManagedDefaultAppearance() {
             loadCmuxDefaultAppearanceConfig(
                 config,
@@ -2584,15 +2639,18 @@ class GhosttyApp {
     private struct UserAppearanceConfigSummary {
         var hasThemeDirective = false
         var hasExplicitTerminalColorDirective = false
+        var lastThemeDirective: String?
 
         var shouldApplyDefaultAppearance: Bool {
             !hasThemeDirective && !hasExplicitTerminalColorDirective
         }
 
-        mutating func recordDirective(key: String) {
+        mutating func recordDirective(key: String, value: String?) {
             switch key {
             case "theme":
                 hasThemeDirective = true
+                let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                lastThemeDirective = trimmedValue.isEmpty ? nil : trimmedValue
             case "background",
                  "foreground",
                  "palette",
@@ -2711,6 +2769,39 @@ class GhosttyApp {
         configPaths: [String] = loadedGhosttyConfigScanPaths()
     ) -> Bool {
         userAppearanceConfigSummary(configPaths: configPaths).shouldApplyDefaultAppearance
+    }
+
+    static func conditionalThemeOverrideConfigContents(
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference,
+        configPaths: [String] = loadedGhosttyConfigScanPaths()
+    ) -> String? {
+        let summary = userAppearanceConfigSummary(configPaths: configPaths)
+        guard let rawThemeValue = summary.lastThemeDirective else { return nil }
+
+        let lightTheme = GhosttyConfig.resolveThemeName(
+            from: rawThemeValue,
+            preferredColorScheme: .light
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let darkTheme = GhosttyConfig.resolveThemeName(
+            from: rawThemeValue,
+            preferredColorScheme: .dark
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lightTheme.isEmpty,
+              !darkTheme.isEmpty,
+              lightTheme.caseInsensitiveCompare(darkTheme) != .orderedSame else {
+            return nil
+        }
+
+        let resolvedTheme = GhosttyConfig.resolveThemeName(
+            from: rawThemeValue,
+            preferredColorScheme: preferredColorScheme
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedTheme.isEmpty,
+              resolvedTheme.rangeOfCharacter(from: .newlines) == nil else {
+            return nil
+        }
+
+        return "theme = \(resolvedTheme)"
     }
 
     /// Resolve auto-injected CJK families through the regular-weight descriptor
@@ -3019,7 +3110,7 @@ class GhosttyApp {
                  "cursor-text",
                  "selection-background",
                  "selection-foreground":
-                summary.recordDirective(key: entry.key)
+                summary.recordDirective(key: entry.key, value: entry.value)
             case "config-file":
                 guard let value = entry.value else { continue }
                 applyConfigFileDirective(
@@ -4663,29 +4754,30 @@ class GhosttyApp {
             #endif
 
             // Try file-path resolution before URL classification.
-            // Ghostty's link detection can match relative file paths that
-            // contain slashes or dots (e.g. "docs/spec.md.") as URLs.
+            // Ghostty's link detection can match file paths that contain
+            // slashes or dots (e.g. "docs/spec.md." or "/tmp/spec.md.") as URLs.
             // Attempt to resolve the raw string as a local file first
             // (with trailing-punctuation trimming via cmuxResolveQuicklookPath).
             // If the file exists and cmux can handle it, route through the
             // file viewer instead of the browser.
             let trimmedUrlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedUrlString.isEmpty,
-               !NSString(string: trimmedUrlString).isAbsolutePath,
-               URL(string: trimmedUrlString)?.scheme == nil {
-                let filePathRouted: Bool = performOnMain {
+            var normalizedOpenURLString = urlString
+            if !trimmedUrlString.isEmpty {
+                let filePathResolution: (routed: Bool, fallbackPath: String?) = performOnMain {
                     guard let termSurface = surfaceView.terminalSurface,
                           let workspace = termSurface.owningWorkspace(),
                           !workspace.isRemoteTerminalSurface(termSurface.id) else {
-                        return false
+                        return (false, nil)
                     }
                     let cwd = CommandClickFileOpenRouter.resolveWorkingDirectory(
                         workspace: workspace,
                         surfaceId: termSurface.id
                     )
-                    guard let resolvedPath = cmuxResolveQuicklookPath(trimmedUrlString, cwd: cwd),
-                          CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
-                        return false
+                    guard let resolvedPath = cmuxResolveTerminalOpenURLFilePath(trimmedUrlString, cwd: cwd) else {
+                        return (false, nil)
+                    }
+                    guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
+                        return (false, resolvedPath)
                     }
                     #if DEBUG
                     cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolvedPath)")
@@ -4699,14 +4791,17 @@ class GhosttyApp {
                     ) {
                         NSWorkspace.shared.open(fileURL)
                     }
-                    return true
+                    return (true, resolvedPath)
                 }
-                if filePathRouted {
+                if let fallbackPath = filePathResolution.fallbackPath {
+                    normalizedOpenURLString = fallbackPath
+                }
+                if filePathResolution.routed {
                     return true
                 }
             }
 
-            guard let target = resolveTerminalOpenURLTarget(urlString) else {
+            guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
                 #if DEBUG
                 cmuxDebugLog("link.openURL resolve failed, returning false")
                 #endif
@@ -5142,6 +5237,17 @@ final class TerminalSurface: Identifiable, ObservableObject {
         case inputQueueFull
         case surfaceUnavailable
         case processExited
+
+        /// Whether the named key was delivered to the surface or queued for an
+        /// imminently-started surface. `false` means the key never reached the PTY.
+        var accepted: Bool {
+            switch self {
+            case .sent, .queued:
+                return true
+            case .unknownKey, .inputQueueFull, .surfaceUnavailable, .processExited:
+                return false
+            }
+        }
     }
 
     enum InputSendResult: Equatable {
@@ -6188,6 +6294,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !GeminiIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_GEMINI_HOOKS_DISABLED", "1")
         }
+        if !KiroIntegrationSettings.hooksEnabled() {
+            setManagedEnvironmentValue("CMUX_KIRO_HOOKS_DISABLED", "1")
+        }
+        setManagedEnvironmentValue(
+            "CMUX_KIRO_NOTIFICATION_LEVEL",
+            KiroIntegrationSettings.notificationLevel().rawValue
+        )
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]
@@ -6208,6 +6321,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION_DIR", integrationDir)
             Self.applyManagedGitWatchEnvironment(
                 watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),
+                showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard),
                 to: &env,
                 protectedKeys: &protectedStartupEnvironmentKeys
             )
@@ -6987,6 +7101,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return PendingKeyEvent(keycode: UInt32(kVK_ANSI_C), mods: GHOSTTY_MODS_CTRL, label: normalized)
         case "ctrl-d", "ctrl+d", "eof":
             return PendingKeyEvent(keycode: UInt32(kVK_ANSI_D), mods: GHOSTTY_MODS_CTRL, label: normalized)
+        case "ctrl-f", "ctrl+f":
+            // Force-stop chord for embedded TUIs (e.g. Claude Code's "Ctrl-F twice").
+            return PendingKeyEvent(keycode: UInt32(kVK_ANSI_F), mods: GHOSTTY_MODS_CTRL, label: normalized)
         case "ctrl-z", "ctrl+z", "sigtstp":
             return PendingKeyEvent(keycode: UInt32(kVK_ANSI_Z), mods: GHOSTTY_MODS_CTRL, label: normalized)
         case "ctrl-\\", "ctrl+\\", "sigquit":
@@ -8330,6 +8447,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 paneId: paneId,
                 surfaceId: terminalSurface.id,
                 includeRefs: true
+            )
+        )
+    }
+
+    @IBAction func copyCurrentSurfaceLink(_ sender: Any?) {
+        guard let terminalSurface else { return }
+        WorkspaceSurfaceIdentifierClipboardText.copy(
+            WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
+                workspaceId: terminalSurface.tabId,
+                surfaceId: terminalSurface.id
             )
         )
     }
@@ -10400,6 +10527,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEquivalent: ""
             )
             identifiersItem.target = self
+            let linkItem = menu.addItem(
+                withTitle: String(localized: "command.copySurfaceLink.title", defaultValue: "Copy Surface Link"),
+                action: #selector(copyCurrentSurfaceLink(_:)),
+                keyEquivalent: ""
+            )
+            linkItem.target = self
         }
         return menu
     }
@@ -11075,11 +11208,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
     private var lastSearchOverlayStateID: ObjectIdentifier?
-    private weak var cachedOwningWorkspace: Workspace?
-    private weak var observedWorkspaceTerminalScrollBar: Workspace?
     private var searchOverlayMutationGeneration: UInt64 = 0
     private var observers: [NSObjectProtocol] = []
-    private var workspaceTerminalScrollBarObserver: NSObjectProtocol?
     private var windowObservers: [NSObjectProtocol] = []
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
@@ -11627,9 +11757,6 @@ final class GhosttySurfaceScrollView: NSView {
         )
 #endif
         observers.forEach { NotificationCenter.default.removeObserver($0) }
-        if let workspaceTerminalScrollBarObserver {
-            NotificationCenter.default.removeObserver(workspaceTerminalScrollBarObserver)
-        }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         deferredSearchOverlayMutationWorkItem?.cancel()
         imageTransferIndicatorShowWorkItem?.cancel()
@@ -11952,9 +12079,6 @@ final class GhosttySurfaceScrollView: NSView {
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
         surfaceView.attachSurface(terminalSurface)
-        let workspace = terminalSurface.owningWorkspace()
-        cachedOwningWorkspace = workspace
-        updateWorkspaceTerminalScrollBarObserver(workspace)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }
@@ -14104,31 +14228,6 @@ final class GhosttySurfaceScrollView: NSView {
         _ = synchronizeGeometryAndContent()
     }
 
-    private func updateWorkspaceTerminalScrollBarObserver(_ workspace: Workspace?) {
-        if let observedWorkspaceTerminalScrollBar,
-           observedWorkspaceTerminalScrollBar === workspace,
-           workspaceTerminalScrollBarObserver != nil {
-            return
-        }
-
-        if let workspaceTerminalScrollBarObserver {
-            NotificationCenter.default.removeObserver(workspaceTerminalScrollBarObserver)
-            self.workspaceTerminalScrollBarObserver = nil
-        }
-
-        observedWorkspaceTerminalScrollBar = workspace
-
-        guard let workspace else { return }
-
-        workspaceTerminalScrollBarObserver = NotificationCenter.default.addObserver(
-            forName: Workspace.terminalScrollBarHiddenDidChangeNotification,
-            object: workspace,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handleTerminalScrollBarPreferenceChange()
-        }
-    }
-
     private func documentHeight() -> CGFloat {
         let contentHeight = scrollView.contentSize.height
         let cellHeight = surfaceView.cellSize.height
@@ -14140,23 +14239,9 @@ final class GhosttySurfaceScrollView: NSView {
         return contentHeight
     }
 
-    private func owningWorkspace() -> Workspace? {
-        let workspaceId = surfaceView.terminalSurface?.tabId
-        if let cachedOwningWorkspace,
-           cachedOwningWorkspace.id == workspaceId {
-            updateWorkspaceTerminalScrollBarObserver(cachedOwningWorkspace)
-            return cachedOwningWorkspace
-        }
-        let workspace = surfaceView.terminalSurface?.owningWorkspace()
-        cachedOwningWorkspace = workspace
-        updateWorkspaceTerminalScrollBarObserver(workspace)
-        return workspace
-    }
-
     private func terminalScrollBarAllowedBySettings() -> Bool {
         guard GhosttyApp.shared.scrollbarVisibility() != .never else { return false }
         guard TerminalScrollBarSettings.isVisible() else { return false }
-        guard owningWorkspace()?.terminalScrollBarHidden != true else { return false }
         return true
     }
 

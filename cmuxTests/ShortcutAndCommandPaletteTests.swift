@@ -1092,7 +1092,6 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .switchRightSidebarToSessions,
         .switchRightSidebarToFeed,
         .switchRightSidebarToDock,
-        .switchRightSidebarToHistory,
     ]
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
@@ -1144,7 +1143,6 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
         XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
-        XCTAssertEqual(RightSidebarMode.history.shortcutAction, .switchRightSidebarToHistory)
     }
 
     func testModeShortcutsUsePrivateControlDigitDefaults() {
@@ -1167,10 +1165,6 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
             .dock
-        )
-        XCTAssertEqual(
-            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "6", modifiers: [.control], keyCode: 22)),
-            .history
         )
     }
 
@@ -1228,10 +1222,6 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
             .dock
-        )
-        XCTAssertEqual(
-            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "6", modifiers: [.control], keyCode: 22)),
-            .history
         )
     }
 
@@ -1418,46 +1408,6 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
-    func testPendingHistoryFocusCompletesWhenHistorySearchHostRegisters() {
-        let fileExplorerState = FileExplorerState()
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
-        window.contentView = contentView
-        let controller = MainWindowFocusController(
-            windowId: UUID(),
-            window: window,
-            tabManager: TabManager(),
-            fileExplorerState: fileExplorerState
-        )
-
-        XCTAssertTrue(controller.focusRightSidebar(mode: .history, focusFirstItem: true))
-        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .history)
-
-        var searchFocusRequests = 0
-        let focusHost = RightSidebarHistoryFocusAnchorView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        focusHost.onFocusSearch = {
-            searchFocusRequests += 1
-        }
-        defer {
-            _ = window.makeFirstResponder(nil)
-            focusHost.removeFromSuperview()
-            window.contentView = nil
-            window.orderOut(nil)
-        }
-        contentView.addSubview(focusHost)
-        controller.registerHistoryHost(focusHost)
-
-        XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
-        XCTAssertTrue(window.firstResponder === focusHost)
-        XCTAssertEqual(searchFocusRequests, 1)
-    }
-
-    @MainActor
     func testFocusShortcutToggleClearsRightSidebarIntentWhenTerminalIsUnavailable() {
         let controller = MainWindowFocusController(
             windowId: UUID(),
@@ -1487,7 +1437,7 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
     func testDefaultOffsetsMatchCurrentBadgePlacements() {
         XCTAssertEqual(ShortcutHintDebugSettings.defaultSidebarHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultSidebarHintY, 0.0)
-        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintX, 4.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintY, -5.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintY, 0.0)
