@@ -824,6 +824,7 @@ extension AppDelegate {
             target: gate,
             action: #selector(CmuxSSHURLConfirmationGate.checkboxChanged(_:))
         )
+        checkbox.state = .off
         checkbox.lineBreakMode = .byWordWrapping
         stack.addArrangedSubview(checkbox)
 
