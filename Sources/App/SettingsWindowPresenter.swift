@@ -42,6 +42,7 @@ enum SettingsWindowPresenter {
         window.isRestorable = false
         window.minSize = minimumSize
         window.contentMinSize = minimumSize
+        applyModernSettingsChrome(window)
         clampToVisibleAreaIfNeeded(window)
         attachToPreferredParent(window)
         if shouldFocusAfterConfiguration {
@@ -241,6 +242,26 @@ enum SettingsWindowPresenter {
             window.deminiaturize(nil)
         }
         window.orderFront(nil)
+    }
+
+    private static let toolbarIdentifier = NSToolbar.Identifier("cmux.settings.toolbar")
+
+    // Restore the modern macOS Settings chrome (unified compact toolbar,
+    // transparent titlebar integrated with the content, full-size content
+    // view) that the SwiftUI `Settings { }` scene provided for free before
+    // #4975 switched Settings to a generic `Window(...)` scene. `Window`
+    // defaults to the legacy titled-window chrome, so it must be applied to
+    // the AppKit window explicitly.
+    private static func applyModernSettingsChrome(_ window: NSWindow) {
+        window.styleMask.insert(.fullSizeContentView)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        if window.toolbar == nil {
+            let toolbar = NSToolbar(identifier: toolbarIdentifier)
+            toolbar.allowsUserCustomization = false
+            window.toolbar = toolbar
+        }
+        window.toolbarStyle = .unifiedCompact
     }
 
     private static func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
