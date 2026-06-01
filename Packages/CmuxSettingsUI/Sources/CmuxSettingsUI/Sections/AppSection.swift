@@ -7,14 +7,12 @@ import UniformTypeIdentifiers
 /// inside a single `SettingsCard`: Language, Appearance, App Icon,
 /// New Workspace Placement, Inherit Working Directory, Minimal Mode,
 /// Keep Workspace Open When Closing Last Surface, Focus Pane on
-/// First Click, File Drops, Open Files With, Open Supported Files in
-/// cmux, Terminal Config link, Open Markdown in cmux Viewer,
-/// iMessage Mode, Reorder on Notification, Dock Badge, Menu Bar
-/// Only, Show in Menu Bar, Unread Pane Ring, Pane Flash, Desktop
-/// Notifications, Notification Sound, Notification Command, Send
-/// anonymous telemetry, Warn Before Quit, Warn Before Closing Tab /
-/// X Button / Hide Tab Close Button, Rename Selects Existing Name,
-/// Command Palette Searches All Surfaces.
+/// First Click, Terminal Config link, iMessage Mode, Reorder on
+/// Notification, Dock Badge, Menu Bar Only, Show in Menu Bar,
+/// Unread Pane Ring, Pane Flash, Desktop Notifications, Notification
+/// Sound, Notification Command, Send anonymous telemetry, Warn Before
+/// Quit, Warn Before Closing Tab / X Button / Hide Tab Close Button,
+/// Rename Selects Existing Name, Command Palette Searches All Surfaces.
 @MainActor
 public struct AppSection: View {
     private let catalog: SettingCatalog
@@ -31,10 +29,6 @@ public struct AppSection: View {
     @State private var minimalMode: DefaultsValueModel<WorkspacePresentationMode>
     @State private var keepWorkspaceOpen: DefaultsValueModel<Bool>
     @State private var firstClick: DefaultsValueModel<Bool>
-    @State private var fileDrop: DefaultsValueModel<FileDropDefaultBehavior>
-    @State private var preferredEditor: DefaultsValueModel<String>
-    @State private var openSupported: DefaultsValueModel<Bool>
-    @State private var openMarkdown: DefaultsValueModel<Bool>
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<Bool>
     @State private var dockBadge: DefaultsValueModel<Bool>
@@ -71,10 +65,6 @@ public struct AppSection: View {
         _minimalMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.presentationMode))
         _keepWorkspaceOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.keepWorkspaceOpenWhenClosingLastSurface))
         _firstClick = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusPaneOnFirstClick))
-        _fileDrop = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileDropDefaultBehavior))
-        _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
-        _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
-        _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
         _dockBadge = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge))
@@ -239,50 +229,6 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
-            // File Drops
-            SettingsCardRow(
-                configurationReview: .settingsOnly,
-                searchAnchorID: "setting:app:file-drops",
-                String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"),
-                subtitle: fileDropSubtitle(fileDrop.current),
-                controlWidth: Self.columnWidth
-            ) {
-                Picker("", selection: Binding(get: { fileDrop.current }, set: { fileDrop.set($0) })) {
-                    Text(String(localized: "settings.app.fileDrop.defaultBehavior.text", defaultValue: "Drop path text")).tag(FileDropDefaultBehavior.text)
-                    Text(String(localized: "settings.app.fileDrop.defaultBehavior.preview", defaultValue: "Open file preview")).tag(FileDropDefaultBehavior.preview)
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-            }
-            SettingsCardDivider()
-
-            // Preferred Editor
-            SettingsCardRow(
-                configurationReview: .json("app.preferredEditor"),
-                String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"),
-                subtitle: String(localized: "settings.app.preferredEditor.subtitle", defaultValue: "Command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty for system default.")
-            ) {
-                TextField(
-                    String(localized: "settings.app.preferredEditor.placeholder", defaultValue: "e.g. code, zed, subl"),
-                    text: Binding(get: { preferredEditor.current }, set: { preferredEditor.set($0) })
-                )
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 200)
-            }
-            SettingsCardDivider()
-
-            // Open Supported Files in cmux
-            SettingsCardRow(
-                configurationReview: .json("app.openSupportedFilesInCmux"),
-                String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"),
-                subtitle: String(localized: "settings.app.openSupportedFilesInCmux.subtitle", defaultValue: "Cmd-clicking readable files opens text, code, PDFs, images, audio, video, and Quick Look previews in cmux.")
-            ) {
-                Toggle("", isOn: Binding(get: { openSupported.current }, set: { openSupported.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-            }
-            SettingsCardDivider()
-
             // Terminal Config (host action)
             SettingsCardRow(
                 configurationReview: .action,
@@ -296,18 +242,6 @@ public struct AppSection: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-            }
-            SettingsCardDivider()
-
-            // Open Markdown in cmux Viewer
-            SettingsCardRow(
-                configurationReview: .json("app.openMarkdownInCmuxViewer"),
-                String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"),
-                subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "When supported file routing is on, Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview.")
-            ) {
-                Toggle("", isOn: Binding(get: { openMarkdown.current }, set: { openMarkdown.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
             }
             SettingsCardDivider()
 
@@ -696,21 +630,6 @@ public struct AppSection: View {
             return String(
                 localized: "workspace.placement.end.description",
                 defaultValue: "Append new workspaces to the bottom of the list."
-            )
-        }
-    }
-
-    private func fileDropSubtitle(_ behavior: FileDropDefaultBehavior) -> String {
-        switch behavior {
-        case .text:
-            return String(
-                localized: "settings.app.fileDrop.defaultBehavior.text.subtitle",
-                defaultValue: "Over terminals and editors, dragging files inserts shell-escaped paths. Hold Shift to open a file preview or split."
-            )
-        case .preview:
-            return String(
-                localized: "settings.app.fileDrop.defaultBehavior.preview.subtitle",
-                defaultValue: "Dragging files opens previews or split panes. Hold Shift over terminals and editors to insert path text."
             )
         }
     }

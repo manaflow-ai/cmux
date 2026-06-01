@@ -4775,21 +4775,19 @@ class GhosttyApp {
                     guard let resolvedPath = cmuxResolveTerminalOpenURLFilePath(trimmedUrlString, cwd: cwd) else {
                         return (false, nil)
                     }
-                    guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
+                    guard CommandClickFileOpenRouter.shouldHandleCommandClick(path: resolvedPath) else {
                         return (false, resolvedPath)
                     }
                     #if DEBUG
                     cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolvedPath)")
                     #endif
-                    let fileURL = URL(fileURLWithPath: resolvedPath)
-                    CommandClickFileOpenRouter.deferredOpenFileInCmux(
+                    CommandClickFileOpenRouter.deferredOpenCommandClickFile(
                         workspace: workspace,
                         preferredWorkspaceId: workspace.id,
                         surfaceId: termSurface.id,
-                        filePath: resolvedPath
-                    ) {
-                        NSWorkspace.shared.open(fileURL)
-                    }
+                        filePath: resolvedPath,
+                        fallback: .systemDefault
+                    )
                     return (true, resolvedPath)
                 }
                 if let fallbackPath = filePathResolution.fallbackPath {
@@ -4807,12 +4805,10 @@ class GhosttyApp {
                 return false
             }
             // Route local file URLs into cmux when the file-routing toggle is on.
-            // URL fragments/queries are stripped (the panel only needs the file
-            // path), so links emitted by tools like Claude Code (`foo.md#L42`)
-            // still route into the viewer. Anything else (toggle off, hosted
-            // file URL, remote workspace, unreadable file, split creation
-            // failure) falls through to the existing NSWorkspace path below so
-            // URL semantics are preserved.
+            // The file panel receives the path, while browser-routed extensions
+            // keep the original file URL so fragments and queries survive.
+            // Anything else falls through to the existing NSWorkspace path below
+            // so URL semantics are preserved.
             let fileURLHost = target.url.host
             if target.url.isFileURL,
                fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost" {
@@ -4821,17 +4817,17 @@ class GhosttyApp {
                     guard let termSurface = surfaceView.terminalSurface,
                           let workspace = termSurface.owningWorkspace(),
                           !workspace.isRemoteTerminalSurface(termSurface.id),
-                          CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
+                          CommandClickFileOpenRouter.shouldHandleCommandClick(path: fileURL.path) else {
                         return false
                     }
-                    CommandClickFileOpenRouter.deferredOpenFileInCmux(
+                    CommandClickFileOpenRouter.deferredOpenCommandClickFile(
                         workspace: workspace,
                         preferredWorkspaceId: workspace.id,
                         surfaceId: termSurface.id,
-                        filePath: fileURL.path
-                    ) {
-                        NSWorkspace.shared.open(fileURL)
-                    }
+                        filePath: fileURL.path,
+                        fileURL: fileURL,
+                        fallback: .systemDefault
+                    )
                     return true
                 }
                 if routed {
@@ -10237,10 +10233,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let termSurface = terminalSurface,
            let workspace = termSurface.owningWorkspace(),
            !workspace.isRemoteTerminalSurface(termSurface.id),
-           CommandClickFileOpenRouter.openInCmux(
+           CommandClickFileOpenRouter.openCommandClickFile(
                workspace: workspace,
                sourcePanelId: termSurface.id,
-               filePath: resolution.path
+               filePath: resolution.path,
+               fallback: .preferredEditor
            ) {
             return resolution
         }

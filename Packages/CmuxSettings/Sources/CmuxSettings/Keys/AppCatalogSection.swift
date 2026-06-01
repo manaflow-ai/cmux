@@ -79,6 +79,12 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "openMarkdownInCmuxViewer"
     )
 
+    public let fileExtensionOpeners = DefaultsKey<[String: FileExtensionOpenBehavior]>(
+        id: "app.fileExtensionOpeners",
+        defaultValue: FileExtensionOpenBehavior.defaultOpeners,
+        userDefaultsKey: "fileExtensionOpeners"
+    )
+
     public let iMessageMode = DefaultsKey<Bool>(
         id: "app.iMessageMode",
         defaultValue: false,

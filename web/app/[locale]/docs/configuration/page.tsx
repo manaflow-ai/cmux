@@ -61,6 +61,7 @@ const settingsFileExample = `{
   //   "newWorkspacePlacement": "afterCurrent",
   //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
+  //   "fileExtensionOpeners": { "html": "cmuxBrowser", "md": "markdownViewer", "tsx": "preferredEditor" },
   //   "workspaceInheritWorkingDirectory": true,
   //   "iMessageMode": true
   // },

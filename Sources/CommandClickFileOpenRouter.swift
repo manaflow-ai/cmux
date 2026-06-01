@@ -1,27 +1,126 @@
 import AppKit
+import CmuxSettings
 import Foundation
 
 enum CommandClickFileOpenRouter {
-    nonisolated static func shouldRouteInCmux(path: String) -> Bool {
-        CmdClickMarkdownRouteSettings.shouldRoute(path: path)
-            || CmdClickSupportedFileRouteSettings.shouldRoute(path: path)
+    enum Fallback {
+        case preferredEditor
+        case systemDefault
+
+        @MainActor
+        func open(_ url: URL) {
+            switch self {
+            case .preferredEditor:
+                PreferredEditorSettings.open(url)
+            case .systemDefault:
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
+    private enum Action {
+        case markdownViewer
+        case cmuxPreview
+        case cmuxBrowser
+        case preferredEditor
+        case systemDefault
+        case unhandled
+
+        var routesInCmux: Bool {
+            switch self {
+            case .markdownViewer, .cmuxPreview, .cmuxBrowser:
+                return true
+            case .preferredEditor, .systemDefault, .unhandled:
+                return false
+            }
+        }
+
+        var handlesCommandClick: Bool {
+            self != .unhandled
+        }
+    }
+
+    nonisolated static func shouldRouteInCmux(path: String, defaults: UserDefaults = .standard) -> Bool {
+        action(for: path, defaults: defaults).routesInCmux
+    }
+
+    nonisolated static func shouldHandleCommandClick(path: String, defaults: UserDefaults = .standard) -> Bool {
+        action(for: path, defaults: defaults).handlesCommandClick
+    }
+
+    private nonisolated static func action(for path: String, defaults: UserDefaults) -> Action {
+        let normalizedExtension = normalizedExtension(forPath: path)
+        if let behavior = FileExtensionOpenBehaviorSettings.behavior(forPath: path, defaults: defaults) {
+            switch behavior {
+            case .automatic:
+                if let normalizedExtension,
+                   FileExtensionOpenBehavior.defaultOpeners[normalizedExtension] != nil {
+                    return .unhandled
+                }
+                break
+            case .cmuxPreview:
+                return CmdClickSupportedFileRouteSettings.isReadableRegularFile(path: path) ? .cmuxPreview : .unhandled
+            case .markdownViewer:
+                return CmdClickSupportedFileRouteSettings.isReadableRegularFile(path: path) ? .markdownViewer : .unhandled
+            case .cmuxBrowser:
+                return CmdClickSupportedFileRouteSettings.isReadableRegularFile(path: path) ? .cmuxBrowser : .unhandled
+            case .preferredEditor:
+                return .preferredEditor
+            case .systemDefault:
+                return .systemDefault
+            }
+        }
+
+        if CmdClickMarkdownRouteSettings.shouldRoute(path: path, defaults: defaults) {
+            return .markdownViewer
+        }
+        if CmdClickSupportedFileRouteSettings.shouldRoute(path: path, defaults: defaults) {
+            return .cmuxPreview
+        }
+        return .unhandled
+    }
+
+    private nonisolated static func normalizedExtension(forPath path: String) -> String? {
+        FileExtensionOpenBehavior.normalizedExtension((path as NSString).pathExtension)
     }
 
     @MainActor
-    static func openInCmux(
+    static func openCommandClickFile(
         workspace: Workspace,
         sourcePanelId: UUID,
-        filePath: String
+        filePath: String,
+        fileURL: URL? = nil,
+        fallback: Fallback
     ) -> Bool {
-        if CmdClickMarkdownRouteSettings.shouldRoute(path: filePath),
-           workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
+        let routedURL = fileURL ?? URL(fileURLWithPath: filePath)
+        switch action(for: filePath, defaults: .standard) {
+        case .markdownViewer:
+            if workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
+                return true
+            }
+            fallback.open(routedURL)
             return true
-        }
-
-        guard CmdClickSupportedFileRouteSettings.shouldRoute(path: filePath) else {
+        case .cmuxPreview:
+            if workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil {
+                return true
+            }
+            fallback.open(routedURL)
+            return true
+        case .cmuxBrowser:
+            if workspace.openOrFocusBrowserSplit(from: sourcePanelId, url: routedURL) != nil {
+                return true
+            }
+            fallback.open(routedURL)
+            return true
+        case .preferredEditor:
+            PreferredEditorSettings.open(routedURL)
+            return true
+        case .systemDefault:
+            NSWorkspace.shared.open(routedURL)
+            return true
+        case .unhandled:
             return false
         }
-        return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil
     }
 
     /// Resolve the working directory for a terminal surface, preferring the
@@ -48,43 +147,41 @@ enum CommandClickFileOpenRouter {
         return dir.isEmpty ? nil : dir
     }
 
-    /// Schedule a file open in cmux, deferred to the next runloop tick.
+    /// Defers command-click routing until Ghostty's mouse callback has unwound.
     ///
-    /// Ghostty's `Surface.openUrl` holds an internal `os_unfair_lock` when it
-    /// dispatches into Swift; opening a new panel synchronously re-enters
-    /// Ghostty and deadlocks (#3370). This helper defers the split creation
-    /// via `DispatchQueue.main.async` and re-validates the workspace and path
-    /// at dispatch time (TOCTOU). When routing fails, `fallback` is called so
-    /// the caller can open the file externally.
+    /// Ghostty's `Surface.openUrl` holds an internal lock when it dispatches into
+    /// Swift; opening a new panel synchronously re-enters Ghostty and can
+    /// deadlock. The deferred task re-validates the workspace and falls back
+    /// externally when cmux does not handle the file.
     @MainActor
-    static func deferredOpenFileInCmux(
+    static func deferredOpenCommandClickFile(
         workspace: Workspace,
         preferredWorkspaceId: UUID,
         surfaceId: UUID,
         filePath: String,
-        fallback: (@MainActor @Sendable () -> Void)? = nil
+        fileURL: URL? = nil,
+        fallback: Fallback
     ) {
-        DispatchQueue.main.async {
+        Task { @MainActor in
+            let routedURL = fileURL ?? URL(fileURLWithPath: filePath)
             let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
                 panelId: surfaceId,
                 preferredWorkspaceId: preferredWorkspaceId
             )?.workspace ?? workspace
             guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
-                fallback?()
+                fallback.open(routedURL)
                 return
             }
-            guard shouldRouteInCmux(path: filePath) else {
-                fallback?()
-                return
-            }
-            if openInCmux(
+            guard openCommandClickFile(
                 workspace: resolvedWorkspace,
                 sourcePanelId: surfaceId,
-                filePath: filePath
-            ) {
+                filePath: filePath,
+                fileURL: routedURL,
+                fallback: fallback
+            ) else {
+                fallback.open(routedURL)
                 return
             }
-            fallback?()
         }
     }
 }

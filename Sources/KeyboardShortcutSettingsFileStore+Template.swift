@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 extension CmuxSettingsFileStore {
@@ -67,6 +68,7 @@ extension CmuxSettingsFileStore {
                     "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
                     "preferredEditor": "",
+                    "fileExtensionOpeners": FileExtensionOpenBehaviorSettings.defaultValue.mapValues(\.rawValue),
                     "openSupportedFilesInCmux": CmdClickSupportedFileRouteSettings.defaultValue,
                     "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,
                     "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,

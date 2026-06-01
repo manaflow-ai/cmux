@@ -1,4 +1,5 @@
 import Combine
+import CmuxSettings
 import Foundation
 import os
 
@@ -431,6 +432,24 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonString(section["preferredEditor"]) {
             snapshot.managedUserDefaults[PreferredEditorSettings.key] = .string(value)
+        }
+        if let values = section["fileExtensionOpeners"] as? [String: Any] {
+            var normalized: [String: String] = [:]
+            for (rawExtension, rawBehaviorValue) in values {
+                guard let rawBehavior = rawBehaviorValue as? String else {
+                    logInvalid("app.fileExtensionOpeners", sourcePath: sourcePath)
+                    continue
+                }
+                guard let normalizedExtension = FileExtensionOpenBehavior.normalizedExtension(rawExtension),
+                      let behavior = FileExtensionOpenBehavior(rawValue: rawBehavior) else {
+                    logInvalid("app.fileExtensionOpeners", sourcePath: sourcePath)
+                    continue
+                }
+                normalized[normalizedExtension] = behavior.rawValue
+            }
+            snapshot.managedUserDefaults[FileExtensionOpenBehaviorSettings.key] = .stringDictionary(normalized)
+        } else if section.keys.contains("fileExtensionOpeners") {
+            logInvalid("app.fileExtensionOpeners", sourcePath: sourcePath)
         }
         if let value = jsonBool(section["openSupportedFilesInCmux"]) {
             snapshot.managedUserDefaults[CmdClickSupportedFileRouteSettings.key] = .bool(value)

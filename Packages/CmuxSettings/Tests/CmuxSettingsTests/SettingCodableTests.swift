@@ -37,4 +37,46 @@ struct SettingCodableTests {
         let encoded = value.encodeForJSON()
         #expect([String: Int].decodeFromJSON(encoded) == value)
     }
+
+    @Test func fileExtensionOpenBehaviorDictionaryRoundTrips() {
+        let value: [String: FileExtensionOpenBehavior] = ["html": .cmuxBrowser, "md": .markdownViewer]
+        let encoded = value.encodeForUserDefaults()
+        #expect([String: FileExtensionOpenBehavior].decodeFromUserDefaults(encoded) == value)
+        #expect([String: FileExtensionOpenBehavior].decodeFromJSON(encoded) == value)
+    }
+
+    @Test func fileExtensionOpenersPreserveDefaultsWithOverrides() throws {
+        let suiteName = "cmux.fileExtensionOpeners.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(["md": "markdownViewer"], forKey: FileExtensionOpenBehaviorSettings.key)
+
+        let openers = FileExtensionOpenBehaviorSettings.openers(defaults: defaults)
+        #expect(openers["html"] == .cmuxBrowser)
+        #expect(openers["htm"] == .cmuxBrowser)
+        #expect(openers["md"] == .markdownViewer)
+    }
+
+    @Test func fileExtensionOpenersPruneDefaultsAndPreserveAutomaticOverrides() throws {
+        let suiteName = "cmux.fileExtensionOpeners.prune.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        FileExtensionOpenBehaviorSettings.setOpeners(
+            ["html": .automatic, "htm": .cmuxBrowser, "md": .markdownViewer],
+            defaults: defaults,
+            notificationCenter: .default
+        )
+
+        let stored = defaults.dictionary(forKey: FileExtensionOpenBehaviorSettings.key) as? [String: String]
+        #expect(stored?["html"] == "automatic")
+        #expect(stored?["htm"] == nil)
+        #expect(stored?["md"] == "markdownViewer")
+
+        let openers = FileExtensionOpenBehaviorSettings.openers(defaults: defaults)
+        #expect(openers["html"] == .automatic)
+        #expect(openers["htm"] == .cmuxBrowser)
+        #expect(openers["md"] == .markdownViewer)
+    }
 }

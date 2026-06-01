@@ -37,10 +37,6 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "minimal-mode", title: "Minimal Mode", synonyms: "app.minimalMode presentation compact chrome layout simple titlebar controls"),
             .init(section: .app, id: "keep-workspace-open", title: "Keep Workspace Open When Closing Last Surface", synonyms: "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"),
             .init(section: .app, id: "focus-pane-first-click", title: "Focus Pane on First Click", synonyms: "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"),
-            .init(section: .app, id: "file-drops", title: "File Drops", synonyms: "drag drop files finder path text terminal editor split preview shift"),
-            .init(section: .app, id: "preferred-editor", title: "Open Files With", synonyms: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
-            .init(section: .app, id: "supported-file-previews", title: "Open Supported Files in cmux", synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
-            .init(section: .app, id: "markdown-viewer", title: "Open Markdown in cmux Viewer", synonyms: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
             .init(section: .app, id: "terminal-config", title: "Terminal Config", synonyms: "ghostty config merged generated preview terminal configuration window open config"),
             .init(section: .app, id: "imessage-mode", title: "iMessage Mode", synonyms: "app.iMessageMode imessage message messages chat prompt prompts submitted texting reorder move workspace top agent send"),
             .init(section: .app, id: "reorder-notification", title: "Reorder on Notification", synonyms: "app.reorderOnNotification notification reorder move workspace top unread sort"),
@@ -59,6 +55,13 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "notification-sound", title: "Notification Sound", synonyms: "notifications.sound sound audio alert chime beep custom file wav mp3 caf aiff"),
             .init(section: .app, id: "notification-command", title: "Notification Command", synonyms: "notifications.command shell command hook script env environment variable done agent"),
             .init(section: .app, id: "desktop-notifications", title: "Desktop Notifications", synonyms: "desktop notifications permission authorize enable alerts banners send test notification center"),
+
+            // File Opening
+            .init(section: .fileOpening, id: "file-drops", title: String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"), synonyms: "drag drop files finder path text terminal editor split preview shift"),
+            .init(section: .fileOpening, id: "preferred-editor", title: String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), synonyms: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
+            .init(section: .fileOpening, id: "file-extension-openers", title: String(localized: "settings.app.fileExtensionOpeners", defaultValue: "File Extension Openers"), synonyms: "app.fileExtensionOpeners cmd click html htm browser preview markdown system default editor extension opener"),
+            .init(section: .fileOpening, id: "supported-file-previews", title: String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"), synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
+            .init(section: .fileOpening, id: "markdown-viewer", title: String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"), synonyms: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
 
             // Terminal
             .init(section: .terminal, id: "scrollbar", title: "Show Terminal Scroll Bar", synonyms: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),

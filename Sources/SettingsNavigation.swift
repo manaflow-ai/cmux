@@ -1,8 +1,12 @@
+import CmuxSettings
+import CmuxSettingsUI
+import Foundation
 import SwiftUI
 
 enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
     case app
+    case fileOpening
     case terminal
     case textBox
     case sidebarAppearance
@@ -24,6 +28,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.account", defaultValue: "Account")
         case .app:
             return String(localized: "settings.section.app", defaultValue: "App")
+        case .fileOpening:
+            return String(localized: "settings.section.fileOpening", defaultValue: "File Opening")
         case .terminal:
             return String(localized: "settings.section.terminal", defaultValue: "Terminal")
         case .textBox:
@@ -57,6 +63,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "person.crop.circle"
         case .app:
             return "gearshape"
+        case .fileOpening:
+            return "doc.badge.gearshape"
         case .terminal:
             return "terminal"
         case .textBox:
@@ -90,6 +98,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) sign in team sync"
         case .app:
             return "\(title) appearance language workspace notifications menu bar telemetry default terminal"
+        case .fileOpening:
+            return "\(title) files paths cmd click html markdown preview editor drag drop extensions"
         case .terminal:
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
         case .textBox:
@@ -114,6 +124,32 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) config file preferences editor documentation schema jsonc reload"
         case .reset:
             return "\(title) defaults"
+        }
+    }
+}
+
+struct FileExtensionOpenersSettingsCard: View {
+    @State private var openers = FileExtensionOpenBehaviorSettings.openers(defaults: .standard)
+
+    var body: some View {
+        FileExtensionOpenersEditor(
+            openers: Binding(
+                get: { openers },
+                set: { newValue in
+                    openers = newValue
+                    FileExtensionOpenBehaviorSettings.setOpeners(
+                        newValue,
+                        defaults: .standard,
+                        notificationCenter: .default
+                    )
+                }
+            )
+        )
+        .onReceive(NotificationCenter.default.publisher(for: FileExtensionOpenBehaviorSettings.didChangeNotification)) { _ in
+            openers = FileExtensionOpenBehaviorSettings.openers(defaults: .standard)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            openers = FileExtensionOpenBehaviorSettings.openers(defaults: .standard)
         }
     }
 }
@@ -306,11 +342,7 @@ enum SettingsSearchIndex {
         setting(.app, "minimal-mode", String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"), "presentation compact chrome"),
         setting(.app, "keep-workspace-open", String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"), "close last surface shortcut"),
         setting(.app, "focus-pane-first-click", String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click"), "mouse click focus"),
-        setting(.app, "file-drops", String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"), "drag drop files finder path text terminal editor split preview shift"),
-        setting(.app, "preferred-editor", String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), "editor code zed subl cmd click file"),
-        setting(.app, "supported-file-previews", String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"), "cmd click file preview pdf image audio video quick look editor"),
         setting(.app, "terminal-config", String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), "ghostty config merged preview"),
-        setting(.app, "markdown-viewer", String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"), "md markdown viewer"),
         setting(.app, "imessage-mode", String(localized: "settings.app.iMessageMode", defaultValue: "iMessage Mode"), "message messages imessage chat prompt prompts submitted message send agent workspace reorder move top"),
         setting(.app, "reorder-notification", String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"), "workspace notification order"),
         setting(.app, "dock-badge", String(localized: "settings.app.dockBadge", defaultValue: "Dock Badge"), "unread count app icon"),
@@ -323,6 +355,11 @@ enum SettingsSearchIndex {
         setting(.app, "notification-command", String(localized: "settings.notifications.command", defaultValue: "Notification Command"), "shell command environment variables"),
         setting(.app, "telemetry", String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), "analytics crash usage"),
         setting(.app, "default-terminal", String(localized: "settings.app.defaultTerminal", defaultValue: "Default Terminal"), "ssh links command tool unix executable launch services handler registration system default"),
+        setting(.fileOpening, "file-drops", String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"), "drag drop files finder path text terminal editor split preview shift"),
+        setting(.fileOpening, "preferred-editor", String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), "editor code zed subl cmd click file"),
+        setting(.fileOpening, "file-extension-openers", String(localized: "settings.app.fileExtensionOpeners", defaultValue: "File Extension Openers"), "cmd click html htm browser preview markdown system default editor extension opener"),
+        setting(.fileOpening, "supported-file-previews", String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"), "cmd click file preview pdf image audio video quick look editor"),
+        setting(.fileOpening, "markdown-viewer", String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"), "md markdown viewer"),
         setting(.app, "warn-before-quit", String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), "cmd q confirmation confirmQuit"),
         setting(.app, "warn-before-closing-tab", String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab"), "cmd w close tab confirmation"),
         setting(
@@ -424,11 +461,12 @@ enum SettingsSearchIndex {
         "app.minimalMode": settingID(for: .app, idSuffix: "minimal-mode"),
         "app.keepWorkspaceOpenWhenClosingLastSurface": settingID(for: .app, idSuffix: "keep-workspace-open"),
         "app.focusPaneOnFirstClick": settingID(for: .app, idSuffix: "focus-pane-first-click"),
-        "fileDrop.defaultBehavior": settingID(for: .app, idSuffix: "file-drops"),
-        "app.fileDropDefaultBehavior": settingID(for: .app, idSuffix: "file-drops"),
-        "app.preferredEditor": settingID(for: .app, idSuffix: "preferred-editor"),
-        "app.openSupportedFilesInCmux": settingID(for: .app, idSuffix: "supported-file-previews"),
-        "app.openMarkdownInCmuxViewer": settingID(for: .app, idSuffix: "markdown-viewer"),
+        "fileDrop.defaultBehavior": settingID(for: .fileOpening, idSuffix: "file-drops"),
+        "app.fileDropDefaultBehavior": settingID(for: .fileOpening, idSuffix: "file-drops"),
+        "app.preferredEditor": settingID(for: .fileOpening, idSuffix: "preferred-editor"),
+        "app.fileExtensionOpeners": settingID(for: .fileOpening, idSuffix: "file-extension-openers"),
+        "app.openSupportedFilesInCmux": settingID(for: .fileOpening, idSuffix: "supported-file-previews"),
+        "app.openMarkdownInCmuxViewer": settingID(for: .fileOpening, idSuffix: "markdown-viewer"),
         "app.iMessageMode": settingID(for: .app, idSuffix: "imessage-mode"),
         "app.reorderOnNotification": settingID(for: .app, idSuffix: "reorder-notification"),
         "notifications.dockBadge": settingID(for: .app, idSuffix: "dock-badge"),

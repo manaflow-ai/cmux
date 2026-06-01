@@ -75,6 +75,7 @@ extension CmuxSettingsFileStore {
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.focusPaneOnFirstClick",
         "app.preferredEditor",
+        "app.fileExtensionOpeners",
         "app.openSupportedFilesInCmux",
         "app.openMarkdownInCmuxViewer",
         "app.iMessageMode",
