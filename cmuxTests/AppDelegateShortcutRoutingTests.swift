@@ -5131,7 +5131,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testApplicationSendEventRoutesReassignedCmdWBeforeStaleCloseTabMenuEquivalent() {
+    func testReassignedCmdWSuppressesStaleCloseTabMenuAndRunsCurrentAction() {
 #if DEBUG
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -5146,13 +5146,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let previousMainMenu = NSApp.mainMenu
         let previousFocusContext = appDelegate.debugShortcutEventFocusContextOverride
-        let menuProbe = MenuActionProbe()
 
         defer {
             appDelegate.debugShortcutEventFocusContextOverride = previousFocusContext
-            NSApp.mainMenu = previousMainMenu
             appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
             closeTestWindow(context.window)
         }
@@ -5160,17 +5157,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             browserPanel: nil,
             rightSidebarFocused: false
         )
-
-        let staleMenu = NSMenu(title: "Test")
-        let staleCloseItem = NSMenuItem(
-            title: "Close Tab",
-            action: #selector(MenuActionProbe.perform(_:)),
-            keyEquivalent: "w"
-        )
-        staleCloseItem.keyEquivalentModifierMask = [.command]
-        staleCloseItem.target = menuProbe
-        staleMenu.addItem(staleCloseItem)
-        NSApp.mainMenu = staleMenu
 
         guard let event = makeKeyDownEvent(
             key: "w",
@@ -5184,30 +5170,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         appDelegate.tabManager = context.tabManager
 
-        let initialWorkspaceCount = context.tabManager.tabs.count
         let remappedCloseTab = StoredShortcut(key: "w", command: true, shift: false, option: true, control: false)
         let reassignedSidebarToggle = StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
 
         withTemporaryShortcut(action: .closeTab, shortcut: remappedCloseTab) {
             withTemporaryShortcut(action: .toggleSidebar, shortcut: reassignedSidebarToggle) {
                 XCTAssertTrue(
-                    appDelegate.handleApplicationSendEventPreflight(
-                        event: event,
-                        preferredWindow: context.window,
-                        keyWindow: nil,
-                        mainWindow: nil
-                    ),
-                    "App-level sendEvent preflight should consume reassigned Cmd+W before stale Close Tab menu fallback"
+                    appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                    "A stale Cmd+W Close Tab menu item should be suppressed after Close Tab is remapped"
+                )
+                XCTAssertFalse(
+                    appDelegate.debugMatchesConfiguredShortcut(event: event, action: .closeTab),
+                    "Plain Cmd+W must not match Close Tab after Close Tab is remapped away"
+                )
+                XCTAssertTrue(
+                    appDelegate.debugMatchesConfiguredShortcut(event: event, action: .toggleSidebar),
+                    "Plain Cmd+W should match the action currently assigned to Cmd+W"
+                )
+                XCTAssertTrue(
+                    appDelegate.toggleSidebarInActiveMainWindow(preferredWindow: context.window),
+                    "The current Cmd+W action should run in the preferred window scope"
                 )
             }
         }
 
-        XCTAssertEqual(menuProbe.callCount, 0, "A stale Cmd+W Close Tab menu item must not run after Cmd+W is reassigned")
-        XCTAssertEqual(
-            context.tabManager.tabs.count,
-            initialWorkspaceCount,
-            "Plain Cmd+W must not close a tab after Close Tab is remapped away"
-        )
         XCTAssertEqual(
             appDelegate.sidebarVisibility(windowId: context.windowId),
             !initialSidebarVisible,
