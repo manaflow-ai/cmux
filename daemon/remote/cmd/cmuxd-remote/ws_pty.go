@@ -737,6 +737,9 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 	cmd.Env = defaultWebSocketPTYEnv(shellPath)
 	ptyFile, ttyFile, err := startPTYCommand(cmd, cols, rows)
 	if err != nil {
+		if tmpScript != "" {
+			_ = os.Remove(tmpScript)
+		}
 		return nil, err
 	}
 	session := &wsPTYSession{
