@@ -269,7 +269,9 @@ struct RightSidebarToolPanelView: View {
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
                     .frame(width: 0, height: 0)
             )
-        case .feed, .dock:
+        case .feed:
+            FeedPanelView()
+        case .dock:
             EmptyView()
         }
     }
