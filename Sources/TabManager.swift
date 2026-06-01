@@ -44,6 +44,17 @@ private final class WorkspaceGitMetadataWatcherRefreshRecorder: @unchecked Senda
 }
 #endif
 
+private let workspaceGitMetadataWatcherContextRetain: CFAllocatorRetainCallBack = { info in
+    guard let info else { return nil }
+    _ = Unmanaged<WorkspaceGitMetadataWatcherCallbackBox>.fromOpaque(info).retain()
+    return info
+}
+
+private let workspaceGitMetadataWatcherContextRelease: CFAllocatorReleaseCallBack = { info in
+    guard let info else { return }
+    Unmanaged<WorkspaceGitMetadataWatcherCallbackBox>.fromOpaque(info).release()
+}
+
 private let workspaceGitMetadataWatcherCallback: FSEventStreamCallback = { _, info, _, _, _, _ in
     guard let info else { return }
     let box = Unmanaged<WorkspaceGitMetadataWatcherCallbackBox>.fromOpaque(info).takeUnretainedValue()
@@ -51,6 +62,13 @@ private let workspaceGitMetadataWatcherCallback: FSEventStreamCallback = { _, in
 }
 
 private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
+    private static let queueSpecificKey = DispatchSpecificKey<UInt8>()
+    private static let queue: DispatchQueue = {
+        let queue = DispatchQueue(label: "com.cmux.workspace-git-metadata-watcher", qos: .utility)
+        queue.setSpecific(key: queueSpecificKey, value: 1)
+        return queue
+    }()
+
     struct Descriptor: Equatable, Sendable {
         let directory: String
         let watchedPaths: [String]
@@ -58,8 +76,6 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
 
     let descriptor: Descriptor
 
-    private let queue = DispatchQueue(label: "com.cmux.workspace-git-metadata-watcher", qos: .utility)
-    private let queueSpecificKey = DispatchSpecificKey<UInt8>()
     private var callbackBox: WorkspaceGitMetadataWatcherCallbackBox?
     private let onChange: @Sendable () -> Void
     private var stream: FSEventStreamRef?
@@ -69,7 +85,6 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
         guard !descriptor.watchedPaths.isEmpty else { return nil }
         self.descriptor = descriptor
         self.onChange = onChange
-        queue.setSpecific(key: queueSpecificKey, value: 1)
         let callbackBox = WorkspaceGitMetadataWatcherCallbackBox { [weak self] in
             self?.scheduleChange()
         }
@@ -78,12 +93,12 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
         var context = FSEventStreamContext(
             version: 0,
             info: Unmanaged.passUnretained(callbackBox).toOpaque(),
-            retain: nil,
-            release: nil,
+            retain: workspaceGitMetadataWatcherContextRetain,
+            release: workspaceGitMetadataWatcherContextRelease,
             copyDescription: nil
         )
         let flags = FSEventStreamCreateFlags(
-            kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer
+            kFSEventStreamCreateFlagFileEvents
         )
         guard let stream = FSEventStreamCreate(
             nil,
@@ -97,7 +112,7 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
             return nil
         }
         self.stream = stream
-        FSEventStreamSetDispatchQueue(stream, queue)
+        FSEventStreamSetDispatchQueue(stream, Self.queue)
         guard FSEventStreamStart(stream) else {
             stop()
             return nil
@@ -105,10 +120,10 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
     }
 
     func stop() {
-        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
+        if DispatchQueue.getSpecific(key: Self.queueSpecificKey) != nil {
             stopOnQueue()
         } else {
-            queue.sync {
+            Self.queue.sync {
                 stopOnQueue()
             }
         }
@@ -125,22 +140,28 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
     }
 
     private func scheduleChange() {
-        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
+        if DispatchQueue.getSpecific(key: Self.queueSpecificKey) != nil {
             scheduleChangeOnQueue()
         } else {
-            queue.async { [weak self] in
+            Self.queue.async { [weak self] in
                 self?.scheduleChangeOnQueue()
             }
         }
     }
 
     private func scheduleChangeOnQueue() {
-        debounceWorkItem?.cancel()
+        guard stream != nil, debounceWorkItem == nil else { return }
         let workItem = DispatchWorkItem { [weak self] in
-            self?.onChange()
+            self?.flushScheduledChangeOnQueue()
         }
         debounceWorkItem = workItem
-        queue.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+        Self.queue.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+    }
+
+    private func flushScheduledChangeOnQueue() {
+        debounceWorkItem = nil
+        guard stream != nil else { return }
+        onChange()
     }
 
 #if DEBUG
