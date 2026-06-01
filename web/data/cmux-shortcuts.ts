@@ -136,6 +136,15 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "focusTextBoxInput", combos: [["⌘", "⇧", "A"]], description: { en: "Switch focus between terminal and TextBox input", ja: "ターミナルとTextBox入力のフォーカスを切り替え" } },
       { id: "attachTextBoxFile", combos: [["⌥", "⌘", "⇧", "A"]], description: { en: "Attach file to TextBox input", ja: "TextBox入力にファイルを添付" } },
       {
+        id: "sendCtrlFToTerminal",
+        combos: [],
+        description: { en: "Send Ctrl-F to terminal", ja: "ターミナルにCtrl-Fを送信" },
+        note: {
+          en: "unbound by default; forwards Ctrl-F to the focused terminal (Claude Code: invoke twice to force-stop hung background agents)",
+          ja: "デフォルトでは未割り当て。フォーカス中のターミナルにCtrl-Fを転送（Claude Code: 2回実行で停止しないバックグラウンドエージェントを強制停止）",
+        },
+      },
+      {
         id: "saveFilePreview",
         combos: [["⌘", "S"]],
         description: { en: "Save file preview", ja: "ファイルプレビューを保存" },

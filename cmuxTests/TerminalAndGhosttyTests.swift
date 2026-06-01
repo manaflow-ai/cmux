@@ -1145,6 +1145,44 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertEqual(pending.bytes, 0)
     }
 
+    func testSendNamedKeyRecognizesCtrlFForceStopChord() {
+        // Claude Code (and other raw-tty TUIs) only expose force-stop as a Ctrl-F
+        // keybinding. cmux must be able to deliver that chord to the focused terminal
+        // via a non-keyboard path, so the named-key layer has to recognize "ctrl-f".
+        // A recognized-but-undeliverable key returns `.surfaceUnavailable` on a closed
+        // surface, whereas an unrecognized key returns `.unknownKey`.
+        let panel = TerminalPanel(workspaceId: UUID())
+        panel.surface.releaseSurfaceForTesting()
+        panel.surface.beginPortalCloseLifecycle(reason: "test.closed")
+
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl-f"),
+            .surfaceUnavailable,
+            "ctrl-f must be a recognized control chord so it can be forwarded to the focused terminal."
+        )
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl+f"),
+            .surfaceUnavailable,
+            "The ctrl+f alias must resolve identically to ctrl-f."
+        )
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl-thisisnotakey"),
+            .unknownKey,
+            "An unrecognized chord must surface as .unknownKey, proving the ctrl-f result is meaningful."
+        )
+    }
+
+    func testNamedKeySendResultAcceptedReflectsDelivery() {
+        // `sendCtrlFToFocusedTerminal()` reports success from this flag, so delivery and
+        // failure cases must map correctly.
+        XCTAssertTrue(TerminalSurface.NamedKeySendResult.sent.accepted)
+        XCTAssertTrue(TerminalSurface.NamedKeySendResult.queued.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.unknownKey.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.inputQueueFull.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.surfaceUnavailable.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.processExited.accepted)
+    }
+
     func testDaemonSendWorkspaceQueuesColdControlInputInsteadOfReportingDroppedOK() throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()

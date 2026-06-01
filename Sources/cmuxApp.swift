@@ -695,6 +695,18 @@ struct cmuxApp: App {
                         activeTabManager.searchSelection()
                     }
                     .disabled(!(activeTabManager.canUseSelectionForFind))
+
+                    Divider()
+
+                    splitCommandButton(title: String(localized: "menu.find.sendCtrlFToTerminal", defaultValue: "Send Ctrl-F to Terminal"), shortcut: menuShortcut(for: .sendCtrlFToTerminal)) {
+                        // Restore focus to the terminal if the right sidebar grabbed it, then
+                        // forward a faithfully-encoded Ctrl-F (e.g. Claude Code force-stop).
+                        restoreFindTargetFocus()
+                        if !activeTabManager.sendCtrlFToFocusedTerminal() {
+                            NSSound.beep()
+                        }
+                    }
+                    .disabled(activeTabManager.selectedTerminalPanel == nil)
                 }
             }
 

@@ -11250,6 +11250,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Deterministic tab selection to apply after a tab closes.
     /// Keyed by the closing tab ID, value is the tab ID we want to select next.
     private var postCloseSelectTabId: [TabID: TabID] = [:]
+    private var postCloseClearSplitZoomTabIds: Set<TabID> = []
     /// Panel IDs that were in a pane when a pane-close operation was approved.
     /// Bonsplit pane-close does not emit per-tab didClose callbacks.
     private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
@@ -18257,7 +18258,14 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
-        func recordPostCloseSelection() {
+        func recordPostCloseState() {
+            if controller.zoomedPaneId == pane,
+               controller.selectedTab(inPane: pane)?.id == tab.id {
+                postCloseClearSplitZoomTabIds.insert(tab.id)
+            } else {
+                postCloseClearSplitZoomTabIds.remove(tab.id)
+            }
+
             let tabs = controller.tabs(inPane: pane)
             guard let idx = tabs.firstIndex(where: { $0.id == tab.id }) else {
                 postCloseSelectTabId.removeValue(forKey: tab.id)
@@ -18286,7 +18294,7 @@ extension Workspace: BonsplitDelegate {
             } else {
                 clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             }
-            recordPostCloseSelection()
+            recordPostCloseState()
             return true
         }
 
@@ -18324,7 +18332,7 @@ extension Workspace: BonsplitDelegate {
         // Check if the panel needs close confirmation
         guard let panelId = panelIdFromSurfaceId(tab.id) else {
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
-            recordPostCloseSelection()
+            recordPostCloseState()
             return true
         }
 
@@ -18381,7 +18389,7 @@ extension Workspace: BonsplitDelegate {
         } else {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
         }
-        recordPostCloseSelection()
+        recordPostCloseState()
         return true
     }
 
@@ -18389,8 +18397,12 @@ extension Workspace: BonsplitDelegate {
         forceCloseTabIds.remove(tabId)
         tabCloseButtonCloseTabIds.remove(tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
+        let shouldClearSplitZoom = postCloseClearSplitZoomTabIds.remove(tabId) != nil
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
         let isDetaching = detachingTabIds.remove(tabId) != nil || isDetachingCloseTransaction
+        if shouldClearSplitZoom {
+            clearSplitZoom()
+        }
 
         // Clean up our panel
         guard let panelId = panelIdFromSurfaceId(tabId) else {

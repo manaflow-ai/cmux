@@ -276,9 +276,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         isLoading = true
         errorText = nil
         do {
-            try await observeEnabledExtensionIdentities(
-                extensionPointIdentifier: CMUXSidebarExtensionPoint.identifier,
-                staticExtensionPointIdentifier: CMUXSidebarExtensionPoint.staticIdentifier
+            try await observeIdentitySequence(
+                extensionPointIdentifier: CMUXSidebarExtensionPoint.identifier()
             )
         } catch {
             identity = nil
@@ -907,22 +906,10 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
     }
 
-    private func observeEnabledExtensionIdentities(
-        extensionPointIdentifier: String,
-        staticExtensionPointIdentifier: StaticString
-    ) async throws {
-        #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
-            let extensionPoint = try AppExtensionPoint(identifier: staticExtensionPointIdentifier)
-            let monitor = try await AppExtensionPoint.Monitor(appExtensionPoint: extensionPoint)
-            await observeModernExtensionMonitor(monitor)
-            return
-        }
-        #endif
-
-        try await observeIdentitySequence(extensionPointIdentifier: extensionPointIdentifier)
-    }
-
+    // Uses the macOS 13+ `AppExtensionIdentity` identity/availability streams on every OS
+    // version. The macOS 26-only `AppExtensionPoint.Monitor` required a compile-time
+    // `StaticString` point id, which is incompatible with the build-time-injected per-tag
+    // extension point id (see `CMUXSidebarExtensionPoint.identifier(in:)`).
     private func observeIdentitySequence(extensionPointIdentifier: String) async throws {
         var identities = try AppExtensionIdentity.matching(appExtensionPointIDs: extensionPointIdentifier)
             .makeAsyncIterator()
@@ -995,67 +982,6 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
     }
 
-    #if compiler(>=6.2)
-    @available(macOS 26.0, *)
-    private func applyModernExtensionState(_ state: AppExtensionPoint.Monitor.State) {
-        disabledExtensionCount = state.disabledCount
-        unapprovedExtensionCount = state.unapprovedCount
-        applyEnabledExtensionIdentities(state.identities)
-    }
-
-    @available(macOS 26.0, *)
-    private func observeModernExtensionMonitor(_ monitor: AppExtensionPoint.Monitor) async {
-        while !Task.isCancelled {
-            let continuationBox = MonitorContinuationBox()
-            await withTaskCancellationHandler {
-                await withCheckedContinuation { continuation in
-                    Task {
-                        await continuationBox.set(continuation)
-                    }
-                    withObservationTracking {
-                        applyModernExtensionState(monitor.state)
-                    } onChange: {
-                        Task {
-                            await continuationBox.resume()
-                        }
-                    }
-                }
-            } onCancel: {
-                Task {
-                    await continuationBox.cancel()
-                }
-            }
-            if Task.isCancelled {
-                break
-            }
-        }
-    }
-    #endif
-}
-
-private actor MonitorContinuationBox {
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var isResolved = false
-
-    func set(_ continuation: CheckedContinuation<Void, Never>) {
-        if isResolved {
-            continuation.resume()
-            return
-        }
-        self.continuation = continuation
-    }
-
-    func resume() {
-        guard !isResolved else { return }
-        isResolved = true
-        let continuation = continuation
-        self.continuation = nil
-        continuation?.resume()
-    }
-
-    func cancel() {
-        resume()
-    }
 }
 
 private extension CMUXExtensionScope {
