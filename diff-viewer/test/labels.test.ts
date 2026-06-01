@@ -19,4 +19,17 @@ describe("createDiffViewerLabelResolver", () => {
 
     expect(() => label("hideFiles")).toThrow("Missing cmux diff viewer label: hideFiles");
   });
+
+  test("deduplicates missing payload label assertions", () => {
+    const label = createDiffViewerLabelResolver(undefined, { assertMissing: true });
+
+    expect(() => label("hideFiles")).toThrow("Missing cmux diff viewer label: hideFiles");
+    expect(label("hideFiles")).toBe("Hide files");
+  });
+
+  test("falls back to defaults for empty payload labels", () => {
+    const label = createDiffViewerLabelResolver({ hideFiles: "  " });
+
+    expect(label("hideFiles")).toBe("Hide files");
+  });
 });
