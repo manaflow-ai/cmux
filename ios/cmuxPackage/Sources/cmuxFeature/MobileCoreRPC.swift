@@ -241,7 +241,10 @@ final class MobileCoreRPCClient: Sendable {
 
     private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return method != "mobile.host.status" && method != "mobile.attach_ticket.create"
+        // Only the unauthenticated host probe is exempt. attach_ticket.create has no
+        // attach token yet (it mints the ticket), so requiring auth routes it through
+        // the Stack Auth account token: a ticket can only be created by a signed-in user.
+        return method != "mobile.host.status"
     }
 
     private static func ticketCoversTerminalRequest(
