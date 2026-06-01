@@ -78,90 +78,77 @@ public struct CommandRunner: CommandRunning, Sendable {
         let outFD = stdoutPipe.fileHandleForReading.fileDescriptor
         let errFD = stderrPipe.fileHandleForReading.fileDescriptor
 
-        // Drain both streams concurrently on detached tasks so a full pipe buffer
-        // cannot deadlock the child. Keyed by the raw fd so no non-Sendable
-        // `FileHandle` crosses the task boundary.
-        async let stdoutData: Data = Task.detached { Self.readToEnd(fileDescriptor: outFD) }.value
-        async let stderrData: Data = Task.detached { Self.readToEnd(fileDescriptor: errFD) }.value
+        return await withCheckedContinuation { (continuation: CheckedContinuation<CommandResult, Never>) in
+            // The two stdout/stderr readers, the termination handler, the deadline timer,
+            // and the spawn-failure path race to resume this continuation exactly once.
+            // They run on synchronous, non-async callbacks, so a lock guards the small
+            // shared state (the captured streams, the termination flag, the resumed latch)
+            // and each callback resumes inline. An `actor` here would only force every
+            // callback through `Task`/`await` to guard a few fields. (Per CLAUDE.md's lock
+            // carve-out for synchronous coordination from non-async callbacks.)
+            let state = OSAllocatedUnfairLock(initialState: RunState())
 
-        let outcome = await waitForExit(
-            process,
-            stdoutPipe: stdoutPipe,
-            stderrPipe: stderrPipe,
-            timeout: timeout
-        )
+            // A stream finished or the process exited: record it, and resume with the
+            // captured output only once stdout, stderr, AND termination have all arrived.
+            // The timeout path never goes through here, so a descendant that inherited a
+            // pipe and holds it open past the deadline can never delay the timeout result.
+            @Sendable func recordAndCompleteIfReady(_ mutate: @Sendable (inout RunState) -> Void) {
+                let completed: CommandResult? = state.withLock { s in
+                    mutate(&s)
+                    guard !s.resumed, let out = s.stdout, let err = s.stderr, s.didTerminate else {
+                        return nil
+                    }
+                    s.resumed = true
+                    return CommandResult(
+                        stdout: String(data: out, encoding: .utf8),
+                        stderr: String(data: err, encoding: .utf8),
+                        exitStatus: s.exitStatus,
+                        timedOut: false,
+                        executionError: nil
+                    )
+                }
+                if let completed { continuation.resume(returning: completed) }
+            }
 
-        switch outcome {
-        case .spawnFailed(let message):
-            _ = await stdoutData
-            _ = await stderrData
-            return CommandResult(
-                stdout: nil, stderr: nil, exitStatus: nil, timedOut: false, executionError: message
-            )
-        case .timedOut:
-            // Drain the reads so the detached tasks finish (the handles hit EOF once
-            // the terminated child's write ends close), but do not surface partial
-            // output on a timeout.
-            _ = await stdoutData
-            _ = await stderrData
-            return CommandResult(
-                stdout: nil, stderr: nil, exitStatus: nil, timedOut: true, executionError: nil
-            )
-        case .exited(let status):
-            let out = await stdoutData
-            let err = await stderrData
-            return CommandResult(
-                stdout: String(data: out, encoding: .utf8),
-                stderr: String(data: err, encoding: .utf8),
-                exitStatus: status,
-                timedOut: false,
-                executionError: nil
-            )
-        }
-    }
-
-    /// How a single `run` finished, bridged from `Process` callbacks into one value.
-    private enum RunOutcome: Sendable {
-        case exited(Int32)
-        case timedOut
-        case spawnFailed(String)
-    }
-
-    private func waitForExit(
-        _ process: Process,
-        stdoutPipe: Pipe,
-        stderrPipe: Pipe,
-        timeout: TimeInterval?
-    ) async -> RunOutcome {
-        await withCheckedContinuation { (continuation: CheckedContinuation<RunOutcome, Never>) in
-            // The termination handler, the deadline timer, and the spawn-failure path all
-            // race to resume this continuation exactly once. Each runs on a synchronous,
-            // non-async callback, so a lock-guarded compare-and-set resumes inline — far
-            // cleaner here than detouring every callback through an actor + `Task`/`await`.
-            // (Per CLAUDE.md's lock carve-out for a synchronous one-shot resume guard.)
-            let resumed = OSAllocatedUnfairLock(initialState: false)
-            let claim: @Sendable () -> Bool = {
-                resumed.withLock { alreadyResumed in
-                    if alreadyResumed { return false }
-                    alreadyResumed = true
+            // Resume immediately with a terminal result (timeout or spawn failure),
+            // independent of the pipe readers. Returns whether this call won the race.
+            @Sendable func claimImmediate(_ result: CommandResult) -> Bool {
+                let won = state.withLock { s -> Bool in
+                    if s.resumed { return false }
+                    s.resumed = true
                     return true
                 }
+                if won { continuation.resume(returning: result) }
+                return won
+            }
+
+            // Drain both streams on detached tasks so a full pipe buffer cannot deadlock
+            // the child. Fire-and-forget (never structurally awaited) so the timeout path
+            // does not block on them. Keyed by the raw fd so no non-Sendable `FileHandle`
+            // crosses the task boundary.
+            Task.detached {
+                let data = Self.readToEnd(fileDescriptor: outFD)
+                recordAndCompleteIfReady { $0.stdout = data }
+            }
+            Task.detached {
+                let data = Self.readToEnd(fileDescriptor: errFD)
+                recordAndCompleteIfReady { $0.stderr = data }
             }
 
             var deadlineTimer: (any DispatchSourceTimer)?
             if let timeout {
-                // A one-shot DispatchSource timer enforces the command deadline. Swift has
-                // no async-native timer permitted in runtime code here (Task.sleep and
-                // DispatchQueue.asyncAfter are disallowed), and a genuine subprocess deadline
-                // is not a sleep-for-synchronization hack; the timer is hidden behind this
-                // runner and never escapes.
+                // One-shot DispatchSource timer for the command deadline. A real deadline
+                // needs a timer and the async-native timers are disallowed here (Task.sleep
+                // / DispatchQueue.asyncAfter); it is hidden behind this runner.
                 let timer = DispatchSource.makeTimerSource(queue: Self.timerQueue)
                 timer.schedule(deadline: .now() + timeout)
                 timer.setEventHandler {
-                    if claim() {
+                    let timedOut = CommandResult(
+                        stdout: nil, stderr: nil, exitStatus: nil, timedOut: true, executionError: nil
+                    )
+                    if claimImmediate(timedOut) {
                         process.terminate()
                         Self.scheduleSigkill(pid: process.processIdentifier)
-                        continuation.resume(returning: .timedOut)
                     }
                     timer.cancel()
                 }
@@ -169,12 +156,14 @@ public struct CommandRunner: CommandRunning, Sendable {
                 timer.resume()
             }
 
-            // Capture the timer so it stays alive until the process exits, and cancel it
-            // then so it cannot fire after a normal exit.
+            // Capture the timer so it stays alive until the process exits, then cancel it
+            // so it cannot fire after a normal exit.
             process.terminationHandler = { [deadlineTimer] finished in
                 deadlineTimer?.cancel()
-                if claim() {
-                    continuation.resume(returning: .exited(finished.terminationStatus))
+                let status = finished.terminationStatus
+                recordAndCompleteIfReady {
+                    $0.didTerminate = true
+                    $0.exitStatus = status
                 }
             }
 
@@ -185,17 +174,27 @@ public struct CommandRunner: CommandRunning, Sendable {
                 let message = String(describing: error)
                 try? stdoutPipe.fileHandleForWriting.close()
                 try? stderrPipe.fileHandleForWriting.close()
-                if claim() {
-                    continuation.resume(returning: .spawnFailed(message))
-                }
+                _ = claimImmediate(CommandResult(
+                    stdout: nil, stderr: nil, exitStatus: nil, timedOut: false, executionError: message
+                ))
                 return
             }
 
-            // Close the parent's write ends so the reader handles see EOF once the
-            // child exits.
+            // Close the parent's write ends so the readers see EOF once the child (and any
+            // descendants that inherited them) close their copies.
             try? stdoutPipe.fileHandleForWriting.close()
             try? stderrPipe.fileHandleForWriting.close()
         }
+    }
+
+    /// Mutable state shared across the stdout/stderr readers, termination handler, deadline
+    /// timer, and spawn-failure path while one `run` resolves; guarded by a lock.
+    private struct RunState {
+        var stdout: Data?
+        var stderr: Data?
+        var didTerminate = false
+        var exitStatus: Int32?
+        var resumed = false
     }
 
     private static func scheduleSigkill(pid: pid_t) {

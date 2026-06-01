@@ -69,6 +69,24 @@ import Testing
         #expect(elapsed < 5)
     }
 
+    @Test func timesOutPromptlyWhenDescendantKeepsPipesOpen() async {
+        // A backgrounded grandchild inherits stdout/stderr and outlives the immediate
+        // child, so the pipes never reach EOF at the deadline. The timeout result must
+        // not wait on the pipe readers; otherwise `run` hangs until the grandchild exits.
+        let start = Date()
+        let result = await runner.run(
+            directory: tempDir,
+            executable: "sh",
+            arguments: ["-c", "sleep 5 & wait"],
+            timeout: 0.3
+        )
+        let elapsed = Date().timeIntervalSince(start)
+        #expect(result.timedOut == true)
+        #expect(result.exitStatus == nil)
+        // Returns at the ~0.3s deadline, not after the 5s grandchild finishes.
+        #expect(elapsed < 3)
+    }
+
     @Test func handlesLargeOutputWithoutDeadlock() async {
         // ~1 MiB of output exceeds the pipe buffer; concurrent draining must avoid deadlock.
         let result = await runner.run(
