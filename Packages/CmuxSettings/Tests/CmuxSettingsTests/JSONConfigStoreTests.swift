@@ -30,6 +30,29 @@ struct JSONConfigStoreTests {
         #expect(automation?["socketPassword"] as? String == "hunter2")
     }
 
+    @Test func paneDividerSettingsWriteNestedUIPath() async throws {
+        let (store, fileURL, catalog) = makeStore()
+        try await store.set("#3478f6", for: catalog.ui.paneDividerColor)
+        try await store.set(3, for: catalog.ui.paneDividerThickness)
+
+        #expect(await store.value(for: catalog.ui.paneDividerColor) == "#3478f6")
+        #expect(await store.value(for: catalog.ui.paneDividerThickness) == 3)
+
+        // The app parses `ui.paneDivider.{color,thickness}`; assert the Settings
+        // UI writes exactly that nested shape so the two layers agree.
+        let data = try Data(contentsOf: fileURL)
+        let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let paneDivider = (parsed?["ui"] as? [String: Any])?["paneDivider"] as? [String: Any]
+        #expect(paneDivider?["color"] as? String == "#3478f6")
+        #expect((paneDivider?["thickness"] as? NSNumber)?.doubleValue == 3)
+    }
+
+    @Test func paneDividerThicknessDefaultsToTwo() async {
+        let (store, _, catalog) = makeStore()
+        #expect(await store.value(for: catalog.ui.paneDividerThickness) == 2)
+        #expect(await store.value(for: catalog.ui.paneDividerColor) == "")
+    }
+
     @Test func resetRemovesEntryAndPrunesEmptyParents() async throws {
         let (store, fileURL, catalog) = makeStore()
         try await store.set("hunter2", for: catalog.automation.socketPassword)
