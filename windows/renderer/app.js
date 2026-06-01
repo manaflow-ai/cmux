@@ -3050,10 +3050,6 @@ function paneCreationOperationCount() {
   return count;
 }
 
-function paneCreationBusy() {
-  return paneCreationOperationCount() > 0;
-}
-
 function isUiOperationActive(key) {
   return state.uiOperations.has(key);
 }
@@ -4088,7 +4084,7 @@ function emptyWorkspaceLaunchers() {
 }
 
 async function runEmptyWorkspaceLauncher(launcher, workspace) {
-  if (!launcher || paneCreationBusy()) return;
+  if (!launcher || paneCreationButtonsDisabled()) return;
   if (launcher.kind === "reopen") {
     await reopenClosedPanel();
     return;
@@ -4106,7 +4102,7 @@ async function runEmptyWorkspaceLauncher(launcher, workspace) {
 function renderEmptyWorkspaceLaunchers(node, workspace) {
   const host = node.querySelector(".empty-workspace-launchers");
   if (!host) return;
-  const busy = paneCreationBusy();
+  const busy = paneCreationButtonsDisabled();
   const cards = emptyWorkspaceLaunchers().map((launcher) => {
     const button = document.createElement("button");
     button.className = `empty-workspace-launcher${launcher.primary ? " is-primary" : ""}`;
