@@ -116,6 +116,13 @@ build_install_example() {
   # distinct bundle ids every tag's install shares one appex id and pkd keeps the first
   # one it saw, so the tagged copy never registers.
   #
+  # Scope the visible name per tag via CMUX_DISPLAY_NAME_SUFFIX (default empty), appended
+  # to the appex CFBundleDisplayName. The OS groups extensions by display name for the
+  # enable/disable + availability counts the host reads, so two same-named appexes (a base
+  # and a tagged copy installed side by side) are treated as one logical extension and
+  # toggling one perturbs the other. A per-tag display name keeps them distinct. Leading
+  # space so it reads "CMUX ExtKit Sample Sidebar <tag>".
+  #
   # Ad-hoc sign (CODE_SIGN_IDENTITY="-") so resources and Info.plist are bound.
   # CODE_SIGNING_ALLOWED=NO produces a bundle whose Info.plist is "not bound", which
   # pkd refuses to ingest.
@@ -123,6 +130,7 @@ build_install_example() {
     -derivedDataPath "$derived" \
     CMUX_SIDEBAR_EXTENSION_POINT_ID="$TAGGED_POINT_ID" \
     CMUX_BUNDLE_ID_SUFFIX=".${TAG_ID}" \
+    CMUX_DISPLAY_NAME_SUFFIX=" ${TAG}" \
     CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES \
     CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="" PROVISIONING_PROFILE_SPECIFIER="" \
     build > "$derived.log" 2>&1 || { echo "error: build failed; see $derived.log" >&2; tail -20 "$derived.log" >&2; return 1; }
