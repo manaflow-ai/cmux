@@ -11,7 +11,7 @@ import SwiftUI
 public struct AutomationSection: View {
     private let catalog: SettingCatalog
 
-    @State private var socketPasswordModel: JSONValueModel<String>
+    @State private var socketPasswordModel: SecretValueModel
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
     @State private var claudePathModel: DefaultsValueModel<String>
@@ -37,12 +37,13 @@ public struct AutomationSection: View {
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
+        secretStore: SecretFileStore,
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog
     ) {
         self.catalog = catalog
-        _socketPasswordModel = State(initialValue: JSONValueModel(
-            store: jsonStore,
+        _socketPasswordModel = State(initialValue: SecretValueModel(
+            store: secretStore,
             key: catalog.automation.socketPassword,
             errorLog: errorLog
         ))

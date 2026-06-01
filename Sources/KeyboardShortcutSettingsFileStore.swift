@@ -1,4 +1,5 @@
 import Combine
+import CmuxSocketControl
 import Foundation
 import os
 
@@ -57,6 +58,7 @@ final class CmuxSettingsFileStore {
     private let fallbackPaths: [String]
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
+    private let passwordStore: SocketControlPasswordStore
     private let appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment
     private let stateLock = NSLock()
 
@@ -81,6 +83,7 @@ final class CmuxSettingsFileStore {
         fileManager: FileManager = .default,
         notificationCenter: NotificationCenter = .default,
         appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment = .live,
+        passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         startWatching: Bool = true
     ) {
         self.primaryPath = primaryPath
@@ -89,6 +92,7 @@ final class CmuxSettingsFileStore {
         self.fileManager = fileManager
         self.notificationCenter = notificationCenter
         self.appearanceEnvironment = appearanceEnvironment
+        self.passwordStore = passwordStore
         importedManagedDefaults = Self.loadImportedManagedDefaults()
 
         bootstrapPrimaryTemplateIfNeeded()
@@ -1138,14 +1142,14 @@ final class CmuxSettingsFileStore {
         if let socketPassword = settings.socketPassword {
             switch socketPassword {
             case .set(let value):
-                let current = (try? SocketControlPasswordStore.loadPassword()) ?? nil
+                let current = (try? passwordStore.loadPassword()) ?? nil
                 if current != value {
-                    try? SocketControlPasswordStore.savePassword(value)
+                    try? passwordStore.savePassword(value)
                 }
             case .clear:
-                let current = (try? SocketControlPasswordStore.loadPassword()) ?? nil
+                let current = (try? passwordStore.loadPassword()) ?? nil
                 if current != nil {
-                    try? SocketControlPasswordStore.clearPassword()
+                    try? passwordStore.clearPassword()
                 }
             }
         }
@@ -1160,9 +1164,9 @@ final class CmuxSettingsFileStore {
         case Self.socketPasswordBackupIdentifier:
             switch backup {
             case .string(let value):
-                try? SocketControlPasswordStore.savePassword(value)
+                try? passwordStore.savePassword(value)
             case .absent:
-                try? SocketControlPasswordStore.clearPassword()
+                try? passwordStore.clearPassword()
             default:
                 break
             }
@@ -1209,7 +1213,7 @@ final class CmuxSettingsFileStore {
     }
 
     private func currentSocketPasswordBackupValue() -> BackupValue {
-        guard let current = try? SocketControlPasswordStore.loadPassword() else {
+        guard let current = try? passwordStore.loadPassword() else {
             return .absent
         }
         return .string(current)
