@@ -7702,8 +7702,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // directly. The shared backdrop only paints the active surface, so routing
         // overrides through it drops the tint on every other pane (#3799). Panes
         // without an override stay on the shared backdrop, preserving #3179.
+        //
+        // Only opaque overrides take ownership: a translucent fill would composite
+        // over the shared backdrop on the active pane and read too dark, so those
+        // keep using the shared backdrop.
+        let opaqueOverride = backgroundColor != nil &&
+            GhosttyApp.shared.defaultBackgroundOpacity >= 1
         let usesHostLayerFill = renderingMode.usesWindowHostBackdrop &&
-            (backgroundColor != nil || (!sharesWindowBackdrop && !usesBonsplitPaneBackdrop))
+            (opaqueOverride || (!sharesWindowBackdrop && !usesBonsplitPaneBackdrop))
         let color = usesHostLayerFill
             ? effectiveBackgroundColor()
             : .clear
