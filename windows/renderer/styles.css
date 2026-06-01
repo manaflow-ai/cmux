@@ -487,6 +487,7 @@ body.reduce-motion *::after {
 .terminal-search-button,
 .browser-go,
 .browser-nav,
+.browser-tab-new,
 .settings-action,
 .settings-preset,
 .quick-settings-shortcut,
