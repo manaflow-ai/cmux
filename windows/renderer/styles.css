@@ -953,8 +953,20 @@ body.reduce-motion *::after {
 
 .command-strip.has-overflow {
   justify-content: flex-start;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
-  mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+}
+
+.command-strip.can-scroll-left {
+  box-shadow: inset 10px 0 10px -12px var(--color-canvas);
+}
+
+.command-strip.can-scroll-right {
+  box-shadow: inset -18px 0 14px -16px var(--color-canvas);
+}
+
+.command-strip.can-scroll-left.can-scroll-right {
+  box-shadow:
+    inset 10px 0 10px -12px var(--color-canvas),
+    inset -18px 0 14px -16px var(--color-canvas);
 }
 
 .command-strip::-webkit-scrollbar {

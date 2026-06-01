@@ -3463,11 +3463,16 @@ function scheduleCommandStripOverflowRefresh() {
 
 function updateCommandStripOverflow() {
   if (!elements.commandStrip) return;
+  const strip = elements.commandStrip;
   const overflowing = commandStripContentWidth() > elements.commandStrip.clientWidth + 1
     || elements.commandStrip.scrollWidth > elements.commandStrip.clientWidth + 1;
-  toggleClassIfChanged(elements.commandStrip, "has-overflow", overflowing);
-  if (!overflowing && elements.commandStrip.scrollLeft) {
-    elements.commandStrip.scrollLeft = 0;
+  const maxScrollLeft = Math.max(0, strip.scrollWidth - strip.clientWidth);
+  const scrollLeft = Math.max(0, strip.scrollLeft);
+  toggleClassIfChanged(strip, "has-overflow", overflowing);
+  toggleClassIfChanged(strip, "can-scroll-left", overflowing && scrollLeft > 1);
+  toggleClassIfChanged(strip, "can-scroll-right", overflowing && scrollLeft < maxScrollLeft - 1);
+  if (!overflowing && strip.scrollLeft) {
+    strip.scrollLeft = 0;
   }
 }
 
@@ -3478,6 +3483,7 @@ function observeCommandStripOverflow() {
     state.commandStripResizeObserver.observe(elements.commandStrip);
   }
   window.addEventListener("resize", scheduleCommandStripOverflowRefresh, { passive: true });
+  elements.commandStrip.addEventListener("scroll", () => updateCommandStripOverflow(), { passive: true });
   requestAnimationFrame(() => {
     updateCommandStripOverflow();
   });
