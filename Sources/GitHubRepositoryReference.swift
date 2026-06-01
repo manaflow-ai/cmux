@@ -38,29 +38,33 @@ struct GitHubRepositoryReference: Hashable, Sendable {
         let trimmed = remoteURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        // NOTE: current (pre-fix) behavior only recognizes github.com remotes;
-        // every other host is dropped. The host-agnostic implementation lands
-        // alongside the TabManager wiring.
-        let githubPrefixes = [
-            "git@github.com:",
-            "ssh://git@github.com/",
-            "https://github.com/",
-            "http://github.com/",
-            "git://github.com/",
-        ]
-        for prefix in githubPrefixes where trimmed.hasPrefix(prefix) {
-            let path = String(trimmed.dropFirst(prefix.count))
-            guard let (owner, repo) = Self.ownerRepo(fromPath: path) else { return nil }
-            return GitHubRepositoryReference(host: .dotCom, owner: owner, repo: repo)
+        // SCP-style SSH syntax: `[user@]host:owner/repo(.git)`. It has no scheme,
+        // so it cannot be parsed by `URL`; recognize it by the absence of `://`.
+        if !trimmed.contains("://"), let reference = Self.parseSCPLike(trimmed) {
+            return reference
         }
 
         guard let url = URL(string: trimmed),
-              let host = url.host?.lowercased(),
-              host == "github.com",
+              let host = url.host, !host.isEmpty,
               let (owner, repo) = Self.ownerRepo(fromPath: url.path) else {
             return nil
         }
-        return GitHubRepositoryReference(host: .dotCom, owner: owner, repo: repo)
+        return GitHubRepositoryReference(host: GitHubHost(hostname: host), owner: owner, repo: repo)
+    }
+
+    /// Parses SCP-style SSH remotes (`git@host:owner/repo.git`).
+    private static func parseSCPLike(_ remoteURL: String) -> GitHubRepositoryReference? {
+        guard let colonIndex = remoteURL.firstIndex(of: ":") else { return nil }
+        let authority = String(remoteURL[..<colonIndex])
+        let path = String(remoteURL[remoteURL.index(after: colonIndex)...])
+        let host: String
+        if let atIndex = authority.lastIndex(of: "@") {
+            host = String(authority[authority.index(after: atIndex)...])
+        } else {
+            host = authority
+        }
+        guard !host.isEmpty, let (owner, repo) = Self.ownerRepo(fromPath: path) else { return nil }
+        return GitHubRepositoryReference(host: GitHubHost(hostname: host), owner: owner, repo: repo)
     }
 
     /// Parses a repository web URL (e.g. a pull-request URL) into a reference.
@@ -69,13 +73,11 @@ struct GitHubRepositoryReference: Hashable, Sendable {
     /// - Returns: The parsed reference, or `nil` when the URL has no host or no
     ///   `owner/repo` path.
     static func parse(webURL: URL) -> GitHubRepositoryReference? {
-        // NOTE: current (pre-fix) behavior only recognizes github.com.
-        guard let host = webURL.host?.lowercased(),
-              host == "github.com",
+        guard let host = webURL.host, !host.isEmpty,
               let (owner, repo) = Self.ownerRepo(fromPath: webURL.path) else {
             return nil
         }
-        return GitHubRepositoryReference(host: .dotCom, owner: owner, repo: repo)
+        return GitHubRepositoryReference(host: GitHubHost(hostname: host), owner: owner, repo: repo)
     }
 
     /// Splits a URL path into `owner` and `repo`, stripping a trailing `.git`.

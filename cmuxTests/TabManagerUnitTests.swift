@@ -624,9 +624,12 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         mirror https://gitlab.com/manaflow-ai/cmux.git (fetch)
         """
 
+        // Parsing is host-agnostic now: the gitlab.com remote is preserved as a
+        // distinct (host-qualified) reference — it is only dropped later by token
+        // gating — while the duplicate github.com backup remote is deduplicated.
         XCTAssertEqual(
-            TabManager.githubRepositorySlugs(fromGitRemoteVOutput: output),
-            ["manaflow-ai/cmux", "austinwang/cmux"]
+            TabManager.repositoryReferences(fromGitRemoteVOutput: output).map(\.hostQualifiedSlug),
+            ["github.com/manaflow-ai/cmux", "github.com/austinwang/cmux", "gitlab.com/manaflow-ai/cmux"]
         )
     }
 
@@ -641,8 +644,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            TabManager.githubRepositorySlugs(fromGitConfigForTesting: config),
-            ["manaflow-ai/cmux", "austinwang/cmux"]
+            TabManager.repositoryReferences(fromGitConfigForTesting: config).map(\.hostQualifiedSlug),
+            ["github.com/manaflow-ai/cmux", "github.com/austinwang/cmux"]
         )
     }
 
@@ -657,8 +660,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            TabManager.githubRepositorySlugs(fromGitConfigForTesting: config),
-            ["manaflow-ai/cmux", "austinwang/cmux"]
+            TabManager.repositoryReferences(fromGitConfigForTesting: config).map(\.hostQualifiedSlug),
+            ["github.com/manaflow-ai/cmux", "github.com/austinwang/cmux"]
         )
     }
 
@@ -670,8 +673,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            TabManager.githubRepositorySlugs(fromGitConfigForTesting: config),
-            ["manaflow-ai/cmux"]
+            TabManager.repositoryReferences(fromGitConfigForTesting: config).map(\.hostQualifiedSlug),
+            ["github.com/manaflow-ai/cmux"]
         )
     }
 
@@ -719,8 +722,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            TabManager.githubRepositorySlugs(directoryForTesting: repoURL.path),
-            ["manaflow-ai/cmux", "austinwang/cmux"]
+            TabManager.repositoryReferences(directoryForTesting: repoURL.path).map(\.hostQualifiedSlug),
+            ["github.com/manaflow-ai/cmux", "github.com/austinwang/cmux"]
         )
     }
 
@@ -760,8 +763,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            TabManager.githubRepositorySlugs(directoryForTesting: repoURL.path),
-            ["manaflow-ai/cmux"]
+            TabManager.repositoryReferences(directoryForTesting: repoURL.path).map(\.hostQualifiedSlug),
+            ["github.com/manaflow-ai/cmux"]
         )
     }
 
@@ -802,8 +805,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            TabManager.githubRepositorySlugs(directoryForTesting: repoURL.path),
-            ["manaflow-ai/cmux"]
+            TabManager.repositoryReferences(directoryForTesting: repoURL.path).map(\.hostQualifiedSlug),
+            ["github.com/manaflow-ai/cmux"]
         )
     }
 

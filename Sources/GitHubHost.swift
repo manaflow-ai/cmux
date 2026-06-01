@@ -37,9 +37,16 @@ struct GitHubHost: Hashable, Sendable {
     /// ends in a trailing slash so endpoint paths can be appended relative to it
     /// (see ``apiURL(endpoint:)``).
     var apiBaseURL: URL {
-        // NOTE: current (pre-fix) behavior hardcodes github.com's API host.
-        // The GHES-aware implementation lands alongside the TabManager wiring.
-        URL(string: "https://api.github.com/")!
+        if isDotCom {
+            return URL(string: "https://api.github.com/")!
+        }
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = hostname
+        components.path = "/api/v3/"
+        // Falls back to the public API only if `hostname` is somehow not
+        // representable as a URL host (it always is for a real git remote).
+        return components.url ?? URL(string: "https://api.github.com/")!
     }
 
     /// Builds an absolute REST API URL for an endpoint path relative to ``apiBaseURL``.
@@ -68,9 +75,7 @@ struct GitHubHost: Hashable, Sendable {
     /// - Parameter runner: The shell-out closure used to invoke `gh`.
     /// - Returns: The trimmed token, or `nil` when `gh` reports no token.
     func authToken(using runner: TokenCommandRunner) async -> String? {
-        // NOTE: current (pre-fix) behavior omits the `--hostname` flag, so the
-        // token for github.com is always returned regardless of `hostname`.
-        let raw = await runner("gh", ["auth", "token"])
+        let raw = await runner("gh", ["auth", "token", "--hostname", hostname])
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }
