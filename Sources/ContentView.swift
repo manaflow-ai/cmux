@@ -634,6 +634,7 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     private var installConstraints: [NSLayoutConstraint] = []
     private weak var installedReferenceView: NSView?
     private var lastRenderState: TmuxWorkspacePaneOverlayRenderState?
+    private var lastWindowCornerRadius: CGFloat?
 
     init(window: NSWindow) {
         self.window = window
@@ -642,7 +643,8 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
                 unreadRects: [],
                 flashRect: nil,
                 flashStartedAt: nil,
-                flashReason: nil
+                flashReason: nil,
+                windowCornerRadius: WindowGlassEffect.windowCornerRadius(for: window)
             )
         )
         super.init()
@@ -691,12 +693,19 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     func update(state: TmuxWorkspacePaneOverlayRenderState?) {
         guard ensureInstalled() else { return }
 
-        if state == nil, lastRenderState == nil, containerView.isHidden {
+        let windowCornerRadius = currentWindowCornerRadius()
+        if state == nil,
+           lastRenderState == nil,
+           containerView.isHidden,
+           lastWindowCornerRadius == windowCornerRadius {
             return
         }
-        if let state, state == lastRenderState {
+        if let state,
+           state == lastRenderState,
+           lastWindowCornerRadius == windowCornerRadius {
             return
         }
+        lastWindowCornerRadius = windowCornerRadius
 
         if let state {
             lastRenderState = state
@@ -705,7 +714,8 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
                 unreadRects: model.unreadRects,
                 flashRect: model.flashRect,
                 flashStartedAt: model.flashStartedAt,
-                flashReason: model.flashReason
+                flashReason: model.flashReason,
+                windowCornerRadius: windowCornerRadius
             )
             containerView.alphaValue = 1
             containerView.isHidden = false
@@ -716,11 +726,17 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
                 unreadRects: [],
                 flashRect: nil,
                 flashStartedAt: nil,
-                flashReason: nil
+                flashReason: nil,
+                windowCornerRadius: windowCornerRadius
             )
             containerView.alphaValue = 0
             containerView.isHidden = true
         }
+    }
+
+    private func currentWindowCornerRadius() -> CGFloat? {
+        guard let window else { return nil }
+        return WindowGlassEffect.windowCornerRadius(for: window)
     }
 }
 
@@ -3253,6 +3269,11 @@ struct ContentView: View {
                 sidebarWidth = sanitized
             }
         })
+
+        view = AnyView(view.environment(
+            \.cmuxWindowCornerRadius,
+            observedWindow.flatMap { WindowGlassEffect.windowCornerRadius(for: $0) }
+        ))
 
         view = AnyView(view.ignoresSafeArea())
         view = AnyView(view.sheet(isPresented: $isFeedbackComposerPresented) {
