@@ -21,6 +21,7 @@ const defaultPipeName = process.platform === "win32"
   : path.join(os.tmpdir(), "cmux-windows.sock");
 const defaultBrowserHomeUrl = "https://www.google.com";
 const terminalMetadataBroadcastDelayMs = 160;
+const gitBranchCacheTtlMs = 5000;
 
 const workspaceColors = [
   "oklch(62% 0.22 255)",
@@ -107,6 +108,7 @@ function localImagePathFromUrl(value) {
 const shellProfileIds = new Set(["auto", "pwsh", "powershell", "cmd", "wsl", "git-bash", "custom"]);
 const executableExistsCache = new Map();
 const resolvedShellCache = new Map();
+const gitBranchCache = new Map();
 
 function sanitizeShellProfile(value) {
   const profile = String(value || "auto").trim();
@@ -224,6 +226,54 @@ function shortPath(rawPath) {
   const parts = rawPath.split(/[\\/]+/).filter(Boolean);
   if (parts.length <= 3) return rawPath;
   return `${parts[0]}\\...\\${parts.slice(-2).join("\\")}`;
+}
+
+function branchFromGitDir(gitDir) {
+  try {
+    const head = fs.readFileSync(path.join(gitDir, "HEAD"), "utf8").trim();
+    const prefix = "ref: refs/heads/";
+    return head.startsWith(prefix) ? head.slice(prefix.length).slice(0, 80) : "";
+  } catch {
+    return "";
+  }
+}
+
+function gitBranch(rawPath) {
+  const cwd = String(rawPath || "").trim();
+  if (!cwd) return "";
+  const resolved = path.resolve(cwd);
+  const now = Date.now();
+  const cached = gitBranchCache.get(resolved);
+  if (cached && now - cached.at < gitBranchCacheTtlMs) return cached.branch;
+  let branch = "";
+  try {
+    let current = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
+      ? resolved
+      : path.dirname(resolved);
+    while (current) {
+      const dotGit = path.join(current, ".git");
+      if (fs.existsSync(dotGit)) {
+        const stat = fs.statSync(dotGit);
+        if (stat.isDirectory()) {
+          branch = branchFromGitDir(dotGit);
+        } else if (stat.isFile()) {
+          const match = fs.readFileSync(dotGit, "utf8").match(/^gitdir:\s*(.+)\s*$/im);
+          if (match) {
+            const gitDir = path.isAbsolute(match[1]) ? match[1] : path.resolve(current, match[1]);
+            branch = branchFromGitDir(gitDir);
+          }
+        }
+        break;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+  } catch {
+    branch = "";
+  }
+  gitBranchCache.set(resolved, { at: now, branch });
+  return branch;
 }
 
 function normalizedTitleKey(value) {
@@ -623,6 +673,7 @@ class CmuxWindowsRuntime {
     const browserPanels = workspace.panels.filter((panel) => panel.type === "browser");
     const latestNotification = workspace.panels.find((panel) => panel.needsAttention)?.notificationText || "";
     const cwd = workspace.cwd || terminalPanels[0]?.cwd || process.cwd();
+    const branch = gitBranch(cwd);
     return {
       id: workspace.id,
       title: workspace.title,
@@ -633,13 +684,14 @@ class CmuxWindowsRuntime {
       browserCount: browserPanels.length,
       cwd,
       cwdShort: shortPath(cwd),
-      branch: "",
+      branch,
       latestNotification,
       panels: workspace.panels.map((panel) => this.serializePanel(panel))
     };
   }
 
   serializePanel(panel) {
+    const branch = panel.type === "terminal" ? gitBranch(panel.cwd) : "";
     return {
       id: panel.id,
       workspaceId: panel.workspaceId,
@@ -649,7 +701,7 @@ class CmuxWindowsRuntime {
       color: panel.color || "",
       cwd: panel.cwd,
       cwdShort: shortPath(panel.cwd),
-      branch: "",
+      branch,
       shellProfile: panel.shellProfile || "",
       shellPath: panel.shellPath || "",
       terminalFontSize: panel.type === "terminal" ? sanitizeTerminalFontSize(panel.terminalFontSize, 0) : 0,

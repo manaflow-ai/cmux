@@ -2995,6 +2995,7 @@ function workspaceListSignature() {
         workspace.id,
         workspace.title || `Workspace ${index + 1}`,
         workspace.cwdShort || "~",
+        workspace.branch || "",
         workspace.color || paletteColor,
         workspace.terminalCount || 0,
         workspace.browserCount || 0,
@@ -3084,16 +3085,18 @@ function updateWorkspaceRow(button, workspace, index, activeId) {
   const attentionTotal = workspace.panels.filter((panel) => panel.needsAttention).length;
   const title = workspace.title || `Workspace ${index + 1}`;
   const cwd = workspace.cwdShort || "~";
+  const branch = String(workspace.branch || "").trim();
   const paneSummary = `${workspace.terminalCount || 0} terminal${workspace.terminalCount === 1 ? "" : "s"} / ${workspace.browserCount || 0} browser${workspace.browserCount === 1 ? "" : "s"}`;
   setDatasetIfChanged(button, "workspaceId", workspace.id);
   setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}`);
   setStylePropertyIfChanged(button, "--workspace-color", workspace.color || state.data.palette?.[0] || "");
-  setTitleIfChanged(button, `${title} - ${cwd} - ${paneSummary} - double-click to rename`);
+  setTitleIfChanged(button, `${title} - ${cwd}${branch ? ` - ${branch}` : ""} - ${paneSummary} - double-click to rename`);
   setTextIfChanged(button.querySelector(".workspace-name"), title);
   setTextIfChanged(button.querySelector(".workspace-badge"), hasAttention ? String(attentionTotal) : "");
   setTextIfChanged(button.querySelector(".workspace-meta"), workspace.latestNotification || "");
   setTextIfChanged(button.querySelector(".workspace-path"), cwd);
-  button.querySelector(".workspace-branch").hidden = true;
+  setTextIfChanged(button.querySelector(".workspace-branch"), branch ? `git ${branch}` : "");
+  button.querySelector(".workspace-branch").hidden = !branch;
 }
 
 function renderSurfaceTabs(workspace) {
