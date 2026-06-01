@@ -6408,7 +6408,10 @@ function ensureBrowser(panel, body) {
   session.detachTabWheelScroll = attachHorizontalWheelScroll(tabList);
   tabList.addEventListener("scroll", () => updateBrowserTabOverflow(session), { passive: true });
   if (typeof ResizeObserver === "function") {
-    session.tabResizeObserver = new ResizeObserver(() => scheduleBrowserTabOverflowRefresh(session));
+    session.tabResizeObserver = new ResizeObserver(() => {
+      scheduleActiveBrowserTabIntoView(session);
+      scheduleBrowserTabOverflowRefresh(session);
+    });
     session.tabResizeObserver.observe(tabList);
     session.tabResizeObserver.observe(tabStrip);
     session.tabResizeObserver.observe(shell);
