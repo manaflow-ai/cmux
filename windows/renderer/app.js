@@ -4254,6 +4254,7 @@ function createPane(panel) {
   pane.addEventListener("pointerleave", () => {
     if (state.hoveredPanelId === pane.dataset.panelId) state.hoveredPanelId = null;
   });
+  pane.addEventListener("wheel", handlePaneWheelZoom, { passive: false, capture: true });
   pane.addEventListener("focusin", () => markInteractedPanel(pane.dataset.panelId));
   pane.addEventListener("pointerdown", () => markInteractedPanel(pane.dataset.panelId), { capture: true });
   const header = pane.querySelector(".pane-header");
@@ -12054,6 +12055,14 @@ function applyTerminalWheelZoom(event, panel) {
 function handleTerminalWheelZoom(event) {
   if (!event.ctrlKey) return;
   const panel = panelFromEvent(event);
+  if (panel?.type !== "terminal") return;
+  applyTerminalWheelZoom(event, panel);
+}
+
+function handlePaneWheelZoom(event) {
+  if (!event.ctrlKey) return;
+  const panelId = event.currentTarget?.dataset?.panelId || "";
+  const panel = panelId ? findPanelState(panelId)?.panel : null;
   if (panel?.type !== "terminal") return;
   applyTerminalWheelZoom(event, panel);
 }
