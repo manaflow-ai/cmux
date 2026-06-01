@@ -591,6 +591,18 @@ private extension FeedCoordinator {
                         effects: effects
                     )
                 case .notDetermined:
+#if DEBUG
+                    if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SUPPRESS_NOTIFICATION_AUTH"] == "1" {
+                        self.runFallbackEffectsIfStillAwaiting(
+                            requestId: requestId,
+                            title: title,
+                            subtitle: subtitle,
+                            body: body,
+                            effects: effects
+                        )
+                        return
+                    }
+#endif
                     let granted = (
                         try? await center.requestAuthorization(options: [.alert, .sound])
                     ) ?? false

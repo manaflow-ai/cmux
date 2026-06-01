@@ -2081,6 +2081,13 @@ final class TerminalNotificationStore: ObservableObject {
         logAuthorization(
             "request starting origin=\(origin.rawValue) automatic=\(isAutomaticRequest) hasRequestedAutomatic=\(hasRequestedAutomaticAuthorization)"
         )
+#if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SUPPRESS_NOTIFICATION_AUTH"] == "1" {
+            logAuthorization("request suppressed origin=\(origin.rawValue) uiTest=1")
+            completion(false)
+            return
+        }
+#endif
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             DispatchQueue.main.async {
                 if granted {
