@@ -5483,11 +5483,22 @@ function createBrowserTabButton(session) {
 }
 
 function updateBrowserTabButton(session, button, tab) {
+  const label = browserTabLabel(session, tab);
+  const fullTitle = tab.title || browserTabTitle(tab.url);
   setClassNameIfChanged(button, `browser-tab${tab.id === session.activeTabId ? " is-active" : ""}`);
   setDatasetIfChanged(button, "browserTabId", tab.id);
-  setTitleIfChanged(button, tab.url);
-  setTextIfChanged(button.querySelector(".browser-tab-label"), tab.title || browserTabTitle(tab.url));
+  setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""} - ${tab.url}`);
+  setTextIfChanged(button.querySelector(".browser-tab-label"), label);
   setTitleIfChanged(button.querySelector(".browser-tab-close"), session.tabs.length <= 1 ? "Reset tab" : "Close tab");
+}
+
+function browserTabLabel(session, tab) {
+  const label = tab.title || browserTabTitle(tab.url);
+  const duplicates = (session?.tabs || [])
+    .filter((candidate) => (candidate.title || browserTabTitle(candidate.url)) === label);
+  if (duplicates.length <= 1) return label;
+  const duplicateIndex = duplicates.findIndex((candidate) => candidate.id === tab.id);
+  return duplicateIndex >= 0 ? `${label} ${duplicateIndex + 1}` : label;
 }
 
 function browserTabDropPlacement(event, button) {
