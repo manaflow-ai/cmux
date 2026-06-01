@@ -10064,6 +10064,12 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
 /// That invariant is what prevents the layout-invalidation loop that caused
 /// https://github.com/manaflow-ai/cmux/issues/2586.
 @MainActor
+struct SidebarDragFollowerSnapshot: Equatable {
+    let workspaceId: UUID
+    let frame: CGRect
+}
+
+@MainActor
 @Observable
 final class SidebarDragState {
     var draggedTabId: UUID?
@@ -10071,6 +10077,7 @@ final class SidebarDragState {
     var dropIndicatorUsesTopLevelRows = false
     var groupDropPreview: SidebarWorkspaceGroupDropPreview?
     var dragLocationInDocument: CGPoint?
+    var dragFollowerSnapshot: SidebarDragFollowerSnapshot?
     /// True while the `debug.sidebar.simulate_drag` debug-only V2 method is
     /// driving the drag state. The lifecycle observers honor this by not
     /// starting `SidebarDragFailsafeMonitor` (which would otherwise post a
@@ -10084,12 +10091,30 @@ final class SidebarDragState {
     func beginDragging(tabId: UUID) {
         draggedTabId = tabId
         dragLocationInDocument = nil
+        dragFollowerSnapshot = nil
         clearDropIndicator()
     }
 
     func setDragLocationInDocument(_ location: CGPoint?) {
         guard dragLocationInDocument != location else { return }
         dragLocationInDocument = location
+    }
+
+    func captureDragFollowerSnapshot(workspaceId: UUID, frame: CGRect?) {
+        guard dragFollowerSnapshot?.workspaceId != workspaceId,
+              let frame,
+              frame.width.isFinite,
+              frame.height.isFinite,
+              frame.minX.isFinite,
+              frame.minY.isFinite,
+              frame.width > 0,
+              frame.height > 0 else {
+            return
+        }
+        dragFollowerSnapshot = SidebarDragFollowerSnapshot(
+            workspaceId: workspaceId,
+            frame: frame
+        )
     }
 
     func setDropIndicator(_ indicator: SidebarDropIndicator?, usesTopLevelRows: Bool = false) {
@@ -10114,6 +10139,7 @@ final class SidebarDragState {
     func clearDrag() {
         draggedTabId = nil
         dragLocationInDocument = nil
+        dragFollowerSnapshot = nil
         clearDropIndicator()
     }
 }
@@ -11961,6 +11987,7 @@ struct VerticalTabsSidebar: View {
                     .allowsHitTesting(false)
                     SidebarWorkspaceDragFollowerOverlay(
                         dragState: dragState,
+                        sourceItems: baseRenderItems,
                         renderItems: renderItems,
                         anchors: anchors,
                         proxy: proxy,
@@ -12168,6 +12195,7 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
 @MainActor
 private struct SidebarWorkspaceDragFollowerOverlay: View {
     let dragState: SidebarDragState
+    let sourceItems: [SidebarWorkspaceRenderItem]
     let renderItems: [SidebarWorkspaceRenderItem]
     let anchors: [UUID: Anchor<CGRect>]
     let proxy: GeometryProxy
@@ -12175,22 +12203,40 @@ private struct SidebarWorkspaceDragFollowerOverlay: View {
 
     var body: some View {
         if let draggedWorkspaceId = dragState.draggedTabId,
-           let item = renderItems.first(where: { $0.representedWorkspaceId == draggedWorkspaceId }),
-           let anchor = anchors[draggedWorkspaceId] {
-            let frame = proxy[anchor]
-            let y = dragState.dragLocationInDocument?.y ?? frame.midY
-            rowContent(item)
-                .frame(width: max(frame.width, 1), alignment: .topLeading)
-                .position(x: frame.midX, y: y)
-                .shadow(color: Color.black.opacity(0.14), radius: 10, x: 0, y: 4)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-                .zIndex(1000)
-                .animation(nil, value: y)
-                .transaction { transaction in
-                    transaction.disablesAnimations = true
-                    transaction.animation = nil
-                }
+           let item = sourceItems.first(where: { $0.representedWorkspaceId == draggedWorkspaceId })
+                ?? renderItems.first(where: { $0.representedWorkspaceId == draggedWorkspaceId }) {
+            let currentFrame = anchors[draggedWorkspaceId].map { proxy[$0] }
+            let snapshotFrame = dragState.dragFollowerSnapshot?.workspaceId == draggedWorkspaceId
+                ? dragState.dragFollowerSnapshot?.frame
+                : nil
+            if let frame = snapshotFrame ?? currentFrame {
+                let y = dragState.dragLocationInDocument?.y ?? frame.midY
+                rowContent(item)
+                    .frame(width: max(frame.width, 1), alignment: .topLeading)
+                    .position(x: frame.midX, y: y)
+                    .shadow(color: Color.black.opacity(0.14), radius: 10, x: 0, y: 4)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .zIndex(1000)
+                    .id(draggedWorkspaceId)
+                    .animation(nil, value: y)
+                    .onAppear {
+                        dragState.captureDragFollowerSnapshot(
+                            workspaceId: draggedWorkspaceId,
+                            frame: currentFrame
+                        )
+                    }
+                    .onChange(of: currentFrame) { _, nextFrame in
+                        dragState.captureDragFollowerSnapshot(
+                            workspaceId: draggedWorkspaceId,
+                            frame: nextFrame
+                        )
+                    }
+                    .transaction { transaction in
+                        transaction.disablesAnimations = true
+                        transaction.animation = nil
+                    }
+            }
         }
     }
 }
@@ -16881,6 +16927,7 @@ final class SidebarDragAutoScrollController: ObservableObject {
 
     func startCursorTracking() {
         recordDragLocation()
+        startTimerIfNeeded()
         guard localDragMonitor == nil else { return }
         localDragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
             Task { @MainActor [weak self] in
@@ -16921,11 +16968,7 @@ final class SidebarDragAutoScrollController: ObservableObject {
             return
         }
         recordDragLocation(in: scrollView)
-        guard let plan = plan(for: scrollView) else {
-            stop()
-            return
-        }
-        activePlan = plan
+        activePlan = plan(for: scrollView)
         startTimerIfNeeded()
     }
 
@@ -16947,7 +16990,7 @@ final class SidebarDragAutoScrollController: ObservableObject {
     }
 
     private func tick() {
-        guard NSEvent.pressedMouseButtons != 0 else {
+        guard dragState?.draggedTabId != nil else {
             stop()
             return
         }
@@ -16962,17 +17005,11 @@ final class SidebarDragAutoScrollController: ObservableObject {
         if applyNativeAutoscroll(to: scrollView) {
             recordDragLocation(in: scrollView)
             activePlan = plan(for: scrollView)
-            if activePlan == nil {
-                stop()
-            }
             return
         }
 
         activePlan = self.plan(for: scrollView)
-        guard let plan = activePlan else {
-            stop()
-            return
-        }
+        guard let plan = activePlan else { return }
         _ = apply(plan: plan, to: scrollView)
     }
 
