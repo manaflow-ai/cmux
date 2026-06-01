@@ -8558,19 +8558,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         forSendType sendType: NSPasteboard.PasteboardType?,
         returnType: NSPasteboard.PasteboardType?
     ) -> Any? {
-        guard returnType == nil,
-              let snapshot = readSelectionSnapshot(),
-              !snapshot.string.isEmpty else {
+        let textTypes: Set<NSPasteboard.PasteboardType> = [
+            .string,
+            NSPasteboard.PasteboardType("public.utf8-plain-text")
+        ]
+        let supportsReturnType = returnType.map { textTypes.contains($0) } ?? true
+        let supportsSendType = sendType.map { textTypes.contains($0) } ?? true
+        guard supportsReturnType, supportsSendType else {
             return super.validRequestor(forSendType: sendType, returnType: returnType)
         }
-        if sendType == nil || sendType == .string {
-            return self
+
+        if let sendType, textTypes.contains(sendType) {
+            guard let surface, ghostty_surface_has_selection(surface) else {
+                return super.validRequestor(forSendType: sendType, returnType: returnType)
+            }
         }
-        return super.validRequestor(forSendType: sendType, returnType: returnType)
+
+        return self
     }
 
     @objc func writeSelection(to pasteboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
-        guard types.contains(.string),
+        guard (types.contains(.string) || types.contains(NSPasteboard.PasteboardType("public.utf8-plain-text"))),
               let snapshot = readSelectionSnapshot(),
               !snapshot.string.isEmpty else {
             return false
