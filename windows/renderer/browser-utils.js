@@ -1,5 +1,7 @@
 import { defaultSettings } from "./config.js";
 
+const maxBrowserPageUrlLength = 2048;
+
 export function normalizeUrl(value, fallback = "https://www.google.com") {
   let next = String(value || "").trim();
   if (!next) next = fallback;
@@ -25,7 +27,8 @@ export function normalizeBrowserPageUrl(value) {
   try {
     const parsed = new URL(url);
     if (!["http:", "https:"].includes(parsed.protocol)) return "";
-    return parsed.href.slice(0, 2048);
+    if (parsed.href.length > maxBrowserPageUrlLength) return "";
+    return parsed.href;
   } catch {
     return "";
   }

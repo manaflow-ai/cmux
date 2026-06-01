@@ -187,6 +187,9 @@ export function replacePaneTreePanelId(node, previousPanelId, nextPanelId) {
   const previousId = String(previousPanelId || "");
   const nextId = String(nextPanelId || "");
   if (!node || !previousId || !nextId || previousId === nextId) return clonePaneTree(node);
+  if (!paneTreeContainsPanel(node, previousId) || paneTreeContainsPanel(node, nextId)) {
+    return clonePaneTree(node);
+  }
   return replacePaneTreePanelIdUnchecked(node, previousId, nextId);
 }
 

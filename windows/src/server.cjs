@@ -22,6 +22,7 @@ const defaultPipeName = process.platform === "win32"
 const defaultBrowserHomeUrl = "https://www.google.com";
 const terminalMetadataBroadcastDelayMs = 160;
 const gitBranchCacheTtlMs = 5000;
+const apiRequestBodyLimitBytes = 1024 * 1024;
 
 const workspaceColors = [
   "oklch(62% 0.22 255)",
@@ -71,11 +72,42 @@ function writeJSON(response, status, payload) {
   response.end(body);
 }
 
-function readBody(request) {
+class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super("request_body_too_large");
+    this.name = "RequestBodyTooLargeError";
+  }
+}
+
+function readBody(request, limitBytes = apiRequestBodyLimitBytes) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    request.on("data", (chunk) => chunks.push(chunk));
-    request.on("end", () => {
+    let totalBytes = 0;
+    let settled = false;
+    const cleanup = () => {
+      request.removeListener("data", onData);
+      request.removeListener("end", onEnd);
+      request.removeListener("error", onError);
+    };
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      request.resume();
+      reject(error);
+    };
+    const onData = (chunk) => {
+      totalBytes += chunk.length;
+      if (totalBytes > limitBytes) {
+        fail(new RequestBodyTooLargeError());
+        return;
+      }
+      chunks.push(chunk);
+    };
+    const onEnd = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       const raw = Buffer.concat(chunks).toString("utf8");
       if (!raw) {
         resolve({});
@@ -86,8 +118,11 @@ function readBody(request) {
       } catch (error) {
         reject(error);
       }
-    });
-    request.on("error", reject);
+    };
+    const onError = (error) => fail(error);
+    request.on("data", onData);
+    request.on("end", onEnd);
+    request.on("error", onError);
   });
 }
 
@@ -102,6 +137,16 @@ function localImagePathFromUrl(value) {
     return stat.isFile() ? filePath : "";
   } catch {
     return "";
+  }
+}
+
+function sanitizeBrowserUrl(value, fallback = defaultBrowserHomeUrl) {
+  try {
+    const parsed = new URL(String(value || fallback).trim());
+    if (!["http:", "https:"].includes(parsed.protocol)) return fallback;
+    return parsed.href.length <= 2048 ? parsed.href : fallback;
+  } catch {
+    return fallback;
   }
 }
 
@@ -650,7 +695,7 @@ class CmuxWindowsRuntime {
       shellProfile: type === "terminal" ? sanitizeShellProfile(options.shellProfile) : "",
       shellPath: type === "terminal" ? sanitizeShellPath(options.shellPath) : "",
       terminalFontSize: type === "terminal" ? sanitizeTerminalFontSize(options.terminalFontSize, 0) : 0,
-      url: options.url || defaultBrowserHomeUrl,
+      url: type === "browser" ? sanitizeBrowserUrl(options.url) : defaultBrowserHomeUrl,
       needsAttention: false,
       notificationText: "",
       runtime: this
@@ -871,8 +916,7 @@ class CmuxWindowsRuntime {
       found.workspace.splitDirection = updates.direction;
     }
     if (Object.hasOwn(updates, "url") && found.panel.type === "browser") {
-      const url = String(updates.url || "").trim();
-      if (/^https?:\/\//i.test(url)) found.panel.url = url.slice(0, 2048);
+      found.panel.url = sanitizeBrowserUrl(updates.url, found.panel.url || defaultBrowserHomeUrl);
     }
     if (Object.hasOwn(updates, "terminalFontSize") && found.panel.type === "terminal") {
       found.panel.terminalFontSize = sanitizeTerminalFontSize(updates.terminalFontSize, 0);
@@ -1109,10 +1153,11 @@ class CmuxWindowsRuntime {
       }
       writeJSON(response, 404, { error: "not_found" });
     } catch (error) {
+      const bodyTooLarge = error instanceof RequestBodyTooLargeError;
       const badRequest = error instanceof SyntaxError;
-      if (!badRequest) console.error(error);
-      writeJSON(response, badRequest ? 400 : 500, {
-        error: badRequest ? "invalid_request" : "internal_error"
+      if (!badRequest && !bodyTooLarge) console.error(error);
+      writeJSON(response, bodyTooLarge ? 413 : badRequest ? 400 : 500, {
+        error: bodyTooLarge ? "request_too_large" : badRequest ? "invalid_request" : "internal_error"
       });
     }
   }

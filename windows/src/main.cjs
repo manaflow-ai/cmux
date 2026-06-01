@@ -10,6 +10,7 @@ const { formatMessage, t } = require("./i18n.cjs");
 let mainWindow = null;
 let runtimeChild = null;
 let inProcessRuntime = null;
+let trustedRendererOrigin = "";
 const zoomLockedContents = new WeakSet();
 
 const appRoot = path.resolve(__dirname, "..");
@@ -72,6 +73,26 @@ function hardenWebContents(contents) {
   if (typeof contents?.setWindowOpenHandler === "function") {
     contents.setWindowOpenHandler(externalWindowOpenHandler);
   }
+}
+
+function isTrustedIpcEvent(event) {
+  if (!event || !mainWindow || event.sender !== mainWindow.webContents || !trustedRendererOrigin) return false;
+  const frameUrl = event.senderFrame?.url || event.sender.getURL?.() || "";
+  try {
+    return new URL(frameUrl).origin === trustedRendererOrigin;
+  } catch {
+    return false;
+  }
+}
+
+function trustedIpcHandler(handler, fallback) {
+  return async (event, ...args) => {
+    if (!isTrustedIpcEvent(event)) {
+      log(`blocked ipc ${event?.senderFrame?.url || "unknown"}`);
+      return typeof fallback === "function" ? fallback() : fallback;
+    }
+    return handler(event, ...args);
+  };
 }
 
 function firstExistingPath(paths) {
@@ -395,6 +416,7 @@ async function createWindow() {
   mainWindow.on("unmaximize", () => mainWindow?.webContents.send("window-state", { maximized: false }));
   const launchUrl = new URL(runtime.url);
   if (runtime.launchToken) launchUrl.searchParams.set("token", runtime.launchToken);
+  trustedRendererOrigin = launchUrl.origin;
   await mainWindow.loadURL(launchUrl.href);
 }
 
@@ -413,8 +435,11 @@ const hasLock = app.requestSingleInstanceLock();
 if (!hasLock) {
   app.quit();
 } else {
-  ipcMain.handle("window:minimize", () => mainWindow?.minimize());
-  ipcMain.handle("window:toggle-maximize", () => {
+  ipcMain.handle("window:minimize", trustedIpcHandler(() => {
+    mainWindow?.minimize();
+    return true;
+  }, false));
+  ipcMain.handle("window:toggle-maximize", trustedIpcHandler(() => {
     if (!mainWindow) return false;
     if (mainWindow.isMaximized()) {
       mainWindow.unmaximize();
@@ -422,24 +447,27 @@ if (!hasLock) {
       mainWindow.maximize();
     }
     return mainWindow.isMaximized();
-  });
-  ipcMain.handle("window:close", () => mainWindow?.close());
-  ipcMain.handle("window:is-maximized", () => Boolean(mainWindow?.isMaximized()));
-  ipcMain.handle("open-external", (_event, url, profileId = "system") => openUrlInBrowserProfile(url, profileId));
-  ipcMain.handle("browser:profiles", () => publicBrowserProfiles());
-  ipcMain.handle("open-path", async (_event, filePath) => {
+  }, false));
+  ipcMain.handle("window:close", trustedIpcHandler(() => {
+    mainWindow?.close();
+    return true;
+  }, false));
+  ipcMain.handle("window:is-maximized", trustedIpcHandler(() => Boolean(mainWindow?.isMaximized()), false));
+  ipcMain.handle("open-external", trustedIpcHandler((_event, url, profileId = "system") => openUrlInBrowserProfile(url, profileId), { ok: false, error: "forbidden" }));
+  ipcMain.handle("browser:profiles", trustedIpcHandler(() => publicBrowserProfiles(), []));
+  ipcMain.handle("open-path", trustedIpcHandler(async (_event, filePath) => {
     if (typeof filePath !== "string" || !filePath.trim()) return { ok: false, error: "missing path" };
     const targetPath = path.resolve(filePath);
     if (!fs.existsSync(targetPath)) return { ok: false, error: "path not found" };
     const error = await shell.openPath(targetPath);
     return { ok: !error, error };
-  });
-  ipcMain.handle("clipboard:write-text", (_event, text) => {
+  }, { ok: false, error: "forbidden" }));
+  ipcMain.handle("clipboard:write-text", trustedIpcHandler((_event, text) => {
     clipboard.writeText(String(text || ""));
     return true;
-  });
-  ipcMain.handle("clipboard:read-text", () => clipboard.readText());
-  ipcMain.handle("background:pick-image", async () => {
+  }, false));
+  ipcMain.handle("clipboard:read-text", trustedIpcHandler(() => clipboard.readText(), ""));
+  ipcMain.handle("background:pick-image", trustedIpcHandler(async () => {
     if (!mainWindow) return "";
     const result = await dialog.showOpenDialog(mainWindow, {
       title: t("dialog.chooseBackground"),
@@ -450,15 +478,15 @@ if (!hasLock) {
     });
     const filePath = result.canceled ? "" : result.filePaths[0];
     return filePath ? pathToFileURL(filePath).href : "";
-  });
-  ipcMain.handle("workspace:pick-folder", async () => {
+  }, ""));
+  ipcMain.handle("workspace:pick-folder", trustedIpcHandler(async () => {
     if (!mainWindow) return "";
     const result = await dialog.showOpenDialog(mainWindow, {
       title: t("dialog.chooseWorkspaceFolder"),
       properties: ["openDirectory", "createDirectory"]
     });
     return result.canceled ? "" : result.filePaths[0] || "";
-  });
+  }, ""));
 
   app.on("second-instance", () => {
     if (!mainWindow) return;
