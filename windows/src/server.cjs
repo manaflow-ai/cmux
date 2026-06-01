@@ -175,7 +175,12 @@ function sanitizeTerminalFontSize(value, fallback = 0) {
   return Math.min(22, Math.max(10, Math.round(size)));
 }
 
-function sanitizeDirectoryPath(value, fallback = process.cwd()) {
+function defaultWorkspaceDirectory() {
+  const home = os.homedir();
+  return home && fs.existsSync(home) ? home : process.cwd();
+}
+
+function sanitizeDirectoryPath(value, fallback = defaultWorkspaceDirectory()) {
   const raw = String(value || "").trim();
   if (!raw) return fallback;
   const resolved = path.resolve(raw);
@@ -699,7 +704,7 @@ class CmuxWindowsRuntime {
       title,
       titleLocked: Boolean(explicitTitle || options.titleLocked),
       color: isSafeColorValue(options.color) ? options.color : "",
-      cwd: options.cwd || process.cwd(),
+      cwd: sanitizeDirectoryPath(options.cwd),
       shellProfile: type === "terminal" ? sanitizeShellProfile(options.shellProfile) : "",
       shellPath: type === "terminal" ? sanitizeShellPath(options.shellPath) : "",
       terminalFontSize: type === "terminal" ? sanitizeTerminalFontSize(options.terminalFontSize, 0) : 0,
@@ -725,7 +730,7 @@ class CmuxWindowsRuntime {
     const terminalPanels = workspace.panels.filter((panel) => panel.type === "terminal");
     const browserPanels = workspace.panels.filter((panel) => panel.type === "browser");
     const latestNotification = workspace.panels.find((panel) => panel.needsAttention)?.notificationText || "";
-    const cwd = workspace.cwd || terminalPanels[0]?.cwd || process.cwd();
+    const cwd = workspace.cwd || terminalPanels[0]?.cwd || defaultWorkspaceDirectory();
     const branch = gitBranch(cwd);
     return {
       id: workspace.id,
