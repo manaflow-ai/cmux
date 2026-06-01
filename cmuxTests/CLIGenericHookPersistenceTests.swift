@@ -1358,6 +1358,108 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(events.compactMap { $0["_ppid"] as? Int }, [424242, 424242, 424242])
     }
 
+    func testOpenCodeSessionStopDoesNotPublishGenericNotification() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("opencode-stop")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-stop-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "opencode-session-123"
+        let openCodeConfigDir = root.appendingPathComponent("opencode", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "OPENCODE_CONFIG_DIR": openCodeConfigDir.path,
+        ]
+
+        func runOpenCodeHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else {
+                    return "OK"
+                }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "feed.push":
+                    return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
+                case "surface.resume.set":
+                    return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+                default:
+                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+                }
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "opencode", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        let start = runOpenCodeHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+        XCTAssertEqual(start.stdout, "{}\n")
+
+        let stopCommandStart = state.commands.count
+        let stop = runOpenCodeHook(
+            "stop",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Stop"}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        XCTAssertEqual(stop.stdout, "{}\n")
+
+        let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
+        XCTAssertFalse(
+            stopCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "OpenCode session hooks must not publish generic completion notifications; Feed owns OpenCode stop notifications. Saw \(stopCommands)"
+        )
+        XCTAssertTrue(
+            stopCommands.contains { $0.contains("set_status opencode Idle") },
+            "Expected OpenCode Stop to keep task-manager status idle, saw \(stopCommands)"
+        )
+        XCTAssertTrue(
+            stopCommands.contains {
+                guard let payload = self.jsonObject($0),
+                      payload["method"] as? String == "feed.push",
+                      let params = payload["params"] as? [String: Any],
+                      let event = params["event"] as? [String: Any] else {
+                    return false
+                }
+                return event["hook_event_name"] as? String == "Stop"
+                    && event["_source"] as? String == "opencode"
+            },
+            "Expected OpenCode Stop to still emit Feed telemetry, saw \(stopCommands)"
+        )
+    }
+
     func testGrokNotificationHookUsesPayloadMessageAndStopDoesNotSendGenericNotification() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-notification")

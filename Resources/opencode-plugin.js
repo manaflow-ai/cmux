@@ -12,12 +12,23 @@ const DEFAULT_SOCKET = `${os.homedir()}/.config/cmux/cmux.sock`;
 const SOCKET_PATH = process.env.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
 const REPLY_TIMEOUT_MS = 120_000;
 const MAX_PLAN_BYTES = 128 * 1024;
+const MAX_SESSION_STATES = 300;
+const MAX_TELEMETRY_OUTBOX = 128;
+const MAX_REPLY_OUTBOX = 32;
+const TELEMETRY_RECONNECT_MS = 250;
 
 export const CMUXFeed = async (ctx) => {
   let client = null;
+  let clientReady = false;
+  let lastTelemetryConnectAttempt = 0;
   let buffered = "";
+  const telemetryOutbox = [];
+  const replyOutbox = [];
   const pending = new Map();
   const messageRoles = new Map();
+  const messagePartText = new Map();
+  const messagePartTypes = new Map();
+  const messageText = new Map();
   const sessions = new Map();
 
   const isObject = (value) => value && typeof value === "object" && !Array.isArray(value);
@@ -36,16 +47,175 @@ export const CMUXFeed = async (ctx) => {
     return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
   };
 
+  const stringList = (value) => {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((item) => typeof item === "string" ? item.trim() : "")
+      .filter(Boolean);
+  };
+
+  const pathWithoutWildcardTail = (value) => {
+    const text = firstString(value) || "";
+    const wildcard = text.search(/[*?{[]/);
+    return (wildcard >= 0 ? text.slice(0, wildcard) : text).replace(/[\\/]+$/, "");
+  };
+
+  const permissionPayloadInfo = (permission, input, metadata, patterns) => {
+    const name = String(permission || "").toLowerCase();
+    switch (name) {
+      case "bash": {
+        const command = firstString(input.command, input.cmd);
+        return { action: "run_command", command, description: firstString(input.description, input.title) };
+      }
+      case "edit":
+      case "write":
+      case "multiedit":
+      case "apply_patch": {
+        const file = firstString(input.filePath, input.file_path, input.filepath, input.path, patterns[0]) || "";
+        return {
+          action: name === "write" ? "write_file" : name === "apply_patch" ? "patch_file" : "edit_file",
+          resource: file,
+          diff: firstString(metadata.diff, input.diff),
+          file,
+          description: firstString(input.description),
+        };
+      }
+      case "read": {
+        const file = firstString(input.filePath, input.file_path, input.filepath, input.path, patterns[0]) || "";
+        return { action: "read_file", resource: file, file };
+      }
+      case "glob": {
+        const pattern = firstString(input.pattern, patterns[0]) || "";
+        return { action: "glob", pattern, resource: pattern };
+      }
+      case "grep": {
+        const pattern = firstString(input.pattern, patterns[0]) || "";
+        return { action: "grep", pattern, resource: pattern };
+      }
+      case "list": {
+        const dir = firstString(input.path, input.directory, patterns[0]) || "";
+        return { action: "list_directory", resource: dir, path: dir };
+      }
+      case "task": {
+        const type = firstString(input.subagent_type, input.subagentType) || "general";
+        const description = firstString(input.description, input.prompt);
+        return { action: "task", subagent_type: type, description };
+      }
+      case "webfetch": {
+        const url = firstString(input.url, patterns[0]) || "";
+        return { action: "webfetch", url, resource: url };
+      }
+      case "websearch": {
+        const query = firstString(input.query, patterns[0]) || "";
+        return { action: "websearch", query, resource: query };
+      }
+      case "lsp": {
+        const file = firstString(input.filePath, input.file_path, input.path) || "";
+        const operation = firstString(input.operation) || "request";
+        const line = typeof input.line === "number" ? input.line : null;
+        const character = typeof input.character === "number" ? input.character : null;
+        return {
+          action: "lsp",
+          operation,
+          resource: file,
+          file,
+          position: line !== null && character !== null ? { line, character } : undefined,
+        };
+      }
+      case "external_directory": {
+        const raw = firstString(metadata.parentDir, metadata.filepath, input.path, patterns[0]) || "";
+        const dir = pathWithoutWildcardTail(raw);
+        return { action: "external_directory", resource: dir, path: dir };
+      }
+      case "doom_loop":
+        return { action: "doom_loop" };
+      default:
+        return { action: "tool_call", resource: permission || "permission" };
+    }
+  };
+
+  const permissionToolInput = (props, permission) => {
+    const metadata = isObject(props.metadata) ? props.metadata : {};
+    const input = isObject(metadata.input) ? metadata.input : {};
+    const patterns = stringList(props.patterns);
+    const always = stringList(props.always);
+    const payloadInfo = permissionPayloadInfo(permission, input, metadata, patterns);
+    const toolInput = {
+      ...metadata,
+      ...input,
+      permission,
+      patterns,
+      always,
+      metadata,
+      action: payloadInfo.action,
+    };
+    if (props.tool) toolInput.tool = props.tool;
+    if (payloadInfo.description) toolInput.description = payloadInfo.description;
+    if (payloadInfo.resource) toolInput.resource = payloadInfo.resource;
+    if (payloadInfo.operation) toolInput.operation = payloadInfo.operation;
+    if (payloadInfo.pattern) toolInput.pattern = payloadInfo.pattern;
+    if (payloadInfo.position) toolInput.position = payloadInfo.position;
+    if (payloadInfo.diff) toolInput.diff = payloadInfo.diff;
+    if (payloadInfo.subagent_type) toolInput.subagent_type = payloadInfo.subagent_type;
+    if (payloadInfo.command) toolInput.command = payloadInfo.command;
+    if (payloadInfo.url) toolInput.url = payloadInfo.url;
+    if (payloadInfo.query) toolInput.query = payloadInfo.query;
+    if (payloadInfo.path) toolInput.path = payloadInfo.path;
+    if (payloadInfo.file) {
+      toolInput.filePath = payloadInfo.file;
+      toolInput.file_path = payloadInfo.file;
+    }
+    return toolInput;
+  };
+
+  const trimMap = (map, max = 300) => {
+    while (map.size > max) {
+      map.delete(map.keys().next().value);
+    }
+  };
+
   const sessionState = (sessionId) => {
     const key = sessionId || "unknown";
-    if (!sessions.has(key)) {
-      sessions.set(key, {
+    let state = sessions.get(key);
+    if (!state) {
+      state = {
         lastUserMessage: null,
         assistantPreamble: null,
         cwd: null,
-      });
+      };
+    } else {
+      sessions.delete(key);
     }
-    return sessions.get(key);
+    sessions.set(key, state);
+    trimMap(sessions, MAX_SESSION_STATES);
+    return state;
+  };
+
+  const messagePartKey = (messageId, partId) => `${messageId || "unknown"}:${partId || "unknown"}`;
+
+  const recordMessageText = (sessionId, messageId, role, text) => {
+    const normalized = normalizeText(text);
+    if (!sessionId || !normalized) return;
+    if (messageId) {
+      messageText.set(messageId, { sessionId, text: normalized });
+      trimMap(messageText);
+    }
+    const state = sessionState(sessionId);
+    if (role === "user") {
+      state.lastUserMessage = normalized;
+    } else if (role === "assistant") {
+      state.assistantPreamble = normalized;
+    }
+  };
+
+  const stopToolInput = (state) => {
+    const message = normalizeText(state.assistantPreamble, 2000);
+    if (!message) return {};
+    return {
+      reason: message,
+      last_assistant_message: message,
+      assistant_preamble: message,
+    };
   };
 
   const contextForSession = (sessionId) => {
@@ -347,10 +517,58 @@ export const CMUXFeed = async (ctx) => {
     buffered = "";
   };
 
-  const connect = () => {
+  const resetConnection = () => {
+    client = null;
+    clientReady = false;
+    telemetryOutbox.splice(0);
+    replyOutbox.splice(0);
+    failPending();
+  };
+
+  const writeConnected = (frame) => {
+    if (!client || !clientReady || client.destroyed || !client.writable) return false;
+    try {
+      client.write(JSON.stringify(frame) + "\n");
+      return true;
+    } catch (e) {
+      resetConnection();
+      return false;
+    }
+  };
+
+  const flushOutboxQueue = (queue) => {
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (!writeConnected(item.frame)) {
+        if (item.requestId) resolvePending(item.requestId, { status: "timed_out" });
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const flushOutboxes = () => {
+    if (!flushOutboxQueue(telemetryOutbox)) return false;
+    return flushOutboxQueue(replyOutbox);
+  };
+
+  const connect = ({ immediate = false } = {}) => {
+    if (client) return client;
+    if (!immediate) {
+      const now = Date.now();
+      if (now - lastTelemetryConnectAttempt < TELEMETRY_RECONNECT_MS) return null;
+      lastTelemetryConnectAttempt = now;
+    }
     try {
       const conn = net.createConnection(SOCKET_PATH);
+      client = conn;
+      clientReady = false;
       conn.setEncoding("utf8");
+      conn.unref?.();
+      conn.on("connect", () => {
+        clientReady = true;
+        flushOutboxes();
+      });
       conn.on("data", (chunk) => {
         buffered += chunk;
         let idx;
@@ -375,30 +593,29 @@ export const CMUXFeed = async (ctx) => {
         }
       });
       conn.on("close", () => {
-        client = null;
-        failPending();
+        resetConnection();
       });
       conn.on("error", () => {
-        client = null;
-        failPending();
+        resetConnection();
       });
       return conn;
     } catch (e) {
-      failPending();
+      resetConnection();
       return null;
     }
   };
 
-  const write = (frame) => {
-    if (!client) client = connect();
-    if (!client) return false;
-    try {
-      client.write(JSON.stringify(frame) + "\n");
-      return true;
-    } catch (e) {
-      failPending();
-      return false;
+  const write = (frame, { requiresReply = false, requestId = null } = {}) => {
+    if (writeConnected(frame)) return true;
+    if (!connect({ immediate: requiresReply })) return false;
+    const queue = requiresReply ? replyOutbox : telemetryOutbox;
+    const max = requiresReply ? MAX_REPLY_OUTBOX : MAX_TELEMETRY_OUTBOX;
+    if (queue.length >= max) {
+      const dropped = queue.shift();
+      if (dropped?.requestId) resolvePending(dropped.requestId, { status: "timed_out" });
     }
+    queue.push({ frame, requestId });
+    return true;
   };
 
   const base = (sessionId, extra) => {
@@ -408,6 +625,10 @@ export const CMUXFeed = async (ctx) => {
       typeof process.env.CMUX_WORKSPACE_ID === "string" && process.env.CMUX_WORKSPACE_ID.trim()
         ? process.env.CMUX_WORKSPACE_ID.trim()
         : null;
+    const surfaceId =
+      typeof process.env.CMUX_SURFACE_ID === "string" && process.env.CMUX_SURFACE_ID.trim()
+        ? process.env.CMUX_SURFACE_ID.trim()
+        : null;
     const event = {
       session_id: `opencode-${sessionId}`,
       _source: "opencode",
@@ -416,6 +637,7 @@ export const CMUXFeed = async (ctx) => {
       ...extra,
     };
     if (workspaceId) event.workspace_id = workspaceId;
+    if (surfaceId) event.surface_id = surfaceId;
     if (context) event.context = context;
     return event;
   };
@@ -427,44 +649,75 @@ export const CMUXFeed = async (ctx) => {
       const messageId = info.id || props.messageID;
       const sessionId = info.sessionID || props.sessionID;
       const role = info.role || props.role;
-      if (messageId && sessionId && role) {
-        messageRoles.set(messageId, { sessionId, role });
-        if (messageRoles.size > 300) {
-          messageRoles.delete(messageRoles.keys().next().value);
+      if (messageId && sessionId) {
+        const previous = messageRoles.get(messageId);
+        messageRoles.set(messageId, { sessionId, role: role || previous?.role });
+        trimMap(messageRoles);
+        const pendingText = messageText.get(messageId);
+        if (role && pendingText) {
+          recordMessageText(sessionId, messageId, role, pendingText.text);
         }
+      }
+      return null;
+    }
+
+    if (event.type === "message.part.delta") {
+      if (props.field !== "text" || !props.partID || !props.messageID) return null;
+      const meta = messageRoles.get(props.messageID);
+      const sessionId = meta?.sessionId || props.sessionID;
+      const key = messagePartKey(props.messageID, props.partID);
+      const text = `${messagePartText.get(key) || ""}${props.delta || ""}`;
+      messagePartText.set(key, text);
+      trimMap(messagePartText);
+      if (messagePartTypes.get(key) === "text") {
+        recordMessageText(sessionId, props.messageID, meta?.role || "assistant", text);
       }
       return null;
     }
 
     if (event.type !== "message.part.updated") return null;
     const part = props.part || {};
+    const key = messagePartKey(part.messageID, part.id);
+    if (part.id) {
+      messagePartTypes.set(key, part.type);
+      trimMap(messagePartTypes);
+    }
     if (part.type !== "text" || !part.messageID) return null;
     const meta = messageRoles.get(part.messageID);
-    if (!meta) return null;
+    const sessionId = part.sessionID || props.sessionID || meta?.sessionId;
     const text = normalizeText(part.text || part.textDelta || part.content);
     if (!text) return null;
-    const state = sessionState(meta.sessionId);
-    if (meta.role === "user") {
-      state.lastUserMessage = text;
-      return base(meta.sessionId, {
+    if (part.id) {
+      messagePartText.set(key, part.text || part.textDelta || part.content || "");
+      trimMap(messagePartText);
+    }
+    const role = meta?.role;
+    recordMessageText(sessionId, part.messageID, role, text);
+    if (role === "user") {
+      return base(sessionId, {
         hook_event_name: "UserPromptSubmit",
         tool_input: { prompt: text },
         context: { lastUserMessage: text },
       });
     }
-    if (meta.role === "assistant") {
-      state.assistantPreamble = text;
-    }
     return null;
   };
 
   const pushBlocking = (event, requestId) => {
+    let timeoutId = null;
     const reply = new Promise((resolve) => {
-      pending.set(requestId, resolve);
-      setTimeout(() => {
+      const finish = (value) => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        resolve(value);
+      };
+      pending.set(requestId, finish);
+      timeoutId = setTimeout(() => {
         if (pending.has(requestId)) {
           pending.delete(requestId);
-          resolve({ status: "timed_out" });
+          finish({ status: "timed_out" });
         }
       }, REPLY_TIMEOUT_MS);
     });
@@ -472,7 +725,7 @@ export const CMUXFeed = async (ctx) => {
       id: `opencode-${requestId}`,
       method: "feed.push",
       params: { event, wait_timeout_seconds: REPLY_TIMEOUT_MS / 1000 },
-    });
+    }, { requiresReply: true, requestId });
     if (!wrote) {
       resolvePending(requestId, { status: "timed_out" });
     }
@@ -508,8 +761,10 @@ export const CMUXFeed = async (ctx) => {
         case "session.idle": {
           const sid = event.properties?.sessionID;
           if (!sid) break;
+          const state = sessionState(sid);
           pushTelemetry(base(sid, {
             hook_event_name: "Stop",
+            tool_input: stopToolInput(state),
           }));
           break;
         }
@@ -537,18 +792,12 @@ export const CMUXFeed = async (ctx) => {
           if (!requestId) break;
           const sid = props.sessionID || "unknown";
           const permission = firstString(props.permission, props.tool?.name) || "permission";
-          const metadata = isObject(props.metadata) ? props.metadata : {};
+          const toolInput = permissionToolInput(props, permission);
           const frame = base(sid, {
             hook_event_name: "PermissionRequest",
             _opencode_request_id: requestId,
             tool_name: permission,
-            tool_input: {
-              permission,
-              patterns: Array.isArray(props.patterns) ? props.patterns : [],
-              always: Array.isArray(props.always) ? props.always : [],
-              metadata,
-              tool: props.tool,
-            },
+            tool_input: toolInput,
             context: {
               ...(contextForSession(sid) || {}),
               permissionMode: "opencode",

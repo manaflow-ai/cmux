@@ -19,7 +19,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
 
         let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
-        try #"{"plugin":["other-plugin","./plugins/cmux-session.js"]}"#.write(to: configURL, atomically: true, encoding: .utf8)
+        try #"{"plugin":["other-plugin","./plugins/cmux-session.js","cmux-feed"]}"#.write(to: configURL, atomically: true, encoding: .utf8)
         let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
         try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
         chmod(fakeOpenCodeURL.path, 0o755)
@@ -45,7 +45,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertTrue(try String(contentsOf: configDir.appendingPathComponent("plugins/cmux-feed.js"), encoding: .utf8).contains("cmux-feed-plugin-marker"))
 
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: try Data(contentsOf: configURL), options: []) as? [String: Any])
-        XCTAssertEqual(try XCTUnwrap(json["plugin"] as? [String]), ["other-plugin", "./plugins/cmux-session.js"])
+        XCTAssertEqual(try XCTUnwrap(json["plugin"] as? [String]), ["other-plugin", "./plugins/cmux-session.js", "./plugins/cmux-feed.js"])
     }
 
     func testLegacyHookAliasesAreHiddenFromHelp() throws {
