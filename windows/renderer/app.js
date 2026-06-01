@@ -5053,9 +5053,13 @@ function ensureTerminal(panel, body) {
 function requestInitialTerminalLayout(session, panelId, frame = 0) {
   requestAnimationFrame(() => {
     if (session.disposed) return;
+    if (!isTerminalHostVisible(session)) {
+      scheduleFitTerminal(session, true);
+      if (frame < 12) requestInitialTerminalLayout(session, panelId, frame + 1);
+      return;
+    }
     scheduleFitTerminal(session, true);
     if (panelId === activeWorkspace()?.activePanelId) session.term.focus();
-    if (!isTerminalHostVisible(session) && frame < 12) requestInitialTerminalLayout(session, panelId, frame + 1);
   });
 }
 
