@@ -1160,14 +1160,14 @@ body.reduce-motion *::after {
   flex-basis: min(var(--surface-tab-basis, 160px), 118px);
   min-width: min(var(--surface-tab-min, 104px), 78px);
   max-width: min(var(--surface-tab-max, 220px), 148px);
-  grid-template-columns: 16px minmax(0, 1fr) 20px;
+  grid-template-columns: 16px minmax(0, 1fr);
   gap: 5px;
-  padding: 0 3px 0 5px;
+  padding: 0 5px;
 }
 
 .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab):hover,
 .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab).is-active {
-  padding: 0 3px 0 5px;
+  padding: 0 5px;
 }
 
 @container (max-width: 520px) {
@@ -1289,6 +1289,10 @@ body.reduce-motion *::after {
 }
 
 .surface-tabs.is-crowded .surface-close {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 20px;
   height: 20px;
   background: color-mix(in oklch, var(--color-pane) 82%, transparent);
@@ -1324,7 +1328,7 @@ body.reduce-motion *::after {
     flex-basis: 54px;
     min-width: 42px;
     max-width: 64px;
-    grid-template-columns: 16px 18px;
+    grid-template-columns: 16px;
     justify-content: center;
     gap: 3px;
     padding: 0 2px;
@@ -1357,6 +1361,16 @@ body.reduce-motion *::after {
 .surface-close:focus-visible {
   opacity: 1;
   pointer-events: auto;
+}
+
+.surface-tabs.is-crowded .surface-tab.is-active:not(:hover):not(:focus-within) .surface-close {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.surface-tabs.is-crowded .surface-tab:hover .surface-label,
+.surface-tabs.is-crowded .surface-tab:focus-within .surface-label {
+  padding-right: 20px;
 }
 
 .surface-close:hover {
