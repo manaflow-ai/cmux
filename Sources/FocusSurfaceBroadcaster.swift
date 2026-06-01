@@ -118,12 +118,15 @@ final class FocusSurfaceBroadcaster {
     /// progress (an observer re-entered during a flush), the payload is recorded for
     /// the active drain loop instead of scheduling another flush.
     func emit(_ payload: FocusSurfacePayload) {
-        // Issue #5100 reproduction: deliver synchronously, mirroring the old
-        // `NotificationCenter.post(.ghosttyDidFocusSurface)` call site — no deferral,
-        // no coalescing, no re-entrancy bound. An observer that re-emits during
-        // delivery recurses without limit. The fix replaces this body.
         pending = payload
-        deliver(payload)
+        // A re-entrant emit during delivery hands the payload to the running drain
+        // loop; scheduling another flush here would re-introduce the storm.
+        if isDelivering { return }
+        if flushScheduled { return }
+        flushScheduled = true
+        schedule { @Sendable [weak self] in
+            self?.flush()
+        }
     }
 
     /// Delivers the pending broadcast(s) on the main queue.
@@ -132,7 +135,23 @@ final class FocusSurfaceBroadcaster {
     /// spin forever. Exposed (non-private) so tests can run the scheduled flush
     /// deterministically.
     func flush() {
-        // Issue #5100 reproduction: nothing is deferred, so there is no scheduled
-        // work to run. The fix replaces this body.
+        flushScheduled = false
+        // Defensive: never run nested deliveries even if a flush is somehow scheduled
+        // while one is already draining.
+        guard !isDelivering else { return }
+        isDelivering = true
+        defer { isDelivering = false }
+
+        var iterations = 0
+        while let next = pending {
+            pending = nil
+            iterations += 1
+            if iterations > maxCoalescedDeliveries {
+                // Re-entrancy did not converge: stop rather than hang, and surface it.
+                onDrainBoundExceeded(next)
+                break
+            }
+            deliver(next)
+        }
     }
 }
