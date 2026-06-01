@@ -70,6 +70,7 @@ import {
   paneTreeLeaf,
   paneTreeLeafIds,
   paneTreeRatio,
+  paneTreeSplit,
   paneTreeSplitForPanel,
   replacePaneTreePanelId,
   removePanelFromPaneTree,
@@ -261,6 +262,13 @@ const paneLayoutPresets = [
     body: "Equal rows for logs and output.",
     mode: "equal",
     direction: "down"
+  },
+  {
+    id: "grid",
+    label: "Grid",
+    body: "Balanced rows and columns for several panes.",
+    mode: "grid",
+    direction: ""
   },
   {
     id: "activeWide",
@@ -10323,6 +10331,7 @@ function showToolbarMenu(event) {
       contextMenuButton("Reset split layout", resetActivePaneLayout, !multiPane),
       contextMenuButton("Reset workspace chrome", resetWorkspaceChrome),
       contextMenuButton("Equalize panes", () => applyPaneLayoutPreset("equal"), !multiPane),
+      contextMenuButton("Grid layout", () => applyPaneLayoutPreset("grid"), !multiPane),
       contextMenuButton("Active pane wide", () => applyPaneLayoutPreset("activeWide"), !multiPane),
       contextMenuButton("Active pane tall", () => applyPaneLayoutPreset("activeTall"), !multiPane),
       contextMenuButton("Set active pane size", promptActivePaneLayoutPercent, !multiPane),
@@ -12516,6 +12525,34 @@ function resetActivePaneLayout() {
   toast("Split layout reset.");
 }
 
+function combinePaneTrees(nodes, direction) {
+  let tree = null;
+  let count = 0;
+  for (const node of nodes) {
+    if (!node) continue;
+    if (!tree) {
+      tree = node;
+      count = 1;
+      continue;
+    }
+    tree = paneTreeSplit(direction, tree, node, count / (count + 1));
+    count += 1;
+  }
+  return tree;
+}
+
+function buildGridPanePresetTree(panelIds) {
+  const ids = panelIds.filter(Boolean);
+  if (ids.length <= 2) return buildPaneTreeFromPanelIds(ids, "right");
+  const columnCount = Math.ceil(Math.sqrt(ids.length));
+  const rows = [];
+  for (let index = 0; index < ids.length; index += columnCount) {
+    rows.push(ids.slice(index, index + columnCount));
+  }
+  const rowTrees = rows.map((rowIds) => buildPaneTreeFromPanelIds(rowIds, "right"));
+  return combinePaneTrees(rowTrees, "down");
+}
+
 async function applyPaneLayoutPreset(presetId) {
   const preset = paneLayoutPresets.find((candidate) => candidate.id === presetId);
   const workspace = activeWorkspace();
@@ -12533,6 +12570,8 @@ async function applyPaneLayoutPreset(presetId) {
   let tree = paneTreeForWorkspace(nextWorkspace);
   if (preset.id === "equal") {
     tree = equalizePaneTree(tree);
+  } else if (preset.mode === "grid") {
+    tree = buildGridPanePresetTree(nextWorkspace.panels.map((panel) => panel.id));
   } else if (preset.mode === "active") {
     tree = buildActivePanePresetTree(nextWorkspace.panels, active.id, direction, nextWorkspace.panels.length === 2 ? 68 : 60);
   } else {
