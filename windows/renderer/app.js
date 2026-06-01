@@ -12838,10 +12838,15 @@ function handlePaneWheelZoom(event) {
 
 function handleWindowWheelZoom(event) {
   if (!event.ctrlKey) return;
-  if (event.target?.closest?.(".terminal-host")) return;
   const panel = panelFromEvent(event);
   if (panel?.type === "terminal") {
     applyTerminalWheelZoom(event, panel);
+    return;
+  }
+  if (event.target?.closest?.(".terminal-host")) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
   } else if (event.target?.closest?.(".shell, .pane, .surface-tabs, .sidebar, .topbar, .command-strip")) {
     event.preventDefault();
     event.stopPropagation();
