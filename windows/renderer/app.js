@@ -793,9 +793,8 @@ function backgroundCss(value) {
 
 function backgroundImageSettings(backgroundImage) {
   const normalized = normalizeBackgroundValue(backgroundImage);
-  const previous = normalizeBackgroundValue(state.settings.backgroundImage);
   const updates = { backgroundImage: normalized };
-  if (normalized && !previous && state.settings.backgroundOpacity < visibleBackgroundOpacity) {
+  if (normalized && state.settings.backgroundOpacity < visibleBackgroundOpacity) {
     updates.backgroundOpacity = visibleBackgroundOpacity;
   }
   return updates;
