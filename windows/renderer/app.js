@@ -209,6 +209,34 @@ const terminalWheelZoomMaxSteps = 3;
 const deferredTerminalInitIdleTimeoutMs = 700;
 const browserLoadTimeoutMs = 15000;
 const browserPausedStatusText = "Paused while inactive";
+const embeddedGoogleHomeUrl = "https://www.google.com/webhp?igu=1";
+// Google can cover embedded Chromium with a Chrome install sheet; keep the home pane usable.
+const embeddedGooglePromoDismissScript = `(() => {
+  const textOf = (node) => (node?.innerText || node?.textContent || "").replace(/\\s+/g, " ").trim();
+  const elements = Array.from(document.querySelectorAll("*"));
+  const dismiss = elements.find((node) => {
+    const text = textOf(node);
+    if (!/^do not .*chrome$/i.test(text) && !/^no thanks$/i.test(text) && !/^not now$/i.test(text)) return false;
+    const rect = node.getBoundingClientRect();
+    return rect.width >= 80 && rect.width <= 260 && rect.height >= 24 && rect.height <= 90;
+  });
+  if (dismiss) {
+    dismiss.click();
+    return "clicked";
+  }
+  let hidden = 0;
+  for (const node of elements) {
+    if (node.tagName === "HTML" || node.tagName === "BODY") continue;
+    const text = textOf(node);
+    if (!/built by Google/i.test(text) || !/Download Chrome/i.test(text)) continue;
+    const rect = node.getBoundingClientRect();
+    if (rect.width < 250 || rect.height < 100) continue;
+    node.style.display = "none";
+    node.setAttribute("aria-hidden", "true");
+    hidden += 1;
+  }
+  return hidden ? "hidden" : "";
+})()`;
 const paneResizeFitThrottleMs = 90;
 const panePointerDragThreshold = 6;
 const closedPanelLimit = 12;
@@ -5255,7 +5283,7 @@ function reloadBrowserPanel(panel = focusedPanel()) {
     session.view.reload();
   } else {
     session.address.value = url;
-    session.view.src = url;
+    session.view.src = browserViewSourceUrl(url);
   }
   return true;
 }
@@ -5367,14 +5395,58 @@ function browserSessionTargetUrl(session) {
   );
 }
 
+function isGoogleHomeUrl(value) {
+  try {
+    const parsed = new URL(normalizeUrl(value, state.settings.browserHomeUrl));
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    if (host !== "google.com") return false;
+    const path = parsed.pathname.replace(/\/+$/, "") || "/";
+    if (path !== "/" && path !== "/webhp") return false;
+    if (parsed.searchParams.has("q")) return false;
+    for (const key of parsed.searchParams.keys()) {
+      if (!["igu", "zx"].includes(key.toLowerCase())) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function browserViewSourceUrl(value) {
+  const targetUrl = normalizeUrl(value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+  return isGoogleHomeUrl(targetUrl) ? embeddedGoogleHomeUrl : targetUrl;
+}
+
+function browserDisplayUrl(value) {
+  const targetUrl = normalizeUrl(value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+  return isGoogleHomeUrl(targetUrl) ? "https://www.google.com/" : targetUrl;
+}
+
+function scheduleEmbeddedGoogleHomePolish(view, value) {
+  if (!isGoogleHomeUrl(value || view?.src)) return;
+  if (typeof view?.executeJavaScript !== "function") return;
+  const run = () => {
+    try {
+      const result = view.executeJavaScript(embeddedGooglePromoDismissScript, true);
+      result?.catch?.(() => {});
+    } catch {
+      // Webviews can detach while panes or workspaces are being rearranged.
+    }
+  };
+  run();
+  setTimeout(run, 500);
+  setTimeout(run, 1400);
+}
+
 function loadDeferredBrowserSession(session) {
   if (!session?.loadDeferred) return false;
   const targetUrl = browserSessionTargetUrl(session);
+  const sourceUrl = browserViewSourceUrl(targetUrl);
   clearDeferredBrowserSession(session);
-  if (session.view.src !== targetUrl) {
+  if (session.view.src !== sourceUrl) {
     session.setLoading?.(true);
     session.setStatus?.("Loading");
-    session.view.src = targetUrl;
+    session.view.src = sourceUrl;
   }
   session.updateNavState?.();
   return true;
@@ -5746,8 +5818,9 @@ function activateBrowserTab(session, tabId) {
   session.activeTabId = tab.id;
   session.address.value = tab.url;
   clearDeferredBrowserSession(session);
-  if (session.view.src !== tab.url) {
-    session.view.src = tab.url;
+  const sourceUrl = browserViewSourceUrl(tab.url);
+  if (session.view.src !== sourceUrl) {
+    session.view.src = sourceUrl;
     session.setLoading?.(true);
     session.setStatus?.("Loading");
   }
@@ -5988,7 +6061,8 @@ function ensureBrowser(panel, body) {
       hideBrowserError();
       setLoading(true);
       setStatus("Loading");
-      if (view.src !== targetUrl) view.src = targetUrl;
+      const sourceUrl = browserViewSourceUrl(targetUrl);
+      if (view.src !== sourceUrl) view.src = sourceUrl;
       updateNavState();
     };
     session.initialLoadFrame = requestAnimationFrame(() => {
@@ -6022,7 +6096,7 @@ function ensureBrowser(panel, body) {
     const next = normalizeUrl(address.value, state.settings.browserHomeUrl);
     address.value = next;
     clearDeferredBrowserSession(session);
-    view.src = next;
+    view.src = browserViewSourceUrl(next);
     browserLoadFailed = false;
     hideBrowserError();
     setLoading(true);
@@ -6089,7 +6163,7 @@ function ensureBrowser(panel, body) {
     if (typeof view.reload === "function") {
       view.reload();
     } else {
-      view.src = address.value;
+      view.src = browserViewSourceUrl(address.value);
     }
   };
   home.onclick = () => {
@@ -6098,9 +6172,11 @@ function ensureBrowser(panel, body) {
   };
   view.addEventListener("did-navigate", (event) => {
     if (event.url) {
-      address.value = event.url;
-      updateActiveBrowserTabUrl(session, event.url);
-      queueBrowserUrlSync(panel.id, event.url);
+      const nextUrl = browserDisplayUrl(event.url);
+      address.value = nextUrl;
+      updateActiveBrowserTabUrl(session, nextUrl);
+      queueBrowserUrlSync(panel.id, nextUrl);
+      scheduleEmbeddedGoogleHomePolish(view, event.url);
     }
     updateNavState();
   });
@@ -6118,13 +6194,16 @@ function ensureBrowser(panel, body) {
     webviewReady = true;
     markBrowserContentLoaded();
     lockBrowserViewZoom(view);
+    scheduleEmbeddedGoogleHomePolish(view, address.value || view.src);
     updateNavState();
   });
   view.addEventListener("did-navigate-in-page", (event) => {
     if (event.url) {
-      address.value = event.url;
-      updateActiveBrowserTabUrl(session, event.url);
-      queueBrowserUrlSync(panel.id, event.url);
+      const nextUrl = browserDisplayUrl(event.url);
+      address.value = nextUrl;
+      updateActiveBrowserTabUrl(session, nextUrl);
+      queueBrowserUrlSync(panel.id, nextUrl);
+      scheduleEmbeddedGoogleHomePolish(view, event.url);
     }
     updateNavState();
   });
@@ -6142,6 +6221,7 @@ function ensureBrowser(panel, body) {
   });
   view.addEventListener("did-finish-load", () => {
     markBrowserContentLoaded();
+    scheduleEmbeddedGoogleHomePolish(view, address.value || view.src);
     if (!browserLoadFailed) hideBrowserError();
     setLoading(false);
     setStatus("");
@@ -6149,6 +6229,7 @@ function ensureBrowser(panel, body) {
   });
   view.addEventListener("did-frame-finish-load", () => {
     markBrowserContentLoaded();
+    scheduleEmbeddedGoogleHomePolish(view, address.value || view.src);
     if (webviewReady) setStatus("");
   });
   view.addEventListener("did-fail-load", (event) => {
@@ -7778,8 +7859,9 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
       if (session) {
         session.address.value = nextUrl;
         updateActiveBrowserTabUrl(session, nextUrl);
-        if (session.view.src !== nextUrl) {
-          session.view.src = nextUrl;
+        const sourceUrl = browserViewSourceUrl(nextUrl);
+        if (session.view.src !== sourceUrl) {
+          session.view.src = sourceUrl;
           session.setStatus?.("Loading");
         }
       }
