@@ -13,6 +13,7 @@ public struct SidebarSection: View {
 
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
+    @State private var fontSaveTask: Task<Void, Never>?
     @State private var matchTerminal: DefaultsValueModel<Bool>
     @State private var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
@@ -65,6 +66,17 @@ public struct SidebarSection: View {
         }
     }
 
+    /// Persists a new sidebar font size, cancelling any in-flight save so a
+    /// rapid sequence of slider releases only reflects the latest value (the
+    /// host serializes the underlying writes; this keeps the UI state in step).
+    private func saveSidebarFontSize(_ points: Double) {
+        fontSaveTask?.cancel()
+        fontSaveTask = Task {
+            let saved = await hostActions.setSidebarFontSize(points)
+            if !Task.isCancelled { fontSaveFailed = !saved }
+        }
+    }
+
     @ViewBuilder
     private var mainCard: some View {
         SettingsCard {
@@ -93,10 +105,7 @@ public struct SidebarSection: View {
                             in: sidebarFont.minimum...sidebarFont.maximum,
                             step: 0.5
                         ) { editing in
-                            if !editing {
-                                let points = sidebarFont.points
-                                Task { fontSaveFailed = !(await hostActions.setSidebarFontSize(points)) }
-                            }
+                            if !editing { saveSidebarFontSize(sidebarFont.points) }
                         }
                         .frame(width: 130)
                         .accessibilityIdentifier("SettingsSidebarFontSizeSlider")
@@ -108,8 +117,7 @@ public struct SidebarSection: View {
 
                         Button(String(localized: "settings.sidebarAppearance.fontSize.reset", defaultValue: "Reset")) {
                             sidebarFont.points = sidebarFont.defaultValue
-                            let points = sidebarFont.points
-                            Task { fontSaveFailed = !(await hostActions.setSidebarFontSize(points)) }
+                            saveSidebarFontSize(sidebarFont.points)
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)

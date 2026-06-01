@@ -13,6 +13,7 @@ public struct TerminalSection: View {
 
     @State private var surfaceTabBarFont: SettingsFontSize
     @State private var fontSaveFailed = false
+    @State private var fontSaveTask: Task<Void, Never>?
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
@@ -43,6 +44,17 @@ public struct TerminalSection: View {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
             resumeCommandsCard
+        }
+    }
+
+    /// Persists a new tab-bar font size, cancelling any in-flight save so a
+    /// rapid sequence of slider releases only reflects the latest value (the
+    /// host serializes the underlying writes; this keeps the UI state in step).
+    private func saveSurfaceTabBarFontSize(_ points: Double) {
+        fontSaveTask?.cancel()
+        fontSaveTask = Task {
+            let saved = await hostActions.setSurfaceTabBarFontSize(points)
+            if !Task.isCancelled { fontSaveFailed = !saved }
         }
     }
 
@@ -88,10 +100,7 @@ public struct TerminalSection: View {
                             in: surfaceTabBarFont.minimum...surfaceTabBarFont.maximum,
                             step: 0.5
                         ) { editing in
-                            if !editing {
-                                let points = surfaceTabBarFont.points
-                                Task { fontSaveFailed = !(await hostActions.setSurfaceTabBarFontSize(points)) }
-                            }
+                            if !editing { saveSurfaceTabBarFontSize(surfaceTabBarFont.points) }
                         }
                         .frame(width: 130)
                         .accessibilityIdentifier("SettingsTabBarFontSizeSlider")
@@ -103,8 +112,7 @@ public struct TerminalSection: View {
 
                         Button(String(localized: "settings.terminal.tabBarFontSize.reset", defaultValue: "Reset")) {
                             surfaceTabBarFont.points = surfaceTabBarFont.defaultValue
-                            let points = surfaceTabBarFont.points
-                            Task { fontSaveFailed = !(await hostActions.setSurfaceTabBarFontSize(points)) }
+                            saveSurfaceTabBarFontSize(surfaceTabBarFont.points)
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
