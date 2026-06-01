@@ -3081,6 +3081,7 @@ body.reduce-motion *::after {
   border-radius: var(--radius-1);
   background: var(--color-pane);
   color: var(--color-muted);
+  cursor: pointer;
   font-family: var(--font-mono);
 }
 
