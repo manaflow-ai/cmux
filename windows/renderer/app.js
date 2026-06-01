@@ -4686,7 +4686,6 @@ function clearTerminalConnectionStatus(session) {
 function markTerminalOutputReady(session) {
   if (!session || session.hasOutput) return;
   session.hasOutput = true;
-  clearTerminalConnectionStatus(session);
 }
 
 function shouldDeferInitialTerminalLoad(panel, workspace, visibleCount = 1) {
@@ -4854,7 +4853,7 @@ function ensureTerminal(panel, body) {
 
   socket.addEventListener("open", () => {
     recordTerminalConnectDuration(performance.now() - session.createdAt);
-    setTerminalConnectionStatus(session, "ready", "Shell ready", 650);
+    if (!session.hasOutput) setTerminalConnectionStatus(session, "connecting", "Starting shell");
     scheduleFitTerminal(session, true);
   });
   socket.addEventListener("error", () => {
@@ -5081,7 +5080,7 @@ function flushTerminalOutput(session) {
   state.terminalOutputStats.chunks += 1;
   state.terminalOutputStats.lastChunk = chunk.length;
   state.terminalOutputStats.writtenBytes += chunk.length;
-  session.term.write(chunk);
+  session.term.write(chunk, () => clearTerminalConnectionStatus(session));
   updateTerminalOutputBacklog();
   if (session.queue) scheduleTerminalOutputFlush(session);
 }
