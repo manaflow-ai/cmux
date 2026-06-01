@@ -50,6 +50,22 @@ enum AppEnvironment {
         }
     }
 
+    /// Base URL of the cmux web API (device-token registration, push trigger).
+    /// Overridable via a `ApiBaseURL` key in `LocalConfig.plist` so a physical
+    /// device can point at a LAN/Tailscale dev server (localhost is unreachable
+    /// from a real phone).
+    var apiBaseURL: String {
+        if let override = Self.localConfigStringOverrides["ApiBaseURL"], !override.isEmpty {
+            return override.hasSuffix("/") ? String(override.dropLast()) : override
+        }
+        switch self {
+        case .development:
+            return "http://localhost:3000"
+        case .production:
+            return "https://cmux.dev"
+        }
+    }
+
     private var stackAuthConfig: CMUXAuthConfig {
         CMUXAuthConfig.resolve(
             environment: authEnvironment,

@@ -362,6 +362,25 @@ struct WorkspaceListView: View {
                 )
             }
             .accessibilityIdentifier("MobileWorkspaceTerminalShortcutsMenuItem")
+            #if os(iOS)
+            Button {
+                Task {
+                    if MobilePushCoordinator.shared.isEnabled {
+                        await MobilePushCoordinator.shared.disable()
+                    } else {
+                        _ = await MobilePushCoordinator.shared.enable()
+                    }
+                }
+            } label: {
+                Label(
+                    MobilePushCoordinator.shared.isEnabled
+                        ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Agent Notifications")
+                        : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me About Agents"),
+                    systemImage: MobilePushCoordinator.shared.isEnabled ? "bell.slash" : "bell"
+                )
+            }
+            .accessibilityIdentifier("MobileWorkspaceNotificationsMenuItem")
+            #endif
             if let rescanQR {
                 Button {
                     rescanQR()

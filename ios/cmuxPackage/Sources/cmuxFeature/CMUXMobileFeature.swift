@@ -87,6 +87,9 @@ struct CMUXMobileRootView: View {
             syncShellAuthentication(isAuthenticated)
             store.resumeForegroundRefresh()
             connectUITestAttachURLIfNeeded()
+            #if os(iOS)
+            MobilePushCoordinator.shared.bind(store: store)
+            #endif
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }

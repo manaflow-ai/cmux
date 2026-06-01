@@ -7,6 +7,17 @@
 		<string>Default</string>
 	</array>
 
+	<!-- APNs remote push. "development" targets the sandbox APNs host, matching
+	     DEBUG/dev tagged builds (which register sandbox device tokens). Flip to
+	     "production" for TestFlight/App Store archives (ideally via a build
+	     setting) so production device tokens are accepted. -->
+	<key>aps-environment</key>
+	<string>development</string>
+
+	<!-- Allows the .time-sensitive interruption level used by agent push. -->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
+
 	<!-- Example entitlements (commented out by default):
 
 	<key>com.apple.developer.healthkit</key>

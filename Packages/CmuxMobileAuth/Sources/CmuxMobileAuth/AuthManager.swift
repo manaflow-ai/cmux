@@ -436,6 +436,13 @@ public final class AuthManager {
         throw AuthError.unauthorized
     }
 
+    /// The current Stack refresh token, if any. Native API calls authenticate
+    /// with `Authorization: Bearer <access>` + `X-Stack-Refresh-Token: <refresh>`,
+    /// so callers need both this and ``getAccessToken()``.
+    public func getRefreshToken() async -> String? {
+        await stack.getRefreshToken()
+    }
+
     private func sanitizedAuthError(_ error: Error) -> Error {
         Self.displaySafeAuthError(error)
     }

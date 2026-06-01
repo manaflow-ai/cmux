@@ -4,6 +4,8 @@ import cmuxFeature
 
 @main
 struct cmuxApp: App {
+    @UIApplicationDelegateAdaptor(CmuxAppDelegate.self) private var appDelegate
+
     private static let runtime: CMUXMobileRuntime = {
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can
