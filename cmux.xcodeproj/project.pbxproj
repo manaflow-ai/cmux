@@ -174,7 +174,6 @@
 		D0B1000CA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1000DA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift */; };
 		E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */; };
 		AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */ = {isa = PBXBuildFile; productRef = AA11BB22CC33DD44EE550002 /* CMUXWorkstream */; };
-		C0DE47000000000000000001 /* com.manaflow.cmux.sidebar.appextensionpoint in Copy Extension Points */ = {isa = PBXBuildFile; fileRef = C0DE47000000000000000002 /* com.manaflow.cmux.sidebar.appextensionpoint */; };
 		C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4041001000000000000001A /* CommandClickFileOpenRouter.swift */; };
 		C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */; };
 		C0DEC0DE000000000000F202 /* CommandPaletteNucleoFFILibrarySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */; };
@@ -647,17 +646,6 @@
 				D1320AA0D1320AA0D1320AA2 /* CmuxDockTilePlugin.plugin in Copy Dock Tile Plugin */,
 			);
 			name = "Copy Dock Tile Plugin";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		C0DE47000000000000000003 /* Copy Extension Points */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = Contents/Extensions;
-			dstSubfolderSpec = 1;
-			files = (
-				C0DE47000000000000000001 /* com.manaflow.cmux.sidebar.appextensionpoint in Copy Extension Points */,
-			);
-			name = "Copy Extension Points";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -1917,7 +1905,7 @@
 				A5001030 /* Frameworks */,
 				A5001102 /* Resources */,
 				D3664003D3664003D3664003 /* Compress Markdown Viewer Assets */,
-				C0DE47000000000000000003 /* Copy Extension Points */,
+				C0DE47000000000000000003 /* Write Extension Point */,
 				D1320AA0D1320AA0D1320AA6 /* Copy Dock Tile Plugin */,
 				A5001020 /* Embed Frameworks */,
 				B900000AA1B2C3D4E5F60719 /* Copy CLI */,
@@ -2144,6 +2132,26 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		C0DE47000000000000000003 /* Write Extension Point */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/write-sidebar-extension-point.sh",
+			);
+			name = "Write Extension Point";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/write-sidebar-extension-point.sh\"\n";
+		};
 		D3664003D3664003D3664003 /* Compress Markdown Viewer Assets */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -2888,6 +2896,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Debug";
 				CMUX_AUTH_CALLBACK_SCHEME = "cmux-dev";
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.manaflow.cmux.sidebar;
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -2928,6 +2937,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CMUX_AUTH_CALLBACK_SCHEME = cmux;
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.manaflow.cmux.sidebar;
 				CODE_SIGN_ENTITLEMENTS = Resources/cmux.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
