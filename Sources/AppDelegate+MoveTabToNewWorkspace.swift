@@ -121,12 +121,6 @@ extension AppDelegate {
             return nil
         }
 
-        cleanupEmptySourceWorkspaceAfterSurfaceMove(
-            sourceWorkspace: sourceWorkspace,
-            sourceManager: source.tabManager,
-            sourceWindowId: source.windowId
-        )
-
         if focus {
             let destinationWindowId = focusWindow ? windowId(for: targetManager) : nil
             if let destinationWindowId {
@@ -148,6 +142,12 @@ extension AppDelegate {
                 )
             }
         }
+
+        cleanupEmptySourceWorkspaceAfterSurfaceMove(
+            sourceWorkspace: sourceWorkspace,
+            sourceManager: source.tabManager,
+            sourceWindowId: source.windowId
+        )
 
         return SurfaceNewWorkspaceMoveResult(
             sourceWindowId: source.windowId,

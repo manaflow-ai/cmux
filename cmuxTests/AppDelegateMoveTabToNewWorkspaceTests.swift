@@ -329,14 +329,14 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
             inPane: destinationPane,
             focus: false
         ))
+        if focus {
+            manager.focusTab(destinationWorkspace.id, surfaceId: panel.id, suppressFlash: true)
+        }
         app.cleanupEmptySourceWorkspaceAfterSurfaceMove(
             sourceWorkspace: sourceWorkspace,
             sourceManager: manager,
             sourceWindowId: sourceWindowId
         )
-        if focus {
-            manager.focusTab(destinationWorkspace.id, surfaceId: panel.id, suppressFlash: true)
-        }
         return attachedPanelId
     }
 

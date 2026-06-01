@@ -4843,19 +4843,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
 #if DEBUG
-        let cleanupStart = ProcessInfo.processInfo.systemUptime
+        var focusMs = "0.00"
 #endif
-        cleanupEmptySourceWorkspaceAfterSurfaceMove(
-            sourceWorkspace: sourceWorkspace,
-            sourceManager: source.tabManager,
-            sourceWindowId: source.windowId
-        )
-#if DEBUG
-        let cleanupMs = elapsedMs(since: cleanupStart)
-        let focusStart = ProcessInfo.processInfo.systemUptime
-#endif
-
         if focus {
+#if DEBUG
+            let focusStart = ProcessInfo.processInfo.systemUptime
+#endif
             let destinationWindowId = focusWindow ? windowId(for: destinationManager) : nil
             if let destinationWindowId {
                 _ = focusMainWindow(windowId: destinationWindowId)
@@ -4870,9 +4863,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     destinationManager: destinationManager
                 )
             }
+#if DEBUG
+            focusMs = elapsedMs(since: focusStart)
+#endif
         }
 #if DEBUG
-        let focusMs = elapsedMs(since: focusStart)
+        let cleanupStart = ProcessInfo.processInfo.systemUptime
+#endif
+        cleanupEmptySourceWorkspaceAfterSurfaceMove(
+            sourceWorkspace: sourceWorkspace,
+            sourceManager: source.tabManager,
+            sourceWindowId: source.windowId
+        )
+#if DEBUG
+        let cleanupMs = elapsedMs(since: cleanupStart)
         cmuxDebugLog(
             "surface.move.end panel=\(panelId.uuidString.prefix(5)) path=crossWorkspace moved=1 " +
             "sourceWs=\(sourceWorkspace.id.uuidString.prefix(5)) destinationWs=\(destinationWorkspace.id.uuidString.prefix(5)) " +
