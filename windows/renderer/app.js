@@ -376,6 +376,7 @@ const state = {
   workspaceListSignature: "",
   surfaceTabsSignature: "",
   paneRenderSignature: "",
+  paneFitSignature: "",
   newTabButton: null,
   paletteOpen: false,
   paletteIndex: 0,
@@ -3650,6 +3651,7 @@ function renderPanes(workspace) {
   const panels = workspace?.panels || [];
   if (!workspace) {
     state.paneRenderSignature = "";
+    state.paneFitSignature = "";
     renderEmptyWorkspace(null);
     updateBrowserPaneActivity(new Set());
     return;
@@ -3658,11 +3660,16 @@ function renderPanes(workspace) {
   const visiblePanels = zoomedPanel ? [zoomedPanel] : panels;
   const tree = zoomedPanel ? paneTreeLeaf(zoomedPanel.id) : paneTreeForWorkspace(workspace, visiblePanels);
   const signature = paneRenderSignature(workspace, visiblePanels, tree);
+  const fitSignature = paneFitSignature(workspace, visiblePanels, tree);
+  const shouldFitVisibleTerminals = fitSignature !== state.paneFitSignature;
   const liveVisiblePanelIds = new Set(visiblePanels.filter((panel) => !isPanelMinimized(panel)).map((panel) => panel.id));
   if (signature === state.paneRenderSignature && paneGridContainsPanels(visiblePanels)) {
     updateBrowserPaneActivity(liveVisiblePanelIds);
     resumeTerminalOutputAfterActivityChange(liveVisiblePanelIds);
-    scheduleVisibleTerminalFits(visiblePanels);
+    if (shouldFitVisibleTerminals) {
+      state.paneFitSignature = fitSignature;
+      scheduleVisibleTerminalFits(visiblePanels);
+    }
     return;
   }
   toggleClassIfChanged(elements.paneGrid, "direction-down", false);
@@ -3678,6 +3685,7 @@ function renderPanes(workspace) {
   }
   if (panels.length === 0) {
     state.paneRenderSignature = "";
+    state.paneFitSignature = "";
     renderEmptyWorkspace(workspace);
     updateBrowserPaneActivity(new Set());
     return;
@@ -3687,9 +3695,10 @@ function renderPanes(workspace) {
   const node = renderPaneTreeNode(tree, workspace, panelById, visiblePanels.length);
   replaceChildrenIfChanged(elements.paneGrid, node ? [node] : []);
   state.paneRenderSignature = signature;
+  state.paneFitSignature = fitSignature;
   updateBrowserPaneActivity(liveVisiblePanelIds);
   resumeTerminalOutputAfterActivityChange(liveVisiblePanelIds);
-  scheduleVisibleTerminalFits(visiblePanels);
+  if (shouldFitVisibleTerminals) scheduleVisibleTerminalFits(visiblePanels);
 }
 
 function paneGridContainsPanels(panels) {
@@ -3751,6 +3760,20 @@ function paneRenderSignature(workspace, visiblePanels, tree) {
       isPendingPanel(panel),
       state.terminals.has(panel.id),
       state.browserViews.has(panel.id)
+    ]))
+  ]);
+}
+
+function paneFitSignature(workspace, visiblePanels, tree) {
+  return stableJson([
+    workspace.id,
+    zoomedPanelIdForWorkspace(workspace) || "",
+    tree,
+    visiblePanels.map((panel) => ([
+      panel.id,
+      panel.type,
+      isPanelMinimized(panel),
+      panel.type === "terminal" ? terminalFontSizeForPanel(panel) : 0
     ]))
   ]);
 }
