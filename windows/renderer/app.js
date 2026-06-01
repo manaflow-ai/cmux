@@ -11973,7 +11973,7 @@ function optimisticAddPanel(panel, workspaceId, options = {}) {
   return true;
 }
 
-function optimisticFocusWorkspace(workspaceId) {
+function optimisticFocusWorkspace(workspaceId, options = {}) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return false;
   const previousPanelId = workspace.activePanelId;
@@ -11981,24 +11981,40 @@ function optimisticFocusWorkspace(workspaceId) {
   if (panel) workspace.activePanelId = panel.id;
   state.focusedPanelId = panel?.id || null;
   state.lastInteractedPanelId = panel?.id || null;
+  const renderFocusChange = () => {
+    if (options.schedule) scheduleRender();
+    else render();
+  };
   if (state.data.activeWorkspaceId !== workspaceId) {
     state.data.activeWorkspaceId = workspaceId;
-    render();
+    renderFocusChange();
   } else if (workspace.activePanelId !== previousPanelId) {
-    render();
+    renderFocusChange();
   }
   return true;
 }
 
-function optimisticFocusPanel(panelId) {
+function optimisticFocusPanel(panelId, options = {}) {
   const found = findPanelState(panelId);
   if (!found) return false;
+  const previousWorkspaceId = state.data.activeWorkspaceId;
+  const previousPanelId = found.workspace.activePanelId;
+  const previousFocusedPanelId = state.focusedPanelId;
+  const previousLastInteractedPanelId = state.lastInteractedPanelId;
   state.focusedPanelId = panelId;
   state.lastInteractedPanelId = panelId;
-  clearDifferentZoomedPanelOnFocus(found.workspace, panelId);
+  const zoomChanged = clearDifferentZoomedPanelOnFocus(found.workspace, panelId);
   found.workspace.activePanelId = panelId;
   state.data.activeWorkspaceId = found.workspace.id;
-  render();
+  const changed = previousWorkspaceId !== found.workspace.id
+    || previousPanelId !== panelId
+    || previousFocusedPanelId !== panelId
+    || previousLastInteractedPanelId !== panelId
+    || zoomChanged;
+  if (changed) {
+    if (options.schedule) scheduleRender();
+    else render();
+  }
   return true;
 }
 
@@ -12512,11 +12528,11 @@ async function focusWorkspace(workspaceId) {
     state.paintDeferredTerminalInitPanelIds.add(focusablePanel.id);
   }
   if (state.data?.activeWorkspaceId === workspaceId) {
-    if (workspace.activePanelId !== previousPanelId) render();
+    if (workspace.activePanelId !== previousPanelId) scheduleRender();
     focusTerminalSession(focusablePanel?.id);
     return;
   }
-  optimisticFocusWorkspace(workspaceId);
+  optimisticFocusWorkspace(workspaceId, { schedule: true });
   if (switchingWorkspace) showWorkspaceSwitchHud(workspace);
   queueFocusSync({ type: "workspace", workspaceId });
   focusTerminalSession(focusablePanel?.id);
@@ -12550,7 +12566,7 @@ async function focusPanel(panelId) {
     focusTerminalSession(panelId);
     return;
   }
-  if (!optimisticFocusPanel(panelId)) return;
+  if (!optimisticFocusPanel(panelId, { schedule: true })) return;
   if (found.panel.type === "terminal" && !state.terminals.has(panelId)) {
     state.paintDeferredTerminalInitPanelIds.add(panelId);
   }
