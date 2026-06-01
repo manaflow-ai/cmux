@@ -54,6 +54,21 @@ public struct CommandRunner: CommandRunning, Sendable {
         self.fallbackSearchDirectories = fallbackSearchDirectories
     }
 
+    /// Runs `executable` with `arguments` in `directory`, capturing its output.
+    ///
+    /// Implements ``CommandRunning/run(directory:executable:arguments:timeout:)``:
+    /// resolves `executable` against the configured `PATH`/bundled-bin/fallbacks,
+    /// drains `stdout`/`stderr` concurrently, and enforces `timeout` with a one-shot
+    /// timer that terminates (then `SIGKILL`s) the process. See the protocol for the
+    /// full contract.
+    ///
+    /// - Parameters:
+    ///   - directory: The working directory for the process.
+    ///   - executable: A command name (resolved against `PATH`) or absolute path.
+    ///   - arguments: The arguments passed to the command.
+    ///   - timeout: A deadline in seconds; when it elapses the process is terminated
+    ///     and the result has ``CommandResult/timedOut`` set. `nil` waits indefinitely.
+    /// - Returns: The ``CommandResult`` describing how the command finished.
     public func run(
         directory: String,
         executable: String,
