@@ -78,6 +78,8 @@ final class SidebarConnectionModel {
             errorText = nil
         } catch CmuxSidebarActionError.rejected(let message) {
             errorText = message
+        } catch CmuxSidebarActionError.cancelled {
+            errorText = nil
         } catch {
             errorText = String(localized: "sampleSidebar.actionDenied", defaultValue: "cmux did not allow that action")
         }

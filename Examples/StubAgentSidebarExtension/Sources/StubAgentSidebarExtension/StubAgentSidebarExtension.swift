@@ -21,6 +21,8 @@ public final class StubAgentSidebarExtension: @MainActor CmuxSidebarExtension {
     )
 
     public private(set) var snapshot: CmuxSidebarSnapshot?
+    public private(set) var errorText: String?
+
     @ObservationIgnored
     private var host: CmuxSidebarHost?
 
@@ -28,17 +30,23 @@ public final class StubAgentSidebarExtension: @MainActor CmuxSidebarExtension {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if let errorText {
+                Text(errorText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             ForEach(snapshot?.workspaces ?? []) { workspace in
                 Button(workspace.title.isEmpty ? workspace.id.uuidString : workspace.title) {
                     Task { @MainActor in
-                        try? await self.selectWorkspace(workspace.id)
+                        await self.apply { try await self.selectWorkspace(workspace.id) }
                     }
                 }
             }
 
             Button(String(localized: "stubAgent.createWorkspace", defaultValue: "Create Workspace")) {
                 Task { @MainActor in
-                    try? await self.createWorkspace()
+                    await self.apply { try await self.createWorkspace() }
                 }
             }
         }
@@ -48,6 +56,7 @@ public final class StubAgentSidebarExtension: @MainActor CmuxSidebarExtension {
     public func update(context: CmuxSidebarContext) {
         snapshot = context.snapshot
         host = context.host
+        errorText = nil
     }
 
     private func selectWorkspace(_ id: UUID) async throws {
@@ -61,5 +70,18 @@ public final class StubAgentSidebarExtension: @MainActor CmuxSidebarExtension {
             title: String(localized: "stubAgent.createdWorkspaceTitle", defaultValue: "SDK Proof"),
             select: true
         )
+    }
+
+    private func apply(_ operation: () async throws -> Void) async {
+        do {
+            try await operation()
+            errorText = nil
+        } catch CmuxSidebarActionError.rejected(let message) {
+            errorText = message
+        } catch CmuxSidebarActionError.cancelled {
+            errorText = nil
+        } catch {
+            errorText = String(localized: "stubAgent.actionDenied", defaultValue: "cmux did not allow that action")
+        }
     }
 }

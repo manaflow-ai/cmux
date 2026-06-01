@@ -5,6 +5,8 @@ import Foundation
 /// Most extension authors should use `CmuxSidebarExtensionScene(_:)`, which owns
 /// ExtensionKit scene setup and `NSXPCConnection` handling. This type remains
 /// internal so the public SDK keeps extension authors on typed CMUX protocols.
+/// `@unchecked Sendable` is safe because mutable transport state is guarded by
+/// `lock` or `lifecycleLock`, and callbacks cross back to `@MainActor`.
 final class CMUXSidebarExtensionConnection: @unchecked Sendable {
     /// Receives a filtered workspace snapshot from CMUX.
     typealias SnapshotHandler = @MainActor @Sendable (CmuxSidebarSnapshot) -> Void

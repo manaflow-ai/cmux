@@ -2,9 +2,15 @@
 @_exported import ExtensionKit
 import SwiftUI
 
+/// Current state of the connection between a sidebar extension and CMUX.
 public enum CmuxSidebarConnectionStatus: Equatable, Sendable {
+    /// The extension is connected and receiving host updates.
     case connected
+
+    /// The extension has no active CMUX host connection yet.
     case waitingForHost
+
+    /// The host connection reported an error message suitable for diagnostics.
     case error(String)
 }
 

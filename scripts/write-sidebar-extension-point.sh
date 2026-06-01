@@ -29,10 +29,13 @@ cat > "$DEST" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>EXExtensionPointIsPublic</key>
-  <true/>
-  <key>EXPresentsUserInterface</key>
-  <true/>
+  <key>${POINT_ID}</key>
+  <dict>
+    <key>EXExtensionPointIsPublic</key>
+    <true/>
+    <key>EXPresentsUserInterface</key>
+    <true/>
+  </dict>
 </dict>
 </plist>
 EOF

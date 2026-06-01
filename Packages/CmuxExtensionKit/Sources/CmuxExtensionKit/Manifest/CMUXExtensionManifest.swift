@@ -1,12 +1,23 @@
 import Foundation
 
+/// Metadata and permission request declared by a CMUX extension.
 public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable {
+    /// Stable reverse-DNS style identifier for the extension.
     public var id: String
+
+    /// Human-readable extension name shown by CMUX permission and management UI.
     public var displayName: String
+
+    /// Minimum CMUX extension API version required by this extension.
     @_spi(CmuxHostTransport) public var minimumAPIVersion: CmuxExtensionAPIVersion
+
+    /// Sidebar data scopes the extension asks CMUX to include in snapshots.
     public var readScopes: [CmuxExtensionScope]
+
+    /// Host action scopes the extension asks CMUX to allow.
     public var actionScopes: [CmuxExtensionActionScope]
 
+    /// Creates a sidebar extension manifest.
     public init(
         id: String,
         displayName: String,
