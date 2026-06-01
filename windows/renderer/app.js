@@ -4090,7 +4090,10 @@ function renderEmptyWorkspaceLaunchers(node, workspace) {
     button.type = "button";
     button.dataset.emptyLauncher = launcher.id;
     button.disabled = busy;
-    button.title = busy ? currentUiOperationLabel() || "Pane is being added" : launcher.label;
+    const launcherLabel = `${launcher.label}: ${launcher.meta}`;
+    const busyLabel = currentUiOperationLabel() || "Pane is being added";
+    button.title = busy ? busyLabel : launcherLabel;
+    button.setAttribute("aria-label", busy ? `${launcherLabel}. ${busyLabel}.` : launcherLabel);
     button.innerHTML = `
       <span class="empty-workspace-launcher-icon"></span>
       <span class="empty-workspace-launcher-text">
