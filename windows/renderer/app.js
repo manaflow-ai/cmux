@@ -827,14 +827,14 @@ async function validateBackgroundImageValue(value) {
 async function applyCustomBackgroundImage(value, options = {}) {
   const raw = String(value || "").trim();
   if (!raw) {
-    const changed = updateSettings({ backgroundImage: "" });
+    const changed = updateSettings({ backgroundImage: "" }, { immediate: true });
     if (changed && options.render !== false) renderSettingsInspector();
     if (changed && options.toast) toast("Background image cleared.");
     return changed;
   }
   const preset = isBackgroundPreset(raw) ? raw : "";
   if (preset) {
-    const changed = updateSettings(backgroundImageSettings(preset));
+    const changed = updateSettings(backgroundImageSettings(preset), { immediate: true });
     if (changed && options.render !== false) renderSettingsInspector();
     return changed;
   }
@@ -844,7 +844,7 @@ async function applyCustomBackgroundImage(value, options = {}) {
     if (options.resetInput) options.resetInput.value = isBackgroundPreset(state.settings.backgroundImage) ? "" : state.settings.backgroundImage;
     return null;
   }
-  const changed = updateSettings(backgroundImageSettings(validated.url));
+  const changed = updateSettings(backgroundImageSettings(validated.url), { immediate: true });
   if (changed && options.render !== false) renderSettingsInspector();
   if (changed && options.toast) toast("Background image updated.");
   return changed;
@@ -1712,7 +1712,7 @@ async function applyAndSaveCustomBackgroundImage(background, options = {}) {
   const wasSaved = state.savedBackgroundImages.some((candidate) => candidate.url.toLowerCase() === validated.url.toLowerCase());
   const saved = upsertSavedBackgroundImage({ ...input, url: validated.url }, { render: false, toast: false });
   if (!saved) return null;
-  const changed = updateSettings(backgroundImageSettings(validated.url));
+  const changed = updateSettings(backgroundImageSettings(validated.url), { immediate: true });
   if (options.render !== false) renderSettingsInspector();
   if (options.toast !== false) {
     if (changed && !wasSaved) toast("Background image applied and saved.");
@@ -1731,7 +1731,7 @@ async function applySavedBackgroundImage(backgroundId) {
     toast(`${background.label} background could not be loaded.`);
     return;
   }
-  const changed = updateSettings(backgroundImageSettings(validated.url));
+  const changed = updateSettings(backgroundImageSettings(validated.url), { immediate: true });
   if (!changed) {
     toast(`${background.label} background already active.`);
     return;
@@ -6675,7 +6675,7 @@ function renderSettingsInspector(options = {}) {
       }, "", "background image url local path apply save wallpaper"),
       settingsActionButton("Choose file", chooseBackgroundImage, "", "background image local file wallpaper"),
       settingsActionButton("Clear image", () => {
-        updateSettings({ backgroundImage: "" });
+        updateSettings({ backgroundImage: "" }, { immediate: true });
         renderSettingsInspector();
       }, "danger", "background image local file wallpaper reset remove")
     );
@@ -7531,7 +7531,7 @@ function activeBackgroundPanel() {
   const open = settingsActionButton("Open", () => openBackgroundImageSource(), "", "active background open local file url source reveal");
   open.disabled = !canOpenBackgroundImageSource(state.settings.backgroundImage);
   const clear = settingsActionButton("Clear", () => {
-    const changed = updateSettings({ backgroundImage: "" });
+    const changed = updateSettings({ backgroundImage: "" }, { immediate: true });
     if (changed) renderSettingsInspector();
   }, "danger", "active background clear remove reset");
   clear.disabled = !hasBackground;
@@ -9457,7 +9457,7 @@ function backgroundPresetGrid() {
 
 function applyBackgroundPreset(preset, options = {}) {
   if (!preset) return false;
-  const changed = updateSettings(backgroundImageSettings(preset.value));
+  const changed = updateSettings(backgroundImageSettings(preset.value), { immediate: true });
   if (!changed) {
     if (options.toast !== false) toast(`${preset.label} background already active.`);
     return false;
