@@ -55,6 +55,13 @@ extension RightSidebarMode {
     }
 }
 
+nonisolated enum RightSidebarContentMountPolicy {
+    static func mountedMode(selectedMode: RightSidebarMode, isRightSidebarVisible: Bool) -> RightSidebarMode? {
+        guard isRightSidebarVisible else { return nil }
+        return selectedMode
+    }
+}
+
 extension RightSidebarMode {
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
@@ -383,30 +390,37 @@ struct RightSidebarPanelView: View {
 
     @ViewBuilder
     private var contentForMode: some View {
-        switch fileExplorerState.mode {
-        case .files:
-            FileExplorerPanelView(
-                store: fileExplorerStore,
-                state: fileExplorerState,
-                onOpenFilePreview: onOpenFilePreview,
-                presentation: .files
-            )
-        case .find:
-            FileExplorerPanelView(
-                store: fileExplorerStore,
-                state: fileExplorerState,
-                onOpenFilePreview: onOpenFilePreview,
-                presentation: .find
-            )
-        case .sessions:
-            SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
-                .onAppear {
-                    sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
-                }
-        case .feed:
-            FeedPanelView()
-        case .dock:
-            DockPanelView(rootDirectory: sessionIndexDirectory, workspaceId: workspaceId, store: dockStore)
+        if let mountedMode = RightSidebarContentMountPolicy.mountedMode(
+            selectedMode: fileExplorerState.mode,
+            isRightSidebarVisible: fileExplorerState.isVisible
+        ) {
+            switch mountedMode {
+            case .files:
+                FileExplorerPanelView(
+                    store: fileExplorerStore,
+                    state: fileExplorerState,
+                    onOpenFilePreview: onOpenFilePreview,
+                    presentation: .files
+                )
+            case .find:
+                FileExplorerPanelView(
+                    store: fileExplorerStore,
+                    state: fileExplorerState,
+                    onOpenFilePreview: onOpenFilePreview,
+                    presentation: .find
+                )
+            case .sessions:
+                SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
+                    .onAppear {
+                        sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
+                    }
+            case .feed:
+                FeedPanelView()
+            case .dock:
+                DockPanelView(rootDirectory: sessionIndexDirectory, workspaceId: workspaceId, store: dockStore)
+            }
+        } else {
+            Color.clear
         }
     }
 

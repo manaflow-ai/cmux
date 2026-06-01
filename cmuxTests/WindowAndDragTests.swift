@@ -1874,6 +1874,61 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertEqual(window.zoomCallCount, 1)
         XCTAssertEqual(window.miniaturizeCallCount, 0)
     }
+
+    func testHiddenRightSidebarDoesNotMountFileExplorerPanelContent() {
+        _ = NSApplication.shared
+
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.object(forKey: "rightSidebar.mode")
+        let previousVisibility = defaults.object(forKey: "fileExplorer.isVisible")
+        defer {
+            if let previousMode {
+                defaults.set(previousMode, forKey: "rightSidebar.mode")
+            } else {
+                defaults.removeObject(forKey: "rightSidebar.mode")
+            }
+            if let previousVisibility {
+                defaults.set(previousVisibility, forKey: "fileExplorer.isVisible")
+            } else {
+                defaults.removeObject(forKey: "fileExplorer.isVisible")
+            }
+        }
+
+        let fileExplorerState = FileExplorerState()
+        fileExplorerState.mode = .find
+        fileExplorerState.setVisible(false)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 260),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let rootView = RightSidebarPanelView(
+            tabManager: TabManager(),
+            fileExplorerStore: FileExplorerStore(),
+            fileExplorerState: fileExplorerState,
+            sessionIndexStore: SessionIndexStore(),
+            titlebarHeight: 36,
+            workspaceId: nil,
+            onResumeSession: nil,
+            onOpenFilePreview: { _ in },
+            onOpenAsPane: { _ in },
+            onClose: {}
+        )
+        let hostingView = NSHostingView(rootView: rootView)
+        hostingView.frame = window.contentRect(forFrameRect: window.frame)
+        window.contentView = hostingView
+        window.displayIfNeeded()
+        hostingView.layoutSubtreeIfNeeded()
+
+        XCTAssertNil(
+            Self.firstSubview(in: hostingView) { $0 is FileExplorerContainerView },
+            "Hidden right-sidebar state should preserve the selected mode without mounting FileExplorerPanelView content"
+        )
+    }
 }
 
 #if DEBUG
