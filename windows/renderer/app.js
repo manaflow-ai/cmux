@@ -2429,6 +2429,20 @@ function allPanels() {
   return (state.data?.workspaces || []).flatMap((workspace) => workspace.panels);
 }
 
+function isAppHomeWorkspace(workspace) {
+  return Boolean(
+    workspace
+    && workspace.id === state.data?.activeWorkspaceId
+    && workspace.panels.length === 0
+    && allPanels().length === 0
+  );
+}
+
+function workspaceDisplayTitle(workspace, fallback = "Workspace") {
+  if (isAppHomeWorkspace(workspace)) return "cmux";
+  return workspace?.title || fallback;
+}
+
 function allPanelIds() {
   return new Set(allPanels().map((panel) => panel.id));
 }
@@ -2775,9 +2789,13 @@ function render(previousState) {
   const attentionCount = allAttentionPanels().length;
   const zoomedPanel = zoomedPanelForWorkspace(workspace);
   const operationLabel = currentUiOperationLabel();
+  const workspaceTitle = workspaceDisplayTitle(workspace);
+  const workspaceSubheading = workspace
+    ? (isAppHomeWorkspace(workspace) ? "home" : `${workspace.cwdShort || "no directory"}`)
+    : "Ready";
 
-  setTextIfChanged(elements.workspaceHeading, workspace?.title || "Workspace");
-  setTextIfChanged(elements.workspaceSubheading, workspace ? `${workspace.cwdShort || "no directory"}` : "Ready");
+  setTextIfChanged(elements.workspaceHeading, workspaceTitle);
+  setTextIfChanged(elements.workspaceSubheading, workspaceSubheading);
   setTextIfChanged(elements.statusSummary, operationLabel || defaultStatusSummary(workspace, {
     attentionCount,
     panelCount,
@@ -2854,11 +2872,19 @@ function currentUiOperationLabel() {
 }
 
 function paneCreationButtonsDisabled() {
+  return paneCreationOperationCount() >= maxConcurrentPaneCreations;
+}
+
+function paneCreationOperationCount() {
   let count = 0;
   for (const operation of state.uiOperations.values()) {
     if (operation.kind === "create-panel") count += 1;
   }
-  return count >= maxConcurrentPaneCreations;
+  return count;
+}
+
+function paneCreationBusy() {
+  return paneCreationOperationCount() > 0;
 }
 
 function isUiOperationActive(key) {
@@ -2871,7 +2897,7 @@ function defaultStatusSummary(workspace = activeWorkspace(), options = {}) {
   const attentionCount = options.attentionCount ?? allAttentionPanels().length;
   const zoomedPanel = options.zoomedPanel ?? zoomedPanelForWorkspace(workspace);
   const parts = [
-    workspace.title || "Workspace",
+    workspaceDisplayTitle(workspace),
     zoomedPanel ? "focus" : panelCount ? `${panelCount} pane${panelCount === 1 ? "" : "s"}` : "home"
   ];
   if (attentionCount > 0) parts.push(`${attentionCount} attention`);
@@ -2884,12 +2910,12 @@ function showWorkspaceSwitchHud(workspace) {
   const index = Math.max(0, workspaces.findIndex((candidate) => candidate.id === workspace.id));
   const panelCount = workspace.panels?.length || 0;
   const meta = [
-    workspace.cwdShort || workspace.cwd || "no directory",
+    isAppHomeWorkspace(workspace) ? "home" : workspace.cwdShort || workspace.cwd || "no directory",
     panelCount ? `${panelCount} pane${panelCount === 1 ? "" : "s"}` : "home"
   ].filter(Boolean).join(" · ");
   elements.workspaceSwitchHud.style.setProperty("--workspace-hud-color", workspace.color || state.data?.palette?.[0] || state.settings.accent);
   setTextIfChanged(elements.workspaceSwitchHud.querySelector(".workspace-switch-index"), `${index + 1} / ${Math.max(1, workspaces.length)}`);
-  setTextIfChanged(elements.workspaceSwitchHud.querySelector(".workspace-switch-title"), workspace.title || `Workspace ${index + 1}`);
+  setTextIfChanged(elements.workspaceSwitchHud.querySelector(".workspace-switch-title"), workspaceDisplayTitle(workspace, `Workspace ${index + 1}`));
   setTextIfChanged(elements.workspaceSwitchHud.querySelector(".workspace-switch-meta"), meta);
   elements.workspaceSwitchHud.classList.add("is-visible");
   elements.workspaceSwitchHud.setAttribute("aria-hidden", "false");
@@ -2944,6 +2970,7 @@ function updateOperationChrome() {
     if (button) button.disabled = creatingPane;
   }
   if (state.newTabButton) state.newTabButton.disabled = creatingPane;
+  updateVisibleEmptyWorkspaceControls();
 }
 
 async function withUiOperation(key, kind, label, task) {
@@ -3088,8 +3115,8 @@ function workspaceDropPlacement(event, row) {
 function updateWorkspaceRow(button, workspace, index, activeId) {
   const hasAttention = workspace.panels.some((panel) => panel.needsAttention);
   const attentionTotal = workspace.panels.filter((panel) => panel.needsAttention).length;
-  const title = workspace.title || `Workspace ${index + 1}`;
-  const cwd = workspace.cwdShort || "~";
+  const title = workspaceDisplayTitle(workspace, `Workspace ${index + 1}`);
+  const cwd = isAppHomeWorkspace(workspace) ? "home" : workspace.cwdShort || "~";
   const branch = String(workspace.branch || "").trim();
   const paneSummary = `${workspace.terminalCount || 0} terminal${workspace.terminalCount === 1 ? "" : "s"} / ${workspace.browserCount || 0} browser${workspace.browserCount === 1 ? "" : "s"}`;
   setDatasetIfChanged(button, "workspaceId", workspace.id);
@@ -3660,18 +3687,7 @@ function createEmptyWorkspaceLogo() {
   logo.className = "empty-workspace-logo";
   logo.setAttribute("role", "img");
   logo.setAttribute("aria-label", "cmux Windows");
-  logo.innerHTML = `
-    <svg viewBox="0 0 180 180" aria-hidden="true" focusable="false">
-      <rect class="empty-logo-shell" width="180" height="180" rx="28"></rect>
-      <rect class="empty-logo-window" x="34" y="38" width="112" height="88" rx="10"></rect>
-      <rect class="empty-logo-accent" x="46" y="54" width="54" height="8" rx="4"></rect>
-      <rect class="empty-logo-line strong" x="46" y="74" width="86" height="8" rx="4"></rect>
-      <rect class="empty-logo-line" x="46" y="94" width="66" height="8" rx="4"></rect>
-      <path class="empty-logo-stand" d="M64 142h52M90 126v18"></path>
-      <circle class="empty-logo-dot" cx="129" cy="54" r="5"></circle>
-      <path class="empty-logo-check" d="M57 119 72 134l34-42"></path>
-    </svg>
-  `;
+  logo.innerHTML = `<img src="./assets/cmux-empty.svg" alt="">`;
   return logo;
 }
 
@@ -3687,19 +3703,13 @@ function createEmptyWorkspace(workspace) {
   node.innerHTML = `
     <div class="empty-workspace-inner">
       <div class="empty-workspace-title"></div>
-      <div class="empty-workspace-body">Start with a pane or build a ready workspace layout.</div>
-      <div class="empty-workspace-actions">
-        <button class="tool-button primary new-terminal">+ Term</button>
-        <button class="tool-button new-browser">Web</button>
-        <button class="tool-button reopen-pane">Reopen</button>
-      </div>
-      <div class="empty-workspace-starters"></div>
+      <div class="empty-workspace-body">Start with a shell, browser, or ready layout.</div>
+      <div class="empty-workspace-launchers"></div>
     </div>
   `;
   ensureEmptyWorkspaceLogo(node);
   node.querySelector(".empty-workspace-title").textContent = "cmux";
   updateEmptyWorkspaceActions(node, workspace);
-  renderEmptyWorkspaceStarters(node, workspace);
   return node;
 }
 
@@ -3711,23 +3721,23 @@ function renderEmptyWorkspace(workspace) {
     ensureEmptyWorkspaceLogo(node);
     node.querySelector(".empty-workspace-title").textContent = "cmux";
     updateEmptyWorkspaceActions(node, workspace);
-    renderEmptyWorkspaceStarters(node, workspace);
   }
   replaceChildrenIfChanged(elements.paneGrid, [node]);
+}
+
+function updateVisibleEmptyWorkspaceControls() {
+  const node = elements.paneGrid?.querySelector(".empty-workspace");
+  if (!node) return;
+  updateEmptyWorkspaceActions(node, activeWorkspace());
 }
 
 function updateEmptyWorkspaceActions(node, workspace) {
   const canReopen = state.closedPanels.length > 0;
   setTextIfChanged(
     node.querySelector(".empty-workspace-body"),
-    canReopen ? "Reopen your last pane or start a new workspace layout." : "Start with a pane or build a ready workspace layout."
+    canReopen ? "Reopen the last pane or start fresh." : "Start with a shell, browser, or ready layout."
   );
-  node.querySelector(".new-terminal").onclick = () => createEmptyWorkspacePanel("terminal", workspace);
-  node.querySelector(".new-browser").onclick = () => createEmptyWorkspacePanel("browser", workspace);
-  const reopen = node.querySelector(".reopen-pane");
-  reopen.onclick = reopenClosedPanel;
-  reopen.disabled = !canReopen;
-  setHiddenIfChanged(reopen, !canReopen);
+  renderEmptyWorkspaceLaunchers(node, workspace);
 }
 
 async function workspaceForEmptyAction(workspace) {
@@ -3744,26 +3754,85 @@ async function createEmptyWorkspacePanel(type, workspace) {
   });
 }
 
-function renderEmptyWorkspaceStarters(node, workspace) {
-  const host = node.querySelector(".empty-workspace-starters");
+function emptyWorkspaceLaunchers() {
+  const launchers = [
+    {
+      id: "terminal",
+      icon: ">_",
+      label: "Terminal",
+      meta: "shell",
+      kind: "panel",
+      type: "terminal",
+      primary: state.closedPanels.length === 0
+    },
+    {
+      id: "browser",
+      icon: "www",
+      label: "Browser",
+      meta: "home",
+      kind: "panel",
+      type: "browser"
+    },
+    ...workspaceStarters.map((starter) => ({
+      id: starter.id,
+      icon: String(starter.panels.length),
+      label: starter.label,
+      meta: starter.panels.map((type) => type === "browser" ? "web" : "term").join(" + "),
+      kind: "starter",
+      starterId: starter.id
+    }))
+  ];
+  if (state.closedPanels.length > 0) {
+    launchers.unshift({
+      id: "reopen",
+      icon: "...",
+      label: "Reopen",
+      meta: "last pane",
+      kind: "reopen",
+      primary: true
+    });
+  }
+  return launchers;
+}
+
+async function runEmptyWorkspaceLauncher(launcher, workspace) {
+  if (!launcher || paneCreationBusy()) return;
+  if (launcher.kind === "reopen") {
+    await reopenClosedPanel();
+    return;
+  }
+  if (launcher.kind === "panel") {
+    await createEmptyWorkspacePanel(launcher.type, workspace);
+    return;
+  }
+  if (launcher.kind === "starter") {
+    const targetWorkspace = await workspaceForEmptyAction(workspace);
+    if (targetWorkspace?.id) await applyWorkspaceStarter(launcher.starterId, targetWorkspace.id);
+  }
+}
+
+function renderEmptyWorkspaceLaunchers(node, workspace) {
+  const host = node.querySelector(".empty-workspace-launchers");
   if (!host) return;
-  const cards = workspaceStarters.map((starter) => {
+  const busy = paneCreationBusy();
+  const cards = emptyWorkspaceLaunchers().map((launcher) => {
     const button = document.createElement("button");
-    button.className = "empty-workspace-starter";
+    button.className = `empty-workspace-launcher${launcher.primary ? " is-primary" : ""}`;
     button.type = "button";
-    button.dataset.workspaceStarter = starter.id;
+    button.dataset.emptyLauncher = launcher.id;
+    button.disabled = busy;
+    button.title = busy ? currentUiOperationLabel() || "Pane is being added" : launcher.label;
     button.innerHTML = `
-      <span class="empty-workspace-starter-label"></span>
-      <span class="empty-workspace-starter-meta"></span>
+      <span class="empty-workspace-launcher-icon"></span>
+      <span class="empty-workspace-launcher-text">
+        <span class="empty-workspace-launcher-label"></span>
+        <span class="empty-workspace-launcher-meta"></span>
+      </span>
     `;
-    button.querySelector(".empty-workspace-starter-label").textContent = starter.label;
-    button.querySelector(".empty-workspace-starter-meta").textContent = starter.panels
-      .map((type) => type === "browser" ? "web" : "term")
-      .join(" + ");
-    button.onclick = async () => {
-      const targetWorkspace = await workspaceForEmptyAction(workspace);
-      if (targetWorkspace?.id) applyWorkspaceStarter(starter.id, targetWorkspace.id);
-    };
+    button.querySelector(".empty-workspace-launcher-icon").textContent = launcher.icon;
+    button.querySelector(".empty-workspace-launcher-label").textContent = launcher.label;
+    button.querySelector(".empty-workspace-launcher-meta").textContent = launcher.meta;
+    button.onclick = () => runEmptyWorkspaceLauncher(launcher, workspace);
     return button;
   });
   replaceChildrenIfChanged(host, cards);

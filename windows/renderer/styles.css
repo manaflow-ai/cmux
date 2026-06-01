@@ -500,6 +500,7 @@ body.reduce-motion *::after {
 .active-background-preview,
 .workspace-starter,
 .empty-workspace-starter,
+.empty-workspace-launcher,
 .background-preset,
 .settings-page-tab,
 .context-action,
@@ -600,6 +601,7 @@ body.reduce-motion *::after {
 .active-background-preview:focus-visible,
 .workspace-starter:focus-visible,
 .empty-workspace-starter:focus-visible,
+.empty-workspace-launcher:focus-visible,
 .settings-command-run:focus-visible,
 .background-preset:focus-visible,
 .settings-page-tab:focus-visible,
@@ -635,6 +637,7 @@ body.reduce-motion *::after {
 .active-background-preview:active,
 .workspace-starter:active,
 .empty-workspace-starter:active,
+.empty-workspace-launcher:active,
 .settings-command-run:active,
 .background-preset:active,
 .settings-page-tab:active,
@@ -2699,11 +2702,11 @@ body.reduce-motion *::after {
   place-items: center;
   padding: var(--space-5);
   background:
-    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 86%, transparent), var(--color-canvas));
+    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 76%, transparent), var(--color-canvas));
 }
 
 .empty-workspace-inner {
-  width: min(460px, 100%);
+  width: min(620px, 100%);
   display: grid;
   justify-items: center;
   gap: var(--space-3);
@@ -2711,13 +2714,13 @@ body.reduce-motion *::after {
 }
 
 .empty-workspace-logo {
-  width: 104px;
-  height: 104px;
+  width: 92px;
+  height: 92px;
   display: block;
-  color: var(--color-text);
   filter: drop-shadow(0 14px 28px color-mix(in oklch, var(--color-canvas) 50%, transparent));
 }
 
+.empty-workspace-logo img,
 .empty-workspace-logo svg {
   width: 100%;
   height: 100%;
@@ -2768,80 +2771,92 @@ body.reduce-motion *::after {
 
 .empty-workspace-title {
   color: var(--color-text);
-  font-weight: 760;
-  font-size: 18px;
+  font-weight: 780;
+  font-size: 26px;
   letter-spacing: 0;
 }
 
 .empty-workspace-body {
+  max-width: 360px;
   color: var(--color-muted);
   font-size: 13px;
+  line-height: 1.45;
 }
 
-.empty-workspace-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+.empty-workspace-launchers {
+  width: min(640px, 100%);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.empty-workspace-launcher {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
-}
-
-.empty-workspace-actions .tool-button {
-  width: auto;
-  min-width: 82px;
-  padding: 0 var(--space-3);
-  gap: 6px;
-}
-
-.empty-workspace-starters {
-  width: min(560px, 100%);
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-2);
-  margin-top: var(--space-1);
-}
-
-.empty-workspace-starter {
-  min-width: 0;
-  min-height: 52px;
-  display: grid;
-  gap: 4px;
-  align-content: center;
   padding: var(--space-2);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane-warm) 72%, transparent);
+  background: color-mix(in oklch, var(--color-pane-warm) 66%, transparent);
   color: var(--color-text);
   text-align: left;
   cursor: pointer;
 }
 
-.empty-workspace-starter:hover {
+.empty-workspace-launcher:hover {
   border-color: var(--color-line-strong);
   background: var(--color-pane-warm);
 }
 
-.empty-workspace-starter-label,
-.empty-workspace-starter-meta {
+.empty-workspace-launcher.is-primary {
+  border-color: color-mix(in oklch, var(--color-accent) 54%, var(--color-line));
+  background: color-mix(in oklch, var(--color-accent-hover) 46%, var(--color-pane-warm));
+}
+
+.empty-workspace-launcher:disabled {
+  cursor: progress;
+  opacity: .58;
+}
+
+.empty-workspace-launcher-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-muted);
+  font: 11px/1 var(--font-mono);
+}
+
+.empty-workspace-launcher-text {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.empty-workspace-launcher-label,
+.empty-workspace-launcher-meta {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.empty-workspace-starter-label {
+.empty-workspace-launcher-label {
   color: var(--color-text);
   font-size: 12px;
   font-weight: 760;
 }
 
-.empty-workspace-starter-meta {
+.empty-workspace-launcher-meta {
   justify-self: start;
   max-width: 100%;
-  padding: 3px 5px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-1);
-  background: var(--color-pane);
   color: var(--color-faint);
   font: 10px/1 var(--font-mono);
 }
@@ -6348,7 +6363,7 @@ textarea.dialog-input {
     flex-direction: column;
   }
 
-  .empty-workspace-starters {
+  .empty-workspace-launchers {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -6361,8 +6376,8 @@ textarea.dialog-input {
   }
 
   .empty-workspace-logo {
-    width: 60px;
-    height: 60px;
+    width: 68px;
+    height: 68px;
   }
 
   .terminal-search {
