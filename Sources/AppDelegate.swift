@@ -14575,6 +14575,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    func debugPreferredMainWindowContextForWorkspaceCreation(
+        event: NSEvent? = nil,
+        debugSource: String = "test"
+    ) -> MainWindowContext? {
+        preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
+    }
+
     func debugMainWindowForFocusedCloseShortcut(event: NSEvent) -> NSWindow? {
         mainWindowForFocusedCloseShortcut(event: event)
     }

@@ -293,7 +293,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
         let originalTabManager = appDelegate.tabManager
-        let manager = TabManager()
+        let manager = TabManager(debugCreateInitialWorkspace: false)
         appDelegate.tabManager = manager
         defer {
             appDelegate.tabManager = originalTabManager
@@ -967,21 +967,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         appDelegate.tabManager = firstManager
         XCTAssertTrue(appDelegate.tabManager === firstManager)
 
-        let createdWorkspaceId = UUID()
-        var routedWindowId: UUID?
-        var routedTabManager: TabManager?
-        appDelegate.debugAddWorkspaceInPreferredMainWindowCreationOverride = { context, workingDirectory in
-            XCTAssertNil(workingDirectory)
-            routedWindowId = context.windowId
-            routedTabManager = context.tabManager
-            return createdWorkspaceId
-        }
-        defer { appDelegate.debugAddWorkspaceInPreferredMainWindowCreationOverride = nil }
+        let routedContext = appDelegate.debugPreferredMainWindowContextForWorkspaceCreation()
 
-        XCTAssertEqual(appDelegate.addWorkspaceInPreferredMainWindow(), createdWorkspaceId)
-
-        XCTAssertEqual(routedWindowId, secondContext.windowId)
-        XCTAssertTrue(routedTabManager === secondManager, "Workspace creation should target key/main window context")
+        XCTAssertEqual(routedContext?.windowId, secondContext.windowId)
+        XCTAssertTrue(routedContext?.tabManager === secondManager, "Workspace creation should target key/main window context")
         XCTAssertEqual(firstManager.tabs.count, firstCount, "Stale pointer must not receive menu-driven workspace creation")
         XCTAssertEqual(secondManager.tabs.count, secondCount, "Routing test should not create a real terminal workspace")
 #else
@@ -1514,23 +1503,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let firstCount = firstManager.tabs.count
         let secondCount = secondManager.tabs.count
 
-        let createdWorkspaceId = UUID()
-        var routedWindowId: UUID?
-        var routedTabManager: TabManager?
-        appDelegate.debugAddWorkspaceInPreferredMainWindowCreationOverride = { context, workingDirectory in
-            XCTAssertNil(workingDirectory)
-            routedWindowId = context.windowId
-            routedTabManager = context.tabManager
-            return createdWorkspaceId
-        }
-        defer { appDelegate.debugAddWorkspaceInPreferredMainWindowCreationOverride = nil }
-
-        XCTAssertEqual(appDelegate.addWorkspaceInPreferredMainWindow(), createdWorkspaceId)
+        let routedContext = appDelegate.debugPreferredMainWindowContextForWorkspaceCreation()
 
         XCTAssertEqual(firstManager.tabs.count, firstCount, "Menu-driven add workspace should not route to stale window")
         XCTAssertEqual(secondManager.tabs.count, secondCount, "Routing test should not create a real terminal workspace")
-        XCTAssertEqual(routedWindowId, secondContext.windowId)
-        XCTAssertTrue(routedTabManager === secondManager, "Menu-driven add workspace should still route to key window context when object-key lookup misses")
+        XCTAssertEqual(routedContext?.windowId, secondContext.windowId)
+        XCTAssertTrue(routedContext?.tabManager === secondManager, "Menu-driven add workspace should still route to key window context when object-key lookup misses")
 #else
         XCTFail("Lightweight main-window context registration is only available in DEBUG")
 #endif
@@ -1542,7 +1520,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let appDelegate = AppDelegate()
         defer { AppDelegate.shared = previousAppDelegate }
 
-        let orphanManager = TabManager()
+        let orphanManager = TabManager(debugCreateInitialWorkspace: false)
 #if DEBUG
         let orphanWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: orphanManager)
 #else
@@ -1567,7 +1545,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let appDelegate = AppDelegate()
         defer { AppDelegate.shared = previousAppDelegate }
 
-        let orphanManager = TabManager()
+        let orphanManager = TabManager(debugCreateInitialWorkspace: false)
 #if DEBUG
         let orphanWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: orphanManager)
 #else
