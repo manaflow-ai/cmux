@@ -930,10 +930,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testAddWorkspaceInPreferredMainWindowIgnoresStaleTabManagerPointer() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
 
 #if DEBUG
         let previousWelcomeShown = UserDefaults.standard.object(forKey: WelcomeSettings.shownKey)
@@ -1465,10 +1464,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testAddWorkspaceInPreferredMainWindowUsesKeyWindowWhenObjectKeyLookupIsMismatched() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
 
 #if DEBUG
         let previousWelcomeShown = UserDefaults.standard.object(forKey: WelcomeSettings.shownKey)
