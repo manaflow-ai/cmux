@@ -490,7 +490,7 @@ class TerminalProcess {
       this.emitOutput(`\r\n[process exited: ${code ?? "unknown"}]\r\n`);
       this.closed = true;
     });
-    this.emitOutput("cmux is using the compatibility terminal bridge. Some interactive shell features may be limited.\r\n");
+    this.emitOutput("cmux is using a fallback terminal bridge. Some interactive shell features may be limited.\r\n");
   }
 
   attach(socket) {
@@ -771,7 +771,6 @@ class CmuxWindowsRuntime {
   }
 
   serializePanel(panel) {
-    const branch = panel.type === "terminal" ? gitBranch(panel.cwd) : "";
     return {
       id: panel.id,
       workspaceId: panel.workspaceId,
@@ -781,7 +780,6 @@ class CmuxWindowsRuntime {
       color: panel.color || "",
       cwd: panel.cwd,
       cwdShort: shortPath(panel.cwd),
-      branch,
       shellProfile: panel.shellProfile || "",
       shellPath: panel.shellPath || "",
       terminalFontSize: panel.type === "terminal" ? sanitizeTerminalFontSize(panel.terminalFontSize, 0) : 0,
