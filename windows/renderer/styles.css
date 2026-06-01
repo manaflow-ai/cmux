@@ -1852,7 +1852,7 @@ body.reduce-motion *::after {
 }
 
 .shell.pane-header-compact {
-  --pane-drop-top: 16px;
+  --pane-drop-top: 22px;
 }
 
 .shell.pane-header-hidden {
@@ -1860,12 +1860,12 @@ body.reduce-motion *::after {
 }
 
 .shell.pane-header-compact .pane {
-  grid-template-rows: 16px minmax(0, 1fr);
+  grid-template-rows: 22px minmax(0, 1fr);
 }
 
 .shell.pane-header-compact .pane-header {
-  gap: 4px;
-  padding: 0 4px;
+  gap: 5px;
+  padding: 0 6px;
   border-bottom-color: color-mix(in oklch, var(--color-line) 64%, transparent);
   background: color-mix(in oklch, var(--color-pane) 86%, var(--color-canvas) 14%);
 }
@@ -1888,19 +1888,31 @@ body.reduce-motion *::after {
 }
 
 .shell.pane-header-compact .pane-title {
-  display: none;
+  display: block;
+  min-width: 22px;
+  color: var(--color-faint);
+  font-size: 11px;
+  line-height: 1;
+  opacity: .86;
+}
+
+.shell.pane-header-compact .pane:hover .pane-title,
+.shell.pane-header-compact .pane.is-active .pane-title,
+.shell.pane-header-compact .pane-header:focus-within .pane-title {
+  color: var(--color-muted);
+  opacity: 1;
 }
 
 .shell.pane-header-compact .pane-toolbar {
   margin-left: auto;
-  gap: 3px;
+  gap: 2px;
   max-width: 0;
 }
 
 .shell.pane-header-compact .pane:hover .pane-toolbar,
 .shell.pane-header-compact .pane.is-active .pane-toolbar,
 .shell.pane-header-compact .pane-header:focus-within .pane-toolbar {
-  max-width: none;
+  max-width: min(48%, 116px);
   opacity: 1;
   pointer-events: auto;
   transform: none;
