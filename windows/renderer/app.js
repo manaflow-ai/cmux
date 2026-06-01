@@ -450,6 +450,7 @@ const state = {
   layoutSettingsPreviewFrame: 0,
   browserSettingsPreviewFrame: 0,
   settingsFilterFrame: 0,
+  settingsSearchIndex: [],
   settingsSearchFocusFrame: 0,
   renderStats: {
     count: 0,
@@ -7276,6 +7277,7 @@ function renderSettingsInspector(options = {}) {
 
   unmountSettingsChrome();
   elements.inspectorBody.replaceChildren(...nodes);
+  state.settingsSearchIndex = buildSettingsSearchIndex();
   if (resetScroll) resetSettingsScroll();
   renderSettingsChrome(settingsChrome);
   if (searching) scheduleSettingsFilter();
@@ -8178,11 +8180,37 @@ function scheduleSettingsFilter() {
   });
 }
 
+function buildSettingsSearchIndex() {
+  return [...elements.inspectorBody.querySelectorAll(".settings-section")].map((section) => ({
+    section,
+    sectionSearch: section.dataset.settingsSearch || "",
+    sectionTitle: settingsSectionTitle(section),
+    items: [...section.querySelectorAll("[data-settings-search]")]
+      .filter((item) => item !== section)
+      .map((item) => ({ item, search: item.dataset.settingsSearch || "" })),
+    groups: [...section.querySelectorAll(".settings-command-group")].map((group) => ({
+      group,
+      search: group.dataset.settingsSearch || "",
+      cards: [...group.querySelectorAll(".settings-command-card")]
+    }))
+  }));
+}
+
+function updateSettingsSearchIndexItemSearch(target, search) {
+  for (const section of state.settingsSearchIndex) {
+    const record = section.items.find((item) => item.item === target);
+    if (record) {
+      record.search = search;
+      return;
+    }
+  }
+}
+
 function settingsSectionTitle(section) {
   return normalizeSettingsQuery(section?.querySelector(".settings-section-title")?.textContent);
 }
 
-function settingsSearchTargetScore(item, section) {
+function settingsSearchTargetScore(item, sectionTitle = "") {
   if (!item) return -Infinity;
   let score = 10;
   if (item.classList.contains("setting-row")) score += 90;
@@ -8199,12 +8227,12 @@ function settingsSearchTargetScore(item, section) {
   if (item.classList.contains("quick-settings-shortcut")) score -= 70;
   if (item.classList.contains("quick-settings-shortcut-grid")) score -= 55;
   if (item.classList.contains("quick-setup-overview")) score -= 60;
-  if (settingsSectionTitle(section) === "quick setup") score -= 35;
+  if (sectionTitle === "quick setup") score -= 35;
   return score;
 }
 
-function maybeUpdateSettingsSearchTarget(current, item, section) {
-  const score = settingsSearchTargetScore(item, section);
+function maybeUpdateSettingsSearchTarget(current, item, sectionTitle) {
+  const score = settingsSearchTargetScore(item, sectionTitle);
   if (!current || score > current.score) return { item, score };
   return current;
 }
@@ -8223,25 +8251,26 @@ function applySettingsFilter() {
   const tokens = settingsSearchTokens(query);
   let visibleSections = 0;
   let bestTarget = null;
-  for (const section of elements.inspectorBody.querySelectorAll(".settings-section")) {
-    const items = [...section.querySelectorAll("[data-settings-search]")].filter((item) => item !== section);
-    const sectionMatches = settingsSearchMatches(section.dataset.settingsSearch, tokens);
+  const sections = state.settingsSearchIndex.length ? state.settingsSearchIndex : buildSettingsSearchIndex();
+  for (const sectionRecord of sections) {
+    const { section, sectionSearch, sectionTitle, items, groups } = sectionRecord;
+    const sectionMatches = settingsSearchMatches(sectionSearch, tokens);
     let sectionVisible = sectionMatches;
-    if (query && sectionMatches) bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, section, section);
-    for (const item of items) {
-      const itemMatches = settingsSearchMatches(item.dataset.settingsSearch, tokens);
+    if (query && sectionMatches) bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, section, sectionTitle);
+    for (const { item, search } of items) {
+      const itemMatches = settingsSearchMatches(search, tokens);
       const visible = itemMatches || sectionMatches;
       setHiddenIfChanged(item, !visible);
       sectionVisible ||= visible;
-      if (query && itemMatches) bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, item, section);
+      if (query && itemMatches) bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, item, sectionTitle);
     }
-    for (const group of section.querySelectorAll(".settings-command-group")) {
-      const cardVisible = [...group.querySelectorAll(".settings-command-card")].some((card) => !card.hidden);
-      const groupMatches = settingsSearchMatches(group.dataset.settingsSearch, tokens);
+    for (const { group, search, cards } of groups) {
+      const cardVisible = cards.some((card) => !card.hidden);
+      const groupMatches = settingsSearchMatches(search, tokens);
       const groupVisible = cardVisible || groupMatches || sectionMatches;
       setHiddenIfChanged(group, !groupVisible);
       sectionVisible ||= groupVisible;
-      if (query && groupMatches) bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, group, section);
+      if (query && groupMatches) bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, group, sectionTitle);
     }
     setHiddenIfChanged(section, !sectionVisible);
     if (sectionVisible) visibleSections += 1;
@@ -8938,6 +8967,7 @@ function refreshPerformanceMetricsGrid() {
   const cards = [...grid.querySelectorAll(".settings-metric")];
   if (cards.length !== metrics.length) {
     replaceChildrenIfChanged(grid, metrics.map(([label, value]) => settingsMetricCard(label, value)));
+    state.settingsSearchIndex = buildSettingsSearchIndex();
     return true;
   }
   let changed = false;
@@ -8946,6 +8976,7 @@ function refreshPerformanceMetricsGrid() {
     const search = normalizeSettingsQuery(`performance diagnostics metric ${label} ${value}`);
     if (card.dataset.settingsSearch !== search) {
       card.dataset.settingsSearch = search;
+      updateSettingsSearchIndexItemSearch(card, search);
       changed = true;
     }
     changed = setTextIfChanged(card.querySelector(".settings-metric-value"), value) || changed;
