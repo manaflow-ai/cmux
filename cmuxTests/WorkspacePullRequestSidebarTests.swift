@@ -1633,10 +1633,15 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
     }
 
     func testGitMetadataWatcherRefreshesDuringSustainedEventStorm() throws {
+        // waitTimeout (2.0) sits well above the asserted bound (1.0) so the
+        // XCTUnwrap and comparison have headroom against CI timing jitter: a
+        // healthy in-burst refresh fires ~0.25s in and passes comfortably, while a
+        // "wait for quiet" regression (~1.85s for this 1.6s burst) still returns a
+        // delay that trips the < 1.0 assertion instead of timing out on the unwrap.
         let firstRefreshDelay = TabManager.workspaceGitMetadataWatcherFirstRefreshDelayDuringStormForTesting(
             eventCount: 80,
             eventInterval: 0.02,
-            waitTimeout: 1.0
+            waitTimeout: 2.0
         )
 
         let delay = try XCTUnwrap(
