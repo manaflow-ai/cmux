@@ -75,7 +75,7 @@ export function saveBrowserTabSnapshots(snapshots) {
 export function browserTabSnapshotForPanel(snapshots, panel, homeUrl = defaultSettings.browserHomeUrl) {
   const fallbackUrl = normalizeBrowserPageUrl(panel?.url || homeUrl) || defaultSettings.browserHomeUrl;
   const panelId = panel?.id;
-  const snapshot = normalizeBrowserTabSnapshot(snapshots.get(panelId), fallbackUrl);
+  const snapshot = normalizeBrowserTabSnapshot(panelId ? snapshots.get(panelId) : null, fallbackUrl);
   if (panelId) snapshots.set(panelId, snapshot);
   return snapshot;
 }
