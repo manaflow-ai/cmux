@@ -15,6 +15,8 @@ final class TextBoxMentionCompletionController {
     @ObservationIgnored
     private var lookupTask: Task<Void, Never>?
     @ObservationIgnored
+    private var lookupGeneration: UInt64 = 0
+    @ObservationIgnored
     private var suggestionsQuery: TextBoxMentionQuery?
     @ObservationIgnored
     private var suggestionsRootDirectory: String?
@@ -74,15 +76,19 @@ final class TextBoxMentionCompletionController {
             suggestionsRootDirectory = nil
         }
         lookupTask?.cancel()
+        lookupGeneration &+= 1
+        let generation = lookupGeneration
         onStateChanged?()
 
-        lookupTask = Task { [weak self] in
+        lookupTask = Task { [weak self, generation] in
             let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
                 for: query,
                 rootDirectory: rootDirectory
             )
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard let self,
+                      self.lookupGeneration == generation,
                       self.activeQuery == query,
                       self.activeRootDirectory == rootDirectory else {
                     return
@@ -114,6 +120,7 @@ final class TextBoxMentionCompletionController {
         selectionIndex = 0
         lookupTask?.cancel()
         lookupTask = nil
+        lookupGeneration &+= 1
         onStateChanged?()
     }
 
@@ -130,6 +137,7 @@ final class TextBoxMentionCompletionController {
     ) {
         lookupTask?.cancel()
         lookupTask = nil
+        lookupGeneration &+= 1
         activeQuery = query
         activeRootDirectory = rootDirectory
         suggestions = debugSuggestions

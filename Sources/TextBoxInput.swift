@@ -4465,7 +4465,8 @@ final class TextBoxInputTextView: NSTextView {
         let notificationNames: [Notification.Name] = [
             NSWindow.didMoveNotification,
             NSWindow.didResizeNotification,
-            NSWindow.didChangeScreenNotification
+            NSWindow.didChangeScreenNotification,
+            NSWindow.didResignKeyNotification
         ]
         let notificationCenter = NotificationCenter.default
         mentionCompletionWindowObserverTokens = notificationNames.map { notificationName in
