@@ -11495,11 +11495,19 @@ async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, op
     }
     return false;
   }
+  const wasPending = state.pendingPanels.has(pendingPanelId);
   state.pendingPanels.delete(pendingPanelId);
   stopPendingPaneTimerIfIdle();
   if (!createdPanel?.id) {
     removePendingPanel(pendingPanelId);
     return false;
+  }
+  if (!wasPending) {
+    const existing = findPanelState(createdPanel.id);
+    if (existing) {
+      cleanupPanel(pendingPanelId);
+      return true;
+    }
   }
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === (createdPanel.workspaceId || workspaceId));
   if (!workspace) return false;
