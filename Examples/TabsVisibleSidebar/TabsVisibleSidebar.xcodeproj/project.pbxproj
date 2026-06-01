@@ -56,6 +56,16 @@
 		A3685D622FCA97EB00009F1B /* TabsVisibleSidebarUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TabsVisibleSidebarUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		E7BF8D059BCCD649E62309D4 /* Exceptions for "TabsVisibleSidebarExtension" folder in "TabsVisibleSidebarExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 095AE40FC6A0494D72064FB6 /* TabsVisibleSidebarExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A3685D4D2FCA97E900009F1B /* TabsVisibleSidebar */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -76,6 +86,14 @@
 			exceptions = (
 			);
 			path = TabsVisibleSidebarUITests;
+			sourceTree = "<group>";
+		};
+		E7BF8D059BCCD649E62309D3 /* TabsVisibleSidebarExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				E7BF8D059BCCD649E62309D4 /* Exceptions for "TabsVisibleSidebarExtension" folder in "TabsVisibleSidebarExtension" target */,
+			);
+			path = TabsVisibleSidebarExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -151,14 +169,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		E7BF8D059BCCD649E62309D3 /* TabsVisibleSidebarExtension */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			name = TabsVisibleSidebarExtension;
-			path = TabsVisibleSidebarExtension;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -173,6 +183,9 @@
 			buildRules = (
 			);
 			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				E7BF8D059BCCD649E62309D3 /* TabsVisibleSidebarExtension */,
 			);
 			name = TabsVisibleSidebarExtension;
 			packageProductDependencies = (

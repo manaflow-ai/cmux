@@ -1,4 +1,12 @@
+@_exported import ExtensionFoundation
+@_exported import ExtensionKit
 import SwiftUI
+
+public enum CmuxSidebarConnectionStatus: Equatable, Sendable {
+    case connected
+    case waitingForHost
+    case error(String)
+}
 
 /// A SwiftUI sidebar extension hosted by CMUX.
 ///
@@ -6,12 +14,22 @@ import SwiftUI
 /// supplies the ExtensionKit configuration, scene, and XPC wiring. Your
 /// extension supplies the manifest, SwiftUI body, and snapshot update handling.
 @MainActor
-public protocol CmuxSidebarExtension: CmuxUIExtension {
+public protocol CmuxSidebarExtension: AppExtension, AnyObject where Configuration == AppExtensionSceneConfiguration {
+    /// Manifest describing this sidebar extension and the data/actions it requests.
+    static var manifest: CmuxExtensionManifest { get }
+
+    /// SwiftUI content rendered inside the extension scene.
+    associatedtype Body: View
+
+    /// The view CMUX hosts for this extension.
+    @ViewBuilder var body: Body { get }
+
     /// Called whenever CMUX sends a new filtered sidebar snapshot.
     func update(context: CmuxSidebarContext)
 
     /// Called when the CMUX host connection changes state or reports an error.
-    func connectionErrorDidChange(_ message: String?)
+    func connectionStatusDidChange(_ status: CmuxSidebarConnectionStatus)
+
 }
 
 public extension CmuxSidebarExtension {
@@ -23,5 +41,5 @@ public extension CmuxSidebarExtension {
         AppExtensionSceneConfiguration(CmuxSidebarExtensionScene(self))
     }
 
-    func connectionErrorDidChange(_ message: String?) {}
+    func connectionStatusDidChange(_ status: CmuxSidebarConnectionStatus) {}
 }

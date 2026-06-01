@@ -4,24 +4,24 @@ import SwiftUI
 
 @main
 @Observable
-@MainActor
-public final class StubAgentSidebarExtension: CmuxSidebarExtension {
-    public static let manifest = CMUXExtensionManifest(
+public final class StubAgentSidebarExtension: @MainActor CmuxSidebarExtension {
+    public static let manifest = CmuxExtensionManifest(
         id: "dev.example.stub-agent-sidebar",
         displayName: String(localized: "stubAgent.manifest.displayName", defaultValue: "Stub Agent Sidebar"),
-        requestedScopes: [
+        readScopes: [
             .workspaceList,
             .workspaceMetadata,
             .surfaceMetadata,
         ],
-        requestedActionScopes: [
+        actionScopes: [
             .createWorkspace,
             .selectWorkspace,
             .navigateWorkspace,
         ]
     )
 
-    public private(set) var snapshot: CMUXSidebarSnapshot?
+    public private(set) var snapshot: CmuxSidebarSnapshot?
+    @ObservationIgnored
     private var host: CmuxSidebarHost?
 
     public required init() {}
@@ -49,14 +49,14 @@ public final class StubAgentSidebarExtension: CmuxSidebarExtension {
     private func selectWorkspace(_ id: UUID) {
         guard let host else { return }
         Task { @MainActor in
-            _ = await host.selectWorkspace(id)
+            try? await host.selectWorkspace(id)
         }
     }
 
     private func createWorkspace() {
         guard let host else { return }
         Task { @MainActor in
-            _ = await host.createWorkspace(
+            try? await host.createWorkspace(
                 title: String(localized: "stubAgent.createdWorkspaceTitle", defaultValue: "SDK Proof"),
                 select: true
             )

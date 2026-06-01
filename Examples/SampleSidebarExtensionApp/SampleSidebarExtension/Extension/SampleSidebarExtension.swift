@@ -2,12 +2,11 @@ import CmuxExtensionKit
 import SwiftUI
 
 @main
-@MainActor
 final class SampleSidebarExtension: @MainActor CmuxSidebarExtension {
-    static let manifest = CMUXExtensionManifest(
+    static let manifest = CmuxExtensionManifest(
         id: "co.manaflow.CMUXExtKitSampleSidebarApp.Extension",
-        displayName: "CMUX Sample Sidebar Extension",
-        requestedScopes: [
+        displayName: String(localized: "sampleSidebar.manifest.displayName", defaultValue: "CMUX Sample Sidebar Extension"),
+        readScopes: [
             .workspaceList,
             .workspaceMetadata,
             .surfaceMetadata,
@@ -15,7 +14,7 @@ final class SampleSidebarExtension: @MainActor CmuxSidebarExtension {
             .networkPorts,
             .pullRequests,
         ],
-        requestedActionScopes: [
+        actionScopes: [
             .createSurface,
             .selectWorkspace,
             .selectSurface,
@@ -36,7 +35,7 @@ final class SampleSidebarExtension: @MainActor CmuxSidebarExtension {
         model.update(context: context)
     }
 
-    func connectionErrorDidChange(_ message: String?) {
-        model.connectionErrorDidChange(message)
+    func connectionStatusDidChange(_ status: CmuxSidebarConnectionStatus) {
+        model.connectionStatusDidChange(status)
     }
 }

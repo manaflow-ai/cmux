@@ -21,8 +21,8 @@ final class CmuxSidebarExtensionRuntime<Extension: CmuxSidebarExtension>: @unche
                 )
                 sidebarExtension?.update(context: CmuxSidebarContext(snapshot: snapshot, host: host))
             },
-            onError: { [weak sidebarExtension] message in
-                sidebarExtension?.connectionErrorDidChange(message)
+            onStatus: { [weak sidebarExtension] status in
+                sidebarExtension?.connectionStatusDidChange(status)
             }
         )
         self.connection = transport
@@ -31,5 +31,9 @@ final class CmuxSidebarExtensionRuntime<Extension: CmuxSidebarExtension>: @unche
     @discardableResult
     func accept(_ connection: NSXPCConnection) -> Bool {
         self.connection.accept(connection)
+    }
+
+    deinit {
+        connection.invalidate()
     }
 }

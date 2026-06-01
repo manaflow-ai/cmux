@@ -7,7 +7,7 @@ struct CmuxSidebarExtensionScene<Extension: CmuxSidebarExtension>: AppExtensionS
     private let sidebarExtension: Extension
     private let id: String
 
-    init(_ extension: Extension, id: String = CMUXSidebarExtensionPoint.defaultSceneID) {
+    init(_ extension: Extension, id: String = CmuxSidebarExtensionPoint.defaultSceneID) {
         self.sidebarExtension = `extension`
         self.id = id
     }

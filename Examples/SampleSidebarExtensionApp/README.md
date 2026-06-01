@@ -42,7 +42,7 @@ host helpers for actions:
 @main
 @MainActor
 final class SampleSidebarExtension: CmuxSidebarExtension {
-    static let manifest = CMUXExtensionManifest(...)
+    static let manifest = CmuxExtensionManifest(...)
     private let model = SidebarConnectionModel()
 
     required init() {}
@@ -59,7 +59,7 @@ final class SampleSidebarExtension: CmuxSidebarExtension {
 @Observable
 @MainActor
 final class SidebarConnectionModel {
-    private(set) var snapshot: CMUXSidebarSnapshot?
+    private(set) var snapshot: CmuxSidebarSnapshot?
     private var host: CmuxSidebarHost?
 
     func update(context: CmuxSidebarContext) {
@@ -69,19 +69,19 @@ final class SidebarConnectionModel {
 
     func selectWorkspace(_ id: UUID) {
         Task { @MainActor in
-            _ = await host?.selectWorkspace(id)
+            try? await host?.selectWorkspace(id)
         }
     }
 
     func selectNextWorkspace() {
         Task { @MainActor in
-            _ = await host?.selectNextWorkspace()
+            try? await host?.selectNextWorkspace()
         }
     }
 
     func createTerminalSurface(in workspaceID: UUID?) {
         Task { @MainActor in
-            _ = await host?.createTerminalSurface(in: workspaceID)
+            try? await host?.createTerminalSurface(in: workspaceID)
         }
     }
 }

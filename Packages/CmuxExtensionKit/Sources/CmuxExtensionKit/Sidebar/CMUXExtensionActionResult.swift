@@ -1,6 +1,7 @@
 import Foundation
 
-public struct CMUXExtensionActionResult: Codable, Equatable, Sendable {
+@_spi(CmuxHostTransport)
+public struct CmuxSidebarActionResult: Codable, Equatable, Sendable {
     public var accepted: Bool
     public var message: String?
 
@@ -9,9 +10,14 @@ public struct CMUXExtensionActionResult: Codable, Equatable, Sendable {
         self.message = message
     }
 
-    public static let accepted = CMUXExtensionActionResult(accepted: true)
+    public static let accepted = CmuxSidebarActionResult(accepted: true)
 
-    public static func rejected(_ message: String) -> CMUXExtensionActionResult {
-        CMUXExtensionActionResult(accepted: false, message: message)
+    public static func rejected(_ message: String) -> CmuxSidebarActionResult {
+        CmuxSidebarActionResult(accepted: false, message: message)
     }
+}
+
+public enum CmuxSidebarActionError: Error, Equatable, Sendable {
+    case rejected(String)
+    case cancelled
 }
