@@ -1,4 +1,6 @@
 import XCTest
+import CmuxSettings
+import CmuxSocketControl
 import AppKit
 import Combine
 import CoreText
@@ -1206,6 +1208,41 @@ final class GhosttyConfigTests: XCTestCase {
 
         defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
         XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+    }
+
+    func testKiroIntegrationDefaultsToEnabledWithStandardNotificationsWhenUnset() {
+        let suiteName = "cmux.tests.kiro-hooks.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.removeObject(forKey: KiroIntegrationSettings.hooksEnabledKey)
+        defaults.removeObject(forKey: KiroIntegrationSettings.notificationLevelKey)
+        XCTAssertTrue(KiroIntegrationSettings.hooksEnabled(defaults: defaults))
+        XCTAssertEqual(KiroIntegrationSettings.notificationLevel(defaults: defaults), .standard)
+    }
+
+    func testKiroIntegrationRespectsStoredPreferenceAndNotificationLevel() {
+        let suiteName = "cmux.tests.kiro-hooks.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(false, forKey: KiroIntegrationSettings.hooksEnabledKey)
+        defaults.set(KiroIntegrationSettings.NotificationLevel.verbose.rawValue, forKey: KiroIntegrationSettings.notificationLevelKey)
+        XCTAssertFalse(KiroIntegrationSettings.hooksEnabled(defaults: defaults))
+        XCTAssertEqual(KiroIntegrationSettings.notificationLevel(defaults: defaults), .verbose)
+
+        defaults.set("unsupported", forKey: KiroIntegrationSettings.notificationLevelKey)
+        XCTAssertEqual(KiroIntegrationSettings.notificationLevel(defaults: defaults), .standard)
     }
 
     func testSubagentNotificationSuppressionDefaultsToEnabledWhenUnset() {

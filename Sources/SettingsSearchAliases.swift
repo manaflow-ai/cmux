@@ -114,6 +114,8 @@ enum SettingsSearchAliasIndex {
         "automation:subagent-notifications": localized("settings.search.alias.setting.automation.subagent-notifications", defaultValue: "automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"),
         "automation:cursor": localized("settings.search.alias.setting.automation.cursor", defaultValue: "automation.cursorIntegration cursor ide agent hooks notifications"),
         "automation:gemini": localized("settings.search.alias.setting.automation.gemini", defaultValue: "automation.geminiIntegration gemini cli google agent hooks notifications"),
+        "automation:kiro": localized("settings.search.alias.setting.automation.kiro", defaultValue: "automation.kiroIntegration kiro cli amazon q agent hooks notifications"),
+        "automation:kiro-notification-level": localized("settings.search.alias.setting.automation.kiro-notification-level", defaultValue: "automation.kiroNotificationLevel kiro cli notification verbosity minimal standard verbose tool events"),
         "automation:port-base": localized("settings.search.alias.setting.automation.port-base", defaultValue: "automation.portBase cmux_port start first base env environment variable"),
         "automation:port-range": localized("settings.search.alias.setting.automation.port-range", defaultValue: "automation.portRange cmux_port_end range size count env ports"),
         "browser:enable-browser": localized("settings.search.alias.setting.browser.enable-browser", defaultValue: "browser.enabled enable disable webview embedded browser tabs links"),

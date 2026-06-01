@@ -81,6 +81,7 @@ public struct SettingsWindowRoot: View {
 
     private var defaultsStore: UserDefaultsSettingsStore { runtime.userDefaultsStore }
     private var jsonStore: JSONConfigStore { runtime.jsonStore }
+    private var secretStore: SecretFileStore { runtime.secretStore }
     private var catalog: SettingCatalog { runtime.catalog }
     private var hostActions: SettingsHostActions { runtime.hostActions }
     private var accountFlow: AccountFlow? { runtime.accountFlow }
@@ -464,6 +465,7 @@ public struct SettingsWindowRoot: View {
         AutomationSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
+            secretStore: secretStore,
             catalog: catalog,
             errorLog: runtime.errorLog
         )

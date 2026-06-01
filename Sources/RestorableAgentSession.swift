@@ -531,6 +531,10 @@ enum AgentResumeCommandBuilder {
                 option: "--resume",
                 sessionId: sessionId
             )
+        case .kiro:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "kiro-cli")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "kiro", args: original.tail) else { return nil }
+            return [original.executable, "chat", "--resume-id", sessionId] + preserved
         case .antigravity:
             return resumeWithOption(
                 kind: "antigravity",

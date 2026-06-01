@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSettings
+import CmuxSocketControl
 import SwiftUI
 import Bonsplit
 import CMUXWorkstream
@@ -13455,6 +13457,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func openSidebarExtensionBrowser(from anchorView: NSView?, title: String) -> UUID? {
+        // Defensive gate: the extensions browser is part of the experimental
+        // Extensions feature. Its entry points are hidden while disabled, but
+        // guard here too so no other path can open it.
+        guard CmuxExtensionSidebarSelection.isEnabled else { return nil }
         let preferredWindow = anchorView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         let targetTabManager = synchronizeActiveMainWindowContext(preferredWindow: preferredWindow)
         guard let workspace = targetTabManager?.selectedWorkspace,

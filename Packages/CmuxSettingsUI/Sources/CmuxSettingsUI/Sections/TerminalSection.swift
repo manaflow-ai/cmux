@@ -76,7 +76,7 @@ public struct TerminalSection: View {
                 configurationReview: .json("terminal.showScrollBar"),
                 String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
                 subtitle: scrollBar.current
-                    ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace.")
+                    ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces.")
                     : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
             ) {
                 Toggle("", isOn: Binding(get: { scrollBar.current }, set: { scrollBar.set($0) }))
