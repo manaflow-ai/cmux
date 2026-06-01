@@ -4627,6 +4627,58 @@ body.reduce-motion *::after {
   background: var(--color-pane-warm);
 }
 
+.quick-action {
+  min-height: 92px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.quick-action:hover .quick-action-icon,
+.quick-action:focus-visible .quick-action-icon {
+  border-color: color-mix(in oklch, var(--color-accent) 64%, var(--color-line) 36%);
+  background: color-mix(in oklch, var(--color-accent) 18%, var(--color-pane) 82%);
+  color: var(--color-text);
+}
+
+.quick-action-icon {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  width: 34px;
+  min-width: 0;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  align-self: start;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane-warm) 84%, var(--color-rail) 16%);
+  color: var(--color-muted);
+  font: 10px/1 var(--font-mono);
+  font-weight: 760;
+  letter-spacing: 0;
+}
+
+.quick-action-copy {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
+.quick-action-footer {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 .quick-settings-shortcut-title {
   grid-column: 1;
   grid-row: 1;
@@ -4655,6 +4707,34 @@ body.reduce-motion *::after {
   font: 10px/1 var(--font-mono);
 }
 
+.quick-action .quick-settings-shortcut-title,
+.quick-action .quick-settings-shortcut-body,
+.quick-action .quick-settings-shortcut-meta {
+  grid-column: auto;
+  grid-row: auto;
+}
+
+.quick-action .quick-settings-shortcut-meta {
+  justify-self: auto;
+  max-width: min(140px, 100%);
+  color: var(--color-muted);
+}
+
+.quick-action-cta {
+  flex: 0 0 auto;
+  min-width: 54px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0 var(--space-2);
+  border: 1px solid color-mix(in oklch, var(--color-accent) 56%, var(--color-line) 44%);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-accent) 16%, var(--color-pane) 84%);
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 720;
+}
+
 @container (max-width: 380px) {
   .quick-settings-shortcut-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -4677,6 +4757,33 @@ body.reduce-motion *::after {
     grid-column: 1;
     grid-row: 3;
     justify-self: start;
+    max-width: 100%;
+  }
+
+  .quick-action {
+    grid-template-columns: 32px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+  }
+
+  .quick-action-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .quick-action-copy {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .quick-action-footer {
+    grid-column: 2;
+    grid-row: 2;
+    justify-content: start;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  .quick-action .quick-settings-shortcut-meta {
     max-width: 100%;
   }
 }

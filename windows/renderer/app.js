@@ -8454,23 +8454,32 @@ const quickSettingsShortcuts = [
 function quickSetupActionGrid() {
   const actions = [
     {
+      id: "rename",
+      icon: "Aa",
       label: "Rename",
       body: "Name the active workspace without opening more chrome.",
       meta: () => activeWorkspace()?.title || "Workspace",
+      cta: "Edit",
       search: "rename workspace name title quick setup",
       run: () => renameActiveWorkspace()
     },
     {
+      id: "clean-ui",
+      icon: "UI",
       label: "Clean UI",
       body: "Apply a minimal toolbar and quieter pane controls.",
       meta: activeSettingsPresetLabel,
+      cta: "Apply",
       search: "simple clean minimal compact ui chrome pane controls preset",
       run: () => applySettingsPresetById("simple")
     },
     {
+      id: "tune-speed",
+      icon: "Hz",
       label: "Tune speed",
       body: "Reduce effects, pause hidden output, and lighten history.",
       meta: performanceModeLabel,
+      cta: "Tune",
       search: "performance tune speed lag smooth reduce effects",
       run: () => {
         tunePerformanceNow();
@@ -8478,9 +8487,12 @@ function quickSetupActionGrid() {
       }
     },
     {
+      id: "focus-mode",
+      icon: "Fx",
       label: state.settings.focusMode ? "Leave focus" : "Focus mode",
       body: "Hide extra chrome when you want only the workspace.",
       meta: () => state.settings.focusMode ? "On" : "Off",
+      cta: "Toggle",
       search: "focus mode hide chrome simple clean workspace",
       run: () => {
         toggleFocusMode();
@@ -8488,16 +8500,22 @@ function quickSetupActionGrid() {
       }
     },
     {
+      id: "background",
+      icon: "Bg",
       label: "Background",
       body: "Choose a local image for the workspace backdrop.",
       meta: () => appearanceBackgroundLabel(state.settings.backgroundImage),
+      cta: "Choose",
       search: "background image wallpaper choose local file appearance",
       run: () => chooseBackgroundImage()
     },
     {
+      id: "save-layout",
+      icon: "Sv",
       label: "Save layout",
       body: "Store this pane shape as a reusable workspace blueprint.",
       meta: () => `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit}`,
+      cta: "Save",
       search: "save layout workspace blueprint panes shape split",
       run: () => saveCurrentWorkspaceBlueprint()
     }
@@ -8509,15 +8527,25 @@ function quickSetupActionGrid() {
     const button = document.createElement("button");
     button.className = "quick-settings-shortcut quick-action";
     button.type = "button";
+    button.dataset.quickAction = action.id;
     button.dataset.settingsSearch = normalizeSettingsQuery(`quick action ${action.label} ${action.body} ${action.search}`);
+    button.setAttribute("aria-label", `${action.label}. ${action.body} Current: ${action.meta()}.`);
     button.innerHTML = `
-      <span class="quick-settings-shortcut-title"></span>
-      <span class="quick-settings-shortcut-body"></span>
-      <span class="quick-settings-shortcut-meta"></span>
+      <span class="quick-action-icon" aria-hidden="true"></span>
+      <span class="quick-action-copy">
+        <span class="quick-settings-shortcut-title"></span>
+        <span class="quick-settings-shortcut-body"></span>
+      </span>
+      <span class="quick-action-footer">
+        <span class="quick-settings-shortcut-meta"></span>
+        <span class="quick-action-cta"></span>
+      </span>
     `;
+    button.querySelector(".quick-action-icon").textContent = action.icon;
     button.querySelector(".quick-settings-shortcut-title").textContent = action.label;
     button.querySelector(".quick-settings-shortcut-body").textContent = action.body;
     button.querySelector(".quick-settings-shortcut-meta").textContent = action.meta();
+    button.querySelector(".quick-action-cta").textContent = action.cta;
     button.onclick = action.run;
     grid.append(button);
   }
