@@ -980,6 +980,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
         XCTAssertEqual(json["name"] as? String, "cmux")
         XCTAssertNil(json["version"], "Kiro agent configs should not receive Cursor's hooks version field")
+        XCTAssertEqual(
+            json["tools"] as? [String], ["*"],
+            "Kiro cmux agent must grant the full tool set so `--agent cmux` can run tools and fire preToolUse hooks"
+        )
 
         let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
         let preToolUse = try XCTUnwrap(hooks["preToolUse"] as? [[String: Any]])

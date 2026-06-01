@@ -25888,6 +25888,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if existing["description"] == nil {
                 existing["description"] = "CMUX notification and Feed bridge hooks for Kiro CLI."
             }
+            if existing["tools"] == nil {
+                // Grant the full tool set so `kiro-cli chat --agent cmux` is
+                // actually usable. A Kiro custom agent with no `tools` field is
+                // restricted to no tools, so the model can't run anything and the
+                // preToolUse/postToolUse Feed-approval hooks would never fire
+                // (verified against kiro-cli 2.5.0). Only defaulted on fresh
+                // install; an existing user `tools` list is preserved.
+                existing["tools"] = ["*"]
+            }
         }
         let codexHookTrustEntries = Self.codexHookTrustEntries(
             hooks: hooks,
