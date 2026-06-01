@@ -1,0 +1,58 @@
+import AuthenticationServices
+import Foundation
+
+enum AuthManagerError: LocalizedError, Equatable, Sendable {
+    case invalidCallback
+    case missingAccessToken
+    case missingRefreshToken
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidCallback:
+            return String(
+                localized: "settings.account.error.invalidCallback",
+                defaultValue: "The sign-in callback was invalid."
+            )
+        case .missingAccessToken:
+            return String(
+                localized: "settings.account.error.missingAccessToken",
+                defaultValue: "Account access token is unavailable."
+            )
+        case .missingRefreshToken:
+            return String(
+                localized: "settings.account.error.missingRefreshToken",
+                defaultValue: "Account refresh token is unavailable."
+            )
+        }
+    }
+}
+
+enum AuthSignInError: Equatable, Sendable {
+    case authManager(AuthManagerError)
+    case message(String)
+
+    var localizedMessage: String {
+        Self.genericLocalizedMessage
+    }
+
+    private static var genericLocalizedMessage: String {
+        String(
+            localized: "settings.account.error.signInFailed",
+            defaultValue: "Sign in failed. Try again."
+        )
+    }
+}
+
+extension AuthManager {
+    nonisolated static func signInError(from error: Error) -> AuthSignInError {
+        if let authError = error as? AuthManagerError {
+            return .authManager(authError)
+        }
+        return .message((error as NSError).localizedDescription)
+    }
+
+    nonisolated static func shouldSuppressWebAuthError(_ error: NSError) -> Bool {
+        error.domain == ASWebAuthenticationSessionError.errorDomain
+            && error.code == ASWebAuthenticationSessionError.canceledLogin.rawValue
+    }
+}

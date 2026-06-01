@@ -32,32 +32,6 @@ private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresen
     }
 }
 
-enum AuthManagerError: LocalizedError {
-    case invalidCallback
-    case missingAccessToken
-    case missingRefreshToken
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidCallback:
-            return String(
-                localized: "settings.account.error.invalidCallback",
-                defaultValue: "The sign-in callback was invalid."
-            )
-        case .missingAccessToken:
-            return String(
-                localized: "settings.account.error.missingAccessToken",
-                defaultValue: "Account access token is unavailable."
-            )
-        case .missingRefreshToken:
-            return String(
-                localized: "settings.account.error.missingRefreshToken",
-                defaultValue: "Account refresh token is unavailable."
-            )
-        }
-    }
-}
-
 protocol StackAuthTokenStoreProtocol: TokenStoreProtocol, Sendable {
     func seed(accessToken: String, refreshToken: String) async
     func clear() async
@@ -159,6 +133,7 @@ final class AuthManager: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isRestoringSession = false
     @Published private(set) var didCompleteBrowserSignIn = false
+    @Published private(set) var lastSignInError: AuthSignInError?
     @Published var selectedTeamID: String? {
         didSet {
             guard selectedTeamID != oldValue else { return }
@@ -176,6 +151,7 @@ final class AuthManager: ObservableObject {
     private let tokenStore: any StackAuthTokenStoreProtocol
     private let settingsStore: AuthSettingsStore
     private let urlOpener: (URL) -> Void
+    private let credentialSignIn: @Sendable (_ email: String, _ password: String) async throws -> SignInResult
 
     /// Resolves when the on-launch session restoration finishes (success or failure).
     /// Any probe that needs a definitive `isAuthenticated` value must `await` this
@@ -188,12 +164,16 @@ final class AuthManager: ObservableObject {
         client: (any AuthClientProtocol)? = nil,
         tokenStore: any StackAuthTokenStoreProtocol = KeychainStackTokenStore(),
         settingsStore: AuthSettingsStore = AuthSettingsStore(),
-        urlOpener: ((URL) -> Void)? = nil
+        urlOpener: ((URL) -> Void)? = nil,
+        credentialSignIn: (@Sendable (_ email: String, _ password: String) async throws -> SignInResult)? = nil
     ) {
         self.tokenStore = tokenStore
         self.settingsStore = settingsStore
         self.client = client ?? Self.makeDefaultClient(tokenStore: tokenStore)
         self.urlOpener = urlOpener ?? Self.defaultURLOpener
+        self.credentialSignIn = credentialSignIn ?? { email, password in
+            try await Self.signInWithCredentialDirectly(email: email, password: password)
+        }
         let cachedUser = settingsStore.cachedUser()
         self.currentUser = cachedUser
         self.selectedTeamID = settingsStore.selectedTeamID
@@ -225,15 +205,37 @@ final class AuthManager: ObservableObject {
         case restore
         case signIn
         case signOut
+        case signInCancellation
+
+        var clearsSupersededAuthState: Bool {
+            switch self {
+            case .signOut, .signInCancellation:
+                return true
+            case .restore, .signIn:
+                return false
+            }
+        }
     }
+
+    private struct AuthMutationSupersededError: Error, Sendable {}
 
     #if DEBUG
     func markBrowserSignInLoadingForTesting() {
         _ = startBrowserSignInAttempt()
     }
+
+    func markCredentialSignInLoadingForTesting() {
+        _ = beginAuthMutation(.signIn)
+        isLoading = true
+    }
+
+    func markBrowserSignInTimedOutForTesting() {
+        timeOutBrowserSignInAttempt()
+    }
     #endif
 
     func beginSignIn() {
+        lastSignInError = nil
         loginPollTask?.cancel()
         webAuthSession?.cancel()
         webAuthSession = nil
@@ -253,10 +255,21 @@ final class AuthManager: ObservableObject {
                     self.finishBrowserSignInAttempt(attemptID)
                 }
                 if let error {
+                    let nsError = error as NSError
+                    if Self.shouldSuppressWebAuthError(nsError) {
+                        self.authLog("auth.webauth cancelled by user")
+                        return
+                    }
+                    self.lastSignInError = .message(nsError.localizedDescription)
                     self.authLog("auth.webauth failed: \(error)")
                     return
                 }
-                guard let callbackURL else { return }
+                guard let callbackURL else {
+                    let error = AuthManagerError.invalidCallback
+                    self.lastSignInError = .authManager(error)
+                    self.authLog("auth.webauth failed: \(error)")
+                    return
+                }
                 let callbackPayload = AuthCallbackRouter.callbackPayload(from: callbackURL)
                 do {
                     try await self.handleCallbackURL(callbackURL)
@@ -284,6 +297,7 @@ final class AuthManager: ObservableObject {
             webAuthSession = session
         } else {
             authLog("auth.webauth: session.start() returned false")
+            lastSignInError = .message("auth.webauth session.start returned false")
             finishBrowserSignInAttempt(attemptID)
         }
     }
@@ -296,7 +310,15 @@ final class AuthManager: ObservableObject {
     func beginSignInAndAwait(timeout: TimeInterval) async -> Bool {
         if isAuthenticated { return true }
         beginSignIn()
-        return await waitForSignInSettled(timeout: timeout)
+        if !isLoading { return isAuthenticated }
+        let signedIn = await waitForSignInSettled(timeout: timeout)
+        if signedIn || isAuthenticated {
+            return true
+        }
+        if isLoading {
+            timeOutBrowserSignInAttempt()
+        }
+        return isAuthenticated
     }
 
     /// Signs out and awaits the state to flip. signOut() is already async and
@@ -456,7 +478,11 @@ final class AuthManager: ObservableObject {
 
     func handleCallbackURL(_ url: URL) async throws {
         guard let payload = AuthCallbackRouter.callbackPayload(from: url) else {
-            throw AuthManagerError.invalidCallback
+            let error = AuthManagerError.invalidCallback
+            if hasActiveBrowserSignInAttempt {
+                lastSignInError = .authManager(error)
+            }
+            throw error
         }
         let mutationGeneration = beginAuthMutation(.signIn)
 
@@ -484,6 +510,17 @@ final class AuthManager: ObservableObject {
                 refreshToken: payload.refreshToken
             )
             return
+        } catch {
+            guard isCurrentAuthMutation(mutationGeneration) else {
+                _ = await keepAuthMutationIfCurrent(
+                    mutationGeneration,
+                    accessToken: payload.accessToken,
+                    refreshToken: payload.refreshToken
+                )
+                return
+            }
+            lastSignInError = Self.signInError(from: error)
+            throw error
         }
         guard await keepAuthMutationIfCurrent(
             mutationGeneration,
@@ -493,6 +530,7 @@ final class AuthManager: ObservableObject {
             return
         }
         didCompleteBrowserSignIn = true
+        lastSignInError = nil
     }
 
     func seedTokensFromCLI(refreshToken: String, accessToken: String?) async {
@@ -521,12 +559,13 @@ final class AuthManager: ObservableObject {
         do {
             try await refreshSession()
             authLog("seedTokensFromCLI: success user=\(currentUser?.primaryEmail ?? "nil")")
+            lastSignInError = nil
         } catch {
             authLog("seedTokensFromCLI: refreshSession failed: \(error)")
         }
     }
 
-    struct SignInResult {
+    struct SignInResult: Sendable {
         let accessToken: String
         let refreshToken: String
         let email: String?
@@ -576,15 +615,66 @@ final class AuthManager: ObservableObject {
                            teams: teams)
     }
 
-    func applySignInResult(_ result: SignInResult) {
-        // Cache access token for fast synchronous reads
-        lastKnownAccessToken = result.accessToken
-        // Store tokens in keychain (fire-and-forget)
-        let store = tokenStore
-        Task.detached {
-            await store.setTokens(accessToken: result.accessToken, refreshToken: result.refreshToken)
+    func applySignInResult(_ result: SignInResult) async {
+        lastSignInError = nil
+        let mutationGeneration = beginAuthMutation(.signIn)
+        isLoading = true
+        defer {
+            if isCurrentAuthMutation(mutationGeneration) {
+                isLoading = false
+            }
         }
-        // Update published state synchronously on main actor
+        await tokenStore.setTokens(accessToken: result.accessToken, refreshToken: result.refreshToken)
+        guard await keepAuthMutationIfCurrent(
+            mutationGeneration,
+            accessToken: result.accessToken,
+            refreshToken: result.refreshToken
+        ) else {
+            return
+        }
+
+        publishSignInResult(result)
+        authLog("applySignInResult: user=\(result.email ?? "nil") teams=\(result.teams.count) teamID=\(selectedTeamID ?? "nil")")
+    }
+
+    func signInWithCredential(email: String, password: String) async throws {
+        authLog("signInWithCredential: email=\(email)")
+        lastSignInError = nil
+        let mutationGeneration = beginAuthMutation(.signIn)
+        isLoading = true
+        defer {
+            if isCurrentAuthMutation(mutationGeneration) {
+                isLoading = false
+            }
+        }
+
+        // Sign in directly via the Stack Auth API and store tokens ourselves,
+        // bypassing the StackClientApp which has token refresh issues.
+        do {
+            let result = try await credentialSignIn(email, password)
+            await tokenStore.setTokens(accessToken: result.accessToken, refreshToken: result.refreshToken)
+            guard await keepAuthMutationIfCurrent(
+                mutationGeneration,
+                accessToken: result.accessToken,
+                refreshToken: result.refreshToken
+            ) else {
+                throw AuthMutationSupersededError()
+            }
+            publishSignInResult(result)
+            authLog("signInWithCredential: success user=\(result.email ?? "nil") teams=\(result.teams.count) teamID=\(selectedTeamID ?? "nil")")
+        } catch is AuthMutationSupersededError {
+            authLog("signInWithCredential: superseded by a newer auth mutation")
+            return
+        } catch {
+            if isCurrentAuthMutation(mutationGeneration) {
+                lastSignInError = Self.signInError(from: error)
+            }
+            throw error
+        }
+    }
+
+    private func publishSignInResult(_ result: SignInResult) {
+        lastKnownAccessToken = result.accessToken
         let user = CMUXAuthUser(id: result.userId, primaryEmail: result.email, displayName: result.displayName)
         currentUser = user
         settingsStore.saveCachedUser(user)
@@ -592,72 +682,7 @@ final class AuthManager: ObservableObject {
         isAuthenticated = true
         selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: result.teams)
         didCompleteBrowserSignIn = true
-        authLog("applySignInResult: user=\(result.email ?? "nil") teams=\(result.teams.count) teamID=\(selectedTeamID ?? "nil")")
-    }
-
-    func signInWithCredential(email: String, password: String) async throws {
-        authLog("signInWithCredential: email=\(email)")
-        isLoading = true
-        defer { isLoading = false }
-
-        // Sign in directly via the Stack Auth API and store tokens ourselves,
-        // bypassing the StackClientApp which has token refresh issues.
-        let json = try await Self.stackAPIRequest(
-            url: "\(AuthEnvironment.stackBaseURL.absoluteString)/api/v1/auth/password/sign-in",
-            body: try JSONSerialization.data(withJSONObject: ["email": email, "password": password]),
-            projectID: AuthEnvironment.stackProjectID,
-            clientKey: AuthEnvironment.stackPublishableClientKey
-        )
-        guard let accessToken = json["access_token"] as? String,
-              let refreshToken = json["refresh_token"] as? String else {
-            throw AuthManagerError.invalidCallback
-        }
-        await tokenStore.setTokens(accessToken: accessToken, refreshToken: refreshToken)
-        lastKnownAccessToken = accessToken
-
-        // Fetch user info directly with the access token
-        let userJSON = try await Self.stackAPIRequest(
-            url: "\(AuthEnvironment.stackBaseURL.absoluteString)/api/v1/users/me",
-            body: Data(),
-            projectID: AuthEnvironment.stackProjectID,
-            clientKey: AuthEnvironment.stackPublishableClientKey,
-            extraHeaders: ["x-stack-access-token": accessToken],
-            method: "GET"
-        )
-        let user = CMUXAuthUser(
-            id: userJSON["id"] as? String ?? "",
-            primaryEmail: userJSON["primary_email"] as? String,
-            displayName: userJSON["display_name"] as? String
-        )
-
-        // Fetch teams
-        let teamsJSON = try await Self.stackAPIRequest(
-            url: "\(AuthEnvironment.stackBaseURL.absoluteString)/api/v1/teams?user_id=me",
-            body: Data(),
-            projectID: AuthEnvironment.stackProjectID,
-            clientKey: AuthEnvironment.stackPublishableClientKey,
-            extraHeaders: ["x-stack-access-token": accessToken],
-            method: "GET"
-        )
-        var teams: [AuthTeamSummary] = []
-        if let items = teamsJSON["items"] as? [[String: Any]] {
-            for item in items {
-                if let id = item["id"] as? String {
-                    teams.append(AuthTeamSummary(
-                        id: id,
-                        displayName: item["display_name"] as? String ?? ""
-                    ))
-                }
-            }
-        }
-
-        currentUser = user
-        settingsStore.saveCachedUser(user)
-        availableTeams = teams
-        isAuthenticated = true
-        selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
-        authLog("signInWithCredential: success user=\(user.primaryEmail ?? "nil") teams=\(teams.count) teamID=\(selectedTeamID ?? "nil")")
-        didCompleteBrowserSignIn = true
+        lastSignInError = nil
     }
 
     func signOut() async {
@@ -673,6 +698,7 @@ final class AuthManager: ObservableObject {
         )
         guard isCurrentAuthMutation(signOutGeneration) else { return }
         clearSessionState(clearSelectedTeam: true)
+        lastSignInError = nil
     }
 
     /// Cached access token for fast reads after sign-in or session restoration.
@@ -886,7 +912,9 @@ final class AuthManager: ObservableObject {
             accessToken: accessToken,
             refreshToken: refreshToken
         )
-        if cachedMatches || storedCleared || currentAuthMutationKind == .signOut {
+        let shouldClearSupersededAuthState =
+            currentAuthMutationKind?.clearsSupersededAuthState == true
+        if cachedMatches || storedCleared || shouldClearSupersededAuthState {
             clearSessionState(clearSelectedTeam: true)
         }
         return false
@@ -908,6 +936,10 @@ final class AuthManager: ObservableObject {
             && signOutCancelledBrowserSignInAttemptID != attemptID
     }
 
+    private var hasActiveBrowserSignInAttempt: Bool {
+        activeBrowserSignInAttemptID != nil
+    }
+
     private func finishBrowserSignInAttempt(_ attemptID: UInt64) {
         guard activeBrowserSignInAttemptID == attemptID else { return }
         isLoading = false
@@ -915,6 +947,18 @@ final class AuthManager: ObservableObject {
         activeBrowserSignInAttemptID = nil
         if signOutCancelledBrowserSignInAttemptID == attemptID {
             signOutCancelledBrowserSignInAttemptID = nil
+        }
+    }
+
+    private func timeOutBrowserSignInAttempt() {
+        lastSignInError = .message("auth.webauth sign-in attempt timed out")
+        _ = beginAuthMutation(.signInCancellation)
+        webAuthSession?.cancel()
+        if let attemptID = activeBrowserSignInAttemptID {
+            finishBrowserSignInAttempt(attemptID)
+        } else {
+            webAuthSession = nil
+            isLoading = false
         }
     }
 

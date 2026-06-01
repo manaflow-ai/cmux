@@ -2,6 +2,12 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Surface Settings > Sign In failures in Account settings instead of only logging ASWebAuthenticationSession and callback errors ([#3617](https://github.com/manaflow-ai/cmux/issues/3617))
+
 ## [0.64.10] - 2026-05-23
 
 ### Added
@@ -190,13 +196,16 @@ All notable changes to cmux are documented here.
 ## [0.64.6] - 2026-05-14
 
 ### Added
+
 - Command palette toggles for boolean Settings rows, including iMessage Mode ([f85cc56a](https://github.com/manaflow-ai/cmux/commit/f85cc56ae99c235c61ea6ef091e88ccca6d4171d))
 
 ### Changed
+
 - Improve Cloud VM error guidance with sign-in steps, unknown-flag suggestions, and usage examples ([#4094](https://github.com/manaflow-ai/cmux/pull/4094))
 - Use transparent backgrounds for file preview panels so previews follow the active Ghostty theme opacity ([#4088](https://github.com/manaflow-ai/cmux/pull/4088))
 
 ### Fixed
+
 - Fix `cmux ssh` dropping keystrokes after connecting — the backgrounded ssh inside the startup wrapper now inherits the wrapper's stdin so typing reaches the remote shell ([#4135](https://github.com/manaflow-ai/cmux/pull/4135)) -- thanks @kays0x for the fix, @kenfdev and @liudp1988 for the reports!
 - Keep the selected workspace visible after sidebar reorders ([#4083](https://github.com/manaflow-ai/cmux/pull/4083))
 - Fix Pi Vault icon and JSONL session titles ([#4120](https://github.com/manaflow-ai/cmux/pull/4120))
@@ -410,6 +419,7 @@ All notable changes to cmux are documented here.
 - Cursor and Gemini CLI agent integrations with `setup-hooks` ([#2717](https://github.com/manaflow-ai/cmux/pull/2717))
 - iMessage mode for agent prompts ([#3252](https://github.com/manaflow-ai/cmux/pull/3252))
 - Settings sidebar shell and unified config utility window with cmux, Ghostty, and synced tabs ([#3024](https://github.com/manaflow-ai/cmux/pull/3024), [#3244](https://github.com/manaflow-ai/cmux/pull/3244), [#3400](https://github.com/manaflow-ai/cmux/pull/3400))
+- Settings > Sign In for connecting a cmux account from Account settings
 - Make `cmux.json` the canonical settings file with JSONC parsing and legacy `settings.json` fallback ([#3409](https://github.com/manaflow-ai/cmux/pull/3409), [#3424](https://github.com/manaflow-ai/cmux/pull/3424))
 - Configurable `cmux.json` workspace and tab bar plus-button actions ([#3084](https://github.com/manaflow-ai/cmux/pull/3084), [#3348](https://github.com/manaflow-ai/cmux/pull/3348))
 - Configurable surface tab bar font size ([#2645](https://github.com/manaflow-ai/cmux/pull/2645))

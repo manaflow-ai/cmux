@@ -1,0 +1,483 @@
+import CMUXAuthCore
+import XCTest
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+final class AuthManagerSignInErrorTests: XCTestCase {
+    func testInvalidCallbackStoresVisibleSignInError() async throws {
+        let suiteName = "AuthManagerSignInErrorTests.InvalidCallback.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = AuthManager(
+            tokenStore: TestTokenStore(),
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        manager.markBrowserSignInLoadingForTesting()
+        do {
+            try await manager.handleCallbackURL(URL(string: "cmux://auth-callback?stack_refresh=refresh-token")!)
+            XCTFail("Expected invalid callback to throw")
+        } catch AuthManagerError.invalidCallback {
+            // Expected path.
+        } catch {
+            XCTFail("Expected invalidCallback, got \(error)")
+        }
+
+        guard case .authManager(.invalidCallback)? = manager.lastSignInError else {
+            XCTFail("Expected invalid callback to be stored as the visible sign-in error")
+            return
+        }
+        XCTAssertNotEqual(
+            manager.lastSignInError?.localizedMessage,
+            AuthManagerError.invalidCallback.errorDescription
+        )
+        XCTAssertEqual(
+            manager.lastSignInError?.localizedMessage,
+            AuthSignInError.message("diagnostic detail").localizedMessage
+        )
+    }
+
+    func testStaleInvalidCallbackDoesNotStoreVisibleSignInError() async throws {
+        let suiteName = "AuthManagerSignInErrorTests.StaleInvalidCallback.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = AuthManager(
+            tokenStore: TestTokenStore(),
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        do {
+            try await manager.handleCallbackURL(URL(string: "cmux://auth-callback?stack_refresh=refresh-token")!)
+            XCTFail("Expected invalid callback to throw")
+        } catch AuthManagerError.invalidCallback {
+            // Expected path.
+        } catch {
+            XCTFail("Expected invalidCallback, got \(error)")
+        }
+
+        XCTAssertNil(manager.lastSignInError)
+    }
+
+    func testApplySignInResultDoesNotRestoreAuthAfterConcurrentSignOut() async throws {
+        let suiteName = "AuthManagerSignInErrorTests.ConcurrentSignOut.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let tokenStore = BlockingSetTokenStore()
+        let manager = AuthManager(
+            client: TestAuthClient(),
+            tokenStore: tokenStore,
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        let result = AuthManager.SignInResult(
+            accessToken: "access-token",
+            refreshToken: "refresh-token",
+            email: "user@example.com",
+            displayName: "Test User",
+            userId: "user-id",
+            selectedTeamId: nil,
+            teams: []
+        )
+        let applyTask = Task {
+            await manager.applySignInResult(result)
+        }
+
+        await tokenStore.waitForBlockedSet()
+        await manager.signOut()
+        await tokenStore.releaseBlockedSet()
+        await applyTask.value
+
+        XCTAssertFalse(manager.isAuthenticated)
+        XCTAssertNil(manager.currentUser)
+        let storedAccessToken = await tokenStore.currentAccessToken()
+        let storedRefreshToken = await tokenStore.currentRefreshToken()
+        XCTAssertNil(storedAccessToken)
+        XCTAssertNil(storedRefreshToken)
+    }
+
+    func testApplySignInResultClearsSupersededCredentialLoadingState() async throws {
+        let suiteName = "AuthManagerSignInErrorTests.ApplyClearsLoading.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = AuthManager(
+            tokenStore: TestTokenStore(),
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        manager.markCredentialSignInLoadingForTesting()
+        XCTAssertTrue(manager.isLoading)
+
+        await manager.applySignInResult(makeSignInResult())
+
+        XCTAssertTrue(manager.isAuthenticated)
+        XCTAssertFalse(manager.isLoading)
+        XCTAssertNil(manager.lastSignInError)
+    }
+
+    func testApplySignInResultClearsVisibleErrorBeforeTokenPersistence() async throws {
+        let suiteName = "AuthManagerSignInErrorTests.ApplyClearsErrorBeforePersistence.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let tokenStore = BlockingSetTokenStore()
+        let manager = AuthManager(
+            tokenStore: tokenStore,
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        manager.markBrowserSignInLoadingForTesting()
+        do {
+            try await manager.handleCallbackURL(URL(string: "cmux://auth-callback?stack_refresh=refresh-token")!)
+            XCTFail("Expected invalid callback to throw")
+        } catch AuthManagerError.invalidCallback {
+            // Expected path.
+        } catch {
+            XCTFail("Expected invalidCallback, got \(error)")
+        }
+        XCTAssertNotNil(manager.lastSignInError)
+
+        let applyTask = Task {
+            await manager.applySignInResult(makeSignInResult())
+        }
+        await tokenStore.waitForBlockedSet()
+
+        XCTAssertNil(manager.lastSignInError)
+
+        await tokenStore.releaseBlockedSet()
+        await applyTask.value
+        XCTAssertTrue(manager.isAuthenticated)
+        XCTAssertNil(manager.lastSignInError)
+    }
+
+    func testSupersededCredentialSignInDoesNotLeakInternalError() async throws {
+        let suiteName = "AuthManagerSignInErrorTests.CredentialSuperseded.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let tokenStore = TestTokenStore()
+        let credentialSignIn = BlockingCredentialSignIn(result: makeSignInResult())
+        let manager = AuthManager(
+            client: TestAuthClient(),
+            tokenStore: tokenStore,
+            settingsStore: AuthSettingsStore(userDefaults: defaults),
+            credentialSignIn: { _, _ in
+                try await credentialSignIn.signIn()
+            }
+        )
+        await manager.awaitBootstrapped()
+
+        let signInTask = Task {
+            try await manager.signInWithCredential(email: "user@example.com", password: "password")
+        }
+        await credentialSignIn.waitForRequest()
+        XCTAssertTrue(manager.isLoading)
+
+        await manager.signOut()
+        await credentialSignIn.release()
+
+        do {
+            try await signInTask.value
+        } catch {
+            XCTFail("Expected superseded credential sign-in to return without leaking an internal error, got \(error)")
+        }
+
+        XCTAssertFalse(manager.isAuthenticated)
+        XCTAssertFalse(manager.isLoading)
+        XCTAssertNil(manager.currentUser)
+        XCTAssertNil(manager.lastSignInError)
+        let storedAccessToken = await tokenStore.currentAccessToken()
+        let storedRefreshToken = await tokenStore.currentRefreshToken()
+        XCTAssertNil(storedAccessToken)
+        XCTAssertNil(storedRefreshToken)
+    }
+
+    func testStaleCallbackFailureDoesNotOverwriteSignOutState() async throws {
+        let suiteName = "AuthManagerSignInErrorTests.StaleCallbackFailure.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let client = BlockingFailureAuthClient()
+        let manager = AuthManager(
+            client: client,
+            tokenStore: TestTokenStore(),
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        let callbackURL = try XCTUnwrap(URL(string: "cmux://auth-callback?stack_refresh=refresh-token&stack_access=access-token"))
+        let callbackTask = Task {
+            try await manager.handleCallbackURL(callbackURL)
+        }
+
+        await client.waitForCurrentUserRequest()
+        await manager.signOut()
+        await client.failCurrentUserRequest()
+        try await callbackTask.value
+
+        XCTAssertFalse(manager.isAuthenticated)
+        XCTAssertNil(manager.currentUser)
+        XCTAssertNil(manager.lastSignInError)
+    }
+
+    func testTimedOutBrowserSignInDoesNotAuthenticateFromInFlightCallback() async throws {
+        let suiteName = "AuthManagerSignInErrorTests.TimeoutSupersedesCallback.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let tokenStore = BlockingSetTokenStore()
+        let manager = AuthManager(
+            client: TestAuthClient(),
+            tokenStore: tokenStore,
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        manager.markBrowserSignInLoadingForTesting()
+        let callbackURL = try XCTUnwrap(URL(
+            string: "cmux://auth-callback?stack_refresh=refresh-token&stack_access=access-token"
+        ))
+        let callbackTask = Task {
+            try await manager.handleCallbackURL(callbackURL)
+        }
+
+        await tokenStore.waitForBlockedSet()
+        manager.markBrowserSignInTimedOutForTesting()
+
+        XCTAssertFalse(manager.isAuthenticated)
+        XCTAssertFalse(manager.isLoading)
+        XCTAssertNotNil(manager.lastSignInError)
+
+        await tokenStore.releaseBlockedSet()
+        try await callbackTask.value
+
+        XCTAssertFalse(manager.isAuthenticated)
+        XCTAssertFalse(manager.isLoading)
+        XCTAssertNil(manager.currentUser)
+        XCTAssertNotNil(manager.lastSignInError)
+        let storedAccessToken = await tokenStore.currentAccessToken()
+        let storedRefreshToken = await tokenStore.currentRefreshToken()
+        XCTAssertNil(storedAccessToken)
+        XCTAssertNil(storedRefreshToken)
+    }
+}
+
+private struct TestAuthClient: AuthClientProtocol {
+    func currentUser() async throws -> CMUXAuthUser? { nil }
+    func listTeams() async throws -> [AuthTeamSummary] { [] }
+    func currentAccessToken() async throws -> String? { nil }
+    func signOut() async throws {}
+}
+
+private func makeSignInResult() -> AuthManager.SignInResult {
+    AuthManager.SignInResult(
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        email: "user@example.com",
+        displayName: "Test User",
+        userId: "user-id",
+        selectedTeamId: nil,
+        teams: []
+    )
+}
+
+private actor BlockingCredentialSignIn {
+    private let result: AuthManager.SignInResult
+    private var signInContinuation: CheckedContinuation<AuthManager.SignInResult, any Error>?
+    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(result: AuthManager.SignInResult) {
+        self.result = result
+    }
+
+    func signIn() async throws -> AuthManager.SignInResult {
+        try await withCheckedThrowingContinuation { continuation in
+            signInContinuation = continuation
+            let waiters = requestWaiters
+            requestWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume()
+            }
+        }
+    }
+
+    func waitForRequest() async {
+        if signInContinuation != nil {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            requestWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        let continuation = signInContinuation
+        signInContinuation = nil
+        continuation?.resume(returning: result)
+    }
+}
+
+private actor BlockingFailureAuthClient: AuthClientProtocol {
+    private var currentUserContinuation: CheckedContinuation<CMUXAuthUser?, any Error>?
+    private var currentUserWaiter: CheckedContinuation<Void, Never>?
+
+    func currentUser() async throws -> CMUXAuthUser? {
+        try await withCheckedThrowingContinuation { continuation in
+            currentUserContinuation = continuation
+            currentUserWaiter?.resume()
+            currentUserWaiter = nil
+        }
+    }
+
+    func waitForCurrentUserRequest() async {
+        if currentUserContinuation != nil {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            currentUserWaiter = continuation
+        }
+    }
+
+    func failCurrentUserRequest() {
+        let continuation = currentUserContinuation
+        currentUserContinuation = nil
+        continuation?.resume(throwing: AuthManagerError.missingAccessToken)
+    }
+
+    func listTeams() async throws -> [AuthTeamSummary] { [] }
+    func currentAccessToken() async throws -> String? { nil }
+    func signOut() async throws {}
+}
+
+private actor TestTokenStore: StackAuthTokenStoreProtocol {
+    private var accessToken: String?
+    private var refreshToken: String?
+
+    func getStoredAccessToken() async -> String? {
+        accessToken
+    }
+
+    func getStoredRefreshToken() async -> String? {
+        refreshToken
+    }
+
+    func setTokens(accessToken: String?, refreshToken: String?) async {
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+    }
+
+    func clearTokens() async {
+        accessToken = nil
+        refreshToken = nil
+    }
+
+    func compareAndSet(
+        compareRefreshToken: String,
+        newRefreshToken: String?,
+        newAccessToken: String?
+    ) async {
+        guard refreshToken == compareRefreshToken else { return }
+        refreshToken = newRefreshToken
+        accessToken = newAccessToken
+    }
+}
+
+private actor BlockingSetTokenStore: StackAuthTokenStoreProtocol {
+    private var accessToken: String?
+    private var refreshToken: String?
+    private var shouldBlockNextSet = true
+    private var setIsBlocked = false
+    private var setStartedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseSetContinuation: CheckedContinuation<Void, Never>?
+
+    func waitForBlockedSet() async {
+        if setIsBlocked { return }
+        await withCheckedContinuation { continuation in
+            setStartedWaiters.append(continuation)
+        }
+    }
+
+    func releaseBlockedSet() {
+        guard let continuation = releaseSetContinuation else { return }
+        releaseSetContinuation = nil
+        continuation.resume()
+    }
+
+    func getStoredAccessToken() async -> String? {
+        accessToken
+    }
+
+    func getStoredRefreshToken() async -> String? {
+        refreshToken
+    }
+
+    func setTokens(accessToken: String?, refreshToken: String?) async {
+        if shouldBlockNextSet {
+            shouldBlockNextSet = false
+            setIsBlocked = true
+            let waiters = setStartedWaiters
+            setStartedWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume()
+            }
+            await withCheckedContinuation { continuation in
+                releaseSetContinuation = continuation
+            }
+            setIsBlocked = false
+        }
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+    }
+
+    func clearTokens() async {
+        accessToken = nil
+        refreshToken = nil
+    }
+
+    func compareAndSet(
+        compareRefreshToken: String,
+        newRefreshToken: String?,
+        newAccessToken: String?
+    ) async {
+        guard refreshToken == compareRefreshToken else { return }
+        refreshToken = newRefreshToken
+        accessToken = newAccessToken
+    }
+}
