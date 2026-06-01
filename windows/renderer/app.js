@@ -9946,20 +9946,21 @@ function showPanelContextMenu(event, panel) {
     showContextMenuAt(menu, event.clientX, event.clientY);
     return;
   }
-  const actions = document.createElement("div");
-  actions.className = "context-actions";
   const isTerminal = panel.type === "terminal";
   const isBrowser = panel.type === "browser";
-  actions.append(
+  const generalActions = contextMenuActionGroup(
     contextMenuButton("Rename", () => renamePanel(panel)),
     contextMenuButton("Duplicate", () => duplicatePanel(panel)),
+    isTerminal
+      ? contextMenuButton("New terminal tab", () => createPanel("terminal", "right", { anchorPanelId: panel.id }))
+      : contextMenuButton("New browser tab", () => newBrowserTabFromPanel(panel)),
     contextMenuButton("Split right", () => splitPanel(panel, "right")),
     contextMenuButton("Split down", () => splitPanel(panel, "down")),
-    contextMenuButton("Set pane size", () => promptPanelLayoutPercent(panel), found.workspace.panels.length <= 1),
     contextMenuButton(isPanelMinimized(panel) ? "Restore pane" : "Minimize pane", () => togglePaneMinimized(panel.id))
   );
+  const surfaceActions = [];
   if (isTerminal) {
-    actions.append(
+    surfaceActions.push(
       contextMenuButton("Find", () => openTerminalSearch(panel)),
       contextMenuButton("Find next", () => findNextInTerminal(panel)),
       contextMenuButton("Copy selection", () => copyActiveTerminalSelection(panel)),
@@ -9973,26 +9974,28 @@ function showPanelContextMenu(event, panel) {
     );
   }
   if (isBrowser) {
-    actions.append(
+    surfaceActions.push(
       contextMenuButton("Focus address", () => focusBrowserAddress(panel)),
       contextMenuButton("Reload page", () => reloadBrowserPanel(panel)),
-      contextMenuButton("New browser tab", () => newBrowserTabFromPanel(panel)),
       contextMenuButton("Open externally", () => openBrowserPanelExternally(panel)),
       contextMenuButton("Copy URL", () => copyBrowserPanelUrl(panel)),
       contextMenuButton("Browser settings", () => openSettingsCategory("browser"))
     );
   }
-  actions.append(
+  const layoutActions = contextMenuActionGroup(
+    contextMenuButton("Set pane size", () => promptPanelLayoutPercent(panel), found.workspace.panels.length <= 1),
     contextMenuButton(isPanelZoomed(panel, found.workspace) ? "Show all panes" : "Focus pane", () => togglePaneZoom(panel.id)),
     contextMenuButton("Move left", () => movePanelLeft(found.workspace, index), index <= 0),
-    contextMenuButton("Move right", () => movePanelRight(found.workspace, index), index >= found.workspace.panels.length - 1),
+    contextMenuButton("Move right", () => movePanelRight(found.workspace, index), index >= found.workspace.panels.length - 1)
+  );
+  const closeActions = contextMenuActionGroup(
     contextMenuButton("Close other panes", () => closeOtherPanes(panel.id), found.workspace.panels.length <= 1, "danger"),
     contextMenuButton("Close panes to right", () => closePanelsById(panesToRight.map((candidate) => candidate.id)), panesToRight.length === 0, "danger"),
     contextMenuButton("Close", () => closePanel(panel.id), false, "danger")
   );
   const colorTitle = document.createElement("div");
   colorTitle.className = "context-section-title";
-  colorTitle.textContent = "Pane color";
+  colorTitle.textContent = "Tab color";
   const colors = document.createElement("div");
   colors.className = "context-colors";
   for (const color of workspaceColorPalette()) {
@@ -10009,7 +10012,25 @@ function showPanelContextMenu(event, panel) {
   }
   const clear = contextMenuButton("Clear color", () => updatePanel(panel.id, { color: "" }), !panel.color);
   const customColor = contextColorPicker(panel.color, (color) => updatePanel(panel.id, { color }));
-  menu.replaceChildren(title, actions, colorTitle, colors, customColor, clear);
+  const nodes = [
+    title,
+    contextMenuSectionTitle("Tab"),
+    generalActions
+  ];
+  if (surfaceActions.length) {
+    nodes.push(contextMenuSectionTitle(isTerminal ? "Terminal" : "Browser"), contextMenuActionGroup(...surfaceActions));
+  }
+  nodes.push(
+    contextMenuSectionTitle("Layout"),
+    layoutActions,
+    contextMenuSectionTitle("Close"),
+    closeActions,
+    colorTitle,
+    colors,
+    customColor,
+    clear
+  );
+  menu.replaceChildren(...nodes);
   showContextMenuAt(menu, event.clientX, event.clientY);
 }
 
