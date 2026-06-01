@@ -277,6 +277,31 @@ The existing packages under `Packages/` predate this policy and should not be us
 
 **Wiring a new local package into the project.** `cmux.xcodeproj` lists package dependencies explicitly (it is not a synchronized-folder project). Adding `Packages/CmuxFoo` means mirroring an existing package's `project.pbxproj` entries — one `XCLocalSwiftPackageReference` (in the project's `packageReferences`), one `XCSwiftPackageProductDependency`, and a `PBXBuildFile` linked in the Frameworks phase of **every** target that imports it. The app-target packages link into **both** `cmux` and `cmux-unit` (so tests can `import` and inject them); copy a recent leaf like `CmuxSocketControl` for the exact shape, then run `scripts/normalize-pbxproj.py` and `scripts/check-pbxproj.sh`. A package the app builds against but `cmux-unit` does not link will compile the app yet fail the test target.
 
+## Refactor architecture: layers, Coordinator/Service/Repository, dependency inversion
+
+These higher-level patterns are binding on every new or moved/meaningfully-rewritten file. (The full blueprint, with worked examples and the per-god decomposition, lives in the cmuxterm-hq control repo under `docs/cmux-refactor-audit/blueprint/`; the enforceable core is below.)
+
+**Layered, downward-only DAG.** Packages form a strict acyclic graph in five layers; dependencies point only downward:
+1. **Core** (e.g. `CmuxCore`) — pure `Sendable` values, IDs, DTOs, errors, and the protocol seams shared across domains. No AppKit/SwiftUI/I/O. The lift target when two domains need the same type.
+2. **Services / infrastructure** — `actor`s implementing core protocols against the outside world (process/PTY, filesystem, sockets, web API, notifications, auth). One package per cohesive capability.
+3. **Domain / state** — `@MainActor @Observable` models + Coordinators, one package per feature domain; owns that domain's mutable state. `CmuxSettings` is the exemplar.
+4. **UI** — SwiftUI/AppKit views, one UI package per domain package, depending only on its domain package + Core, never on a Service directly. `CmuxSettingsUI` is the exemplar.
+5. **Executable** (`cmuxApp` / `AppDelegate`) — a thin composition shim, no business logic.
+
+**Classify every extracted entity by intent:**
+- **Coordinator** — a `@MainActor @Observable` orchestrator that sequences a user flow and owns navigation/selection/lifecycle state, calling Services and child models. Does no I/O itself.
+- **Service** — an `actor` (or `@MainActor` only when an AppKit main-thread API forces it) performing one outside-world capability; exposes `async`/`await` + `AsyncStream`, holds only its own resource handles, holds no UI state.
+- **Repository** — an `actor` mediating one persistence source of truth (file, defaults, web API) behind CRUD-shaped async methods returning value types. Precedents: `JSONConfigStore`, `UserDefaultsSettingsStore`.
+
+**Dependency inversion.** Lower packages publish protocols; concrete Services/Repositories conform; higher layers depend on `any Protocol`, never the concrete type. Share a type by lifting it to Core or defining a protocol seam in the consumer — never a stored property reaching across modules. Injection is constructor (`init`) injection only: no global container, no singleton, no `static let shared`. The **executable app target is the single composition root** — the one place concretes are named and the object graph is assembled. SwiftUI `Environment` may carry already-constructed `@Observable` models down a view tree (as `SettingsRuntime` does), but is never the source of truth for service wiring.
+
+**State + SwiftUI wiring.** Domain state lives in `@MainActor @Observable` models (never `ObservableObject`/`@Published`). A god model decomposes into cohesive child `@Observable` sub-models owned by their domain packages and composed by the home object via held references; cross-domain reads go behind read-only protocols. In views use `@State` (owned), `@Bindable` / plain `let` (passed-in), or `@Environment(M.self)` + `.environment(...)` (injected) — never `@StateObject` / `@ObservedObject` / `@EnvironmentObject` / `.environmentObject(_:)`.
+
+**Executable-target boundary (three hard constraints — invert, never work around):**
+1. `@main` `cmuxApp` and `AppDelegate` stay in the executable target as the thin composition shim; that residual is the intended end state, not debt.
+2. A type is declared in exactly one module and a lower package cannot extend a higher-owned type, so `AppDelegate+*` / `cmuxApp+*` / `Workspace+*` extensions do not move down: extract the behavior into a Coordinator/Service/Repository, have the god object own an instance, and reduce the extension to a one-line forward.
+3. Stored properties cannot cross module boundaries: decompose god-model state into child `@Observable` sub-models owned by domain packages, composed by held reference, with cross-cutting reads behind read-only protocols.
+
 ## File organization
 
 One major type per file. Each `struct`, `class`, `enum`, `actor`, or `protocol` that is part of a public API (or has any meaningful body) lives in its own file named after the type (`Control.swift`, `LabeledChoice.swift`, `ListControl.swift` — not one shared `SettingControl.swift`). This rule applies to all new code in `Packages/` and to any new files added to the app target.
