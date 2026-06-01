@@ -2909,6 +2909,32 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(terminalStartupCommand.contains("ssh -p 2222"), terminalStartupCommand)
     }
 
+    func testSessionRemoteWorkspaceSnapshotFallsBackFromPersistentSSHPTYWithoutDaemonVersion() throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+            ],
+            preserveAfterTerminalExit: true,
+            skipDaemonBootstrap: nil,
+            relayPort: 64021,
+            persistentDaemonSlot: "ssh-legacy-no-version"
+        )
+
+        let configuration = try XCTUnwrap(snapshot.workspaceConfiguration(localSocketPath: "/tmp/cmux-restore.sock"))
+
+        XCTAssertEqual(configuration.preserveAfterTerminalExit, false)
+        XCTAssertNil(configuration.foregroundAuthToken)
+        XCTAssertNil(configuration.persistentDaemonSlot)
+        XCTAssertNil(configuration.relayPort)
+        XCTAssertNil(configuration.localSocketPath)
+        XCTAssertFalse(configuration.terminalStartupCommand?.contains("ssh-pty-attach") == true)
+        XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
+    }
+
     func testSessionSnapshotFallsBackFromSkipBootstrapPersistentSSHPTYWithoutDaemonBridge() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
