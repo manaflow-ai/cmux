@@ -211,6 +211,7 @@ const paneResizeFitThrottleMs = 90;
 const panePointerDragThreshold = 6;
 const closedPanelLimit = 12;
 const maxConcurrentPaneCreations = 4;
+const visibleBackgroundOpacity = 24;
 const terminalCursorMigrationStorageKey = "cmux.terminalCursorBarMigration";
 const browserHomeMigrationStorageKey = "cmux.browserHomeGoogleMigration";
 const launchToken = new URLSearchParams(location.search).get("token") || "";
@@ -713,6 +714,15 @@ function backgroundCss(value) {
   return url ? `url("${url.replace(/["\\]/g, "\\$&")}")` : "none";
 }
 
+function backgroundImageSettings(backgroundImage) {
+  const normalized = normalizeBackgroundValue(backgroundImage);
+  const updates = { backgroundImage: normalized };
+  if (normalized && state.settings.backgroundOpacity <= 0) {
+    updates.backgroundOpacity = visibleBackgroundOpacity;
+  }
+  return updates;
+}
+
 function backgroundSizeCss(value) {
   if (value === "contain") return "contain";
   if (value === "stretch") return "100% 100%";
@@ -742,7 +752,7 @@ async function applyCustomBackgroundImage(value, options = {}) {
   }
   const preset = isBackgroundPreset(raw) ? raw : "";
   if (preset) {
-    const changed = updateSettings({ backgroundImage: preset });
+    const changed = updateSettings(backgroundImageSettings(preset));
     if (changed && options.render !== false) renderSettingsInspector();
     return changed;
   }
@@ -752,7 +762,7 @@ async function applyCustomBackgroundImage(value, options = {}) {
     if (options.resetInput) options.resetInput.value = isBackgroundPreset(state.settings.backgroundImage) ? "" : state.settings.backgroundImage;
     return null;
   }
-  const changed = updateSettings({ backgroundImage: validated.url });
+  const changed = updateSettings(backgroundImageSettings(validated.url));
   if (changed && options.render !== false) renderSettingsInspector();
   if (changed && options.toast) toast("Background image updated.");
   return changed;
@@ -1578,7 +1588,7 @@ async function applyAndSaveCustomBackgroundImage(background, options = {}) {
   const wasSaved = state.savedBackgroundImages.some((candidate) => candidate.url.toLowerCase() === validated.url.toLowerCase());
   const saved = upsertSavedBackgroundImage({ ...input, url: validated.url }, { render: false, toast: false });
   if (!saved) return null;
-  const changed = updateSettings({ backgroundImage: validated.url });
+  const changed = updateSettings(backgroundImageSettings(validated.url));
   if (options.render !== false) renderSettingsInspector();
   if (options.toast !== false) {
     if (changed && !wasSaved) toast("Background image applied and saved.");
@@ -1597,7 +1607,7 @@ async function applySavedBackgroundImage(backgroundId) {
     toast(`${background.label} background could not be loaded.`);
     return;
   }
-  const changed = updateSettings({ backgroundImage: validated.url });
+  const changed = updateSettings(backgroundImageSettings(validated.url));
   if (!changed) {
     toast(`${background.label} background already active.`);
     return;
@@ -8829,7 +8839,7 @@ function backgroundPresetGrid() {
 
 function applyBackgroundPreset(preset, options = {}) {
   if (!preset) return false;
-  const changed = updateSettings({ backgroundImage: preset.value });
+  const changed = updateSettings(backgroundImageSettings(preset.value));
   if (!changed) {
     if (options.toast !== false) toast(`${preset.label} background already active.`);
     return false;
