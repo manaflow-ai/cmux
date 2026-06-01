@@ -3513,10 +3513,12 @@ function updateSurfaceTab(button, workspace, panel) {
   const fullTitle = panelDisplayTitle(panel, false);
   const minimized = isPanelMinimized(panel);
   const pending = isPendingPanel(panel);
+  const ordinal = Math.max(1, (workspace?.panels || []).findIndex((candidate) => candidate.id === panel.id) + 1);
   setDatasetIfChanged(button, "panelId", panel.id);
   setClassNameIfChanged(button, `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${isPanelZoomed(panel, workspace) ? " is-zoomed" : ""}${minimized ? " is-minimized" : ""}${pending ? " is-pending" : ""}${panel.needsAttention ? " has-attention" : ""}`);
   setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""}${pending ? " - starting" : ""}${minimized ? " - minimized, click to restore" : ""} - middle-click to ${pending ? "cancel" : "close"}, double-click to rename, right-click for pane options`);
   setStylePropertyIfChanged(button, "--tab-color", panel.color || workspace.color || "var(--color-accent)");
+  setDatasetIfChanged(button.querySelector(".surface-dot"), "tabIndex", String(ordinal));
   setTextIfChanged(button.querySelector(".surface-label"), label);
 }
 

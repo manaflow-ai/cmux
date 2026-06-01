@@ -1133,13 +1133,14 @@ body.reduce-motion *::after {
   flex-basis: min(var(--surface-tab-basis, 160px), 118px);
   min-width: min(var(--surface-tab-min, 104px), 78px);
   max-width: min(var(--surface-tab-max, 220px), 148px);
-  grid-template-columns: 8px minmax(0, 1fr);
-  padding-right: 5px;
+  grid-template-columns: 16px minmax(0, 1fr) 20px;
+  gap: 5px;
+  padding: 0 3px 0 5px;
 }
 
 .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab):hover,
 .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab).is-active {
-  padding-right: 5px;
+  padding: 0 3px 0 5px;
 }
 
 .surface-tab:hover {
@@ -1156,10 +1157,26 @@ body.reduce-motion *::after {
 }
 
 .surface-dot {
+  display: grid;
+  place-items: center;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--tab-color, var(--color-faint));
+  color: transparent;
+  font: 9px/1 var(--font-mono);
+}
+
+.surface-tabs.is-crowded .surface-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-1);
+  color: var(--color-canvas);
+  font-weight: 760;
+}
+
+.surface-tabs.is-crowded .surface-dot::after {
+  content: attr(data-tab-index);
 }
 
 .surface-tab.has-attention .surface-dot {
@@ -1179,6 +1196,7 @@ body.reduce-motion *::after {
 .surface-tab.is-minimized .surface-dot {
   background: transparent;
   border: 1px solid var(--color-line-strong);
+  color: var(--color-faint);
 }
 
 .surface-tab.is-pending .surface-dot {
@@ -1193,11 +1211,6 @@ body.reduce-motion *::after {
   text-overflow: ellipsis;
   font-size: 12px;
   line-height: 1.1;
-}
-
-.surface-tabs.is-crowded .surface-tab:hover .surface-label,
-.surface-tabs.is-crowded .surface-tab.is-active .surface-label {
-  padding-right: 18px;
 }
 
 .surface-close {
@@ -1219,9 +1232,6 @@ body.reduce-motion *::after {
 }
 
 .surface-tabs.is-crowded .surface-close {
-  position: absolute;
-  top: 4px;
-  right: 2px;
   width: 20px;
   height: 20px;
   background: color-mix(in oklch, var(--color-pane) 82%, transparent);
@@ -1229,9 +1239,6 @@ body.reduce-motion *::after {
 
 .surface-tabs.is-crowded .surface-tab:hover .surface-close,
 .surface-tabs.is-crowded .surface-tab.is-active .surface-close {
-  position: absolute;
-  top: 4px;
-  right: 2px;
   width: 20px;
   height: 20px;
 }
