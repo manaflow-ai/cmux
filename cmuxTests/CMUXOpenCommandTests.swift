@@ -1521,6 +1521,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
         let fakeBinURL = rootURL.appendingPathComponent("bin", isDirectory: true)
         let fakeGitURL = fakeBinURL.appendingPathComponent("git", isDirectory: false)
+        let gitInvokedURL = rootURL.appendingPathComponent("git-invoked", isDirectory: false)
         let diffStartedURL = rootURL.appendingPathComponent("diff-started", isDirectory: false)
         let releaseDiffURL = rootURL.appendingPathComponent("release-diff", isDirectory: false)
         let alternateStartedURL = rootURL.appendingPathComponent("alternate-started", isDirectory: false)
@@ -1534,6 +1535,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         if [ "${1:-}" = "-C" ]; then
           shift 2
         fi
+        : > "$CMUX_FAKE_GIT_INVOKED"
         if [ "${1:-}" = "rev-parse" ] && [ "${2:-}" = "--show-toplevel" ]; then
           printf '%s\\n' "$CMUX_FAKE_GIT_REPO_ROOT"
           exit 0
@@ -1581,6 +1583,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         let openedURLBox = AsyncValueBox<String?>(nil)
         let openedHTMLURLBox = AsyncValueBox<URL?>(nil)
         let pendingHTMLBox = AsyncValueBox<String?>(nil)
+        let openedSchemeBox = AsyncValueBox<String?>(nil)
+        let registeredFileCountBox = AsyncValueBox<Int?>(nil)
+        let gitHadStartedWhenOpenedBox = AsyncValueBox<Bool?>(nil)
         let diffHadStartedWhenOpenedBox = AsyncValueBox<Bool?>(nil)
         let openHandled = expectation(description: "browser opened before fake git diff completed")
         defer {
@@ -1598,8 +1603,11 @@ final class CMUXOpenCommandTests: XCTestCase {
                 return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
             }
             openedURLBox.set(rawURL)
+            openedSchemeBox.set(URL(string: rawURL)?.scheme)
+            registeredFileCountBox.set((params["diff_viewer_files"] as? [[String: Any]])?.count)
+            gitHadStartedWhenOpenedBox.set(FileManager.default.fileExists(atPath: gitInvokedURL.path))
             diffHadStartedWhenOpenedBox.set(FileManager.default.fileExists(atPath: diffStartedURL.path))
-            if let htmlURL = Self.diffViewerHTMLFileURLFromHTTPManifest(for: rawURL) {
+            if let htmlURL = Self.diffViewerHTMLFileURLFromOpenParams(for: rawURL, params: params) {
                 openedHTMLURLBox.set(htmlURL)
                 pendingHTMLBox.set(try? String(contentsOf: htmlURL, encoding: .utf8))
             }
@@ -1619,6 +1627,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["CMUX_FAKE_GIT_INVOKED"] = gitInvokedURL.path
         environment["CMUX_FAKE_GIT_REPO_ROOT"] = repoURL.path
         environment["CMUX_FAKE_GIT_STARTED"] = diffStartedURL.path
         environment["CMUX_FAKE_GIT_RELEASE"] = releaseDiffURL.path
@@ -1636,6 +1645,9 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         wait(for: [openHandled], timeout: 5)
         XCTAssertNotNil(openedURLBox.get())
+        XCTAssertEqual(openedSchemeBox.get(), "cmux-diff-viewer")
+        XCTAssertEqual(registeredFileCountBox.get(), 2)
+        XCTAssertEqual(gitHadStartedWhenOpenedBox.get() ?? true, false)
         XCTAssertEqual(diffHadStartedWhenOpenedBox.get() ?? true, false)
         XCTAssertTrue(pendingHTMLBox.get()?.contains("data-cmux-diff-pending=\"true\"") == true, pendingHTMLBox.get() ?? "")
         XCTAssertTrue(pendingHTMLBox.get()?.contains("data-status-only=\"true\"") == true, pendingHTMLBox.get() ?? "")
@@ -1646,7 +1658,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         let openingHTMLURL = try XCTUnwrap(openedHTMLURLBox.get())
         XCTAssertTrue(waitUntil(timeout: 5) {
             let html = (try? String(contentsOf: openingHTMLURL, encoding: .utf8)) ?? ""
-            return html.contains("data-cmux-diff-redirect=")
+            return html.contains("data-cmux-diff-embedded=\"true\"")
+                && html.contains("data-cmux-diff-embed-url=")
+                && !html.contains("data-cmux-diff-redirect=")
                 && FileManager.default.fileExists(atPath: alternateStartedURL.path)
         })
         XCTAssertFalse(FileManager.default.fileExists(atPath: releaseAlternateURL.path))
@@ -2118,11 +2132,17 @@ final class CMUXOpenCommandTests: XCTestCase {
         let rawURL = try XCTUnwrap(params["url"] as? String)
         XCTAssertEqual(params["bypass_remote_proxy"] as? Bool, true)
         let viewerURL = try XCTUnwrap(URL(string: rawURL))
-        XCTAssertEqual(viewerURL.scheme, "http")
-        XCTAssertEqual(viewerURL.host, "127.0.0.1")
-        XCTAssertEqual(viewerURL.fragment, "cmux-diff-viewer")
-        XCTAssertNil(params["diff_viewer_token"])
-        XCTAssertNil(params["diff_viewer_files"])
+        if viewerURL.scheme == "http" {
+            XCTAssertEqual(viewerURL.host, "127.0.0.1")
+            XCTAssertEqual(viewerURL.fragment, "cmux-diff-viewer")
+            XCTAssertNil(params["diff_viewer_token"])
+            XCTAssertNil(params["diff_viewer_files"])
+        } else {
+            XCTAssertEqual(viewerURL.scheme, "cmux-diff-viewer")
+            XCTAssertEqual(viewerURL.fragment, nil)
+            XCTAssertEqual(params["diff_viewer_token"] as? String, viewerURL.host)
+            XCTAssertNotNil(params["diff_viewer_files"])
+        }
         let openedFileURL = try diffViewerHTMLFileURL(for: rawURL, from: params)
         let viewerFileURL = try resolvedDiffViewerHTMLFileURL(openedFileURL, from: params)
         if openedFileURL != viewerFileURL {
@@ -2145,16 +2165,17 @@ final class CMUXOpenCommandTests: XCTestCase {
         var current = fileURL
         for _ in 0..<4 {
             let html = try String(contentsOf: current, encoding: .utf8)
-            guard let redirectURL = Self.diffViewerRedirectURL(from: html) else {
-                return current
+            if let embeddedURL = Self.diffViewerEmbeddedURL(from: html) {
+                current = try diffViewerHTMLFileURL(for: embeddedURL, from: params)
+                continue
             }
-            current = try diffViewerHTMLFileURL(for: redirectURL, from: params)
+            return current
         }
         return current
     }
 
-    private static func diffViewerRedirectURL(from html: String) -> String? {
-        let marker = "data-cmux-diff-redirect=\""
+    private static func diffViewerEmbeddedURL(from html: String) -> String? {
+        let marker = "data-cmux-diff-embed-url=\""
         guard let start = html.range(of: marker)?.upperBound else { return nil }
         let tail = html[start...]
         guard let end = tail.firstIndex(of: "\"") else { return nil }
@@ -2191,6 +2212,32 @@ final class CMUXOpenCommandTests: XCTestCase {
                   file["request_path"] as? String == manifestRequestPath &&
                       file["mime_type"] as? String == "text/html"
               }),
+              let filePath = entry["file_path"] as? String else {
+            return nil
+        }
+        return URL(fileURLWithPath: filePath, isDirectory: false)
+    }
+
+    private static func diffViewerHTMLFileURLFromOpenParams(
+        for rawURL: String,
+        params: [String: Any]
+    ) -> URL? {
+        guard let viewerURL = URL(string: rawURL) else {
+            return nil
+        }
+        if viewerURL.scheme == "http" {
+            return diffViewerHTMLFileURLFromHTTPManifest(for: rawURL)
+        }
+        guard viewerURL.scheme == "cmux-diff-viewer",
+              let files = params["diff_viewer_files"] as? [[String: Any]] else {
+            return nil
+        }
+        let rawRequestPath = URLComponents(url: viewerURL, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? viewerURL.path
+        let requestPath = rawRequestPath.isEmpty ? "/" : rawRequestPath
+        guard let entry = files.first(where: { file in
+            file["request_path"] as? String == requestPath &&
+                file["mime_type"] as? String == "text/html"
+        }),
               let filePath = entry["file_path"] as? String else {
             return nil
         }
