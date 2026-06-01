@@ -2438,7 +2438,7 @@ class GhosttyApp {
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
         if startupPreviewProfile.loadsRealUserConfig {
-            ghostty_config_load_default_files(config)
+            loadGhosttyDefaultFilesUnlessPrivacy(config)
             loadLegacyGhosttyConfigIfNeeded(config)
             loadCmuxAppSupportGhosttyConfigIfNeeded(config)
             ghostty_config_load_recursive_files(config)
@@ -2460,7 +2460,7 @@ class GhosttyApp {
             )
         }
         #else
-        ghostty_config_load_default_files(config)
+        loadGhosttyDefaultFilesUnlessPrivacy(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
@@ -2996,15 +2996,19 @@ class GhosttyApp {
 
         guard let appSupportDirectory else { return paths }
 
-        let ghosttyDir = appSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
-        let nativeConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
-        paths.append(nativeConfig.path)
-        if shouldIncludeLegacyGhosttyConfigInScanPaths(
-            newConfigFileSize: configFileSize(at: nativeConfig),
-            legacyConfigFileSize: configFileSize(at: nativeLegacyConfig)
-        ) {
-            paths.append(nativeLegacyConfig.path)
+        // Panecho privacy mode: omit the standalone Ghostty app config dir
+        // (another app's data) from scan paths so it is never stat-ed/read.
+        if !PrivacyMode.isEnabled {
+            let ghosttyDir = appSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+            let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
+            let nativeConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
+            paths.append(nativeConfig.path)
+            if shouldIncludeLegacyGhosttyConfigInScanPaths(
+                newConfigFileSize: configFileSize(at: nativeConfig),
+                legacyConfigFileSize: configFileSize(at: nativeLegacyConfig)
+            ) {
+                paths.append(nativeLegacyConfig.path)
+            }
         }
 
         guard let bundleId = currentBundleIdentifier,
@@ -3207,6 +3211,8 @@ class GhosttyApp {
             in: .userDomainMask
         ).first
     ) -> Bool {
+        // Panecho privacy mode: do not stat the foreign Ghostty app config.
+        if PrivacyMode.isEnabled { return false }
         guard let appSupportDirectory else { return false }
         let ghosttyDir = appSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
         let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
@@ -3404,7 +3410,29 @@ class GhosttyApp {
         #endif
     }
 
+    /// Loads Ghostty's default user config WITHOUT touching another app's data.
+    /// In privacy mode the engine's default-file search is skipped because on
+    /// macOS it probes ~/Library/Application Support/com.mitchellh.ghostty
+    /// (another app's data -> the macOS "access data from other apps" prompt);
+    /// only the user's own ~/.config/ghostty files are loaded explicitly.
+    private func loadGhosttyDefaultFilesUnlessPrivacy(_ config: ghostty_config_t) {
+        guard PrivacyMode.isEnabled else {
+            ghostty_config_load_default_files(config)
+            return
+        }
+        let fm = FileManager.default
+        for relativePath in ["~/.config/ghostty/config", "~/.config/ghostty/config.ghostty"] {
+            let path = (relativePath as NSString).expandingTildeInPath
+            guard fm.fileExists(atPath: path) else { continue }
+            path.withCString { ghostty_config_load_file(config, $0) }
+        }
+    }
+
     private func loadLegacyGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
+        // Panecho privacy mode: never read the standalone Ghostty app config under
+        // ~/Library/Application Support/com.mitchellh.ghostty (another app's data ->
+        // triggers the macOS "access data from other apps" prompt).
+        if PrivacyMode.isEnabled { return }
         #if os(macOS)
         // Ghostty 1.3+ prefers `config.ghostty`, but some users still have their real
         // settings in the legacy `config` file. Use legacy only when `config.ghostty`
