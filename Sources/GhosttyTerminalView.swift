@@ -6293,6 +6293,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !GeminiIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_GEMINI_HOOKS_DISABLED", "1")
         }
+        if !KiroIntegrationSettings.hooksEnabled() {
+            setManagedEnvironmentValue("CMUX_KIRO_HOOKS_DISABLED", "1")
+        }
+        setManagedEnvironmentValue(
+            "CMUX_KIRO_NOTIFICATION_LEVEL",
+            KiroIntegrationSettings.notificationLevel().rawValue
+        )
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]

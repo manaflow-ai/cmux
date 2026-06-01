@@ -49,6 +49,18 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "geminiHooksEnabled"
     )
 
+    public let kiroIntegration = DefaultsKey<Bool>(
+        id: "automation.kiroIntegration",
+        defaultValue: true,
+        userDefaultsKey: "kiroHooksEnabled"
+    )
+
+    public let kiroNotificationLevel = DefaultsKey<String>(
+        id: "automation.kiroNotificationLevel",
+        defaultValue: "standard",
+        userDefaultsKey: "kiroNotificationLevel"
+    )
+
     public let portBase = DefaultsKey<Int>(
         id: "automation.portBase",
         defaultValue: 9100,
