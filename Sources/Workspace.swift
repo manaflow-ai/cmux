@@ -9893,6 +9893,7 @@ final class Workspace: Identifiable, ObservableObject {
         return BonsplitConfiguration.Appearance(
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
             tabTitleFontSize: tabTitleFontSize,
+            collapseSplitButtonsIntoMenu: true,
             splitButtonBackdropEffect: Self.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
@@ -10633,6 +10634,22 @@ final class Workspace: Identifiable, ObservableObject {
         let next = CmuxNoteStore.newAnchorID()
         noteAnchorIdsByPanelId[panelId] = next
         return next
+    }
+
+    /// Read-only variant of `noteAttachmentTargetForPanel` that never mints a
+    /// new anchor. Used to resolve a caller surface's existing notes (e.g.
+    /// `note list`/`note here`) without mutating anchor state. Returns nil when
+    /// the surface has never had a note attached.
+    func existingNoteAttachmentTargetForPanel(panelId: UUID) -> CmuxNoteAttachmentTarget? {
+        guard let panel = panels[panelId],
+              let surfaceAnchorId = noteAnchorIdsByPanelId[panelId] else {
+            return nil
+        }
+        return .surface(
+            workspaceAnchorId: noteAnchorId,
+            surfaceAnchorId: surfaceAnchorId,
+            surfaceKind: panel.panelType.rawValue
+        )
     }
 
     private func surfaceKind(for panel: any Panel) -> String {
@@ -13605,6 +13622,12 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             return nil
         }
+        // "New Note" mirrors `cmux note new`: every invocation creates a fresh
+        // auto-slug note rather than reopening the surface's existing note. The
+        // attachment is still recorded for provenance, but we never prefer or
+        // reuse an already-attached note — otherwise repeated New Note actions
+        // (and the case where the prior note was dragged to another pane) would
+        // just refocus the existing note instead of creating another one.
         return await openOrCreateNoteSurface(
             inPane: paneId,
             slug: nil,
@@ -13612,8 +13635,8 @@ final class Workspace: Identifiable, ObservableObject {
             attachment: attachment,
             createIfMissing: true,
             focus: focus,
-            reuseExisting: true,
-            preferAttachedExisting: true
+            reuseExisting: false,
+            preferAttachedExisting: false
         )
     }
 
@@ -13622,6 +13645,8 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         focus: Bool = true
     ) async -> MarkdownPanel? {
+        // See `openAttachedNoteForSurface`: New Note always creates a fresh note
+        // instead of refocusing the workspace's existing note.
         await openOrCreateNoteSurface(
             inPane: paneId,
             slug: nil,
@@ -13629,8 +13654,8 @@ final class Workspace: Identifiable, ObservableObject {
             attachment: noteAttachmentTargetForWorkspace(),
             createIfMissing: true,
             focus: focus,
-            reuseExisting: true,
-            preferAttachedExisting: true
+            reuseExisting: false,
+            preferAttachedExisting: false
         )
     }
 

@@ -4969,7 +4969,7 @@ struct CMUXCLI {
                 }
                 throw CLIError(message: unexpectedArgumentMessage(verb: "list", argument: extraArg))
             }
-            let params = try buildRoutingParams()
+            let params = try buildRoutingParams(includeDefaultSurface: true)
             let payload = try client.sendV2(method: "note.list", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -5025,6 +5025,54 @@ struct CMUXCLI {
                         ))
                     }
                 }
+                if let resolvedSlug = payload["resolved_slug"] as? String {
+                    let link = ((payload["resolved"] as? [String: Any])?["link"] as? String) ?? ""
+                    print(String.localizedStringWithFormat(
+                        String(
+                            localized: "cli.note.output.resolvedLine",
+                            defaultValue: "→ note for this surface: %@ (%@) — read it with: cmux note here"
+                        ),
+                        resolvedSlug,
+                        link
+                    ))
+                }
+            }
+
+        case "here", "current", "mine":
+            if let extraArg = trailingArgs.first {
+                if extraArg.hasPrefix("-") {
+                    throw CLIError(message: unknownFlagMessage(verb: "here", flag: extraArg))
+                }
+                throw CLIError(message: unexpectedArgumentMessage(verb: "here", argument: extraArg))
+            }
+            let params = try buildRoutingParams(includeDefaultSurface: true)
+            let payload = try client.sendV2(method: "note.list", params: params)
+            let resolved = payload["resolved"] as? [String: Any]
+            if jsonOutput {
+                if let resolved {
+                    print(jsonString(formatIDs(resolved, mode: idFormat)))
+                } else {
+                    print(jsonString(["resolved": NSNull()]))
+                }
+            } else if let resolved {
+                let slug = (resolved["slug"] as? String)
+                    ?? String(localized: "cli.note.output.unknown", defaultValue: "unknown")
+                let path = (resolved["path"] as? String) ?? ""
+                let link = (resolved["link"] as? String) ?? ""
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.note.output.here",
+                        defaultValue: "slug=%@ path=%@ link=%@"
+                    ),
+                    slug,
+                    path,
+                    link
+                ))
+            } else {
+                print(String(
+                    localized: "cli.note.output.hereNone",
+                    defaultValue: "No note is linked to this surface or workspace yet. Create one with: cmux note new"
+                ))
             }
 
         case "path":

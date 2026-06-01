@@ -69,6 +69,76 @@ struct CmuxNoteStoreResult: Equatable, Sendable {
     var attached: Bool
 }
 
+/// How a note relates to the surface/workspace context of a caller (e.g. the
+/// terminal an agent runs `cmux note ...` from).
+enum CmuxNoteContextLink: String, Codable, Sendable {
+    case surface
+    case workspace
+}
+
+/// Result of resolving "which note does this caller mean" from its
+/// surface/workspace links. Drives context-aware `note list` ordering and the
+/// `note here` resolver. See [[issue-4331-note-surface-type]].
+struct CmuxNoteContextResolution: Sendable {
+    /// Notes ordered for display: surface-linked first (most-recently-updated
+    /// first within each group), then workspace-linked, then unlinked.
+    var orderedNotes: [CmuxNoteRecord]
+    /// Link classification keyed by note id (absent = not linked to caller).
+    var linkByNoteId: [String: CmuxNoteContextLink]
+    /// Best contextual match: most-recent surface-linked note, else
+    /// most-recent workspace-linked note, else nil.
+    var resolvedNoteId: String?
+
+    func link(for note: CmuxNoteRecord) -> CmuxNoteContextLink? {
+        linkByNoteId[note.id]
+    }
+}
+
+/// Pure resolution of a caller's contextual note(s). Resolution key is
+/// "this surface, then workspace": a note linked to `surfaceTarget` wins over
+/// one linked only to `workspaceTarget`; ties break on `updatedAt` (newest).
+enum CmuxNoteContextResolver {
+    static func resolve(
+        notes: [CmuxNoteRecord],
+        surfaceTarget: CmuxNoteAttachmentTarget?,
+        workspaceTarget: CmuxNoteAttachmentTarget?
+    ) -> CmuxNoteContextResolution {
+        var linkByNoteId: [String: CmuxNoteContextLink] = [:]
+        for note in notes {
+            if let surfaceTarget, note.attachments.contains(where: { $0.matches(surfaceTarget) }) {
+                linkByNoteId[note.id] = .surface
+            } else if let workspaceTarget, note.attachments.contains(where: { $0.matches(workspaceTarget) }) {
+                linkByNoteId[note.id] = .workspace
+            }
+        }
+
+        func rank(_ note: CmuxNoteRecord) -> Int {
+            switch linkByNoteId[note.id] {
+            case .surface: return 0
+            case .workspace: return 1
+            case nil: return 2
+            }
+        }
+
+        let ordered = notes.sorted { lhs, rhs in
+            let lhsRank = rank(lhs)
+            let rhsRank = rank(rhs)
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
+            return lhs.slug < rhs.slug
+        }
+
+        let resolved = ordered.first { linkByNoteId[$0.id] == .surface }
+            ?? ordered.first { linkByNoteId[$0.id] == .workspace }
+
+        return CmuxNoteContextResolution(
+            orderedNotes: ordered,
+            linkByNoteId: linkByNoteId,
+            resolvedNoteId: resolved?.id
+        )
+    }
+}
+
 struct CmuxNoteReadResult: Equatable, Sendable {
     var note: CmuxNoteRecord
     var path: String

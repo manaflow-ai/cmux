@@ -1122,11 +1122,28 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
         case target
     }
 
-    static let newTerminal = actionReference(CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)
-    static let newBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)
-    static let newNote = actionReference(CmuxSurfaceTabBarBuiltInAction.newNote.configID)
-    static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
-    static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
+    // Tooltips double as the label shown when the tab-bar actions are collapsed
+    // into the "⋯" overflow menu, so each default carries a readable title.
+    static let newTerminal = actionReference(
+        CmuxSurfaceTabBarBuiltInAction.newTerminal.configID,
+        tooltip: String(localized: "workspace.tooltip.newTerminal", defaultValue: "New Terminal")
+    )
+    static let newBrowser = actionReference(
+        CmuxSurfaceTabBarBuiltInAction.newBrowser.configID,
+        tooltip: String(localized: "workspace.tooltip.newBrowser", defaultValue: "New Browser")
+    )
+    static let newNote = actionReference(
+        CmuxSurfaceTabBarBuiltInAction.newNote.configID,
+        tooltip: String(localized: "surfaceTabBar.action.newNote", defaultValue: "New Note")
+    )
+    static let splitRight = actionReference(
+        CmuxSurfaceTabBarBuiltInAction.splitRight.configID,
+        tooltip: String(localized: "workspace.tooltip.splitRight", defaultValue: "Split Right")
+    )
+    static let splitDown = actionReference(
+        CmuxSurfaceTabBarBuiltInAction.splitDown.configID,
+        tooltip: String(localized: "workspace.tooltip.splitDown", defaultValue: "Split Down")
+    )
 
     static let defaults: [CmuxSurfaceTabBarButton] = [
         .newTerminal,

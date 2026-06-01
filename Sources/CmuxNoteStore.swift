@@ -196,9 +196,11 @@ enum CmuxNoteStore {
         if preferAttachedExisting,
            rawSlug == nil,
            let target,
-           let existing = index.notes.first(where: { note in
-               note.attachments.contains(where: { $0.matches(target) })
-           }) {
+           // Reuse the most-recently-updated note linked to this target so the
+           // pick matches CmuxNoteContextResolver (note here / note list).
+           let existing = index.notes
+               .filter({ note in note.attachments.contains(where: { $0.matches(target) }) })
+               .max(by: { $0.updatedAt < $1.updatedAt }) {
             return try ensureResult(
                 note: existing,
                 projectRoot: projectRoot,

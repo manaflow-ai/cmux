@@ -287,7 +287,13 @@ extension TerminalController {
                 projectRoot: projectRoot,
                 createIfMissing: createIfMissing,
                 attachment: resolvedAttachment,
-                preferAttachedExisting: createIfMissing && slug == nil && resolvedAttachment != nil
+                // `note new` always creates a fresh note (matching the GUI New
+                // Note button and the issue-4331 spec) rather than reopening the
+                // surface's existing note — notes are unlimited per surface. To
+                // get back to "the note for this surface", callers use
+                // `note here`/`note list`, which resolve the most-recent linked
+                // note. `note open <slug>` still targets a specific note.
+                preferAttachedExisting: false
             )
         } catch {
             terminalNoteLogger.error(
@@ -472,6 +478,11 @@ extension TerminalController {
     nonisolated func v2NoteList(params: [String: Any]) -> V2CallResult {
         var result: V2CallResult = .err(code: "internal_error", message: NoteRPCMessage.listFailed, data: nil)
         var currentDirectory: String?
+        // Caller context for "which note do you mean" resolution: the note(s)
+        // linked to the calling surface, then the workspace. Resolved off the
+        // caller's surface_id (CMUX_SURFACE_ID) without minting anchors.
+        var surfaceTarget: CmuxNoteAttachmentTarget?
+        var workspaceTarget: CmuxNoteAttachmentTarget?
         v2MainSync {
             v2RefreshKnownRefs()
             guard let tabManager = v2ResolveTabManager(params: params) else {
@@ -487,21 +498,43 @@ extension TerminalController {
                 return
             }
             currentDirectory = ws.currentDirectory
+            workspaceTarget = ws.noteAttachmentTargetForWorkspace()
+            if let surfaceId = v2UUID(params, "surface_id") {
+                surfaceTarget = ws.existingNoteAttachmentTargetForPanel(panelId: surfaceId)
+            }
         }
         guard let currentDirectory else {
             return result
         }
         let projectRoot = NoteSupport.projectRoot(forCwd: currentDirectory)
-        let payload: [[String: Any]] = CmuxNoteStore.list(projectRoot: projectRoot).map { note in
+        let notes = CmuxNoteStore.list(projectRoot: projectRoot)
+        let resolution = CmuxNoteContextResolver.resolve(
+            notes: notes,
+            surfaceTarget: surfaceTarget,
+            workspaceTarget: workspaceTarget
+        )
+
+        func annotatedPayload(for note: CmuxNoteRecord) -> [String: Any] {
             let path = CmuxNoteStore.noteBodyPath(for: note, projectRoot: projectRoot)
             var notePayload = noteRecordPayload(note: note, path: path)
             notePayload.merge(noteFilePayload(path: path)) { _, new in new }
+            notePayload["link"] = resolution.link(for: note)?.rawValue ?? NSNull()
             return notePayload
         }
-        result = .ok([
+
+        let payload = resolution.orderedNotes.map(annotatedPayload)
+        var top: [String: Any] = [
             "project_root": projectRoot,
-            "notes": payload
-        ])
+            "notes": payload,
+            "resolved_slug": NSNull(),
+            "resolved": NSNull()
+        ]
+        if let resolvedId = resolution.resolvedNoteId,
+           let resolvedNote = notes.first(where: { $0.id == resolvedId }) {
+            top["resolved_slug"] = resolvedNote.slug
+            top["resolved"] = annotatedPayload(for: resolvedNote)
+        }
+        result = .ok(top)
         return result
     }
 

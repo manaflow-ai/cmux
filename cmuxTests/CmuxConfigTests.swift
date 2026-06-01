@@ -2216,6 +2216,88 @@ final class NoteSupportTests: XCTestCase {
         XCTAssertEqual(reopened.path, created.path)
     }
 
+    func testNoteContextResolverPrefersSurfaceThenWorkspace() {
+        let workspaceTarget = CmuxNoteAttachmentTarget.workspace(workspaceAnchorId: "ws-1")
+        let surfaceTarget = CmuxNoteAttachmentTarget.surface(
+            workspaceAnchorId: "ws-1",
+            surfaceAnchorId: "surf-1",
+            surfaceKind: "terminal"
+        )
+
+        func note(_ slug: String, updatedAt: TimeInterval, attachments: [CmuxNoteAttachment]) -> CmuxNoteRecord {
+            CmuxNoteRecord(
+                id: slug,
+                slug: slug,
+                title: slug,
+                bodyPath: "notes/\(slug).md",
+                attachments: attachments,
+                createdAt: 0,
+                updatedAt: updatedAt
+            )
+        }
+
+        let surfaceOld = note("surf-old", updatedAt: 10, attachments: [surfaceTarget.attachment])
+        let surfaceNew = note("surf-new", updatedAt: 20, attachments: [surfaceTarget.attachment])
+        let workspaceNote = note("ws-note", updatedAt: 30, attachments: [workspaceTarget.attachment])
+        let unlinked = note("free", updatedAt: 40, attachments: [])
+
+        let resolution = CmuxNoteContextResolver.resolve(
+            notes: [unlinked, workspaceNote, surfaceOld, surfaceNew],
+            surfaceTarget: surfaceTarget,
+            workspaceTarget: workspaceTarget
+        )
+
+        // A surface-linked note wins over a workspace-linked one even though the
+        // workspace note (and an unlinked note) are more recently updated.
+        XCTAssertEqual(resolution.resolvedNoteId, "surf-new")
+        XCTAssertEqual(resolution.link(for: surfaceNew), .surface)
+        XCTAssertEqual(resolution.link(for: surfaceOld), .surface)
+        XCTAssertEqual(resolution.link(for: workspaceNote), .workspace)
+        XCTAssertNil(resolution.link(for: unlinked))
+        // Order: surface-linked (newest first), then workspace, then unlinked.
+        XCTAssertEqual(resolution.orderedNotes.map(\.slug), ["surf-new", "surf-old", "ws-note", "free"])
+    }
+
+    func testNoteContextResolverFallsBackToWorkspaceThenNil() {
+        let workspaceTarget = CmuxNoteAttachmentTarget.workspace(workspaceAnchorId: "ws-1")
+        let surfaceTarget = CmuxNoteAttachmentTarget.surface(
+            workspaceAnchorId: "ws-1",
+            surfaceAnchorId: "surf-x",
+            surfaceKind: "terminal"
+        )
+
+        func note(_ slug: String, attachments: [CmuxNoteAttachment]) -> CmuxNoteRecord {
+            CmuxNoteRecord(
+                id: slug,
+                slug: slug,
+                title: slug,
+                bodyPath: "notes/\(slug).md",
+                attachments: attachments,
+                createdAt: 0,
+                updatedAt: 0
+            )
+        }
+
+        // No surface-linked note for this caller's surface → workspace note resolves.
+        let workspaceNote = note("ws", attachments: [workspaceTarget.attachment])
+        let workspaceResolution = CmuxNoteContextResolver.resolve(
+            notes: [workspaceNote],
+            surfaceTarget: surfaceTarget,
+            workspaceTarget: workspaceTarget
+        )
+        XCTAssertEqual(workspaceResolution.resolvedNoteId, "ws")
+
+        // No links at all → nothing resolves.
+        let unlinked = note("free", attachments: [])
+        let emptyResolution = CmuxNoteContextResolver.resolve(
+            notes: [unlinked],
+            surfaceTarget: surfaceTarget,
+            workspaceTarget: workspaceTarget
+        )
+        XCTAssertNil(emptyResolution.resolvedNoteId)
+        XCTAssertNil(emptyResolution.link(for: unlinked))
+    }
+
     func testIndexedNoteAsyncCreateUsesSerializedStore() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

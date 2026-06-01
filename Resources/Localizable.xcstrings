@@ -106283,6 +106283,23 @@
         }
       }
     },
+    "markdown.mode.edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集"
+          }
+        }
+      }
+    },
     "markdown.mode.preview": {
       "extractionState": "manual",
       "localizations": {
@@ -106398,6 +106415,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Markdownとしてコピー"
+          }
+        }
+      }
+    },
+    "markdown.toolbar.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More Actions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のアクション"
           }
         }
       }
@@ -111420,6 +111454,7 @@
         }
       }
     },
+    "surfaceTabBar.action.newNote": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "New Note" } }, "ja": { "stringUnit": { "state": "translated", "value": "新規ノート" } } } },
     "settings.terminal.resumeCommands": {
       "extractionState": "manual",
       "localizations": {
@@ -117895,7 +117930,10 @@
     "command.newNoteForWorkspace.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "New Note for Workspace" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの新規ノート" } } } },
     "command.newNoteForWorkspace.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Note" } }, "ja": { "stringUnit": { "state": "translated", "value": "ノート" } } } },
     "cli.note.output.createdWithAttachment": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "OK slug=%@ surface=%@ path=%@ attached=%@" } }, "ja": { "stringUnit": { "state": "translated", "value": "OK slug=%@ surface=%@ path=%@ attached=%@" } } } },
+    "cli.note.output.here": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "slug=%@ path=%@ link=%@" } }, "ja": { "stringUnit": { "state": "translated", "value": "slug=%@ path=%@ link=%@" } } } },
+    "cli.note.output.hereNone": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "No note is linked to this surface or workspace yet. Create one with: cmux note new" } }, "ja": { "stringUnit": { "state": "translated", "value": "このサーフェスまたはワークスペースにリンクされたノートはまだありません。次で作成できます: cmux note new" } } } },
     "cli.note.output.openedWithAttachment": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "OK slug=%@ surface=%@ path=%@ attached=%@%@" } }, "ja": { "stringUnit": { "state": "translated", "value": "OK slug=%@ surface=%@ path=%@ attached=%@%@" } } } },
+    "cli.note.output.resolvedLine": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "→ note for this surface: %@ (%@) — read it with: cmux note here" } }, "ja": { "stringUnit": { "state": "translated", "value": "→ このサーフェスのノート: %@ (%@) — 次で読めます: cmux note here" } } } },
     "cli.note.output.noteRowWithTitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "  %@\t%@\t%lldB\t%@" } }, "ja": { "stringUnit": { "state": "translated", "value": "  %@\t%@\t%lldB\t%@" } } } },
     "cli.note.output.wrote": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "OK wrote slug=%@ bytes=%d" } }, "ja": { "stringUnit": { "state": "translated", "value": "OK wrote slug=%@ bytes=%d" } } } },
     "cli.note.output.appended": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "OK appended slug=%@ bytes=%d" } }, "ja": { "stringUnit": { "state": "translated", "value": "OK appended slug=%@ bytes=%d" } } } },
