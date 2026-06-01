@@ -507,7 +507,7 @@ class TerminalProcess {
       this.emitOutput(`\r\n[process exited: ${code ?? "unknown"}]\r\n`);
       this.closed = true;
     });
-    this.emitOutput("cmux is using a fallback terminal bridge. Some interactive shell features may be limited.\r\n");
+    this.emitOutput("cmux is using compatibility shell mode. Some interactive shell features may be limited.\r\n");
   }
 
   attach(socket) {
