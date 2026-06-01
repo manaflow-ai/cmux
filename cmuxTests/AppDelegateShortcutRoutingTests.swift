@@ -1803,12 +1803,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(targetWindow.isVisible, "Expected test window to start visible")
 
         let originalConfirmationHandler = appDelegate.debugCloseMainWindowConfirmationHandler
-        defer { appDelegate.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler }
+        let originalPerformCloseHandler = appDelegate.debugPerformCloseMainWindowHandler
+        defer {
+            appDelegate.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler
+            appDelegate.debugPerformCloseMainWindowHandler = originalPerformCloseHandler
+        }
 
         var confirmedWindow: NSWindow?
         appDelegate.debugCloseMainWindowConfirmationHandler = { candidate in
             confirmedWindow = candidate
             return true
+        }
+        var closedWindow: NSWindow?
+        appDelegate.debugPerformCloseMainWindowHandler = { candidate in
+            closedWindow = candidate
+            candidate.orderOut(nil)
         }
 
         guard let event = makeKeyDownEvent(
@@ -1823,11 +1832,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 
-        waitUntil(timeout: 1.0) {
-            targetWindow.isVisible != true
-        }
-
         XCTAssertTrue(confirmedWindow === targetWindow, "Cmd+Ctrl+W should confirm the target main window")
+        XCTAssertTrue(closedWindow === targetWindow, "Cmd+Ctrl+W should run the confirmed close path for the target window")
         XCTAssertFalse(
             targetWindow.isVisible == true,
             "Confirming Cmd+Ctrl+W should close the window"

@@ -1063,6 +1063,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isFirstResponder: Bool
     }
     var debugCloseMainWindowConfirmationHandler: ((NSWindow) -> Bool)?
+    var debugPerformCloseMainWindowHandler: ((NSWindow) -> Void)?
     var debugCreateMainWindowSourceIsNativeFullScreenOverride: Bool?
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
@@ -5680,6 +5681,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         guard confirmCloseMainWindow(window) else { return true }
+#if DEBUG
+        if let debugPerformCloseMainWindowHandler {
+            debugPerformCloseMainWindowHandler(window)
+            return true
+        }
+#endif
         window.performClose(nil)
         return true
     }
@@ -14761,6 +14768,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugSuppressSplitShortcutForTransientTerminalFocusStateOverride = nil
         debugShortcutEventFocusContextOverride = nil
         debugSuppressShortcutRoutingContextForTesting = false
+        debugCloseMainWindowConfirmationHandler = nil
+        debugPerformCloseMainWindowHandler = nil
         debugAddWorkspaceInPreferredMainWindowCreationOverride = nil
         debugPreferredWorkspaceCreationWindowOverride = nil
         debugBrowserPanelsForInspectorWindowCloseOverride = nil
