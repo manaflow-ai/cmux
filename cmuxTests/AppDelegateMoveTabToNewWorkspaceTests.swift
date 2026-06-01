@@ -319,12 +319,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         panel: MoveFixturePanel,
         focus: Bool
     ) throws -> UUID {
-        let transfer = try makeMoveTransfer(
-            sourceWorkspaceId: sourceWorkspace.id,
-            panel: panel,
-            title: panel.displayTitle
-        )
-        markMoveFixturePanelDetached(panel, from: sourceWorkspace)
+        let transfer = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: panel.id))
         let destinationPane = try XCTUnwrap(
             destinationWorkspace.bonsplitController.focusedPaneId
                 ?? destinationWorkspace.bonsplitController.allPaneIds.first
@@ -343,21 +338,6 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
             manager.focusTab(destinationWorkspace.id, surfaceId: panel.id, suppressFlash: true)
         }
         return attachedPanelId
-    }
-
-    private func markMoveFixturePanelDetached(_ panel: MoveFixturePanel, from workspace: Workspace) {
-        if let surfaceId = workspace.surfaceIdFromPanelId(panel.id) {
-            workspace.surfaceIdToPanelId.removeValue(forKey: surfaceId)
-        }
-        workspace.panels.removeValue(forKey: panel.id)
-        workspace.panelDirectories.removeValue(forKey: panel.id)
-        workspace.panelTitles.removeValue(forKey: panel.id)
-        workspace.panelCustomTitles.removeValue(forKey: panel.id)
-        workspace.pinnedPanelIds.remove(panel.id)
-        workspace.manualUnreadPanelIds.remove(panel.id)
-        workspace.surfaceTTYNames.removeValue(forKey: panel.id)
-        workspace.surfaceResumeBindingsByPanelId.removeValue(forKey: panel.id)
-        workspace.panelSubscriptions.removeValue(forKey: panel.id)
     }
 
     private func teardownTabManagerForTesting(_ manager: TabManager) {
