@@ -10580,14 +10580,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+        contextMenuTextSnapshot = readContextMenuTextSnapshot()
 
         let menu = NSMenu()
-        contextMenuTextSnapshot = readContextMenuTextSnapshot()
         if let contextMenuTextSnapshot {
             appendTerminalTextContextMenuItems(to: menu, snapshot: contextMenuTextSnapshot)
             menu.addItem(.separator())
         }
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
         if onTriggerFlash != nil {
             let flashItem = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.triggerFlash", defaultValue: "Trigger Flash"),
@@ -10645,7 +10645,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let titles = menu.items
             .filter { !$0.isSeparatorItem }
             .map(\.title)
-        return [
+        var payload: [String: Any] = [
             "menuTitles": titles,
             "hasCopy": titles.contains(String(localized: "terminalContextMenu.copy", defaultValue: "Copy")) ? "1" : "0",
             "hasLookUp": titles.contains { $0.hasPrefix("Look Up ") } ? "1" : "0",
@@ -10653,6 +10653,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             "hasSplitHorizontally": titles.contains(String(localized: "terminalContextMenu.splitHorizontally", defaultValue: "Split Horizontally")) ? "1" : "0",
             "hasResetTerminal": titles.contains(String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal")) ? "1" : "0"
         ]
+        if let contextMenuTextSnapshot {
+            payload["textSnapshotString"] = contextMenuTextSnapshot.string
+            payload["textSnapshotIsSelection"] = contextMenuTextSnapshot.isSelection ? "1" : "0"
+        }
+        return payload
     }
 #endif
 
