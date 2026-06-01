@@ -8585,7 +8585,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return self
     }
 
-    @objc func writeSelection(to pasteboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
+    @objc(writeSelectionToPasteboard:types:)
+    func writeSelection(to pasteboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
         guard !Self.textServicePasteboardTypes.isDisjoint(with: Set(types)),
               let snapshot = readSelectionSnapshot(),
               !snapshot.string.isEmpty else {

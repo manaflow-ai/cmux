@@ -993,6 +993,17 @@ final class GhosttyTerminalContextMenuTests: XCTestCase {
             )
         )
     }
+
+    func testTextServicesExposeAppKitPasteboardWriterSelector() {
+        let view = GhosttyNSView(frame: .zero)
+
+        XCTAssertTrue(
+            view.responds(to: NSSelectorFromString("writeSelectionToPasteboard:types:"))
+        )
+        XCTAssertFalse(
+            view.responds(to: NSSelectorFromString("writeSelectionTo:types:"))
+        )
+    }
 }
 
 @MainActor
