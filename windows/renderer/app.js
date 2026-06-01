@@ -1180,7 +1180,7 @@ async function refreshBrowserProfiles(options = {}) {
 async function openExternalBrowser(url, options = {}) {
   const target = normalizeUrl(url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
   if (window.cmuxNative?.openExternal) {
-    const requestedProfileId = state.settings.externalBrowserProfileId;
+    const requestedProfileId = options.profileId || state.settings.externalBrowserProfileId;
     let result = null;
     try {
       result = await window.cmuxNative.openExternal(target, requestedProfileId);
@@ -1203,6 +1203,44 @@ async function openExternalBrowser(url, options = {}) {
   }
   if (options.toast) toast("Opened in browser.");
   return { ok: true };
+}
+
+async function showExternalBrowserProfileMenu(event, url = state.settings.browserHomeUrl) {
+  event.preventDefault();
+  event.stopPropagation();
+  const target = normalizeUrl(url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+  const menu = ensureContextMenu();
+  menu.className = "context-menu";
+  const title = document.createElement("div");
+  title.className = "context-title";
+  title.textContent = t("browser.openExternally");
+  const meta = document.createElement("div");
+  meta.className = "context-meta";
+  meta.textContent = target;
+  menu.replaceChildren(title, meta, contextMenuButton(t("browser.loadingProfiles"), () => {}, true));
+  showContextMenuAt(menu, event.clientX, event.clientY);
+
+  const profiles = await loadBrowserProfiles({ force: !state.browserProfilesLoaded, render: false });
+  if (state.contextMenu !== menu || menu.hidden) return;
+  const profileActions = contextMenuActionGroup(...normalizeBrowserProfiles(profiles).map((profile) => (
+    contextMenuButton(profile.label, () => openExternalBrowser(target, {
+      profileId: profile.id,
+      toast: true
+    }), false)
+  )));
+  const settingsActions = contextMenuActionGroup(
+    contextMenuButton(t("browser.useSelectedProfile"), () => openExternalBrowser(target, { toast: true })),
+    contextMenuButton(t("browser.settings"), () => openSettingsCategory("browser"))
+  );
+  menu.replaceChildren(
+    title,
+    meta,
+    contextMenuSectionTitle(t("browser.profile")),
+    profileActions,
+    contextMenuSectionTitle(t("browser.default")),
+    settingsActions
+  );
+  showContextMenuAt(menu, event.clientX, event.clientY);
 }
 
 function hasRecentActivity() {
@@ -6141,6 +6179,7 @@ function ensureBrowser(panel, body) {
   };
   go.onclick = navigate;
   external.onclick = () => openBrowserPanelExternally(panel);
+  external.oncontextmenu = (event) => showExternalBrowserProfileMenu(event, browserPanelUrl(panel));
   tabNew.onclick = () => createBrowserTab(session, state.settings.browserHomeUrl);
   deferredPane.onclick = () => {
     focusPanel(panel.id);
