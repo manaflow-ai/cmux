@@ -123,6 +123,49 @@ final class SidebarHelpMenuUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["5/4000"].waitForExistence(timeout: 2.0))
     }
 
+    func testFeedbackEmailDraftDoesNotPersistWhileEditing() throws {
+        let capturePath = NSTemporaryDirectory()
+            + "cmux-feedback-email-\(ProcessInfo.processInfo.globallyUniqueString).json"
+        try? FileManager.default.removeItem(atPath: capturePath)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(atPath: capturePath)
+        }
+        let email = "lag@example.com"
+
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SUPPRESS_NOTIFICATION_AUTH"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_OPEN_FEEDBACK_COMPOSER"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_FEEDBACK_EMAIL_CLEAR_STORED"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_FEEDBACK_EMAIL_CAPTURE_PATH"] = capturePath
+        launchAndActivate(app)
+
+        XCTAssertTrue(app.staticTexts["Send Feedback"].waitForExistence(timeout: 5.0))
+        let emailField = requireElement(
+            candidates: [
+                app.textFields["SidebarFeedbackEmailField"],
+                app.textFields["Your Email"],
+            ],
+            timeout: 3.0,
+            description: "feedback email field"
+        )
+        emailField.click()
+        emailField.typeText(email)
+
+        let typedEvent = try waitForFeedbackEmailEvent(
+            at: capturePath,
+            timeout: 4.0
+        ) { event in
+            event["reason"] as? String == "email-change" &&
+                event["draftEmailCharacterCount"] as? Int == email.count &&
+                event["draftEmailUTF8ByteCount"] as? Int == email.utf8.count
+        }
+
+        XCTAssertEqual(typedEvent["storedEmailMatchesDraft"] as? Bool, false)
+        XCTAssertEqual(typedEvent["storedEmailIsPresent"] as? Bool, false)
+    }
+
     private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
         sidebarHelpPollUntil(timeout: timeout) {
             app.windows.count >= count
@@ -175,6 +218,30 @@ final class SidebarHelpMenuUITests: XCTestCase {
             return candidates[0]
         }
         return element
+    }
+
+    private func waitForFeedbackEmailEvent(
+        at path: String,
+        timeout: TimeInterval,
+        matching predicate: ([String: Any]) -> Bool
+    ) throws -> [String: Any] {
+        var matchedEvent: [String: Any]?
+        let found = sidebarHelpPollUntil(timeout: timeout) {
+            guard let events = try? readFeedbackEmailEvents(at: path) else {
+                return false
+            }
+            matchedEvent = events.last(where: predicate)
+            return matchedEvent != nil
+        }
+        XCTAssertTrue(found, "Expected feedback email capture event matching predicate")
+        return try XCTUnwrap(matchedEvent)
+    }
+
+    private func readFeedbackEmailEvents(at path: String) throws -> [[String: Any]] {
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        let object = try JSONSerialization.jsonObject(with: data)
+        let payload = try XCTUnwrap(object as? [String: Any])
+        return payload["emailEvents"] as? [[String: Any]] ?? []
     }
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {

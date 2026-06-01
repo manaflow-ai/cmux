@@ -1051,6 +1051,10 @@ func titlebarShortcutHintShouldShow(
 }
 
 struct ContentView: View {
+#if DEBUG
+    private static var didOpenFeedbackComposerForUITest = false
+#endif
+
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
     @EnvironmentObject var tabManager: TabManager
@@ -2753,6 +2757,7 @@ struct ContentView: View {
             }
             syncSidebarSelectedWorkspaceIds()
             applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
+            openFeedbackComposerForUITestIfNeeded()
             updateTitlebarText()
             syncTrafficLightInset()
 
@@ -8970,6 +8975,21 @@ struct ContentView: View {
         }
     }
 
+    private func openFeedbackComposerForUITestIfNeeded() {
+#if DEBUG
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async {
+                openFeedbackComposerForUITestIfNeeded()
+            }
+            return
+        }
+        guard !Self.didOpenFeedbackComposerForUITest else { return }
+        guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_OPEN_FEEDBACK_COMPOSER"] == "1" else { return }
+        Self.didOpenFeedbackComposerForUITest = true
+        presentFeedbackComposer()
+#endif
+    }
+
     static func shouldHandleCommandPaletteRequest(
         observedWindow: NSWindow?,
         requestedWindow: NSWindow?,
@@ -13421,14 +13441,16 @@ private enum SidebarHelpMenuAction {
 private struct SidebarFeedbackComposerSheet: View {
     private static let formMaxHeight: CGFloat = 560
 
-    @AppStorage(FeedbackComposerSettings.storedEmailKey) private var email = ""
     @Environment(\.dismiss) private var dismiss
 
+    @AppStorage(FeedbackComposerSettings.storedEmailKey) private var email = ""
     @State private var message = ""
     @State private var attachments: [FeedbackComposerAttachment] = []
     @State private var isSubmitting = false
     @State private var submissionErrorMessage: String?
     @State private var didSend = false
+
+    private let defaults = UserDefaults.standard
 
     private var trimmedMessage: String {
         message.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -13461,6 +13483,17 @@ private struct SidebarFeedbackComposerSheet: View {
         .padding(20)
         .frame(width: 520)
         .accessibilityIdentifier("SidebarFeedbackDialog")
+#if DEBUG
+        .onAppear {
+            Task { @MainActor in
+                clearStoredEmailForUITestIfNeeded()
+                captureEmailDefaultsState(reason: "appear")
+            }
+        }
+        .onChange(of: email) { _, _ in
+            captureEmailDefaultsState(reason: "email-change")
+        }
+#endif
     }
 
     private var successView: some View {
@@ -13671,6 +13704,38 @@ private struct SidebarFeedbackComposerSheet: View {
     private func removeAttachment(_ attachment: FeedbackComposerAttachment) {
         attachments.removeAll { $0.id == attachment.id }
         submissionErrorMessage = nil
+    }
+
+    private func clearStoredEmailForUITestIfNeeded() {
+#if DEBUG
+        guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_FEEDBACK_EMAIL_CLEAR_STORED"] == "1" else {
+            return
+        }
+        defaults.removeObject(forKey: FeedbackComposerSettings.storedEmailKey)
+        email = ""
+#endif
+    }
+
+    private func captureEmailDefaultsState(reason: String) {
+#if DEBUG
+        _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(
+            envKey: "CMUX_UI_TEST_FEEDBACK_EMAIL_CAPTURE_PATH"
+        ) { payload in
+            var events = payload["emailEvents"] as? [[String: Any]] ?? []
+            let storedEmail = defaults.string(forKey: FeedbackComposerSettings.storedEmailKey)
+            events.append([
+                "reason": reason,
+                "draftEmailIsPresent": email.isEmpty == false,
+                "draftEmailCharacterCount": email.count,
+                "draftEmailUTF8ByteCount": email.utf8.count,
+                "storedEmailIsPresent": storedEmail != nil,
+                "storedEmailCharacterCount": storedEmail?.count ?? 0,
+                "storedEmailUTF8ByteCount": storedEmail?.utf8.count ?? 0,
+                "storedEmailMatchesDraft": storedEmail == email,
+            ])
+            payload["emailEvents"] = events
+        }
+#endif
     }
 
     private func submitFeedback() async {
