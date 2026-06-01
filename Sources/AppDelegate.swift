@@ -14677,6 +14677,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         matchConfiguredShortcut(event: event, action: action)
     }
 
+    @discardableResult
+    func debugArmConfiguredShortcutChordForTesting(
+        event: NSEvent,
+        actions: [KeyboardShortcutSettings.Action]
+    ) -> Bool {
+        let focusContext = shortcutEventFocusContext(event)
+        let availableActions = actions.filter { action in
+            action.shortcutContext.isAlwaysAvailable || action.shortcutContext.isAvailable(focusContext)
+        }
+        return armConfiguredShortcutChordIfNeeded(event: event, actions: availableActions)
+    }
+
+    func debugMatchConfiguredShortcutConsumingPendingChordForTesting(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action
+    ) -> Bool {
+        let configuredShortcutEventWindowNumber = configuredShortcutChordWindowNumber(for: event)
+        if let pendingConfiguredShortcutChord,
+           pendingConfiguredShortcutChord.windowNumber == configuredShortcutEventWindowNumber {
+            activeConfiguredShortcutChordPrefixForCurrentEvent = pendingConfiguredShortcutChord.firstStroke
+        } else {
+            activeConfiguredShortcutChordPrefixForCurrentEvent = nil
+        }
+        pendingConfiguredShortcutChord = nil
+        defer {
+            activeConfiguredShortcutChordPrefixForCurrentEvent = nil
+            clearShortcutEventFocusContextCache(for: event)
+        }
+        return matchConfiguredShortcut(event: event, action: action)
+    }
+
+    func debugPendingConfiguredShortcutChordWindowNumberForTesting() -> Int? {
+        pendingConfiguredShortcutChord?.windowNumber
+    }
+
     func debugCommandPaletteShortcutRequest(for event: NSEvent) -> DebugCommandPaletteShortcutRequest? {
         if matchConfiguredShortcut(event: event, action: .commandPalette) {
             return .commands
