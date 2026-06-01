@@ -1,5 +1,6 @@
 import AppKit
 import CmuxSettings
+import CmuxSettingsUI
 import CmuxSocketControl
 import SwiftUI
 import Bonsplit
@@ -821,6 +822,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+    /// The app's settings dependency container, handed over by `cmuxApp` via
+    /// `configure(...)` before any main window is created. AppKit builds the
+    /// main window's `NSHostingView` itself, so it injects this into the
+    /// `ContentView` environment so `@LiveSetting` can resolve the stores it
+    /// observes inside the sidebar.
+    var settingsRuntime: SettingsRuntime?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -1848,8 +1855,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ClosedItemHistoryStore.shared.flushPendingSaves()
     }
 
-    func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState) {
+    func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState, settingsRuntime: SettingsRuntime) {
         self.tabManager = tabManager
+        self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
@@ -7828,6 +7836,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(sidebarSelectionState)
             .environmentObject(fileExplorerState)
             .environmentObject(cmuxConfigStore)
+            // AppKit hosts this ContentView in its own NSHostingView, which does
+            // not inherit the App scene's SwiftUI environment. Inject the
+            // settings runtime so `@LiveSetting` can resolve the stores it
+            // observes throughout the main window (e.g. the sidebar). The key is
+            // optional, so a nil runtime just leaves reads at their seeded
+            // catalog default.
+            .environment(\.settingsRuntime, settingsRuntime)
 
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.
