@@ -1065,6 +1065,94 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertNil(workspace.panelGitBranches[panelId])
     }
 
+    func testTypingActivityDefersSidebarGitMetadataRefresh() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        }
+
+        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebar-typing-quiet-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try writeMinimalGitRepository(at: repoURL)
+        try writeEmptyGitIndex(at: repoURL, signatureByte: 0x11)
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: repoURL.path
+        )
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+            },
+            "The test must start from observed sidebar git metadata."
+        )
+
+        let featureRefURL = repoURL
+            .appendingPathComponent(".git/refs/heads/feature", isDirectory: true)
+            .appendingPathComponent("typing-quiet")
+        try FileManager.default.createDirectory(
+            at: featureRefURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "1111111111111111111111111111111111111111\n".write(
+            to: featureRefURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        try "ref: refs/heads/feature/typing-quiet\n".write(
+            to: repoURL.appendingPathComponent(".git/HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        appDelegate.recordTypingActivity()
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+
+        let earlyRefresh = expectation(description: "sidebar git metadata refreshed during typing quiet period")
+        earlyRefresh.isInverted = true
+        let earlyRefreshTimer = Timer.scheduledTimer(withTimeInterval: 0.02, repeats: true) { timer in
+            if workspace.panelGitBranches[panelId]?.branch == "feature/typing-quiet" {
+                earlyRefresh.fulfill()
+                timer.invalidate()
+            }
+        }
+        let earlyRefreshResult = XCTWaiter().wait(for: [earlyRefresh], timeout: 0.2)
+        earlyRefreshTimer.invalidate()
+        XCTAssertEqual(
+            earlyRefreshResult,
+            .completed,
+            "Sidebar git metadata refresh should stay deferred while typing is still inside the quiet period."
+        )
+        XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "main")
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 2.0) {
+                workspace.panelGitBranches[panelId]?.branch == "feature/typing-quiet"
+            },
+            "The deferred sidebar git metadata refresh should run once typing has been quiet long enough."
+        )
+    }
+
     func testGitIndexVersionFourRefreshTracksIndexSignatureChanges() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
