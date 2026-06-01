@@ -5,6 +5,7 @@ import Combine
 import CMUXExtensionClient
 import CmuxExtensionKit
 import CmuxSettings
+import CmuxSettingsUI
 import ImageIO
 import Observation
 import SwiftUI
@@ -9998,18 +9999,16 @@ enum CmuxExtensionSidebarSelection {
     static let defaultProviderId = CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID
     static let hostedExtensionsProviderId = "cmux.sidebar.extensions"
 
-    /// The UserDefaults key and default for the experimental Extensions flag,
-    /// resolved from the settings catalog (`BetaFeaturesCatalogSection.extensions`)
-    /// so the key and default are never re-declared. The sidebar lives in an
-    /// AppKit-hosted subtree where the `SettingsRuntime` environment does not
-    /// reach, so SwiftUI views observe the flag with `@AppStorage(enabledDefaultsKey)`
-    /// (reactive and environment-independent) rather than `@Setting`.
-    static var enabledDefaultsKey: String { SettingCatalog().betaFeatures.extensions.userDefaultsKey }
-    static var enabledDefault: Bool { SettingCatalog().betaFeatures.extensions.defaultValue }
-
-    /// Synchronous read of the flag for the on-demand AppKit/static paths (the
-    /// toggle menu, the command-palette builder, the extensions-browser opener)
-    /// that have no `SettingsRuntime` in scope and run outside the SwiftUI cycle.
+    /// Synchronous read of the experimental Extensions flag for the on-demand
+    /// AppKit/static paths (the toggle menu, the command-palette builder, the
+    /// extensions-browser opener) that have no `SettingsRuntime` in scope and
+    /// run outside the SwiftUI update cycle.
+    ///
+    /// SwiftUI views bind reactively via `@LiveSetting(\.betaFeatures.extensions)`.
+    /// This synchronous read resolves the same catalog key
+    /// (`BetaFeaturesCatalogSection.extensions`) against `UserDefaults`, which is
+    /// the same suite and key the store persists to, so the catalog stays the
+    /// single definition of the key, decode, and default.
     static var isEnabled: Bool {
         let key = SettingCatalog().betaFeatures.extensions
         return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
@@ -10378,8 +10377,20 @@ struct VerticalTabsSidebar: View {
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
-    @AppStorage(CmuxExtensionSidebarSelection.enabledDefaultsKey)
-    private var extensionsExperimentalEnabled = CmuxExtensionSidebarSelection.enabledDefault
+    @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
+
+    // The provider to actually render. When the experimental Extensions feature
+    // is disabled, fall back to the default workspaces sidebar regardless of the
+    // persisted selection: turning extensions off hides the provider switcher,
+    // so a hosted-extension selection would otherwise strand the user with no
+    // way back. Deriving the effective provider (rather than mutating the
+    // persisted selection via an observer) routes correctly on the first render
+    // pass and restores the user's choice if extensions are re-enabled.
+    private var effectiveExtensionSidebarProviderId: String {
+        extensionsExperimentalEnabled
+            ? selectedExtensionSidebarProviderId
+            : CmuxExtensionSidebarSelection.defaultProviderId
+    }
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
@@ -10609,7 +10620,7 @@ struct VerticalTabsSidebar: View {
         )
 
         ZStack(alignment: .bottomLeading) {
-            if CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId).id == CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID {
+            if CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId).id == CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
@@ -10866,8 +10877,7 @@ struct VerticalTabsSidebar: View {
 
     @ViewBuilder
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        if extensionsExperimentalEnabled,
-           selectedExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
+        if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
             CMUXInstalledExtensionSidebarHostView(
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
                 snapshotUpdateToken: extensionSidebarUpdateToken,
@@ -11067,7 +11077,7 @@ struct VerticalTabsSidebar: View {
         snapshot: CmuxExtensionSidebarSnapshot,
         now: Date
     ) -> CmuxExtensionSidebarRenderModel {
-        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId)
+        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId)
         if let provider = CmuxExtensionSidebarSelection.provider(for: descriptor.id) {
             let context = CmuxExtensionSidebarRenderContext(now: now)
             if let contextualProvider = provider as? any CmuxExtensionSidebarContextualProvider {
@@ -11688,7 +11698,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func handleExtensionSidebarMutation(_ mutation: CmuxExtensionSidebarMutation) -> Bool {
-        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId)
+        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId)
         guard let provider = CmuxExtensionSidebarSelection.provider(for: descriptor.id) as? any CmuxExtensionSidebarMutableProvider else {
             return false
         }
@@ -13124,8 +13134,7 @@ private struct SidebarFooterButtons: View {
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
     @State private var extensionBrowserAnchorView: NSView?
-    @AppStorage(CmuxExtensionSidebarSelection.enabledDefaultsKey)
-    private var extensionsExperimentalEnabled = CmuxExtensionSidebarSelection.enabledDefault
+    @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
 
     var body: some View {
         HStack(spacing: 4) {
