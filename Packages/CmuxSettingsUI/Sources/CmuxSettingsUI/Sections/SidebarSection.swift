@@ -12,6 +12,7 @@ public struct SidebarSection: View {
     private let hostActions: SettingsHostActions
 
     @State private var sidebarFont: SettingsFontSize
+    @State private var fontSaveFailed = false
     @State private var matchTerminal: DefaultsValueModel<Bool>
     @State private var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
@@ -85,29 +86,39 @@ public struct SidebarSection: View {
                 subtitle: String(localized: "settings.sidebarAppearance.fontSize.subtitle", defaultValue: "Controls workspace titles, metadata, badges, and shortcut hints in the left sidebar."),
                 controlWidth: 250
             ) {
-                HStack(spacing: 8) {
-                    Slider(
-                        value: Binding(get: { sidebarFont.points }, set: { sidebarFont.points = $0 }),
-                        in: sidebarFont.minimum...sidebarFont.maximum,
-                        step: 0.5
-                    ) { editing in
-                        if !editing { hostActions.setSidebarFontSize(sidebarFont.points) }
-                    }
-                    .frame(width: 130)
-                    .accessibilityIdentifier("SettingsSidebarFontSizeSlider")
+                VStack(alignment: .trailing, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Slider(
+                            value: Binding(get: { sidebarFont.points }, set: { sidebarFont.points = $0 }),
+                            in: sidebarFont.minimum...sidebarFont.maximum,
+                            step: 0.5
+                        ) { editing in
+                            if !editing { fontSaveFailed = !hostActions.setSidebarFontSize(sidebarFont.points) }
+                        }
+                        .frame(width: 130)
+                        .accessibilityIdentifier("SettingsSidebarFontSizeSlider")
 
-                    Text(verbatim: "\(hostActions.formattedFontSize(sidebarFont.points)) pt")
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .monospacedDigit()
-                        .frame(width: 44, alignment: .trailing)
+                        Text(verbatim: "\(hostActions.formattedFontSize(sidebarFont.points)) pt")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .monospacedDigit()
+                            .frame(width: 44, alignment: .trailing)
 
-                    Button(String(localized: "settings.sidebarAppearance.fontSize.reset", defaultValue: "Reset")) {
-                        sidebarFont.points = sidebarFont.defaultValue
-                        hostActions.setSidebarFontSize(sidebarFont.points)
+                        Button(String(localized: "settings.sidebarAppearance.fontSize.reset", defaultValue: "Reset")) {
+                            sidebarFont.points = sidebarFont.defaultValue
+                            fontSaveFailed = !hostActions.setSidebarFontSize(sidebarFont.points)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(sidebarFont.isDefault)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(sidebarFont.isDefault)
+
+                    if fontSaveFailed {
+                        Text(String(localized: "settings.sidebarAppearance.fontSize.saveFailed", defaultValue: "Couldn't save sidebar font size. Please try again."))
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.trailing)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             SettingsCardDivider()

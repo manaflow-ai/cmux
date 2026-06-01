@@ -71,7 +71,13 @@ public protocol SettingsHostActions: AnyObject {
     /// Persists a new left-sidebar font size (in points) to the Ghostty
     /// config and live-reloads open windows. The host clamps to the valid
     /// range, so callers may pass any finite value.
-    func setSidebarFontSize(_ points: Double)
+    ///
+    /// - Returns: `true` if the value was written and reloaded, `false` if
+    ///   persistence failed. Callers should surface a save-failed message to
+    ///   the user when this returns `false`, since the slider position no
+    ///   longer reflects what is stored on disk.
+    @discardableResult
+    func setSidebarFontSize(_ points: Double) -> Bool
 
     /// The current workspace tab-bar font size with its range + default.
     /// Backed by the Ghostty config file (`surface-tab-bar-font-size`).
@@ -79,7 +85,12 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Persists a new workspace tab-bar font size (in points) and reloads.
     /// The host clamps to the valid range.
-    func setSurfaceTabBarFontSize(_ points: Double)
+    ///
+    /// - Returns: `true` if the value was written and reloaded, `false` if
+    ///   persistence failed. See ``setSidebarFontSize(_:)`` for how callers
+    ///   should react to a `false` result.
+    @discardableResult
+    func setSurfaceTabBarFontSize(_ points: Double) -> Bool
 
     /// Formats a point size for display next to a font-size slider
     /// (e.g. `12`, `13.5`), trimming trailing zeros.
@@ -93,13 +104,13 @@ public extension SettingsHostActions {
         SettingsFontSize(points: 12.5, minimum: 10, maximum: 20, defaultValue: 12.5)
     }
 
-    func setSidebarFontSize(_ points: Double) {}
+    func setSidebarFontSize(_ points: Double) -> Bool { true }
 
     func surfaceTabBarFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 11, minimum: 8, maximum: 24, defaultValue: 11)
     }
 
-    func setSurfaceTabBarFontSize(_ points: Double) {}
+    func setSurfaceTabBarFontSize(_ points: Double) -> Bool { true }
 
     func formattedFontSize(_ points: Double) -> String {
         let scaled = (points * 100).rounded()

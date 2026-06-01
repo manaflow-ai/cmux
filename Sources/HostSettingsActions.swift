@@ -159,7 +159,7 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
-    func setSidebarFontSize(_ points: Double) {
+    func setSidebarFontSize(_ points: Double) -> Bool {
         persistFontSize(
             key: CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
             points: CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(points),
@@ -176,7 +176,7 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
-    func setSurfaceTabBarFontSize(_ points: Double) {
+    func setSurfaceTabBarFontSize(_ points: Double) -> Bool {
         persistFontSize(
             key: CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey,
             points: CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize(points),
@@ -190,15 +190,20 @@ final class HostSettingsActions: SettingsHostActions {
 
     /// Writes a clamped font-size value to cmux's editable Ghostty config and
     /// triggers a live reload so open windows re-render at the new size.
-    private func persistFontSize(key: String, points: Double, reloadSource: String) {
+    ///
+    /// - Returns: `true` on success, `false` if the write failed (the error is
+    ///   logged here; the Settings UI surfaces a generic save-failed message).
+    private func persistFontSize(key: String, points: Double, reloadSource: String) -> Bool {
         let formatted = CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
         do {
             try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, value: formatted)
             GhosttyApp.shared.reloadConfiguration(source: reloadSource)
+            return true
         } catch {
             hostSettingsLogger.warning(
                 "failed to persist \(key, privacy: .public): \(String(describing: error), privacy: .private(mask: .hash))"
             )
+            return false
         }
     }
 }
