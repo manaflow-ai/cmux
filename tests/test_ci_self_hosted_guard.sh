@@ -300,6 +300,7 @@ check_zig_release_build_runner() {
 # ci.yml jobs
 check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
+check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_macos_runner "$CI_FILE" "release-build"
 check_macos_runner "$CI_FILE" "ui-regressions"
 check_self_hosted_workspace_prep "$CI_FILE" "tests"
