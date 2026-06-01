@@ -7611,6 +7611,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var pendingSurfaceSize: CGSize?
     private var deferredSurfaceSizeRetryQueued = false
     private var lastDrawableSize: CGSize = .zero
+    private var hiddenDrawableResourcesTrimmed = false
     private var isFindEscapeSuppressionArmed = false
 #if DEBUG
     private var lastSizeSkipSignature: String?
@@ -7644,6 +7645,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate var isVisibleInUI: Bool { visibleInUI }
     fileprivate func setVisibleInUI(_ visible: Bool) {
         visibleInUI = visible
+    }
+
+    fileprivate func trimHiddenDrawableResourcesForMemory() {
+        guard let metalLayer = layer as? CAMetalLayer else { return }
+        let trimmedSize = CGSize(width: 1, height: 1)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        metalLayer.drawableSize = trimmedSize
+        CATransaction.commit()
+        lastDrawableSize = .zero
+        hiddenDrawableResourcesTrimmed = true
+    }
+
+    fileprivate func restoreHiddenDrawableResourcesIfNeeded() {
+        guard hiddenDrawableResourcesTrimmed else { return }
+        hiddenDrawableResourcesTrimmed = false
+        _ = updateSurfaceSize()
     }
 
     override init(frame frameRect: NSRect) {
@@ -8026,6 +8044,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
         pendingSurfaceSize = size
+        guard visibleInUI else {
+            trimHiddenDrawableResourcesForMemory()
+            return false
+        }
         if let deferralReason = activeSurfaceResizeDeferralReason() {
             scheduleDeferredSurfaceSizeRetryIfNeeded()
 #if DEBUG
@@ -12769,10 +12791,12 @@ final class GhosttySurfaceScrollView: NSView {
                fr === surfaceView || fr.isDescendant(of: surfaceView) {
                 window.makeFirstResponder(nil)
             }
+            surfaceView.trimHiddenDrawableResourcesForMemory()
         } else if !wasVisible {
             // Workspace/sidebar selection can make an already-sized terminal visible again
             // without a portal frame delta or a focus handoff. Reuse the portal refresh
             // path so the Metal layer is nudged immediately on plain visibility restores.
+            surfaceView.restoreHiddenDrawableResourcesIfNeeded()
             refreshSurfaceNow(reason: "setVisibleInUI")
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }

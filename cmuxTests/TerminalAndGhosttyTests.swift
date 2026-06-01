@@ -2,6 +2,7 @@ import XCTest
 import CmuxSocketControl
 import AppKit
 import SwiftUI
+import QuartzCore
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
@@ -2712,6 +2713,81 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             surface.debugForceRefreshCount(),
             1,
             "Restoring panel visibility should force a redraw even when focus recovery is inactive"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testHiddenVisibilityTrimsMetalDrawableAndRestoresOnReveal() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+        let metalLayer = try XCTUnwrap(
+            surfaceView.layer as? CAMetalLayer,
+            "Expected terminal surface view to use a CAMetalLayer"
+        )
+        XCTAssertNotNil(surface.surface, "Expected runtime surface before hiding the pane")
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        metalLayer.drawableSize = CGSize(width: 4096, height: 3072)
+        CATransaction.commit()
+
+        hostedView.setVisibleInUI(false)
+
+        XCTAssertEqual(
+            metalLayer.drawableSize.width,
+            1,
+            accuracy: 0.5,
+            "Hiding a terminal pane should release large hidden Metal drawables"
+        )
+        XCTAssertEqual(
+            metalLayer.drawableSize.height,
+            1,
+            accuracy: 0.5,
+            "Hiding a terminal pane should release large hidden Metal drawables"
+        )
+
+        hostedView.setVisibleInUI(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertGreaterThan(
+            metalLayer.drawableSize.width,
+            1,
+            "Revealing the pane should restore a usable drawable width"
+        )
+        XCTAssertGreaterThan(
+            metalLayer.drawableSize.height,
+            1,
+            "Revealing the pane should restore a usable drawable height"
         )
 #else
         throw XCTSkip("Debug-only regression test")
