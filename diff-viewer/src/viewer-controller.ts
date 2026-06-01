@@ -1,5 +1,6 @@
 import type { DiffViewerConfig } from "./types";
 import { planPierreFileTreeRefresh } from "./file-tree-refresh";
+import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 
 type GitStatusPatchEntry = {
   path: string;
@@ -150,7 +151,6 @@ export function startDiffViewer(config: DiffViewerConfig) {
   const WORKER_POOL_MODULE_URL = resolveAssetURL(assets.workerPoolModuleURL, "workerPoolModuleURL");
   const DIFF_WORKER_URL = resolveAssetURL(assets.workerModuleURL, "workerModuleURL");
   const payload = config.payload ?? {};
-  const labels = payload.labels ?? {};
 const viewerElement = requireElement<HTMLElement>("viewer");
 const status = requireElement<HTMLDivElement>("status");
 const toolbar = requireElement<HTMLElement>("toolbar");
@@ -172,7 +172,9 @@ const fileCollapseToggle = requireElement<HTMLButtonElement>("file-collapse-togg
 const statsFiles = requireElement<HTMLElement>("stats-files");
 const statsAdded = requireElement<HTMLElement>("stats-added");
 const statsDeleted = requireElement<HTMLElement>("stats-deleted");
-const label = (key) => labels[key] ?? key;
+const label = createDiffViewerLabelResolver(payload.labels, {
+  assertMissing: shouldAssertMissingLabels(),
+});
 const appState = {
   layout: payload.layout === "unified" ? "unified" : "split",
   filesVisible: true,

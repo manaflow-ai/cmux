@@ -1,14 +1,16 @@
 import { useCallback, useRef } from "react";
+import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 import { startDiffViewer } from "./viewer-controller";
 import type { DiffViewerConfig } from "./types";
+import type { DiffViewerLabelResolver } from "./labels";
 
 type ConfigProps = {
   config: DiffViewerConfig;
 };
 
-function label(config: DiffViewerConfig, key: string): string {
-  return config.payload?.labels?.[key] ?? key;
-}
+type ShellProps = ConfigProps & {
+  label: DiffViewerLabelResolver;
+};
 
 const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
@@ -47,23 +49,23 @@ function LoadingDiffSkeleton() {
   );
 }
 
-function SourceControls({ config }: ConfigProps) {
+function SourceControls({ label }: ShellProps) {
   return (
     <div className="toolbar-left flex min-w-0 items-center gap-1.5">
-      <select id="source-select" aria-label={label(config, "diffTarget")} hidden />
-      <select id="repo-select" aria-label={label(config, "repoPath")} hidden />
-      <select id="base-select" aria-label={label(config, "branchBase")} hidden />
+      <select id="source-select" aria-label={label("diffTarget")} hidden />
+      <select id="repo-select" aria-label={label("repoPath")} hidden />
+      <select id="base-select" aria-label={label("branchBase")} hidden />
       <span id="source-detail" />
     </div>
   );
 }
 
-function Toolbar({ config }: ConfigProps) {
+function Toolbar({ config, label }: ShellProps) {
   return (
     <header id="toolbar">
-      <SourceControls config={config} />
+      <SourceControls config={config} label={label} />
       <div className="toolbar-middle flex min-w-0 flex-1 items-center justify-center gap-1.5">
-        <select id="jump-select" aria-label={label(config, "jumpToFile")} hidden />
+        <select id="jump-select" aria-label={label("jumpToFile")} hidden />
       </div>
       <div className="toolbar-actions flex shrink-0 items-center gap-1.5">
         <a
@@ -72,78 +74,78 @@ function Toolbar({ config }: ConfigProps) {
           href={config.payload?.externalURL ?? "#"}
           target="_blank"
           rel="noreferrer"
-          title={label(config, "openSourceURL")}
-          aria-label={label(config, "openSourceURL")}
+          title={label("openSourceURL")}
+          aria-label={label("openSourceURL")}
           hidden
         />
         <button
           id="files-toggle"
           className="toolbar-icon"
           type="button"
-          title={label(config, "hideFiles")}
-          aria-label={label(config, "hideFiles")}
+          title={label("hideFiles")}
+          aria-label={label("hideFiles")}
           aria-pressed="true"
         />
         <button
           id="layout-toggle"
           className="toolbar-icon"
           type="button"
-          title={label(config, "switchToUnifiedDiff")}
-          aria-label={label(config, "switchToUnifiedDiff")}
+          title={label("switchToUnifiedDiff")}
+          aria-label={label("switchToUnifiedDiff")}
         />
         <button
           id="options-button"
           className="toolbar-icon"
           type="button"
-          title={label(config, "options")}
-          aria-label={label(config, "options")}
+          title={label("options")}
+          aria-label={label("options")}
           aria-expanded="false"
           aria-haspopup="menu"
         />
       </div>
-      <div id="options-menu" role="menu" aria-label={label(config, "options")} hidden />
+      <div id="options-menu" role="menu" aria-label={label("options")} hidden />
     </header>
   );
 }
 
-function FilesSidebar({ config }: ConfigProps) {
+function FilesSidebar({ label }: ShellProps) {
   return (
-    <aside id="files-sidebar" aria-label={label(config, "changedFiles")}>
+    <aside id="files-sidebar" aria-label={label("changedFiles")}>
       <div id="files-header">
         <span id="files-title">
-          <span>{label(config, "files")}</span>
+          <span>{label("files")}</span>
           <span id="files-count" />
         </span>
         <span id="files-header-actions">
           <button
             id="file-search-toggle"
             type="button"
-            title={label(config, "showFileSearch")}
-            aria-label={label(config, "showFileSearch")}
+            title={label("showFileSearch")}
+            aria-label={label("showFileSearch")}
             aria-pressed="false"
           />
           <button
             id="file-collapse-toggle"
             type="button"
-            title={label(config, "hideFiles")}
-            aria-label={label(config, "hideFiles")}
+            title={label("hideFiles")}
+            aria-label={label("hideFiles")}
           />
         </span>
       </div>
       <div id="file-list">
         <LoadingFileList />
       </div>
-      <div id="files-footer" aria-label={label(config, "diffStats")}>
+      <div id="files-footer" aria-label={label("diffStats")}>
         <div className="stats-row">
-          <span>{label(config, "files")}</span>
+          <span>{label("files")}</span>
           <strong id="stats-files">0</strong>
         </div>
         <div className="stats-row">
-          <span>{label(config, "additions")}</span>
+          <span>{label("additions")}</span>
           <strong id="stats-added" className="stat-add">+0</strong>
         </div>
         <div className="stats-row">
-          <span>{label(config, "deletions")}</span>
+          <span>{label("deletions")}</span>
           <strong id="stats-deleted" className="stat-del">-0</strong>
         </div>
       </div>
@@ -153,6 +155,9 @@ function FilesSidebar({ config }: ConfigProps) {
 
 export function App({ config }: ConfigProps) {
   const started = useRef(false);
+  const label = createDiffViewerLabelResolver(config.payload?.labels, {
+    assertMissing: shouldAssertMissingLabels(),
+  });
   const rootRef = useCallback((node: HTMLDivElement | null) => {
     if (!node || started.current) {
       return;
@@ -163,11 +168,11 @@ export function App({ config }: ConfigProps) {
 
   return (
     <div id="app" ref={rootRef}>
-      <Toolbar config={config} />
+      <Toolbar config={config} label={label} />
       <section id="content">
-        <FilesSidebar config={config} />
-        <main id="viewer" aria-label={label(config, "diffViewer")}>
-          <div id="status">{config.payload?.statusMessage ?? label(config, "loadingDiff")}</div>
+        <FilesSidebar config={config} label={label} />
+        <main id="viewer" aria-label={label("diffViewer")}>
+          <div id="status">{config.payload?.statusMessage ?? label("loadingDiff")}</div>
           <LoadingDiffSkeleton />
         </main>
       </section>
