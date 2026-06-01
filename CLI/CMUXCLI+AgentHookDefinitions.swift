@@ -368,8 +368,11 @@ extension CMUXCLI {
         }
     }
 
-    private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
-    private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
+    private static let pinnedHookMarkers: [String: String] = [
+        "grok": "cmux-grok-hook-v2",
+        "antigravity": "cmux-antigravity-hook-v2",
+        "hermes-agent": "cmux-hermes-agent-hook-v2",
+    ]
 
     private static func agentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         if usesPinnedHookDispatch(def) {
@@ -385,11 +388,11 @@ extension CMUXCLI {
     }
 
     private static func usesPinnedHookDispatch(_ def: AgentHookDef) -> Bool {
-        def.name == "grok" || def.name == "antigravity"
+        pinnedHookMarker(for: def) != nil
     }
 
-    private static func pinnedHookMarker(for def: AgentHookDef) -> String {
-        def.name == "antigravity" ? antigravityPinnedHookMarker : grokPinnedHookMarker
+    private static func pinnedHookMarker(for def: AgentHookDef) -> String? {
+        pinnedHookMarkers[def.name]
     }
 
     private static func pinnedAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
@@ -431,7 +434,8 @@ extension CMUXCLI {
         } else {
             dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || echo '{}'"
         }
-        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); echo '{}'; } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
+        let marker = pinnedHookMarker(for: def) ?? def.hookMarker
+        return ": \(marker); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); echo '{}'; } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
     }
 
     private static func pinnedHookInvocation(
@@ -541,7 +545,7 @@ extension CMUXCLI {
     }
 
     static func isCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef, includeLegacy: Bool = true) -> Bool {
-        if usesPinnedHookDispatch(def), command.contains(pinnedHookMarker(for: def)) {
+        if let marker = pinnedHookMarker(for: def), command.contains(marker) {
             return true
         }
         if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })

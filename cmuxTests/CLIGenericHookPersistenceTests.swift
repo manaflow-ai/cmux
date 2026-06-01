@@ -2839,6 +2839,70 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testHermesAgentHookInstallPinsInstallingCLIAndSocketLikeGrok() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-hook-pin-\(UUID().uuidString)", isDirectory: true)
+        let hermesHome = root.appendingPathComponent(".hermes", isDirectory: true)
+        try FileManager.default.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = hermesHome.appendingPathComponent("config.yaml", isDirectory: false)
+        try "model: anthropic/claude-sonnet-4.6\n".write(to: configURL, atomically: true, encoding: .utf8)
+
+        let pinnedCLI = root.appendingPathComponent("cmux pinned dev cli", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: pinnedCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pinnedCLI.path)
+
+        let socketPath = "/tmp/cmux-debug-hermes-pin.sock"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "hermes-agent", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "HERMES_HOME": hermesHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_BUNDLED_CLI_PATH": pinnedCLI.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let config = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertTrue(config.contains("cmux-hermes-agent-hook-v2"), config)
+
+        let allowlistURL = hermesHome.appendingPathComponent("shell-hooks-allowlist.json", isDirectory: false)
+        let allowlist = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: allowlistURL)) as? [String: Any])
+        let approvals = try XCTUnwrap(allowlist["approvals"] as? [[String: Any]])
+        let commands = approvals.compactMap { $0["command"] as? String }
+
+        XCTAssertFalse(commands.isEmpty)
+        XCTAssertTrue(
+            commands.allSatisfy { $0.contains("cmux-hermes-agent-hook-v2") },
+            "Expected installed Hermes hooks to carry the owned-hook marker, saw \(commands)"
+        )
+        XCTAssertTrue(
+            commands.allSatisfy { $0.contains(pinnedCLI.path) },
+            "Expected installed Hermes hooks to pin the installing CLI path, saw \(commands)"
+        )
+        XCTAssertTrue(
+            commands.allSatisfy { $0.contains("--socket") && $0.contains(socketPath) },
+            "Expected installed Hermes hooks to pin the installing socket path, saw \(commands)"
+        )
+        XCTAssertFalse(
+            commands.contains { $0.contains("CMUX_SURFACE_ID") },
+            "Hermes hook commands should match Grok's dispatch and avoid CMUX_SURFACE_ID gating, saw \(commands)"
+        )
+        XCTAssertFalse(
+            commands.contains { $0.contains("$CMUX_") },
+            "Hermes hook commands should not depend on CMUX environment interpolation, saw \(commands)"
+        )
+    }
+
     func testGrokHookInstallPreservesUserWrappedLegacyCommands() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
