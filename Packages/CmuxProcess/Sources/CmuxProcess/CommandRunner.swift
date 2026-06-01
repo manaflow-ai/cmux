@@ -188,7 +188,7 @@ public struct CommandRunner: CommandRunning, Sendable {
                     )
                     if claimImmediate(timedOut), process.isRunning {
                         process.terminate()
-                        Self.scheduleSigkill(pid: process.processIdentifier)
+                        Self.scheduleSigkill(process)
                     }
                     timer.cancel()
                 }
@@ -219,12 +219,16 @@ public struct CommandRunner: CommandRunning, Sendable {
         var deadlineTimer: (any DispatchSourceTimer)?
     }
 
-    private static func scheduleSigkill(pid: pid_t) {
+    private static func scheduleSigkill(_ process: Process) {
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
         timer.schedule(deadline: .now() + sigkillGraceSeconds)
         timer.setEventHandler {
-            // `kill` on an already-reaped pid is harmless (ESRCH).
-            kill(pid, SIGKILL)
+            // Only SIGKILL if the Process is still running. If it already exited during
+            // the grace window, sending to the bare pid could hit an unrelated process
+            // that reused it; Foundation's `isRunning` confirms the pid is still ours.
+            if process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+            }
             timer.cancel()
         }
         timer.resume()
