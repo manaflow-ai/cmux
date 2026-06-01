@@ -3,17 +3,17 @@ import SwiftUI
 
 /// Property wrapper that binds a SwiftUI view to one catalog setting, holding
 /// the latest value in its own `@State` so it stays reactive in **any** host —
-/// including the main window's AppKit `NSHostingView`, where ``Setting`` does
-/// not re-render on external changes.
+/// including the main window's AppKit `NSHostingView`.
 ///
-/// ``Setting`` reads through an `@Observable` model whose value is updated from
-/// the store's `AsyncStream`; SwiftUI's Observation does not re-invalidate an
-/// `NSHostingView`-hosted subtree for that off-render update. ``LiveSetting``
-/// removes that dependency: a ``SettingReadDriver`` forwards the store's
-/// `values(for:)` stream into a private `@State`, so re-rendering rides on
-/// `@State` invalidation (host-agnostic). Because every store exposes
-/// `values(for:)`, one wrapper covers UserDefaults-, JSON-, and secret-backed
-/// keys with a single code path and no raw `@AppStorage` string keys.
+/// A settings binding backed by an `@Observable` model whose value is updated
+/// from the store's `AsyncStream` does not re-invalidate an
+/// `NSHostingView`-hosted subtree on that off-render update (SwiftUI's
+/// Observation doesn't drive the host's redraw there). ``LiveSetting`` removes
+/// that dependency: a ``SettingReadDriver`` forwards the store's `values(for:)`
+/// stream into a private `@State`, so re-rendering rides on `@State`
+/// invalidation (host-agnostic). Because every store exposes `values(for:)`,
+/// one wrapper covers UserDefaults-, JSON-, and secret-backed keys with a
+/// single code path and no raw `@AppStorage` string keys.
 ///
 /// You always pass a catalog key path, so the catalog stays the single
 /// definition of the key, default, and storage:

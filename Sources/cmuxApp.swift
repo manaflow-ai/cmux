@@ -12,7 +12,7 @@ struct cmuxApp: App {
     /// Dependency container for the new settings packages. Constructed
     /// once at app launch and injected into the SwiftUI environment via
     /// `.settingsRuntime(_:)`; descendant views resolve their settings
-    /// through it via the `@Setting` property wrapper.
+    /// through it via the `@LiveSetting` property wrapper.
     private let settingsRuntime: SettingsRuntime
 
     @StateObject private var tabManager: TabManager
