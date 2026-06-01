@@ -3,6 +3,7 @@ import AppKit
 import Carbon.HIToolbox
 import Darwin
 import PDFKit
+import Testing
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -1035,15 +1036,11 @@ final class WindowDragHandleHitTests: XCTestCase {
         }
 
         let trafficLightFrame = closeButtonSuperview.convert(closeButton.frame, to: contentView)
-        let opticalYOffset = MinimalModeSidebarTitlebarControlsMetrics.titlebarControlsOpticalYOffset(in: window)
-        let expectedHostCenterY = contentView.isFlipped
-            ? trafficLightFrame.midY + opticalYOffset
-            : trafficLightFrame.midY - opticalYOffset
         XCTAssertEqual(
             target.frame.midY,
-            expectedHostCenterY,
+            trafficLightFrame.midY,
             accuracy: 0.25,
-            "Minimal-mode sidebar controls should compensate for the titlebar icon padding by one backing pixel"
+            "Minimal-mode sidebar controls should share the traffic-light center Y"
         )
     }
 
@@ -1957,6 +1954,73 @@ final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
         XCTAssertFalse(
             window.isMovable,
             "Explicit chrome drag zones may temporarily enable movement, but the main window must return to pane-tab-safe immovable state"
+        )
+    }
+}
+
+
+@Suite("Custom titlebar leading padding")
+struct CustomTitlebarLeadingPaddingTests {
+    @Test func hiddenSidebarUsesMinimumSidebarTitleInset() {
+        #expect(
+            ContentView.customTitlebarLeadingPadding(
+                isFullScreen: false,
+                isSidebarVisible: false,
+                sidebarWidth: 216,
+                minimumSidebarWidth: 216,
+                titlebarLeadingInset: 82
+            ) == 228
+        )
+    }
+
+    @Test func minimumWidthVisibleSidebarMatchesHiddenSidebarTitleInset() {
+        let hidden = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: false,
+            sidebarWidth: 216,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+        let visible = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: true,
+            sidebarWidth: 216,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+
+        #expect(visible == hidden)
+    }
+
+    @Test func widerSidebarPushesTitlebarContentRight() {
+        let hidden = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: false,
+            sidebarWidth: 216,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+        let visible = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: true,
+            sidebarWidth: 320,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+
+        #expect(visible > hidden)
+        #expect(visible == 332)
+    }
+
+    @Test func fullscreenHiddenSidebarKeepsCompactInset() {
+        #expect(
+            ContentView.customTitlebarLeadingPadding(
+                isFullScreen: true,
+                isSidebarVisible: false,
+                sidebarWidth: 216,
+                minimumSidebarWidth: 216,
+                titlebarLeadingInset: 82
+            ) == 8
         )
     }
 }

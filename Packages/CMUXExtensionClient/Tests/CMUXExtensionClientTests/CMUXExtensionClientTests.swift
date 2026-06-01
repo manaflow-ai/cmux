@@ -29,7 +29,9 @@ struct CMUXExtensionClientTests {
 
     @Test
     func testSidebarExtensionPointUsesStablePublicIdentifiers() {
-        #expect(CMUXSidebarExtensionPoint.identifier == "com.manaflow.cmux.sidebar")
+        #expect(CMUXSidebarExtensionPoint.baseIdentifier == "com.manaflow.cmux.sidebar")
+        // No Info.plist override in the test bundle, so it resolves to the base id.
+        #expect(CMUXSidebarExtensionPoint.identifier(in: .main) == "com.manaflow.cmux.sidebar")
         #expect(CMUXSidebarExtensionPoint.defaultSceneID == "sidebar")
     }
 

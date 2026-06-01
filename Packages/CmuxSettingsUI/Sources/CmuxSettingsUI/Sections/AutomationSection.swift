@@ -11,7 +11,7 @@ import SwiftUI
 public struct AutomationSection: View {
     private let catalog: SettingCatalog
 
-    @State private var socketPasswordModel: JSONValueModel<String>
+    @State private var socketPasswordModel: SecretValueModel
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
     @State private var claudePathModel: DefaultsValueModel<String>
@@ -19,6 +19,8 @@ public struct AutomationSection: View {
     @State private var suppressSubagentModel: DefaultsValueModel<Bool>
     @State private var cursorModel: DefaultsValueModel<Bool>
     @State private var geminiModel: DefaultsValueModel<Bool>
+    @State private var kiroModel: DefaultsValueModel<Bool>
+    @State private var kiroLevelModel: DefaultsValueModel<String>
     @State private var portBaseModel: DefaultsValueModel<Int>
     @State private var portRangeModel: DefaultsValueModel<Int>
     @State private var socketPasswordDraft: String = ""
@@ -35,12 +37,13 @@ public struct AutomationSection: View {
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
+        secretStore: SecretFileStore,
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog
     ) {
         self.catalog = catalog
-        _socketPasswordModel = State(initialValue: JSONValueModel(
-            store: jsonStore,
+        _socketPasswordModel = State(initialValue: SecretValueModel(
+            store: secretStore,
             key: catalog.automation.socketPassword,
             errorLog: errorLog
         ))
@@ -51,6 +54,8 @@ public struct AutomationSection: View {
         _suppressSubagentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.suppressSubagentNotifications))
         _cursorModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.cursorHooksEnabled))
         _geminiModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.geminiHooksEnabled))
+        _kiroModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.kiroHooksEnabled))
+        _kiroLevelModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.kiroNotificationLevel))
         _portBaseModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.portBase))
         _portRangeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.portRange))
     }
@@ -68,6 +73,7 @@ public struct AutomationSection: View {
             suppressSubagentCard
             cursorCard
             geminiCard
+            kiroCard
             portCard
         }
         .confirmationDialog(
@@ -309,6 +315,42 @@ public struct AutomationSection: View {
             }
             SettingsCardDivider()
             SettingsCardNote(String(localized: "settings.automation.gemini.note", defaultValue: "Hooks must be installed with `cmux hooks gemini install`. They no-op outside cmux terminals."))
+        }
+    }
+
+    @ViewBuilder
+    private var kiroCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("automation.kiroIntegration"),
+                String(localized: "settings.automation.kiro", defaultValue: "Kiro CLI Integration"),
+                subtitle: kiroModel.current
+                    ? String(localized: "settings.automation.kiro.subtitleOn", defaultValue: "Sidebar shows Kiro session status, notifications, and Feed tool events.")
+                    : String(localized: "settings.automation.kiro.subtitleOff", defaultValue: "Kiro runs without cmux integration.")
+            ) {
+                Toggle("", isOn: Binding(get: { kiroModel.current }, set: { kiroModel.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsKiroHooksToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("automation.kiroNotificationLevel"),
+                String(localized: "settings.automation.kiro.notificationLevel", defaultValue: "Kiro Notification Level"),
+                subtitle: String(localized: "settings.automation.kiro.notificationLevel.subtitle", defaultValue: "Controls how many Kiro tool events appear in Feed."),
+                controlWidth: Self.columnWidth
+            ) {
+                Picker("", selection: Binding(get: { kiroLevelModel.current }, set: { kiroLevelModel.set($0) })) {
+                    Text(String(localized: "settings.automation.kiro.notificationLevel.minimal", defaultValue: "Minimal")).tag("minimal")
+                    Text(String(localized: "settings.automation.kiro.notificationLevel.standard", defaultValue: "Standard")).tag("standard")
+                    Text(String(localized: "settings.automation.kiro.notificationLevel.verbose", defaultValue: "Verbose")).tag("verbose")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SettingsKiroNotificationLevelPicker")
+            }
+            SettingsCardDivider()
+            SettingsCardNote(String(localized: "settings.automation.kiro.note", defaultValue: "Hooks must be installed with `cmux hooks kiro install`, then run Kiro with `kiro-cli chat --agent cmux` (or set it as your default agent). They no-op outside cmux terminals."))
         }
     }
 

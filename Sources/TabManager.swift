@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Foundation
 import Bonsplit
+import CmuxProcess
 import CoreVideo
 import Combine
 import CoreServices
@@ -22,6 +23,68 @@ private final class WorkspaceGitMetadataWatcherCallbackBox: @unchecked Sendable 
     }
 }
 
+#if DEBUG
+// @unchecked Sendable: every mutable field is guarded by `lock`. This is
+// DEBUG-only test scaffolding, touched synchronously from the FSEvents callback,
+// the synthetic-event producer thread, and the measuring helper — a synchronous
+// compare-and-set guard, not ongoing domain state, so a lock is the right shape.
+private final class WorkspaceGitMetadataWatcherRefreshRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var startedAt: Date?
+    private var firstRefreshDelay: TimeInterval?
+    private var cancelled = false
+
+    /// Starts the delay clock. Idempotent; only the first call takes effect.
+    /// Called once the watcher exists and the storm is about to begin so the
+    /// measured delay excludes watcher setup.
+    func start() {
+        lock.lock()
+        defer { lock.unlock() }
+        if startedAt == nil { startedAt = Date() }
+    }
+
+    /// Records the first refresh delay relative to `start()`. No-op before the
+    /// clock is started or after the first refresh has already been recorded.
+    func recordFirstRefresh() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard firstRefreshDelay == nil, let startedAt else { return }
+        firstRefreshDelay = Date().timeIntervalSince(startedAt)
+    }
+
+    /// Signals the synthetic-event producer to stop emitting events.
+    func cancel() {
+        lock.lock()
+        defer { lock.unlock() }
+        cancelled = true
+    }
+
+    /// Whether `cancel()` has been called; polled by the producer loop.
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    var delay: TimeInterval? {
+        lock.lock()
+        defer { lock.unlock() }
+        return firstRefreshDelay
+    }
+}
+#endif
+
+private let workspaceGitMetadataWatcherContextRetain: CFAllocatorRetainCallBack = { info in
+    guard let info else { return nil }
+    _ = Unmanaged<WorkspaceGitMetadataWatcherCallbackBox>.fromOpaque(info).retain()
+    return info
+}
+
+private let workspaceGitMetadataWatcherContextRelease: CFAllocatorReleaseCallBack = { info in
+    guard let info else { return }
+    Unmanaged<WorkspaceGitMetadataWatcherCallbackBox>.fromOpaque(info).release()
+}
+
 private let workspaceGitMetadataWatcherCallback: FSEventStreamCallback = { _, info, _, _, _, _ in
     guard let info else { return }
     let box = Unmanaged<WorkspaceGitMetadataWatcherCallbackBox>.fromOpaque(info).takeUnretainedValue()
@@ -29,6 +92,19 @@ private let workspaceGitMetadataWatcherCallback: FSEventStreamCallback = { _, in
 }
 
 private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
+    private static let queueSpecificKey = DispatchSpecificKey<UInt8>()
+    // A single serial queue is shared by every watcher instance (rather than one
+    // queue per watcher) to bound thread usage when many workspaces are tracked.
+    // Contract: because `stop()` synchronizes on this queue, the `onChange`
+    // closure MUST stay non-blocking — a slow `onChange` on any watcher would
+    // serialize behind it and stall every other watcher's `stop()` on the main
+    // actor. The production closure only spawns a `@MainActor` Task and returns.
+    private static let queue: DispatchQueue = {
+        let queue = DispatchQueue(label: "com.cmux.workspace-git-metadata-watcher", qos: .utility)
+        queue.setSpecific(key: queueSpecificKey, value: 1)
+        return queue
+    }()
+
     struct Descriptor: Equatable, Sendable {
         let directory: String
         let watchedPaths: [String]
@@ -36,8 +112,6 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
 
     let descriptor: Descriptor
 
-    private let queue = DispatchQueue(label: "com.cmux.workspace-git-metadata-watcher", qos: .utility)
-    private let queueSpecificKey = DispatchSpecificKey<UInt8>()
     private var callbackBox: WorkspaceGitMetadataWatcherCallbackBox?
     private let onChange: @Sendable () -> Void
     private var stream: FSEventStreamRef?
@@ -47,7 +121,6 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
         guard !descriptor.watchedPaths.isEmpty else { return nil }
         self.descriptor = descriptor
         self.onChange = onChange
-        queue.setSpecific(key: queueSpecificKey, value: 1)
         let callbackBox = WorkspaceGitMetadataWatcherCallbackBox { [weak self] in
             self?.scheduleChange()
         }
@@ -56,12 +129,12 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
         var context = FSEventStreamContext(
             version: 0,
             info: Unmanaged.passUnretained(callbackBox).toOpaque(),
-            retain: nil,
-            release: nil,
+            retain: workspaceGitMetadataWatcherContextRetain,
+            release: workspaceGitMetadataWatcherContextRelease,
             copyDescription: nil
         )
         let flags = FSEventStreamCreateFlags(
-            kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer
+            kFSEventStreamCreateFlagFileEvents
         )
         guard let stream = FSEventStreamCreate(
             nil,
@@ -75,7 +148,7 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
             return nil
         }
         self.stream = stream
-        FSEventStreamSetDispatchQueue(stream, queue)
+        FSEventStreamSetDispatchQueue(stream, Self.queue)
         guard FSEventStreamStart(stream) else {
             stop()
             return nil
@@ -83,10 +156,16 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
     }
 
     func stop() {
-        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
+        // Teardown runs synchronously on the shared queue so it completes before
+        // the caller continues — critically, before `deinit` returns. An async hop
+        // could let the watcher deallocate (and its `[weak self]` work no-op)
+        // before the stream is invalidated, leaking the FSEventStream. The
+        // `getSpecific` check tears down inline (no `sync`) when already on the
+        // queue, avoiding a deadlock.
+        if DispatchQueue.getSpecific(key: Self.queueSpecificKey) != nil {
             stopOnQueue()
         } else {
-            queue.sync {
+            Self.queue.sync {
                 stopOnQueue()
             }
         }
@@ -103,23 +182,44 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
     }
 
     private func scheduleChange() {
-        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
+        if DispatchQueue.getSpecific(key: Self.queueSpecificKey) != nil {
             scheduleChangeOnQueue()
         } else {
-            queue.async { [weak self] in
+            Self.queue.async { [weak self] in
                 self?.scheduleChangeOnQueue()
             }
         }
     }
 
+    // Leading-edge throttle: the first event arms a single flush 0.25s later;
+    // events arriving while that flush is pending are coalesced into it (the
+    // `debounceWorkItem == nil` guard makes them no-ops). Combined with the
+    // stream's 0.25s FSEvents latency, the worst-case delay from a filesystem
+    // change to `onChange` is ~0.5s. During a sustained storm `onChange` fires at
+    // most once per ~0.25s window — it intentionally does NOT wait for the repo to
+    // go quiet. The previous trailing-edge debounce (cancel-and-reschedule on every
+    // event) fired once after quiet, which produced the allocate-and-cancel churn
+    // this watcher was hardened against.
     private func scheduleChangeOnQueue() {
-        debounceWorkItem?.cancel()
+        guard stream != nil, debounceWorkItem == nil else { return }
         let workItem = DispatchWorkItem { [weak self] in
-            self?.onChange()
+            self?.flushScheduledChangeOnQueue()
         }
         debounceWorkItem = workItem
-        queue.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+        Self.queue.asyncAfter(deadline: .now() + 0.25, execute: workItem)
     }
+
+    private func flushScheduledChangeOnQueue() {
+        debounceWorkItem = nil
+        guard stream != nil else { return }
+        onChange()
+    }
+
+#if DEBUG
+    func simulateEventForTesting() {
+        scheduleChange()
+    }
+#endif
 
     deinit {
         stop()
@@ -1105,20 +1205,6 @@ class TabManager: ObservableObject {
         let directory: String
     }
 
-    struct CommandResult: Sendable {
-        let stdout: String?
-        let stderr: String?
-        let exitStatus: Int32?
-        let timedOut: Bool
-        let executionError: String?
-    }
-
-#if DEBUG
-    nonisolated(unsafe) static var commandRunnerForTesting: (
-        @Sendable (String, String, [String], TimeInterval?) -> CommandResult?
-    )?
-#endif
-
     private struct WorkspaceGitProbeKey: Hashable, Sendable {
         let workspaceId: UUID
         let panelId: UUID
@@ -1479,12 +1565,18 @@ class TabManager: ObservableObject {
     private var uiTestCancellables = Set<AnyCancellable>()
 #endif
 
+    // Runs external commands (currently the `gh auth token` probe). Injected so
+    // tests can supply a fake without spawning a real process.
+    private let commandRunner: any CommandRunning
+
     init(
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
-        autoWelcomeIfNeeded: Bool = true
+        autoWelcomeIfNeeded: Bool = true,
+        commandRunner: any CommandRunning = CommandRunner()
     ) {
+        self.commandRunner = commandRunner
         addWorkspace(
             title: initialWorkspaceTitle,
             workingDirectory: initialWorkingDirectory,
@@ -1920,6 +2012,7 @@ class TabManager: ObservableObject {
         let cacheBySlug = workspacePullRequestRepoCacheBySlug
         let allowCachedResults = allowCachedResultsOverride
             ?? Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
+        let commandRunner = commandRunner
         workspacePullRequestRefreshTask = Task.detached(priority: .utility) { [weak self] in
             let candidateResolution = await Self.resolveWorkspacePullRequestCandidateSeeds(candidateSeeds)
             guard !Task.isCancelled else { return }
@@ -1928,7 +2021,8 @@ class TabManager: ObservableObject {
                 candidateBranchesByRepo: candidateResolution.candidateBranchesByRepo,
                 cacheBySlug: cacheBySlug,
                 now: now,
-                allowCachedResults: allowCachedResults
+                allowCachedResults: allowCachedResults,
+                commandRunner: commandRunner
             )
             let results = Self.resolveWorkspacePullRequestRefreshResults(
                 candidates: candidateResolution.candidates,
@@ -2636,6 +2730,33 @@ class TabManager: ObservableObject {
     func toggleFocusedTerminalCopyMode() -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
         return panel.surface.toggleKeyboardCopyMode()
+    }
+
+    /// Forwards a single Ctrl-F (`^F`) key press to the focused terminal surface,
+    /// faithfully encoded through Ghostty so it matches whatever the running TUI
+    /// would receive from a real keystroke.
+    ///
+    /// This is the non-keyboard escape hatch for control chords that a focused TUI
+    /// reads off the raw tty. The motivating case is Claude Code's force-stop, which
+    /// is only exposed as "press Ctrl-F twice"; invoke this action twice to deliver
+    /// it. Delivery bypasses cmux's shortcut/menu/responder layers entirely.
+    ///
+    /// - Returns: `true` when the chord was sent or queued for the focused terminal,
+    ///   `false` when no terminal panel is focused.
+    @discardableResult
+    func sendCtrlFToFocusedTerminal() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        let result = panel.sendNamedKeyResult("ctrl-f")
+        if result == .sent {
+            panel.surface.forceRefresh(reason: "tabManager.sendCtrlFToFocusedTerminal")
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "terminal.sendCtrlF workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+            "panel=\(panel.id.uuidString.prefix(5)) result=\(result)"
+        )
+#endif
+        return result.accepted
     }
 
     @discardableResult
@@ -4333,7 +4454,8 @@ class TabManager: ObservableObject {
         candidateBranchesByRepo: [String: Set<String>],
         cacheBySlug: [String: WorkspacePullRequestRepoCacheEntry],
         now: Date,
-        allowCachedResults: Bool
+        allowCachedResults: Bool,
+        commandRunner: any CommandRunning
     ) async -> [String: WorkspacePullRequestRepoFetchResult] {
         guard !repoDirectoriesBySlug.isEmpty else { return [:] }
 
@@ -4341,7 +4463,7 @@ class TabManager: ObservableObject {
         configuration.timeoutIntervalForRequest = max(Self.workspacePullRequestProbeTimeout, 8)
         configuration.timeoutIntervalForResource = max(Self.workspacePullRequestProbeTimeout, 8)
         let session = URLSession(configuration: configuration)
-        let authHeader = await workspacePullRequestAuthHeaderValue()
+        let authHeader = await workspacePullRequestAuthHeaderValue(commandRunner: commandRunner)
         var results: [String: WorkspacePullRequestRepoFetchResult] = [:]
 
         let fetchedResults = await withTaskGroup(
@@ -4757,7 +4879,9 @@ class TabManager: ObservableObject {
         }
     }
 
-    private nonisolated static func workspacePullRequestAuthHeaderValue() async -> String? {
+    private nonisolated static func workspacePullRequestAuthHeaderValue(
+        commandRunner: any CommandRunning
+    ) async -> String? {
         let environment = ProcessInfo.processInfo.environment
         if let envToken = environment["GH_TOKEN"] ?? environment["GITHUB_TOKEN"] {
             let trimmed = envToken.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4767,7 +4891,7 @@ class TabManager: ObservableObject {
         }
 
         let directory = FileManager.default.currentDirectoryPath
-        let token = await runCommand(
+        let token = await commandRunner.runStandardOutput(
             directory: directory,
             executable: "gh",
             arguments: ["auth", "token"],
@@ -4923,291 +5047,6 @@ class TabManager: ObservableObject {
         try? JSONDecoder().decode(T.self, from: data)
     }
 
-    private nonisolated static let fallbackCommandSearchDirectories: [String] = [
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-        "/opt/local/bin",
-    ]
-
-    nonisolated static func resolvedCommandPathForTesting(
-        executable: String,
-        environment: [String: String],
-        fallbackDirectories: [String]
-    ) -> String? {
-        resolvedCommandPath(
-            executable: executable,
-            environment: environment,
-            fallbackDirectories: fallbackDirectories
-        )
-    }
-
-    private nonisolated static func resolvedCommandPath(
-        executable: String,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        fallbackDirectories: [String] = fallbackCommandSearchDirectories
-    ) -> String? {
-        guard !executable.isEmpty else { return nil }
-        let fileManager = FileManager.default
-        if executable.contains("/") {
-            return fileManager.isExecutableFile(atPath: executable) ? executable : nil
-        }
-
-        var searchDirectories: [String] = []
-        var seenDirectories: Set<String> = []
-
-        func appendSearchPath(_ path: String?) {
-            guard let path else { return }
-            for rawComponent in path.split(separator: ":") {
-                let component = String(rawComponent).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !component.isEmpty,
-                      seenDirectories.insert(component).inserted else {
-                    continue
-                }
-                searchDirectories.append(component)
-            }
-        }
-
-        appendSearchPath(environment["PATH"])
-        appendSearchPath(getenv("PATH").map { String(cString: $0) })
-        if let bundledBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
-            appendSearchPath(bundledBinPath)
-        }
-        fallbackDirectories.forEach { appendSearchPath($0) }
-        appendSearchPath("/usr/bin:/bin:/usr/sbin:/sbin")
-
-        for directory in searchDirectories {
-            let candidate = URL(fileURLWithPath: directory, isDirectory: true)
-                .appendingPathComponent(executable)
-                .path
-            if fileManager.isExecutableFile(atPath: candidate) {
-                return candidate
-            }
-        }
-        return nil
-    }
-
-    private final class CommandRunState: @unchecked Sendable {
-        fileprivate typealias Continuation = CheckedContinuation<CommandResult?, Never>
-
-        private let lock = NSLock()
-        private var continuation: Continuation?
-        private var stdoutData: Data?
-        private var stderrData: Data?
-        private var exitStatus: Int32?
-        private var didTerminate = false
-        private var didResume = false
-        private var timeoutWorkItem: DispatchWorkItem?
-
-        fileprivate init(continuation: Continuation) {
-            self.continuation = continuation
-        }
-
-        func setTimeoutWorkItem(_ item: DispatchWorkItem?) {
-            guard let item else { return }
-            lock.lock()
-            if didResume {
-                lock.unlock()
-                item.cancel()
-                return
-            }
-            timeoutWorkItem = item
-            lock.unlock()
-        }
-
-        func hasResumed() -> Bool {
-            lock.lock()
-            defer { lock.unlock() }
-            return didResume
-        }
-
-        func completeStdout(_ data: Data) {
-            complete {
-                stdoutData = data
-            }
-        }
-
-        func completeStderr(_ data: Data) {
-            complete {
-                stderrData = data
-            }
-        }
-
-        func completeTermination(exitStatus: Int32) {
-            complete {
-                self.exitStatus = exitStatus
-                didTerminate = true
-            }
-        }
-
-        func resume(returning result: CommandResult?) {
-            var continuationToResume: Continuation?
-            var timeoutToCancel: DispatchWorkItem?
-            lock.lock()
-            guard !didResume else {
-                lock.unlock()
-                return
-            }
-            didResume = true
-            continuationToResume = continuation
-            continuation = nil
-            timeoutToCancel = timeoutWorkItem
-            timeoutWorkItem = nil
-            lock.unlock()
-
-            timeoutToCancel?.cancel()
-            continuationToResume?.resume(returning: result)
-        }
-
-        private func complete(_ mutate: () -> Void) {
-            var continuationToResume: Continuation?
-            var timeoutToCancel: DispatchWorkItem?
-            var resultToResume: CommandResult?
-
-            lock.lock()
-            guard !didResume else {
-                lock.unlock()
-                return
-            }
-
-            mutate()
-            if let stdoutData,
-               let stderrData,
-               didTerminate {
-                didResume = true
-                resultToResume = CommandResult(
-                    stdout: String(data: stdoutData, encoding: .utf8),
-                    stderr: String(data: stderrData, encoding: .utf8),
-                    exitStatus: exitStatus,
-                    timedOut: false,
-                    executionError: nil
-                )
-                continuationToResume = continuation
-                continuation = nil
-                timeoutToCancel = timeoutWorkItem
-                timeoutWorkItem = nil
-            }
-            lock.unlock()
-
-            timeoutToCancel?.cancel()
-            if let resultToResume {
-                continuationToResume?.resume(returning: resultToResume)
-            }
-        }
-    }
-
-    private nonisolated static func runCommand(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval? = nil
-    ) async -> String? {
-        let result = await runCommandResult(
-            directory: directory,
-            executable: executable,
-            arguments: arguments,
-            timeout: timeout
-        )
-        guard let result,
-              result.exitStatus == 0,
-              !result.timedOut else {
-            return nil
-        }
-        return result.stdout
-    }
-
-    private nonisolated static func runCommandResult(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval? = nil
-    ) async -> CommandResult? {
-#if DEBUG
-        assert(!Thread.isMainThread, "TabManager.runCommandResult must not run on the main thread")
-        if let commandRunnerForTesting {
-            return commandRunnerForTesting(directory, executable, arguments, timeout)
-        }
-#endif
-        return await withCheckedContinuation { continuation in
-            let process = Process()
-            let stdout = Pipe()
-            let stderr = Pipe()
-            if let resolvedExecutable = resolvedCommandPath(executable: executable) {
-                process.executableURL = URL(fileURLWithPath: resolvedExecutable)
-                process.arguments = arguments
-            } else {
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                process.arguments = [executable] + arguments
-            }
-            process.currentDirectoryURL = URL(fileURLWithPath: directory)
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = stdout
-            process.standardError = stderr
-
-            let state = CommandRunState(continuation: continuation)
-            let timeoutWorkItem = timeout.map { _ in
-                DispatchWorkItem { [state, process] in
-                    guard !state.hasResumed() else { return }
-                    guard process.isRunning else { return }
-                    process.terminate()
-                    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.2) {
-                        if process.isRunning {
-                            kill(process.processIdentifier, SIGKILL)
-                        }
-                    }
-                    state.resume(
-                        returning: CommandResult(
-                            stdout: nil,
-                            stderr: nil,
-                            exitStatus: nil,
-                            timedOut: true,
-                            executionError: nil
-                        )
-                    )
-                }
-            }
-            state.setTimeoutWorkItem(timeoutWorkItem)
-            process.terminationHandler = { terminatedProcess in
-                state.completeTermination(exitStatus: terminatedProcess.terminationStatus)
-            }
-
-            do {
-                try process.run()
-            } catch {
-                try? stdout.fileHandleForWriting.close()
-                try? stderr.fileHandleForWriting.close()
-                state.resume(
-                    returning: CommandResult(
-                        stdout: nil,
-                        stderr: nil,
-                        exitStatus: nil,
-                        timedOut: false,
-                        executionError: String(describing: error)
-                    )
-                )
-                return
-            }
-
-            try? stdout.fileHandleForWriting.close()
-            try? stderr.fileHandleForWriting.close()
-
-            DispatchQueue.global(qos: .utility).async {
-                let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdout.fileHandleForReading)
-                state.completeStdout(data)
-            }
-            DispatchQueue.global(qos: .utility).async {
-                let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderr.fileHandleForReading)
-                state.completeStderr(data)
-            }
-            if let timeout,
-               let timeoutWorkItem {
-                DispatchQueue.global(qos: .utility).asyncAfter(
-                    deadline: .now() + timeout,
-                    execute: timeoutWorkItem
-                )
-            }
-        }
-    }
-
     nonisolated static func githubRepositorySlugs(fromGitRemoteVOutput output: String) -> [String] {
         var slugByRemoteName: [String: String] = [:]
 
@@ -5250,6 +5089,62 @@ class TabManager: ObservableObject {
 #if DEBUG
     nonisolated static func workspaceGitMetadataWatchedPathsForTesting(directory: String) -> [String] {
         workspaceGitMetadataWatcherDescriptor(for: directory)?.watchedPaths ?? []
+    }
+
+    nonisolated static func workspaceGitMetadataWatcherFirstRefreshDelayDuringStormForTesting(
+        eventCount: Int,
+        eventInterval: TimeInterval,
+        waitTimeout: TimeInterval
+    ) -> TimeInterval? {
+        let semaphore = DispatchSemaphore(value: 0)
+        let recorder = WorkspaceGitMetadataWatcherRefreshRecorder()
+
+        // Watch a unique, empty temp directory so only simulated events reach the
+        // watcher. Pointing it at the shared NSTemporaryDirectory() would let
+        // unrelated temp-dir traffic from other processes or tests trip the watcher
+        // and skew the measured first-refresh delay.
+        let temporaryDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: temporaryDirectoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectoryURL) }
+
+        let createdWatcher = WorkspaceGitMetadataWatcher(
+            descriptor: WorkspaceGitMetadataWatcher.Descriptor(
+                directory: temporaryDirectoryURL.path,
+                watchedPaths: [temporaryDirectoryURL.path]
+            )
+        ) {
+            recorder.recordFirstRefresh()
+            semaphore.signal()
+        }
+        guard let watcher = createdWatcher else {
+            return nil
+        }
+        // Cancel the producer before tearing down the watcher so a timeout doesn't
+        // leave synthetic events landing on the shared watcher queue after this
+        // helper returns (which would bleed into later tests). Deferred blocks run
+        // last-in-first-out, so this runs before the temp-directory cleanup above.
+        defer {
+            recorder.cancel()
+            watcher.stop()
+        }
+
+        DispatchQueue.global(qos: .utility).async {
+            // Start the clock only once the storm actually begins; the watcher is
+            // already constructed here, so setup time isn't counted as delay.
+            recorder.start()
+            for _ in 0..<eventCount {
+                if recorder.isCancelled { return }
+                watcher.simulateEventForTesting()
+                Thread.sleep(forTimeInterval: eventInterval)
+            }
+        }
+
+        guard semaphore.wait(timeout: .now() + waitTimeout) == .success else {
+            return nil
+        }
+
+        return recorder.delay
     }
 
     nonisolated static func githubRepositorySlugs(fromGitConfigForTesting config: String) -> [String] {
@@ -11236,7 +11131,6 @@ extension TabManager {
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
             hasher.combine(workspace.isPinned)
-            hasher.combine(workspace.terminalScrollBarHidden)
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)
             hasher.combine(workspace.metadataBlocks.count)

@@ -508,6 +508,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.manaflow.cmux.sidebar;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -524,7 +525,8 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.CMUXExtKitSampleSidebarApp;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.CMUXExtKitSampleSidebarApp$(CMUX_BUNDLE_ID_SUFFIX)";
 				PRODUCT_NAME = "CMUX ExtKit Sample Sidebar";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -541,6 +543,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.manaflow.cmux.sidebar;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -557,7 +560,8 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.CMUXExtKitSampleSidebarApp;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.CMUXExtKitSampleSidebarApp$(CMUX_BUNDLE_ID_SUFFIX)";
 				PRODUCT_NAME = "CMUX ExtKit Sample Sidebar";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -653,13 +657,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.manaflow.cmux.sidebar;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SampleSidebarExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "CMUX ExtKit Sample Sidebar";
+				INFOPLIST_KEY_CFBundleDisplayName = "CMUX ExtKit Sample Sidebar$(CMUX_DISPLAY_NAME_SUFFIX)";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -668,7 +673,9 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.CMUXExtKitSampleSidebarApp.Extension;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				CMUX_DISPLAY_NAME_SUFFIX = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.CMUXExtKitSampleSidebarApp$(CMUX_BUNDLE_ID_SUFFIX).Extension";
 				PRODUCT_NAME = "CMUX ExtKit Sample Sidebar Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -684,13 +691,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.manaflow.cmux.sidebar;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SampleSidebarExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "CMUX ExtKit Sample Sidebar";
+				INFOPLIST_KEY_CFBundleDisplayName = "CMUX ExtKit Sample Sidebar$(CMUX_DISPLAY_NAME_SUFFIX)";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -699,7 +707,9 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.CMUXExtKitSampleSidebarApp.Extension;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				CMUX_DISPLAY_NAME_SUFFIX = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.CMUXExtKitSampleSidebarApp$(CMUX_BUNDLE_ID_SUFFIX).Extension";
 				PRODUCT_NAME = "CMUX ExtKit Sample Sidebar Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
