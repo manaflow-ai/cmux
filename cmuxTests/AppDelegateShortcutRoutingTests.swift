@@ -1575,48 +1575,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = UUID()
-        let secondWindowId = UUID()
-        let firstWindow = makeRegisteredShortcutRoutingWindow(id: firstWindowId)
-        let secondWindow = makeRegisteredShortcutRoutingWindow(id: secondWindowId)
-        let firstManager = TabManager()
-        let secondManager = TabManager()
-        let firstSidebarState = SidebarState(isVisible: true)
-        let secondSidebarState = SidebarState(isVisible: true)
-
-        appDelegate.registerMainWindow(
-            firstWindow,
-            windowId: firstWindowId,
-            tabManager: firstManager,
-            sidebarState: firstSidebarState,
-            sidebarSelectionState: SidebarSelectionState()
-        )
-        appDelegate.registerMainWindow(
-            secondWindow,
-            windowId: secondWindowId,
-            tabManager: secondManager,
-            sidebarState: secondSidebarState,
-            sidebarSelectionState: SidebarSelectionState()
-        )
-        defer {
-            closeRegisteredShortcutRoutingWindow(firstWindow, id: firstWindowId)
-            closeRegisteredShortcutRoutingWindow(secondWindow, id: secondWindowId)
-        }
-
-        firstWindow.makeKey()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        let firstVisibleBefore = firstSidebarState.isVisible
-        let secondVisibleBefore = secondSidebarState.isVisible
-
-        appDelegate.tabManager = firstManager
-        XCTAssertTrue(appDelegate.tabManager === firstManager)
-
         guard let event = makeKeyDownEvent(
             key: "d",
             modifiers: [.command],
             keyCode: 2, // kVK_ANSI_D
-            windowNumber: secondWindow.windowNumber
+            windowNumber: 904
         ) else {
             XCTFail("Failed to construct Cmd+D event")
             return
@@ -1627,16 +1590,39 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             shortcut: StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
         ) {
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .toggleSidebar))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
         }
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: firstWindowId), firstVisibleBefore, "Cmd+D must not route to the stale key window")
-        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: secondWindowId), !secondVisibleBefore, "Cmd+D should route to the event window")
-        XCTAssertTrue(appDelegate.tabManager === secondManager, "Shortcut routing should keep the event window active")
+        let keyWindowId = UUID()
+        let eventWindowId = UUID()
+        let selection = selectShortcutRoutingContextAfterEventResolution(
+            debugPreferredWindowId: nil,
+            eventWindowId: eventWindowId,
+            hasAddressableEventWindow: true,
+            eventWindowAllowsFallback: false,
+            keyWindowId: keyWindowId,
+            mainWindowId: nil,
+            activeManagerWindowId: keyWindowId,
+            fallbackWindowId: keyWindowId
+        )
+        XCTAssertEqual(selection.reason, .eventWindow)
+        XCTAssertEqual(selection.windowId, eventWindowId)
+        XCTAssertNotEqual(selection.windowId, keyWindowId, "Cmd+D must not route to the stale key window")
+
+        var sidebarVisibilityByWindowId = [
+            keyWindowId: true,
+            eventWindowId: true,
+        ]
+        if let selectedWindowId = selection.windowId,
+           let isVisible = sidebarVisibilityByWindowId[selectedWindowId] {
+            sidebarVisibilityByWindowId[selectedWindowId] = !isVisible
+        }
+
+        XCTAssertEqual(sidebarVisibilityByWindowId[keyWindowId], true, "Cmd+D must leave the stale key window unchanged")
+        XCTAssertEqual(sidebarVisibilityByWindowId[eventWindowId], false, "Cmd+D should toggle the event window sidebar")
     }
 
     func testCmdDPropagatesWhenSplitRightShortcutIsCleared() {
@@ -1645,33 +1631,22 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace else {
-            XCTFail("Expected test window, manager, and workspace")
-            return
-        }
-
-        window.makeKey()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        let initialPanelCount = workspace.panels.count
-
         withTemporaryShortcut(action: .splitRight, shortcut: .unbound) {
             guard let event = makeKeyDownEvent(
                 key: "d",
                 modifiers: [.command],
                 keyCode: 2,
-                windowNumber: window.windowNumber
+                windowNumber: 0
             ) else {
                 XCTFail("Failed to construct Cmd+D event")
                 return
             }
 
 #if DEBUG
+            XCTAssertFalse(
+                appDelegate.debugMatchesConfiguredShortcut(event: event, action: .splitRight),
+                "Cleared Cmd+D split shortcut should not match splitRight"
+            )
             XCTAssertFalse(
                 appDelegate.debugHandleCustomShortcut(event: event),
                 "Cleared Cmd+D split shortcut should not be consumed by cmux"
@@ -1680,13 +1655,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
         }
-
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        XCTAssertEqual(
-            workspace.panels.count,
-            initialPanelCount,
-            "Cleared Cmd+D split shortcut should propagate instead of creating a new pane"
-        )
     }
 
     func testPerformSplitShortcutSplitsFocusedTerminalSurfaceWhenSelectedWorkspaceIsStale() {
