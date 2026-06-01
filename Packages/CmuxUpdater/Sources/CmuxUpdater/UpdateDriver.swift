@@ -9,7 +9,7 @@ import Sparkle
 /// and check-timeout delays are bounded, cancellable ``UpdateClock`` tasks. Host actions the
 /// driver cannot perform itself (retry, relaunch prep) go through ``UpdateActionDelegate``.
 @MainActor
-final class UpdateDriver: NSObject, SPUUserDriver {
+final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// The state model this driver drives.
     let model: UpdateStateModel
     let log: any UpdateLogging

@@ -37,11 +37,14 @@ public final class UpdateController {
     private var noUpdateDismissTask: Task<Void, Never>?
     private var backgroundProbeTask: Task<Void, Never>?
 
-    // Readiness observation (replaces the 0.25s x 20 retry-poll).
-    private var readyCheckObservation: NSKeyValueObservation?
-    private var readyCheckTimeoutTask: Task<Void, Never>?
-    private var pendingReadyCheck = false
-    private let readyTimeout: TimeInterval = 5.0
+    // Readiness retry. Sparkle's `canCheckForUpdates` exposes no push signal usable under
+    // Swift 6 strict concurrency (KVO on the @MainActor `SPUUpdater` "sends" a non-Sendable
+    // value into the change handler, and `addObserver(_:forKeyPath:)` is forbidden), so
+    // readiness is awaited with a bounded retry on the injected clock — behavior-identical to
+    // the original 0.25s x 20 poll, cancellable, and testable with a fake clock.
+    private var readyCheckTask: Task<Void, Never>?
+    private let readyRetryDelay: Duration = .milliseconds(250)
+    private let readyRetryCount = 20
 
     private var didStartUpdater = false
 
@@ -86,8 +89,7 @@ public final class UpdateController {
         stateReactionTask?.cancel()
         noUpdateDismissTask?.cancel()
         backgroundProbeTask?.cancel()
-        readyCheckTimeoutTask?.cancel()
-        readyCheckObservation?.invalidate()
+        readyCheckTask?.cancel()
     }
 
     // MARK: - Reaction stream
@@ -227,7 +229,7 @@ public final class UpdateController {
 
     /// Check for updates once the updater reports it can.
     private func checkForUpdatesWhenReady() {
-        cancelReadinessObservation()
+        cancelReadinessRetry()
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
         let canCheck = updater.canCheckForUpdates
@@ -239,26 +241,23 @@ public final class UpdateController {
         if model.state.isIdle {
             model.setState(.checking(.init(cancel: {})))
         }
-        observeReadinessThenCheck()
+        waitForReadinessThenCheck()
     }
 
-    private func observeReadinessThenCheck() {
-        pendingReadyCheck = true
-        readyCheckObservation = updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] updater, _ in
-            // SPUUpdater is @MainActor, so canCheckForUpdates changes (and this KVO callback)
-            // happen on the main actor; assuming isolation here is safe.
-            MainActor.assumeIsolated {
-                guard let self, self.pendingReadyCheck, updater.canCheckForUpdates else { return }
-                self.cancelReadinessObservation()
-                self.performCheckForUpdates()
+    private func waitForReadinessThenCheck() {
+        readyCheckTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var remaining = self.readyRetryCount
+            while remaining > 0 {
+                if self.updater.canCheckForUpdates {
+                    self.performCheckForUpdates()
+                    return
+                }
+                remaining -= 1
+                // Bounded readiness wait on the injected clock (see property comment).
+                try? await self.clock.sleep(for: self.readyRetryDelay)
+                if Task.isCancelled { return }
             }
-        }
-
-        readyCheckTimeoutTask = Task { @MainActor [weak self] in
-            // Bounded ready-timeout deadline via the injected clock.
-            try? await self?.clock.sleep(for: .seconds(self?.readyTimeout ?? 5.0))
-            guard !Task.isCancelled, let self, self.pendingReadyCheck else { return }
-            self.cancelReadinessObservation()
             self.log.append("checkForUpdatesWhenReady timed out")
             if case .checking = self.model.state {
                 self.model.setState(.error(.init(
@@ -274,12 +273,9 @@ public final class UpdateController {
         }
     }
 
-    private func cancelReadinessObservation() {
-        pendingReadyCheck = false
-        readyCheckObservation?.invalidate()
-        readyCheckObservation = nil
-        readyCheckTimeoutTask?.cancel()
-        readyCheckTimeoutTask = nil
+    private func cancelReadinessRetry() {
+        readyCheckTask?.cancel()
+        readyCheckTask = nil
     }
 
     // MARK: - Updater lifecycle

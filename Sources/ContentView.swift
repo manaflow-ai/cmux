@@ -6,6 +6,8 @@ import CMUXExtensionClient
 import CmuxExtensionKit
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxUpdater
+import CmuxUpdaterUI
 import ImageIO
 import Observation
 import SwiftUI
@@ -1051,7 +1053,7 @@ func titlebarShortcutHintShouldShow(
 }
 
 struct ContentView: View {
-    @ObservedObject var updateViewModel: UpdateViewModel
+    var updateViewModel: UpdateStateModel
     let windowId: UUID
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
@@ -3356,7 +3358,7 @@ struct ContentView: View {
             removeNativeTitlebarBackdrop(in: window)
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
-                UpdateLogStore.shared.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
+                AppDelegate.shared?.updateLog.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
             }
 #endif
             let backdropResult = WindowBackdropController.apply(plan: backdropPlan, to: window)
@@ -10333,7 +10335,7 @@ enum SidebarShortcutHintFreezePolicy {
 }
 
 struct VerticalTabsSidebar: View {
-    @ObservedObject var updateViewModel: UpdateViewModel
+    var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let windowId: UUID
     let onSendFeedback: () -> Void
@@ -13113,7 +13115,7 @@ final class WindowScopedShortcutHintModifierMonitor {
 }
 
 private struct SidebarFooter: View {
-    @ObservedObject var updateViewModel: UpdateViewModel
+    var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
 
@@ -13130,7 +13132,7 @@ private struct SidebarFooter: View {
 }
 
 private struct SidebarFooterButtons: View {
-    @ObservedObject var updateViewModel: UpdateViewModel
+    var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
     @State private var extensionBrowserAnchorView: NSView?
@@ -13161,7 +13163,9 @@ private struct SidebarFooterButtons: View {
                 .accessibilityIdentifier("SidebarExtensionMenuButton")
                 .background(TitlebarControlAnchorView { extensionBrowserAnchorView = $0 })
             }
-            UpdatePill(model: updateViewModel)
+            if let updateActionsHost = AppDelegate.shared {
+                UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -14328,7 +14332,7 @@ private struct SidebarFooterIconButtonStyleBody: View {
 
 #if DEBUG
 private struct SidebarDevFooter: View {
-    @ObservedObject var updateViewModel: UpdateViewModel
+    var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)

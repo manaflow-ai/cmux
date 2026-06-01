@@ -8,12 +8,18 @@ import Sparkle
 /// DEBUG-only test scaffolding, gated on `CMUX_UI_TEST_*` environment variables. Constructed by
 /// the host with the live model and logger.
 @MainActor
-struct UpdateTestSupport {
+public struct UpdateTestSupport {
     let model: UpdateStateModel
     let log: any UpdateLogging
 
+    /// Creates the test-support helper bound to a model and logger.
+    public init(model: UpdateStateModel, log: any UpdateLogging) {
+        self.model = model
+        self.log = log
+    }
+
     /// Applies an initial detected-update banner and/or a forced state from the environment.
-    func applyIfNeeded() {
+    public func applyIfNeeded() {
         let env = ProcessInfo.processInfo.environment
         guard env["CMUX_UI_TEST_MODE"] == "1" else { return }
 
@@ -42,7 +48,7 @@ struct UpdateTestSupport {
     }
 
     /// Runs a mock feed check against `CMUX_UI_TEST_FEED_URL` if requested. Returns whether it ran.
-    func performMockFeedCheckIfNeeded() -> Bool {
+    public func performMockFeedCheckIfNeeded() -> Bool {
         let env = ProcessInfo.processInfo.environment
         guard env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" else { return false }
         guard let feedURLString = env["CMUX_UI_TEST_FEED_URL"],
