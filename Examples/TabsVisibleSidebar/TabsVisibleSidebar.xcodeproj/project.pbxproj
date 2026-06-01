@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		5C6D3E60080CC641DB4C8FBF /* Tabs Visible Sidebar Extension.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 919B1CC81D12E5904103EF57 /* Tabs Visible Sidebar Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		B58315CC6425366FAE7BFD8F /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B4EAC892E452FBC759B48364 /* Cocoa.framework */; };
 		FE91D213B4728F007B68C7DD /* CmuxExtensionKit in Frameworks */ = {isa = PBXBuildFile; productRef = CFEB80E86E6CC742FD554B53 /* CmuxExtensionKit */; };
 /* End PBXBuildFile section */
 
@@ -55,7 +54,6 @@
 		A3685D4B2FCA97E900009F1B /* TabsVisibleSidebar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TabsVisibleSidebar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A3685D582FCA97EB00009F1B /* TabsVisibleSidebarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TabsVisibleSidebarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A3685D622FCA97EB00009F1B /* TabsVisibleSidebarUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TabsVisibleSidebarUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		B4EAC892E452FBC759B48364 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -87,7 +85,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B58315CC6425366FAE7BFD8F /* Cocoa.framework in Frameworks */,
 				FE91D213B4728F007B68C7DD /* CmuxExtensionKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -119,7 +116,6 @@
 		02B95A27EB74606C91612834 /* OS X */ = {
 			isa = PBXGroup;
 			children = (
-				B4EAC892E452FBC759B48364 /* Cocoa.framework */,
 			);
 			name = "OS X";
 			sourceTree = "<group>";

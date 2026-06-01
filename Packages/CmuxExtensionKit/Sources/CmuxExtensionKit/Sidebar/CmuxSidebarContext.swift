@@ -14,10 +14,27 @@ public struct CmuxSidebarContext: Sendable {
     /// Typed command channel back to CMUX.
     public let host: CmuxSidebarHost
 
-    /// Generic CMUX action channel for commands that are not sidebar-specific.
+    @_spi(CmuxLegacyHostActions)
     public let cmux: CmuxHost
 
     @MainActor
+    public init(
+        snapshot: CMUXSidebarSnapshot,
+        grantedReadScopes: Set<CMUXExtensionScope>? = nil,
+        grantedActionScopes: Set<CMUXExtensionActionScope>? = nil,
+        host: CmuxSidebarHost
+    ) {
+        self.init(
+            snapshot: snapshot,
+            grantedReadScopes: grantedReadScopes,
+            grantedActionScopes: grantedActionScopes,
+            host: host,
+            cmux: nil
+        )
+    }
+
+    @MainActor
+    @_spi(CmuxLegacyHostActions)
     public init(
         snapshot: CMUXSidebarSnapshot,
         grantedReadScopes: Set<CMUXExtensionScope>? = nil,

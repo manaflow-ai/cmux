@@ -1,4 +1,4 @@
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 
 public struct LastPromptSidebar: CmuxExtensionSidebarProvider {
     public let descriptor = CmuxExtensionSidebarProviderDescriptor(

@@ -221,7 +221,7 @@ struct CMUXExtensionKitTests {
         #expect(decodedManifest == manifest)
 
         let action = CMUXSidebarAction.selectWorkspace(workspaceID)
-        #expect(action.requiredScope == .selectWorkspace)
+        #expect(action.requiredScopes == [.selectWorkspace])
         let decodedAction = try CMUXSidebarXPCCodec.decodeAction(
             try CMUXSidebarXPCCodec.encodeAction(action)
         )
@@ -254,6 +254,13 @@ struct CMUXExtensionKitTests {
         host.refresh()
         let selectResult = await host.selectWorkspace(workspaceID)
         let closeResult = await host.closeWorkspace(workspaceID)
+        let createWorkspaceResult = await host.createWorkspace(
+            title: "Scratch",
+            workingDirectory: "/tmp/scratch",
+            select: false
+        )
+        let nextWorkspaceResult = await host.selectNextWorkspace()
+        let previousWorkspaceResult = await host.selectPreviousWorkspace()
         let terminalResult = await host.createTerminalSurface(in: workspaceID)
         let browserResult = await host.createBrowserSurface(in: workspaceID, url: url)
         let openResult = await host.openURL(url)
@@ -261,16 +268,68 @@ struct CMUXExtensionKitTests {
         #expect(refreshCount == 1)
         #expect(selectResult.accepted)
         #expect(closeResult.accepted)
+        #expect(createWorkspaceResult.accepted)
+        #expect(nextWorkspaceResult.accepted)
+        #expect(previousWorkspaceResult.accepted)
         #expect(terminalResult.accepted)
         #expect(browserResult.accepted)
         #expect(openResult.accepted)
         #expect(actions == [
             .selectWorkspace(workspaceID),
             .closeWorkspace(workspaceID),
+            .createWorkspace(title: "Scratch", workingDirectory: "/tmp/scratch", select: false),
+            .selectNextWorkspace,
+            .selectPreviousWorkspace,
             .createTerminalSurface(workspaceID: workspaceID),
             .createBrowserSurface(workspaceID: workspaceID, url: "https://example.com/pr/1"),
             .openURL("https://example.com/pr/1"),
         ])
+    }
+
+    @Test
+    func testWorkspaceListScopeDoesNotExposeMetadata() throws {
+        let workspaceID = UUID(uuidString: "99999999-9999-9999-9999-999999999999")!
+        let snapshot = CMUXSidebarSnapshot(
+            sequence: 47,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CMUXSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Private Workspace",
+                    detail: "Sensitive detail",
+                    isPinned: true,
+                    rootPath: "/Users/example/private",
+                    projectRootPath: "/Users/example/private",
+                    gitBranch: "secret",
+                    unreadCount: 9,
+                    latestNotification: "Sensitive notification",
+                    listeningPorts: [8080],
+                    pullRequestURLs: ["https://github.com/manaflow-ai/cmux/pull/4994"],
+                    surfaces: [
+                        CMUXSidebarSurface(id: UUID(), title: "Private Surface", kind: .terminal),
+                    ]
+                ),
+            ]
+        )
+
+        let filtered = snapshot.filtered(for: [CMUXExtensionScope.workspaceList])
+        let workspace = try #require(filtered.workspaces.first)
+
+        #expect(filtered.grantedReadScopes == [.workspaceList])
+        #expect(filtered.windowID == nil)
+        #expect(filtered.selectedWorkspaceID == nil)
+        #expect(workspace.id == workspaceID)
+        #expect(workspace.title.isEmpty)
+        #expect(workspace.detail == nil)
+        #expect(!workspace.isPinned)
+        #expect(workspace.rootPath == nil)
+        #expect(workspace.projectRootPath == nil)
+        #expect(workspace.gitBranch == nil)
+        #expect(workspace.unreadCount == 0)
+        #expect(workspace.latestNotification == nil)
+        #expect(workspace.listeningPorts.isEmpty)
+        #expect(workspace.pullRequestURLs.isEmpty)
+        #expect(workspace.surfaces.isEmpty)
     }
 
     @Test

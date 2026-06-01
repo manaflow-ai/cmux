@@ -12,6 +12,8 @@ Version 1 only supports sidebar extensions. The API exposes a stable workspace s
 The snapshot includes workspace identity, title, detail text, paths, git branch, unread state, listening ports, pull request URLs, and shared surface metadata. It does not expose terminal buffers, shell history, environment variables, secrets, or arbitrary filesystem access.
 
 Host-side lifecycle, discovery, and display belong in `Packages/CMUXExtensionClient`.
+Legacy in-process sidebar provider/render models live in `Packages/CmuxSidebarProviderKit`
+for cmux-owned sidebars. They are separate from the public extension-author SDK.
 
 ## Five-Minute Sidebar Extension
 
@@ -95,12 +97,16 @@ typed `CmuxSidebarHost` command channel.
 The lower-level transport lives behind CMUX host SPI. New sidebar extensions should
 conform to `CmuxSidebarExtension` and should not handle XPC directly.
 
+`context.host` is the public command channel for sidebar extensions. It exposes
+typed helpers for workspace, surface, and URL actions. Raw transport setup and
+host-side callbacks are SPI for CMUX's own host implementation.
+
 ## Permissions
 
 List every scope and action your extension needs in its manifest. CMUX filters the
 snapshot and rejects actions that have not been granted:
 
-- `workspaceList`: workspace identities and ordering
+- `workspaceList`: workspace identities and ordering only
 - `workspaceMetadata`: workspace names, branches, unread counts, and selection
 - `surfaceMetadata`: shared tab/surface names, kinds, focus, and unread counts
 - `workspacePaths`: local workspace and project paths

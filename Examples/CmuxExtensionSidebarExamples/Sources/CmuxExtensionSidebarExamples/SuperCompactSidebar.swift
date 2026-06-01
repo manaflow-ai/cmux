@@ -1,4 +1,4 @@
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 import Foundation
 
 public struct SuperCompactSidebar: CmuxExtensionSidebarProvider {

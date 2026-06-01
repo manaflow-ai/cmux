@@ -1,5 +1,6 @@
 import Foundation
 
+@_spi(CmuxHostTransport)
 public struct CMUXSidebarHostClient: Sendable {
     public var snapshot: @Sendable () async throws -> CMUXSidebarSnapshot
     public var dispatch: @Sendable (CMUXSidebarAction) async throws -> CMUXExtensionActionResult

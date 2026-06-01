@@ -3,23 +3,17 @@ import ExtensionKit
 import Foundation
 import SwiftUI
 
-/// Creates the ExtensionKit scene for a CMUX sidebar extension.
-///
-/// Most extension authors should conform their `@main` extension type to
-/// `CmuxSidebarExtension` and use the protocol's default ExtensionKit
-/// configuration instead of constructing this scene directly.
-public struct CmuxSidebarExtensionScene<Extension: CmuxSidebarExtension>: AppExtensionScene {
+struct CmuxSidebarExtensionScene<Extension: CmuxSidebarExtension>: AppExtensionScene {
     private let sidebarExtension: Extension
     private let id: String
 
-    /// Creates an ExtensionKit scene for a CMUX sidebar extension.
-    public init(_ extension: Extension, id: String = CMUXSidebarExtensionPoint.defaultSceneID) {
+    init(_ extension: Extension, id: String = CMUXSidebarExtensionPoint.defaultSceneID) {
         self.sidebarExtension = `extension`
         self.id = id
     }
 
     @MainActor
-    public var body: PrimitiveAppExtensionScene {
+    var body: PrimitiveAppExtensionScene {
         let runtime = CmuxSidebarExtensionRuntime(sidebarExtension: sidebarExtension)
         let runtimeBox: AnySidebarRuntimeBox = SidebarRuntimeBox(runtime)
         return PrimitiveAppExtensionScene(id: id) {

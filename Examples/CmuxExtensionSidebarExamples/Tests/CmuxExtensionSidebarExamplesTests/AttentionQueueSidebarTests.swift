@@ -1,4 +1,4 @@
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 @testable import CmuxExtensionSidebarExamples
 import XCTest
 

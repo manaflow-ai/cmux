@@ -57,14 +57,14 @@ public struct CMUXSidebarSnapshot: Codable, Equatable, Sendable {
         return CMUXSidebarSnapshot(
             apiVersion: apiVersion,
             sequence: sequence,
-            windowID: windowID,
-            selectedWorkspaceID: selectedWorkspaceID,
+            windowID: scopeSet.contains(.workspaceMetadata) ? windowID : nil,
+            selectedWorkspaceID: scopeSet.contains(.workspaceMetadata) ? selectedWorkspaceID : nil,
             grantedReadScopes: scopeSet,
             grantedActionScopes: actionScopeSet,
             workspaces: workspaces.map { workspace in
                 scopeSet.contains(.workspaceMetadata)
                     ? workspace.filtered(for: scopeSet)
-                    : CMUXSidebarWorkspace(id: workspace.id, title: workspace.title)
+                    : CMUXSidebarWorkspace(id: workspace.id, title: "")
             }
         )
     }

@@ -1,4 +1,4 @@
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 
 public struct AttentionQueueSidebar: CmuxExtensionSidebarProvider {
     public let descriptor = CmuxExtensionSidebarProviderDescriptor(

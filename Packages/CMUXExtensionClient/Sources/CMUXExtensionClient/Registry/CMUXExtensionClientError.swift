@@ -1,6 +1,7 @@
 import Foundation
 
 /// Errors raised by the sidebar extension host client.
+@_spi(CmuxHostTransport)
 public enum CMUXExtensionClientError: Error, Equatable, Sendable {
     /// More than one extension used the same manifest identifier.
     case duplicateExtensionIdentifier(String)

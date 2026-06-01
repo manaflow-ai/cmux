@@ -2,6 +2,7 @@
 import Foundation
 
 /// Host-side session that mediates snapshot refreshes and action dispatch for one sidebar extension.
+@_spi(CmuxHostTransport)
 public actor CMUXSidebarExtensionSession {
     private let manifest: CMUXExtensionManifest
     private let client: CMUXSidebarHostClient
@@ -16,6 +17,7 @@ public actor CMUXSidebarExtensionSession {
     ///   - grantedReadScopes: Read scopes currently approved for this extension.
     ///   - grantedActionScopes: Action scopes currently approved for this extension.
     /// - Throws: Manifest validation errors.
+    @_spi(CmuxHostTransport)
     public init(
         manifest: CMUXExtensionManifest,
         client: CMUXSidebarHostClient,

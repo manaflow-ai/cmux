@@ -1,6 +1,7 @@
 import Foundation
 
 /// Generic CMUX action channel available to extension UIs.
+@_spi(CmuxLegacyHostActions)
 @MainActor
 public struct CmuxHost: Sendable {
     private let performAction: @MainActor @Sendable (CMUXSidebarAction) async -> CMUXExtensionActionResult

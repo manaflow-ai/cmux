@@ -1,6 +1,7 @@
 import Foundation
 
 /// Installed ExtensionKit sidebar extension discovered on the current Mac.
+@_spi(CmuxHostTransport)
 public struct CMUXInstalledSidebarExtension: Identifiable, Equatable, Sendable {
     /// Stable bundle identifier used for SwiftUI identity.
     public var id: String { bundleIdentifier }

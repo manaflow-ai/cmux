@@ -1,7 +1,7 @@
-import CmuxExtensionKit
+@_spi(CmuxHostTransport) import CmuxExtensionKit
 import Foundation
 import Testing
-@testable import CMUXExtensionClient
+@_spi(CmuxHostTransport) @testable import CMUXExtensionClient
 
 @Suite
 struct CMUXExtensionClientTests {

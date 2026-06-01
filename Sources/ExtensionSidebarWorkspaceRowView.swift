@@ -1,5 +1,5 @@
 import AppKit
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 import SwiftUI
 import WebKit
 

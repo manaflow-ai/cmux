@@ -2,6 +2,7 @@
 import Foundation
 
 /// Validated collection of sidebar extensions available to the host.
+@_spi(CmuxHostTransport)
 public struct CMUXSidebarExtensionRegistry: Sendable {
     private var recordsByID: [String: CMUXSidebarExtensionRecord]
 

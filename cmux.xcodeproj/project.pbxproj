@@ -153,6 +153,7 @@
 		D3610C010000000000000001 /* CmuxSettingsJSONPathSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */; };
 		CD0CFE5600000000CD0CFE56 /* CmuxSettingsUI in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */; };
 		C0DE46030000000000000001 /* CMUXSidebarExtensionBrowserPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE46030000000000000002 /* CMUXSidebarExtensionBrowserPanel.swift */; };
+		C0DE48000000000000000001 /* CmuxSidebarProviderKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE48000000000000000002 /* CmuxSidebarProviderKit */; };
 		E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000A /* CmuxSocketEventMapper.swift */; };
 		A5354303A5354303A5354303 /* CMUXSocketPathDomain in Frameworks */ = {isa = PBXBuildFile; productRef = A5354305A5354305A5354305 /* CMUXSocketPathDomain */; };
 		B900004CA1B2C3D4E5F60719 /* CMUXSocketPathDomain in Frameworks */ = {isa = PBXBuildFile; productRef = A5354305A5354305A5354305 /* CMUXSocketPathDomain */; };
@@ -1218,6 +1219,7 @@
 				A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */,
 				CD0CFE5300000000CD0CFE53 /* CmuxSettings in Frameworks */,
 				CD0CFE5600000000CD0CFE56 /* CmuxSettingsUI in Frameworks */,
+				C0DE48000000000000000001 /* CmuxSidebarProviderKit in Frameworks */,
 				A5354303A5354303A5354303 /* CMUXSocketPathDomain in Frameworks */,
 				AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */,
 				A5001006 /* GhosttyKit.xcframework in Frameworks */,
@@ -1929,6 +1931,7 @@
 				AA11BB22CC33DD44EE550002 /* CMUXWorkstream */,
 				C0DE46000000000000000002 /* CMUXExtensionClient */,
 				C0DE45000000000000000002 /* CmuxExtensionKit */,
+				C0DE48000000000000000002 /* CmuxSidebarProviderKit */,
 				3069F1D10000000000000006 /* CMUXPasteboardFidelity */,
 				A5C0DE0000000000000000A2 /* CMUXProjectModel */,
 				F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */,
@@ -2067,6 +2070,7 @@
 				AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */,
 				C0DE46000000000000000003 /* XCLocalSwiftPackageReference "CMUXExtensionClient" */,
 				C0DE45000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */,
+				C0DE48000000000000000003 /* XCLocalSwiftPackageReference "CmuxSidebarProviderKit" */,
 				3069F1D10000000000000007 /* XCLocalSwiftPackageReference "CMUXPasteboardFidelity" */,
 				A5C0DE0000000000000000A1 /* XCLocalSwiftPackageReference "CMUXProjectModel" */,
 				F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentVault" */,
@@ -3196,6 +3200,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXExtensionClient;
 		};
+		C0DE48000000000000000003 /* XCLocalSwiftPackageReference "CmuxSidebarProviderKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxSidebarProviderKit;
+		};
 		3069F1D10000000000000007 /* XCLocalSwiftPackageReference "CMUXPasteboardFidelity" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXPasteboardFidelity;
@@ -3293,6 +3301,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C0DE46000000000000000003 /* XCLocalSwiftPackageReference "CMUXExtensionClient" */;
 			productName = CMUXExtensionClient;
+		};
+		C0DE48000000000000000002 /* CmuxSidebarProviderKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DE48000000000000000003 /* XCLocalSwiftPackageReference "CmuxSidebarProviderKit" */;
+			productName = CmuxSidebarProviderKit;
 		};
 		3069F1D10000000000000006 /* CMUXPasteboardFidelity */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -2,6 +2,7 @@ import CmuxExtensionKit
 import Foundation
 
 /// A sidebar extension registered with the host.
+@_spi(CmuxHostTransport)
 public struct CMUXSidebarExtensionRecord: Equatable, Identifiable, Sendable {
     /// Stable extension identifier from the manifest.
     public var id: String { manifest.id }

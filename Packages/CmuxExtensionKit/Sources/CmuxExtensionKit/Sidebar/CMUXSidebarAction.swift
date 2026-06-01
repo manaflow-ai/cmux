@@ -24,6 +24,7 @@ public enum CMUXSidebarAction: Codable, Equatable, Sendable {
     case toggleSurfaceZoom(workspaceID: UUID, surfaceID: UUID)
     case openURL(String)
 
+    @available(*, deprecated, message: "Use requiredScopes. Some sidebar actions require more than one granted action scope.")
     public var requiredScope: CMUXExtensionActionScope {
         switch self {
         case .createWorkspace:

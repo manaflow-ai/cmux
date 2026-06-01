@@ -12,13 +12,9 @@ final class SidebarConnectionModel {
     @ObservationIgnored
     private var host: CmuxSidebarHost?
 
-    @ObservationIgnored
-    private var cmux: CmuxHost?
-
     func update(context: CmuxSidebarContext) {
         snapshot = context.snapshot
         host = context.host
-        cmux = context.cmux
         errorText = nil
     }
 
@@ -55,16 +51,16 @@ final class SidebarConnectionModel {
     }
 
     func selectPreviousWorkspace() {
-        guard let cmux else { return }
+        guard let host else { return }
         Task { @MainActor in
-            apply(await cmux.selectPreviousWorkspace())
+            apply(await host.selectPreviousWorkspace())
         }
     }
 
     func selectNextWorkspace() {
-        guard let cmux else { return }
+        guard let host else { return }
         Task { @MainActor in
-            apply(await cmux.selectNextWorkspace())
+            apply(await host.selectNextWorkspace())
         }
     }
 

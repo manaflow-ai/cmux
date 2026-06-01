@@ -1,8 +1,8 @@
 import AppKit
 import Bonsplit
 import Combine
-import CMUXExtensionClient
 import CmuxExtensionKit
+import CmuxSidebarProviderKit
 import ImageIO
 import Observation
 import SwiftUI

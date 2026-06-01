@@ -61,12 +61,10 @@ final class SampleSidebarExtension: CmuxSidebarExtension {
 final class SidebarConnectionModel {
     private(set) var snapshot: CMUXSidebarSnapshot?
     private var host: CmuxSidebarHost?
-    private var cmux: CmuxHost?
 
     func update(context: CmuxSidebarContext) {
         snapshot = context.snapshot
         host = context.host
-        cmux = context.cmux
     }
 
     func selectWorkspace(_ id: UUID) {
@@ -77,7 +75,7 @@ final class SidebarConnectionModel {
 
     func selectNextWorkspace() {
         Task { @MainActor in
-            _ = await cmux?.selectNextWorkspace()
+            _ = await host?.selectNextWorkspace()
         }
     }
 
@@ -93,10 +91,7 @@ final class SidebarConnectionModel {
 authors do not define `configuration`, bind an extension point in Swift, or touch
 `NSXPCConnection`.
 
-`CmuxSidebarContext` exposes two typed host channels:
-
-- `context.cmux` for generic CMUX actions that are useful across extension types.
-- `context.host` for sidebar-specific actions that operate on sidebar snapshot data.
+`CmuxSidebarContext` exposes one typed host channel through `context.host`.
 
 The manifest is the permission request CMUX shows to users. Request only the scopes
 your sidebar actually needs.

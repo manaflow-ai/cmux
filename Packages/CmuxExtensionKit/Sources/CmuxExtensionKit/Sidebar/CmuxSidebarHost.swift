@@ -6,6 +6,7 @@ public struct CmuxSidebarHost {
     private let performAction: @MainActor @Sendable (CMUXSidebarAction, @escaping @MainActor @Sendable (CMUXExtensionActionResult) -> Void) -> CmuxSidebarActionCancellation?
     private let refreshSnapshot: @MainActor @Sendable () -> Void
 
+    @_spi(CmuxHostTransport)
     public init(
         performAction: @escaping @MainActor @Sendable (CMUXSidebarAction, @escaping @MainActor @Sendable (CMUXExtensionActionResult) -> Void) -> Void,
         refreshSnapshot: @escaping @MainActor @Sendable () -> Void = {}
@@ -19,8 +20,9 @@ public struct CmuxSidebarHost {
 
     /// Creates a typed host channel with cancellable action dispatch.
     ///
-    /// Use this initializer when the underlying transport can remove pending
-    /// replies after the caller's task is cancelled.
+    /// This initializer is transport SPI for CMUX's ExtensionKit runtime. SDK
+    /// consumers receive `CmuxSidebarHost` through `CmuxSidebarContext`.
+    @_spi(CmuxHostTransport)
     public init(
         performCancellableAction: @escaping @MainActor @Sendable (CMUXSidebarAction, @escaping @MainActor @Sendable (CMUXExtensionActionResult) -> Void) -> CmuxSidebarActionCancellation?,
         refreshSnapshot: @escaping @MainActor @Sendable () -> Void = {}
@@ -34,6 +36,15 @@ public struct CmuxSidebarHost {
         refreshSnapshot()
     }
 
+    /// Requests that CMUX create a workspace.
+    public func createWorkspace(
+        title: String? = nil,
+        workingDirectory: String? = nil,
+        select: Bool = true
+    ) async -> CMUXExtensionActionResult {
+        await perform(.createWorkspace(title: title, workingDirectory: workingDirectory, select: select))
+    }
+
     /// Selects a workspace in CMUX.
     public func selectWorkspace(_ id: UUID) async -> CMUXExtensionActionResult {
         await perform(.selectWorkspace(id))
@@ -42,6 +53,16 @@ public struct CmuxSidebarHost {
     /// Requests that CMUX close a workspace.
     public func closeWorkspace(_ id: UUID) async -> CMUXExtensionActionResult {
         await perform(.closeWorkspace(id))
+    }
+
+    /// Selects the next workspace in CMUX's current sidebar order.
+    public func selectNextWorkspace() async -> CMUXExtensionActionResult {
+        await perform(.selectNextWorkspace)
+    }
+
+    /// Selects the previous workspace in CMUX's current sidebar order.
+    public func selectPreviousWorkspace() async -> CMUXExtensionActionResult {
+        await perform(.selectPreviousWorkspace)
     }
 
     /// Requests that CMUX open a web URL.
@@ -132,6 +153,7 @@ public struct CmuxSidebarHost {
     }
 
     /// Sends a raw sidebar action. Prefer the async typed helpers above when possible.
+    @_spi(CmuxHostTransport)
     public func perform(
         _ action: CMUXSidebarAction,
         reply: @escaping @MainActor @Sendable (CMUXExtensionActionResult) -> Void

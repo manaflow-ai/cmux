@@ -4,6 +4,7 @@ import Foundation
 
 @available(macOS 14.0, *)
 /// Discovers installed sidebar extensions that match CMUX's ExtensionKit point.
+@_spi(CmuxHostTransport)
 public struct CMUXSidebarExtensionDiscovery {
     /// Creates an extension discovery helper.
     public init() {}
