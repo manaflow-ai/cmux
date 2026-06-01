@@ -3744,13 +3744,14 @@ function getPaneSplitter(workspace, splitNode) {
       event.stopPropagation();
       equalizePaneSplitter(splitter);
     });
+    splitter.addEventListener("contextmenu", (event) => showPaneSplitterContextMenu(event, splitter));
     splitter.addEventListener("keydown", handlePaneSplitterKeydown);
   }
   setDatasetIfChanged(splitter, "splitId", splitNode.id);
   const direction = paneTreeDirection(splitNode.direction);
   setDatasetIfChanged(splitter, "orientation", direction);
   setSplitterResizePercent(splitter, Math.round(paneTreeRatio(splitNode.ratio) * 100), direction);
-  setTitleIfChanged(splitter, "Resize panes. Double-click to equalize. Arrow keys adjust.");
+  setTitleIfChanged(splitter, "Drag to resize. Right-click for sizes. Double-click to equalize. Arrow keys adjust.");
   return splitter;
 }
 
@@ -3799,6 +3800,24 @@ function setPaneSplitterPercent(splitter, percent, options = {}) {
 
 function equalizePaneSplitter(splitter) {
   return setPaneSplitterPercent(splitter, 50, { toast: true });
+}
+
+async function promptPaneSplitterPercent(splitter) {
+  const currentPercent = clampPaneLayoutPercent(Number(splitter?.dataset.resizePercent || 50));
+  const value = await showTextDialog({
+    title: "Set split size",
+    message: `Enter the first pane percentage from ${paneLayoutPercentMin} to ${paneLayoutPercentMax}.`,
+    value: String(currentPercent),
+    placeholder: "65",
+    confirmLabel: "Apply"
+  });
+  if (value === null) return false;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    toast(`Enter a number from ${paneLayoutPercentMin} to ${paneLayoutPercentMax}.`);
+    return false;
+  }
+  return setPaneSplitterPercent(splitter, parsed, { toast: true });
 }
 
 function handlePaneSplitterKeydown(event) {
@@ -9785,6 +9804,34 @@ function showWorkspaceContextMenu(event, workspace) {
   }
   const customColor = contextColorPicker(workspace.color, (color) => setWorkspaceColor(color, workspace.id));
   menu.replaceChildren(title, meta, actions, colors, customColor);
+  showContextMenuAt(menu, event.clientX, event.clientY);
+}
+
+function showPaneSplitterContextMenu(event, splitter) {
+  event.preventDefault();
+  event.stopPropagation();
+  const workspace = activeWorkspace();
+  if (!workspace || workspace.panels.length <= 1) return;
+  const menu = ensureContextMenu();
+  menu.className = "context-menu";
+  const percent = clampPaneLayoutPercent(Number(splitter?.dataset.resizePercent || 50));
+  const title = document.createElement("div");
+  title.className = "context-title";
+  title.textContent = `Split ${percent}% / ${100 - percent}%`;
+  const meta = document.createElement("div");
+  meta.className = "context-meta";
+  meta.textContent = splitter?.dataset.orientation === "down" ? "Rows" : "Columns";
+  const presets = contextMenuActionGroup(
+    ...[25, 33, 50, 67, 75].map((nextPercent) => (
+      contextMenuButton(`${nextPercent}% / ${100 - nextPercent}%`, () => setPaneSplitterPercent(splitter, nextPercent, { toast: true }), percent === nextPercent)
+    ))
+  );
+  const actions = contextMenuActionGroup(
+    contextMenuButton("Set exact size...", () => promptPaneSplitterPercent(splitter)),
+    contextMenuButton("Equalize this split", () => equalizePaneSplitter(splitter), percent === 50),
+    contextMenuButton("Reset all splits", resetActivePaneLayout)
+  );
+  menu.replaceChildren(title, meta, presets, actions);
   showContextMenuAt(menu, event.clientX, event.clientY);
 }
 
