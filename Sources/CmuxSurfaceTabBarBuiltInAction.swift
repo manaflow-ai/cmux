@@ -9,6 +9,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case newNote = "cmux.newNote"
     case splitRight = "cmux.splitRight"
     case splitDown = "cmux.splitDown"
+    case diff = "cmux.diff"
 
     init?(configID: String) {
         switch configID {
@@ -28,6 +29,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .splitRight
         case "cmux.splitDown", "splitDown":
             self = .splitDown
+        case "cmux.diff", "diff":
+            self = .diff
         default:
             return nil
         }
@@ -53,12 +56,14 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "square.split.2x1"
         case .splitDown:
             return "square.split.1x2"
+        case .diff:
+            return "plus.forwardslash.minus"
         }
     }
 
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
-        case .newWorkspace, .cloudVM, .newNote:
+        case .newWorkspace, .cloudVM, .newNote, .diff:
             return nil
         case .newTerminal:
             return .newTerminal

@@ -19298,6 +19298,10 @@ extension Workspace: BonsplitDelegate {
                         _ = await openAttachedNoteForWorkspace(inPane: pane, focus: true)
                     }
                 }
+            case .diff:
+                if let owningTabManager {
+                    _ = AppDelegate.shared?.launchDiffViewer(tabManager: owningTabManager)
+                }
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

@@ -14723,6 +14723,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didSplit { onExecuted?() }
                 return didSplit
+            case .diff:
+                let didOpen = launchDiffViewer(tabManager: context.tabManager)
+                if didOpen { onExecuted?() }
+                return didOpen
             }
         case .command, .agent, .workspaceCommand:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
@@ -14742,6 +14746,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 onExecuted: onExecuted
             )
         case .actionReference:
+            return false
+        }
+    }
+
+    /// Launch the diff viewer for the selected workspace by invoking the bundled
+    /// `cmux diff` CLI (same path the command palette's Open Diff Viewer uses).
+    /// Drives the ⋯ tab-bar menu "Diff" action and its configured shortcut.
+    @MainActor
+    @discardableResult
+    func launchDiffViewer(tabManager: TabManager) -> Bool {
+        guard let workspace = tabManager.selectedWorkspace,
+              let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            return false
+        }
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        let rawCwd = workspace.currentDirectory
+        let cwd = rawCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : rawCwd
+        let surfaceId = workspace.focusedPanelId
+
+        let process = Process()
+        process.executableURL = cliURL
+        var arguments = [
+            "--socket", socketPath,
+            "diff",
+            "--unstaged",
+            "--cwd", cwd,
+            "--workspace", workspace.id.uuidString,
+            "--focus", "true",
+        ]
+        if let surfaceId {
+            arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
+        }
+        process.arguments = arguments
+        process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+        environment["CMUX_WORKSPACE_ID"] = workspace.id.uuidString
+        if let surfaceId {
+            environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
+        }
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            return true
+        } catch {
+#if DEBUG
+            cmuxDebugLog("tabBar.diff launch failed cwd=\(cwd) error=\(error.localizedDescription)")
+#endif
             return false
         }
     }

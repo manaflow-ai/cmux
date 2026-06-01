@@ -1191,11 +1191,16 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
         CmuxSurfaceTabBarBuiltInAction.splitDown.configID,
         tooltip: String(localized: "workspace.tooltip.splitDown", defaultValue: "Split Down")
     )
+    static let diff = actionReference(
+        CmuxSurfaceTabBarBuiltInAction.diff.configID,
+        tooltip: String(localized: "surfaceTabBar.action.diff", defaultValue: "Diff")
+    )
 
     static let defaults: [CmuxSurfaceTabBarButton] = [
         .newTerminal,
         .newBrowser,
         .newNote,
+        .diff,
         .splitRight,
         .splitDown
     ]
@@ -1589,6 +1594,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .splitDown:
             title = String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down")
             keywords = ["terminal", "split", "down"]
+        case .diff:
+            title = String(localized: "command.openDiffViewer.title", defaultValue: "Open Diff Viewer")
+            keywords = ["diff", "git", "changes", "review", "unstaged"]
         }
 
         return CmuxResolvedConfigAction(
