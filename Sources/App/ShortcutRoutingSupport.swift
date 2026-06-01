@@ -52,6 +52,23 @@ func performConfirmedCloseWindowShortcut<Window>(
     return true
 }
 
+func shouldMarkExplicitCloseForLastSurfaceShortcut(
+    closesWorkspaceOnLastSurfaceShortcut: Bool,
+    panelCount: Int,
+    panelExists: Bool
+) -> Bool {
+    closesWorkspaceOnLastSurfaceShortcut && panelCount <= 1 && panelExists
+}
+
+enum WorkspaceCloseDestination: Equatable {
+    case window
+    case workspace
+}
+
+func workspaceCloseDestination(workspaceCount: Int) -> WorkspaceCloseDestination {
+    workspaceCount <= 1 ? .window : .workspace
+}
+
 func shouldBypassShortcutRoutingForUnresolvedEventWindow(
     hasEventWindowContext: Bool,
     didSynchronizeShortcutContext: Bool,

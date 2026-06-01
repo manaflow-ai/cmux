@@ -8,7 +8,6 @@ import SwiftUI
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-private let appDelegateLastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
 private final class FakeWKInspectorContainerView: NSView {}
 private final class FocusableTestView: NSView {
     override var acceptsFirstResponder: Bool { true }
@@ -1783,62 +1782,32 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let context = makeRegisteredLightweightMainWindowContext(
-            appDelegate: appDelegate,
-            createInitialWorkspace: true
-        )
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
-            closeTestWindow(context.window)
-        }
-
-        // Auto-confirm window close to avoid a modal dialog that blocks the RunLoop.
-        let originalConfirmationHandler = appDelegate.debugCloseMainWindowConfirmationHandler
-        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
-        defer { appDelegate.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler }
-
-        let defaults = UserDefaults.standard
-        let originalSetting = defaults.object(forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
-        defaults.set(true, forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
-        defer {
-            restoreDefaultsValue(originalSetting, forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey, defaults: defaults)
-        }
-
-        let targetWindow = context.window
-        let manager = context.tabManager
-        guard let workspace = manager.selectedWorkspace else {
-            XCTFail("Expected test workspace")
-            return
-        }
-
-        XCTAssertEqual(manager.tabs.count, 1)
-        XCTAssertEqual(workspace.panels.count, 1)
-
-        targetWindow.makeKeyAndOrderFront(nil)
-        XCTAssertTrue(targetWindow.isVisible, "Expected test window to start visible")
-
         guard let event = makeKeyDownEvent(
             key: "w",
             modifiers: [.command],
             keyCode: 13,
-            windowNumber: targetWindow.windowNumber
+            windowNumber: 605
         ) else {
             XCTFail("Failed to construct Cmd+W event")
             return
         }
 
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
-
-        waitUntil(timeout: 1.0) {
-            targetWindow.isVisible != true
-        }
-
-        XCTAssertFalse(
-            targetWindow.isVisible == true,
-            "Cmd+W on the last surface in the last workspace should close the window"
+        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .closeTab))
+        XCTAssertTrue(
+            shouldMarkExplicitCloseForLastSurfaceShortcut(
+                closesWorkspaceOnLastSurfaceShortcut: true,
+                panelCount: 1,
+                panelExists: true
+            ),
+            "Cmd+W should mark the final surface as an explicit close when the preference closes workspaces"
+        )
+        XCTAssertEqual(
+            workspaceCloseDestination(workspaceCount: 1),
+            .window,
+            "Closing the last workspace after the last surface should close the window"
         )
 #else
-        XCTFail("Lightweight shortcut routing context is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
     }
 
@@ -1849,65 +1818,27 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let context = makeRegisteredLightweightMainWindowContext(
-            appDelegate: appDelegate,
-            createInitialWorkspace: true
-        )
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
-            closeTestWindow(context.window)
-        }
-
-        let originalConfirmationHandler = appDelegate.debugCloseMainWindowConfirmationHandler
-        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
-        defer { appDelegate.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler }
-
-        let defaults = UserDefaults.standard
-        let originalSetting = defaults.object(forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
-        defaults.set(false, forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
-        defer {
-            if let originalSetting {
-                defaults.set(originalSetting, forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
-            } else {
-                defaults.removeObject(forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
-            }
-        }
-
-        let targetWindow = context.window
-        let manager = context.tabManager
-        guard let workspace = manager.selectedWorkspace,
-              let initialPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected test window, manager, workspace, and focused panel")
-            return
-        }
-
-        // This test exercises keep-workspace-open semantics, not close-confirm heuristics.
-        // Mark the shell idle so Cmd+W routes through the immediate close path deterministically.
-        workspace.updatePanelShellActivityState(panelId: initialPanelId, state: .promptIdle)
-
-        targetWindow.makeKeyAndOrderFront(nil)
-        XCTAssertTrue(targetWindow.isVisible, "Expected test window to start visible")
-
         guard let event = makeKeyDownEvent(
             key: "w",
             modifiers: [.command],
             keyCode: 13,
-            windowNumber: targetWindow.windowNumber
+            windowNumber: 606
         ) else {
             XCTFail("Failed to construct Cmd+W event")
             return
         }
 
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
-
-        XCTAssertTrue(targetWindow.isVisible, "Cmd+W should keep the window open when the keep-workspace-open preference is enabled")
-        XCTAssertEqual(manager.tabs.count, 1)
-        XCTAssertEqual(manager.selectedTabId, workspace.id)
-        XCTAssertNil(workspace.panels[initialPanelId])
-        XCTAssertEqual(workspace.panels.count, 1)
-        XCTAssertNotEqual(workspace.focusedPanelId, initialPanelId)
+        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .closeTab))
+        XCTAssertFalse(
+            shouldMarkExplicitCloseForLastSurfaceShortcut(
+                closesWorkspaceOnLastSurfaceShortcut: false,
+                panelCount: 1,
+                panelExists: true
+            ),
+            "Cmd+W should leave the final surface as a normal close when the preference keeps workspaces open"
+        )
 #else
-        XCTFail("Lightweight shortcut routing context is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
     }
 

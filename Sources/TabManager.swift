@@ -7543,7 +7543,7 @@ class TabManager: ObservableObject {
            ) {
             return
         }
-        if tabs.count <= 1 {
+        if workspaceCloseDestination(workspaceCount: tabs.count) == .window {
             // Last workspace in this window: match Close Workspace shortcut behavior.
             if let window {
                 window.performClose(nil)
@@ -7662,9 +7662,11 @@ class TabManager: ObservableObject {
     }
 
     private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace, panelId: UUID) -> Bool {
-        LastSurfaceCloseShortcutSettings.closesWorkspace() &&
-            workspace.panels.count <= 1 &&
-            workspace.panels[panelId] != nil
+        shouldMarkExplicitCloseForLastSurfaceShortcut(
+            closesWorkspaceOnLastSurfaceShortcut: LastSurfaceCloseShortcutSettings.closesWorkspace(),
+            panelCount: workspace.panels.count,
+            panelExists: workspace.panels[panelId] != nil
+        )
     }
 
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
