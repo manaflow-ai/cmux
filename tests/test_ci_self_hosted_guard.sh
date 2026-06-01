@@ -281,7 +281,7 @@ check_build_and_lag_budget() {
   echo "PASS: tests-build-and-lag keeps enough time and restores DerivedData for cold builds"
 }
 
-check_zig_release_build_runner() {
+check_zig_helper_build_runner() {
   local file="$1" job="$2"
   if ! awk -v job="$job" '
     $0 ~ "^  "job":" { in_job=1; next }
@@ -290,11 +290,11 @@ check_zig_release_build_runner() {
     in_job && /runs-on:.*warp-macos-15-arm64-6x/ { saw_fallback=1 }
     END { exit !(saw_runner && saw_fallback) }
   ' "$file"; then
-    echo "FAIL: $job in $(basename "$file") must use the macOS 15 runner lane until Zig 0.15.2 no longer links against the Xcode 26.4 SDK"
+    echo "FAIL: $job in $(basename "$file") must build the real Ghostty CLI helper on the macOS 15 lane until Zig 0.15.2 no longer links against the Xcode 26.4 SDK"
     exit 1
   fi
 
-  echo "PASS: $job in $(basename "$file") avoids the Xcode 26.4 Zig linker failure lane"
+  echo "PASS: $job in $(basename "$file") builds the real Ghostty CLI helper away from the Xcode 26.4 Zig linker failure lane"
 }
 
 # ci.yml jobs
@@ -337,6 +337,5 @@ check_split_theme_regression_timeout
 check_tests_deriveddata_cache
 check_ui_regression_budget
 check_build_and_lag_budget
-check_zig_release_build_runner "$CI_FILE" "release-build"
-check_zig_release_build_runner "$NIGHTLY_FILE" "build-sign-notarize-nightly"
-check_zig_release_build_runner "$RELEASE_FILE" "build-sign-notarize"
+check_zig_helper_build_runner "$CI_FILE" "release-ghostty-cli-helper"
+check_zig_helper_build_runner "$RELEASE_FILE" "build-ghostty-cli-helper"
