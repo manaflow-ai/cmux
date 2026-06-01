@@ -666,11 +666,14 @@ enum AgentResumeCommandBuilder {
         let sessionDirectory = normalized(registration.sessionDirectory).map {
             ($0 as NSString).expandingTildeInPath
         }
+        let resolvedCwd = registration.cwd == .ignore
+            ? nil
+            : normalized(launchCommand?.workingDirectory ?? workingDirectory)
         let replacements: [String: String] = [
             "sessionId": sessionId,
             "sessionPath": sessionId,
             "executable": original.executable,
-            "cwd": normalized(launchCommand?.workingDirectory ?? workingDirectory) ?? "",
+            "cwd": resolvedCwd ?? "",
             "sessionDir": sessionDirectory ?? "",
         ]
         var resolved: [String] = []
