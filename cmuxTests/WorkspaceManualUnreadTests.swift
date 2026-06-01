@@ -800,6 +800,39 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertNil(store.focusedReadIndicatorSurfaceId(forTabId: workspace.id))
     }
 
+    /// The focused-read decision is a pure function of generation-time facts only. No combination of
+    /// selection/navigation inputs feeds it, so a notification generated while the surface was not
+    /// focused can never light the ring regardless of where focus later lands.
+    func testShouldMarkArrivalAsFocusedReadIsPureFunctionOfGenerationFocus() {
+        XCTAssertTrue(
+            TerminalNotificationStore.shouldMarkArrivalAsFocusedRead(
+                wasFocusedAtGeneration: true,
+                marksUnread: true
+            )
+        )
+        // Generated while unfocused → never a focused-read ring, even though navigation may later
+        // select/focus the surface.
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldMarkArrivalAsFocusedRead(
+                wasFocusedAtGeneration: false,
+                marksUnread: true
+            )
+        )
+        // A notification the policy does not mark unread is not a ring source either.
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldMarkArrivalAsFocusedRead(
+                wasFocusedAtGeneration: true,
+                marksUnread: false
+            )
+        )
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldMarkArrivalAsFocusedRead(
+                wasFocusedAtGeneration: false,
+                marksUnread: false
+            )
+        )
+    }
+
     func testToggleFocusedNotificationUnreadClearsRestoredWorkspaceUnreadWhenPanelIsFocused() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let store = TerminalNotificationStore.shared
