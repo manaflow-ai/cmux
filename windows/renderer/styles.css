@@ -1661,13 +1661,18 @@ body.reduce-motion *::after {
 .pane.is-minimized .pane-toolbar {
   opacity: 1;
   pointer-events: auto;
+  transform: none;
   margin-left: auto;
   max-width: none;
 }
 
-.pane.is-pending .pane-toolbar {
+.pane.is-pending.is-active .pane-toolbar,
+.pane.is-pending .pane-header:hover .pane-toolbar,
+.pane.is-pending .pane-toolbar:focus-within {
+  max-width: 68px;
   opacity: 1;
   pointer-events: auto;
+  transform: none;
 }
 
 .pane.is-pending .pane-tool:not(.close) {
@@ -1795,18 +1800,24 @@ body.reduce-motion *::after {
   display: flex;
   flex: 0 0 auto;
   gap: var(--space-1);
-  max-width: 54%;
+  max-width: 0;
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--dur-fast) var(--ease-out);
+  transform: translateX(3px);
+  transition:
+    max-width var(--dur-fast) var(--ease-out),
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 .pane-header:hover .pane-toolbar,
 .pane.is-active .pane-toolbar,
 .pane-toolbar:focus-within {
+  max-width: min(54%, 192px);
   opacity: 1;
   pointer-events: auto;
+  transform: translateX(0);
 }
 
 .pane-tool {
@@ -1883,7 +1894,16 @@ body.reduce-motion *::after {
 .shell.pane-header-compact .pane-toolbar {
   margin-left: auto;
   gap: 3px;
+  max-width: 0;
+}
+
+.shell.pane-header-compact .pane:hover .pane-toolbar,
+.shell.pane-header-compact .pane.is-active .pane-toolbar,
+.shell.pane-header-compact .pane-header:focus-within .pane-toolbar {
   max-width: none;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
 }
 
 .shell.pane-header-compact .pane-tool {
@@ -1900,7 +1920,6 @@ body.reduce-motion *::after {
   }
 
   .pane-type,
-  .pane-title,
   .pane-tool.font-down,
   .pane-tool.font-up,
   .pane-tool.restart {
@@ -1908,9 +1927,14 @@ body.reduce-motion *::after {
   }
 
   .pane-toolbar {
-    max-width: none;
     margin-left: auto;
     gap: 3px;
+  }
+
+  .pane-header:hover .pane-toolbar,
+  .pane.is-active .pane-toolbar,
+  .pane-toolbar:focus-within {
+    max-width: min(58%, 116px);
   }
 
   .pane-tool {
@@ -1931,14 +1955,39 @@ body.reduce-motion *::after {
   }
 }
 
+@container (max-width: 150px) {
+  .pane-header {
+    padding: 0 4px;
+  }
+
+  .pane-grip,
+  .pane-type {
+    display: none;
+  }
+
+  .pane-tool {
+    width: 20px;
+    flex-basis: 20px;
+    height: 20px;
+  }
+
+  .pane-tool.font-down,
+  .pane-tool.font-up,
+  .pane-tool.restart {
+    display: none;
+  }
+
+  .pane-header:hover .pane-toolbar,
+  .pane.is-active .pane-toolbar,
+  .pane-toolbar:focus-within {
+    max-width: 68px;
+  }
+}
+
 @container (max-width: 110px) {
   .pane-grip {
     width: 10px;
     font-size: 9px;
-  }
-
-  .pane-tool.zoom {
-    display: none;
   }
 }
 

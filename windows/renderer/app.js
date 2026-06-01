@@ -4465,14 +4465,14 @@ function createPane(panel) {
       <div class="pane-type"></div>
       <div class="pane-title"></div>
       <div class="pane-toolbar">
-        <button class="pane-tool split-right" title="Split right">◫</button>
-        <button class="pane-tool split-down" title="Split down">⇣</button>
-        <button class="pane-tool minimize" title="Minimize pane">-</button>
-        <button class="pane-tool zoom" title="Focus pane">□</button>
-        <button class="pane-tool font-down" title="Smaller terminal text">A-</button>
-        <button class="pane-tool font-up" title="Larger terminal text">A+</button>
-        <button class="pane-tool restart" title="Restart terminal">↻</button>
-        <button class="pane-tool close" title="Close">×</button>
+        <button class="pane-tool split-right" type="button" title="Split right" aria-label="Split right">◫</button>
+        <button class="pane-tool split-down" type="button" title="Split down" aria-label="Split down">⇣</button>
+        <button class="pane-tool minimize" type="button" title="Minimize pane" aria-label="Minimize pane">-</button>
+        <button class="pane-tool zoom" type="button" title="Focus pane" aria-label="Focus pane">□</button>
+        <button class="pane-tool font-down" type="button" title="Smaller terminal text" aria-label="Smaller terminal text">A-</button>
+        <button class="pane-tool font-up" type="button" title="Larger terminal text" aria-label="Larger terminal text">A+</button>
+        <button class="pane-tool restart" type="button" title="Restart terminal" aria-label="Restart terminal">↻</button>
+        <button class="pane-tool close" type="button" title="Close" aria-label="Close pane">×</button>
       </div>
     </div>
     <div class="pane-body"></div>
