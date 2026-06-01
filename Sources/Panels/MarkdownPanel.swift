@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import Foundation
 
-enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
+enum MarkdownPanelDisplayMode: String, CaseIterable, Codable, Identifiable, Sendable {
     case preview
     case text
 
@@ -18,6 +18,13 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Absolute path to the markdown file being displayed.
     let filePath: String
+
+    /// Project-scoped note slug when this Markdown panel was opened through
+    /// the note surface path. Plain Markdown panels never infer this from path.
+    private(set) var noteSlug: String?
+    private(set) var noteID: String?
+    private(set) var noteBodyPath: String?
+    private(set) var noteTitle: String?
 
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
@@ -40,8 +47,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Title shown in the tab bar (filename).
     @Published private(set) var displayTitle: String = ""
 
-    /// SF Symbol icon for the tab bar.
-    var displayIcon: String? { "doc.richtext" }
+    /// SF Symbol icon for the tab bar. Matches the "New Note" toolbar action
+    /// (`doc.text`) and text-file previews so notes read as plain documents
+    /// rather than rich-text files.
+    var displayIcon: String? { "doc.text" }
 
     /// Whether the file has been deleted or is unreadable.
     @Published private(set) var isFileUnavailable: Bool = false
@@ -65,6 +74,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
     private var pendingSearchNeedle: String?
+    private var pendingTextViewFocus = false
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
     private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
@@ -85,12 +95,19 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func focus() {
         guard displayMode == .text else { return }
-        _ = textView?.window?.makeFirstResponder(textView)
-        applyPendingSearchNeedleIfPossible()
+        guard let textView, let window = textView.window else {
+            pendingTextViewFocus = true
+            return
+        }
+        let didFocus = window.makeFirstResponder(textView)
+        pendingTextViewFocus = !didFocus
+        if didFocus {
+            applyPendingSearchNeedleIfPossible()
+        }
     }
 
     func unfocus() {
-        // No-op for read-only panel.
+        pendingTextViewFocus = false
     }
 
     func close() {
@@ -107,11 +124,36 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         focusFlashToken += 1
     }
 
-    func setDisplayMode(_ mode: MarkdownPanelDisplayMode) {
-        guard displayMode != mode else { return }
+    func setDisplayMode(_ mode: MarkdownPanelDisplayMode, focusTextEditor: Bool = true) {
+        guard displayMode != mode else {
+            if mode == .text, focusTextEditor {
+                focus()
+            }
+            return
+        }
         displayMode = mode
-        if mode == .text {
+        if mode == .text, focusTextEditor {
             focus()
+        } else if mode != .text {
+            pendingTextViewFocus = false
+        }
+    }
+
+    func markAsProjectNote(
+        slug: String,
+        id: String? = nil,
+        bodyPath: String? = nil,
+        title: String? = nil
+    ) {
+        noteSlug = slug
+        noteID = id
+        noteBodyPath = bodyPath
+        noteTitle = title
+        let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let resolvedTitle, !resolvedTitle.isEmpty {
+            displayTitle = resolvedTitle
+        } else {
+            displayTitle = slug
         }
     }
 
@@ -120,6 +162,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     }
 
     func retryPendingFocus() {
+        guard pendingTextViewFocus else { return }
         focus()
     }
 

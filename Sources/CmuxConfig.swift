@@ -1169,14 +1169,38 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
         case target
     }
 
-    static let newTerminal = actionReference(CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)
-    static let newBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)
-    static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
-    static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
+    // Tooltips double as the label shown when the tab-bar actions are collapsed
+    // into the "⋯" overflow menu, so each default carries a readable title.
+    static let newTerminal = actionReference(
+        CmuxSurfaceTabBarBuiltInAction.newTerminal.configID,
+        tooltip: String(localized: "workspace.tooltip.newTerminal", defaultValue: "New Terminal")
+    )
+    static let newBrowser = actionReference(
+        CmuxSurfaceTabBarBuiltInAction.newBrowser.configID,
+        tooltip: String(localized: "workspace.tooltip.newBrowser", defaultValue: "New Browser")
+    )
+    static let newNote = actionReference(
+        CmuxSurfaceTabBarBuiltInAction.newNote.configID,
+        tooltip: String(localized: "surfaceTabBar.action.newNote", defaultValue: "New Note")
+    )
+    static let splitRight = actionReference(
+        CmuxSurfaceTabBarBuiltInAction.splitRight.configID,
+        tooltip: String(localized: "workspace.tooltip.splitRight", defaultValue: "Split Right")
+    )
+    static let splitDown = actionReference(
+        CmuxSurfaceTabBarBuiltInAction.splitDown.configID,
+        tooltip: String(localized: "workspace.tooltip.splitDown", defaultValue: "Split Down")
+    )
+    static let diff = actionReference(
+        CmuxSurfaceTabBarBuiltInAction.diff.configID,
+        tooltip: String(localized: "surfaceTabBar.action.diff", defaultValue: "Diff")
+    )
 
     static let defaults: [CmuxSurfaceTabBarButton] = [
         .newTerminal,
         .newBrowser,
+        .newNote,
+        .diff,
         .splitRight,
         .splitDown
     ]
@@ -1561,12 +1585,18 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .newBrowser:
             title = String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab")
             keywords = ["new", "browser", "tab", "surface"]
+        case .newNote:
+            title = String(localized: "command.newNoteSurface.title", defaultValue: "New Note for Current Surface")
+            keywords = ["new", "note", "markdown", "surface", "attach"]
         case .splitRight:
             title = String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right")
             keywords = ["terminal", "split", "right"]
         case .splitDown:
             title = String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down")
             keywords = ["terminal", "split", "down"]
+        case .diff:
+            title = String(localized: "command.openDiffViewer.title", defaultValue: "Open Diff Viewer")
+            keywords = ["diff", "git", "changes", "review", "unstaged"]
         }
 
         return CmuxResolvedConfigAction(
@@ -1815,6 +1845,7 @@ struct CmuxSurfaceDefinition: Codable, Sendable {
 enum CmuxSurfaceType: String, Codable, Sendable {
     case terminal
     case browser
+    case note
     case project
 }
 

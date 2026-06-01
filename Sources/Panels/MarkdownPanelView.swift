@@ -32,15 +32,6 @@ struct MarkdownPanelView: View {
     private enum CopyConfirmation: Equatable {
         case markdown
         case html
-
-        var label: String {
-            switch self {
-            case .markdown:
-                return String(localized: "markdown.copyConfirm.markdown", defaultValue: "Copied as Markdown")
-            case .html:
-                return String(localized: "markdown.copyConfirm.html", defaultValue: "Copied as HTML")
-            }
-        }
     }
 
     var body: some View {
@@ -98,7 +89,8 @@ struct MarkdownPanelView: View {
                     isVisibleInUI: isVisibleInUI,
                     themeBackgroundColor: appearance.contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
-                    drawsBackground: appearance.drawsContentBackground
+                    drawsBackground: appearance.drawsContentBackground,
+                    onPointerDown: onRequestPanelFocus
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -107,18 +99,11 @@ struct MarkdownPanelView: View {
 
     private var filePathHeader: some View {
         PanelFilePathHeader(
-            iconSystemName: panel.displayIcon ?? "doc.richtext",
+            iconSystemName: panel.displayIcon ?? "doc.text",
             filePath: panel.filePath,
             foregroundColor: themeForegroundColor
         ) {
-            if panel.displayMode == .text {
-                PanelHeaderIconButton(
-                    systemName: "arrow.counterclockwise",
-                    label: String(localized: "markdown.toolbar.revert", defaultValue: "Revert"),
-                    isDisabled: !panel.isDirty,
-                    action: { panel.loadTextContent() }
-                )
-
+            if panel.displayMode == .text, panel.isDirty || panel.isSaving {
                 PanelHeaderIconButton(
                     systemName: "square.and.arrow.down",
                     label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
@@ -127,14 +112,16 @@ struct MarkdownPanelView: View {
                 )
             }
             markdownModeButton
-            MarkdownPanelToolbar(
-                confirmation: copyConfirmation?.label,
+            MarkdownPanelMoreMenu(
+                isTextMode: panel.displayMode == .text,
+                canRevert: panel.displayMode == .text && panel.isDirty,
+                markdownCopied: copyConfirmation == .markdown,
+                htmlCopied: copyConfirmation == .html,
+                fileURL: URL(fileURLWithPath: panel.filePath),
+                isFileUnavailable: panel.isFileUnavailable,
+                onRevert: { panel.loadTextContent() },
                 onCopyMarkdown: { copyAsMarkdown() },
                 onCopyHTML: { copyAsHTML() }
-            )
-            FileExternalOpenMenu(
-                fileURL: URL(fileURLWithPath: panel.filePath),
-                isDisabled: panel.isFileUnavailable
             )
         }
     }
@@ -142,15 +129,17 @@ struct MarkdownPanelView: View {
     private var markdownModeButton: some View {
         switch panel.displayMode {
         case .preview:
-            PanelHeaderIconButton(
+            MarkdownModeButton(
                 systemName: "doc.plaintext",
-                label: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
+                title: String(localized: "markdown.mode.edit", defaultValue: "Edit"),
+                accessibilityLabel: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
                 action: { panel.setDisplayMode(.text) }
             )
         case .text:
-            PanelHeaderIconButton(
+            MarkdownModeButton(
                 systemName: "eye",
-                label: String(localized: "markdown.mode.showPreview", defaultValue: "Show Preview"),
+                title: String(localized: "markdown.mode.preview", defaultValue: "Preview"),
+                accessibilityLabel: String(localized: "markdown.mode.showPreview", defaultValue: "Show Preview"),
                 action: { panel.setDisplayMode(.preview) }
             )
         }
@@ -261,40 +250,84 @@ struct MarkdownPanelView: View {
 
 // MARK: - Toolbar
 
-private struct MarkdownPanelToolbar: View {
-    let confirmation: String?
+private struct MarkdownModeButton: View {
+    let systemName: String
+    let title: String
+    let accessibilityLabel: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: systemName)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 14, height: 14)
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+            }
+            .frame(height: 20)
+            .padding(.horizontal, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .help(accessibilityLabel)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+private struct MarkdownPanelMoreMenu: View {
+    let isTextMode: Bool
+    let canRevert: Bool
+    let markdownCopied: Bool
+    let htmlCopied: Bool
+    let fileURL: URL
+    let isFileUnavailable: Bool
+    let onRevert: () -> Void
     let onCopyMarkdown: () -> Void
     let onCopyHTML: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            if let confirmation {
-                Text(confirmation)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .transition(.opacity)
+        Menu {
+            if isTextMode {
+                Button(action: onRevert) {
+                    Label(
+                        String(localized: "markdown.toolbar.revert", defaultValue: "Revert"),
+                        systemImage: "arrow.counterclockwise"
+                    )
+                }
+                .disabled(!canRevert)
+
+                Divider()
             }
 
-            toolbarButton(
-                title: String(localized: "markdown.toolbar.copyMarkdown", defaultValue: "Copy as Markdown"),
-                systemImage: "doc.on.doc",
-                action: onCopyMarkdown
-            )
-            toolbarButton(
-                title: String(localized: "markdown.toolbar.copyHTML", defaultValue: "Copy as HTML"),
-                systemImage: "chevron.left.forwardslash.chevron.right",
-                action: onCopyHTML
-            )
-        }
-        .animation(.easeOut(duration: 0.15), value: confirmation)
-    }
+            Button(action: onCopyMarkdown) {
+                Label(
+                    String(localized: "markdown.toolbar.copyMarkdown", defaultValue: "Copy as Markdown"),
+                    systemImage: markdownCopied ? "checkmark" : "doc.on.doc"
+                )
+            }
 
-    private func toolbarButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        PanelHeaderIconButton(
-            systemName: systemImage,
-            label: title,
-            action: action
-        )
+            Button(action: onCopyHTML) {
+                Label(
+                    String(localized: "markdown.toolbar.copyHTML", defaultValue: "Copy as HTML"),
+                    systemImage: htmlCopied ? "checkmark" : "chevron.left.forwardslash.chevron.right"
+                )
+            }
+
+            Divider()
+
+            Button(action: { _ = FileExternalOpenAction.openDefault(fileURL: fileURL) }) {
+                Label(FileExternalOpenText.openExternally, systemImage: "square.and.arrow.up")
+            }
+            .disabled(isFileUnavailable)
+        } label: {
+            PanelHeaderIconGlyph(systemName: "ellipsis.circle")
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .help(String(localized: "markdown.toolbar.more", defaultValue: "More Actions"))
+        .accessibilityLabel(String(localized: "markdown.toolbar.more", defaultValue: "More Actions"))
     }
 }
