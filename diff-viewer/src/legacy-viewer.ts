@@ -105,7 +105,9 @@ async function renderDiff() {
     },
     treesModule,
   ] = await Promise.all([
+    // oxlint-disable-next-line react-doctor/no-dynamic-import-path -- cmux serves this external module URL from its bundled resources at runtime.
     import(DIFFS_MODULE_URL),
+    // oxlint-disable-next-line react-doctor/no-dynamic-import-path -- cmux serves this external module URL from its bundled resources at runtime.
     import(TREES_MODULE_URL).catch((error) => {
       console.warn("cmux diff file tree import failed", error);
       return null;
@@ -127,6 +129,7 @@ async function renderDiff() {
     ?.catch?.((error) => console.warn("cmux diff worker pool initialization failed", error));
   window.addEventListener("pagehide", () => workerPool?.terminate?.(), { once: true });
 
+  // oxlint-disable-next-line react-doctor/async-defer-await -- diffItems is populated by the awaited stream before the guard below can run.
   await streamPatchIntoCodeView({
     CodeView,
     parsePatchFiles,
@@ -189,6 +192,7 @@ async function createCodeViewWorkerPool() {
     return null;
   }
   try {
+    // oxlint-disable-next-line react-doctor/no-dynamic-import-path -- cmux serves this external module URL from its bundled resources at runtime.
     const workerPoolModule = await import(WORKER_POOL_MODULE_URL);
     registerGhosttyTheme(workerPoolModule.registerCustomTheme, payload.appearance.themes.light);
     registerGhosttyTheme(workerPoolModule.registerCustomTheme, payload.appearance.themes.dark);
@@ -561,6 +565,7 @@ async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile,
   }
 
   if (!response.body?.getReader) {
+    // oxlint-disable-next-line react-doctor/async-parallel -- parsing depends on the fetched text, and flushing depends on parsed items.
     const text = await response.text();
     await appendParsedPatchText(text, parsePatchFiles, enqueueFileDiff);
     await maybeFlushPendingItems(true);
@@ -710,6 +715,7 @@ async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile,
   async function drainPatchFileSplitter(splitter) {
     let fileText;
     while ((fileText = splitter.takeAvailableFile()) != null) {
+      // oxlint-disable-next-line react-doctor/async-await-in-loop -- diff files must be appended in patch order for stable navigation and batching.
       await appendCompleteFileText(fileText);
     }
   }
@@ -718,6 +724,7 @@ async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile,
   let currentPatchPrefix;
   let patchMetadataIndex = 0;
   while (true) {
+    // oxlint-disable-next-line react-doctor/async-await-in-loop -- ReadableStream readers are inherently sequential.
     const { done, value } = await reader.read();
     if (done) {
       const tail = decoder.decode();
@@ -762,6 +769,7 @@ async function appendParsedPatchText(patchText, parsePatchFiles, enqueueFileDiff
   for (const [patchIndex, patch] of patches.entries()) {
     const patchPrefix = hasMultiplePatches ? commitMetadataLabel(patch.patchMetadata, patchIndex) : undefined;
     for (const fileDiff of patch.files ?? []) {
+      // oxlint-disable-next-line react-doctor/async-await-in-loop -- diff files must be enqueued in patch order for stable navigation and batching.
       await enqueueFileDiff(fileDiff, patchPrefix);
     }
   }

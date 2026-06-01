@@ -10559,7 +10559,9 @@ function i0(A) {
       },
       N
     ] = await Promise.all([
+      // oxlint-disable-next-line react-doctor/no-dynamic-import-path -- cmux serves this external module URL from its bundled resources at runtime.
       import(Bt),
+      // oxlint-disable-next-line react-doctor/no-dynamic-import-path -- cmux serves this external module URL from its bundled resources at runtime.
       import(wt).catch((At) => (console.warn("cmux diff file tree import failed", At), null))
     ]);
     if (Ca(R, C.appearance.themes.light), Ca(R, C.appearance.themes.dark), Oe(G("parsingDiff")), Sa("loading"), Y = await Yn(), Zn(K), se(), window.__cmuxDiffViewer = { codeView: D, items: K, state: m, workerPool: Y }, Gn(Y), Y?.initialize?.()?.then?.(() => Ln(Y?.getStats?.()))?.catch?.((At) => console.warn("cmux diff worker pool initialization failed", At)), window.addEventListener("pagehide", () => Y?.terminate?.(), { once: !0 }), await Qu({
