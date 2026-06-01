@@ -24329,7 +24329,7 @@ struct CMUXCLI {
             "command": command,
             "auto_resume": true
         ]
-        if let cwd = normalizedHookValue(cwd) ?? normalizedHookValue(launchCommand?.workingDirectory) {
+        if let cwd = normalizedHookValue(launchCommand?.workingDirectory) ?? normalizedHookValue(cwd) {
             params["cwd"] = cwd
         }
         if let resumeEnvironment, !resumeEnvironment.isEmpty {
@@ -24411,7 +24411,7 @@ struct CMUXCLI {
         guard let argv, !argv.isEmpty else { return nil }
         return agentSurfaceResumeShellCommand(
             argv: argv,
-            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            workingDirectory: launchCommand?.workingDirectory ?? workingDirectory,
             kind: kind,
             environment: environment
         )

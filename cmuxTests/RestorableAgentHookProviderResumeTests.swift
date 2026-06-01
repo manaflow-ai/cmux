@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Testing
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -694,5 +695,92 @@ extension SocketListenerAcceptPolicyTests {
                 "fs_read,fs_write"
             ]
         )
+    }
+}
+
+@Suite
+struct RestorableAgentResumeWorkingDirectoryTests {
+    @Test
+    func claudeResumeCommandChangesToLaunchDirectoryNotDriftedCwd() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "59729506-e83c-4bfe-a730-1d50d10cc396",
+            workingDirectory: "/tmp/claude repo/nested",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/Users/example/.local/bin/claude",
+                arguments: ["/Users/example/.local/bin/claude"],
+                workingDirectory: "/tmp/claude repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        #expect(
+            snapshot.resumeCommand
+                == "{ cd -- '/tmp/claude repo' 2>/dev/null || [ ! -d '/tmp/claude repo' ]; } && '/Users/example/.local/bin/claude' '--resume' '59729506-e83c-4bfe-a730-1d50d10cc396'"
+        )
+    }
+
+    @Test
+    func customVaultResumeTemplateUsesLaunchDirectoryNotDriftedCwd() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("vault-tool"),
+            sessionId: "session-123",
+            workingDirectory: "/tmp/vault-drifted",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "vault-tool",
+                executablePath: "/usr/local/bin/vault-tool",
+                arguments: ["/usr/local/bin/vault-tool"],
+                workingDirectory: "/tmp/vault-launch",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            ),
+            registration: CmuxVaultAgentRegistration(
+                id: "vault-tool",
+                name: "Vault Tool",
+                detect: CmuxVaultAgentDetectRule(processName: "vault-tool"),
+                sessionIdSource: .argvOption("--resume"),
+                resumeCommand: "{{executable}} --resume {{sessionId}} --dir {{cwd}}",
+                cwd: .preserve
+            )
+        )
+
+        let command = try #require(snapshot.resumeCommand)
+        #expect(command.contains("/tmp/vault-launch"))
+        #expect(!command.contains("/tmp/vault-drifted"))
+    }
+
+    @Test
+    func customVaultResumeTemplateSuppressesCwdWhenIgnored() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("vault-tool"),
+            sessionId: "session-123",
+            workingDirectory: "/tmp/vault-drifted",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "vault-tool",
+                executablePath: "/usr/local/bin/vault-tool",
+                arguments: ["/usr/local/bin/vault-tool"],
+                workingDirectory: "/tmp/vault-launch",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            ),
+            registration: CmuxVaultAgentRegistration(
+                id: "vault-tool",
+                name: "Vault Tool",
+                detect: CmuxVaultAgentDetectRule(processName: "vault-tool"),
+                sessionIdSource: .argvOption("--resume"),
+                resumeCommand: "{{executable}} --resume {{sessionId}} --dir {{cwd}}",
+                cwd: .ignore
+            )
+        )
+
+        // cwd: .ignore must keep the launch dir out of the resolved command entirely.
+        let command = snapshot.resumeCommand ?? ""
+        #expect(!command.contains("/tmp/vault-launch"))
+        #expect(!command.contains("/tmp/vault-drifted"))
     }
 }
