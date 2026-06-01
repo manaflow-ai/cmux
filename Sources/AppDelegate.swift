@@ -949,9 +949,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupTerminalCmdClickUITest = false
     private var didSetupGotoSplitUITest = false
     private var didSetupBonsplitTabDragUITest = false
+    private var didSetupWorkspaceCommandStartupUITest = false
     private var terminalCmdClickUITestPoller: DispatchSourceTimer?
     private var bonsplitTabDragUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestRecorder: DispatchSourceTimer?
+    private var workspaceCommandStartupUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
     private var didSetupDisplayResolutionUITestDiagnostics = false
@@ -1870,6 +1872,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupTerminalCmdClickUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
         setupBonsplitTabDragUITestIfNeeded()
+        setupWorkspaceCommandStartupUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
         setupPortalStatsUITestDiagnosticsIfNeeded()
@@ -9812,6 +9815,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self != nil else { return }
             runSetupWhenWindowReady()
         }
+    }
+
+    private func setupWorkspaceCommandStartupUITestIfNeeded() {
+        guard !didSetupWorkspaceCommandStartupUITest else { return }
+        didSetupWorkspaceCommandStartupUITest = true
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_WORKSPACE_COMMAND_STARTUP_SETUP"] == "1",
+              let path = env["CMUX_UI_TEST_WORKSPACE_COMMAND_STARTUP_PATH"],
+              !path.isEmpty else {
+            return
+        }
+
+        workspaceCommandStartupUITestRecorder?.cancel()
+        workspaceCommandStartupUITestRecorder = nil
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(100))
+        timer.setEventHandler { [weak self] in
+            self?.recordWorkspaceCommandStartupUITestState(path: path)
+        }
+        workspaceCommandStartupUITestRecorder = timer
+        timer.resume()
+    }
+
+    private func recordWorkspaceCommandStartupUITestState(path: String) {
+        guard let tabManager else { return }
+
+        let workspace = tabManager.selectedWorkspace
+        let terminalPanel = workspace?.focusedTerminalPanel
+        let updates: [String: String] = [
+            "workspaceCount": String(tabManager.tabs.count),
+            "selectedWorkspaceId": workspace?.id.uuidString ?? "",
+            "selectedWorkspaceTitle": workspace?.title ?? "",
+            "focusedPanelId": workspace?.focusedPanelId?.uuidString ?? "",
+            "focusedPanelKind": terminalPanel == nil ? "nonTerminal" : "terminal",
+            "selectedTerminalPanelId": terminalPanel?.id.uuidString ?? "",
+            "selectedTerminalSurfaceCreateAttempts": String(terminalPanel?.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() ?? 0),
+            "selectedTerminalHasHeadlessStartupWindow": (terminalPanel?.surface.debugHasHeadlessStartupWindowForTesting() == true) ? "true" : "false"
+        ]
+
+        var payload = loadWorkspaceCommandStartupUITestData(at: path)
+        for (key, value) in updates {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func loadWorkspaceCommandStartupUITestData(at path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
     }
 
     private func bonsplitTabDragUITestDataPath() -> String? {
