@@ -206,7 +206,92 @@ public final class CMUXMobileShellStore {
     }
 
     public func resumeForegroundRefresh() {
+        startObservingNetworkPathChanges()
         resyncTerminalOutput(reason: "foreground", restartEventStream: true)
+    }
+
+    // MARK: - Network recovery
+
+    /// True while an automatic reconnect is in progress after a network change
+    /// or drop.
+    public private(set) var isRecoveringConnection: Bool = false
+    /// True when automatic recovery could not restore the connection; the UI
+    /// surfaces a manual Retry control in this state.
+    public private(set) var connectionRecoveryFailed: Bool = false
+
+    private var networkPathObservationStarted = false
+    private var recoveryInFlight = false
+    private var recoveryTask: Task<Void, Never>?
+    private var lastReconnectStackUserID: String?
+
+    private enum RecoveryTrigger: CustomStringConvertible {
+        case networkChange
+        case manual
+        var description: String {
+            switch self {
+            case .networkChange: return "networkChange"
+            case .manual: return "manual"
+            }
+        }
+    }
+
+    /// Begin observing meaningful network path changes (Wi-Fi<->cellular,
+    /// offline->online) so a live terminal recovers when the network moves out
+    /// from under it. Idempotent; only the first call arms the observation.
+    func startObservingNetworkPathChanges() {
+        guard !networkPathObservationStarted else { return }
+        networkPathObservationStarted = true
+        observeNetworkPathGeneration()
+    }
+
+    private func observeNetworkPathGeneration() {
+        withObservationTracking {
+            _ = NetworkReachability.shared.pathChangeGeneration
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.observeNetworkPathGeneration()
+                self.recoverMobileConnection(trigger: .networkChange)
+            }
+        }
+    }
+
+    /// User-initiated reconnect from the Retry control.
+    public func retryMobileConnection() {
+        connectionRecoveryFailed = false
+        recoverMobileConnection(trigger: .manual)
+    }
+
+    /// Single guarded recovery entry for every trigger (network change, manual
+    /// Retry). When still connected, a network move usually only broke the event
+    /// stream while input keeps flowing over the surviving connection, so a
+    /// resync re-subscribes and requests a render-grid replay to repaint.
+    /// Otherwise the connection dropped, so reconnect once; on failure the UI
+    /// shows Retry and the next network change re-attempts automatically.
+    private func recoverMobileConnection(trigger: RecoveryTrigger) {
+        guard remoteClient != nil || pairedMacStore != nil else { return }
+        if connectionState == .connected, remoteClient != nil {
+            connectionRecoveryFailed = false
+            resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
+            return
+        }
+        guard !recoveryInFlight else { return }
+        recoveryInFlight = true
+        isRecoveringConnection = true
+        connectionRecoveryFailed = false
+        let stackUserID = lastReconnectStackUserID
+        recoveryTask?.cancel()
+        recoveryTask = Task { @MainActor [weak self] in
+            defer {
+                self?.recoveryInFlight = false
+                self?.isRecoveringConnection = false
+            }
+            guard let self, self.connectionState != .connected else { return }
+            let reconnected = await self.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+            if !reconnected, !Task.isCancelled {
+                self.connectionRecoveryFailed = true
+            }
+        }
     }
 
     public func connectPreviewHost() {
@@ -287,6 +372,8 @@ public final class CMUXMobileShellStore {
     /// manual host flow. Auth tokens never persist; we always re-mint.
     @discardableResult
     public func reconnectActiveMacIfAvailable(stackUserID: String?) async -> Bool {
+        lastReconnectStackUserID = stackUserID
+        startObservingNetworkPathChanges()
         guard let pairedMacStore else { return false }
         guard isSignedIn else { return false }
         let saved: MobilePairedMac?

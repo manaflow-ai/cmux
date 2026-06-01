@@ -51,6 +51,9 @@ struct WorkspaceShellView: View {
             compactNavigationPath = [selectedWorkspaceID]
         }
         .accessibilityIdentifier("MobileWorkspaceShell")
+        .overlay(alignment: .top) {
+            MobileConnectionRecoveryBanner(store: store)
+        }
     }
 
     private var stackLayout: some View {
