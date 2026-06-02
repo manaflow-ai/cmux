@@ -49,6 +49,24 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
+    /// Body font size for the preview renderer, in points. Drives the
+    /// WKWebView `pageZoom` so `--font-size` and Cmd-+/Cmd-- scale the rendered
+    /// document the way browser zoom scales a browser surface. Per-panel and
+    /// transient; the persistent default lives in `MarkdownFontSizeSettings`.
+    @Published private(set) var fontSize: Double
+
+    /// Body prose font family for the preview renderer, as an installed
+    /// font-family name. Empty string means the System default (the GitHub
+    /// stack). Applied as an inline `font-family` on the rendered content; code
+    /// blocks stay monospace. Per-panel; the persistent default lives in
+    /// `MarkdownFontFamily`.
+    @Published private(set) var fontFamily: String
+
+    /// Maximum width for the rendered markdown content column, in CSS pixels.
+    /// Per-panel and transient; the persistent default lives in
+    /// `MarkdownMaxWidthSettings`.
+    @Published private(set) var maxContentWidth: Double
+
     /// Stable markdown renderer state. Keep this panel-owned so split/tab
     /// layout churn does not recreate the WKWebView and flash existing content.
     let rendererSession = MarkdownRendererSession()
@@ -68,17 +86,149 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
     private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
+    // NotificationCenter token; removal is thread-safe so deinit can drop it.
+    private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
+    // The typography default this viewer is currently tracking. While the panel
+    // still matches it, a default change (Set as Default / cmux.json reload) is
+    // adopted; once the user customizes the panel it diverges and is left alone.
+    private var followedFontSize: Double
+    private var followedFontFamily: String
+    private var followedMaxContentWidth: Double
 
     // MARK: - Init
 
-    init(workspaceId: UUID, filePath: String) {
+    /// - Parameter fontSize: Initial body font size in points. When `nil`, the
+    ///   panel uses the persistent `markdown.fontSize` default. The value is
+    ///   clamped to the supported range.
+    init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
+        let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
+        let defaultFamily = MarkdownFontFamily.resolvedDefault()
+        let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
+        self.fontFamily = defaultFamily
+        self.maxContentWidth = defaultMaxWidth
+        self.followedFontSize = defaultSize
+        self.followedFontFamily = defaultFamily
+        self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
 
         loadFileContent()
         startFileWatcher()
+        observeTypographyDefaults()
+    }
+
+    /// Adopt a changed typography default (from another viewer's "Set as Default"
+    /// or a `cmux.json` reload), but only while this viewer still matches the
+    /// default it was tracking — i.e. the user has not customized it.
+    private func observeTypographyDefaults() {
+        typographyDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.adoptTypographyDefaultsIfFollowing()
+            }
+        }
+    }
+
+    private func adoptTypographyDefaultsIfFollowing() {
+        guard !isClosed else { return }
+        // Only viewers still tracking the default follow the change.
+        guard abs(fontSize - followedFontSize) < 0.01,
+              fontFamily == followedFontFamily,
+              abs(maxContentWidth - followedMaxContentWidth) < 0.01 else { return }
+        let newSize = MarkdownFontSizeSettings.resolvedDefault()
+        let newFamily = MarkdownFontFamily.resolvedDefault()
+        let newMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
+        _ = setFontSize(newSize)
+        _ = setFontFamily(newFamily)
+        _ = setMaxContentWidth(newMaxWidth)
+        followedFontSize = newSize
+        followedFontFamily = newFamily
+        followedMaxContentWidth = newMaxWidth
+    }
+
+    // MARK: - Font size / zoom
+
+    /// Increases the preview font size by one step. Returns `true` if the size
+    /// changed (so callers can beep when already at the maximum).
+    @discardableResult
+    func zoomIn() -> Bool {
+        setFontSize(fontSize + MarkdownFontSizeSettings.stepPointSize)
+    }
+
+    /// Decreases the preview font size by one step. Returns `true` if the size
+    /// changed (so callers can beep when already at the minimum).
+    @discardableResult
+    func zoomOut() -> Bool {
+        setFontSize(fontSize - MarkdownFontSizeSettings.stepPointSize)
+    }
+
+    /// Resets the preview font size to the configured `markdown.fontSize`
+    /// default. Returns `true` if the size changed.
+    @discardableResult
+    func resetZoom() -> Bool {
+        setFontSize(MarkdownFontSizeSettings.resolvedDefault())
+    }
+
+    /// Sets the preview font size to an explicit point value (clamped). Used by
+    /// the header font-size popover's manual entry. Returns `true` if changed.
+    @discardableResult
+    func setFontSize(_ candidate: Double) -> Bool {
+        let clamped = MarkdownFontSizeSettings.clamp(candidate)
+        guard abs(clamped - fontSize) > 0.0001 else { return false }
+        fontSize = clamped
+        return true
+    }
+
+    /// Sets the preview body prose font family (an installed font-family name,
+    /// or empty for the System default). Returns `true` if changed.
+    @discardableResult
+    func setFontFamily(_ family: String) -> Bool {
+        let normalized = MarkdownFontFamily.normalized(family)
+        guard normalized != fontFamily else { return false }
+        fontFamily = normalized
+        return true
+    }
+
+    /// Sets the rendered markdown content column max width, in CSS pixels.
+    /// Returns `true` if changed.
+    @discardableResult
+    func setMaxContentWidth(_ candidate: Double) -> Bool {
+        let clamped = MarkdownMaxWidthSettings.clamp(candidate)
+        guard abs(clamped - maxContentWidth) > 0.0001 else { return false }
+        maxContentWidth = clamped
+        return true
+    }
+
+    /// Resets typography to the configured defaults. Used by the popover's
+    /// "Reset to default" action.
+    func resetTypography() {
+        let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
+        let defaultFamily = MarkdownFontFamily.resolvedDefault()
+        let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
+        _ = setFontSize(defaultSize)
+        _ = setFontFamily(defaultFamily)
+        _ = setMaxContentWidth(defaultMaxWidth)
+        followedFontSize = defaultSize
+        followedFontFamily = defaultFamily
+        followedMaxContentWidth = defaultMaxWidth
+    }
+
+    /// Clears persisted markdown typography defaults and resets this viewer to
+    /// the built-in app defaults.
+    func resetTypographyToBuiltInDefaults() {
+        MarkdownTypographyDefaults.resetToBuiltInDefaults()
+        _ = setFontSize(MarkdownFontSizeSettings.defaultPointSize)
+        _ = setFontFamily(MarkdownFontFamily.systemDefault)
+        _ = setMaxContentWidth(MarkdownMaxWidthSettings.defaultCSSPixels)
+        followedFontSize = MarkdownFontSizeSettings.defaultPointSize
+        followedFontFamily = MarkdownFontFamily.systemDefault
+        followedMaxContentWidth = MarkdownMaxWidthSettings.defaultCSSPixels
     }
 
     // MARK: - Panel protocol
@@ -99,6 +249,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
         stopWatching()
+        if let typographyDefaultsObserver {
+            NotificationCenter.default.removeObserver(typographyDefaultsObserver)
+            self.typographyDefaultsObserver = nil
+        }
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -422,8 +576,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     }
 
     deinit {
-        // DispatchSource cancel is safe from any thread.
+        // DispatchSource cancel and removeObserver are safe from any thread.
         fileWatchSource?.cancel()
         directoryWatchSource?.cancel()
+        if let typographyDefaultsObserver {
+            NotificationCenter.default.removeObserver(typographyDefaultsObserver)
+        }
     }
 }

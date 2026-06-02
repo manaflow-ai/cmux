@@ -124,6 +124,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:app:terminal-config",
         "setting:app:desktop-notifications",
         "setting:account:account",
+        "setting:betaFeatures:feed",
         "setting:betaFeatures:dock",
         "setting:browser:history",
         "setting:browser:http-allowlist",
