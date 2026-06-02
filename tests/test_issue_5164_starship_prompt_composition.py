@@ -250,12 +250,19 @@ def test_plain_bash_bootstrap_installs_cmux_prompt_command() -> None:
     )
     for i in (1, 2, 3):
         pc = fields.get(f"PC_{i}", "")
-        assert pc == "_cmux_prompt_command", (
-            f"plain-bash PROMPT_COMMAND at prompt {i} should be exactly "
-            f"_cmux_prompt_command, got <{pc}>" + debug
+        # Assert the observable contract (hook installed, bootstrap removed, no
+        # phantom hook) rather than the exact integration-internal string, so this
+        # stays green if cmux-bash-integration.bash ever tweaks PROMPT_COMMAND.
+        assert "_cmux_prompt_command" in pc, (
+            f"plain-bash bootstrap did not install _cmux_prompt_command at prompt {i}: <{pc}>"
+            + debug
         )
         assert "__cmux_bash_bootstrap_marker__" not in pc, (
             f"bootstrap marker leaked into PROMPT_COMMAND at prompt {i}: <{pc}>" + debug
+        )
+        assert "starship_precmd" not in pc, (
+            f"unexpected starship hook in plain-bash PROMPT_COMMAND at prompt {i}: <{pc}>"
+            + debug
         )
 
 

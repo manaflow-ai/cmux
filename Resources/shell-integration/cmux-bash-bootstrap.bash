@@ -21,6 +21,12 @@
 # This file is the single source of truth. Sources/GhosttyTerminalView.swift
 # reads it (stripping these comments) and exports it as PROMPT_COMMAND, and
 # tests/test_issue_5164_starship_prompt_composition.py exercises it.
+#
+# INJECTION CONSTRAINT: the app and the test both drop full-line `#` comments and
+# blank lines before exporting this as PROMPT_COMMAND (so users never see a wall
+# of comments in $PROMPT_COMMAND). Such lines are bash comments anyway, so this is
+# behavior-preserving -- but every executable line below must stand on its own and
+# must not begin with `#` (no full-line comments interleaved in the body).
 PROMPT_COMMAND="${PROMPT_COMMAND##*__cmux_bash_bootstrap_marker__}"
 while [[ "$PROMPT_COMMAND" == [[:space:]\;]* ]]; do PROMPT_COMMAND="${PROMPT_COMMAND#?}"; done
 if [[ "${CMUX_LOAD_GHOSTTY_BASH_INTEGRATION:-0}" == "1" && -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then

@@ -6447,6 +6447,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
                     if !bootstrap.isEmpty {
                         setManagedEnvironmentValue("PROMPT_COMMAND", bootstrap)
                     }
+                } else {
+                    // The bootstrap ships in the app bundle alongside
+                    // cmux-bash-integration.bash, so a read failure means a
+                    // corrupt/partial bundle. Surface it in unified logging
+                    // rather than silently leaving bash without cmux integration.
+                    Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
+                        .error("cmux bash bootstrap missing or unreadable at \(bashBootstrapPath, privacy: .public); bash shell integration will not load")
                 }
             }
         }
