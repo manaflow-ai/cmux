@@ -1,29 +1,6 @@
 import AppKit
 import SwiftUI
 
-enum WorkspaceGroupIconSymbol {
-    static let defaultSymbol = "folder.fill"
-
-    static func normalized(_ raw: String?) -> String? {
-        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else { return nil }
-        return trimmed
-    }
-
-    static func resolved(explicit: String?, configured: String?) -> String {
-        for candidate in [explicit, configured] {
-            guard let normalized = normalized(candidate),
-                  isRenderable(normalized) else { continue }
-            return normalized
-        }
-        return defaultSymbol
-    }
-
-    static func isRenderable(_ symbol: String) -> Bool {
-        NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil
-    }
-}
-
 /// Collapsible group header that doubles as the anchor workspace row.
 struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     // Closures and delegate factories are excluded because they are recreated
@@ -99,7 +76,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     }
 
     private var displayedIconSymbol: String {
-        WorkspaceGroupIconSymbol.resolved(explicit: iconSymbol, configured: nil)
+        RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: iconSymbol, configured: nil)
     }
 
     private var shortcutHintPillText: String? {

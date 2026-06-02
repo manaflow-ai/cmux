@@ -600,6 +600,14 @@ if [[ -z "$TAG" ]]; then
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
   )
 fi
+# Scope the sidebar ExtensionKit point per build tag so concurrent dev builds (and
+# their tagged sample extensions) don't share one point. Baked at build time via
+# the CMUX_SIDEBAR_EXTENSION_POINT_ID build setting so the bundle declaration and
+# matching Info.plist key stay coherent. The committed default is the base id;
+# tagged builds stamp the generated .appextensionpoint bundle artifact.
+if [[ -n "$TAG" ]]; then
+  XCODEBUILD_ARGS+=(CMUX_SIDEBAR_EXTENSION_POINT_ID="com.manaflow.cmux.sidebar.${TAG_ID}")
+fi
 # Forward explicit CMUX_SKIP_ZIG_BUILD to xcodebuild run script phases.
 if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)

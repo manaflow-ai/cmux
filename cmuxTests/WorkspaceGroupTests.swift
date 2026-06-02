@@ -681,19 +681,35 @@ struct WorkspaceGroupTests {
     }
 
     @Test func workspaceGroupIconSymbolResolutionFallsBackToRenderableIcon() {
-        #expect(WorkspaceGroupIconSymbol.resolved(explicit: nil, configured: nil) == "folder.fill")
-        #expect(WorkspaceGroupIconSymbol.resolved(explicit: "   ", configured: "leaf.fill") == "leaf.fill")
-        #expect(WorkspaceGroupIconSymbol.resolved(explicit: "not.an.sf.symbol", configured: nil) == "folder.fill")
+        #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: nil, configured: nil) == "folder.fill")
+        #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: "   ", configured: "leaf.fill") == "leaf.fill")
+        #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: "not.an.sf.symbol", configured: nil) == "folder.fill")
     }
 
-    @Test func setWorkspaceGroupIconNormalizesEmptySymbols() throws {
+    @Test func setWorkspaceGroupIconDropsInvalidSymbols() {
         let manager = makeTabManager()
-        let groupId = try #require(manager.createWorkspaceGroup(name: "Icons", childWorkspaceIds: []))
+        let groupId = manager.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [manager.tabs[0].id]
+        )!
 
-        manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "  leaf.fill  ")
+        let invalidStoredIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "not.an.sf.symbol")
+        #expect(invalidStoredIcon == nil)
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == nil)
+
+        let validStoredIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "  leaf.fill  ")
+        #expect(validStoredIcon == "leaf.fill")
         #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == "leaf.fill")
 
-        manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "   ")
+        let clearedIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "   ")
+        #expect(clearedIcon == nil)
         #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == nil)
+    }
+
+    @Test func surfaceTabIconSymbolResolutionFallsBackForInvalidInput() {
+        #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("doc.text") == "doc.text")
+        #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   doc.text   ") == "doc.text")
+        #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("not.an.sf.symbol") == "doc.text")
+        #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   ") == "doc.text")
     }
 }

@@ -47,7 +47,7 @@ func presentSidebarWorkspaceGroupIconPrompt(
     groupId: UUID,
     currentSymbol: String?
 ) {
-    var nextValue = WorkspaceGroupIconSymbol.normalized(currentSymbol) ?? ""
+    var nextValue = RenderableSystemSymbol.normalized(currentSymbol) ?? ""
     while true {
         let alert = NSAlert()
         alert.messageText = String(
@@ -80,12 +80,11 @@ func presentSidebarWorkspaceGroupIconPrompt(
         let response = alert.runModal()
         switch response {
         case .alertFirstButtonReturn:
-            let normalized = WorkspaceGroupIconSymbol.normalized(input.stringValue)
-            guard let symbol = normalized else {
+            guard let symbol = RenderableSystemSymbol.trimmed(input.stringValue) else {
                 tabManager.setWorkspaceGroupIcon(groupId: groupId, symbol: nil)
                 return
             }
-            guard WorkspaceGroupIconSymbol.isRenderable(symbol) else {
+            guard RenderableSystemSymbol.isRenderable(symbol) else {
                 presentSidebarWorkspaceGroupInvalidIconAlert(symbol: symbol)
                 nextValue = symbol
                 continue
