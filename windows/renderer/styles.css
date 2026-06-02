@@ -2786,30 +2786,32 @@ body.reduce-motion *::after {
 }
 
 .browser-tab-new {
-  flex: 0 0 30px;
-  min-width: 30px;
-  width: 30px;
+  flex: 0 0 34px;
+  min-width: 34px;
+  width: 34px;
   height: 26px;
   display: grid;
   place-items: center;
   margin-bottom: 0;
-  border: 1px solid color-mix(in oklch, var(--color-line) 54%, transparent);
+  border: 1px solid var(--color-line);
   border-bottom: 0;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
-  color: var(--color-muted);
-  background: color-mix(in oklch, var(--color-pane) 42%, transparent);
-  font: 700 16px/1 var(--font-mono);
-  box-shadow: -8px 0 10px -12px var(--color-canvas);
+  color: var(--color-text);
+  background: color-mix(in oklch, var(--color-pane) 74%, var(--color-chrome) 26%);
+  font: 760 17px/1 var(--font-mono);
+  box-shadow:
+    -8px 0 10px -12px var(--color-canvas),
+    inset 0 1px 0 color-mix(in oklch, var(--color-text) 8%, transparent);
   z-index: 1;
 }
 
 .browser-tab-new:hover {
-  border-color: var(--color-line);
+  border-color: var(--color-line-strong);
   color: var(--color-text);
-  background: var(--color-pane);
+  background: var(--color-pane-active);
   box-shadow:
     -8px 0 10px -12px var(--color-canvas),
-    inset 0 1px 0 color-mix(in oklch, var(--color-text) 10%, transparent);
+    inset 0 -2px 0 var(--color-accent);
 }
 
 .browser-tab-new.is-drop-before {

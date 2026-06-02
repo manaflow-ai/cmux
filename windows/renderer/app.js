@@ -5953,12 +5953,21 @@ function focusBrowserAddress(panel = focusedPanel()) {
     toast("Focus a browser pane first.");
     return false;
   }
-  focusPanel(browserPanel.id);
+  const session = state.browserViews.get(browserPanel.id);
+  if (!session?.address) {
+    toast("Browser pane is not ready.");
+    return false;
+  }
+  return focusBrowserAddressSession(session);
+}
+
+function focusBrowserAddressSession(session) {
+  if (!session?.address) return false;
+  focusPanel(session.panelId);
   requestAnimationFrame(() => {
-    const address = state.browserViews.get(browserPanel.id)?.address;
-    if (!address) return;
-    address.focus();
-    address.select();
+    if (state.browserViews.get(session.panelId) !== session) return;
+    session.address.focus();
+    session.address.select();
   });
   return true;
 }
@@ -6039,7 +6048,7 @@ function newBrowserTabFromPanel(panel = focusedPanel()) {
   const session = state.browserViews.get(browserPanel.id);
   if (session) {
     focusPanel(browserPanel.id);
-    return createBrowserTab(session, state.settings.browserHomeUrl);
+    return createBrowserTab(session, state.settings.browserHomeUrl, { focusAddress: true });
   }
   return createBrowserTabSnapshotForPanel(browserPanel, state.settings.browserHomeUrl);
 }
@@ -6542,7 +6551,7 @@ function showBrowserTabContextMenu(event, session, tabId) {
   meta.textContent = tab.url;
   const actions = contextMenuActionGroup(
     contextMenuButton(tab.id === session.activeTabId ? "Focused" : "Focus tab", () => activateBrowserTab(session, tab.id), tab.id === session.activeTabId),
-    contextMenuButton("New tab", () => createBrowserTab(session, state.settings.browserHomeUrl)),
+    contextMenuButton("New tab", () => createBrowserTab(session, state.settings.browserHomeUrl, { focusAddress: true })),
     contextMenuButton("Duplicate tab", () => duplicateBrowserTab(session, tab.id)),
     contextMenuButton("Copy URL", () => copyBrowserTabUrl(tab)),
     contextMenuButton(t("browser.openExternally"), () => openExternalBrowser(tab.url, { toast: true })),
@@ -6598,7 +6607,7 @@ function activateBrowserTab(session, tabId) {
   return true;
 }
 
-function createBrowserTab(session, value = state.settings.browserHomeUrl) {
+function createBrowserTab(session, value = state.settings.browserHomeUrl, options = {}) {
   if (!session) return false;
   if (session.tabs.length >= browserTabLimit) {
     toast(`Browser tab limit is ${browserTabLimit}. Close one first.`);
@@ -6608,6 +6617,7 @@ function createBrowserTab(session, value = state.settings.browserHomeUrl) {
   if (!tab) return false;
   session.tabs.push(tab);
   activateBrowserTab(session, tab.id);
+  if (options.focusAddress) focusBrowserAddressSession(session);
   return true;
 }
 
@@ -6882,10 +6892,10 @@ function ensureBrowser(panel, body) {
   go.onclick = navigate;
   external.onclick = () => openBrowserPanelExternally(panel);
   external.oncontextmenu = (event) => showExternalBrowserProfileMenu(event, browserPanelUrl(panel));
-  tabNew.onclick = () => createBrowserTab(session, state.settings.browserHomeUrl);
+  tabNew.onclick = () => createBrowserTab(session, state.settings.browserHomeUrl, { focusAddress: true });
   tabStrip.addEventListener("dblclick", (event) => {
     if (event.target.closest?.(".browser-tab, .browser-tab-new, button, input")) return;
-    createBrowserTab(session, state.settings.browserHomeUrl);
+    createBrowserTab(session, state.settings.browserHomeUrl, { focusAddress: true });
   });
   deferredPane.onclick = () => {
     focusPanel(panel.id);
