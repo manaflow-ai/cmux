@@ -326,9 +326,10 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
         let workflowContainerSessionId = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
         let resumableSessionId = "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb"
+        let workflowContainerURL = projectDir
+            .appendingPathComponent(workflowContainerSessionId, isDirectory: true)
         try fm.createDirectory(
-            at: projectDir
-                .appendingPathComponent(workflowContainerSessionId, isDirectory: true)
+            at: workflowContainerURL
                 .appendingPathComponent("subagents", isDirectory: true),
             withIntermediateDirectories: true
         )
@@ -346,6 +347,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
                     panelId: panelId,
                     cwd: cwd.path,
                     configDir: configDir.path,
+                    transcriptPath: workflowContainerURL.path,
                     isRestorable: true,
                     updatedAt: 10
                 ),
