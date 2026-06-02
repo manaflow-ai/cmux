@@ -8495,7 +8495,7 @@ function renderSettingsInspector(options = {}) {
       refreshTerminalFontChoices();
     };
     terminalSection.append(settingRow("Font", fontSelect));
-    terminalSection.append(settingRow("Font gallery", terminalFontChoiceGrid(), true, "terminal font gallery preview cascadia consolas jetbrains fira mono"));
+    terminalSection.append(terminalFontDisclosurePanel());
     const fontRange = document.createElement("input");
     fontRange.className = "setting-control";
     fontRange.type = "range";
@@ -8560,7 +8560,7 @@ function renderSettingsInspector(options = {}) {
     cursorSelect.onchange = () => updateSettings({ terminalCursorStyle: cursorSelect.value });
     terminalSection.append(settingRow("Cursor", cursorSelect, false, "terminal cursor line bar block underline powershell caret shape"));
     terminalSection.append(settingRow("Cursor blink", toggleInput(state.settings.terminalCursorBlink, (checked) => updateSettings({ terminalCursorBlink: checked }))));
-    terminalSection.append(settingRow("Color preset", terminalColorPresetGrid(), true, "terminal color theme preset powershell high contrast light warm graphite default"));
+    terminalSection.append(terminalColorDisclosurePanel());
     terminalSection.append(settingRow(
       "Background color",
       colorPicker(state.settings.terminalBackground, (terminalBackground) => updateSettings({ terminalBackground }), terminalColorDefaults.background),
@@ -11229,7 +11229,9 @@ function ensureSettingsDisclosureContent(disclosure) {
     "quick-actions": quickSetupActionGrid,
     "quick-categories": quickSettingsShortcutGrid,
     "quick-presets": settingsPresetGrid,
-    "saved-backgrounds": savedBackgroundImagesPanel
+    "saved-backgrounds": savedBackgroundImagesPanel,
+    "terminal-colors": terminalColorPresetGrid,
+    "terminal-fonts": terminalFontChoiceGrid
   }[disclosure.dataset.disclosureContent];
   if (!contentBuilder) return false;
   disclosure.append(contentBuilder());
@@ -11318,6 +11320,28 @@ function savedBackgroundDisclosurePanel() {
     title: t("appearance.savedBackgrounds"),
     body: t("appearance.savedBackgrounds.body"),
     meta: formatMessage("appearance.savedBackgroundCount", { count: state.savedBackgroundImages.length })
+  });
+}
+
+function terminalFontDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "terminal-font-disclosure",
+    content: "terminal-fonts",
+    searchTerms: "terminal font gallery preview cascadia consolas jetbrains fira mono typeface",
+    title: t("terminal.fontGallery"),
+    body: t("terminal.fontGallery.body"),
+    meta: formatMessage("terminal.fontCount", { count: terminalFontOptions.length })
+  });
+}
+
+function terminalColorDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "terminal-color-disclosure",
+    content: "terminal-colors",
+    searchTerms: "terminal color theme preset powershell high contrast light warm graphite default foreground background cursor",
+    title: t("terminal.colorPresets"),
+    body: t("terminal.colorPresets.body"),
+    meta: formatMessage("terminal.colorPresetCount", { count: terminalColorPresets.length })
   });
 }
 
