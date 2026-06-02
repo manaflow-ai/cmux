@@ -1446,6 +1446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
 #if DEBUG
+        setupUITestSocketBridgeIfNeeded()
         writeUITestDiagnosticsIfNeeded(stage: "didFinishLaunching")
         CmuxMainRunLoopStallMonitor.shared.installIfNeeded()
         CmuxMainThreadTurnProfiler.shared.installIfNeeded()
@@ -1695,6 +1696,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         environment env: [String: String]
     ) {
         guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
+
+        let bridgePath = env["CMUX_UI_TEST_SOCKET_BRIDGE_PATH"] ?? ""
+        payload["socketBridgePath"] = bridgePath
+        payload["socketBridgeSetup"] = didSetupUITestSocketBridge ? "1" : "0"
+        let bridgePathExists = !bridgePath.isEmpty && FileManager.default.fileExists(atPath: bridgePath)
+        payload["socketBridgePathExists"] = bridgePathExists ? "1" : "0"
 
         guard let config = socketListenerConfigurationIfEnabled() else {
             payload["socketExpectedPath"] = env["CMUX_SOCKET_PATH"] ?? ""

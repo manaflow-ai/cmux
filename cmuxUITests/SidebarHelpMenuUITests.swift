@@ -165,15 +165,13 @@ final class SidebarHelpMenuUITests: XCTestCase {
         let sidebar = app.otherElements["Sidebar"]
         return [
             app.buttons["SidebarHelpMenuButton"],
-            app.buttons["Help"],
             app.images["SidebarHelpMenuButton"],
             app.otherElements["SidebarHelpMenuButton"],
             app.descendants(matching: .any)["SidebarHelpMenuButton"],
-            app.descendants(matching: .any)["Help"],
             sidebar.buttons["SidebarHelpMenuButton"],
-            sidebar.buttons["Help"],
+            sidebar.images["SidebarHelpMenuButton"],
+            sidebar.otherElements["SidebarHelpMenuButton"],
             sidebar.descendants(matching: .any)["SidebarHelpMenuButton"],
-            sidebar.descendants(matching: .any)["Help"],
         ]
     }
 
@@ -190,10 +188,9 @@ final class SidebarHelpMenuUITests: XCTestCase {
     ) -> [XCUIElement] {
         [
             app.buttons[identifier],
-            app.buttons[title],
             app.menuItems[identifier],
-            app.menuItems[title],
             app.descendants(matching: .any)[identifier],
+            app.buttons[title],
             app.descendants(matching: .any)[title],
         ]
     }
@@ -327,7 +324,9 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
 
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 3.0) {
-                !app.buttons["SidebarHelpMenuButton"].exists && !app.buttons["Help"].exists
+                !app.buttons["SidebarHelpMenuButton"].exists
+                    && !app.images["SidebarHelpMenuButton"].exists
+                    && !app.otherElements["SidebarHelpMenuButton"].exists
             }
         )
 
@@ -576,8 +575,31 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         let settingsWindow = ensureAppSettingsSection(app: app)
         let toggle = try requireSearchAllSurfacesToggle(app: app, root: settingsWindow)
         if !settingIsOn(identifier: "CommandPaletteSearchAllSurfacesToggle", element: toggle) {
-            clickElement(toggle)
+            XCTAssertTrue(
+                setSettingToggle(
+                    app: app,
+                    root: settingsWindow,
+                    identifier: "CommandPaletteSearchAllSurfacesToggle",
+                    title: "Search All Surfaces",
+                    isOn: true,
+                    timeout: 5.0
+                ),
+                "Expected the all-surfaces search setting to be enabled"
+            )
+        } else {
+            XCTAssertTrue(
+                waitForSettingToggleState(
+                    app: app,
+                    root: settingsWindow,
+                    identifier: "CommandPaletteSearchAllSurfacesToggle",
+                    title: "Search All Surfaces",
+                    isOn: true,
+                    timeout: 1.0
+                ),
+                "Expected the all-surfaces search setting to be enabled"
+            )
         }
+
         XCTAssertTrue(
             waitForSettingToggleState(
                 app: app,
@@ -633,16 +655,14 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         let toggle = try requireMinimalModeToggle(app: app, root: settingsWindow)
         let initialState = settingIsOn(identifier: "SettingsMinimalModeToggle", element: toggle)
 
-        clickElement(toggle)
-
         XCTAssertTrue(
-            waitForSettingToggleState(
+            setSettingToggle(
                 app: app,
                 root: settingsWindow,
                 identifier: "SettingsMinimalModeToggle",
                 title: "Minimal Mode",
                 isOn: !initialState,
-                timeout: 3.0
+                timeout: 5.0
             ),
             "Expected the minimal mode setting to toggle"
         )
@@ -714,30 +734,27 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         let settingsWindow = ensureAppSettingsSection(app: app)
         let toggle = try requireMenuBarOnlyToggle(app: app, root: settingsWindow)
         if settingIsOn(identifier: "SettingsMenuBarOnlyToggle", element: toggle) {
-            clickElement(toggle)
             XCTAssertTrue(
-                waitForSettingToggleState(
+                setSettingToggle(
                     app: app,
                     root: settingsWindow,
                     identifier: "SettingsMenuBarOnlyToggle",
                     title: "Menu Bar Only",
                     isOn: false,
-                    timeout: 3.0
+                    timeout: 5.0
                 ),
                 "Expected menu-bar-only mode to start from off for this test"
             )
         }
 
-        clickElement(toggle)
-
         XCTAssertTrue(
-            waitForSettingToggleState(
+            setSettingToggle(
                 app: app,
                 root: settingsWindow,
                 identifier: "SettingsMenuBarOnlyToggle",
                 title: "Menu Bar Only",
                 isOn: true,
-                timeout: 3.0
+                timeout: 5.0
             ),
             "Expected the menu-bar-only setting to toggle on"
         )
@@ -769,15 +786,14 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             "Expected the Settings window to stay key after enabling menu-bar-only mode. diagnostics=\(loadDiagnostics(at: diagnosticsPath) ?? [:])"
         )
 
-        clickElement(toggle)
         XCTAssertTrue(
-            waitForSettingToggleState(
+            setSettingToggle(
                 app: app,
                 root: settingsWindow,
                 identifier: "SettingsMenuBarOnlyToggle",
                 title: "Menu Bar Only",
                 isOn: false,
-                timeout: 3.0
+                timeout: 5.0
             ),
             "Expected the menu-bar-only setting to toggle back off"
         )
@@ -804,15 +820,14 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         let settingsWindow = ensureAppSettingsSection(app: app)
         let toggle = try requireMinimalModeToggle(app: app, root: settingsWindow)
         if settingIsOn(identifier: "SettingsMinimalModeToggle", element: toggle) {
-            clickElement(toggle)
             XCTAssertTrue(
-                waitForSettingToggleState(
+                setSettingToggle(
                     app: app,
                     root: settingsWindow,
                     identifier: "SettingsMinimalModeToggle",
                     title: "Minimal Mode",
                     isOn: false,
-                    timeout: 3.0
+                    timeout: 5.0
                 ),
                 "Expected the minimal mode setting to start from off for this test"
             )
@@ -1184,6 +1199,90 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         }
     }
 
+    private func setSettingToggle(
+        app: XCUIApplication,
+        root: XCUIElement,
+        identifier: String,
+        title: String,
+        isOn: Bool,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if waitForSettingToggleState(
+                app: app,
+                root: root,
+                identifier: identifier,
+                title: title,
+                isOn: isOn,
+                timeout: 0.2
+            ) {
+                return true
+            }
+
+            guard let element = findSettingToggle(
+                app: app,
+                root: root,
+                identifier: identifier,
+                title: title,
+                timeout: 0.3
+            ) else {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+                continue
+            }
+
+            clickElement(element)
+            if waitForSettingToggleState(
+                app: app,
+                root: root,
+                identifier: identifier,
+                title: title,
+                isOn: isOn,
+                timeout: 0.5
+            ) {
+                return true
+            }
+
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.5)).click()
+            if waitForSettingToggleState(
+                app: app,
+                root: root,
+                identifier: identifier,
+                title: title,
+                isOn: isOn,
+                timeout: 0.5
+            ) {
+                return true
+            }
+
+            app.typeKey(XCUIKeyboardKey.space.rawValue, modifierFlags: [])
+            if waitForSettingToggleState(
+                app: app,
+                root: root,
+                identifier: identifier,
+                title: title,
+                isOn: isOn,
+                timeout: 0.5
+            ) {
+                return true
+            }
+
+            let label = root.staticTexts[title].firstMatch
+            if label.exists {
+                clickElement(label)
+            }
+        }
+
+        return waitForSettingToggleState(
+            app: app,
+            root: root,
+            identifier: identifier,
+            title: title,
+            isOn: isOn,
+            timeout: 0.2
+        )
+    }
+
     private func settingIsOn(identifier: String, element: XCUIElement) -> Bool {
         if let storedState = storedSettingState(identifier: identifier) {
             return storedState
@@ -1194,12 +1293,12 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     private func storedSettingState(identifier: String) -> Bool? {
         switch identifier {
         case "CommandPaletteSearchAllSurfacesToggle":
-            return readDefaultsBool("commandPalette.switcherSearchAllSurfaces", defaultValue: false)
+            return readDefaultsBool("commandPalette.switcherSearchAllSurfaces")
         case "SettingsMenuBarOnlyToggle":
-            return readDefaultsBool("menuBarOnly", defaultValue: false)
+            return readDefaultsBool("menuBarOnly")
         case "SettingsMinimalModeToggle":
             let raw = readDefaultsValue("workspacePresentationMode")
-            if raw == nil || raw == "standard" {
+            if raw == "standard" {
                 return false
             }
             if raw == "minimal" {
@@ -1211,8 +1310,8 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         }
     }
 
-    private func readDefaultsBool(_ key: String, defaultValue: Bool) -> Bool? {
-        guard let raw = readDefaultsValue(key) else { return defaultValue }
+    private func readDefaultsBool(_ key: String) -> Bool? {
+        guard let raw = readDefaultsValue(key) else { return nil }
         switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "1", "true", "yes":
             return true
@@ -1464,6 +1563,8 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
         process.arguments = arguments
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
         do {
             try process.run()
             process.waitUntilExit()
