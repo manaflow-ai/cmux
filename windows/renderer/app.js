@@ -2714,8 +2714,9 @@ function markInteractedPanel(panelId) {
     found.workspace.activePanelId = panelId;
     queueFocusSync({ type: "panel", panelId });
     updateBrowserPaneActivity(visiblePanePanelIds());
+    scheduleRender();
   }
-  if (zoomChanged) render();
+  if (zoomChanged && wasActive) render();
   return found.panel;
 }
 
