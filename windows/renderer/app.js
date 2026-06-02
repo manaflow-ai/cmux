@@ -304,6 +304,18 @@ const settingsInspectorSettingKeys = {
     "browserHomeUrl"
   ]
 };
+const settingsPresetSettingKeys = new Set(settingsPresets.flatMap((preset) => Object.keys(preset.settings || {})));
+const quickSettingsSettingKeys = [
+  ...new Set([
+    ...settingsPresetSettingKeys,
+    "browserHomeUrl",
+    "terminalProfile",
+    "terminalCustomShell",
+    "browserLaunchMode",
+    "externalBrowserProfileId",
+    "browserSuspendInactive"
+  ])
+];
 const terminalSearchDecorations = {
   matchBackground: "#5f4b1a",
   activeMatchBackground: "#9d6b20",
@@ -8639,11 +8651,16 @@ function settingsInspectorSignature() {
 }
 
 function settingsInspectorSettingsSignature(category, searching) {
-  if (searching || ["quick", "profiles", "data", "actions"].includes(category)) {
+  if (searching || ["profiles", "data", "actions"].includes(category)) {
     return stableJson(state.settings);
   }
+  if (category === "quick") return settingsKeysSignature(quickSettingsSettingKeys);
   const keys = settingsInspectorSettingKeys[category];
   if (!keys) return "";
+  return settingsKeysSignature(keys);
+}
+
+function settingsKeysSignature(keys) {
   const parts = [];
   appendSignatureArray(parts, keys, (nextParts, key) => {
     appendSignatureValue(nextParts, key);
