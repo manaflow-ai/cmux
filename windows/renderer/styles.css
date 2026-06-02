@@ -3683,9 +3683,20 @@ body.reduce-motion *::after {
   cursor: pointer;
 }
 
+.empty-workspace-launcher.is-add {
+  min-height: 64px;
+  border-color: color-mix(in oklch, var(--color-accent) 34%, var(--color-line));
+  background: color-mix(in oklch, var(--color-pane-warm) 78%, var(--color-accent-hover));
+}
+
 .empty-workspace-launcher:hover {
   border-color: var(--color-line-strong);
   background: var(--color-pane-warm);
+}
+
+.empty-workspace-launcher.is-add:hover {
+  border-color: color-mix(in oklch, var(--color-accent) 64%, var(--color-line-strong));
+  background: color-mix(in oklch, var(--color-pane-warm) 70%, var(--color-accent-hover));
 }
 
 .empty-workspace-launcher.is-primary {
@@ -3711,6 +3722,12 @@ body.reduce-motion *::after {
   font: 700 14px/1 var(--font-mono);
   letter-spacing: 0;
   white-space: nowrap;
+}
+
+.empty-workspace-launcher.is-add .empty-workspace-launcher-icon {
+  border-color: color-mix(in oklch, var(--color-accent) 46%, var(--color-line));
+  background: color-mix(in oklch, var(--color-accent) 24%, var(--color-pane));
+  color: var(--color-text);
 }
 
 .empty-workspace-launcher-text {

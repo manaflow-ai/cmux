@@ -4349,7 +4349,11 @@ function renderPaneNode(panel, workspace, visibleCount) {
     if (!immediateInit && shouldDeferInitialTerminalLoad(panel, workspace, visibleCount)) {
       renderDeferredTerminal(panel, body);
       if (deferUntilPaint) state.paintDeferredTerminalInitPanelIds.delete(panel.id);
-      queueDeferredTerminalInit(panel.id, { afterPaint: deferUntilPaint });
+      if (deferUntilPaint || panel.id === workspace?.activePanelId) {
+        queueDeferredTerminalInit(panel.id, { afterPaint: deferUntilPaint });
+      } else {
+        state.deferredTerminalInitQueue.delete(panel.id);
+      }
     } else {
       ensureTerminal(panel, body);
     }
@@ -4582,20 +4586,22 @@ function emptyWorkspaceLaunchers() {
   const launchers = [
     {
       id: "terminal",
-      icon: ">_",
+      icon: "+T",
       label: "Terminal",
-      meta: "shell",
+      meta: "New shell",
       kind: "panel",
       type: "terminal",
+      addAction: true,
       primary: state.closedPanels.length === 0
     },
     {
       id: "browser",
-      icon: "○",
+      icon: "+W",
       label: "Browser",
-      meta: "home",
+      meta: "Home page",
       kind: "panel",
-      type: "browser"
+      type: "browser",
+      addAction: true
     }
   ];
   if (workspaceStarters.length > 0 || state.workspaceBlueprints.length > 0) {
@@ -4643,6 +4649,7 @@ function renderEmptyWorkspaceLaunchers(node, workspace) {
   const cards = emptyWorkspaceLaunchers().map((launcher) => {
     const button = document.createElement("button");
     button.className = `empty-workspace-launcher${launcher.primary ? " is-primary" : ""}`;
+    toggleClassIfChanged(button, "is-add", launcher.addAction);
     button.type = "button";
     button.dataset.emptyLauncher = launcher.id;
     button.disabled = busy;
