@@ -8609,6 +8609,10 @@ function settingsInspectorSignature() {
     state.settingsQuery,
     settingsInspectorSettingsSignature(category, searching)
   ];
+  if (!searching && category === "data") {
+    parts.push(dataSettingsSignature());
+    return parts.join("\u001e");
+  }
   if (searching || ["workspace", "layout", "blueprints", "performance", "actions"].includes(category)) {
     parts.push(activeWorkspaceSettingsSignature());
   } else if (category === "appearance") {
@@ -8645,9 +8649,10 @@ function settingsInspectorSignature() {
 }
 
 function settingsInspectorSettingsSignature(category, searching) {
-  if (searching || ["data", "actions"].includes(category)) {
+  if (searching || category === "actions") {
     return stableJson(state.settings);
   }
+  if (category === "data") return "";
   if (category === "profiles") return settingsKeysSignature(profileSettingsSettingKeys);
   if (category === "quick") return settingsKeysSignature(quickSettingsSettingKeys);
   const keys = settingsInspectorSettingKeys[category];
@@ -8739,6 +8744,24 @@ function quickSettingsSignature() {
   appendSignatureValue(parts, state.customColorPalette.length);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
   appendSignatureValue(parts, state.performanceGuardTriggered);
+  return parts.join("");
+}
+
+function dataSettingsSignature() {
+  const parts = [];
+  appendSignatureValue(parts, recentDataItemCount());
+  appendSignatureValue(parts, savedDataItemCount());
+  appendSignatureValue(parts, state.data?.activeWorkspaceId || "");
+  appendSignatureArray(parts, state.data?.workspaces || [], (nextParts, workspace) => {
+    appendSignatureValue(nextParts, workspace.id);
+    appendSignatureValue(nextParts, workspace.panels?.length || 0);
+  });
+  appendSignatureArray(parts, dataStorageEntries(), (nextParts, entry) => {
+    appendSignatureValue(nextParts, entry.id);
+    appendSignatureValue(nextParts, entry.count);
+    appendSignatureValue(nextParts, entry.bytes);
+  });
+  appendSignatureArray(parts, state.recentCommands, appendSignatureValue);
   return parts.join("");
 }
 
