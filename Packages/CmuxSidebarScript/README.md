@@ -70,6 +70,23 @@ RenderNodeView(node: node, onAction: handleAction)    // render as SwiftUI
 
 `SidebarScript.makeDefault()` compiles the bundled `DefaultSidebar.lisp`.
 
+Bundled demos live in `Sources/CmuxSidebarScript/Resources/` and are exposed by
+`SidebarScriptDemo.all`:
+
+- `DefaultSidebar.lisp`: the normal rich workspace row.
+- `LiquidGlassSidebar.lisp`: translucent rounded badges and layered symbols.
+- `HighDensityIDESidebar.lisp`: compact IDE rows with dense metadata.
+- `TerminalStealthSidebar.lisp`: monospaced terminal-oriented rows.
+- `ProStudioSidebar.lisp`: chunkier pro-app cards and pill metadata.
+- `FinderSidebar.lisp`: filled icons and Finder-like hierarchy.
+- `AgentOpsSidebar.lisp`: a compact ops dashboard with PR, port, status, and
+  progress widgets.
+
+The bridge intentionally does not execute arbitrary Swift. To support more of
+SwiftUI, add view constructors or modifiers to `Bridge` and `RenderNodeView`.
+That preserves deterministic rendering, row equatability, and native fallback
+when a user script fails.
+
 ## Testing
 
 Everything but `RenderNodeView` is pure and host-free. Evaluate a string and

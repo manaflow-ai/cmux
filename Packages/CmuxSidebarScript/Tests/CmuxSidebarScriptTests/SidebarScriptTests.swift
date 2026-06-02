@@ -24,6 +24,22 @@ import Testing
         _ = try SidebarScript.makeDefault()
     }
 
+    @Test func bundledDemoScriptsCompileAndRender() throws {
+        let demos = SidebarScriptDemo.all
+        #expect(demos.count >= 6)
+
+        for demo in demos {
+            do {
+                let script = try SidebarScript(source: demo.source)
+                let node = try script.render(sampleContext())
+                #expect(node != .empty)
+                #expect(node.containsText("issue-118-korean-ime") || node.containsText("ISSUE-118-KOREAN-IME"))
+            } catch {
+                Issue.record("Demo '\(demo.id)' failed: \(error)")
+            }
+        }
+    }
+
     @Test func defaultScriptRendersRichRow() throws {
         let script = try SidebarScript.makeDefault()
         let node = try script.render(sampleContext())
