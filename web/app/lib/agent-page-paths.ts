@@ -32,6 +32,7 @@ const englishOnlyPages = [
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/blog", title: "Blog" },
+  { path: "/blog/cmux-history", title: "cmux history" },
   { path: "/blog/cmux-finder", title: "Introducing cmux Finder" },
   { path: "/blog/cmux-vault", title: "cmux Vault" },
   { path: "/blog/passkey-auth", title: "Passkey auth in the cmux browser" },

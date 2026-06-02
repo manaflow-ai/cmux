@@ -615,6 +615,7 @@ extension Workspace {
             guard browserPanel.shouldPersistSessionSnapshot() else { return nil }
             terminalSnapshot = nil
             let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
+            let diffViewerComponents = browserPanel.diffViewerSessionComponents()
             browserSnapshot = SessionBrowserPanelSnapshot(
                 urlString: browserPanel.preferredURLStringForSessionSnapshot(),
                 profileID: browserPanel.profileID,
@@ -624,7 +625,10 @@ extension Workspace {
                 isMuted: browserPanel.isMuted,
                 omnibarVisible: browserPanel.isOmnibarVisible,
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
-                forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
+                forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
+                transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
+                diffViewerToken: diffViewerComponents?.token,
+                diffViewerRequestPath: diffViewerComponents?.requestPath
             )
             markdownSnapshot = nil
             filePreviewSnapshot = nil
@@ -1805,7 +1809,8 @@ extension Workspace {
                 url: nil,
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID,
-                creationPolicy: .restoration
+                creationPolicy: .restoration,
+                transparentBackground: snapshot.browser?.transparentBackground ?? false
             ) else {
                 return nil
             }
@@ -5988,6 +5993,18 @@ final class WorkspaceRemotePTYBridgeServer {
                 return String(
                     localized: "remotePTYAttach.error.daemonTimeout",
                     defaultValue: "remote daemon did not respond in time"
+                )
+            }
+            // Surface the daemon's PTY-allocation diagnostic (it names the failing
+            // device and the devpts/ptmxmode cause) instead of collapsing it into a
+            // generic message. Key off the daemon's stable marker only, so an
+            // unrelated error that merely mentions a device path is not leaked, and
+            // route the dynamic detail through the localization API to match the
+            // surrounding branches. See issue #5185.
+            if lowered.contains("could not allocate a remote pty") {
+                return String(
+                    localized: "remotePTYAttach.error.allocationDiagnostic",
+                    defaultValue: "\(message)"
                 )
             }
             return String(
@@ -11588,6 +11605,29 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? FilePreviewPanel
     }
 
+    /// The working directory app-level actions (diff viewer, configured commands)
+    /// should target for this workspace: the focused panel's tracked directory, then
+    /// its terminal's requested directory, then the workspace's current directory.
+    /// Returns `nil` when none is known so callers can apply their own fallback.
+    ///
+    /// This is the focused-panel case of ``configTrackingDirectory(for:)`` (the same
+    /// three-tier order); the tiers are spelled out here so the public entry point is
+    /// self-contained.
+    func resolvedWorkingDirectory() -> String? {
+        let candidates = [
+            focusedPanelId.flatMap { panelDirectories[$0] },
+            focusedPanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
+            currentDirectory,
+        ]
+        for candidate in candidates {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
     private func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
@@ -14461,6 +14501,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
+        transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
         initialDividerPosition: CGFloat? = nil
     ) -> BrowserPanel? {
@@ -14496,6 +14537,7 @@ final class Workspace: Identifiable, ObservableObject {
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             omnibarVisible: omnibarVisible,
+            transparentBackground: transparentBackground,
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
@@ -14570,6 +14612,7 @@ final class Workspace: Identifiable, ObservableObject {
         bypassInsecureHTTPHostOnce: String? = nil,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
+        transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
@@ -14597,6 +14640,7 @@ final class Workspace: Identifiable, ObservableObject {
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             omnibarVisible: omnibarVisible,
+            transparentBackground: transparentBackground,
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,

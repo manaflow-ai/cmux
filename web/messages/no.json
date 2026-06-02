@@ -242,6 +242,22 @@
         "p3": "Det sender gjeldende workspace bakerst i den uleste syklusen, slik at du kan fortsette å bla gjennom ulest arbeid uten å fjerne statusen.",
         "p4": "Cmd+Option+U veksler gjeldende workspace mellom lest og ulest.",
         "p5": "Dette er nyttig når du hopper til et nytt ulest workspace med Cmd+Shift+U, men må bytte kontekst før du svarer."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Gjenåpne lukkede terminaler, nettlesere, workspaces og agent-økter med Cmd+Shift+T, og gå tilbake gjennom fokuset ditt med Cmd+[ og Cmd+].",
+        "date": "2. juni 2026",
+        "p1": "Du lukker en terminalfane for å rydde, og innser så at du trengte den. Eller du lukker et helt workspace og mister agenten som var midt i en oppgave. cmux fører nå en historikk over det du har lukket og hatt i fokus, så det holder med én snarvei for å få det tilbake.",
+        "reopenTitle": "Gjenåpne det du lukket",
+        "reopenP": "Trykk <code>Cmd+Shift+T</code> for å gjenåpne det siste du lukket. Det fungerer for terminalfaner, nettleserfaner, workspaces og vinduer, og gjenoppretter dem én om gangen i rekkefølgen du lukket dem. Hver flate kommer tilbake der den var, med rutene intakte.",
+        "agentTitle": "Agent-økter kommer også tilbake",
+        "agentP": "Historikken gjenåpner også lukkede agent-økter. Gjenåpne en Claude Code-, Codex- eller OpenCode-økt, og den fortsetter der den slapp. Kjør <code>cmux hooks setup</code> én gang så cmux kan holde styr på agent-økter; deretter gjenåpnes de som alt annet.",
+        "agentP2": "Dette bygger på cmux <link>øktgjenoppretting</link>, som gjenopptar støttede agenter via deres egne native gjenopptakelseskommandoer.",
+        "focusTitle": "Tilbake til der du var",
+        "focusP": "Frem- og tilbake-knappene i tittellinjen, eller <code>Cmd+[</code> og <code>Cmd+]</code>, hopper til forrige og neste workspace eller vindu du jobbet i, på samme måte som frem og tilbake i en nettleser.",
+        "fullHistoryTitle": "Det fullstendige historikkpanelet",
+        "fullHistoryP": "Når du trenger mer enn det siste elementet, åpne det fullstendige historikkpanelet: en søkbar visning gruppert etter dag over alt du har lukket og hatt i fokus, med tidsstempler og en Clear Closed-handling.",
+        "docsCta": "Se <link>hurtigtaster</link> for hele listen, inkludert hvordan du binder om historikknavigasjonen."
       }
     },
     "zenOfCmux": {
@@ -367,6 +383,10 @@
         "AI-kodeagenter",
         "workspace ulest"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: gjenåpne lukkede terminaler og økter",
+      "metaDescription": "cmux fører en historikk over det du har lukket og hatt i fokus. Gjenåpne lukkede terminaler, nettlesere, workspaces og Claude Code-, Codex- og OpenCode-økter med Cmd+Shift+T, og flytt fokus frem og tilbake med Cmd+[ og Cmd+]."
     }
   },
   "docs": {

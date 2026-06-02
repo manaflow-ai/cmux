@@ -267,6 +267,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let ghosttyConfigContents = """
         font-family = Unit Mono
         font-size = 15
+        background-opacity = 0.42
         theme = light:Unit Light,dark:Unit Dark
         """
         try ghosttyConfigContents.write(to: ghosttyConfigURL, atomically: true, encoding: .utf8)
@@ -352,6 +353,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let commandPayload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
         let params = try XCTUnwrap(commandPayload["params"] as? [String: Any])
         XCTAssertEqual(params["show_omnibar"] as? Bool, false)
+        XCTAssertEqual(params["transparent_background"] as? Bool, true)
         XCTAssertEqual(params["bypass_remote_proxy"] as? Bool, true)
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let viewerURL = try XCTUnwrap(URL(string: rawURL))
@@ -367,7 +369,9 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
         let patchText = try String(contentsOf: patchSidecarURL, encoding: .utf8)
-        let viewerPayload = try diffViewerPayload(from: html)
+        let viewerConfig = try diffViewerConfig(from: html)
+        let viewerPayload = try diffViewerPayload(from: viewerConfig)
+        let viewerAssets = try diffViewerAssets(from: viewerConfig)
         let shortcuts = try XCTUnwrap(viewerPayload["shortcuts"] as? [String: Any])
         let scrollDown = try XCTUnwrap(shortcuts["diffViewerScrollDown"] as? [String: Any])
         let scrollDownFirst = try XCTUnwrap(scrollDown["first"] as? [String: Any])
@@ -384,26 +388,26 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(fileSearch["unbound"] as? Bool, true)
         let files = try diffViewerAllowedFiles(for: rawURL, from: params)
         XCTAssertTrue(html.contains("Review diff"), html)
-        XCTAssertTrue(html.contains("id=\"files-sidebar\""), html)
-        XCTAssertTrue(html.contains("grid-template-areas: \"viewer files\""), html)
-        XCTAssertTrue(html.contains("grid-template-columns: minmax(0, 1fr) var(--cmux-diff-files-width)"), html)
-        XCTAssertTrue(html.contains("id=\"file-search-toggle\""), html)
-        XCTAssertTrue(html.contains("id=\"files-footer\""), html)
-        XCTAssertTrue(html.contains("id=\"jump-select\""), html)
-        XCTAssertTrue(html.contains("id=\"layout-toggle\""), html)
-        XCTAssertTrue(html.contains("id=\"options-menu\""), html)
+        XCTAssertTrue(html.contains("<script id=\"cmux-diff-viewer-config\" type=\"application/json\">"), html)
+        XCTAssertTrue(html.contains("<div id=\"root\"></div>"), html)
+        XCTAssertTrue(html.contains("<script type=\"module\" src=\"./assets/cmux-diff-viewer-app/main.mjs\"></script>"), html)
         let assetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent("pierre-diffs-1.2.1-trees-1.0.0-beta.4", isDirectory: true)
+        let appAssetDirectory = viewerFileURL.deletingLastPathComponent()
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-app", isDirectory: true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("diffs.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("trees.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-pool.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-portable.mjs").path))
-        XCTAssertTrue(html.contains("WORKER_POOL_MODULE_URL"), html)
-        XCTAssertTrue(html.contains("new CodeView(codeViewOptions(), workerPool ?? undefined)"), html)
-        XCTAssertTrue(html.contains("Indicator style"), html)
-        XCTAssertTrue(html.contains("Open source URL"), html)
-        XCTAssertTrue(html.contains("Copy git apply command"), html)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs").path))
+        XCTAssertEqual(viewerAssets["diffsModuleURL"], "./assets/pierre-diffs-1.2.1-trees-1.0.0-beta.4/diffs.mjs")
+        XCTAssertEqual(viewerAssets["treesModuleURL"], "./assets/pierre-diffs-1.2.1-trees-1.0.0-beta.4/trees.mjs")
+        XCTAssertEqual(viewerAssets["workerPoolModuleURL"], "./assets/pierre-diffs-1.2.1-trees-1.0.0-beta.4/worker-pool/worker-pool.mjs")
+        XCTAssertEqual(viewerAssets["workerModuleURL"], "./assets/pierre-diffs-1.2.1-trees-1.0.0-beta.4/worker-pool/worker-portable.mjs")
+        let appearance = try XCTUnwrap(viewerPayload["appearance"] as? [String: Any])
+        XCTAssertEqual(appearance["backgroundOpacity"] as? Double, 0.42)
         XCTAssertTrue(html.contains("\"fontFamily\":\"Unit Mono\""), html)
         XCTAssertTrue(html.contains("\"fontSize\":13"), html)
         XCTAssertFalse(html.contains("\"fontSize\":15"), html)
@@ -418,6 +422,10 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(files.contains { file in
             file["request_path"] as? String == "/\(patchSidecarURL.lastPathComponent)" &&
                 file["mime_type"] as? String == "text/x-diff"
+        })
+        XCTAssertTrue(files.contains { file in
+            file["request_path"] as? String == "/assets/cmux-diff-viewer-app/main.mjs" &&
+                file["mime_type"] as? String == "text/javascript"
         })
         XCTAssertFalse(html.contains("hello.txt"), html)
         XCTAssertFalse(html.contains("<\\/script> marker"), html)
@@ -459,9 +467,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         )
 
         XCTAssertEqual(result.params["show_omnibar"] as? Bool, false)
-        XCTAssertTrue(result.html.contains("\"externalURL\":\"\(originalURL)\""), result.html)
-        XCTAssertTrue(result.html.contains("\"sourceLabel\":\"\(originalURL)\""), result.html)
-        XCTAssertTrue(result.html.contains("id=\"external-link\""), result.html)
+        let payload = try diffViewerPayload(from: result.html)
+        XCTAssertEqual(payload["externalURL"] as? String, originalURL)
+        XCTAssertEqual(payload["sourceLabel"] as? String, originalURL)
         let rawURL = try XCTUnwrap(result.params["url"] as? String)
         let files = try diffViewerAllowedFiles(for: rawURL, from: result.params)
         let patchFile = try XCTUnwrap(files.first { file in
@@ -893,9 +901,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(branch.patch.contains("+two"), branch.patch)
         XCTAssertTrue(branch.patch.contains("+three"), branch.patch)
         XCTAssertTrue(branch.html.contains("\"sourceLabel\":\"git branch origin/main\""), branch.html)
-        XCTAssertTrue(branch.html.contains("id=\"source-select\""), branch.html)
-        XCTAssertTrue(branch.html.contains("id=\"repo-select\""), branch.html)
-        XCTAssertTrue(branch.html.contains("id=\"base-select\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"sourceOptions\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"repoOptions\""), branch.html)
         XCTAssertTrue(branch.html.contains("\"baseOptions\""), branch.html)
@@ -1637,10 +1642,14 @@ final class CMUXOpenCommandTests: XCTestCase {
         wait(for: [openHandled], timeout: 5)
         XCTAssertNotNil(openedURLBox.get())
         XCTAssertEqual(diffHadStartedWhenOpenedBox.get() ?? true, false)
-        XCTAssertTrue(pendingHTMLBox.get()?.contains("data-cmux-diff-pending=\"true\"") == true, pendingHTMLBox.get() ?? "")
-        XCTAssertTrue(pendingHTMLBox.get()?.contains("data-status-only=\"true\"") == true, pendingHTMLBox.get() ?? "")
-        XCTAssertTrue(pendingHTMLBox.get()?.contains("id=\"toolbar\"") == true, pendingHTMLBox.get() ?? "")
-        XCTAssertTrue(pendingHTMLBox.get()?.contains("id=\"viewer\"") == true, pendingHTMLBox.get() ?? "")
+        let pendingHTML = try XCTUnwrap(pendingHTMLBox.get())
+        let pendingPayload = try diffViewerPayload(from: pendingHTML)
+        XCTAssertTrue(pendingHTML.contains("data-cmux-diff-pending=\"true\""), pendingHTML)
+        XCTAssertFalse(pendingHTML.contains("data-status-only=\"true\""), pendingHTML)
+        XCTAssertTrue(pendingHTML.contains("<div id=\"root\"></div>"), pendingHTML)
+        XCTAssertEqual(pendingPayload["pendingReplacement"] as? Bool, true)
+        XCTAssertEqual(pendingPayload["title"] as? String, "Slow diff")
+        XCTAssertEqual(pendingPayload["statusIsError"] as? Bool, false)
         XCTAssertFalse(FileManager.default.fileExists(atPath: releaseDiffURL.path))
         FileManager.default.createFile(atPath: releaseDiffURL.path, contents: Data())
         let openingHTMLURL = try XCTUnwrap(openedHTMLURLBox.get())
@@ -2250,17 +2259,31 @@ final class CMUXOpenCommandTests: XCTestCase {
         return "/" + pathParts.dropFirst().joined(separator: "/")
     }
 
-    private func diffViewerPayload(from html: String) throws -> [String: Any] {
-        let marker = "const payload = "
+    private func diffViewerConfig(from html: String) throws -> [String: Any] {
+        let marker = "<script id=\"cmux-diff-viewer-config\" type=\"application/json\">"
         let start = try XCTUnwrap(html.range(of: marker)?.upperBound)
         let tail = html[start...]
-        let end = try XCTUnwrap(tail.range(of: "\n            const labels")?.lowerBound)
-        var json = String(tail[..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
-        if json.hasSuffix(";") {
-            json.removeLast()
-        }
+        let end = try XCTUnwrap(tail.range(of: "</script>")?.lowerBound)
+        let json = String(tail[..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
         let object = try JSONSerialization.jsonObject(with: Data(json.utf8))
         return try XCTUnwrap(object as? [String: Any])
+    }
+
+    private func diffViewerPayload(from html: String) throws -> [String: Any] {
+        try diffViewerPayload(from: diffViewerConfig(from: html))
+    }
+
+    private func diffViewerPayload(from config: [String: Any]) throws -> [String: Any] {
+        try XCTUnwrap(config["payload"] as? [String: Any])
+    }
+
+    private func diffViewerAssets(from config: [String: Any]) throws -> [String: String] {
+        let assets = try XCTUnwrap(config["assets"] as? [String: Any])
+        var result: [String: String] = [:]
+        for (key, value) in assets {
+            result[key] = try XCTUnwrap(value as? String)
+        }
+        return result
     }
 
     private func diffViewerOptionURL(value: String, in options: [[String: Any]]) throws -> String {

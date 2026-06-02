@@ -939,6 +939,100 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
     }
 }
 
+final class GhosttyTerminalContextMenuTests: XCTestCase {
+    func testLookUpTitleIncludesQuotedSelectionPreview() {
+        let title = GhosttyNSView.lookUpMenuTitle(for: "hello")
+
+        XCTAssertEqual(title, Self.localizedLookUpTitle(preview: "hello"))
+    }
+
+    func testLookUpTitleNormalizesWhitespaceAndTruncatesLongText() {
+        let title = GhosttyNSView.lookUpMenuTitle(
+            for: "  abc\tdef\n" + String(repeating: "x", count: 80),
+            previewLimit: 10
+        )
+
+        XCTAssertEqual(title, Self.localizedLookUpTitle(preview: "abc def xx…"))
+    }
+
+    func testTextServicesRequireSendOnlyTextAndSelection() {
+        XCTAssertTrue(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: nil,
+                returnType: nil,
+                hasSelection: true
+            )
+        )
+        XCTAssertTrue(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: .string,
+                returnType: nil,
+                hasSelection: true
+            )
+        )
+        XCTAssertTrue(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: NSPasteboard.PasteboardType("public.utf8-plain-text"),
+                returnType: nil,
+                hasSelection: true
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: nil,
+                returnType: nil,
+                hasSelection: false
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: nil,
+                returnType: .string,
+                hasSelection: true
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: .string,
+                returnType: nil,
+                hasSelection: false
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: .string,
+                returnType: .string,
+                hasSelection: true
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: .png,
+                returnType: nil,
+                hasSelection: true
+            )
+        )
+    }
+
+    func testTextServicesExposeAppKitPasteboardWriterSelector() {
+        let view = GhosttyNSView(frame: .zero)
+
+        XCTAssertTrue(
+            view.responds(to: NSSelectorFromString("writeSelectionToPasteboard:types:"))
+        )
+        XCTAssertFalse(
+            view.responds(to: NSSelectorFromString("writeSelectionTo:types:"))
+        )
+    }
+
+    private static func localizedLookUpTitle(preview: String) -> String {
+        String.localizedStringWithFormat(
+            String(localized: "terminalContextMenu.lookUpFormat", defaultValue: "Look Up \"%@\""),
+            preview
+        )
+    }
+}
+
 @MainActor
 final class TerminalOffscreenStartupTests: XCTestCase {
     func testPlainSurfaceDoesNotStartRuntimeBeforeWindowAttachmentOrInput() {
