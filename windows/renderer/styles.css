@@ -1563,10 +1563,42 @@ body.reduce-motion *::after {
   pointer-events: auto;
 }
 
+.surface-tabs.is-crowded .surface-tab:not(.surface-new-tab):hover,
+.surface-tabs.is-crowded .surface-tab:not(.surface-new-tab):focus-within,
+.surface-tabs.is-crowded .surface-tab:not(.surface-new-tab).is-active {
+  grid-template-columns: 16px minmax(0, 1fr) 20px;
+  padding: 0 3px 0 5px;
+}
+
 .surface-tabs.is-crowded .surface-tab:hover .surface-label,
 .surface-tabs.is-crowded .surface-tab:focus-within .surface-label,
 .surface-tabs.is-crowded .surface-tab.is-active .surface-label {
-  padding-right: 24px;
+  padding-right: 0;
+}
+
+.surface-tabs.is-crowded .surface-tab:hover .surface-close,
+.surface-tabs.is-crowded .surface-tab:focus-within .surface-close,
+.surface-tabs.is-crowded .surface-tab.is-active .surface-close {
+  position: static;
+  transform: none;
+}
+
+@container (max-width: 440px) {
+  .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab):hover,
+  .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab):focus-within,
+  .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab).is-active {
+    grid-template-columns: 16px 18px;
+    justify-content: center;
+    gap: 2px;
+    padding: 0 2px;
+  }
+
+  .surface-tabs.is-crowded .surface-tab:hover .surface-close,
+  .surface-tabs.is-crowded .surface-tab:focus-within .surface-close,
+  .surface-tabs.is-crowded .surface-tab.is-active .surface-close {
+    position: static;
+    transform: none;
+  }
 }
 
 .surface-close:hover {
@@ -3079,10 +3111,24 @@ body.reduce-motion *::after {
   pointer-events: auto;
 }
 
+.browser-tab-list.is-crowded .browser-tab:hover,
+.browser-tab-list.is-crowded .browser-tab:focus-within,
+.browser-tab-list.is-crowded .browser-tab.is-active {
+  grid-template-columns: 14px minmax(0, 1fr) 17px;
+  padding: 0 3px 0 5px;
+}
+
 .browser-tab-list.is-crowded .browser-tab:hover .browser-tab-label,
 .browser-tab-list.is-crowded .browser-tab:focus-within .browser-tab-label,
 .browser-tab-list.is-crowded .browser-tab.is-active .browser-tab-label {
-  padding-right: 17px;
+  padding-right: 0;
+}
+
+.browser-tab-list.is-crowded .browser-tab:hover .browser-tab-close,
+.browser-tab-list.is-crowded .browser-tab:focus-within .browser-tab-close,
+.browser-tab-list.is-crowded .browser-tab.is-active .browser-tab-close {
+  position: static;
+  transform: none;
 }
 
 .browser-tab-close:hover {
