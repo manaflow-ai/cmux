@@ -19,7 +19,9 @@ class UpdateDriver: NSObject, SPUUserDriver {
               reply: @escaping @Sendable (SUUpdatePermissionResponse) -> Void) {
 #if DEBUG
         let env = ProcessInfo.processInfo.environment
-        if env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" || env["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] == "1" {
+        let shouldAutoAllowTriggeredCheck = env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1"
+            && env["CMUX_UI_TEST_DEFER_UPDATE_CHECK_TO_ACTION"] != "1"
+        if env["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] == "1" || shouldAutoAllowTriggeredCheck {
             UpdateLogStore.shared.append("auto-allow update permission (ui test)")
             DispatchQueue.main.async {
                 reply(SUUpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false))

@@ -11806,6 +11806,7 @@ extension Notification.Name {
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
     static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
     static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
+    static let feedbackComposerMessageSetRequested = Notification.Name("cmux.feedbackComposerMessageSetRequested")
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
@@ -11823,6 +11824,10 @@ extension Notification.Name {
     static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
     static let workspaceCurrentDirectoryDidChange = Notification.Name("cmux.workspaceCurrentDirectoryDidChange")
     static let tabManagerFocusHistoryRevisionDidChange = Notification.Name("cmux.tabManagerFocusHistoryRevisionDidChange")
+}
+
+final class CommandPaletteSubmitAcknowledgement {
+    var handled = false
 }
 
 enum BrowserFirstResponderNotificationUserInfoKey {

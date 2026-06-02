@@ -1650,6 +1650,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let ids = windows.map { $0.identifier?.rawValue ?? "" }.joined(separator: ",")
         let vis = windows.map { $0.isVisible ? "1" : "0" }.joined(separator: ",")
         let screenIDs = windows.map { $0.screen?.cmuxDisplayID.map(String.init) ?? "" }.joined(separator: ",")
+        let keyWindowIdentifier = NSApp.keyWindow?.identifier?.rawValue ?? ""
+        let mainWindowIdentifier = NSApp.mainWindow?.identifier?.rawValue ?? ""
+        let settingsWindow = windows.first { $0.identifier?.rawValue == "cmux.settings" }
         let targetDisplayID = env["CMUX_UI_TEST_TARGET_DISPLAY_ID"] ?? ""
 
         payload["stage"] = stage
@@ -1660,6 +1663,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         payload["windowIdentifiers"] = ids
         payload["windowVisibleFlags"] = vis
         payload["windowScreenDisplayIDs"] = screenIDs
+        payload["keyWindowIdentifier"] = keyWindowIdentifier
+        payload["mainWindowIdentifier"] = mainWindowIdentifier
+        payload["settingsWindowIsKey"] = settingsWindow?.isKeyWindow == true ? "1" : "0"
+        payload["settingsWindowIsMain"] = settingsWindow?.isMainWindow == true ? "1" : "0"
+        payload["settingsWindowIsVisible"] = settingsWindow?.isVisible == true ? "1" : "0"
         payload["uiTestTargetDisplayID"] = targetDisplayID
         if let rawDisplayID = UInt32(targetDisplayID) {
             let screenPresent = NSScreen.screens.contains(where: { $0.cmuxDisplayID == rawDisplayID })
@@ -1673,6 +1681,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
         try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    func writeUITestDiagnosticsForDebug(stage: String) {
+        writeUITestDiagnosticsIfNeeded(stage: stage)
     }
 
     private func loadUITestDiagnostics(at path: String) -> [String: String] {
@@ -16267,6 +16279,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         center.setNotificationCategories([
             category, permissionCategory, exitPlanCategory, questionCategory
         ])
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS"] == "1" {
+            center.removeAllPendingNotificationRequests()
+            center.removeAllDeliveredNotifications()
+        }
         center.delegate = self
     }
 

@@ -3837,6 +3837,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugSettingsGet(params: params))
         case "debug.sidebar_help.perform":
             return v2Result(id: id, self.v2DebugSidebarHelpPerform(params: params))
+        case "debug.feedback.message.set":
+            return v2Result(id: id, self.v2DebugFeedbackMessageSet(params: params))
         case "debug.command_palette.rename_input.interact":
             return v2Result(id: id, self.v2DebugCommandPaletteRenameInputInteraction(params: params))
         case "debug.command_palette.rename_input.delete_backward":
@@ -4129,6 +4131,7 @@ class TerminalController {
             "debug.settings.set",
             "debug.settings.get",
             "debug.sidebar_help.perform",
+            "debug.feedback.message.set",
             "debug.command_palette.rename_input.interact",
             "debug.command_palette.rename_input.delete_backward",
             "debug.command_palette.rename_input.selection",
@@ -8685,6 +8688,8 @@ class TerminalController {
                     item["developer_tools_visible"] = browserPanel.isDeveloperToolsVisible()
                 }
                 if let terminalPanel = panel as? TerminalPanel {
+                    let currentDirectory = v2NonEmptyString(ws.panelDirectories[panel.id] ?? terminalPanel.directory)
+                    item["current_directory"] = v2OrNull(currentDirectory)
                     item["requested_working_directory"] = v2OrNull(v2NonEmptyString(terminalPanel.requestedWorkingDirectory))
                     item["initial_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugInitialCommand()))
                     item["tmux_start_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugTmuxStartCommand()))
@@ -16201,7 +16206,7 @@ class TerminalController {
     }
 
     private func v2DebugCommandPaletteQuerySet(params: [String: Any]) -> V2CallResult {
-        guard let query = v2String(params, "query") else {
+        guard let query = params["query"] as? String else {
             return .err(code: "invalid_params", message: "Missing command palette query", data: nil)
         }
         let requestedWindowId = v2UUID(params, "window_id")
@@ -16243,7 +16248,17 @@ class TerminalController {
 
     private func v2DebugCommandPaletteSubmit(params: [String: Any]) -> V2CallResult {
         let requestedWindowId = v2UUID(params, "window_id")
-        var result: V2CallResult = .ok([:])
+        let commandID = v2OptionalTrimmedRawString(params, "command_id")
+            ?? v2OptionalTrimmedRawString(params, "commandID")
+        var payload: [String: Any] = [:]
+        var notificationPayload: [String: Any] = [:]
+        let acknowledgement = CommandPaletteSubmitAcknowledgement()
+        if let commandID {
+            payload["command_id"] = commandID
+            notificationPayload["command_id"] = commandID
+            notificationPayload["acknowledgement"] = acknowledgement
+        }
+        var result: V2CallResult = .ok(payload)
         v2MainSync {
             let targetWindow: NSWindow?
             if let requestedWindowId {
@@ -16262,7 +16277,15 @@ class TerminalController {
             } else {
                 targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
             }
-            NotificationCenter.default.post(name: .commandPaletteSubmitRequested, object: targetWindow)
+            NotificationCenter.default.post(
+                name: .commandPaletteSubmitRequested,
+                object: targetWindow,
+                userInfo: notificationPayload.isEmpty ? nil : notificationPayload
+            )
+            if commandID != nil {
+                payload["command_handled"] = acknowledgement.handled
+                result = .ok(payload)
+            }
         }
         return result
     }
@@ -16294,11 +16317,11 @@ class TerminalController {
                 payload["value"] = value
             case WorkspacePresentationModeSettings.modeKey:
                 guard let value = v2String(params, "value"),
-                      WorkspacePresentationModeSettings.Mode(rawValue: value) != nil else {
+                      let mode = WorkspacePresentationModeSettings.Mode(rawValue: value) else {
                     result = .err(code: "invalid_params", message: "Missing or invalid workspace presentation mode", data: ["key": key])
                     return
                 }
-                defaults.set(value, forKey: key)
+                WorkspacePresentationModeSettings.setMode(mode, defaults: defaults)
                 payload["value"] = value
             default:
                 result = .err(code: "invalid_params", message: "Unsupported debug setting key", data: ["key": key])
@@ -16307,6 +16330,9 @@ class TerminalController {
 
             defaults.synchronize()
             NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+#if DEBUG
+            AppDelegate.shared?.writeUITestDiagnosticsForDebug(stage: "debug.settings.set.\(key)")
+#endif
             result = .ok(payload)
         }
         return result
@@ -16343,17 +16369,73 @@ class TerminalController {
         guard let action = SidebarHelpMenuAction(debugName: rawAction) else {
             return .err(code: "invalid_params", message: "Unsupported sidebar help action", data: ["action": rawAction])
         }
+        let requestedWindowId = v2UUID(params, "window_id")
+        if params["window_id"] != nil && requestedWindowId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
 
         var result: V2CallResult = .ok(["action": rawAction])
         v2MainSync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = nil
+            }
+
             switch action {
             case .checkForUpdates:
                 SidebarHelpMenuActionPerformer.performCheckForUpdates()
             case .sendFeedback:
-                SidebarHelpMenuActionPerformer.requestFeedbackComposer()
+                SidebarHelpMenuActionPerformer.requestFeedbackComposer(targetWindow: targetWindow)
             default:
                 result = .err(code: "invalid_params", message: "Unsupported sidebar help action", data: ["action": rawAction])
             }
+        }
+        return result
+    }
+
+    private func v2DebugFeedbackMessageSet(params: [String: Any]) -> V2CallResult {
+        guard let message = v2String(params, "message") else {
+            return .err(code: "invalid_params", message: "Missing feedback message", data: nil)
+        }
+        let requestedWindowId = v2UUID(params, "window_id")
+        if params["window_id"] != nil && requestedWindowId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+
+        var result: V2CallResult = .ok(["message_length": message.count])
+        v2MainSync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = nil
+            }
+
+            FeedbackComposerBridge.setDebugMessageForTesting(message, in: targetWindow)
         }
         return result
     }
@@ -21260,17 +21342,22 @@ class TerminalController {
 
         let directory = parsed.positional.joined(separator: " ")
         if let scope = Self.explicitSocketScope(options: parsed.options) {
-            TerminalMutationBus.shared.enqueueMainActorMutation {
+            var result = "OK"
+            v2MainSync {
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId),
                       let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceId }) else {
+                    result = "ERROR: Tab not found"
                     return
                 }
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-                guard validSurfaceIds.contains(scope.panelId) else { return }
+                guard validSurfaceIds.contains(scope.panelId) else {
+                    result = "ERROR: Panel not found '\(scope.panelId.uuidString)'"
+                    return
+                }
                 tabManager.updateSurfaceDirectory(tabId: scope.workspaceId, surfaceId: scope.panelId, directory: directory)
             }
-            return "OK"
+            return result
         }
         var result = "OK"
         v2MainSync {

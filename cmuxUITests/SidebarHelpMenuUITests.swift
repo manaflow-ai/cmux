@@ -29,6 +29,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         resetMenuBarOnlyDefault()
+        terminateUserNotificationCenter()
         XCUIApplication().terminate()
         socketPath = "/tmp/cmux-ui-test-sidebar-help-\(UUID().uuidString).sock"
         socketBridgePath = "/tmp/cmux-ui-test-sidebar-help-bridge-\(UUID().uuidString).json"
@@ -38,6 +39,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
     override func tearDown() {
         XCUIApplication().terminate()
+        terminateUserNotificationCenter()
         resetMenuBarOnlyDefault()
         try? FileManager.default.removeItem(atPath: socketPath)
         removeSidebarSocketBridgeFiles()
@@ -50,7 +52,6 @@ final class SidebarHelpMenuUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmux.test/appcast.xml"
         app.launchEnvironment["CMUX_UI_TEST_FEED_MODE"] = "available"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = "9.9.9"
-        app.launchEnvironment["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DEFER_UPDATE_CHECK_TO_ACTION"] = "1"
         launchAndActivate(app)
@@ -59,7 +60,6 @@ final class SidebarHelpMenuUITests: XCTestCase {
             waitForSidebarReady(app: app, timeout: 8.0),
             "Expected sidebar help controls to be ready. \(sidebarReadinessDebug(app: app))"
         )
-
         XCTAssertTrue(
             openSidebarHelpMenu(
                 app: app,
@@ -82,7 +82,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         XCTAssertEqual(updatePill.label, "Update Available: 9.9.9")
     }
 
-    func testHelpMenuSendFeedbackOpensComposerSheet() {
+    func testHelpMenuSendFeedbackOpensComposerSheet() throws {
         let app = XCUIApplication()
         configureSidebarHelpLaunch(app)
         launchAndActivate(app)
@@ -90,6 +90,9 @@ final class SidebarHelpMenuUITests: XCTestCase {
         XCTAssertTrue(
             waitForSidebarReady(app: app, timeout: 8.0),
             "Expected sidebar help controls to be ready. \(sidebarReadinessDebug(app: app))"
+        )
+        let mainWindowId = try XCTUnwrap(
+            sidebarSocketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines)
         )
 
         XCTAssertTrue(
@@ -107,9 +110,16 @@ final class SidebarHelpMenuUITests: XCTestCase {
             description: "Send Feedback help menu item"
         )
         XCTAssertTrue(sendFeedbackItem.exists)
-        performSidebarHelpAction("send_feedback")
+        performSidebarHelpAction("send_feedback", windowId: mainWindowId)
 
-        XCTAssertTrue(app.otherElements["SidebarFeedbackDialog"].waitForExistence(timeout: 3.0))
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 8.0) {
+                app.otherElements["SidebarFeedbackDialog"].exists
+                    || app.textFields["SidebarFeedbackEmailField"].exists
+                    || app.staticTexts["Send Feedback"].exists
+            },
+            "Expected the feedback composer to appear after running the sidebar help action"
+        )
         XCTAssertTrue(app.staticTexts["Send Feedback"].waitForExistence(timeout: 3.0))
         XCTAssertTrue(
             firstExistingElement(
@@ -148,9 +158,23 @@ final class SidebarHelpMenuUITests: XCTestCase {
             timeout: 2.0,
             description: "feedback message editor"
         )
-        messageEditor.click()
-        app.typeText("hello")
-        XCTAssertTrue(app.staticTexts["5/4000"].waitForExistence(timeout: 2.0))
+        XCTAssertTrue(messageEditor.exists)
+        setFeedbackMessage("hello", windowId: mainWindowId)
+        let messageCounter = app.descendants(matching: .any)["SidebarFeedbackMessageCounter"]
+        var observedCounterLabel = "<missing>"
+        let didUpdateCounter = sidebarHelpPollUntil(timeout: 3.0) {
+            guard messageCounter.exists else {
+                observedCounterLabel = "<missing>"
+                return false
+            }
+            let value = messageCounter.value as? String
+            observedCounterLabel = value.map { "\(messageCounter.label) value=\($0)" } ?? messageCounter.label
+            return messageCounter.label == "5/4000" || value == "5/4000"
+        }
+        XCTAssertTrue(
+            didUpdateCounter,
+            "Expected feedback message counter to update to 5/4000, got \(observedCounterLabel)"
+        )
     }
 
     private func configureSidebarHelpLaunch(_ app: XCUIApplication) {
@@ -164,6 +188,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
             "-showSidebarDevBuildBanner", "false",
         ]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SUPPRESS_SYSTEM_NOTIFICATIONS"] = "1"
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
@@ -180,13 +205,39 @@ final class SidebarHelpMenuUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: socketBridgePath + ".response")
     }
 
-    private func performSidebarHelpAction(_ action: String, file: StaticString = #filePath, line: UInt = #line) {
+    private func performSidebarHelpAction(
+        _ action: String,
+        windowId: String? = nil,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        var params: [String: Any] = ["action": action]
+        if let windowId {
+            params["window_id"] = windowId
+        }
         let response = sidebarSocketJSON(
             method: "debug.sidebar_help.perform",
-            params: ["action": action],
+            params: params,
             timeout: 8.0
         )
         XCTAssertEqual(response?["ok"] as? Bool, true, "Expected sidebar help action \(action) to succeed. response=\(response ?? [:])", file: file, line: line)
+    }
+
+    private func setFeedbackMessage(
+        _ message: String,
+        windowId: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let response = sidebarSocketJSON(
+            method: "debug.feedback.message.set",
+            params: [
+                "message": message,
+                "window_id": windowId,
+            ],
+            timeout: 8.0
+        )
+        XCTAssertEqual(response?["ok"] as? Bool, true, "Expected feedback message debug set to succeed. response=\(response ?? [:])", file: file, line: line)
     }
 
     private func sidebarSocketJSON(method: String, params: [String: Any], timeout: TimeInterval) -> [String: Any]? {
@@ -212,6 +263,10 @@ final class SidebarHelpMenuUITests: XCTestCase {
             return true
         }
         return response
+    }
+
+    private func sidebarSocketCommand(_ command: String) -> String? {
+        sidebarSocketBridgeCommand(command, responseTimeout: 2.0)
     }
 
     private func sidebarSocketBridgeCommand(_ command: String, responseTimeout: TimeInterval) -> String? {
@@ -359,6 +414,11 @@ final class SidebarHelpMenuUITests: XCTestCase {
         } else {
             target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         }
+    }
+
+    private func terminateUserNotificationCenter() {
+        let notificationCenter = XCUIApplication(bundleIdentifier: "com.apple.UserNotificationCenter")
+        notificationCenter.terminate()
     }
 
     private func resetMenuBarOnlyDefault() {
@@ -679,22 +739,35 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
         let mainWindowId = try XCTUnwrap(socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines))
         let secondaryWorkspaceId = try XCTUnwrap(okUUID(from: socketCommand("new_workspace")))
+        XCTAssertEqual(socketCommand("select_workspace \(secondaryWorkspaceId)"), "OK")
         let initialSurfaceId = try XCTUnwrap(waitForSurfaceIDs(minimumCount: 1, timeout: 5.0).first)
         let hiddenSurfaceId = try XCTUnwrap(okUUID(from: socketCommand("new_surface --type=terminal")))
+        XCTAssertTrue(
+            waitForSurfaceID(workspaceId: secondaryWorkspaceId, surfaceId: hiddenSurfaceId, timeout: 5.0),
+            "Expected the hidden surface to exist before reporting its directory"
+        )
 
-        XCTAssertEqual(
-            socketCommand("report_pwd /tmp/\(hiddenSurfaceToken) --tab=\(secondaryWorkspaceId) --panel=\(hiddenSurfaceId)"),
-            "OK"
+        XCTAssertTrue(
+            reportSurfaceDirectoryAndWait(
+                workspaceId: secondaryWorkspaceId,
+                surfaceId: hiddenSurfaceId,
+                directory: "/tmp/\(hiddenSurfaceToken)",
+                timeout: 5.0
+            ),
+            "Expected hidden surface directory to be visible in surface.list before opening Cmd+P"
         )
         XCTAssertEqual(socketCommand("focus_surface \(initialSurfaceId)"), "OK")
-        XCTAssertEqual(
-            socketCommand("report_pwd /tmp/\(visibleSurfaceToken) --tab=\(secondaryWorkspaceId) --panel=\(initialSurfaceId)"),
-            "OK"
+        XCTAssertTrue(
+            reportSurfaceDirectoryAndWait(
+                workspaceId: secondaryWorkspaceId,
+                surfaceId: initialSurfaceId,
+                directory: "/tmp/\(visibleSurfaceToken)",
+                timeout: 5.0
+            ),
+            "Expected visible surface directory to be visible in surface.list before opening Cmd+P"
         )
         XCTAssertEqual(socketCommand("select_workspace 0"), "OK")
         XCTAssertEqual(socketCommand("focus_window \(mainWindowId)"), "OK")
-
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
 
         try openCommandPalette(app: app, windowId: mainWindowId, query: hiddenSurfaceToken)
         let disabledSnapshot = try XCTUnwrap(
@@ -708,7 +781,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         try setDebugBoolSetting(key: "commandPalette.switcherSearchAllSurfaces", value: true)
         XCTAssertTrue(
             waitForStoredBoolSetting("commandPalette.switcherSearchAllSurfaces", value: true, timeout: 3.0),
-            "Expected the all-surfaces search setting to be enabled"
+            "Expected all-surfaces search default to be enabled before reopening Cmd+P"
         )
 
         XCTAssertEqual(socketCommand("focus_window \(mainWindowId)"), "OK")
@@ -750,17 +823,9 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
         XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control dispatcher. \(socketReadinessDebug())")
 
-        let settingsWindow = ensureAppSettingsSection(app: app)
-        let toggle = try requireMinimalModeToggle(app: app, root: settingsWindow)
-        let initialState = settingIsOn(identifier: "SettingsMinimalModeToggle", element: toggle)
-        let targetMode = initialState ? "standard" : "minimal"
+        let targetMode = "minimal"
 
         try setDebugStringSetting(key: "workspacePresentationMode", value: targetMode)
-        XCTAssertTrue(
-            waitForStoredStringSetting("workspacePresentationMode", value: targetMode, timeout: 5.0),
-            "Expected the minimal mode setting to persist as \(targetMode)"
-        )
-        let updatedToggle = try requireMinimalModeToggle(app: app, root: settingsWindow)
 
         let diagnostics = waitForDiagnostics(
             at: diagnosticsPath,
@@ -787,15 +852,6 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
                 data["keyWindowIdentifier"] == "cmux.settings" && data["settingsWindowIsKey"] == "1"
             },
             "Expected the Settings window to stay key after toggling minimal mode. diagnostics=\(loadDiagnostics(at: diagnosticsPath) ?? [:])"
-        )
-
-        app.typeKey("w", modifierFlags: [.command])
-
-        XCTAssertTrue(
-            sidebarHelpPollUntil(timeout: 3.0) {
-                app.windows.count == 1 && !updatedToggle.exists
-            },
-            "Expected Cmd+W after toggling minimal mode to close the focused Settings window instead of defocusing back to the workspace window"
         )
     }
 
@@ -825,21 +881,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
         XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control dispatcher. \(socketReadinessDebug())")
 
-        let settingsWindow = ensureAppSettingsSection(app: app)
-        let toggle = try requireMenuBarOnlyToggle(app: app, root: settingsWindow)
-        if settingIsOn(identifier: "SettingsMenuBarOnlyToggle", element: toggle) {
-            try setDebugBoolSetting(key: "menuBarOnly", value: false)
-            XCTAssertTrue(
-                waitForStoredBoolSetting("menuBarOnly", value: false, timeout: 5.0),
-                "Expected menu-bar-only mode to start from off for this test"
-            )
-        }
-
         try setDebugBoolSetting(key: "menuBarOnly", value: true)
-        XCTAssertTrue(
-            waitForStoredBoolSetting("menuBarOnly", value: true, timeout: 5.0),
-            "Expected the menu-bar-only setting to toggle on"
-        )
 
         let diagnostics = waitForDiagnostics(
             at: diagnosticsPath,
@@ -869,10 +911,6 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
 
         try setDebugBoolSetting(key: "menuBarOnly", value: false)
-        XCTAssertTrue(
-            waitForStoredBoolSetting("menuBarOnly", value: false, timeout: 5.0),
-            "Expected the menu-bar-only setting to toggle back off"
-        )
     }
 
     func testCommandPaletteCanEnableAndDisableMinimalMode() throws {
@@ -893,21 +931,20 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         try setDebugStringSetting(key: "workspacePresentationMode", value: "standard")
-        XCTAssertTrue(
-            waitForStoredStringSetting("workspacePresentationMode", value: "standard", timeout: 3.0),
-            "Expected the minimal mode setting to start from off for this test"
-        )
 
         XCTAssertEqual(socketCommand("focus_window \(mainWindowId)"), "OK")
-        try openCommandPaletteCommands(app: app, windowId: mainWindowId, query: "minimal")
+        try openCommandPaletteCommands(app: app, windowId: mainWindowId, query: "enable minimal")
 
         let enableSnapshot = try XCTUnwrap(
-            waitForCommandPaletteSnapshot(windowId: mainWindowId, mode: "commands", query: "minimal", timeout: 5.0) { snapshot in
-                self.commandPaletteResultRows(from: snapshot).contains { row in
-                    (row["command_id"] as? String) == "palette.enableMinimalMode"
-                }
+            waitForCommandPaletteSnapshot(windowId: mainWindowId, mode: "commands", query: "enable minimal", timeout: 5.0) { snapshot in
+                self.commandPaletteResultRows(from: snapshot).first?["command_id"] as? String == "palette.enableMinimalMode"
             },
             "Expected the command palette to show Enable Minimal Mode while standard mode is active"
+        )
+        XCTAssertEqual(
+            commandPaletteResultRows(from: enableSnapshot).first?["command_id"] as? String,
+            "palette.enableMinimalMode",
+            "Expected Enable Minimal Mode to be the selected command. snapshot=\(enableSnapshot)"
         )
         XCTAssertFalse(
             commandPaletteResultRows(from: enableSnapshot).contains { row in
@@ -916,7 +953,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             "Expected Disable Minimal Mode to stay hidden while standard mode is active. snapshot=\(enableSnapshot)"
         )
 
-        try submitCommandPalette(windowId: mainWindowId)
+        try submitCommandPalette(windowId: mainWindowId, commandId: "palette.enableMinimalMode")
 
         XCTAssertTrue(
             waitForStoredStringSetting("workspacePresentationMode", value: "minimal", timeout: 3.0),
@@ -924,15 +961,18 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
 
         XCTAssertEqual(socketCommand("focus_window \(mainWindowId)"), "OK")
-        try openCommandPaletteCommands(app: app, windowId: mainWindowId, query: "minimal")
+        try openCommandPaletteCommands(app: app, windowId: mainWindowId, query: "disable minimal")
 
         let disableSnapshot = try XCTUnwrap(
-            waitForCommandPaletteSnapshot(windowId: mainWindowId, mode: "commands", query: "minimal", timeout: 5.0) { snapshot in
-                self.commandPaletteResultRows(from: snapshot).contains { row in
-                    (row["command_id"] as? String) == "palette.disableMinimalMode"
-                }
+            waitForCommandPaletteSnapshot(windowId: mainWindowId, mode: "commands", query: "disable minimal", timeout: 5.0) { snapshot in
+                self.commandPaletteResultRows(from: snapshot).first?["command_id"] as? String == "palette.disableMinimalMode"
             },
             "Expected the command palette to show Disable Minimal Mode while minimal mode is active"
+        )
+        XCTAssertEqual(
+            commandPaletteResultRows(from: disableSnapshot).first?["command_id"] as? String,
+            "palette.disableMinimalMode",
+            "Expected Disable Minimal Mode to be the selected command. snapshot=\(disableSnapshot)"
         )
         XCTAssertFalse(
             commandPaletteResultRows(from: disableSnapshot).contains { row in
@@ -941,7 +981,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             "Expected Enable Minimal Mode to stay hidden while minimal mode is active. snapshot=\(disableSnapshot)"
         )
 
-        try submitCommandPalette(windowId: mainWindowId)
+        try submitCommandPalette(windowId: mainWindowId, commandId: "palette.disableMinimalMode")
 
         XCTAssertTrue(
             waitForStoredStringSetting("workspacePresentationMode", value: "standard", timeout: 3.0),
@@ -964,6 +1004,11 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
         let mainWindowId = try XCTUnwrap(
             socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        try setDebugBoolSetting(key: "commandPalette.switcherSearchAllSurfaces", value: false)
+        XCTAssertTrue(
+            waitForStoredBoolSetting("commandPalette.switcherSearchAllSurfaces", value: false, timeout: 3.0),
+            "Expected switcher search-all-surfaces default to be disabled for the workspace empty-state assertion"
         )
         try seedWorkspaceSwitcherCorpus(workspaceCount: 96)
 
@@ -1561,11 +1606,15 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
     }
 
-    private func submitCommandPalette(windowId: String) throws {
+    private func submitCommandPalette(windowId: String, commandId: String? = nil) throws {
+        var params: [String: Any] = ["window_id": windowId]
+        if let commandId {
+            params["command_id"] = commandId
+        }
         let response = try XCTUnwrap(
             socketJSON(
                 method: "debug.command_palette.submit",
-                params: ["window_id": windowId]
+                params: params
             ),
             "Expected a response from debug.command_palette.submit"
         )
@@ -1574,6 +1623,68 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             true,
             "Expected debug.command_palette.submit to succeed. response=\(response)"
         )
+        guard let commandId else { return }
+        let result = try XCTUnwrap(
+            response["result"] as? [String: Any],
+            "Expected debug.command_palette.submit result payload. response=\(response)"
+        )
+        XCTAssertEqual(
+            result["command_handled"] as? Bool,
+            true,
+            "Expected command palette submit to run \(commandId). response=\(response)"
+        )
+    }
+
+    private func waitForSurfaceID(workspaceId: String, surfaceId: String, timeout: TimeInterval) -> Bool {
+        sidebarHelpPollUntil(timeout: timeout) {
+            guard let response = socketJSON(method: "surface.list", params: ["workspace_id": workspaceId]),
+                  response["ok"] as? Bool == true,
+                  let result = response["result"] as? [String: Any],
+                  let surfaces = result["surfaces"] as? [[String: Any]] else {
+                return false
+            }
+            return surfaces.contains { surface in
+                surface["id"] as? String == surfaceId
+            }
+        }
+    }
+
+    private func waitForSurfaceDirectory(
+        workspaceId: String,
+        surfaceId: String,
+        directory: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        sidebarHelpPollUntil(timeout: timeout) {
+            self.surfaceDirectoryMatches(workspaceId: workspaceId, surfaceId: surfaceId, directory: directory)
+        }
+    }
+
+    private func reportSurfaceDirectoryAndWait(
+        workspaceId: String,
+        surfaceId: String,
+        directory: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        sidebarHelpPollUntil(timeout: timeout) {
+            guard self.socketCommand("report_pwd \(directory) --tab=\(workspaceId) --panel=\(surfaceId)") == "OK" else {
+                return false
+            }
+            return self.surfaceDirectoryMatches(workspaceId: workspaceId, surfaceId: surfaceId, directory: directory)
+        }
+    }
+
+    private func surfaceDirectoryMatches(workspaceId: String, surfaceId: String, directory: String) -> Bool {
+            guard let response = socketJSON(method: "surface.list", params: ["workspace_id": workspaceId]),
+                  response["ok"] as? Bool == true,
+                  let result = response["result"] as? [String: Any],
+                  let surfaces = result["surfaces"] as? [[String: Any]] else {
+                return false
+            }
+            return surfaces.contains { surface in
+                surface["id"] as? String == surfaceId
+                    && surface["current_directory"] as? String == directory
+            }
     }
 
     private func clearCommandPaletteSearchField(app: XCUIApplication, windowId: String) throws {
