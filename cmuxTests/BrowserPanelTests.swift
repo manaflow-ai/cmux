@@ -158,6 +158,25 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         assertResolvedColorMatchesTheme(for: .dark)
     }
 
+    func testColorSchemeCompositesTransparentThemeBackground() {
+        let themeBackground = NSColor.black.withAlphaComponent(0.05)
+
+        XCTAssertEqual(
+            resolvedBrowserChromeColorScheme(for: .dark, themeBackgroundColor: themeBackground),
+            .light
+        )
+    }
+
+    func testOmnibarPillBackgroundPreservesThemeAlpha() {
+        let themeBackground = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 0.42)
+        let actual = resolvedBrowserOmnibarPillBackgroundColor(
+            for: .dark,
+            themeBackgroundColor: themeBackground
+        )
+
+        XCTAssertEqual(actual.alphaComponent, 0.42, accuracy: 0.001)
+    }
+
     private func assertResolvedColorMatchesTheme(
         for colorScheme: ColorScheme,
         file: StaticString = #filePath,
