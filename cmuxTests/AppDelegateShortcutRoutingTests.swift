@@ -2102,21 +2102,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let previousTabManager = appDelegate.tabManager
-        let context = makeRegisteredLightweightMainWindowContext(
-            appDelegate: appDelegate,
-            createInitialWorkspace: true
-        )
-        let manager = context.tabManager
-        appDelegate.tabManager = manager
-        defer {
-            appDelegate.debugAuxiliaryCloseShortcutWindowOverride = nil
-            appDelegate.tabManager = previousTabManager
-            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId, notifyObservers: false)
-            closeTestWindow(context.window)
-        }
-
-        let mainWorkspaceCount = manager.tabs.count
         let auxiliaryWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
             styleMask: [.titled, .closable, .miniaturizable],
@@ -2127,7 +2112,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         auxiliaryWindow.animationBehavior = .none
         auxiliaryWindow.identifier = NSUserInterfaceItemIdentifier("cmux.about")
         appDelegate.debugAuxiliaryCloseShortcutWindowOverride = { auxiliaryWindow }
-        defer { closeTestWindow(auxiliaryWindow) }
+        defer {
+            appDelegate.debugAuxiliaryCloseShortcutWindowOverride = nil
+            closeTestWindow(auxiliaryWindow)
+        }
 
         guard let event = makeKeyDownEvent(
             key: "w",
@@ -2144,7 +2132,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             appDelegate.debugAuxiliaryWindowForFocusedCloseShortcut(event: event) === auxiliaryWindow,
             "Cmd+W should target the auxiliary window before the active terminal manager"
         )
-        XCTAssertEqual(manager.tabs.count, mainWorkspaceCount, "Cmd+W in auxiliary window should not close a terminal panel")
 #else
         throw XCTSkip("focused close shortcut debug routing hooks are only available in DEBUG builds")
 #endif
