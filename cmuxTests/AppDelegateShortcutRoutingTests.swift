@@ -3510,18 +3510,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             appDelegate.setCommandPaletteVisible(false, for: window)
         }
 
-        let dismissExpectation = expectation(description: "Expected command palette dismiss notification for Escape")
-        var observedDismissWindow: NSWindow?
-        let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteDismissRequested,
-            object: nil,
-            queue: nil
-        ) { notification in
-            observedDismissWindow = notification.object as? NSWindow
-            dismissExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(dismissToken) }
-
         guard let event = makeKeyDownEvent(
             key: "\u{1b}",
             modifiers: [],
@@ -3533,13 +3521,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event, preferredWindow: window))
+        withCommandPaletteDismissRequestObserver(appDelegate: appDelegate) { observedDismissWindow in
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event, preferredWindow: window))
+            XCTAssertEqual(observedDismissWindow()?.windowNumber, window.windowNumber)
+        }
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
-
-        wait(for: [dismissExpectation], timeout: 1.0)
-        XCTAssertEqual(observedDismissWindow?.windowNumber, window.windowNumber)
     }
 
     func testEscapeDoesNotDismissCommandPaletteWhenInputHasMarkedText() {
@@ -3575,18 +3563,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let window = makeCommandPaletteShortcutTestWindow()
         defer { closeTestWindow(window) }
 
-        let dismissExpectation = expectation(description: "Expected command palette dismiss notification for Escape")
-        var observedDismissWindow: NSWindow?
-        let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteDismissRequested,
-            object: nil,
-            queue: nil
-        ) { notification in
-            observedDismissWindow = notification.object as? NSWindow
-            dismissExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(dismissToken) }
-
 #if DEBUG
         appDelegate.debugMarkCommandPaletteOpenPending(window: window)
 #else
@@ -3607,13 +3583,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent, preferredWindow: window))
+        withCommandPaletteDismissRequestObserver(appDelegate: appDelegate) { observedDismissWindow in
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent, preferredWindow: window))
+            XCTAssertEqual(observedDismissWindow()?.windowNumber, window.windowNumber)
+        }
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
-
-        wait(for: [dismissExpectation], timeout: 1.0)
-        XCTAssertEqual(observedDismissWindow?.windowNumber, window.windowNumber)
     }
 
     func testArrowNavigationRoutesWhileCommandPaletteOverlayIsInteractiveBeforeVisibilitySync() {
@@ -3684,18 +3660,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // Simulate stale app-level visibility bookkeeping.
         appDelegate.setCommandPaletteVisible(false, for: window)
 
-        let dismissExpectation = expectation(description: "Escape should dismiss stale-state command palette after delay")
-        var observedDismissWindow: NSWindow?
-        let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteDismissRequested,
-            object: nil,
-            queue: nil
-        ) { notification in
-            observedDismissWindow = notification.object as? NSWindow
-            dismissExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(dismissToken) }
-
         guard let escapeEvent = makeKeyDownEvent(
             key: "\u{1b}",
             modifiers: [],
@@ -3707,13 +3671,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent, preferredWindow: window))
+        withCommandPaletteDismissRequestObserver(appDelegate: appDelegate) { observedDismissWindow in
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent, preferredWindow: window))
+            XCTAssertEqual(observedDismissWindow()?.windowNumber, window.windowNumber)
+        }
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
-
-        wait(for: [dismissExpectation], timeout: 1.0)
-        XCTAssertEqual(observedDismissWindow?.windowNumber, window.windowNumber)
     }
 
     func testEscapeDismissesCommandPaletteWhenVisibilityStateRemainsStaleForExtendedDelay() {
@@ -3737,18 +3701,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // Simulate stale app-level visibility bookkeeping for a longer user delay.
         appDelegate.setCommandPaletteVisible(false, for: window)
 
-        let dismissExpectation = expectation(description: "Escape should dismiss stale-state command palette after extended delay")
-        var observedDismissWindow: NSWindow?
-        let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteDismissRequested,
-            object: nil,
-            queue: nil
-        ) { notification in
-            observedDismissWindow = notification.object as? NSWindow
-            dismissExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(dismissToken) }
-
         guard let escapeEvent = makeKeyDownEvent(
             key: "\u{1b}",
             modifiers: [],
@@ -3760,13 +3712,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent, preferredWindow: window))
+        withCommandPaletteDismissRequestObserver(appDelegate: appDelegate) { observedDismissWindow in
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent, preferredWindow: window))
+            XCTAssertEqual(observedDismissWindow()?.windowNumber, window.windowNumber)
+        }
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
-
-        wait(for: [dismissExpectation], timeout: 1.0)
-        XCTAssertEqual(observedDismissWindow?.windowNumber, window.windowNumber)
     }
 
     func testEscapeDoesNotConsumeWhenMenuTriggeredPendingOpenStateExpires() {
@@ -3819,18 +3771,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTFail("debugSetCommandPalettePendingOpenAge is only available in DEBUG")
 #endif
 
-        let dismissExpectation = expectation(description: "Expected command palette dismiss notification for menu-triggered stale visibility")
-        var observedDismissWindow: NSWindow?
-        let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteDismissRequested,
-            object: nil,
-            queue: nil
-        ) { notification in
-            observedDismissWindow = notification.object as? NSWindow
-            dismissExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(dismissToken) }
-
         guard let escapeEvent = makeKeyDownEvent(
             key: "\u{1b}",
             modifiers: [],
@@ -3842,16 +3782,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(
-            appDelegate.debugHandleCustomShortcut(event: escapeEvent, preferredWindow: window),
-            "Escape should still be consumed for menu-triggered command palette opens"
-        )
+        withCommandPaletteDismissRequestObserver(appDelegate: appDelegate) { observedDismissWindow in
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: escapeEvent, preferredWindow: window),
+                "Escape should still be consumed for menu-triggered command palette opens"
+            )
+            XCTAssertEqual(observedDismissWindow()?.windowNumber, window.windowNumber)
+        }
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
-
-        wait(for: [dismissExpectation], timeout: 1.0)
-        XCTAssertEqual(observedDismissWindow?.windowNumber, window.windowNumber)
     }
 
     func testEscapeRepeatIsConsumedImmediatelyAfterPaletteDismiss() {
@@ -3890,7 +3830,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: firstEscape, preferredWindow: window))
+        withCommandPaletteDismissRequestObserver(appDelegate: appDelegate) { observedDismissWindow in
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: firstEscape, preferredWindow: window))
+            XCTAssertEqual(observedDismissWindow()?.windowNumber, window.windowNumber)
+        }
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -3945,7 +3888,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleShortcutMonitorEvent(event: escapeKeyDown, preferredWindow: window))
+        withCommandPaletteDismissRequestObserver(appDelegate: appDelegate) { observedDismissWindow in
+            XCTAssertTrue(appDelegate.debugHandleShortcutMonitorEvent(event: escapeKeyDown, preferredWindow: window))
+            XCTAssertEqual(observedDismissWindow()?.windowNumber, window.windowNumber)
+        }
 #else
         XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
 #endif
@@ -9384,6 +9330,23 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         body()
     }
 
+#if DEBUG
+    private func withCommandPaletteDismissRequestObserver(
+        appDelegate: AppDelegate,
+        _ body: (_ observedDismissWindow: () -> NSWindow?) -> Void
+    ) {
+        var observedDismissWindow: NSWindow?
+        let previousObserver = appDelegate.debugCommandPaletteDismissRequestObserver
+        appDelegate.debugCommandPaletteDismissRequestObserver = { window in
+            observedDismissWindow = window
+        }
+        defer {
+            appDelegate.debugCommandPaletteDismissRequestObserver = previousObserver
+        }
+        body({ observedDismissWindow })
+    }
+#endif
+
     private func makeCommandPaletteShortcutTestWindow() -> NSWindow {
         let windowId = UUID()
         let window = NSWindow(
@@ -9461,11 +9424,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(
-            appDelegate.debugHandleShortcutMonitorEvent(event: escapeKeyDown, preferredWindow: window),
-            file: file,
-            line: line
-        )
+        withCommandPaletteDismissRequestObserver(appDelegate: appDelegate) { observedDismissWindow in
+            XCTAssertTrue(
+                appDelegate.debugHandleShortcutMonitorEvent(event: escapeKeyDown, preferredWindow: window),
+                file: file,
+                line: line
+            )
+            XCTAssertEqual(observedDismissWindow()?.windowNumber, window.windowNumber, file: file, line: line)
+        }
 #else
         XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG", file: file, line: line)
 #endif

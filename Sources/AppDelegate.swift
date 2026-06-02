@@ -1223,6 +1223,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var commandPaletteEscapeSuppressionStartedAtByWindowId: [UUID: TimeInterval] = [:]
     private var commandPaletteSelectionByWindowId: [UUID: Int] = [:]
     private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
+#if DEBUG
+    var debugCommandPaletteDismissRequestObserver: ((NSWindow) -> Void)?
+#endif
     private static let commandPaletteRequestGraceInterval: TimeInterval = 1.25
     private static let commandPalettePendingOpenMaxAge: TimeInterval = 8.0
     private static let sessionAutosaveTypingQuietPeriod: TimeInterval = 0.65
@@ -5243,6 +5246,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             source: source,
             markPending: true
         )
+    }
+
+    private func postCommandPaletteDismissRequest(for window: NSWindow) {
+#if DEBUG
+        if let debugCommandPaletteDismissRequestObserver {
+            debugCommandPaletteDismissRequestObserver(window)
+            return
+        }
+#endif
+        NotificationCenter.default.post(name: .commandPaletteDismissRequested, object: window)
     }
 
     private func clearCommandPalettePendingOpen(for window: NSWindow?) {
@@ -12828,7 +12841,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 clearCommandPalettePendingOpen(for: paletteWindow)
                 beginCommandPaletteEscapeSuppression(for: paletteWindow)
-                NotificationCenter.default.post(name: .commandPaletteDismissRequested, object: paletteWindow)
+                postCommandPaletteDismissRequest(for: paletteWindow)
 #if DEBUG
                 cmuxDebugLog("shortcut.escape paletteDismiss consumed=1 target={\(debugWindowToken(paletteWindow))}")
 #endif
@@ -12899,7 +12912,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if paletteFieldEditorHasMarkedText {
                     return false
                 }
-                NotificationCenter.default.post(name: .commandPaletteDismissRequested, object: paletteWindow)
+                postCommandPaletteDismissRequest(for: paletteWindow)
                 return true
             }
 
@@ -14968,6 +14981,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugFocusedCloseShortcutWindowOverride = nil
         debugAuxiliaryCloseShortcutWindowOverride = nil
         debugToggleReactGrabShortcutHandler = nil
+        debugCommandPaletteDismissRequestObserver = nil
     }
 
     func debugMarkCommandPaletteOpenPending(window: NSWindow) {
