@@ -4717,6 +4717,10 @@ final class TextBoxInputTextView: NSTextView {
         mentionCompletionController.debugShouldShowPopover
     }
 
+    func debugMentionSelectionIndex() -> Int {
+        mentionCompletionController.selectionIndex
+    }
+
     func debugAcceptMentionCompletion() -> Bool {
         acceptMentionCompletion()
     }
@@ -5578,6 +5582,11 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func controlKey(for event: NSEvent) -> String? {
+        let normalizedKey = KeyboardLayout.normalizedCharacters(for: event)
+        if normalizedKey.count == 1, normalizedKey.allSatisfy(\.isASCII) {
+            return normalizedKey
+        }
+
         switch Int(event.keyCode) {
         case kVK_ANSI_A: return "a"
         case kVK_ANSI_B: return "b"

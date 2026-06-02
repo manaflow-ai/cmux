@@ -37,6 +37,46 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxMentionControlNavigationUsesTranslatedCharacters() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "@a"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 2), query: "a"),
+            suggestions: [
+                TextBoxMentionSuggestion(
+                    id: "alpha",
+                    title: "@alpha.txt",
+                    subtitle: "alpha.txt",
+                    insertionText: "[@alpha.txt](/tmp/alpha.txt)",
+                    systemImageName: "doc"
+                ),
+                TextBoxMentionSuggestion(
+                    id: "beta",
+                    title: "@beta.txt",
+                    subtitle: "beta.txt",
+                    insertionText: "[@beta.txt](/tmp/beta.txt)",
+                    systemImageName: "doc"
+                )
+            ]
+        )
+
+        guard let controlNEvent = makeKeyDownEvent(
+            key: "n",
+            modifiers: [.control],
+            keyCode: UInt16(kVK_ANSI_B),
+            windowNumber: 0
+        ) else {
+            #expect(Bool(false), "Failed to construct Control-N event")
+            return
+        }
+
+        textView.keyDown(with: controlNEvent)
+
+        #expect(textView.debugMentionSelectionIndex() == 1)
+    }
+
+    @Test
     func testTextBoxMentionCompletionDetectsFileAndSkillTokens() {
         let filePrompt = "open @Sources/TextBox"
         let fileQuery = TextBoxMentionCompletionDetector.query(
