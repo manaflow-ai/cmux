@@ -37,6 +37,12 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "suppressSubagentNotifications"
     )
 
+    public let ampIntegration = DefaultsKey<Bool>(
+        id: "automation.ampIntegration",
+        defaultValue: true,
+        userDefaultsKey: "ampHooksEnabled"
+    )
+
     public let cursorIntegration = DefaultsKey<Bool>(
         id: "automation.cursorIntegration",
         defaultValue: false,
