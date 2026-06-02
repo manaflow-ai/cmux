@@ -216,16 +216,19 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertFalse(clearAllButton.isEnabled, "Expected Clear All button to be disabled with no notifications")
 
         let marker = "cmux_notif_block_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))"
-        let before = readCurrentTerminalText() ?? ""
+        let before = try XCTUnwrap(
+            waitForCurrentTerminalText(timeout: 8.0),
+            "Expected focused terminal text to become readable before typing. diagnostics=\(loadDiagnostics() ?? [:])"
+        )
         XCTAssertFalse(before.contains(marker), "Unexpected marker precondition collision")
 
         app.typeText(marker)
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
 
-        guard let after = readCurrentTerminalText() else {
-            XCTFail("Expected terminal text from control socket")
-            return
-        }
+        let after = try XCTUnwrap(
+            waitForCurrentTerminalText(timeout: 4.0),
+            "Expected terminal text from control socket after typing. diagnostics=\(loadDiagnostics() ?? [:])"
+        )
         XCTAssertFalse(after.contains(marker), "Expected typing to be blocked while empty notifications popover is open")
     }
 
@@ -1478,6 +1481,15 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let encoded = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
         guard let data = Data(base64Encoded: encoded) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    private func waitForCurrentTerminalText(timeout: TimeInterval) -> String? {
+        var matched: String?
+        _ = waitForCondition(timeout: timeout) {
+            matched = self.readCurrentTerminalText()
+            return matched != nil
+        }
+        return matched ?? readCurrentTerminalText()
     }
 
     private func loadData() -> [String: String]? {
