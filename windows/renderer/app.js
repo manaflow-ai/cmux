@@ -11576,11 +11576,14 @@ function showPanelContextMenu(event, panel) {
   colorTitle.textContent = "Tab color";
   const colors = document.createElement("div");
   colors.className = "context-colors";
-  for (const color of workspaceColorPalette()) {
+  for (const [colorIndex, color] of workspaceColorPalette().entries()) {
     const button = document.createElement("button");
     button.className = `context-color${panel.color === color ? " is-active" : ""}`;
     button.type = "button";
-    button.title = color;
+    const label = contextColorButtonLabel("tab", color, panel.color === color, colorIndex);
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.setAttribute("aria-pressed", String(panel.color === color));
     button.style.setProperty("--context-color", color);
     button.onclick = () => {
       updatePanel(panel.id, { color });
@@ -11594,7 +11597,11 @@ function showPanelContextMenu(event, panel) {
   const nodes = [
     title,
     contextMenuSectionTitle("Tab"),
-    generalActions
+    generalActions,
+    colorTitle,
+    colors,
+    customColor,
+    contextMenuActionGroup(saveColor, clear)
   ];
   if (surfaceActions.length) {
     nodes.push(contextMenuSectionTitle(isTerminal ? "Terminal" : "Browser"), contextMenuActionGroup(...surfaceActions));
@@ -11603,11 +11610,7 @@ function showPanelContextMenu(event, panel) {
     contextMenuSectionTitle("Layout"),
     layoutActions,
     contextMenuSectionTitle("Close"),
-    closeActions,
-    colorTitle,
-    colors,
-    customColor,
-    contextMenuActionGroup(saveColor, clear)
+    closeActions
   );
   menu.replaceChildren(...nodes);
   showContextMenuAt(menu, event.clientX, event.clientY);
@@ -11641,11 +11644,14 @@ function showWorkspaceContextMenu(event, workspace) {
   );
   const colors = document.createElement("div");
   colors.className = "context-colors";
-  for (const color of workspaceColorPalette()) {
+  for (const [colorIndex, color] of workspaceColorPalette().entries()) {
     const button = document.createElement("button");
     button.className = `context-color${workspace.color === color ? " is-active" : ""}`;
     button.type = "button";
-    button.title = color;
+    const label = contextColorButtonLabel("workspace", color, workspace.color === color, colorIndex);
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.setAttribute("aria-pressed", String(workspace.color === color));
     button.style.setProperty("--context-color", color);
     button.onclick = () => {
       setWorkspaceColor(color, workspace.id);
@@ -11846,14 +11852,23 @@ function contextMenuButton(label, action, disabled = false, tone = "", options =
   return button;
 }
 
+function contextColorButtonLabel(scope, color, active, index = 0) {
+  const customColor = normalizeCustomPaletteColor(color);
+  const colorName = customColor ? customColor.toUpperCase() : `preset ${index + 1}`;
+  return `${active ? "Selected" : "Set"} ${scope} color ${colorName}`;
+}
+
 function contextColorPicker(activeColor, onPick) {
   const wrapper = document.createElement("label");
   wrapper.className = "context-color-picker";
   const label = document.createElement("span");
-  label.textContent = "Custom color";
+  const customColor = normalizeCustomPaletteColor(activeColor);
+  label.textContent = customColor ? `Custom ${customColor.toUpperCase()}` : "Custom color";
   const input = document.createElement("input");
   input.type = "color";
   input.value = colorInputValue(activeColor);
+  input.title = "Pick custom color";
+  input.setAttribute("aria-label", "Pick custom color");
   input.onchange = () => {
     onPick(input.value);
     hideContextMenu();
