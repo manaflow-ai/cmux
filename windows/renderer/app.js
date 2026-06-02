@@ -8481,6 +8481,9 @@ function activeBackgroundPanel(options = {}) {
   const hasBackground = Boolean(normalized);
   const preset = backgroundPresetMap.get(normalized);
   const filePath = backgroundFilePath(background);
+  const terminalPanels = (activeWorkspace()?.panels || []).filter((candidate) => candidate.type === "terminal");
+  const hasTerminalPanes = terminalPanels.length > 0;
+  const hasPaneBackgrounds = terminalPanels.some((candidate) => normalizeBackgroundValue(candidate.backgroundImage));
   const label = hasBackground ? appearanceBackgroundLabel(background) : "None";
   const source = !hasBackground
     ? "Drop an image here, paste one, or choose a local file."
@@ -8522,7 +8525,10 @@ function activeBackgroundPanel(options = {}) {
   pane.disabled = !hasBackground || !resolveTerminalPanel(focusedPanel());
   const allPanes = settingsActionButton("All panes", () => applyWorkspaceBackgroundImageToTerminals(state.settings.backgroundImage), "", "active background apply to all terminal panes workspace");
   allPanes.dataset.backgroundAction = "all-panes";
-  allPanes.disabled = !hasBackground || !(activeWorkspace()?.panels || []).some((candidate) => candidate.type === "terminal");
+  allPanes.disabled = !hasBackground || !hasTerminalPanes;
+  const clearPanes = settingsActionButton("Clear panes", () => applyWorkspaceBackgroundImageToTerminals(""), "danger", "active background clear all terminal pane images workspace");
+  clearPanes.dataset.backgroundAction = "clear-panes";
+  clearPanes.disabled = !hasPaneBackgrounds;
   const open = settingsActionButton("Open", () => openBackgroundImageSource(), "", "active background open local file url source reveal");
   open.dataset.backgroundAction = "open";
   open.disabled = !canOpenBackgroundImageSource(state.settings.backgroundImage);
@@ -8538,6 +8544,7 @@ function activeBackgroundPanel(options = {}) {
     save,
     pane,
     allPanes,
+    clearPanes,
     open,
     clear
   );
