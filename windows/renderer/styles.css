@@ -4280,17 +4280,18 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .empty-workspace-inner {
-  width: min(600px, 100%);
+  width: min(560px, 100%);
   display: grid;
   justify-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   text-align: center;
 }
 
 .empty-workspace-logo {
-  width: 84px;
-  height: 84px;
+  width: 76px;
+  height: 76px;
   display: block;
+  opacity: .94;
   filter: drop-shadow(0 14px 28px color-mix(in oklch, var(--color-canvas) 50%, transparent));
 }
 
@@ -4346,7 +4347,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .empty-workspace-title {
   color: var(--color-text);
   font-weight: 780;
-  font-size: 26px;
+  font-size: 24px;
   line-height: 1;
   letter-spacing: 0;
 }
@@ -4359,9 +4360,9 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .empty-workspace-launchers {
-  width: min(500px, 100%);
+  width: min(460px, 100%);
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
   gap: var(--space-2);
   margin-top: var(--space-2);
 }
@@ -4369,15 +4370,15 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .empty-workspace-launcher {
   position: relative;
   min-width: 0;
-  min-height: 52px;
+  min-height: 50px;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-columns: 30px minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
-  padding: 9px 10px;
+  padding: 8px 10px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane-warm) 78%, transparent);
+  background: color-mix(in oklch, var(--color-pane-warm) 72%, transparent);
   color: var(--color-text);
   text-align: left;
   cursor: pointer;
@@ -4385,22 +4386,18 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .empty-workspace-launcher.has-plus {
-  grid-template-columns: 28px minmax(0, 1fr) 22px;
+  grid-template-columns: 30px minmax(0, 1fr);
+  padding-right: 34px;
 }
 
 .empty-workspace-launcher.is-add {
   border-color: var(--color-line);
-  background: color-mix(in oklch, var(--color-pane-warm) 82%, var(--color-accent) 4%);
+  background: color-mix(in oklch, var(--color-pane-warm) 78%, var(--color-accent) 4%);
 }
 
 .empty-workspace-launcher:hover {
   border-color: var(--color-line-strong);
   background: var(--color-pane-warm);
-  transform: translateY(-1px);
-}
-
-.empty-workspace-launcher:active {
-  transform: translateY(0);
 }
 
 .empty-workspace-launcher.is-add:hover {
@@ -4410,7 +4407,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .empty-workspace-launcher.is-primary {
   border-color: color-mix(in oklch, var(--color-accent) 36%, var(--color-line));
-  background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane-warm));
+  background: color-mix(in oklch, var(--color-accent) 9%, var(--color-pane-warm));
 }
 
 .empty-workspace-launcher:disabled {
@@ -4425,8 +4422,8 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .empty-workspace-launcher-icon {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -4453,12 +4450,15 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .empty-workspace-launcher-plus {
   display: none;
-  width: 22px;
-  height: 22px;
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  width: 18px;
+  height: 18px;
   place-items: center;
   border: 1px solid color-mix(in oklch, var(--color-accent) 50%, var(--color-line));
   border-radius: 999px;
-  background: color-mix(in oklch, var(--color-accent) 34%, var(--color-pane));
+  background: color-mix(in oklch, var(--color-accent) 26%, var(--color-pane));
   color: var(--color-accent-ink);
 }
 
@@ -4467,9 +4467,9 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .empty-workspace-launcher-plus svg {
-  width: 13px;
-  height: 13px;
-  stroke-width: 2.4;
+  width: 11px;
+  height: 11px;
+  stroke-width: 2.3;
 }
 
 .empty-workspace-launcher-text {

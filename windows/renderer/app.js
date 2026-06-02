@@ -5222,8 +5222,8 @@ function emptyWorkspaceViewModel(workspace, canReopen = state.closedPanels.lengt
   return {
     title: "cmux",
     bodyText: canReopen
-      ? "Reopen the last pane, or start this workspace with a terminal or browser."
-      : "Start this workspace with a terminal or browser.",
+      ? t("emptyWorkspace.noPanesReopen")
+      : t("emptyWorkspace.noPanesStart"),
     launchers: emptyWorkspaceLaunchers(),
     iconMarkup: controlIconMarkup,
     onRun: (launcher) => runEmptyWorkspaceLauncher(launcher, workspace)
@@ -5263,7 +5263,7 @@ function emptyWorkspaceLaunchers() {
     {
       id: "terminal",
       icon: "terminal",
-      label: "Terminal",
+      label: t("palette.quickTerminal"),
       ...emptyWorkspaceCreationLauncherState(optionLabel(terminalProfiles, state.settings.terminalProfile, "Auto shell")),
       kind: "panel",
       type: "terminal",
@@ -5273,7 +5273,7 @@ function emptyWorkspaceLaunchers() {
     {
       id: "browser",
       icon: "browser",
-      label: "Browser",
+      label: t("palette.quickBrowser"),
       ...emptyWorkspaceCreationLauncherState(hostnameOf(state.settings.browserHomeUrl)),
       kind: "panel",
       type: "browser",
@@ -5284,8 +5284,8 @@ function emptyWorkspaceLaunchers() {
     launchers.push({
       id: "layouts",
       icon: "layout",
-      label: "Layouts",
-      meta: "settings",
+      label: t("config.settingsCategory.blueprints"),
+      meta: t("emptyWorkspace.savedLayouts"),
       kind: "layouts"
     });
   }
@@ -5293,8 +5293,8 @@ function emptyWorkspaceLaunchers() {
     launchers.unshift({
       id: "reopen",
       icon: "history",
-      label: "Reopen",
-      ...emptyWorkspaceCreationLauncherState("Last pane"),
+      label: t("emptyWorkspace.reopen"),
+      ...emptyWorkspaceCreationLauncherState(t("emptyWorkspace.lastClosedPane")),
       kind: "reopen",
       primary: true
     });
