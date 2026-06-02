@@ -173,6 +173,30 @@ export function SettingsShell({
     event.currentTarget.scrollLeft += event.deltaY;
     event.preventDefault();
   };
+
+  const focusCategoryTab = (categoryId) => {
+    tabsRef.current
+      ?.querySelector(`[data-settings-category="${categoryId}"]`)
+      ?.focus({ preventScroll: true });
+  };
+
+  const onTabsKeyDown = (event) => {
+    const categoryIds = categories.map(([id]) => id);
+    const currentIndex = Math.max(0, categoryIds.indexOf(activeCategory));
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowRight") nextIndex = Math.min(categoryIds.length - 1, currentIndex + 1);
+    else if (event.key === "ArrowLeft") nextIndex = Math.max(0, currentIndex - 1);
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = categoryIds.length - 1;
+    else return;
+    const nextCategoryId = categoryIds[nextIndex];
+    if (!nextCategoryId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    focusCategoryTab(nextCategoryId);
+    if (nextCategoryId !== activeCategory) onCategory(nextCategoryId);
+  };
+
   const clearSearch = () => {
     if (!query) return;
     searchWasClearedRef.current = true;
@@ -225,7 +249,9 @@ export function SettingsShell({
         </div>
         <div
           aria-label={safeLabels.pagesAriaLabel}
+          aria-orientation="horizontal"
           className="settings-page-tabs"
+          onKeyDown={onTabsKeyDown}
           onWheel={onTabsWheel}
           ref={tabsRef}
           role="tablist"
@@ -240,6 +266,7 @@ export function SettingsShell({
                 key={id}
                 onClick={() => onCategory(id)}
                 role="tab"
+                tabIndex={active ? 0 : -1}
                 title={tabTitleTemplate.replace("{label}", label)}
                 type="button"
               >
