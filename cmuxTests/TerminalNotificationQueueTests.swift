@@ -499,12 +499,14 @@ final class TerminalNotificationQueueTests: XCTestCase {
 
         appDelegate.unregisterMainWindowContextForTesting(windowId: windowAId)
 
+        XCTAssertTrue(managerA.tabs.isEmpty)
         XCTAssertTrue(appDelegate.tabManager === managerB)
         XCTAssertNotNil(appDelegate.sidebarState)
         XCTAssertNotNil(appDelegate.sidebarSelectionState)
 
         appDelegate.unregisterMainWindowContextForTesting(windowId: windowBId)
 
+        XCTAssertTrue(managerB.tabs.isEmpty)
         XCTAssertNil(appDelegate.tabManager)
         XCTAssertNil(appDelegate.sidebarState)
         XCTAssertNil(appDelegate.sidebarSelectionState)

@@ -6120,9 +6120,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
+    func debugTeardownTabManagerForTesting(_ tabManager: TabManager) {
+        for workspace in tabManager.tabs {
+            workspace.withClosedPanelHistorySuppressed {
+                workspace.teardownAllPanels()
+            }
+            workspace.teardownRemoteConnection()
+        }
+        tabManager.tabs.removeAll(keepingCapacity: false)
+
+        if self.tabManager === tabManager {
+            self.tabManager = nil
+        }
+        if TerminalController.shared.activeTabManagerForCallerNotification() === tabManager {
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+    }
+
     func unregisterMainWindowContextForTesting(windowId: UUID, notifyObservers: Bool = true) {
-        mainWindowContexts.values.filter { $0.windowId == windowId }.forEach {
-            discardOrphanedMainWindowContext($0, allowWindowlessFallback: true, notifyObservers: notifyObservers)
+        unregisterMainWindowContextForTesting(
+            windowId: windowId,
+            notifyObservers: notifyObservers,
+            teardownTabManager: true
+        )
+    }
+
+    func unregisterMainWindowContextForTesting(
+        windowId: UUID,
+        notifyObservers: Bool = true,
+        teardownTabManager: Bool
+    ) {
+        mainWindowContexts.values.filter { $0.windowId == windowId }.forEach { context in
+            discardOrphanedMainWindowContext(context, allowWindowlessFallback: true, notifyObservers: notifyObservers)
+            if teardownTabManager {
+                debugTeardownTabManagerForTesting(context.tabManager)
+                forgetRecoverableMainWindowRoute(windowId: context.windowId)
+            }
         }
     }
 #endif
