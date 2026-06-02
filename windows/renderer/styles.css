@@ -9218,6 +9218,107 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
 }
 
+.active-background-snapshot {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.active-background-snapshot-item {
+  min-width: 0;
+  height: 34px;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  padding: 3px 5px 3px 3px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 82%, var(--color-rail) 18%);
+  color: var(--color-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.active-background-snapshot-item:hover:not(:disabled) {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+  color: var(--color-text);
+}
+
+.active-background-snapshot-item.is-selected {
+  border-color: color-mix(in oklch, var(--color-accent) 60%, var(--color-line) 40%);
+  background: color-mix(in oklch, var(--color-accent) 13%, var(--color-pane) 87%);
+  color: var(--color-text);
+}
+
+.active-background-snapshot-item:disabled {
+  color: var(--color-faint);
+  cursor: default;
+}
+
+.active-background-snapshot-preview {
+  position: relative;
+  width: 26px;
+  height: 24px;
+  display: block;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background:
+    linear-gradient(135deg, color-mix(in oklch, var(--color-pane) 86%, var(--color-rail) 14%), var(--color-pane-warm));
+}
+
+.active-background-snapshot-item.has-image .active-background-snapshot-preview {
+  background-image: var(--snapshot-background-image);
+  background-size: var(--snapshot-background-size, cover);
+  background-repeat: var(--snapshot-background-repeat, no-repeat);
+  background-position: var(--snapshot-background-position, center);
+}
+
+.active-background-snapshot-item.is-mixed .active-background-snapshot-preview {
+  background:
+    linear-gradient(135deg, color-mix(in oklch, var(--color-accent) 22%, transparent) 0 25%, transparent 25% 50%, color-mix(in oklch, var(--color-accent-hover) 22%, transparent) 50% 75%, transparent 75%),
+    var(--color-pane);
+  background-size: 12px 12px;
+}
+
+.active-background-snapshot-copy,
+.active-background-snapshot-label,
+.active-background-snapshot-value {
+  min-width: 0;
+}
+
+.active-background-snapshot-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.active-background-snapshot-label,
+.active-background-snapshot-value {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.active-background-snapshot-label {
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.active-background-snapshot-value {
+  color: var(--color-faint);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.active-background-snapshot-item.is-selected .active-background-snapshot-value {
+  color: var(--color-muted);
+}
+
 .background-target-control {
   grid-column: 1 / -1;
   min-width: 0;
@@ -9424,6 +9525,10 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
 }
 
 @container (max-width: 330px) {
+  .active-background-snapshot {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .background-target-control {
     grid-template-columns: minmax(0, 1fr);
   }

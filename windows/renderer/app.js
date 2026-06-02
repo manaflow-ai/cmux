@@ -9921,6 +9921,7 @@ function activeBackgroundPanelViewModel(target = state.backgroundApplyTarget, wo
   return {
     background,
     hasBackground,
+    mixed,
     kicker,
     label: mixed ? "Mixed terminal backgrounds" : hasBackground ? appearanceBackgroundLabel(background) : "None",
     source: mixed ? "Terminal panes have different backgrounds." : backgroundSourceText(background, emptySource),
@@ -9929,6 +9930,57 @@ function activeBackgroundPanelViewModel(target = state.backgroundApplyTarget, wo
     size: backgroundSizeCss(state.settings.backgroundFit),
     position: backgroundPositionCss(state.settings.backgroundPosition)
   };
+}
+
+function activeBackgroundScopeSnapshot() {
+  const snapshot = document.createElement("span");
+  snapshot.className = "active-background-snapshot";
+  snapshot.setAttribute("aria-label", "Background target status");
+  for (const target of ["app", "pane", "all"]) {
+    const item = document.createElement("button");
+    item.className = "active-background-snapshot-item";
+    item.type = "button";
+    item.dataset.backgroundSnapshotTarget = target;
+    item.innerHTML = `
+      <span class="active-background-snapshot-preview" aria-hidden="true"></span>
+      <span class="active-background-snapshot-copy">
+        <span class="active-background-snapshot-label"></span>
+        <span class="active-background-snapshot-value"></span>
+      </span>
+    `;
+    item.onclick = () => selectBackgroundApplyTarget(item.dataset.backgroundSnapshotTarget);
+    snapshot.append(item);
+  }
+  updateActiveBackgroundScopeSnapshot(snapshot);
+  return snapshot;
+}
+
+function updateActiveBackgroundScopeSnapshot(snapshot, workspace = activeWorkspace()) {
+  if (!snapshot) return;
+  const selectedTarget = normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
+  for (const button of snapshot.querySelectorAll("[data-background-snapshot-target]")) {
+    const target = normalizeBackgroundApplyTarget(button.dataset.backgroundSnapshotTarget);
+    const option = backgroundApplyTargetOption(target, workspace);
+    const model = activeBackgroundPanelViewModel(target, workspace);
+    const selected = target === selectedTarget;
+    setClassNameIfChanged(button, [
+      "active-background-snapshot-item",
+      selected ? "is-selected" : "",
+      model.hasBackground ? "has-image" : "",
+      model.mixed ? "is-mixed" : "",
+      option.disabled ? "is-disabled" : ""
+    ].filter(Boolean).join(" "));
+    setDisabledIfChanged(button, option.disabled);
+    setAttributeIfChanged(button, "aria-pressed", selected ? "true" : "false");
+    setAttributeIfChanged(button, "aria-label", `${option.label}: ${model.label}. ${model.source}`);
+    setTitleIfChanged(button, `${option.label}: ${model.source}`);
+    setStylePropertyIfChanged(button, "--snapshot-background-image", model.image);
+    setStylePropertyIfChanged(button, "--snapshot-background-repeat", model.repeat);
+    setStylePropertyIfChanged(button, "--snapshot-background-size", model.size);
+    setStylePropertyIfChanged(button, "--snapshot-background-position", model.position);
+    setTextIfChanged(button.querySelector(".active-background-snapshot-label"), option.label);
+    setTextIfChanged(button.querySelector(".active-background-snapshot-value"), model.label);
+  }
 }
 
 function activeBackgroundPanel(options = {}) {
@@ -9962,6 +10014,7 @@ function activeBackgroundPanel(options = {}) {
   panel.querySelector(".active-background-source").textContent = model.source;
   panel.querySelector(".active-background-source").title = model.source;
   updateActiveBackgroundScopeChips(panel, activeBackgroundScopeModel(state.settings.backgroundImage));
+  panel.querySelector(".active-background-copy").append(activeBackgroundScopeSnapshot());
   const actions = panel.querySelector(".active-background-actions");
   panel.insertBefore(activeBackgroundTargetControl(), actions);
   const targetStatus = activeBackgroundTargetStatus();
@@ -10187,6 +10240,7 @@ function refreshBackgroundPreviewNodes() {
     if (title) title.title = model.label;
     if (source) source.title = model.source;
     updateActiveBackgroundScopeChips(panel, activeBackgroundScopeModel(state.settings.backgroundImage, workspace));
+    updateActiveBackgroundScopeSnapshot(panel.querySelector(".active-background-snapshot"), workspace);
     updateActiveBackgroundTargetControl(panel);
     const targetStatus = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
     const targetLabel = backgroundApplyTargetActionLabel(targetStatus.scope);
