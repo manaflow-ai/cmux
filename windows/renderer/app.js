@@ -14213,7 +14213,7 @@ async function chooseBackgroundImageForTarget(options = {}) {
   return changed;
 }
 
-async function pasteBackgroundImageFromClipboard(options = {}) {
+async function readBackgroundImageFromClipboard() {
   if (!window.cmuxNative?.readClipboard) {
     toast("Clipboard is unavailable.");
     return null;
@@ -14237,8 +14237,18 @@ async function pasteBackgroundImageFromClipboard(options = {}) {
       : "Clipboard does not contain an image URL, path, or copied image.");
     return null;
   }
+  return {
+    background: pastedImage ? { url: value, label: "Clipboard image" } : { url: value },
+    pastedImage,
+    value
+  };
+}
+
+async function pasteBackgroundImageFromClipboard(options = {}) {
+  const payload = await readBackgroundImageFromClipboard();
+  if (!payload) return null;
+  const { background, pastedImage, value } = payload;
   if (options.input) options.input.value = pastedImage ? "Copied image" : value;
-  const background = pastedImage ? { url: value, label: "Clipboard image" } : { url: value };
   if (options.target) {
     const target = typeof options.target === "function" ? options.target() : options.target;
     if (options.save) {
@@ -14257,6 +14267,28 @@ async function pasteBackgroundImageFromClipboard(options = {}) {
   }
   const changed = await applyCustomBackgroundImage(value, { resetInput: options.input, toast: true });
   if (changed !== null && pastedImage && options.input) options.input.value = "";
+  return changed;
+}
+
+async function chooseWorkspaceTerminalBackground(workspace = activeWorkspace()) {
+  if (!workspace) return null;
+  if (!window.cmuxNative?.pickBackgroundImage) {
+    toast("Local image picker is unavailable.");
+    return null;
+  }
+  const url = await window.cmuxNative.pickBackgroundImage();
+  if (!url) return null;
+  const changed = await applyWorkspaceBackgroundImageToTerminals(url, workspace, { render: false, toast: true });
+  if (changed !== null && state.inspectorMode === "settings") renderSettingsInspector();
+  return changed;
+}
+
+async function pasteWorkspaceTerminalBackgroundFromClipboard(workspace = activeWorkspace()) {
+  if (!workspace) return null;
+  const payload = await readBackgroundImageFromClipboard();
+  if (!payload) return null;
+  const changed = await applyWorkspaceBackgroundImageToTerminals(payload.value, workspace, { render: false, toast: true });
+  if (changed !== null && state.inspectorMode === "settings") renderSettingsInspector();
   return changed;
 }
 
@@ -14965,6 +14997,14 @@ function showWorkspaceContextMenu(event, workspace) {
     upsertCustomColorPalette(color, { render: false, toast: false });
   });
   const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(workspace.color), !normalizeCustomPaletteColor(workspace.color));
+  const hasTerminalPanes = (workspace.panels || []).some((panel) => panel.type === "terminal");
+  const backgroundActions = contextMenuActionGroup(
+    contextMenuButton(t("workspace.chooseTerminalBackground"), () => chooseWorkspaceTerminalBackground(workspace), !hasTerminalPanes),
+    contextMenuButton(t("workspace.pasteTerminalBackground"), () => pasteWorkspaceTerminalBackgroundFromClipboard(workspace), !hasTerminalPanes),
+    contextMenuButton(t("workspace.useAppBackground"), () => applyWorkspaceBackgroundImageToTerminals(state.settings.backgroundImage, workspace), !hasTerminalPanes || !state.settings.backgroundImage),
+    contextMenuButton(t("workspace.clearTerminalBackgrounds"), () => applyWorkspaceBackgroundImageToTerminals("", workspace), !hasTerminalPanes, "danger"),
+    contextMenuButton(t("workspace.backgroundSettings"), () => openSettingsCategory("appearance", { query: "background", focusSearch: true }))
+  );
   menu.replaceChildren(
     title,
     meta,
@@ -14972,7 +15012,9 @@ function showWorkspaceContextMenu(event, workspace) {
     contextMenuSectionTitle("Workspace color"),
     colors,
     customColor,
-    contextMenuActionGroup(saveColor)
+    contextMenuActionGroup(saveColor),
+    contextMenuSectionTitle(t("workspace.backgrounds")),
+    backgroundActions
   );
   showContextMenuAt(menu, event.clientX, event.clientY);
 }
