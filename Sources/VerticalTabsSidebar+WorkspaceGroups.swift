@@ -6,7 +6,8 @@ extension VerticalTabsSidebar {
     func sidebarWorkspaceGroupHeader(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
-        renderContext: WorkspaceListRenderContext
+        renderContext: WorkspaceListRenderContext,
+        role: SidebarWorkspaceRowRenderRole = .list
     ) -> some View {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
@@ -45,6 +46,7 @@ extension VerticalTabsSidebar {
             cmuxDebugLog("sidebar.onDrag groupAnchor=\(anchorId.uuidString.prefix(5))")
             #endif
             dragState.beginDragging(tabId: anchorId)
+            dragAutoScrollController.recordDragLocation()
             return SidebarTabDragPayload.provider(for: anchorId)
         }
         let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate = { [
@@ -73,7 +75,7 @@ extension VerticalTabsSidebar {
             )
         }
 
-        SidebarWorkspaceGroupHeaderView(
+        let header = SidebarWorkspaceGroupHeaderView(
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
             name: group.name,
@@ -93,7 +95,8 @@ extension VerticalTabsSidebar {
             newWorkspacePlacement: newWorkspacePlacement,
             rowSpacing: tabRowSpacing,
             isFirstRow: renderContext.sidebarReorderIds.first == group.anchorWorkspaceId,
-            isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
+            isBeingDragged: role == .list && dragState.draggedTabId == group.anchorWorkspaceId,
+            isDragFollowerPresentation: role == .dragFollower,
             topDropIndicatorVisible: topDropIndicatorVisible,
             onDragStart: onDragStart,
             tabDropDelegateFactory: tabDropDelegateFactory,
@@ -152,11 +155,19 @@ extension VerticalTabsSidebar {
             }
         )
         .equatable()
-        .id(group.anchorWorkspaceId)
-        .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
-        .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))
-        .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { [anchorId = group.anchorWorkspaceId] anchor in
-            [anchorId: anchor]
+
+        if role == .dragFollower {
+            header
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        } else {
+            header
+                .id(group.anchorWorkspaceId)
+                .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
+                .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))
+                .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { [anchorId = group.anchorWorkspaceId] anchor in
+                    [anchorId: anchor]
+                }
         }
     }
 }

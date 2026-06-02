@@ -183,7 +183,7 @@ struct WorkspaceGroupTests {
                 groupMemberIds = memberWorkspaceIds
             case .groupHeader:
                 break
-            case .workspace(let workspace):
+            case .workspace(let workspace, _):
                 visibleWorkspaceIds.append(workspace.id)
             }
         }
@@ -195,6 +195,91 @@ struct WorkspaceGroupTests {
         ])
         #expect(!visibleWorkspaceIds.contains(originalIds[1]))
         #expect(!visibleWorkspaceIds.contains(originalIds[2]))
+    }
+
+    @Test func dragPreviewItemsMoveDraggedWorkspaceBeforeCommit() throws {
+        let manager = makeTabManager()
+        let ids = manager.tabs.map(\.id)
+        let baseItems = SidebarWorkspaceRenderItem.renderItems(
+            tabs: manager.tabs,
+            groupsById: [:]
+        )
+
+        let previewItems = SidebarWorkspaceRenderItem.dragPreviewItems(
+            baseItems,
+            draggedWorkspaceId: ids[1],
+            dropIndicator: SidebarDropIndicator(tabId: ids[0], edge: .top),
+            reorderWorkspaceIds: ids,
+            groupDropPreview: nil
+        )
+
+        #expect(previewItems.map(\.representedWorkspaceId) == [ids[1], ids[0]])
+        #expect(manager.tabs.map(\.id) == ids)
+    }
+
+    @Test func dragPreviewItemsMoveWholeGroupAsTopLevelBlock() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Group", childWorkspaceIds: [originalIds[1]]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let baseItems = SidebarWorkspaceRenderItem.renderItems(
+            tabs: manager.tabs,
+            groupsById: Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
+        )
+        let reorderIds = manager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: group.anchorWorkspaceId)
+
+        let previewItems = SidebarWorkspaceRenderItem.dragPreviewItems(
+            baseItems,
+            draggedWorkspaceId: group.anchorWorkspaceId,
+            dropIndicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
+            reorderWorkspaceIds: reorderIds,
+            groupDropPreview: nil
+        )
+
+        #expect(previewItems.map(\.representedWorkspaceId) == [
+            originalIds[0],
+            originalIds[2],
+            group.anchorWorkspaceId,
+            originalIds[1],
+        ])
+        #expect(manager.tabs.map(\.id).contains(group.anchorWorkspaceId))
+    }
+
+    @Test func groupDropPreviewShowsDraggedWorkspaceJoiningGroupAtEnd() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Group", childWorkspaceIds: [originalIds[0]]))
+        let baseItems = SidebarWorkspaceRenderItem.renderItems(
+            tabs: manager.tabs,
+            groupsById: Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
+        )
+
+        let previewItems = SidebarWorkspaceRenderItem.dragPreviewItems(
+            baseItems,
+            draggedWorkspaceId: originalIds[2],
+            dropIndicator: nil,
+            reorderWorkspaceIds: [],
+            groupDropPreview: SidebarWorkspaceGroupDropPreview(
+                draggedWorkspaceId: originalIds[2],
+                targetGroupId: groupId
+            )
+        )
+
+        let groupHeader = try #require(previewItems.first)
+        guard case .groupHeader(_, let memberWorkspaceIds) = groupHeader else {
+            Issue.record("Expected first preview item to be the group header")
+            return
+        }
+        #expect(memberWorkspaceIds.contains(originalIds[2]))
+        guard case .workspace(let previewWorkspace, let effectiveGroupId) = previewItems[2] else {
+            Issue.record("Expected dragged workspace to preview as a group member")
+            return
+        }
+        #expect(previewWorkspace.id == originalIds[2])
+        #expect(effectiveGroupId == groupId)
+        #expect(manager.tabs.first { $0.id == originalIds[2] }?.groupId == nil)
     }
 
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {

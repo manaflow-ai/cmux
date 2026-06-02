@@ -1,6 +1,32 @@
 import AppKit
 import SwiftUI
 
+struct SidebarWorkspaceInvisibleDragPreview: View {
+    var body: some View {
+        Color.clear.frame(width: 1, height: 1)
+    }
+}
+
+private struct SidebarGroupHeaderDragDropModifier: ViewModifier {
+    let enabled: Bool
+    let onDragStart: () -> NSItemProvider
+    let dropDelegate: SidebarWorkspaceGroupHeaderDropDelegate
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .onDrag(onDragStart, preview: {
+                    SidebarWorkspaceInvisibleDragPreview()
+                })
+                .internalOnlyTabDrag()
+                .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: dropDelegate)
+        } else {
+            content
+        }
+    }
+}
+
 /// Collapsible group header that doubles as the anchor workspace row.
 struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     // Closures and delegate factories are excluded because they are recreated
@@ -27,6 +53,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.rowSpacing == rhs.rowSpacing &&
             lhs.isFirstRow == rhs.isFirstRow &&
             lhs.isBeingDragged == rhs.isBeingDragged &&
+            lhs.isDragFollowerPresentation == rhs.isDragFollowerPresentation &&
             lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible
     }
 
@@ -50,6 +77,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let rowSpacing: CGFloat
     let isFirstRow: Bool
     let isBeingDragged: Bool
+    var isDragFollowerPresentation: Bool = false
     let topDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
     let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate
@@ -228,9 +256,11 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 rowSpacing: rowSpacing
             )
         }
-        .onDrag(onDragStart)
-        .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
+        .modifier(SidebarGroupHeaderDragDropModifier(
+            enabled: !isDragFollowerPresentation,
+            onDragStart: onDragStart,
+            dropDelegate: tabDropDelegateFactory(rowHeight)
+        ))
         .onHover { hovering in
             isHovered = hovering
         }
@@ -394,6 +424,9 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
+        if dragState.groupDropPreview?.targetGroupId == targetGroupId {
+            dragState.clearDropIndicator()
+        }
         reorderDelegate.dropExited(info: info)
     }
 
@@ -415,7 +448,11 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
         defer { clearDropState() }
         switch action {
         case .addWorkspaceToGroup(let draggedTabId):
-            tabManager.addWorkspaceToGroup(workspaceId: draggedTabId, groupId: targetGroupId)
+            tabManager.addWorkspaceToGroup(
+                workspaceId: draggedTabId,
+                groupId: targetGroupId,
+                placement: .end
+            )
         case .noOp:
             break
         }
@@ -423,9 +460,19 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
     }
 
     private func updateGroupHeaderCenterDrop(_ info: DropInfo) -> Bool {
-        guard groupHeaderCenterDropAction(info) != nil else { return false }
+        guard let action = groupHeaderCenterDropAction(info) else { return false }
         dragAutoScrollController.updateFromDragLocation()
-        dragState.clearDropIndicator()
+        switch action {
+        case .addWorkspaceToGroup(let draggedTabId):
+            dragState.setGroupDropPreview(
+                SidebarWorkspaceGroupDropPreview(
+                    draggedWorkspaceId: draggedTabId,
+                    targetGroupId: targetGroupId
+                )
+            )
+        case .noOp:
+            dragState.clearDropIndicator()
+        }
         return true
     }
 
