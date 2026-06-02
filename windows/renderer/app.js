@@ -7309,7 +7309,7 @@ function renderSettingsInspector(options = {}) {
       "Pane color markers",
       toggleInput(state.settings.paneColorMarkers, (checked) => updateSettings({ paneColorMarkers: checked })),
       false,
-      "pane tab color markers colored dots quiet simple terminal chrome"
+      "pane tab color markers colored dots border accent strip quiet simple terminal chrome"
     ));
     const sidebarWidthRange = document.createElement("input");
     sidebarWidthRange.className = "setting-control";

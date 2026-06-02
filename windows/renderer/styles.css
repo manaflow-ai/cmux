@@ -1802,6 +1802,14 @@ body.reduce-motion *::after {
   opacity: .9;
 }
 
+.shell:not(.pane-color-markers) .pane.is-active:not(.has-attention) .pane-header::before {
+  opacity: 0;
+}
+
+.shell:not(.pane-color-markers) .pane.has-attention .pane-header::before {
+  background: var(--color-warning);
+}
+
 .pane-header:active {
   cursor: grabbing;
 }
@@ -1887,6 +1895,10 @@ body.reduce-motion *::after {
 .pane.is-active .pane-type {
   border-color: color-mix(in oklch, var(--panel-color, var(--color-accent)) 44%, var(--color-line-strong) 56%);
   color: var(--color-text);
+}
+
+.shell:not(.pane-color-markers) .pane.is-active .pane-type {
+  border-color: var(--color-line-strong);
 }
 
 .pane-title {
