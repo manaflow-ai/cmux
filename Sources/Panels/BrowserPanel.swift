@@ -3659,9 +3659,7 @@ final class BrowserPanel: Panel, ObservableObject {
         isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
-        if let oldCmuxWebView = oldWebView as? CmuxWebView {
-            oldCmuxWebView.onContextMenuDownloadStateChanged = nil
-        }
+        clearCmuxWebViewCallbacks(oldWebView)
 
         let replacement = Self.makeWebView(
             profileID: profileID,
@@ -4005,12 +4003,30 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
+        webView.onMouseBackButton = { [weak self] in
+            guard let self, self.canGoBack else { return false }
+            self.goBack()
+            return true
+        }
+        webView.onMouseForwardButton = { [weak self] in
+            guard let self, self.canGoForward else { return false }
+            self.goForward()
+            return true
+        }
         configureMoveTabToNewWorkspaceContextMenu(for: webView); configureNavigationDelegateCallbacks()
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
         applyMuteState(to: webView, reason: "bindWebView")
+    }
+
+    private func clearCmuxWebViewCallbacks(_ webView: WKWebView) {
+        guard let cmuxWebView = webView as? CmuxWebView else { return }
+        cmuxWebView.onContextMenuDownloadStateChanged = nil
+        cmuxWebView.onContextMenuOpenLinkInNewTab = nil
+        cmuxWebView.onMouseBackButton = nil
+        cmuxWebView.onMouseForwardButton = nil
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -4548,9 +4564,7 @@ final class BrowserPanel: Panel, ObservableObject {
         isMainFrameProvisionalNavigationActive = false
         previousWebView.navigationDelegate = nil
         previousWebView.uiDelegate = nil
-        if let previousCmuxWebView = previousWebView as? CmuxWebView {
-            previousCmuxWebView.onContextMenuDownloadStateChanged = nil
-        }
+        clearCmuxWebViewCallbacks(previousWebView)
 
         profileID = resolvedProfileID
         historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
@@ -4956,9 +4970,7 @@ final class BrowserPanel: Panel, ObservableObject {
         isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
-        if let oldCmuxWebView = oldWebView as? CmuxWebView {
-            oldCmuxWebView.onContextMenuDownloadStateChanged = nil
-        }
+        clearCmuxWebViewCallbacks(oldWebView)
 
         let replacement = Self.makeWebView(
             profileID: profileID,
@@ -5768,6 +5780,12 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewCancellables.removeAll()
         let webView = webView
         Task { @MainActor in
+            if let cmuxWebView = webView as? CmuxWebView {
+                cmuxWebView.onContextMenuDownloadStateChanged = nil
+                cmuxWebView.onContextMenuOpenLinkInNewTab = nil
+                cmuxWebView.onMouseBackButton = nil
+                cmuxWebView.onMouseForwardButton = nil
+            }
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
     }
@@ -5911,9 +5929,7 @@ extension BrowserPanel {
         isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
-        if let oldCmuxWebView = oldWebView as? CmuxWebView {
-            oldCmuxWebView.onContextMenuDownloadStateChanged = nil
-        }
+        clearCmuxWebViewCallbacks(oldWebView)
 
         let replacement = Self.makeWebView(
             profileID: profileID,

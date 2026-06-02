@@ -375,6 +375,10 @@ final class CmuxWebView: WKWebView {
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
     var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
+    /// Called for the hardware mouse back button.
+    var onMouseBackButton: (() -> Bool)?
+    /// Called for the hardware mouse forward button.
+    var onMouseForwardButton: (() -> Bool)?
     var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
     var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
@@ -780,15 +784,19 @@ final class CmuxWebView: WKWebView {
         switch event.buttonNumber {
         case 3:
 #if DEBUG
-            cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goBack canGoBack=\(canGoBack ? 1 : 0)")
+            cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goBack canGoBack=\(canGoBack ? 1 : 0) routed=\(onMouseBackButton == nil ? 0 : 1)")
 #endif
-            goBack()
+            if onMouseBackButton?() != true {
+                goBack()
+            }
             return
         case 4:
 #if DEBUG
-            cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goForward canGoForward=\(canGoForward ? 1 : 0)")
+            cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goForward canGoForward=\(canGoForward ? 1 : 0) routed=\(onMouseForwardButton == nil ? 0 : 1)")
 #endif
-            goForward()
+            if onMouseForwardButton?() != true {
+                goForward()
+            }
             return
         default:
             break
