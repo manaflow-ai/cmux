@@ -12334,7 +12334,6 @@ struct VerticalTabsSidebar: View {
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
             showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
             dragAutoScrollController: dragAutoScrollController,
-            isBeingDragged: isBeingDragged,
             topDropIndicatorVisible: false,
             onReorderChanged: onReorderChanged,
             onReorderEnded: onReorderEnded,
@@ -12352,13 +12351,19 @@ struct VerticalTabsSidebar: View {
         .equatable()
 
         let indent: CGFloat = tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0
+        // Applying the dragged-row "invisible placeholder" opacity here in the
+        // parent (rather than inside `TabItemView`) keeps the gesture-hosting
+        // row's inputs constant during a drag, so `.equatable()` skips its body
+        // and the in-flight `DragGesture` is not torn down when the drag starts.
         if role == .dragFollower {
             row
+                .opacity(isBeingDragged ? 0 : 1)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
                 .padding(.leading, indent)
         } else {
             row
+                .opacity(isBeingDragged ? 0 : 1)
                 .id(tab.id)
                 .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
                 .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
@@ -14824,7 +14829,6 @@ struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
-        lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
         lhs.isReorderEnabled == rhs.isReorderEnabled &&
         lhs.settings == rhs.settings
@@ -14857,7 +14861,6 @@ struct TabItemView: View, Equatable {
     // (see CLAUDE.md). When drag state changes, the parent recomputes these
     // per-row snapshots and `==` skips re-render for rows whose snapshot is
     // unchanged.
-    let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     /// Reorder gesture callbacks (start location, current location), dispatched
     /// into the shared `VerticalTabsSidebar` reorder helpers via closures so the
@@ -15520,10 +15523,6 @@ struct TabItemView: View, Equatable {
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .contentShape(Rectangle())
-        // The row being dragged renders fully invisible: its visible copy is the
-        // floating `SidebarReorderFollowerView`, and this slot is the gap the
-        // surrounding rows animate open around.
-        .opacity(isBeingDragged ? 0 : 1)
         .overlay {
             SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
         }

@@ -48,6 +48,10 @@ extension VerticalTabsSidebar {
         let onReorderEnded: (CGPoint, CGPoint) -> Void = { [anchorId = group.anchorWorkspaceId] _, _ in
             sidebarReorderGestureEnded(draggedId: anchorId)
         }
+        // Computed in the parent and applied as opacity below (not passed into
+        // the header view) so the gesture-hosting header's inputs stay constant
+        // during a drag and its in-flight `DragGesture` is not torn down.
+        let isBeingDragged = role == .list && dragState.draggedTabId == group.anchorWorkspaceId
 
         let header = SidebarWorkspaceGroupHeaderView(
             groupId: group.id,
@@ -69,7 +73,6 @@ extension VerticalTabsSidebar {
             newWorkspacePlacement: newWorkspacePlacement,
             rowSpacing: tabRowSpacing,
             isFirstRow: renderContext.sidebarReorderIds.first == group.anchorWorkspaceId,
-            isBeingDragged: role == .list && dragState.draggedTabId == group.anchorWorkspaceId,
             topDropIndicatorVisible: false,
             onReorderChanged: onReorderChanged,
             onReorderEnded: onReorderEnded,
@@ -132,10 +135,12 @@ extension VerticalTabsSidebar {
 
         if role == .dragFollower {
             header
+                .opacity(isBeingDragged ? 0 : 1)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         } else {
             header
+                .opacity(isBeingDragged ? 0 : 1)
                 .id(group.anchorWorkspaceId)
                 .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
                 .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))

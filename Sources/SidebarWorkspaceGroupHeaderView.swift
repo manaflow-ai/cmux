@@ -26,7 +26,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.newWorkspacePlacement == rhs.newWorkspacePlacement &&
             lhs.rowSpacing == rhs.rowSpacing &&
             lhs.isFirstRow == rhs.isFirstRow &&
-            lhs.isBeingDragged == rhs.isBeingDragged &&
             lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
             lhs.isReorderEnabled == rhs.isReorderEnabled
     }
@@ -50,7 +49,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let newWorkspacePlacement: WorkspaceGroupNewPlacement?
     let rowSpacing: CGFloat
     let isFirstRow: Bool
-    let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     /// Reorder gesture callbacks dispatched into the shared reorder helpers.
     let onReorderChanged: (CGPoint, CGPoint) -> Void
@@ -224,9 +222,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-        // The dragged header renders invisible; its visible copy is the floating
-        // follower and this slot is the gap that opens during a reorder.
-        .opacity(isBeingDragged ? 0 : 1)
         .overlay(alignment: .top) {
             SidebarWorkspaceTopDropIndicator(
                 isVisible: topDropIndicatorVisible,
