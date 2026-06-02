@@ -7014,6 +7014,7 @@ function updateBrowserTabNewButton(session) {
   setAttributeIfChanged(session.tabNew, "aria-disabled", String(atLimit));
   setAttributeIfChanged(session.tabNew, "aria-label", label);
   setTitleIfChanged(session.tabNew, label);
+  setTextIfChanged(session.tabNew.querySelector(".browser-tab-new-label"), atLimit ? "Full" : "Tab");
 }
 
 function browserTabAtLimit(session) {
@@ -7428,7 +7429,10 @@ function ensureBrowser(panel, body) {
   tabNew.type = "button";
   tabNew.title = t("browser.newTab");
   tabNew.setAttribute("aria-label", t("browser.newTab"));
-  tabNew.innerHTML = controlIconMarkup("plus");
+  tabNew.innerHTML = `
+    <span class="browser-tab-new-icon" aria-hidden="true">${controlIconMarkup("plus")}</span>
+    <span class="browser-tab-new-label"></span>
+  `;
   tabStrip.append(tabList, tabNew);
   const bar = document.createElement("div");
   bar.className = "browser-bar";

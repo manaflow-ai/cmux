@@ -3440,28 +3440,46 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .browser-tab-new {
-  flex: 0 0 34px;
-  min-width: 34px;
-  width: 34px;
+  flex: 0 0 66px;
+  min-width: 66px;
+  width: 66px;
   height: 26px;
   display: grid;
-  place-items: center;
+  grid-template-columns: 15px minmax(0, 1fr);
+  align-items: center;
+  justify-items: center;
+  gap: 4px;
   margin-bottom: 0;
+  padding: 0 8px 0 7px;
   border: 1px solid var(--color-line);
   border-bottom: 0;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
   color: var(--color-text);
   background: color-mix(in oklch, var(--color-pane) 74%, var(--color-chrome) 26%);
-  font: 760 17px/1 var(--font-mono);
+  font-size: 11px;
+  font-weight: 760;
   box-shadow:
     -8px 0 10px -12px var(--color-canvas),
     inset 0 1px 0 color-mix(in oklch, var(--color-text) 8%, transparent);
   z-index: 1;
 }
 
+.browser-tab-new-icon {
+  display: grid;
+  place-items: center;
+}
+
 .browser-tab-new svg {
   width: 15px;
   height: 15px;
+}
+
+.browser-tab-new-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  letter-spacing: 0;
 }
 
 .browser-tab-new:hover {
@@ -3496,6 +3514,21 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .browser-tab-new.is-disabled:active {
   transform: none;
+}
+
+@container (max-width: 420px) {
+  .browser-tab-new {
+    flex-basis: 34px;
+    min-width: 34px;
+    width: 34px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding: 0;
+  }
+
+  .browser-tab-new-label {
+    display: none;
+  }
 }
 
 @container (max-width: 260px) {
