@@ -13951,6 +13951,7 @@ function showPanelContextMenu(event, panel) {
   const generalActions = contextMenuActionGroup(
     contextMenuButton("Rename", () => renamePanel(panel)),
     contextMenuButton("Default name", () => updatePanel(panel.id, { title: "" }), !panel.titleLocked),
+    contextMenuButton("Pane settings", () => openPaneSettings(panel)),
     contextMenuButton("Duplicate", () => duplicatePanel(panel)),
     isTerminal
       ? contextMenuButton("New terminal tab", () => createTerminalPanel("right", { anchorPanelId: panel.id }))
@@ -16809,6 +16810,11 @@ function openSettingsCategory(category = "quick", options = {}) {
   state.settingsScrollResetPending = true;
   updateRailButtons();
   render();
+}
+
+function openPaneSettings(panel = focusedPanel()) {
+  if (panel?.id) focusPanel(panel.id);
+  openSettingsCategory("workspace");
 }
 
 function updateRailButtons() {
