@@ -2,7 +2,7 @@
 // Auth: Stack Bearer from the native client. A row only exists after the
 // user explicitly opts in on their device, so presence == "wants phone pushes".
 
-import { and, count, eq, ne } from "drizzle-orm";
+import { and, count, eq, ne, sql } from "drizzle-orm";
 import { cloudDb } from "../../../db/client";
 import { deviceTokens } from "../../../db/schema";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
@@ -42,41 +42,52 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const db = cloudDb();
-  const [existingToken] = await db
-    .select({ userId: deviceTokens.userId })
-    .from(deviceTokens)
-    .where(eq(deviceTokens.deviceToken, deviceToken))
-    .limit(1);
 
-  if (existingToken?.userId !== user.id) {
-    const [registered] = await db
-      .select({ total: count() })
+  const registered = await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 0))`);
+
+    const [existingToken] = await tx
+      .select({ userId: deviceTokens.userId })
       .from(deviceTokens)
-      .where(and(eq(deviceTokens.userId, user.id), ne(deviceTokens.deviceToken, deviceToken)));
-    if (Number(registered?.total ?? 0) >= MAX_DEVICE_TOKENS_PER_USER) {
-      return jsonResponse({ error: "too_many_devices" }, 429);
-    }
-  }
+      .where(eq(deviceTokens.deviceToken, deviceToken))
+      .limit(1);
 
-  await db
-    .insert(deviceTokens)
-    .values({
-      userId: user.id,
-      deviceToken,
-      bundleId: bundle.bundleId,
-      environment: bundle.environment,
-      platform,
-    })
-    .onConflictDoUpdate({
-      target: deviceTokens.deviceToken,
-      set: {
+    if (existingToken?.userId !== user.id) {
+      const [registrationCount] = await tx
+        .select({ total: count() })
+        .from(deviceTokens)
+        .where(and(eq(deviceTokens.userId, user.id), ne(deviceTokens.deviceToken, deviceToken)));
+      if (Number(registrationCount?.total ?? 0) >= MAX_DEVICE_TOKENS_PER_USER) {
+        return false;
+      }
+    }
+
+    await tx
+      .insert(deviceTokens)
+      .values({
         userId: user.id,
+        deviceToken,
         bundleId: bundle.bundleId,
         environment: bundle.environment,
         platform,
-        updatedAt: new Date(),
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: deviceTokens.deviceToken,
+        set: {
+          userId: user.id,
+          bundleId: bundle.bundleId,
+          environment: bundle.environment,
+          platform,
+          updatedAt: new Date(),
+        },
+      });
+
+    return true;
+  });
+
+  if (!registered) {
+    return jsonResponse({ error: "too_many_devices" }, 429);
+  }
 
   return jsonResponse({ ok: true });
 }
