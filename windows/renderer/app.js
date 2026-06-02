@@ -9815,7 +9815,7 @@ function activeBackgroundTargetControl() {
 
   const label = document.createElement("span");
   label.className = "background-target-label";
-  label.textContent = "Target";
+  label.textContent = "Apply image to";
 
   const options = document.createElement("div");
   options.className = "background-target-options";
@@ -11929,17 +11929,17 @@ function quickSetupActionDefinitions() {
     {
       id: "all-terminal-backgrounds",
       icon: "paneBackground",
-      label: "All terminals",
-      body: "Copy the app image to every terminal in this workspace.",
+      label: "All terminal image",
+      body: "Choose one image for every terminal in this workspace.",
       meta: () => {
         const workspace = activeWorkspace();
         const count = workspaceTerminalPanels(workspace).length;
-        return state.settings.backgroundImage ? `${count} terminal${count === 1 ? "" : "s"}` : "No app image";
+        return count ? `${count} terminal${count === 1 ? "" : "s"}` : "No terminals";
       },
-      cta: "Apply",
-      search: "all terminal pane background image app wallpaper workspace",
-      disabled: () => !state.settings.backgroundImage || workspaceTerminalPanels().length === 0,
-      run: () => applyWorkspaceBackgroundImageToTerminals(state.settings.backgroundImage)
+      cta: "Choose",
+      search: "all terminal pane background image choose local file wallpaper workspace",
+      disabled: () => workspaceTerminalPanels().length === 0,
+      run: () => chooseBackgroundImageForTarget({ target: "all" })
     },
     {
       id: "pane-shape",
@@ -14462,12 +14462,24 @@ async function chooseBackgroundImageForTarget(options = {}) {
     toast("Local image picker is unavailable.");
     return null;
   }
+  const target = normalizeBackgroundApplyTarget(options.target || state.backgroundApplyTarget);
+  const targetStatus = activeBackgroundTargetStatus(target);
+  if (!targetStatus.canTarget) {
+    const option = backgroundApplyTargetOption(target);
+    toast(formatMessage("quickGuide.backgroundTargetUnavailable", { label: option.label }));
+    return null;
+  }
+  if (state.backgroundApplyTarget !== target) {
+    state.backgroundApplyTarget = target;
+    refreshBackgroundPreviewNodes();
+    refreshBackgroundLibraryPanels();
+  }
   const url = await window.cmuxNative.pickBackgroundImage();
   if (!url) return null;
   if (options.save) {
-    return applyAndSaveBackgroundImageToTarget({ url }, state.backgroundApplyTarget, { render: true });
+    return applyAndSaveBackgroundImageToTarget({ url }, target, { render: true });
   }
-  const changed = await applyBackgroundValueToTarget(url, state.backgroundApplyTarget, { render: false, toast: true });
+  const changed = await applyBackgroundValueToTarget(url, target, { render: false, toast: true });
   if (changed !== null) renderSettingsInspector();
   return changed;
 }

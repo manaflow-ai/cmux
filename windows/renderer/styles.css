@@ -2014,11 +2014,6 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   letter-spacing: 0;
 }
 
-.surface-new-tab .surface-new-label::before {
-  content: "+ ";
-  font-weight: 820;
-}
-
 .surface-new-terminal {
   border-color: color-mix(in oklch, var(--color-success) 22%, var(--color-line) 78%);
 }
