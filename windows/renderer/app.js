@@ -13520,9 +13520,22 @@ function normalizedWheelZoomDelta(event) {
   return event.deltaY;
 }
 
-function eventTargetsTerminalViewport(event) {
+function terminalHostFromEvent(event) {
   const target = event?.target?.nodeType === Node.ELEMENT_NODE ? event.target : event?.target?.parentElement;
-  return Boolean(target?.closest?.(".terminal-host"));
+  return target?.closest?.(".terminal-host") || null;
+}
+
+function eventTargetsTerminalViewport(event) {
+  return Boolean(terminalHostFromEvent(event));
+}
+
+function terminalPanelFromWheelEvent(event) {
+  const terminalHost = terminalHostFromEvent(event);
+  if (!terminalHost) return null;
+  const directPanel = panelFromElement(terminalHost);
+  if (directPanel?.type === "terminal") return directPanel;
+  const pointedPanel = panelFromPoint(event?.clientX, event?.clientY);
+  return pointedPanel?.type === "terminal" ? pointedPanel : null;
 }
 
 function applyTerminalWheelZoom(event, panel) {
@@ -13532,6 +13545,7 @@ function applyTerminalWheelZoom(event, panel) {
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation?.();
+  markInteractedPanel(terminalPanel.id);
   const delta = normalizedWheelZoomDelta(event);
   if (!Number.isFinite(delta) || delta === 0) return true;
   const now = performance.now();
@@ -13557,29 +13571,28 @@ function applyTerminalWheelZoom(event, panel) {
 
 function handleTerminalWheelZoom(event) {
   if (!event.ctrlKey) return;
-  if (!eventTargetsTerminalViewport(event)) return;
-  const panel = panelFromEvent(event);
+  const panel = terminalPanelFromWheelEvent(event);
   if (panel?.type !== "terminal") return;
   applyTerminalWheelZoom(event, panel);
 }
 
 function handlePaneWheelZoom(event) {
   if (!event.ctrlKey) return;
-  if (!eventTargetsTerminalViewport(event)) return;
   const panelId = event.currentTarget?.dataset?.panelId || "";
-  const panel = panelId ? findPanelState(panelId)?.panel : null;
-  if (panel?.type !== "terminal") return;
+  const panel = terminalPanelFromWheelEvent(event);
+  if (panel?.type !== "terminal" || (panelId && panel.id !== panelId)) return;
   applyTerminalWheelZoom(event, panel);
 }
 
 function handleWindowWheelZoom(event) {
   if (!event.ctrlKey) return;
-  const targetsTerminalViewport = eventTargetsTerminalViewport(event);
-  const panel = panelFromEvent(event) || panelFromPoint(event.clientX, event.clientY);
-  if (targetsTerminalViewport && panel?.type === "terminal") {
-    applyTerminalWheelZoom(event, panel);
+  const terminalPanel = terminalPanelFromWheelEvent(event);
+  if (terminalPanel) {
+    applyTerminalWheelZoom(event, terminalPanel);
     return;
   }
+  const targetsTerminalViewport = eventTargetsTerminalViewport(event);
+  const panel = panelFromEvent(event) || panelFromPoint(event.clientX, event.clientY);
   if (panel?.type === "browser" && applyBrowserWheelZoomGuard(event, panel)) return;
   if (targetsTerminalViewport) {
     event.preventDefault();
