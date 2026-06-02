@@ -142,6 +142,13 @@ const appearancePreviewKeys = new Set([
   "terminalForeground",
   "terminalCursorColor"
 ]);
+const backgroundPreviewKeys = new Set([
+  "backgroundImage",
+  "backgroundOpacity",
+  "backgroundFit",
+  "backgroundPosition",
+  "backgroundEffects"
+]);
 const terminalSettingsPreviewKeys = new Set([
   "terminalFontFamily",
   "terminalFontSize",
@@ -2011,7 +2018,11 @@ function updateSettings(updates, options = {}) {
     scheduleTerminalAppearanceRefresh();
   }
   if (changedKeys.some((key) => appearancePreviewKeys.has(key))) {
-    scheduleAppearancePreviewRefresh();
+    if (changedKeys.every((key) => backgroundPreviewKeys.has(key))) {
+      scheduleBackgroundPreviewRefresh();
+    } else {
+      scheduleAppearancePreviewRefresh();
+    }
   }
   if (changedKeys.some((key) => terminalSettingsPreviewKeys.has(key))) {
     scheduleTerminalSettingsPreviewRefresh();
@@ -8038,6 +8049,7 @@ function backgroundTuningPanel(onCommit = null) {
   opacityInput.min = "0";
   opacityInput.max = "42";
   opacityInput.value = String(state.settings.backgroundOpacity);
+  opacityInput.dataset.settingControl = "backgroundOpacity";
   const opacityRow = document.createElement("label");
   opacityRow.className = "background-tuning-row background-tuning-row-wide";
   const opacityLabel = document.createElement("span");
@@ -8047,7 +8059,10 @@ function backgroundTuningPanel(onCommit = null) {
   bindDeferredSettingRange(opacityInput, opacityRow, {
     settingKey: "backgroundOpacity",
     formatLabel: (value) => `Strength ${value}%`,
-    preview: (value) => elements.shell.style.setProperty("--background-opacity", String(value / 100))
+    preview: (value) => {
+      elements.shell.style.setProperty("--background-opacity", String(value / 100));
+      refreshAppearancePreviewOpacity(value);
+    }
   });
 
   panel.append(controls, opacityRow);
@@ -8091,13 +8106,16 @@ function activeBackgroundPanel(options = {}) {
   panel.querySelector(".active-background-source").title = source;
   const actions = panel.querySelector(".active-background-actions");
   const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }), "", "active background save current");
+  save.dataset.backgroundAction = "save";
   save.disabled = !isCustomBackgroundImage(state.settings.backgroundImage);
   const open = settingsActionButton("Open", () => openBackgroundImageSource(), "", "active background open local file url source reveal");
+  open.dataset.backgroundAction = "open";
   open.disabled = !canOpenBackgroundImageSource(state.settings.backgroundImage);
   const clear = settingsActionButton("Clear", () => {
     const changed = updateSettings({ backgroundImage: "" }, { immediate: true });
     if (changed) renderSettingsInspector();
   }, "danger", "active background clear remove reset");
+  clear.dataset.backgroundAction = "clear";
   clear.disabled = !hasBackground;
   actions.append(
     settingsActionButton("Choose", () => chooseBackgroundImage(), "", "active background choose local file"),
@@ -8116,6 +8134,84 @@ function activeBackgroundPanel(options = {}) {
     panel.append(backgroundTuningPanel(refreshBackgroundSummary));
   }
   return panel;
+}
+
+function activeBackgroundViewModel(settings = state.settings) {
+  const background = settings.backgroundImage;
+  const normalized = normalizeBackgroundValue(background);
+  const hasBackground = Boolean(normalized);
+  const preset = backgroundPresetMap.get(normalized);
+  const filePath = backgroundFilePath(background);
+  return {
+    background,
+    hasBackground,
+    label: hasBackground ? appearanceBackgroundLabel(background) : "None",
+    source: !hasBackground
+      ? "No image is applied."
+      : preset
+        ? "Built-in preset"
+        : filePath || normalized,
+    image: backgroundCss(background),
+    repeat: backgroundRepeatCss(background),
+    size: backgroundSizeCss(settings.backgroundFit),
+    position: backgroundPositionCss(settings.backgroundPosition)
+  };
+}
+
+function refreshAppearancePreviewOpacity(value = state.settings.backgroundOpacity) {
+  const opacity = String(clamp(value, 0, 42) / 100);
+  for (const preview of elements.inspectorBody.querySelectorAll(".appearance-preview")) {
+    preview.style.setProperty("--preview-background-opacity", opacity);
+  }
+}
+
+function refreshBackgroundPreviewNodes() {
+  const model = activeBackgroundViewModel();
+  for (const preview of elements.inspectorBody.querySelectorAll(".appearance-preview")) {
+    preview.style.setProperty("--preview-background-image", model.image);
+    preview.style.setProperty("--preview-background-opacity", String(state.settings.backgroundOpacity / 100));
+    preview.style.setProperty("--preview-background-size", model.size);
+    preview.style.setProperty("--preview-background-repeat", model.repeat);
+    preview.style.setProperty("--preview-background-position", model.position);
+    setTextIfChanged(preview.querySelector("[data-preview-background]"), appearanceBackgroundLabel(state.settings.backgroundImage));
+  }
+  for (const panel of elements.inspectorBody.querySelectorAll(".active-background-panel")) {
+    toggleClassIfChanged(panel, "has-image", model.hasBackground);
+    panel.style.setProperty("--active-background-image", model.image);
+    panel.style.setProperty("--active-background-repeat", model.repeat);
+    panel.style.setProperty("--active-background-size", model.size);
+    panel.style.setProperty("--active-background-position", model.position);
+    const title = panel.querySelector(".active-background-title");
+    const source = panel.querySelector(".active-background-source");
+    setTextIfChanged(title, model.label);
+    setTextIfChanged(source, model.source);
+    if (title) title.title = model.label;
+    if (source) source.title = model.source;
+    const save = panel.querySelector('[data-background-action="save"]');
+    const open = panel.querySelector('[data-background-action="open"]');
+    const clear = panel.querySelector('[data-background-action="clear"]');
+    if (save) save.disabled = !isCustomBackgroundImage(model.background);
+    if (open) open.disabled = !canOpenBackgroundImageSource(model.background);
+    if (clear) clear.disabled = !model.hasBackground;
+    for (const control of panel.querySelectorAll("[data-setting-control]")) {
+      const key = control.dataset.settingControl;
+      if (!Object.hasOwn(state.settings, key)) continue;
+      const value = String(state.settings[key]);
+      if (control.value !== value) control.value = value;
+      if (key === "backgroundOpacity") {
+        setTextIfChanged(control.closest(".background-tuning-row")?.querySelector(".setting-label"), `Strength ${value}%`);
+      }
+    }
+  }
+  if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+}
+
+function scheduleBackgroundPreviewRefresh() {
+  if (state.backgroundPreviewFrame) return;
+  state.backgroundPreviewFrame = requestAnimationFrame(() => {
+    state.backgroundPreviewFrame = 0;
+    refreshBackgroundPreviewNodes();
+  });
 }
 
 function scheduleAppearancePreviewRefresh() {
