@@ -141,7 +141,8 @@ actor TextBoxMentionIndexStore {
         fileIndexesByRoot[rootDirectory] = TextBoxMentionCachedIndex(
             index: cached.index,
             createdAt: cached.createdAt,
-            lastAccessedAt: now
+            lastAccessedAt: now,
+            refreshStartedAt: cached.refreshStartedAt
         )
         pruneFileIndexCache(now: now)
         return cached.index
@@ -174,7 +175,7 @@ actor TextBoxMentionIndexStore {
         storeFileIndex(
             rootDirectory: rootDirectory,
             index: index,
-            createdAt: now,
+            refreshStartedAt: refreshTask.startedAt,
             refreshTaskID: refreshTask.id
         )
         return index
@@ -188,7 +189,7 @@ actor TextBoxMentionIndexStore {
             self.storeFileIndex(
                 rootDirectory: rootDirectory,
                 index: index,
-                createdAt: now,
+                refreshStartedAt: refreshTask.startedAt,
                 refreshTaskID: refreshTask.id
             )
         }
@@ -221,10 +222,11 @@ actor TextBoxMentionIndexStore {
     private func storeFileIndex(
         rootDirectory: String,
         index: TextBoxMentionCandidateIndex,
-        createdAt: Date,
+        refreshStartedAt: Date,
         refreshTaskID: UInt64
     ) {
-        if let cached = fileIndexesByRoot[rootDirectory], cached.createdAt > createdAt {
+        if let cached = fileIndexesByRoot[rootDirectory],
+           cached.refreshStartedAt > refreshStartedAt {
             return
         }
         if fileIndexRefreshTasks[rootDirectory]?.id == refreshTaskID {
@@ -233,8 +235,9 @@ actor TextBoxMentionIndexStore {
         let storedAt = Date()
         fileIndexesByRoot[rootDirectory] = TextBoxMentionCachedIndex(
             index: index,
-            createdAt: createdAt,
-            lastAccessedAt: storedAt
+            createdAt: storedAt,
+            lastAccessedAt: storedAt,
+            refreshStartedAt: refreshStartedAt
         )
         pruneFileIndexCache(now: storedAt)
     }
