@@ -12,6 +12,7 @@ let runtimeChild = null;
 let inProcessRuntime = null;
 let trustedRendererOrigin = "";
 const zoomLockedContents = new WeakSet();
+const navigationGuardedContents = new WeakSet();
 
 const appRoot = path.resolve(__dirname, "..");
 const serverProcessPath = path.join(__dirname, "server-process.cjs");
@@ -92,6 +93,36 @@ function isAllowedWebviewInitialUrl(url) {
   return /^https?:\/\//i.test(url) || url === "about:blank";
 }
 
+function isAllowedWebviewNavigationUrl(url) {
+  return /^https?:\/\//i.test(String(url || "")) || url === "about:blank";
+}
+
+function webviewNavigationUrl(details, fallbackUrl = "") {
+  return String(details?.url || fallbackUrl || "");
+}
+
+function blockDisallowedWebviewNavigation(event, details, fallbackUrl = "") {
+  const url = webviewNavigationUrl(details, fallbackUrl);
+  if (isAllowedWebviewNavigationUrl(url)) return;
+  event.preventDefault();
+  log(`blocked webview navigation url=${url}`);
+}
+
+function guardWebviewNavigation(webContents) {
+  if (!webContents || navigationGuardedContents.has(webContents)) return;
+  navigationGuardedContents.add(webContents);
+  webContents.on("will-frame-navigate", (event) => {
+    if (event.isMainFrame === false) return;
+    blockDisallowedWebviewNavigation(event, event);
+  });
+  webContents.on("will-navigate", (event, url) => {
+    blockDisallowedWebviewNavigation(event, event, url);
+  });
+  webContents.on("will-redirect", (event, url) => {
+    blockDisallowedWebviewNavigation(event, event, url);
+  });
+}
+
 function attachWebviewHardening(contents) {
   contents.on("will-attach-webview", (event, webPreferences, params = {}) => {
     hardenWebviewPreferences(webPreferences);
@@ -102,6 +133,7 @@ function attachWebviewHardening(contents) {
   });
   contents.on("did-attach-webview", (_event, webContents) => {
     hardenWebContents(webContents);
+    guardWebviewNavigation(webContents);
   });
 }
 
