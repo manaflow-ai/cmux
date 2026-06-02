@@ -460,6 +460,9 @@ async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile,
       type: "diff",
       fileDiff,
       version: 0,
+      // Inherit the current collapse state so items flushed after "Collapse all
+      // diffs" (while a large diff is still streaming) render collapsed too.
+      collapsed: appState.collapsed,
     };
     const fileOrder = model.items.length;
     model.fileIndex += 1;

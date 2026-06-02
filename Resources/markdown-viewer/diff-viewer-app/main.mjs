@@ -10866,7 +10866,10 @@ function Ag(S) {
         id: _.itemIdToFile.has(Mt) ? on(_, `${Mt}?2`) : Mt,
         type: "diff",
         fileDiff: R,
-        version: 0
+        version: 0,
+        // Inherit the current collapse state so items flushed after "Collapse all
+        // diffs" (while a large diff is still streaming) render collapsed too.
+        collapsed: g.collapsed
       }, eu = _.items.length;
       _.fileIndex += 1, _.items.push(De), _.pendingItems.push(De), _.pendingItemById.set(De.id, De), _.itemIdToFile.set(De.id, {
         fileOrder: eu,
