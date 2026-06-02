@@ -1915,7 +1915,10 @@ async function applyWorkspaceBackgroundImageToTerminals(value, workspace = activ
     }
     return false;
   }
-  await Promise.all(changedPanels.map((panel) => updatePanel(panel.id, { backgroundImage: normalized })));
+  await updatePanels(changedPanels.map((panel) => ({
+    panelId: panel.id,
+    updates: { backgroundImage: normalized }
+  })));
   if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
   if (options.toast !== false) {
     const action = normalized ? "updated" : "cleared";
@@ -10771,7 +10774,10 @@ async function setWorkspacePaneColors(color, workspace = activeWorkspace()) {
     toast("Pane colors already match.");
     return false;
   }
-  await Promise.all(panels.map((panel) => updatePanel(panel.id, { color: targetColor })));
+  await updatePanels(panels.map((panel) => ({
+    panelId: panel.id,
+    updates: { color: targetColor }
+  })));
   if (state.inspectorMode === "settings" && state.settingsCategory === "appearance") renderSettingsInspector();
   toast(`${panels.length} pane${panels.length === 1 ? "" : "s"} updated.`);
   return true;
@@ -10787,7 +10793,10 @@ async function clearWorkspacePaneColors(workspace = activeWorkspace()) {
     toast("Pane colors already cleared.");
     return false;
   }
-  await Promise.all(panels.map((panel) => updatePanel(panel.id, { color: "" })));
+  await updatePanels(panels.map((panel) => ({
+    panelId: panel.id,
+    updates: { color: "" }
+  })));
   if (state.inspectorMode === "settings" && state.settingsCategory === "appearance") renderSettingsInspector();
   toast(`${panels.length} pane${panels.length === 1 ? "" : "s"} cleared.`);
   return true;
@@ -13626,7 +13635,7 @@ function optimisticClosePanel(panelId, renderNow = true) {
   return true;
 }
 
-function optimisticUpdatePanel(panelId, updates = {}) {
+function optimisticUpdatePanel(panelId, updates = {}, options = {}) {
   const found = findPanelState(panelId);
   if (!found) return false;
   let panelWorkspace = found.workspace;
@@ -13675,7 +13684,7 @@ function optimisticUpdatePanel(panelId, updates = {}) {
   if (updates.direction === "down" || updates.direction === "right") {
     panelWorkspace.splitDirection = updates.direction;
   }
-  render();
+  if (options.render !== false) render();
   return true;
 }
 
@@ -13859,6 +13868,32 @@ async function updatePanel(panelId, updates) {
       body: JSON.stringify(updates)
     });
     if (!result?.ok || panelUpdateReconcileNeeded(panelId, updates)) await loadState();
+  } catch {
+    await loadState();
+  }
+}
+
+async function updatePanels(panelUpdates) {
+  const entries = (panelUpdates || [])
+    .map((entry) => ({
+      panelId: String(entry?.panelId || ""),
+      updates: entry?.updates || {}
+    }))
+    .filter((entry) => entry.panelId && entry.updates && typeof entry.updates === "object");
+  if (entries.length === 0) return;
+  let changed = false;
+  for (const entry of entries) {
+    changed = optimisticUpdatePanel(entry.panelId, entry.updates, { render: false }) || changed;
+  }
+  if (changed) render();
+  try {
+    const results = await Promise.all(entries.map((entry) => api(`/api/panels/${entry.panelId}`, {
+      method: "PATCH",
+      body: JSON.stringify(entry.updates)
+    }).then((result) => ({ ...entry, result }))));
+    if (results.some((entry) => !entry.result?.ok || panelUpdateReconcileNeeded(entry.panelId, entry.updates))) {
+      await loadState();
+    }
   } catch {
     await loadState();
   }
