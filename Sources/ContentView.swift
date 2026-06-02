@@ -10406,6 +10406,7 @@ struct VerticalTabsSidebar: View {
     let tabRowSpacing: CGFloat = 2
     private static let extensionSidebarObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let extensionSidebarDisclosureAnimation = Animation.easeInOut(duration: 0.18)
+    private static let sidebarScriptFileEntryLimit = 40
     private var sidebarTitlebarInteractionHeight: CGFloat {
         MinimalModeChromeMetrics.titlebarHeight
     }
@@ -12010,7 +12011,8 @@ struct VerticalTabsSidebar: View {
             isDarkMode: colorScheme == .dark,
             workspaces: renderContext.tabs.enumerated().map { index, workspace in
                 makeSidebarScriptContext(workspace: workspace, index: index)
-            }
+            },
+            state: sidebarScriptStore.state
         )
     }
 
@@ -12053,8 +12055,50 @@ struct VerticalTabsSidebar: View {
             remoteTarget: workspace.remoteDisplayTarget,
             statusEntries: workspace.sidebarStatusEntriesInDisplayOrder().map {
                 SidebarScriptContext.StatusEntry(label: $0.key, value: $0.value, colorHex: $0.color)
-            }
+            },
+            fileEntries: sidebarScriptFileEntries(for: directory)
         )
+    }
+
+    private func sidebarScriptFileEntries(for directory: String?) -> [SidebarScriptContext.FileEntry] {
+        guard let directory else { return [] }
+        let url = URL(fileURLWithPath: directory, isDirectory: true)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return []
+        }
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isHiddenKey],
+            options: [.skipsPackageDescendants]
+        ) else {
+            return []
+        }
+        return entries.compactMap { entry -> (SidebarScriptContext.FileEntry, Bool)? in
+            guard let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isHiddenKey]),
+                  values.isHidden != true,
+                  values.isDirectory == true || values.isRegularFile == true else {
+                return nil
+            }
+            let isDir = values.isDirectory == true
+            return (
+                SidebarScriptContext.FileEntry(
+                    name: entry.lastPathComponent,
+                    path: entry.path,
+                    isDirectory: isDir,
+                    workspaceTitle: entry.lastPathComponent,
+                    workspaceDirectory: isDir ? entry.path : url.path
+                ),
+                isDir
+            )
+        }
+        .sorted {
+            if $0.1 != $1.1 { return $0.1 && !$1.1 }
+            return $0.0.name.localizedStandardCompare($1.0.name) == .orderedAscending
+        }
+        .prefix(Self.sidebarScriptFileEntryLimit)
+        .map(\.0)
     }
 
     private func handleSidebarScriptAction(_ action: RNAction) {
@@ -12092,9 +12136,41 @@ struct VerticalTabsSidebar: View {
                 select: true,
                 eagerLoadTerminal: false
             )
+        case "open-workspace":
+            openSidebarScriptWorkspace(action.payload)
+        case "set-sidebar-state":
+            guard let key = action.payload["key"], let value = action.payload["value"] else { return }
+            sidebarScriptStore.setState(key: key, value: value)
+        case "toggle-sidebar-state":
+            guard let key = action.payload["key"] else { return }
+            sidebarScriptStore.toggleState(key: key)
         default:
             break
         }
+    }
+
+    private func openSidebarScriptWorkspace(_ payload: [String: String]) {
+        if let id = payload["id"].flatMap(UUID.init(uuidString:)),
+           let workspace = tabManager.tabs.first(where: { $0.id == id }) {
+            tabManager.selectWorkspace(workspace)
+            return
+        }
+        let directory = payload["directory"]?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        if let directory,
+           let workspace = tabManager.tabs.first(where: { workspace in
+               workspace.currentDirectory == directory || workspace.sidebarDirectoriesInDisplayOrder().contains(directory)
+           }) {
+            tabManager.selectWorkspace(workspace)
+            return
+        }
+        let title = payload["title"]?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        tabManager.addWorkspace(
+            title: title,
+            workingDirectory: directory,
+            inheritWorkingDirectory: directory == nil,
+            select: true,
+            eagerLoadTerminal: false
+        )
     }
 
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {

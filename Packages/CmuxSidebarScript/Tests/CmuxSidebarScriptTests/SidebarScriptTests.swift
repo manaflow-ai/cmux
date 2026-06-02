@@ -103,6 +103,30 @@ import Testing
         #expect(node.nodes(kind: "button").count == 2)
     }
 
+    @Test func sidebarContextProjectsPersistentStateAndFiles() throws {
+        let script = try SidebarScript(source: """
+        (def (render-sidebar sidebar)
+          (let ((ws (first (get sidebar :workspaces))))
+            (vstack
+              (text (get (get sidebar :state) "finder.workspace.1"))
+              (text (get (first (get ws :files)) :name)))))
+        """)
+        let node = try script.renderSidebar(SidebarScriptSidebarContext(
+            workspaces: [
+                SidebarScriptContext(
+                    id: "workspace-1",
+                    title: "repo",
+                    fileEntries: [
+                        .init(name: "Package.swift", path: "/repo/Package.swift", isDirectory: false),
+                    ]
+                ),
+            ],
+            state: ["finder.workspace.1": "true"]
+        ))
+        #expect(node.containsText("true"))
+        #expect(node.containsText("Package.swift"))
+    }
+
     @Test func renderRowRemainsOptionalForWholeSidebarScripts() throws {
         let script = try SidebarScript(source: """
         (def (render-sidebar sidebar)

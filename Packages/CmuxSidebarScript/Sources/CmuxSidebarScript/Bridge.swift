@@ -101,6 +101,33 @@ enum Bridge {
             }
             return .style(.action(RNAction(kind: "new-workspace", payload: payload)))
         }
+        builtin("open-workspace", env) { args, _ in
+            let split = try Coercion.split(args, formName: "open-workspace")
+            var payload: [String: String] = [:]
+            if let workspace = split.positional.first, case .map(let map) = workspace {
+                if let id = map["id"] { payload["id"] = Builtins.display(id) }
+                if let title = map["workspace-title"] ?? map["title"] { payload["title"] = Builtins.display(title) }
+                if let directory = map["workspace-directory"] ?? map["directory"] { payload["directory"] = Builtins.display(directory) }
+            } else if let directory = split.positional.first {
+                payload["directory"] = Builtins.display(directory)
+            }
+            if let id = split.option("id") { payload["id"] = Builtins.display(id) }
+            if let title = split.option("title") { payload["title"] = Builtins.display(title) }
+            if let directory = split.option("directory") ?? split.option("cwd") {
+                payload["directory"] = Builtins.display(directory)
+            }
+            return .style(.action(RNAction(kind: "open-workspace", payload: payload)))
+        }
+        builtin("set-sidebar-state", env) { args, _ in
+            guard args.count >= 2 else { throw LispError.arity("set-sidebar-state", expected: "2 arguments", got: args.count) }
+            return .style(.action(RNAction(kind: "set-sidebar-state", payload: [
+                "key": Builtins.display(args[0]),
+                "value": Builtins.display(args[1]),
+            ])))
+        }
+        builtin("toggle-sidebar-state", env) { args, _ in
+            .style(.action(RNAction(kind: "toggle-sidebar-state", payload: ["key": Builtins.display(args.first ?? .null)])))
+        }
     }
 
     private static func actionTargetId(_ value: LispValue) -> String {

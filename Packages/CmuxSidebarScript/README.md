@@ -55,7 +55,9 @@ so a form reads like SwiftUI.
   `(font :size :weight :design)` `(gradient c1 c2 :direction)` `(edges ...)`
   `(shadow ...)`.
 - Actions: `(open-url url)`, `(copy-text text)`, `(select-workspace ws-or-id)`,
-  `(close-workspace ws-or-id)`, `(new-workspace :title "Scratch" :directory "/path")`.
+  `(close-workspace ws-or-id)`, `(new-workspace :title "Scratch" :directory "/path")`,
+  `(open-workspace file-or-directory)`, `(set-sidebar-state key value)`,
+  `(toggle-sidebar-state key)`.
 
 A malformed script raises a localized `LispError` at compile time. A whole
 sidebar render fault falls back to the native sidebar; a row render fault falls
@@ -75,7 +77,12 @@ Whole-sidebar scripts receive a record with `:workspaces`, `:workspace-count`,
 `:selected-workspace-id`, `:window-id`, and `:dark-mode`. Each workspace record
 also has `:id`, `:index`, `:title`, `:detail`, `:branch`, `:directory`,
 `:directories`, `:pull-requests`, `:ports`, `:unread`, `:pinned`, `:active`,
-`:selected`, `:color`, `:message`, `:progress`, `:remote`, and `:status`.
+`:selected`, `:color`, `:message`, `:progress`, `:remote`, `:status`, and
+`:files`. File records expose `:name`, `:path`, `:directory`,
+`:workspace-title`, and `:workspace-directory`, so a Finder-like sidebar can
+turn each file or folder into a workspace launch target. Whole-sidebar scripts
+also receive `:state`, a persisted string map stored at
+`~/.config/cmux/sidebar-state.json`.
 
 `SidebarScript.makeDefault()` compiles the bundled `DefaultSidebar.lisp`.
 

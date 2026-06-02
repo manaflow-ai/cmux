@@ -27,8 +27,13 @@ final class SidebarScriptStore: ObservableObject {
     /// equatability so a new script re-renders every row.
     @Published private(set) var version: Int = 0
 
+    /// Persistent user state for whole-sidebar scripts, stored as string values
+    /// so scripts can keep layout state without executing arbitrary Swift.
+    @Published private(set) var state: [String: String] = [:]
+
     private static let logger = Logger(subsystem: "com.manaflow.cmux", category: "SidebarScript")
     private let url: URL
+    private let stateURL: URL
 
     /// Logs a per-row render failure. Called from the sidebar row when a script
     /// faults so the row can fall back to native rendering.
@@ -42,8 +47,15 @@ final class SidebarScriptStore: ObservableObject {
             .appendingPathComponent(".config/cmux/sidebar.lisp")
     }
 
-    init(url: URL = SidebarScriptStore.scriptURL) {
+    nonisolated static var stateURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/cmux/sidebar-state.json")
+    }
+
+    init(url: URL = SidebarScriptStore.scriptURL, stateURL: URL = SidebarScriptStore.stateURL) {
         self.url = url
+        self.stateURL = stateURL
+        state = Self.loadState(from: stateURL)
         reload()
     }
 
@@ -80,6 +92,19 @@ final class SidebarScriptStore: ObservableObject {
         applySource(demo.source, logName: demo.id)
     }
 
+    func setState(key: String, value: String) {
+        guard !key.isEmpty else { return }
+        var next = state
+        next[key] = value
+        setState(next)
+    }
+
+    func toggleState(key: String) {
+        guard !key.isEmpty else { return }
+        let current = state[key]
+        setState(key: key, value: current == "true" ? "false" : "true")
+    }
+
     private func applySource(_ source: String, logName: String) {
         do {
             let compiledScript = try SidebarScript(source: source)
@@ -110,6 +135,31 @@ final class SidebarScriptStore: ObservableObject {
         self.source = source
         script = compiledScript
         version = source?.hashValue ?? 0
+    }
+
+    private func setState(_ next: [String: String]) {
+        state = next
+        version &+= 1
+        do {
+            try FileManager.default.createDirectory(
+                at: stateURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try JSONEncoder().encode(next)
+            try data.write(to: stateURL, options: .atomic)
+        } catch {
+            Self.logger.error("Failed to persist sidebar Lisp state: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private static func loadState(from url: URL) -> [String: String] {
+        guard let data = try? Data(contentsOf: url) else { return [:] }
+        do {
+            return try JSONDecoder().decode([String: String].self, from: data)
+        } catch {
+            logger.error("Failed to load sidebar Lisp state: \(String(describing: error), privacy: .public)")
+            return [:]
+        }
     }
 }
 

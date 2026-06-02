@@ -36,6 +36,34 @@ public struct SidebarScriptContext: Equatable {
         }
     }
 
+    public struct FileEntry: Equatable {
+        public var name: String
+        public var path: String
+        public var isDirectory: Bool
+        public var workspaceTitle: String
+        public var workspaceDirectory: String
+
+        public init(
+            name: String,
+            path: String,
+            isDirectory: Bool,
+            workspaceTitle: String? = nil,
+            workspaceDirectory: String? = nil
+        ) {
+            self.name = name
+            self.path = path
+            self.isDirectory = isDirectory
+            self.workspaceTitle = workspaceTitle ?? name
+            if let workspaceDirectory {
+                self.workspaceDirectory = workspaceDirectory
+            } else if isDirectory {
+                self.workspaceDirectory = path
+            } else {
+                self.workspaceDirectory = (path as NSString).deletingLastPathComponent
+            }
+        }
+    }
+
     public var id: String?
     public var index: Int?
     public var title: String
@@ -55,6 +83,7 @@ public struct SidebarScriptContext: Equatable {
     public var progress: Double?
     public var remoteTarget: String?
     public var statusEntries: [StatusEntry]
+    public var fileEntries: [FileEntry]
 
     public init(
         id: String? = nil,
@@ -75,7 +104,8 @@ public struct SidebarScriptContext: Equatable {
         latestMessage: String? = nil,
         progress: Double? = nil,
         remoteTarget: String? = nil,
-        statusEntries: [StatusEntry] = []
+        statusEntries: [StatusEntry] = [],
+        fileEntries: [FileEntry] = []
     ) {
         self.id = id
         self.index = index
@@ -96,6 +126,7 @@ public struct SidebarScriptContext: Equatable {
         self.progress = progress
         self.remoteTarget = remoteTarget
         self.statusEntries = statusEntries
+        self.fileEntries = fileEntries
     }
 
     /// Projects into the record passed to `render-row` as its single argument.
@@ -135,6 +166,15 @@ public struct SidebarScriptContext: Equatable {
             s["color"] = entry.colorHex.map(LispValue.string) ?? .null
             return .map(s)
         })
+        m["files"] = .list(fileEntries.map { entry in
+            var f = LispMap()
+            f["name"] = .string(entry.name)
+            f["path"] = .string(entry.path)
+            f["directory"] = .bool(entry.isDirectory)
+            f["workspace-title"] = .string(entry.workspaceTitle)
+            f["workspace-directory"] = .string(entry.workspaceDirectory)
+            return .map(f)
+        })
         return .map(m)
     }
 }
@@ -150,19 +190,22 @@ public struct SidebarScriptSidebarContext: Equatable {
     public var workspaceCount: Int
     public var isDarkMode: Bool
     public var workspaces: [SidebarScriptContext]
+    public var state: [String: String]
 
     public init(
         windowId: String? = nil,
         selectedWorkspaceId: String? = nil,
         workspaceCount: Int? = nil,
         isDarkMode: Bool = true,
-        workspaces: [SidebarScriptContext]
+        workspaces: [SidebarScriptContext],
+        state: [String: String] = [:]
     ) {
         self.windowId = windowId
         self.selectedWorkspaceId = selectedWorkspaceId
         self.workspaceCount = workspaceCount ?? workspaces.count
         self.isDarkMode = isDarkMode
         self.workspaces = workspaces
+        self.state = state
     }
 
     public var lispValue: LispValue {
@@ -172,6 +215,11 @@ public struct SidebarScriptSidebarContext: Equatable {
         m["workspace-count"] = .int(workspaceCount)
         m["dark-mode"] = .bool(isDarkMode)
         m["workspaces"] = .list(workspaces.map(\.lispValue))
+        var stateMap = LispMap()
+        for key in state.keys.sorted() {
+            stateMap[key] = state[key].map(LispValue.string) ?? .null
+        }
+        m["state"] = .map(stateMap)
         return .map(m)
     }
 }

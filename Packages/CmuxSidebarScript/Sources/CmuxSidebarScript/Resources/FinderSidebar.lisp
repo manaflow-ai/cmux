@@ -53,6 +53,45 @@
     (tree-line 2 (str "localhost:" port) "network" (color :blue) false)
     :action (open-url (str "http://localhost:" port))))
 
+(def (workspace-expanded-key ws)
+  (str "finder.workspace." (get ws :id)))
+
+(def (expanded? state key)
+  (= (get state key "false") "true"))
+
+(def (disclosure ws state)
+  (button
+    (image :system (if (expanded? state (workspace-expanded-key ws)) "chevron.down" "chevron.right")
+      :font (font :size 9 :weight bold)
+      :foreground (muted ws)
+      :width 13
+      :frame-align center)
+    :action (toggle-sidebar-state (workspace-expanded-key ws))))
+
+(def (file-row file ws)
+  (button
+    (hstack :spacing 5
+      (image :system (if (get file :directory) "folder.fill" "doc")
+        :font (font :size 11 :weight medium)
+        :foreground (if (get file :directory) (color :blue) (muted ws))
+        :width 16
+        :frame-align center)
+      (text (get file :name)
+        :font (font :size 11)
+        :line-limit 1
+        :truncation tail)
+      (spacer)
+      :padding (edges :leading 34 :trailing 4 :vertical 2)
+      :corner-radius 5)
+    :action (open-workspace file)
+    :max-width infinity
+    :frame-align leading))
+
+(def (workspace-files ws state)
+  (when (expanded? state (workspace-expanded-key ws))
+    (vstack :spacing 1 :max-width infinity :frame-align leading
+      (map (fn (file) (file-row file ws)) (get ws :files)))))
+
 (def (render-row ws)
   (vstack :spacing 2 :max-width infinity :frame-align leading
     (hstack :spacing 6
@@ -72,12 +111,16 @@
     (map pr-leaf (get ws :pull-requests))
     (map port-leaf (get ws :ports))))
 
-(def (workspace-node ws)
-  (button
-    (render-row ws)
-    :action (select-workspace ws)
-    :max-width infinity
-    :frame-align leading))
+(def (workspace-node ws state)
+  (vstack :spacing 1 :max-width infinity :frame-align leading
+    (hstack :spacing 0
+      (disclosure ws state)
+      (button
+        (render-row ws)
+        :action (select-workspace ws)
+        :max-width infinity
+        :frame-align leading))
+    (workspace-files ws state)))
 
 (def (render-sidebar sidebar)
   (vstack :spacing 5 :max-width infinity :frame-align leading
@@ -89,7 +132,7 @@
       (text (str (get sidebar :workspace-count))
         :font (font :size 10 :weight bold :monospaced-digit true)
         :foreground (color :secondary)))
-    (map workspace-node (get sidebar :workspaces))
+    (map (fn (ws) (workspace-node ws (get sidebar :state))) (get sidebar :workspaces))
     (button
       (tree-line 0 "New Workspace" "plus" (color :blue) false)
       :action (new-workspace :title "Scratch"))

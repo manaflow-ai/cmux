@@ -104,6 +104,34 @@ import Testing
         )))
     }
 
+    @Test func openWorkspaceAndStateActionsCarryPayloads() throws {
+        let openNode = try #require(try run("""
+        (button
+          (text "open")
+          :action (open-workspace (record :workspace-title "Package" :workspace-directory "/repo/Package.swift")))
+        """).asNode)
+        #expect(openNode.content["action"] == .action(RNAction(
+            kind: "open-workspace",
+            payload: ["title": "Package", "directory": "/repo/Package.swift"]
+        )))
+
+        let toggleNode = try #require(try run("""
+        (button (text "toggle") :action (toggle-sidebar-state "finder.workspace.1"))
+        """).asNode)
+        #expect(toggleNode.content["action"] == .action(RNAction(
+            kind: "toggle-sidebar-state",
+            payload: ["key": "finder.workspace.1"]
+        )))
+
+        let setNode = try #require(try run("""
+        (button (text "set") :action (set-sidebar-state "layout" "finder"))
+        """).asNode)
+        #expect(setNode.content["action"] == .action(RNAction(
+            kind: "set-sidebar-state",
+            payload: ["key": "layout", "value": "finder"]
+        )))
+    }
+
     @Test func gradientBackground() throws {
         let node = try #require(try run("""
         (rectangle :fill (gradient (color :red) (color :blue) :direction horizontal))
