@@ -232,7 +232,7 @@ export const terminalProfiles = [
 
 export const terminalCursorStyles = [
   ["block", label("terminalCursor.block", "Block")],
-  ["bar", label("terminalCursor.bar", "Bar")],
+  ["bar", label("terminalCursor.bar", "Line")],
   ["underline", label("terminalCursor.underline", "Underline")]
 ];
 

@@ -4763,7 +4763,11 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   overscroll-behavior-x: contain;
   padding: 0 10px 2px 2px;
   scroll-padding-inline: 10px;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+
+.settings-page-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 @container (max-width: 419px) {
