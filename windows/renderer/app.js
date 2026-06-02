@@ -2275,6 +2275,19 @@ function renderPaneLayoutStylesForWeights(weights) {
     .join("\n");
 }
 
+function applyVisiblePaneSplitRatio(splitId, ratio) {
+  if (!splitId) return false;
+  const splitter = elements.paneGrid.querySelector(`[data-splitter-key="${splitId}"]`);
+  const previousPane = splitter?.previousElementSibling;
+  const nextPane = splitter?.nextElementSibling;
+  if (!splitter || !previousPane || !nextPane) return false;
+  const nextRatio = paneTreeRatio(ratio);
+  previousPane.style.flex = `${Math.round(nextRatio * paneLayoutScale)} 1 0px`;
+  nextPane.style.flex = `${Math.round((1 - nextRatio) * paneLayoutScale)} 1 0px`;
+  setSplitterResizePercent(splitter, Math.round(nextRatio * 100), splitter.dataset.orientation || "right");
+  return true;
+}
+
 function renderPaneLayoutStylesForVisiblePanes(direction) {
   const panes = [...elements.paneGrid.querySelectorAll(".pane")];
   if (panes.length <= 1) {
@@ -2388,8 +2401,12 @@ function applyActivePaneLayoutPercent(percent, options = {}) {
     })));
     if (options.save) savePaneTreeLayouts(state.paneTrees);
     clearZoomedPanelForWorkspace(workspace);
-    scheduleRender();
-    scheduleWorkspaceTerminalFits(workspace.id, true);
+    if (options.render === false) {
+      if (!applyVisiblePaneSplitRatio(found.split.id, ratio)) scheduleRender();
+    } else {
+      scheduleRender();
+      scheduleWorkspaceTerminalFits(workspace.id, true);
+    }
     if (options.toast) toast(`Active pane ${nextPercent}%.`);
     return nextPercent;
   }
@@ -4591,6 +4608,7 @@ function setPaneSplitterPercent(splitter, percent, options = {}) {
   if (!changed) return false;
   state.paneTrees.set(workspace.id, nextTree);
   savePaneTreeLayouts(state.paneTrees);
+  applyVisiblePaneSplitRatio(splitId, nextPercent / 100);
   scheduleRender();
   scheduleWorkspaceTerminalFits(workspace.id, true);
   if (options.toast) {
@@ -4737,6 +4755,8 @@ function applyPaneResize(resize = state.resizing) {
   previousPane.style.flex = `0 0 ${nextPrevious}px`;
   nextPane.style.flex = `0 0 ${nextNext}px`;
   setSplitterResizePercent(resize.splitter, Math.round((nextPrevious / pairTotal) * 100), vertical ? "down" : "right");
+  // Terminal hosts fit through ResizeObserver during live drag; keep this as a fallback only.
+  if (typeof ResizeObserver === "function") return;
   const now = performance.now();
   if (now - resize.lastFitAt < paneResizeFitThrottleMs) return;
   resize.lastFitAt = now;
@@ -9652,7 +9672,7 @@ function paneShapePanel(workspace = activeWorkspace()) {
   number.disabled = !multiPane;
   number.setAttribute("aria-label", t("paneShape.sizeAria"));
   range.oninput = () => {
-    const nextPercent = applyActivePaneLayoutPercent(range.value);
+    const nextPercent = applyActivePaneLayoutPercent(range.value, { render: false });
     syncPercentInputs(nextPercent);
   };
   range.onchange = () => {
@@ -9663,7 +9683,7 @@ function paneShapePanel(workspace = activeWorkspace()) {
     if (!number.value.trim()) return;
     const parsed = Number(number.value);
     if (!Number.isFinite(parsed)) return;
-    const nextPercent = applyActivePaneLayoutPercent(parsed);
+    const nextPercent = applyActivePaneLayoutPercent(parsed, { render: false });
     syncPercentInputs(nextPercent);
   };
   number.onchange = () => {
