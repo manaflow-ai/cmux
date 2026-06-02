@@ -521,6 +521,23 @@ function pipeErrorResponse(line, error) {
   }
 }
 
+function isPipeSocketDisconnectError(error) {
+  return ["EPIPE", "ECONNRESET", "ERR_STREAM_DESTROYED"].includes(error?.code);
+}
+
+function writePipeSocketLine(socket, line) {
+  if (!socket || socket.destroyed || !socket.writable) return false;
+  try {
+    socket.write(`${line}\n`, (error) => {
+      if (error && !isPipeSocketDisconnectError(error)) console.error(error);
+    });
+    return true;
+  } catch (error) {
+    if (!isPipeSocketDisconnectError(error)) console.error(error);
+    return false;
+  }
+}
+
 function terminalProcessEnv(panel, panelToken, extra = {}) {
   const env = { ...process.env };
   delete env.CMUX_WINDOWS_TOKEN;
@@ -1566,16 +1583,16 @@ class CmuxWindowsRuntime {
                   continue;
                 }
               } else {
-                socket.write("ERROR unauthorized\n");
+                writePipeSocketLine(socket, "ERROR unauthorized");
                 socket.end();
                 return;
               }
             }
             this.handlePipeLine(line, authContext).then((reply) => {
-              socket.write(reply + "\n");
+              writePipeSocketLine(socket, reply);
             }).catch((error) => {
               console.error(error);
-              socket.write(pipeErrorResponse(line, error) + "\n");
+              writePipeSocketLine(socket, pipeErrorResponse(line, error));
             });
             index = buffer.indexOf("\n");
           }
