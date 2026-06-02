@@ -137,6 +137,13 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(feedbackOpen.insideSuppressed)
         XCTAssertFalse(feedbackOpen.insideAllowsFocus)
 
+        let browserFocusWebView = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "browser.focus_webview",
+            isV2: true
+        )
+        XCTAssertTrue(browserFocusWebView.insideSuppressed)
+        XCTAssertFalse(browserFocusWebView.insideAllowsFocus)
+
         let debugType = TerminalController.debugSocketCommandPolicySnapshot(
             commandKey: "debug.type",
             isV2: true
