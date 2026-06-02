@@ -175,7 +175,15 @@ type wsPTYHub struct {
 	stderr           io.Writer
 	scrollbackLimit  int
 	sessionIdleTTL   time.Duration
+	// openPTY allocates a PTY master/slave pair. It defaults to creack/pty.Open
+	// (which opens /dev/ptmx) and exists as a field so tests can simulate a
+	// hardened devpts where allocation is denied.
+	openPTY ptyOpener
 }
+
+// ptyOpener allocates a PTY master/slave pair, returning the master (ptmx) and
+// slave (tty) ends. The production implementation is creack/pty.Open.
+type ptyOpener func() (ptmx *os.File, tty *os.File, err error)
 
 func newWebSocketPTYHub(cfg wsPTYServerConfig, stderr io.Writer) *wsPTYHub {
 	limit := cfg.ScrollbackLimit
@@ -192,6 +200,7 @@ func newWebSocketPTYHub(cfg wsPTYServerConfig, stderr io.Writer) *wsPTYHub {
 		stderr:          stderr,
 		scrollbackLimit: limit,
 		sessionIdleTTL:  idleTTL,
+		openPTY:         pty.Open,
 	}
 }
 
@@ -735,7 +744,7 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 		cmd = exec.Command("/bin/sh", "-c", trimmedCommand)
 	}
 	cmd.Env = defaultWebSocketPTYEnv(shellPath)
-	ptyFile, ttyFile, err := startPTYCommand(cmd, cols, rows)
+	ptyFile, ttyFile, err := h.startPTYCommand(cmd, cols, rows)
 	if err != nil {
 		if tmpScript != "" {
 			_ = os.Remove(tmpScript)
@@ -763,8 +772,12 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 	return session, nil
 }
 
-func startPTYCommand(cmd *exec.Cmd, cols int, rows int) (*os.File, *os.File, error) {
-	ptyFile, ttyFile, err := pty.Open()
+func (h *wsPTYHub) startPTYCommand(cmd *exec.Cmd, cols int, rows int) (*os.File, *os.File, error) {
+	open := h.openPTY
+	if open == nil {
+		open = pty.Open
+	}
+	ptyFile, ttyFile, err := open()
 	if err != nil {
 		return nil, nil, err
 	}

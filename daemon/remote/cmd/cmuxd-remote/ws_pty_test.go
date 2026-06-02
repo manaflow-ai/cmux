@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -42,6 +43,45 @@ func newTestWebSocketPTYServer(t *testing.T, leasePath string) (*httptest.Server
 		}
 	})
 	return server, hub
+}
+
+// TestAttachRPCSurfacesPTYAllocationFailure pins the contract that a remote PTY
+// allocation failure (e.g. a hardened devpts mounted ptmxmode=000 where
+// /dev/ptmx cannot be opened) is reported loudly: the error returned to the
+// client names the failing device and explains the devpts cause, and the daemon
+// records the failure instead of leaving a 0-byte log. This is the regression
+// for https://github.com/manaflow-ai/cmux/issues/5185, where the failure
+// collapsed into a generic "remote PTY attach failed" with an empty daemon log.
+func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, stderr)
+	t.Cleanup(hub.closeAll)
+
+	denied := &os.PathError{Op: "open", Path: "/dev/ptmx", Err: syscall.EACCES}
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		return nil, nil, denied
+	}
+
+	_, _, _, err := hub.attachRPC(context.Background(), "sess-1", "att-1", 80, 24, "", "", false)
+	if err == nil {
+		t.Fatalf("expected attachRPC to fail when PTY allocation is denied")
+	}
+
+	msg := err.Error()
+	if !strings.Contains(msg, "/dev/ptmx") {
+		t.Fatalf("error should name the device that could not be opened: %q", msg)
+	}
+	lowered := strings.ToLower(msg)
+	if !strings.Contains(lowered, "ptmxmode") && !strings.Contains(lowered, "devpts") {
+		t.Fatalf("error should explain the hardened devpts cause: %q", msg)
+	}
+
+	if stderr.Len() == 0 {
+		t.Fatalf("PTY allocation failure must be logged to the daemon log, not swallowed")
+	}
+	if !strings.Contains(stderr.String(), "/dev/ptmx") {
+		t.Fatalf("daemon log should include the allocation failure detail: %q", stderr.String())
+	}
 }
 
 func TestServeWSRequiresExplicitLeaseFile(t *testing.T) {
