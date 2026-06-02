@@ -4692,6 +4692,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
+        clearBrowserFocusMode(reason: reason)
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
