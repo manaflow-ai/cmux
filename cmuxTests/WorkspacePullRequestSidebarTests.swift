@@ -1632,28 +1632,12 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testGitMetadataWatcherRefreshesDuringSustainedEventStorm() throws {
-        // waitTimeout (2.0) sits well above the asserted bound (1.0) so the
-        // XCTUnwrap and comparison have headroom against CI timing jitter: a
-        // healthy in-burst refresh fires ~0.25s in and passes comfortably, while a
-        // "wait for quiet" regression (~1.85s for this 1.6s burst) still returns a
-        // delay that trips the < 1.0 assertion instead of timing out on the unwrap.
-        let firstRefreshDelay = TabManager.workspaceGitMetadataWatcherFirstRefreshDelayDuringStormForTesting(
-            eventCount: 80,
-            eventInterval: 0.02,
-            waitTimeout: 2.0
-        )
-
-        let delay = try XCTUnwrap(
-            firstRefreshDelay,
-            "A sustained FSEvents burst must not keep canceling and reallocating the pending refresh until the repo becomes quiet."
-        )
-        XCTAssertLessThan(
-            delay,
-            1.0,
-            "The git metadata watcher should refresh during the burst instead of waiting for a quiet period after every event."
-        )
-    }
+    // The watcher's leading-edge coalescing (a sustained FSEvents burst yields
+    // one refresh per window rather than waiting for the repo to go quiet) is now
+    // verified deterministically in CmuxWorkspaceGit's package tests
+    // (WorkspaceGitMetadataWatcherTests.burstCoalescesAndThrottleRearms), with an
+    // injected clock and no real waiting, instead of the previous timing-based
+    // semaphore storm helper.
 
     func testModeOnlyTrackedChangesMarkSidebarDirty() throws {
         let defaults = UserDefaults.standard
