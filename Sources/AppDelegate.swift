@@ -15076,6 +15076,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         context: MainWindowContext?
     ) -> Bool {
         guard let context else { return false }
+        if case .builtIn(.newWorkspace) = action.action {
+            return performNewWorkspaceAction(
+                tabManager: context.tabManager,
+                event: event,
+                debugSource: "configured.cmux.newWorkspace.shortcut"
+            )
+        }
         return executeConfiguredCmuxAction(
             action,
             context: context,
