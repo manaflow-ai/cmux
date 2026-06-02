@@ -5180,6 +5180,23 @@ function shouldKeepTerminalInitDeferred(panel) {
     && !isPendingPanel(panel);
 }
 
+function requestImmediateTerminalInit(panelId) {
+  const found = findPanelState(panelId);
+  if (
+    !found
+    || found.panel.type !== "terminal"
+    || state.terminals.has(panelId)
+    || isPanelMinimized(found.panel)
+    || isPendingPanel(found.panel)
+  ) {
+    return false;
+  }
+  state.paintDeferredTerminalInitPanelIds.delete(panelId);
+  state.deferredTerminalInitQueue.delete(panelId);
+  state.immediateTerminalInitPanelIds.add(panelId);
+  return true;
+}
+
 function renderDeferredTerminal(panel, body) {
   let deferred = body.querySelector(".terminal-deferred");
   if (!deferred) {
@@ -12547,8 +12564,7 @@ function deferCreatedTerminalInitUntilPaint(panel, workspace, options = {}) {
     return false;
   }
   if (shouldInitCreatedTerminalImmediately(panel, workspace, options)) {
-    state.paintDeferredTerminalInitPanelIds.delete(panel.id);
-    state.immediateTerminalInitPanelIds.add(panel.id);
+    requestImmediateTerminalInit(panel.id);
     return false;
   }
   state.paintDeferredTerminalInitPanelIds.add(panel.id);
@@ -13441,7 +13457,7 @@ async function focusWorkspace(workspaceId) {
     && !state.terminals.has(focusablePanel.id)
     && (switchingWorkspace || workspace.activePanelId !== previousPanelId)
   ) {
-    state.paintDeferredTerminalInitPanelIds.add(focusablePanel.id);
+    requestImmediateTerminalInit(focusablePanel.id);
   }
   if (state.data?.activeWorkspaceId === workspaceId) {
     if (workspace.activePanelId !== previousPanelId) scheduleRender();
@@ -13477,14 +13493,16 @@ async function focusPanel(panelId) {
   }
   const shouldShowPaneHud = Boolean(found && (!wasAlreadyFocused || wasMinimized || zoomChanged));
   if (wasAlreadyFocused) {
+    const shouldInitTerminal = requestImmediateTerminalInit(panelId);
     if (wasMinimized || zoomChanged) render();
+    else if (shouldInitTerminal) scheduleRender();
     if (shouldShowPaneHud) showPaneSwitchHud(found.panel, found.workspace);
     focusTerminalSession(panelId);
     return;
   }
   if (!optimisticFocusPanel(panelId, { schedule: true })) return;
   if (found.panel.type === "terminal" && !state.terminals.has(panelId)) {
-    state.paintDeferredTerminalInitPanelIds.add(panelId);
+    requestImmediateTerminalInit(panelId);
   }
   if (shouldShowPaneHud) showPaneSwitchHud(found.panel, found.workspace);
   queueFocusSync({ type: "panel", panelId });
@@ -13557,7 +13575,10 @@ function focusWorkspaceByOrdinal(ordinal) {
 }
 
 function focusTerminalSession(panelId) {
-  if (!state.terminals.has(panelId)) return;
+  if (!state.terminals.has(panelId)) {
+    if (requestImmediateTerminalInit(panelId)) scheduleRender();
+    return;
+  }
   state.terminalFocusPanelId = panelId;
   if (state.terminalFocusFrame) cancelAnimationFrame(state.terminalFocusFrame);
   state.terminalFocusFrame = requestAnimationFrame(() => {
