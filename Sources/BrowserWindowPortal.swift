@@ -4217,9 +4217,23 @@ enum BrowserWindowPortalRegistry {
 
     static func triggerFocusFlash(for webView: WKWebView) {
         let webViewId = ObjectIdentifier(webView)
-        guard let windowId = webViewToWindowId[webViewId],
-              let portal = portalsByWindowId[windowId] else { return }
-        portal.triggerFocusFlash(forWebViewId: webViewId)
+        if let windowId = webViewToWindowId[webViewId],
+           let portal = portalsByWindowId[windowId] {
+            portal.triggerFocusFlash(forWebViewId: webViewId)
+            return
+        }
+        // Inline DevTools hosting takes the live WKWebView out of the window portal
+        // and into a local WindowBrowserSlotView that is not tracked in the registry
+        // (the entry is discarded). Walk up to that slot so the attention flash still
+        // fires for browser panes with attached inline DevTools.
+        var ancestor: NSView? = webView.superview
+        while let view = ancestor {
+            if let slot = view as? WindowBrowserSlotView {
+                slot.triggerFocusFlash()
+                return
+            }
+            ancestor = view.superview
+        }
     }
 
     static func searchOverlayPanelId(for responder: NSResponder, in window: NSWindow) -> UUID? {
