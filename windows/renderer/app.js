@@ -5601,6 +5601,7 @@ function cleanupPanel(panelId) {
     terminal.disposed = true;
     if (terminal.fitFrame) cancelAnimationFrame(terminal.fitFrame);
     if (terminal.connectionStatusTimer) clearTimeout(terminal.connectionStatusTimer);
+    if (terminal.queue) recordTerminalOutputQueueChange(-terminal.queue.length);
     closeSocketQuietly(terminal.socket);
     terminal.resizeObserver?.disconnect();
     terminal.searchResultDisposable?.dispose?.();
@@ -6120,22 +6121,24 @@ function findPreviousInTerminal(panel = activePanel()) {
 }
 
 function trimPausedTerminalOutput(session) {
-  if (!session?.queue || session.queue.length <= terminalHiddenOutputQueueLimit) return false;
+  if (!session?.queue || session.queue.length <= terminalHiddenOutputQueueLimit) return 0;
   const preserveBytes = Math.min(terminalHiddenOutputPreserveBytes, session.queue.length);
   const trimmedBytes = session.queue.length - preserveBytes;
-  if (trimmedBytes <= 0) return false;
+  if (trimmedBytes <= 0) return 0;
+  const previousLength = session.queue.length;
   const marker = `\r\n[cmux] ${formatBytes(trimmedBytes)} of hidden output was trimmed to keep switching responsive.\r\n`;
   session.queue = marker + session.queue.slice(-preserveBytes);
+  recordTerminalOutputQueueChange(session.queue.length - previousLength);
   state.terminalOutputStats.trimmedBytes = (state.terminalOutputStats.trimmedBytes || 0) + trimmedBytes;
   state.terminalOutputStats.trimmedEvents = (state.terminalOutputStats.trimmedEvents || 0) + 1;
-  return true;
+  return trimmedBytes;
 }
 
 function enqueueTerminalOutput(session, data) {
   session.queue += data;
+  recordTerminalOutputQueueChange(data.length);
   const paused = terminalOutputShouldPause(session);
   if (paused) trimPausedTerminalOutput(session);
-  updateTerminalOutputBacklog();
   if (state.terminalOutputStats.currentQueued >= terminalOutputBacklogThreshold) {
     maybeTriggerPerformanceGuard("terminal output backlog");
   }
@@ -6158,6 +6161,7 @@ function flushTerminalOutput(session) {
   const chunkSize = terminalOutputChunkSizeFor(session);
   const chunk = session.queue.length > chunkSize ? session.queue.slice(0, chunkSize) : session.queue;
   session.queue = session.queue.slice(chunk.length);
+  recordTerminalOutputQueueChange(-chunk.length);
   state.terminalOutputStats.chunks += 1;
   state.terminalOutputStats.lastChunk = chunk.length;
   state.terminalOutputStats.writtenBytes += chunk.length;
@@ -6168,7 +6172,6 @@ function flushTerminalOutput(session) {
     clearTerminalConnectionStatus(session);
     if (session.queue) scheduleTerminalOutputFlush(session);
   });
-  updateTerminalOutputBacklog();
 }
 
 function terminalOutputChunkSizeFor(session) {
@@ -6212,6 +6215,12 @@ function totalTerminalOutputQueue() {
     if (!session.disposed) total += session.queue.length;
   }
   return total;
+}
+
+function recordTerminalOutputQueueChange(delta) {
+  const currentQueued = Math.max(0, (state.terminalOutputStats.currentQueued || 0) + delta);
+  state.terminalOutputStats.currentQueued = currentQueued;
+  state.terminalOutputStats.maxQueued = Math.max(state.terminalOutputStats.maxQueued || 0, currentQueued);
 }
 
 function updateTerminalOutputBacklog() {
