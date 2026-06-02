@@ -71,23 +71,48 @@ var commands = []commandSpec{
 
 	// V2 JSON-RPC commands
 	{name: "capabilities", proto: protoV2, v2Method: "system.capabilities", noParams: true},
+
+	// Workspace management
 	{name: "list-workspaces", proto: protoV2, v2Method: "workspace.list", noParams: true},
 	{name: "new-workspace", proto: protoV2, v2Method: "workspace.create", flagKeys: []string{"command", "working-directory", "name"}},
+	{name: "rename-workspace", proto: protoV2, v2Method: "workspace.rename", flagKeys: []string{"workspace", "title"}},
 	{name: "close-workspace", proto: protoV2, v2Method: "workspace.close", flagKeys: []string{"workspace"}},
 	{name: "select-workspace", proto: protoV2, v2Method: "workspace.select", flagKeys: []string{"workspace"}},
 	{name: "current-workspace", proto: protoV2, v2Method: "workspace.current", noParams: true},
-	{name: "list-panels", proto: protoV2, v2Method: "surface.list", flagKeys: []string{"workspace"}},
-	{name: "focus-panel", proto: protoV2, v2Method: "surface.focus", flagKeys: []string{"panel", "workspace"}, paramKeyOverrides: map[string]string{"panel": "surface_id"}},
+	{name: "next-workspace", proto: protoV2, v2Method: "workspace.next", noParams: true},
+	{name: "previous-workspace", proto: protoV2, v2Method: "workspace.previous", noParams: true},
+	{name: "last-workspace", proto: protoV2, v2Method: "workspace.last", noParams: true},
+	{name: "move-workspace-to-window", proto: protoV2, v2Method: "workspace.move_to_window", flagKeys: []string{"workspace", "window"}},
+	{name: "equalize-splits", proto: protoV2, v2Method: "workspace.equalize_splits", flagKeys: []string{"workspace"}},
+
+	// Pane management
 	{name: "list-panes", proto: protoV2, v2Method: "pane.list", flagKeys: []string{"workspace"}},
 	{name: "list-pane-surfaces", proto: protoV2, v2Method: "pane.surfaces", flagKeys: []string{"pane"}},
 	{name: "new-pane", proto: protoV2, v2Method: "pane.create", flagKeys: []string{"workspace", "direction", "type", "url"}, defaultParams: map[string]any{"direction": "right"}},
+	{name: "last-pane", proto: protoV2, v2Method: "pane.last", flagKeys: []string{"workspace"}},
+	{name: "resize-pane", proto: protoV2, v2Method: "pane.resize", flagKeys: []string{"pane"}},
+	{name: "swap-pane", proto: protoV2, v2Method: "pane.swap", flagKeys: []string{"pane"}},
+	{name: "break-pane", proto: protoV2, v2Method: "pane.break", flagKeys: []string{"pane"}},
+	{name: "join-pane", proto: protoV2, v2Method: "pane.join", flagKeys: []string{"pane"}},
+
+	// Surface (panel) management
+	{name: "list-panels", proto: protoV2, v2Method: "surface.list", flagKeys: []string{"workspace"}},
+	{name: "focus-panel", proto: protoV2, v2Method: "surface.focus", flagKeys: []string{"panel", "workspace"}, paramKeyOverrides: map[string]string{"panel": "surface_id"}},
 	{name: "new-surface", proto: protoV2, v2Method: "surface.create", flagKeys: []string{"workspace", "pane", "type", "url"}},
 	{name: "new-split", proto: protoV2, v2Method: "surface.split", flagKeys: []string{"surface", "direction"}},
 	{name: "close-surface", proto: protoV2, v2Method: "surface.close", flagKeys: []string{"surface"}},
 	{name: "send", proto: protoV2, v2Method: "surface.send_text", flagKeys: []string{"surface", "text"}},
 	{name: "send-key", proto: protoV2, v2Method: "surface.send_key", flagKeys: []string{"surface", "key"}},
-	{name: "notify", proto: protoV2, v2Method: "notification.create", flagKeys: []string{"title", "body", "workspace"}},
+	{name: "read-screen", proto: protoV2, v2Method: "surface.read_text", flagKeys: []string{"surface"}},
+	{name: "clear-history", proto: protoV2, v2Method: "surface.clear_history", flagKeys: []string{"surface"}},
 	{name: "refresh-surfaces", proto: protoV2, v2Method: "surface.refresh", noParams: true},
+
+	// Notifications
+	{name: "notify", proto: protoV2, v2Method: "notification.create", flagKeys: []string{"title", "body", "workspace"}},
+	{name: "dismiss-notification", proto: protoV2, v2Method: "notification.dismiss", flagKeys: []string{"id"}},
+	{name: "mark-notification-read", proto: protoV2, v2Method: "notification.mark_read", flagKeys: []string{"id"}},
+	{name: "open-notification", proto: protoV2, v2Method: "notification.open", flagKeys: []string{"id"}},
+	{name: "jump-to-unread", proto: protoV2, v2Method: "notification.jump_to_unread", noParams: true},
 }
 
 var browserCommands = map[string]browserCommandSpec{
