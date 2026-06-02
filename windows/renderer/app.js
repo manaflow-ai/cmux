@@ -4648,12 +4648,8 @@ function updateSurfaceTabsOverflow() {
   }
   const currentSignature = tabOverflowStateSignature(strip, tabCount);
   if (currentSignature === state.surfaceTabOverflowSignature) return;
-  if (tabCount < 6 && strip.classList.contains("is-crowded")) {
-    strip.classList.remove("is-crowded");
-  }
   const normalOverflow = surfaceTabsOverflowing();
-  const crowded = normalOverflow || tabCount >= 6;
-  toggleClassIfChanged(strip, "is-crowded", crowded);
+  toggleClassIfChanged(strip, "is-crowded", normalOverflow);
   const finalOverflow = surfaceTabsOverflowing();
   toggleClassIfChanged(strip, "has-overflow", finalOverflow);
   updateSurfaceTabScrollState(strip, finalOverflow);
@@ -4731,6 +4727,50 @@ function observeSurfaceTabOverflow() {
   });
 }
 
+function activateSurfaceTabPanel(panelId) {
+  if (!panelId) return false;
+  if (state.minimizedPanelIds.has(panelId)) restorePane(panelId);
+  else focusPanel(panelId);
+  scheduleActiveSurfaceTabIntoView(panelId);
+  return true;
+}
+
+function focusSurfaceTabButton(panelId) {
+  if (!panelId) return;
+  requestAnimationFrame(() => {
+    const button = state.surfaceTabButtons.get(panelId);
+    button?.focus?.({ preventScroll: true });
+  });
+}
+
+function surfaceTabKeyboardTargetId(workspace, currentPanelId, key) {
+  const panels = workspace?.panels || [];
+  if (panels.length === 0) return "";
+  const currentIndex = Math.max(0, panels.findIndex((panel) => panel.id === currentPanelId));
+  if (key === "Home") return panels[0]?.id || "";
+  if (key === "End") return panels.at(-1)?.id || "";
+  if (key === "ArrowLeft") return panels[Math.max(0, currentIndex - 1)]?.id || "";
+  if (key === "ArrowRight") return panels[Math.min(panels.length - 1, currentIndex + 1)]?.id || "";
+  return "";
+}
+
+function handleSurfaceTabKeydown(event, panelId) {
+  if (!panelId) return;
+  if (event.key === "Delete") {
+    event.preventDefault();
+    event.stopPropagation();
+    closePanel(panelId);
+    return;
+  }
+  if (event.altKey || event.ctrlKey || event.metaKey) return;
+  const nextPanelId = surfaceTabKeyboardTargetId(activeWorkspace(), panelId, event.key);
+  if (!nextPanelId) return;
+  event.preventDefault();
+  event.stopPropagation();
+  activateSurfaceTabPanel(nextPanelId);
+  focusSurfaceTabButton(nextPanelId);
+}
+
 function createSurfaceTab() {
   const button = document.createElement("button");
   button.className = "surface-tab";
@@ -4742,11 +4782,9 @@ function createSurfaceTab() {
   `;
   button._surfaceParts = surfaceTabParts(button);
   button.addEventListener("click", () => {
-    const panelId = button.dataset.panelId;
-    if (state.minimizedPanelIds.has(panelId)) restorePane(panelId);
-    else focusPanel(panelId);
-    scheduleActiveSurfaceTabIntoView(panelId);
+    activateSurfaceTabPanel(button.dataset.panelId);
   });
+  button.addEventListener("keydown", (event) => handleSurfaceTabKeydown(event, button.dataset.panelId));
   button.addEventListener("mousedown", (event) => {
     if (event.button === 1) event.preventDefault();
   });
@@ -4816,10 +4854,16 @@ function updateSurfaceTab(button, workspace, panel, label = surfaceTabLabel(work
   const pending = isPendingPanel(panel);
   const ordinal = Math.max(1, (workspace?.panels || []).findIndex((candidate) => candidate.id === panel.id) + 1);
   const parts = surfaceTabParts(button);
+  const active = panel.id === workspace.activePanelId;
+  const tabbable = active || (!workspace.activePanelId && ordinal === 1);
   setDatasetIfChanged(button, "panelId", panel.id);
-  setClassNameIfChanged(button, `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${isPanelZoomed(panel, workspace) ? " is-zoomed" : ""}${minimized ? " is-minimized" : ""}${pending ? " is-pending" : ""}${panel.needsAttention ? " has-attention" : ""}`);
+  setClassNameIfChanged(button, `surface-tab${active ? " is-active" : ""}${isPanelZoomed(panel, workspace) ? " is-zoomed" : ""}${minimized ? " is-minimized" : ""}${pending ? " is-pending" : ""}${panel.needsAttention ? " has-attention" : ""}`);
   const closeActionLabel = pending ? "cancel" : closePaneActionLabel(workspace, panel.id).toLowerCase();
   setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""}${pending ? " - starting" : ""}${minimized ? " - minimized, click to restore" : ""} - middle-click to ${closeActionLabel}, double-click to rename, right-click for pane options`);
+  if (active) setAttributeIfChanged(button, "aria-current", "page");
+  else if (button.hasAttribute("aria-current")) button.removeAttribute("aria-current");
+  setAttributeIfChanged(button, "aria-label", `${label}${active ? ", active" : ""}${pending ? ", starting" : ""}${minimized ? ", minimized" : ""}. Press Delete to ${closeActionLabel}.`);
+  if (button.tabIndex !== (tabbable ? 0 : -1)) button.tabIndex = tabbable ? 0 : -1;
   setStylePropertyIfChanged(button, "--tab-color", panel.color || workspace.color || "var(--color-accent)");
   setDatasetIfChanged(parts.dot, "tabIndex", String(ordinal));
   setTextIfChanged(parts.label, label);

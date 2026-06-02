@@ -1945,6 +1945,11 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   display: none;
 }
 
+.surface-tabs:not(.is-crowded) .surface-new-terminal,
+.surface-tabs:not(.is-crowded) .surface-new-browser {
+  min-width: 82px;
+}
+
 .surface-new-icon {
   position: relative;
   display: grid;
