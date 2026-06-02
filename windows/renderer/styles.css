@@ -789,7 +789,7 @@ body.reduce-motion *::after {
 }
 
 .workspace-row.has-branch .workspace-detail-line {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 88px);
+  grid-template-columns: minmax(0, 1fr) minmax(42px, 72px);
 }
 
 .workspace-row.is-active .workspace-meta,
@@ -800,6 +800,12 @@ body.reduce-motion *::after {
 }
 
 .workspace-branch {
+  max-width: 72px;
+  justify-self: end;
+  padding: 1px 5px;
+  border: 1px solid color-mix(in oklch, var(--color-line) 72%, transparent);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 54%, transparent);
   font-family: var(--font-mono);
 }
 

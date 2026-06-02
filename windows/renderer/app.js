@@ -3551,8 +3551,8 @@ function updateWorkspaceRow(button, workspace, index, activeId) {
   setTextIfChanged(parts.meta, workspace.latestNotification || "");
   setTextIfChanged(parts.path, cwd);
   setTitleIfChanged(parts.path, cwd);
-  setTextIfChanged(parts.branch, branch ? `git ${branch}` : "");
-  setTitleIfChanged(parts.branch, branch ? `git ${branch}` : "");
+  setTextIfChanged(parts.branch, branch);
+  setTitleIfChanged(parts.branch, branch ? `Git branch ${branch}` : "");
   setHiddenIfChanged(parts.branch, !branch);
 }
 
