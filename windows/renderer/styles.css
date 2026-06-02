@@ -1727,6 +1727,24 @@ body.reduce-motion *::after {
   box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 26%, transparent);
 }
 
+.pane-grid.is-background-drop-target::before {
+  content: "Drop image to set app background";
+  position: absolute;
+  inset: var(--space-3);
+  z-index: 18;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  border: 1px dashed color-mix(in oklch, var(--color-accent) 70%, var(--color-line) 30%);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-canvas) 80%, var(--color-accent) 20%);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 720;
+  letter-spacing: 0;
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 22%, transparent);
+}
+
 .pane-grid.direction-down {
   flex-direction: column;
 }
@@ -2101,6 +2119,24 @@ body.reduce-motion *::after {
   inset: calc(var(--pane-drop-top, 31px) + 8px) 8px 8px 8px;
   border-style: dashed;
   background: color-mix(in oklch, var(--color-accent) 8%, transparent);
+}
+
+.pane.is-background-drop-target::after {
+  content: "Drop image to set pane background";
+  position: absolute;
+  inset: calc(var(--pane-drop-top, 31px) + 8px) 8px 8px 8px;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  border: 1px dashed color-mix(in oklch, var(--color-accent) 74%, var(--color-line) 26%);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 76%, var(--color-accent) 24%);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 720;
+  letter-spacing: 0;
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 22%, transparent);
 }
 
 .pane-type {

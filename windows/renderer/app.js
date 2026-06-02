@@ -999,20 +999,52 @@ function hasBackgroundDropData(dataTransfer, options = {}) {
   return types.includes("text/uri-list") || (options.allowPlainText !== false && types.includes("text/plain"));
 }
 
+function backgroundDropPanelForEvent(event, options = {}) {
+  const candidate = typeof options.panelFromEvent === "function"
+    ? options.panelFromEvent(event)
+    : options.panel;
+  return candidate ? resolveTerminalPanel(candidate) : null;
+}
+
+function backgroundDropPaneElement(panel) {
+  if (!panel?.id) return null;
+  return state.paneCache.get(panel.id) || elements.paneGrid.querySelector(`.pane[data-panel-id="${panel.id}"]`);
+}
+
+function clearBackgroundDropTarget(target) {
+  target.classList.remove("is-background-drop-target", "is-drop-target");
+  target._backgroundDropPane?.classList?.remove("is-background-drop-target");
+  target._backgroundDropPane = null;
+}
+
+function updateBackgroundDropTarget(target, panel) {
+  const pane = backgroundDropPaneElement(panel);
+  if (target._backgroundDropPane && target._backgroundDropPane !== pane) {
+    target._backgroundDropPane.classList.remove("is-background-drop-target");
+  }
+  target._backgroundDropPane = pane || null;
+  target.classList.toggle("is-background-drop-target", !pane);
+  target.classList.toggle("is-drop-target", !pane);
+  pane?.classList.add("is-background-drop-target");
+}
+
 function installBackgroundDropTarget(target, options = {}) {
   if (!target) return;
-  const setDropping = (dropping) => target.classList.toggle("is-drop-target", dropping);
   target.addEventListener("dragover", (event) => {
     if (!hasBackgroundDropData(event.dataTransfer, options)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
-    setDropping(true);
+    updateBackgroundDropTarget(target, backgroundDropPanelForEvent(event, options));
   });
-  target.addEventListener("dragleave", () => setDropping(false));
+  target.addEventListener("dragleave", (event) => {
+    if (event.currentTarget.contains(event.relatedTarget)) return;
+    clearBackgroundDropTarget(target);
+  });
   target.addEventListener("drop", async (event) => {
     if (!hasBackgroundDropData(event.dataTransfer, options)) return;
     event.preventDefault();
-    setDropping(false);
+    const panel = backgroundDropPanelForEvent(event, options);
+    clearBackgroundDropTarget(target);
     const payload = await droppedBackgroundPayload(event.dataTransfer);
     if (!payload?.url) {
       toast(payload?.error === "too_large"
@@ -1022,8 +1054,8 @@ function installBackgroundDropTarget(target, options = {}) {
     }
     const background = payload.label ? { url: payload.url, label: payload.label } : { url: payload.url };
     if (options.input && payload.inputValue) options.input.value = payload.inputValue;
-    if (options.panel) {
-      const changed = await applyPanelBackgroundImage(payload.url, options.panel, { toast: true });
+    if (panel || Object.hasOwn(options, "panel")) {
+      const changed = await applyPanelBackgroundImage(payload.url, panel || options.panel || null, { toast: true });
       if (changed !== null && options.input && !payload.inputValue) options.input.value = "";
       return;
     }
@@ -2990,6 +3022,11 @@ function panelFromEvent(event) {
     if (panel) return panel;
   }
   return panelFromElement(event?.target) || panelFromPoint(event?.clientX, event?.clientY);
+}
+
+function terminalPanelFromBackgroundDropEvent(event) {
+  const panel = panelFromEvent(event);
+  return panel?.type === "terminal" && !isPendingPanel(panel) && !isPanelMinimized(panel) ? panel : null;
 }
 
 function panelFromActiveElement() {
@@ -5488,8 +5525,10 @@ function paneGridPointerDropTarget(event, sourcePanelId) {
 }
 
 function clearPaneGridDropTarget() {
-  elements.paneGrid.classList.remove("is-drop-target");
+  elements.paneGrid.classList.remove("is-drop-target", "is-background-drop-target");
   elements.paneGrid.removeAttribute("data-drop-position");
+  elements.paneGrid._backgroundDropPane?.classList?.remove("is-background-drop-target");
+  elements.paneGrid._backgroundDropPane = null;
 }
 
 function handlePaneGridDragOver(event) {
@@ -5517,13 +5556,13 @@ function handlePaneGridDrop(event) {
 }
 
 function clearPaneDropTarget(pane) {
-  pane.classList.remove("is-drop-target");
+  pane.classList.remove("is-drop-target", "is-background-drop-target");
   pane.removeAttribute("data-drop-position");
 }
 
 function clearAllDropTargets() {
   clearPaneGridDropTarget();
-  for (const pane of document.querySelectorAll(".pane.is-drop-target")) clearPaneDropTarget(pane);
+  for (const pane of document.querySelectorAll(".pane.is-drop-target, .pane.is-background-drop-target")) clearPaneDropTarget(pane);
   for (const node of document.querySelectorAll(".is-drop-before, .is-drop-after, .workspace-row.is-drop-target, .workspace-row.is-workspace-drop-before, .workspace-row.is-workspace-drop-after")) {
     node.classList.remove("is-drop-before", "is-drop-after", "is-drop-target", "is-workspace-drop-before", "is-workspace-drop-after");
   }
@@ -15887,7 +15926,10 @@ if (window.cmuxNative?.onCommand) {
   });
 }
 
-installBackgroundDropTarget(elements.paneGrid, { allowPlainText: false });
+installBackgroundDropTarget(elements.paneGrid, {
+  allowPlainText: false,
+  panelFromEvent: terminalPanelFromBackgroundDropEvent
+});
 applySettings();
 loadState();
 loadBrowserProfiles();
