@@ -4,6 +4,7 @@ import Bonsplit
 import Combine
 import CMUXExtensionClient
 import CmuxExtensionKit
+import CmuxExtensionSidebarExamples
 import CmuxSettings
 import CmuxSettingsUI
 import ImageIO
@@ -6795,22 +6796,20 @@ struct ContentView: View {
                 keywords: ["toggle", "sidebar", "left", "layout"]
             )
         )
-        // "Sidebar: <provider>" switch commands only make sense when there
-        // is more than one provider, which is the experimental Extensions
-        // feature. Omit them entirely while it is disabled.
-        if CmuxExtensionSidebarSelection.isEnabled {
-            for descriptor in CmuxExtensionSidebarSelection.descriptors {
-                let title = CmuxExtensionSidebarSelection.localizedTitle(for: descriptor)
-                let titleFormat = String(localized: "command.switchExtensionSidebar.title", defaultValue: "Sidebar: %@")
-                contributions.append(
-                    CommandPaletteCommandContribution(
-                        commandId: commandPaletteExtensionSidebarCommandID(descriptor.id),
-                        title: constant(String.localizedStringWithFormat(titleFormat, title)),
-                        subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar")),
-                        keywords: ["sidebar", "switch", "extension", title.lowercased()]
-                    )
+        // "Sidebar: <provider>" switch commands for each available view. The
+        // built-in views are always offered; `descriptors` adds the hosted
+        // extension sidebar only while the experimental Extensions beta is on.
+        for descriptor in CmuxExtensionSidebarSelection.descriptors {
+            let title = CmuxExtensionSidebarSelection.localizedTitle(for: descriptor)
+            let titleFormat = String(localized: "command.switchExtensionSidebar.title", defaultValue: "Sidebar: %@")
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: commandPaletteExtensionSidebarCommandID(descriptor.id),
+                    title: constant(String.localizedStringWithFormat(titleFormat, title)),
+                    subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar")),
+                    keywords: ["sidebar", "switch", "extension", title.lowercased()]
                 )
-            }
+            )
         }
         contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
         contributions.append(contentsOf: Self.commandPaletteRightSidebarToolPaneCommandContributions())
@@ -7934,7 +7933,11 @@ struct ContentView: View {
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
         }
-        for descriptor in CmuxExtensionSidebarSelection.descriptors {
+        // Register a handler for every possible view (including the hosted
+        // extension sidebar) regardless of the beta flag, so a contribution that
+        // was visible when the flag was on still resolves after a runtime flip.
+        // Visibility is gated by `descriptors`; the handler set is the superset.
+        for descriptor in CmuxExtensionSidebarSelection.allDescriptors {
             registry.register(commandId: commandPaletteExtensionSidebarCommandID(descriptor.id)) {
                 CmuxExtensionSidebarSelection.setProviderId(descriptor.id)
             }
@@ -10079,11 +10082,31 @@ enum CmuxExtensionSidebarSelection {
     }
 
     static var providers: [any CmuxExtensionSidebarProvider] {
-        []
+        SidebarExamples.providers
     }
 
+    /// The always-available built-in views: the default workspaces sidebar plus
+    /// the bundled preset providers (Project Worktrees, Attention Queue, Dev
+    /// Servers, Last Prompt, Super Compact, Browser Stack). These ship
+    /// independently of the experimental Extensions feature, so they stay in
+    /// the switcher menu regardless of the beta flag.
+    static var builtInDescriptors: [CmuxExtensionSidebarProviderDescriptor] {
+        [.defaultWorkspaces] + providers.map { $0.descriptor }
+    }
+
+    /// Descriptors offered in the switcher menu and command palette. The hosted
+    /// extension entry belongs to the experimental Extensions feature, so it is
+    /// only offered while that beta is enabled; the built-in views are always
+    /// offered.
     static var descriptors: [CmuxExtensionSidebarProviderDescriptor] {
-        [.defaultWorkspaces, hostedExtensionsDescriptor] + providers.map { $0.descriptor }
+        isEnabled ? builtInDescriptors + [hostedExtensionsDescriptor] : builtInDescriptors
+    }
+
+    /// Every descriptor that can ever be selected, ignoring feature gates. Used
+    /// to register command-palette handlers so a runtime flag flip always has a
+    /// handler to invoke; what is *shown* uses ``descriptors``.
+    static var allDescriptors: [CmuxExtensionSidebarProviderDescriptor] {
+        builtInDescriptors + [hostedExtensionsDescriptor]
     }
 
     static var hostedExtensionsDescriptor: CmuxExtensionSidebarProviderDescriptor {
@@ -10113,6 +10136,21 @@ enum CmuxExtensionSidebarSelection {
         providers.first { $0.descriptor.id == providerId }
     }
 
+    /// Resolves the persisted provider selection to the provider that is
+    /// actually rendered. The hosted-extensions provider is part of the
+    /// experimental Extensions feature, so a persisted hosted selection falls
+    /// back to the default workspaces sidebar while the beta is disabled —
+    /// otherwise turning the feature off would strand the user on an empty
+    /// sidebar with no switcher entry to escape it. Built-in views are always
+    /// honored, so the switcher and its active-view checkmark keep working
+    /// regardless of the beta flag.
+    static func effectiveProviderId(_ persistedProviderId: String, extensionsEnabled: Bool) -> String {
+        if persistedProviderId == hostedExtensionsProviderId, !extensionsEnabled {
+            return defaultProviderId
+        }
+        return persistedProviderId
+    }
+
     static func localizedTitle(for descriptor: CmuxExtensionSidebarProviderDescriptor) -> String {
         localizedText(descriptor.title)
     }
@@ -10133,14 +10171,13 @@ enum CmuxExtensionSidebarSelection {
 
     @MainActor
     static func showMenu(anchorView: NSView, event: NSEvent?) {
-        // The sidebar-toggle right-click menu only switches between sidebar
-        // providers, which exists solely for the experimental Extensions
-        // feature. While it is disabled there is nothing to choose, so the
-        // menu does not appear.
-        guard isEnabled else { return }
+        // The right-click menu switches between the always-available built-in
+        // views (and the hosted extension sidebar when the experimental
+        // Extensions beta is enabled), so it is shown regardless of the flag.
         let menu = NSMenu()
+        let persistedProviderId = UserDefaults.standard.string(forKey: defaultsKey) ?? defaultProviderId
         let selectedProviderId = descriptor(
-            for: UserDefaults.standard.string(forKey: defaultsKey) ?? defaultProviderId
+            for: effectiveProviderId(persistedProviderId, extensionsEnabled: isEnabled)
         ).id
         for descriptor in descriptors {
             let item = NSMenuItem(
@@ -10443,17 +10480,20 @@ struct VerticalTabsSidebar: View {
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
 
-    // The provider to actually render. When the experimental Extensions feature
-    // is disabled, fall back to the default workspaces sidebar regardless of the
-    // persisted selection: turning extensions off hides the provider switcher,
-    // so a hosted-extension selection would otherwise strand the user with no
-    // way back. Deriving the effective provider (rather than mutating the
-    // persisted selection via an observer) routes correctly on the first render
-    // pass and restores the user's choice if extensions are re-enabled.
+    // The provider to actually render. Built-in views are always honored; only
+    // the hosted-extension selection falls back to the default workspaces
+    // sidebar while the experimental Extensions feature is disabled, since
+    // turning extensions off hides that entry and would otherwise strand the
+    // user with no way back. Deriving the effective provider (rather than
+    // mutating the persisted selection via an observer) routes correctly on the
+    // first render pass and restores the user's choice if extensions are
+    // re-enabled. Reading `extensionsExperimentalEnabled` here keeps the view
+    // reactive to the flag toggling.
     private var effectiveExtensionSidebarProviderId: String {
-        extensionsExperimentalEnabled
-            ? selectedExtensionSidebarProviderId
-            : CmuxExtensionSidebarSelection.defaultProviderId
+        CmuxExtensionSidebarSelection.effectiveProviderId(
+            selectedExtensionSidebarProviderId,
+            extensionsEnabled: extensionsExperimentalEnabled
+        )
     }
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
@@ -11099,6 +11139,12 @@ struct VerticalTabsSidebar: View {
                         .receive(on: RunLoop.main)
                         .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
                 ) { _ in
+                refreshExtensionSidebarSnapshot()
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: BrowserStackSidebar.stateDidLoadNotification)
+                    .receive(on: RunLoop.main)
+            ) { _ in
                 refreshExtensionSidebarSnapshot()
             }
         }
