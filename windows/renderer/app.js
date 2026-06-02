@@ -12968,18 +12968,32 @@ function queueBrowserUrlSync(panelId, value) {
   return true;
 }
 
-async function flushBrowserUrlSync() {
-  state.browserUrlSyncTimer = 0;
+async function browserUrlSyncFetch(panelId, url, options = {}) {
+  const response = await fetch(`/api/panels/${panelId}`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+      ...(launchToken ? { "x-local-token": launchToken } : {})
+    },
+    body: JSON.stringify({ url }),
+    keepalive: Boolean(options.keepalive)
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response;
+}
+
+async function flushBrowserUrlSync(options = {}) {
+  if (state.browserUrlSyncTimer) {
+    clearTimeout(state.browserUrlSyncTimer);
+    state.browserUrlSyncTimer = 0;
+  }
   const entries = [...state.pendingBrowserUrlSync.entries()];
   state.pendingBrowserUrlSync.clear();
   await Promise.all(entries.map(async ([panelId, url]) => {
     const found = findPanelState(panelId);
     if (!found || found.panel.type !== "browser" || found.panel.url !== url) return;
     try {
-      await api(`/api/panels/${panelId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ url })
-      });
+      await browserUrlSyncFetch(panelId, url, options);
     } catch {
       // The pane may have been closed before the debounce fired.
     }
@@ -14783,6 +14797,7 @@ window.addEventListener("wheel", handleWindowWheelZoom, { passive: false, captur
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     flushTerminalFontSizeSync({ keepalive: true });
+    flushBrowserUrlSync({ keepalive: true });
   } else {
     scheduleDeferredTerminalFitFlush();
   }
@@ -14790,6 +14805,7 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("focus", scheduleDeferredTerminalFitFlush);
 window.addEventListener("pagehide", () => {
   flushTerminalFontSizeSync({ keepalive: true });
+  flushBrowserUrlSync({ keepalive: true });
 });
 
 elements.sidebar.addEventListener("pointerdown", startSidebarResize);
@@ -14829,6 +14845,7 @@ window.addEventListener("beforeunload", () => {
   flushSettingsSave();
   flushBrowserTabSnapshotsSave();
   flushTerminalFontSizeSync({ keepalive: true });
+  flushBrowserUrlSync({ keepalive: true });
 });
 
 function updateMaximizeButton(maximized) {
