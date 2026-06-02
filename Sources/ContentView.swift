@@ -10357,7 +10357,7 @@ struct VerticalTabsSidebar: View {
     @State var dragState = SidebarDragState()
     /// Current ~/.config/cmux/sidebar.lisp compiler state. Passed by value into
     /// each row so menu changes force a row re-render through `version`.
-    @StateObject private var sidebarScriptStore = SidebarScriptStore()
+    @ObservedObject private var sidebarScriptStore = SidebarScriptStore.shared
     // Freezes `showsModifierShortcutHints` for the workspace whose context menu
     // is open. Set on the row's contextMenu.onAppear and cleared on
     // .onDisappear so modifier-key transitions don't flip the badges on the
@@ -10632,7 +10632,6 @@ struct VerticalTabsSidebar: View {
             SidebarFooter(
                 updateViewModel: updateViewModel,
                 fileExplorerState: fileExplorerState,
-                sidebarScriptStore: sidebarScriptStore,
                 onSendFeedback: onSendFeedback
             )
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -13126,7 +13125,6 @@ final class WindowScopedShortcutHintModifierMonitor {
 private struct SidebarFooter: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
-    @ObservedObject var sidebarScriptStore: SidebarScriptStore
     let onSendFeedback: () -> Void
 
     var body: some View {
@@ -13134,14 +13132,12 @@ private struct SidebarFooter: View {
         SidebarDevFooter(
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
-            sidebarScriptStore: sidebarScriptStore,
             onSendFeedback: onSendFeedback
         )
 #else
         SidebarFooterButtons(
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
-            sidebarScriptStore: sidebarScriptStore,
             onSendFeedback: onSendFeedback
         )
             .padding(.leading, 6)
@@ -13154,7 +13150,6 @@ private struct SidebarFooter: View {
 private struct SidebarFooterButtons: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
-    @ObservedObject var sidebarScriptStore: SidebarScriptStore
     let onSendFeedback: () -> Void
     @State private var extensionBrowserAnchorView: NSView?
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
@@ -13162,7 +13157,6 @@ private struct SidebarFooterButtons: View {
     var body: some View {
         HStack(spacing: 4) {
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
-            SidebarScriptLayoutMenuButton(scriptStore: sidebarScriptStore)
             // The puzzle button opens the extensions browser; it only shows
             // while the experimental Extensions feature is enabled.
             if extensionsExperimentalEnabled {
@@ -13188,89 +13182,6 @@ private struct SidebarFooterButtons: View {
             UpdatePill(model: updateViewModel)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct SidebarScriptLayoutMenuButton: View {
-    @ObservedObject var scriptStore: SidebarScriptStore
-
-    private let buttonTitle = String(localized: "sidebar.script.menu.title", defaultValue: "Sidebar Layouts")
-    private let nativeTitle = String(localized: "sidebar.script.menu.native", defaultValue: "Native Sidebar")
-    private let buttonSize: CGFloat = 22
-    private let iconSize: CGFloat = 12
-
-    var body: some View {
-        Menu {
-            menuContent
-        } label: {
-            Image(systemName: "sidebar.left")
-                .symbolRenderingMode(.monochrome)
-                .font(.system(size: iconSize, weight: .medium))
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                .frame(width: buttonSize, height: buttonSize, alignment: .center)
-        }
-        .menuStyle(.borderlessButton)
-        .frame(width: buttonSize, height: buttonSize, alignment: .center)
-        .contextMenu {
-            menuContent
-        }
-        .safeHelp(buttonTitle)
-        .accessibilityLabel(buttonTitle)
-        .accessibilityIdentifier("SidebarScriptLayoutMenuButton")
-    }
-
-    @ViewBuilder
-    private var menuContent: some View {
-        Button {
-            scriptStore.useNativeSidebar()
-        } label: {
-            Label(nativeTitle, systemImage: scriptStore.isNativeActive ? "checkmark.circle.fill" : "sidebar.left")
-        }
-
-        Divider()
-
-        ForEach(SidebarScriptDemo.all) { demo in
-            Button {
-                scriptStore.applyDemo(demo)
-            } label: {
-                Label(demoTitle(demo), systemImage: iconName(for: demo))
-            }
-        }
-    }
-
-    private func iconName(for demo: SidebarScriptDemo) -> String {
-        guard scriptStore.activeDemoId != demo.id else { return "checkmark.circle.fill" }
-        switch demo.id {
-        case "default": return "text.alignleft"
-        case "liquid-glass": return "sparkles"
-        case "high-density-ide": return "rectangle.grid.1x2"
-        case "terminal-stealth": return "terminal"
-        case "pro-studio": return "slider.horizontal.3"
-        case "finder": return "folder.fill"
-        case "agent-ops": return "chart.bar.xaxis"
-        default: return "sidebar.left"
-        }
-    }
-
-    private func demoTitle(_ demo: SidebarScriptDemo) -> String {
-        switch demo.id {
-        case "default":
-            return String(localized: "sidebar.script.demo.default", defaultValue: "Default Lisp")
-        case "liquid-glass":
-            return String(localized: "sidebar.script.demo.liquidGlass", defaultValue: "Liquid Glass")
-        case "high-density-ide":
-            return String(localized: "sidebar.script.demo.highDensityIDE", defaultValue: "High-Density IDE")
-        case "terminal-stealth":
-            return String(localized: "sidebar.script.demo.terminalStealth", defaultValue: "Terminal Stealth")
-        case "pro-studio":
-            return String(localized: "sidebar.script.demo.proStudio", defaultValue: "Pro Studio")
-        case "finder":
-            return String(localized: "sidebar.script.demo.finder", defaultValue: "Finder")
-        case "agent-ops":
-            return String(localized: "sidebar.script.demo.agentOps", defaultValue: "Agent Ops")
-        default:
-            return demo.id
-        }
     }
 }
 
@@ -14437,7 +14348,6 @@ private struct SidebarFooterIconButtonStyleBody: View {
 private struct SidebarDevFooter: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
-    @ObservedObject var sidebarScriptStore: SidebarScriptStore
     let onSendFeedback: () -> Void
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
@@ -14447,7 +14357,6 @@ private struct SidebarDevFooter: View {
             SidebarFooterButtons(
                 updateViewModel: updateViewModel,
                 fileExplorerState: fileExplorerState,
-                sidebarScriptStore: sidebarScriptStore,
                 onSendFeedback: onSendFeedback
             )
             if showSidebarDevBuildBanner {

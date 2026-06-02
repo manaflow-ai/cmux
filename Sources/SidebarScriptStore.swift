@@ -1,5 +1,7 @@
+import AppKit
 import Combine
 import Foundation
+import ObjectiveC
 import OSLog
 import CmuxSidebarScript
 
@@ -11,6 +13,8 @@ import CmuxSidebarScript
 /// script can never break the sidebar.
 @MainActor
 final class SidebarScriptStore: ObservableObject {
+    static let shared = SidebarScriptStore()
+
     /// The compiled script, or nil when the user has no `sidebar.lisp` (or it
     /// failed to compile).
     @Published private(set) var script: SidebarScript?
@@ -106,5 +110,108 @@ final class SidebarScriptStore: ObservableObject {
         self.source = source
         script = compiledScript
         version = source?.hashValue ?? 0
+    }
+}
+
+private var sidebarScriptLayoutMenuTargetKey: UInt8 = 0
+
+@MainActor
+enum SidebarScriptLayoutMenuController {
+    static func showMenu(scriptStore: SidebarScriptStore, anchorView: NSView, event: NSEvent?) {
+        let menu = NSMenu(title: String(localized: "sidebar.script.menu.title", defaultValue: "Sidebar Layouts"))
+        let target = SidebarScriptLayoutMenuTarget(scriptStore: scriptStore)
+        objc_setAssociatedObject(menu, &sidebarScriptLayoutMenuTargetKey, target, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+
+        let nativeItem = NSMenuItem(
+            title: String(localized: "sidebar.script.menu.native", defaultValue: "Native Sidebar"),
+            action: #selector(SidebarScriptLayoutMenuTarget.useNativeSidebar(_:)),
+            keyEquivalent: ""
+        )
+        nativeItem.target = target
+        nativeItem.state = scriptStore.isNativeActive ? .on : .off
+        nativeItem.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: nil)
+        menu.addItem(nativeItem)
+        menu.addItem(.separator())
+
+        for demo in SidebarScriptDemo.all {
+            let item = NSMenuItem(
+                title: demoTitle(demo),
+                action: #selector(SidebarScriptLayoutMenuTarget.applyDemo(_:)),
+                keyEquivalent: ""
+            )
+            item.target = target
+            item.representedObject = demo.id
+            item.state = scriptStore.activeDemoId == demo.id ? .on : .off
+            item.image = NSImage(systemSymbolName: iconName(for: demo), accessibilityDescription: nil)
+            menu.addItem(item)
+        }
+
+        menu.popUp(
+            positioning: nil,
+            at: menuPoint(anchorView: anchorView, event: event),
+            in: anchorView
+        )
+    }
+
+    private static func menuPoint(anchorView: NSView, event: NSEvent?) -> NSPoint {
+        guard let event else {
+            return NSPoint(x: 0, y: anchorView.bounds.maxY + 2)
+        }
+        return anchorView.convert(event.locationInWindow, from: nil)
+    }
+
+    private static func iconName(for demo: SidebarScriptDemo) -> String {
+        switch demo.id {
+        case "default": return "text.alignleft"
+        case "liquid-glass": return "sparkles"
+        case "high-density-ide": return "rectangle.grid.1x2"
+        case "terminal-stealth": return "terminal"
+        case "pro-studio": return "slider.horizontal.3"
+        case "finder": return "folder.fill"
+        case "agent-ops": return "chart.bar.xaxis"
+        default: return "sidebar.left"
+        }
+    }
+
+    private static func demoTitle(_ demo: SidebarScriptDemo) -> String {
+        switch demo.id {
+        case "default":
+            return String(localized: "sidebar.script.demo.default", defaultValue: "Default Lisp")
+        case "liquid-glass":
+            return String(localized: "sidebar.script.demo.liquidGlass", defaultValue: "Liquid Glass")
+        case "high-density-ide":
+            return String(localized: "sidebar.script.demo.highDensityIDE", defaultValue: "High-Density IDE")
+        case "terminal-stealth":
+            return String(localized: "sidebar.script.demo.terminalStealth", defaultValue: "Terminal Stealth")
+        case "pro-studio":
+            return String(localized: "sidebar.script.demo.proStudio", defaultValue: "Pro Studio")
+        case "finder":
+            return String(localized: "sidebar.script.demo.finder", defaultValue: "Finder")
+        case "agent-ops":
+            return String(localized: "sidebar.script.demo.agentOps", defaultValue: "Agent Ops")
+        default:
+            return demo.id
+        }
+    }
+}
+
+@MainActor
+private final class SidebarScriptLayoutMenuTarget: NSObject {
+    private let scriptStore: SidebarScriptStore
+
+    init(scriptStore: SidebarScriptStore) {
+        self.scriptStore = scriptStore
+    }
+
+    @objc func useNativeSidebar(_ sender: NSMenuItem) {
+        scriptStore.useNativeSidebar()
+    }
+
+    @objc func applyDemo(_ sender: NSMenuItem) {
+        guard let demoId = sender.representedObject as? String,
+              let demo = SidebarScriptDemo.all.first(where: { $0.id == demoId }) else {
+            return
+        }
+        scriptStore.applyDemo(demo)
     }
 }
