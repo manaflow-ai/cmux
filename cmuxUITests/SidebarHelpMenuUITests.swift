@@ -575,13 +575,18 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
         let settingsWindow = ensureAppSettingsSection(app: app)
         let toggle = try requireSearchAllSurfacesToggle(app: app, root: settingsWindow)
-        if !toggleIsOn(toggle) {
+        if !settingIsOn(identifier: "CommandPaletteSearchAllSurfacesToggle", element: toggle) {
             clickElement(toggle)
         }
         XCTAssertTrue(
-            sidebarHelpPollUntil(timeout: 3.0) {
-                toggle.exists && toggleIsOn(toggle)
-            },
+            waitForSettingToggleState(
+                app: app,
+                root: settingsWindow,
+                identifier: "CommandPaletteSearchAllSurfacesToggle",
+                title: "Search All Surfaces",
+                isOn: true,
+                timeout: 3.0
+            ),
             "Expected the all-surfaces search setting to be enabled"
         )
 
@@ -626,7 +631,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
         let settingsWindow = ensureAppSettingsSection(app: app)
         let toggle = try requireMinimalModeToggle(app: app, root: settingsWindow)
-        let initialState = toggleIsOn(toggle)
+        let initialState = settingIsOn(identifier: "SettingsMinimalModeToggle", element: toggle)
 
         clickElement(toggle)
 
@@ -708,7 +713,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
         let settingsWindow = ensureAppSettingsSection(app: app)
         let toggle = try requireMenuBarOnlyToggle(app: app, root: settingsWindow)
-        if toggleIsOn(toggle) {
+        if settingIsOn(identifier: "SettingsMenuBarOnlyToggle", element: toggle) {
             clickElement(toggle)
             XCTAssertTrue(
                 waitForSettingToggleState(
@@ -798,7 +803,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
         let settingsWindow = ensureAppSettingsSection(app: app)
         let toggle = try requireMinimalModeToggle(app: app, root: settingsWindow)
-        if toggleIsOn(toggle) {
+        if settingIsOn(identifier: "SettingsMinimalModeToggle", element: toggle) {
             clickElement(toggle)
             XCTAssertTrue(
                 waitForSettingToggleState(
@@ -1175,8 +1180,66 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             ) else {
                 return false
             }
-            return toggleIsOn(element) == isOn
+            return settingIsOn(identifier: identifier, element: element) == isOn
         }
+    }
+
+    private func settingIsOn(identifier: String, element: XCUIElement) -> Bool {
+        if let storedState = storedSettingState(identifier: identifier) {
+            return storedState
+        }
+        return toggleIsOn(element)
+    }
+
+    private func storedSettingState(identifier: String) -> Bool? {
+        switch identifier {
+        case "CommandPaletteSearchAllSurfacesToggle":
+            return readDefaultsBool("commandPalette.switcherSearchAllSurfaces", defaultValue: false)
+        case "SettingsMenuBarOnlyToggle":
+            return readDefaultsBool("menuBarOnly", defaultValue: false)
+        case "SettingsMinimalModeToggle":
+            let raw = readDefaultsValue("workspacePresentationMode")
+            if raw == nil || raw == "standard" {
+                return false
+            }
+            if raw == "minimal" {
+                return true
+            }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    private func readDefaultsBool(_ key: String, defaultValue: Bool) -> Bool? {
+        guard let raw = readDefaultsValue(key) else { return defaultValue }
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes":
+            return true
+        case "0", "false", "no":
+            return false
+        default:
+            return nil
+        }
+    }
+
+    private func readDefaultsValue(_ key: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+        process.arguments = ["read", debugDefaultsDomain, key]
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+        guard process.terminationStatus == 0 else { return nil }
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func toggleIsOn(_ element: XCUIElement) -> Bool {
@@ -1392,9 +1455,15 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     private func resetMenuBarOnlyDefault() {
+        runDefaultsCommand(["delete", debugDefaultsDomain, "workspacePresentationMode"])
+        runDefaultsCommand(["delete", debugDefaultsDomain, "commandPalette.switcherSearchAllSurfaces"])
+        runDefaultsCommand(["write", debugDefaultsDomain, "menuBarOnly", "-bool", "false"])
+    }
+
+    private func runDefaultsCommand(_ arguments: [String]) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
-        process.arguments = ["write", debugDefaultsDomain, "menuBarOnly", "-bool", "false"]
+        process.arguments = arguments
         do {
             try process.run()
             process.waitUntilExit()

@@ -2993,7 +2993,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let path = env["CMUX_UI_TEST_SOCKET_BRIDGE_PATH"], !path.isEmpty else { return }
         didSetupUITestSocketBridge = true
 
-        let timer = DispatchSource.makeTimerSource(queue: .main)
+        writeUITestSocketBridgeResponse(
+            requestId: "bridge-ready",
+            line: "",
+            response: "READY",
+            path: path
+        )
+        let timer = DispatchSource.makeTimerSource(queue: uiTestSocketBridgeQueue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(50))
         timer.setEventHandler { [weak self] in
             self?.processUITestSocketBridgeRequestIfNeeded(path: path)
@@ -3019,20 +3025,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         uiTestSocketBridgeProcessingRequestIds.insert(requestId)
-        uiTestSocketBridgeQueue.async { [weak self] in
-            let response = TerminalController.shared.handleSocketLine(line)
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.uiTestSocketBridgeProcessingRequestIds.remove(requestId)
-                self.uiTestSocketBridgeLastRequestId = requestId
-                self.writeUITestSocketBridgeResponse(
-                    requestId: requestId,
-                    line: line,
-                    response: response,
-                    path: path
-                )
-            }
-        }
+        let response = TerminalController.shared.handleSocketLine(line)
+        uiTestSocketBridgeProcessingRequestIds.remove(requestId)
+        uiTestSocketBridgeLastRequestId = requestId
+        writeUITestSocketBridgeResponse(
+            requestId: requestId,
+            line: line,
+            response: response,
+            path: path
+        )
     }
 
     private func writeUITestSocketBridgeResponse(
