@@ -64,10 +64,29 @@ public struct GitHostingRequestPlan: Sendable {
 
     /// Parses a list response body into normalized pull requests.
     ///
+    /// Use ``parsePage(from:)`` instead when walking pages: this drops items with an
+    /// unmapped state, so its count cannot be compared against ``pageSize`` to detect a
+    /// short final page.
+    ///
     /// - Parameter data: The raw response body.
     /// - Returns: The parsed requests, or `nil` when the body is not the JSON shape
     ///   the ``GitHostingResponseSpec`` describes (a transient/error response).
     public func parsePullRequests(from data: Data) -> [HostedPullRequest]? {
+        parsePage(from: data)?.pullRequests
+    }
+
+    /// Parses a list response body into one ``GitHostingPage``.
+    ///
+    /// Unlike ``parsePullRequests(from:)``, the page also carries the raw item count the
+    /// response held before any were dropped for an unmapped state or missing fields.
+    /// Pagination must terminate on ``GitHostingPage/rawItemCount`` — comparing the
+    /// *mapped* count against ``pageSize`` stops early when a full page contains items a
+    /// custom provider's ``GitHostingResponseSpec/stateMap`` does not cover.
+    ///
+    /// - Parameter data: The raw response body.
+    /// - Returns: The parsed page, or `nil` when the body is not the JSON shape the
+    ///   ``GitHostingResponseSpec`` describes (a transient/error response).
+    public func parsePage(from data: Data) -> GitHostingPage? {
         guard let root = try? JSONSerialization.jsonObject(with: data) else { return nil }
 
         let array: [Any]?
@@ -78,10 +97,11 @@ public struct GitHostingRequestPlan: Sendable {
         }
         guard let array else { return nil }
 
-        return array.compactMap { element in
+        let pullRequests = array.compactMap { element -> HostedPullRequest? in
             guard let object = element as? [String: Any] else { return nil }
             return hostedPullRequest(from: object)
         }
+        return GitHostingPage(pullRequests: pullRequests, rawItemCount: array.count)
     }
 
     private func hostedPullRequest(from object: [String: Any]) -> HostedPullRequest? {

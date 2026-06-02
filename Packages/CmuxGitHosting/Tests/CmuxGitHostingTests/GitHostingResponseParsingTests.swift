@@ -83,6 +83,24 @@ import Foundation
         #expect(prs[0].baseRefName == "main")
     }
 
+    @Test func pageRawCountReflectsUnfilteredItemsForPagination() throws {
+        // A full page where one item has an unmapped state ("draft"): the mapped list
+        // shrinks, but rawItemCount must stay at the page size so the page walk does not
+        // stop early and skip later pages that hold matching PRs.
+        let json = """
+        [
+          {"number":1,"state":"open","html_url":"https://github.com/o/r/pull/1","head":{"ref":"a"},"base":{"ref":"main"}},
+          {"number":2,"state":"draft","html_url":"https://github.com/o/r/pull/2","head":{"ref":"b"},"base":{"ref":"main"}}
+        ]
+        """
+        let plan = GitHostingRequestPlan(spec: GitHostingPreset.github.spec, apiHost: "github.com", token: nil)
+        let data = try #require(json.data(using: .utf8))
+        let page = try #require(plan.parsePage(from: data))
+        #expect(page.rawItemCount == 2)
+        #expect(page.pullRequests.count == 1)
+        #expect(page.pullRequests.first?.number == 1)
+    }
+
     @Test func dropsRequestsWithUnknownState() throws {
         // "draft" is not in GitHub's state map and there is no merged_at → dropped.
         let json = """

@@ -4690,7 +4690,7 @@ class TabManager: ObservableObject {
             }
 
             guard response.statusCode == 200,
-                  let pullRequests = plan.parsePullRequests(from: response.data) else {
+                  let pageResult = plan.parsePage(from: response.data) else {
 #if DEBUG
                 cmuxDebugLog("workspace.prRefresh.repo.fail repo=\(repoIdentity) page=\(page) status=\(response.statusCode)")
 #endif
@@ -4698,8 +4698,11 @@ class TabManager: ObservableObject {
             }
 
             fetchedPageCount += 1
-            allPullRequests.append(contentsOf: pullRequests.map(Self.probeItem(from:)))
-            if pullRequests.count < plan.pageSize {
+            allPullRequests.append(contentsOf: pageResult.pullRequests.map(Self.probeItem(from:)))
+            // Terminate on the raw page size, not the mapped count: items with a state
+            // outside the provider's stateMap are dropped, so a full page could look
+            // short and stop the walk before later pages are read.
+            if pageResult.rawItemCount < plan.pageSize {
                 break
             }
             page += 1
