@@ -1955,6 +1955,24 @@ body.reduce-motion *::after {
   transform: translateX(0);
 }
 
+.shell.pane-actions-essential .pane-header:hover .pane-toolbar,
+.shell.pane-actions-essential .pane.is-active .pane-toolbar,
+.shell.pane-actions-essential .pane-toolbar:focus-within {
+  max-width: min(82px, 38cqw);
+}
+
+.shell.pane-actions-split .pane-header:hover .pane-toolbar,
+.shell.pane-actions-split .pane.is-active .pane-toolbar,
+.shell.pane-actions-split .pane-toolbar:focus-within {
+  max-width: min(132px, 44cqw);
+}
+
+.shell.pane-actions-full .pane-header:hover .pane-toolbar,
+.shell.pane-actions-full .pane.is-active .pane-toolbar,
+.shell.pane-actions-full .pane-toolbar:focus-within {
+  max-width: min(176px, 50cqw);
+}
+
 .pane-tool {
   width: 24px;
   flex: 0 0 24px;
@@ -2056,6 +2074,24 @@ body.reduce-motion *::after {
   opacity: 1;
   pointer-events: auto;
   transform: none;
+}
+
+.shell.pane-header-compact.pane-actions-essential .pane:hover .pane-toolbar,
+.shell.pane-header-compact.pane-actions-essential .pane.is-active .pane-toolbar,
+.shell.pane-header-compact.pane-actions-essential .pane-header:focus-within .pane-toolbar {
+  max-width: min(62px, 42cqw);
+}
+
+.shell.pane-header-compact.pane-actions-split .pane:hover .pane-toolbar,
+.shell.pane-header-compact.pane-actions-split .pane.is-active .pane-toolbar,
+.shell.pane-header-compact.pane-actions-split .pane-header:focus-within .pane-toolbar {
+  max-width: min(100px, 50cqw);
+}
+
+.shell.pane-header-compact.pane-actions-full .pane:hover .pane-toolbar,
+.shell.pane-header-compact.pane-actions-full .pane.is-active .pane-toolbar,
+.shell.pane-header-compact.pane-actions-full .pane-header:focus-within .pane-toolbar {
+  max-width: min(148px, 58cqw);
 }
 
 .shell.pane-header-compact .pane-tool {
