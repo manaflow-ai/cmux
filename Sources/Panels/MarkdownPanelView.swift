@@ -56,7 +56,7 @@ struct MarkdownPanelView: View {
         .overlay {
             WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
         }
-        .onChange(of: panel.focusFlashToken) { _ in
+        .onChange(of: panel.focusFlashToken) {
             triggerFocusFlashAnimation()
         }
         .environment(\.colorScheme, themeColorScheme)
@@ -376,7 +376,7 @@ private struct MarkdownTypographyControl: View {
                         .frame(width: 44)
                         .multilineTextAlignment(.trailing)
                         .textFieldStyle(.roundedBorder)
-                        .onChange(of: sizeText) { _ in
+                        .onChange(of: sizeText) {
                             applySizeTextIfValid()
                         }
                         .onSubmit {
@@ -404,7 +404,7 @@ private struct MarkdownTypographyControl: View {
                         .frame(width: 54)
                         .multilineTextAlignment(.trailing)
                         .textFieldStyle(.roundedBorder)
-                        .onChange(of: maxWidthText) { _ in
+                        .onChange(of: maxWidthText) {
                             applyMaxWidthTextIfValid()
                         }
                         .onSubmit {
@@ -447,15 +447,15 @@ private struct MarkdownTypographyControl: View {
         .onAppear {
             syncDraftFieldsFromPanel()
         }
-        .onChange(of: isPresented) { presented in
+        .onChange(of: isPresented) { _, presented in
             if presented {
                 syncDraftFieldsFromPanel()
             }
         }
-        .onChange(of: panel.fontSize) { _ in
+        .onChange(of: panel.fontSize) {
             syncSizeTextFromPanel()
         }
-        .onChange(of: panel.maxContentWidth) { _ in
+        .onChange(of: panel.maxContentWidth) {
             syncMaxWidthTextFromPanel()
         }
         .task {
