@@ -608,7 +608,21 @@
       "settingsFilePrecedence": "Shortcuts defined in cmux.json override the in-app Settings value. Managed shortcuts stay visible in Settings but become read-only there.",
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
       "exampleConfig": "Example config",
+      "gitHosting": {
+        "title": "Pull request providers",
+        "intro1": "The sidebar shows a pull request link for a workspace's current branch. By default cmux polls github.com and discovers any GitHub Enterprise Server host that the <code>gh</code> CLI is authenticated to. The <code>gitHosting</code> section adds GitLab, Bitbucket, self-hosted instances, and fully custom REST hosts. Rules are matched top to bottom by host (exact or a <code>*.suffix</code> wildcard), and the first match wins.",
+        "intro2": "gitlab.com and bitbucket.org are auto-detected, but they need a token. Set one with an environment variable, or point a rule at a token command. Self-hosted instances need a rule that names a <code>preset</code> and the instance's <code>apiBaseURL</code>.",
+        "spec": "For a host with no preset, describe it from scratch with a <code>spec</code>. Each field path is a dotted key path into one pull request object in the JSON response, and <code>stateMap</code> maps the provider's native states onto cmux's <code>OPEN</code>, <code>MERGED</code>, and <code>CLOSED</code>.",
+        "customProviderTitle": "Custom provider (Gitea-style)",
+        "templatesLead": "URL and query fields accept these template tokens:",
+        "templatesTrail": "The percent-encoded path variant keeps GitLab subgroup slashes intact. Set <code>autoDetect</code> or <code>autoDiscoverGitHubEnterprise</code> to <code>false</code> to turn off the built-in behavior."
+      },
       "schemaDescriptions": {
+        "gitHosting": {
+          "autoDetect": "Auto-detect the public hosts github.com, gitlab.com, and bitbucket.org.",
+          "autoDiscoverGitHubEnterprise": "Treat any otherwise-unmatched host that the gh CLI can authenticate (gh auth token --hostname) as a GitHub Enterprise Server instance (REST /api/v3/). Self-configuring, no hostname allowlist.",
+          "providers": "Ordered host to provider rules, consulted top to bottom (first match wins)."
+        },
         "automation": {
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
         },

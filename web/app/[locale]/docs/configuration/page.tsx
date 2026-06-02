@@ -40,6 +40,7 @@ const sectionOrder = [
   "terminal",
   "notifications",
   "sidebar",
+  "gitHosting",
   "workspaceGroups",
   "workspaceColors",
   "sidebarAppearance",
@@ -404,6 +405,63 @@ working-directory = ~/code`}</CodeBlock>
           </section>
         );
       })}
+
+      <DocsHeading level={2} id="git-hosting">{t("gitHosting.title")}</DocsHeading>
+      <p>{t.rich("gitHosting.intro1", { code: (chunks) => <code>{chunks}</code> })}</p>
+      <p>{t.rich("gitHosting.intro2", { code: (chunks) => <code>{chunks}</code> })}</p>
+      <CodeBlock title="~/.config/cmux/cmux.json" lang="json">
+        {`{
+  "gitHosting": {
+    "providers": [
+      // gitlab.com: just supply a token (host is auto-detected).
+      { "host": "gitlab.com", "preset": "gitlab",
+        "token": { "environment": ["GITLAB_TOKEN"] } },
+
+      // Self-hosted GitLab on a custom domain.
+      { "host": "gitlab.example.com", "preset": "gitlab",
+        "apiBaseURL": "https://gitlab.example.com/api/v4/",
+        "token": { "environment": ["EXAMPLE_GITLAB_TOKEN"] } },
+
+      // Bitbucket Cloud.
+      { "host": "bitbucket.org", "preset": "bitbucket",
+        "token": { "environment": ["BITBUCKET_TOKEN"] } },
+
+      // GitHub Enterprise on a subdomain wildcard, token via gh.
+      { "host": "*.ghe.example.com", "preset": "github",
+        "apiBaseURL": "https://{host}/api/v3/",
+        "token": { "command": ["gh", "auth", "token", "--hostname", "{host}"] } }
+    ]
+  }
+}`}
+      </CodeBlock>
+      <p>{t.rich("gitHosting.spec", { code: (chunks) => <code>{chunks}</code> })}</p>
+      <CodeBlock title={t("gitHosting.customProviderTitle")} lang="json">
+        {`{
+  "gitHosting": {
+    "providers": [
+      { "host": "git.internal",
+        "spec": {
+          "apiBaseURL": "https://{host}/api/v1/",
+          "pullRequestsPath": "repos/{path}/pulls",
+          "query": [{ "name": "state", "value": "all" }],
+          "auth": { "scheme": "token", "token": { "environment": ["GITEA_TOKEN"] } },
+          "response": {
+            "number": "number", "url": "html_url", "state": "state",
+            "mergedWhenPresent": "merged_at",
+            "headRef": "head.ref", "baseRef": "base.ref",
+            "stateMap": { "OPEN": "OPEN", "CLOSED": "CLOSED" }
+          }
+        } }
+    ]
+  }
+}`}
+      </CodeBlock>
+      <p>
+        {t("gitHosting.templatesLead")}{" "}
+        <code>{"{host}"}</code>, <code>{"{path}"}</code>, <code>{"{pathEncoded}"}</code>,{" "}
+        <code>{"{owner}"}</code>, <code>{"{name}"}</code>, and <code>{"{branch}"}</code>.{" "}
+        {t.rich("gitHosting.templatesTrail", { code: (chunks) => <code>{chunks}</code> })}
+      </p>
 
       <DocsHeading level={3} id="shortcuts-bindings">
         <code>shortcuts.bindings</code>

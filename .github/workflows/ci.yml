@@ -407,6 +407,7 @@ jobs:
           # is confirmed to resolve standalone.
           PACKAGES=(
             CmuxFoundation
+            CmuxGitHosting
             CmuxSettings
             CmuxSettingsUI
             CmuxSocketControl

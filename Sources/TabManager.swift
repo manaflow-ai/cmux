@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Foundation
 import Bonsplit
+import CmuxGitHosting
 import CmuxProcess
 import CoreVideo
 import Combine
@@ -1219,6 +1220,7 @@ class TabManager: ObservableObject {
         let workspaceId: UUID
         let panelId: UUID
         let branch: String
+        /// Host-qualified repository identities (`host/owner/repo`) for this panel.
         let repoSlugs: [String]
     }
 
@@ -1233,6 +1235,9 @@ class TabManager: ObservableObject {
         let candidates: [WorkspacePullRequestCandidate]
         let candidateBranchesByRepo: [String: Set<String>]
         let repoDirectoriesBySlug: [String: String]
+        /// Host-qualified repository identity → parsed remote reference, used to
+        /// build provider requests during the fetch.
+        let repoReferencesBySlug: [String: GitRemoteReference]
     }
 
     private struct WorkspacePullRequestResolvedItem: Sendable {
@@ -1279,6 +1284,9 @@ class TabManager: ObservableObject {
             transientBranches: Set<String>
         )
         case transientFailure
+        /// No hosting provider could be resolved for this repository's host (no
+        /// matching config, not an auto-detected host, and `gh` has no token for it).
+        case unsupported
     }
 
     private enum WorkspacePullRequestBranchFetchResult: Sendable {
@@ -1295,30 +1303,6 @@ class TabManager: ObservableObject {
     private struct WorkspacePullRequestHTTPResponse: Sendable {
         let statusCode: Int
         let data: Data
-    }
-
-    private struct WorkspacePullRequestRESTItem: Decodable, Sendable {
-        struct Ref: Decodable, Sendable {
-            let ref: String
-        }
-
-        let number: Int
-        let state: String
-        let htmlURL: String
-        let updatedAt: String?
-        let mergedAt: String?
-        let head: Ref
-        let base: Ref?
-
-        enum CodingKeys: String, CodingKey {
-            case number
-            case state
-            case htmlURL = "html_url"
-            case updatedAt = "updated_at"
-            case mergedAt = "merged_at"
-            case head
-            case base
-        }
     }
 
     struct GitHubPullRequestProbeItem: Decodable, Equatable, Sendable {
@@ -1375,8 +1359,6 @@ class TabManager: ObservableObject {
     private nonisolated static let selectedPollInterval: TimeInterval = 10
     private nonisolated static let workspacePullRequestRepoCacheLifetime: TimeInterval = 15
     private nonisolated static let workspacePullRequestRepoCachePruneLifetime: TimeInterval = 60
-    private nonisolated static let workspacePullRequestRepoPageSize = 100
-    private nonisolated static let workspacePullRequestRepoPageLimit = 2
     private nonisolated static let workspacePullRequestTerminalStateSweepInterval: TimeInterval = 15 * 60
     private nonisolated static let workspacePullRequestPollJitterFraction = 0.10
     private nonisolated static let workspacePullRequestProbeTimeout: TimeInterval = 5.0
@@ -1523,6 +1505,9 @@ class TabManager: ObservableObject {
     private var workspacePullRequestPollTimer: DispatchSourceTimer?
     private var workspacePullRequestRefreshTask: Task<Void, Never>?
     private var workspacePullRequestFollowUpShouldBypassRepoCache = false
+    /// User-configured git hosting providers, pushed from `CmuxConfigStore`. The
+    /// default polls github.com and discovers GitHub Enterprise Server via `gh`.
+    private var workspaceGitHostingConfig: GitHostingConfig = .default
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -2013,15 +1998,18 @@ class TabManager: ObservableObject {
         let allowCachedResults = allowCachedResultsOverride
             ?? Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
         let commandRunner = commandRunner
+        let gitHostingConfig = workspaceGitHostingConfig
         workspacePullRequestRefreshTask = Task.detached(priority: .utility) { [weak self] in
             let candidateResolution = await Self.resolveWorkspacePullRequestCandidateSeeds(candidateSeeds)
             guard !Task.isCancelled else { return }
             let repoResults = await Self.fetchWorkspacePullRequestRepoResults(
+                repoReferencesBySlug: candidateResolution.repoReferencesBySlug,
                 repoDirectoriesBySlug: candidateResolution.repoDirectoriesBySlug,
                 candidateBranchesByRepo: candidateResolution.candidateBranchesByRepo,
                 cacheBySlug: cacheBySlug,
                 now: now,
                 allowCachedResults: allowCachedResults,
+                gitHostingConfig: gitHostingConfig,
                 commandRunner: commandRunner
             )
             let results = Self.resolveWorkspacePullRequestRefreshResults(
@@ -2081,36 +2069,41 @@ class TabManager: ObservableObject {
         candidates.reserveCapacity(seeds.count)
         var candidateBranchesByRepo: [String: Set<String>] = [:]
         var repoDirectoriesBySlug: [String: String] = [:]
-        var repoSlugsByDirectory: [String: [String]] = [:]
+        var repoReferencesBySlug: [String: GitRemoteReference] = [:]
+        var referencesByDirectory: [String: [GitRemoteReference]] = [:]
 
         for seed in seeds {
-            let repoSlugs: [String]
+            let references: [GitRemoteReference]
             if let directory = seed.directory {
-                if let cachedRepoSlugs = repoSlugsByDirectory[directory] {
-                    repoSlugs = cachedRepoSlugs
+                if let cached = referencesByDirectory[directory] {
+                    references = cached
                 } else {
-                    let resolvedRepoSlugs = await githubRepositorySlugs(directory: directory)
-                    repoSlugsByDirectory[directory] = resolvedRepoSlugs
-                    repoSlugs = resolvedRepoSlugs
+                    let resolved = await workspaceRepositoryReferences(directory: directory)
+                    referencesByDirectory[directory] = resolved
+                    references = resolved
                 }
             } else {
-                repoSlugs = []
+                references = []
             }
 
+            let identities = references.map(\.identity)
             candidates.append(
                 WorkspacePullRequestCandidate(
                     workspaceId: seed.workspaceId,
                     panelId: seed.panelId,
                     branch: seed.branch,
-                    repoSlugs: repoSlugs
+                    repoSlugs: identities
                 )
             )
-            for repoSlug in repoSlugs {
-                candidateBranchesByRepo[repoSlug, default: []].insert(seed.branch)
+            for reference in references {
+                candidateBranchesByRepo[reference.identity, default: []].insert(seed.branch)
+                if repoReferencesBySlug[reference.identity] == nil {
+                    repoReferencesBySlug[reference.identity] = reference
+                }
             }
             if let directory = seed.directory {
-                for repoSlug in repoSlugs where repoDirectoriesBySlug[repoSlug] == nil {
-                    repoDirectoriesBySlug[repoSlug] = directory
+                for identity in identities where repoDirectoriesBySlug[identity] == nil {
+                    repoDirectoriesBySlug[identity] = directory
                 }
             }
         }
@@ -2118,8 +2111,22 @@ class TabManager: ObservableObject {
         return WorkspacePullRequestCandidateResolution(
             candidates: candidates,
             candidateBranchesByRepo: candidateBranchesByRepo,
-            repoDirectoriesBySlug: repoDirectoriesBySlug
+            repoDirectoriesBySlug: repoDirectoriesBySlug,
+            repoReferencesBySlug: repoReferencesBySlug
         )
+    }
+
+    /// Applies a new git hosting configuration and re-polls so a changed provider
+    /// list (added host, new token source, etc.) takes effect immediately.
+    func applyGitHostingConfig(_ config: GitHostingConfig) {
+        guard config != workspaceGitHostingConfig else { return }
+        workspaceGitHostingConfig = config
+        // Fully reset poll state — not just the repo cache — so the new provider takes
+        // effect immediately: this cancels any in-flight refresh (whose old-config
+        // results could otherwise repopulate the cleared cache) and drops the existing
+        // poll schedule, so repos previously parked as unsupported/not-found re-probe now.
+        resetWorkspacePullRequestRefreshState()
+        refreshTrackedWorkspacePullRequestsIfNeeded(reason: "gitHostingConfigChanged", allowCachedResultsOverride: false)
     }
 
     private func scheduleWorkspacePullRequestRefresh(
@@ -4450,40 +4457,78 @@ class TabManager: ObservableObject {
     }
 
     private nonisolated static func fetchWorkspacePullRequestRepoResults(
+        repoReferencesBySlug: [String: GitRemoteReference],
         repoDirectoriesBySlug: [String: String],
         candidateBranchesByRepo: [String: Set<String>],
         cacheBySlug: [String: WorkspacePullRequestRepoCacheEntry],
         now: Date,
         allowCachedResults: Bool,
+        gitHostingConfig: GitHostingConfig,
         commandRunner: any CommandRunning
     ) async -> [String: WorkspacePullRequestRepoFetchResult] {
-        guard !repoDirectoriesBySlug.isEmpty else { return [:] }
+        guard !repoReferencesBySlug.isEmpty else { return [:] }
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = max(Self.workspacePullRequestProbeTimeout, 8)
         configuration.timeoutIntervalForResource = max(Self.workspacePullRequestProbeTimeout, 8)
         let session = URLSession(configuration: configuration)
-        let authHeader = await workspacePullRequestAuthHeaderValue(commandRunner: commandRunner)
-        var results: [String: WorkspacePullRequestRepoFetchResult] = [:]
+
+        struct ResolverPlanKey: Hashable {
+            let hostWithPort: String
+            let workingDirectory: String
+        }
+
+        // Resolve one plan per distinct (host, repo directory) pair so command-based
+        // token/discovery lookups run in the right checkout. Keying by host alone would
+        // let a host's credentials be resolved from an unrelated repo's working
+        // directory in mixed-repo windows (e.g. a CWD-sensitive `.envrc` token script).
+        let fallbackDirectory = FileManager.default.currentDirectoryPath
+        var plansByKey: [ResolverPlanKey: GitHostingRequestPlan?] = [:]
+        for (identity, reference) in repoReferencesBySlug {
+            let key = ResolverPlanKey(
+                hostWithPort: reference.hostWithPort,
+                workingDirectory: repoDirectoriesBySlug[identity] ?? fallbackDirectory
+            )
+            guard plansByKey[key] == nil else { continue }
+            let resolver = GitHostingResolver(
+                config: gitHostingConfig,
+                environment: ProcessInfo.processInfo.environment,
+                commandRunner: commandRunner,
+                workingDirectory: key.workingDirectory,
+                tokenCommandTimeout: Self.workspacePullRequestProbeTimeout
+            )
+            plansByKey[key] = await resolver.resolvePlan(
+                forHost: reference.host,
+                port: reference.httpsPort
+            )
+        }
 
         let fetchedResults = await withTaskGroup(
             of: (String, WorkspacePullRequestRepoFetchResult).self,
             returning: [(String, WorkspacePullRequestRepoFetchResult)].self
         ) { group in
-            for repoSlug in repoDirectoriesBySlug.keys {
+            for (identity, reference) in repoReferencesBySlug {
+                let planKey = ResolverPlanKey(
+                    hostWithPort: reference.hostWithPort,
+                    workingDirectory: repoDirectoriesBySlug[identity] ?? fallbackDirectory
+                )
+                guard let plan = plansByKey[planKey] ?? nil else {
+                    group.addTask { (identity, .unsupported) }
+                    continue
+                }
                 group.addTask {
                     let result = await Self.workspacePullRequestRepoFetchResult(
-                        repoSlug: repoSlug,
-                        candidateBranches: candidateBranchesByRepo[repoSlug] ?? [],
-                        cachedEntry: cacheBySlug[repoSlug],
+                        reference: reference,
+                        plan: plan,
+                        candidateBranches: candidateBranchesByRepo[identity] ?? [],
+                        cachedEntry: cacheBySlug[identity],
                         useCachedRecentWindow: allowCachedResults
-                            && (cacheBySlug[repoSlug].map {
+                            && (cacheBySlug[identity].map {
                                 now.timeIntervalSince($0.fetchedAt) < Self.workspacePullRequestRepoCacheLifetime
                             } ?? false),
-                        session: session,
-                        authHeader: authHeader
+                        session: session
                     )
-                    return (repoSlug, result)
+                    return (identity, result)
                 }
             }
 
@@ -4494,8 +4539,9 @@ class TabManager: ObservableObject {
             return collected
         }
 
-        for (repoSlug, result) in fetchedResults {
-            results[repoSlug] = result
+        var results: [String: WorkspacePullRequestRepoFetchResult] = [:]
+        for (identity, result) in fetchedResults {
+            results[identity] = result
         }
         return results
     }
@@ -4518,24 +4564,32 @@ class TabManager: ObservableObject {
             var matchedPullRequestUsedCache = false
             var sawTransientFailure = false
             var sawCachedSuccess = false
+            var sawSuccess = false
+            var sawUnsupported = false
 
-            for repoSlug in candidate.repoSlugs {
+            // `repoSlugs` is ordered by preference, so the first remote with a match
+            // for this branch wins. Use a labeled break: a bare `break` exits only the
+            // `switch`, letting a lower-priority remote overwrite the match.
+            repoLoop: for repoSlug in candidate.repoSlugs {
                 guard let repoResult = repoResults[repoSlug] else { continue }
                 switch repoResult {
                 case .success(let cacheEntry, let usedCache, let transientBranches):
+                    sawSuccess = true
                     if usedCache {
                         sawCachedSuccess = true
                     }
                     if let candidateMatch = cacheEntry.pullRequestsByBranch[candidate.branch] {
                         matchedPullRequest = candidateMatch
                         matchedPullRequestUsedCache = usedCache
-                        break
+                        break repoLoop
                     }
                     if transientBranches.contains(candidate.branch) {
                         sawTransientFailure = true
                     }
                 case .transientFailure:
                     sawTransientFailure = true
+                case .unsupported:
+                    sawUnsupported = true
                 }
             }
 
@@ -4555,6 +4609,10 @@ class TabManager: ObservableObject {
             } else if sawTransientFailure {
                 resolution = .transientFailure
                 usedCachedRepoData = false
+            } else if sawUnsupported && !sawSuccess {
+                // Every remote for this panel is on a host with no resolvable provider.
+                resolution = .unsupportedRepository
+                usedCachedRepoData = false
             } else {
                 resolution = .notFound
                 usedCachedRepoData = sawCachedSuccess
@@ -4570,14 +4628,15 @@ class TabManager: ObservableObject {
     }
 
     private nonisolated static func workspacePullRequestRepoFetchResult(
-        repoSlug: String,
+        reference: GitRemoteReference,
+        plan: GitHostingRequestPlan,
         candidateBranches: Set<String>,
         cachedEntry: WorkspacePullRequestRepoCacheEntry?,
         useCachedRecentWindow: Bool,
-        session: URLSession,
-        authHeader: String?
+        session: URLSession
     ) async -> WorkspacePullRequestRepoFetchResult {
         let normalizedCandidateBranches = Set(candidateBranches.compactMap(normalizedBranchName))
+        let repoIdentity = reference.identity
 
         if useCachedRecentWindow,
            let cachedEntry {
@@ -4588,7 +4647,7 @@ class TabManager: ObservableObject {
             if unresolvedBranches.isEmpty {
 #if DEBUG
                 cmuxDebugLog(
-                    "workspace.prRefresh.repo.cache repo=\(repoSlug) " +
+                    "workspace.prRefresh.repo.cache repo=\(repoIdentity) " +
                     "branches=\(cachedEntry.pullRequestsByBranch.count)"
                 )
 #endif
@@ -4596,16 +4655,16 @@ class TabManager: ObservableObject {
             }
 
             let lookupOutcome = await workspacePullRequestBranchLookupOutcome(
-                repoSlug: repoSlug,
+                reference: reference,
+                plan: plan,
                 candidateBranches: unresolvedBranches,
                 baseEntry: cachedEntry,
                 refreshedAt: Date(),
-                session: session,
-                authHeader: authHeader
+                session: session
             )
 #if DEBUG
             cmuxDebugLog(
-                "workspace.prRefresh.repo.cache.miss repo=\(repoSlug) " +
+                "workspace.prRefresh.repo.cache.miss repo=\(repoIdentity) " +
                 "branchLookups=\(unresolvedBranches.count) transient=\(lookupOutcome.transientBranches.count)"
             )
 #endif
@@ -4621,30 +4680,29 @@ class TabManager: ObservableObject {
         var fetchedPageCount = 0
         var allPullRequests: [GitHubPullRequestProbeItem] = []
 
-        while page <= Self.workspacePullRequestRepoPageLimit {
-            let endpoint = "repos/\(repoSlug)/pulls?state=all&sort=updated&direction=desc&per_page=\(Self.workspacePullRequestRepoPageSize)&page=\(page)"
-            guard let response = await performWorkspacePullRequestRequest(
-                session: session,
-                endpoint: endpoint,
-                authHeader: authHeader
-            ) else {
+        while page <= plan.pageLimit {
+            guard let request = plan.repositoryRequest(for: reference, page: page),
+                  let response = await performWorkspacePullRequestRequest(session: session, request: request) else {
 #if DEBUG
-                cmuxDebugLog("workspace.prRefresh.repo.fail repo=\(repoSlug) page=\(page) status=nil")
+                cmuxDebugLog("workspace.prRefresh.repo.fail repo=\(repoIdentity) page=\(page) status=nil")
 #endif
                 return .transientFailure
             }
 
             guard response.statusCode == 200,
-                  let pullRequests = decodeJSON([WorkspacePullRequestRESTItem].self, from: response.data) else {
+                  let pageResult = plan.parsePage(from: response.data) else {
 #if DEBUG
-                cmuxDebugLog("workspace.prRefresh.repo.fail repo=\(repoSlug) page=\(page) status=\(response.statusCode)")
+                cmuxDebugLog("workspace.prRefresh.repo.fail repo=\(repoIdentity) page=\(page) status=\(response.statusCode)")
 #endif
                 return .transientFailure
             }
 
             fetchedPageCount += 1
-            allPullRequests.append(contentsOf: pullRequests.map(Self.workspacePullRequestProbeItem))
-            if pullRequests.count < Self.workspacePullRequestRepoPageSize {
+            allPullRequests.append(contentsOf: pageResult.pullRequests.map(Self.probeItem(from:)))
+            // Terminate on the raw page size, not the mapped count: items with a state
+            // outside the provider's stateMap are dropped, so a full page could look
+            // short and stop the walk before later pages are read.
+            if pageResult.rawItemCount < plan.pageSize {
                 break
             }
             page += 1
@@ -4666,17 +4724,17 @@ class TabManager: ObservableObject {
             )
         } else {
             lookupOutcome = await workspacePullRequestBranchLookupOutcome(
-                repoSlug: repoSlug,
+                reference: reference,
+                plan: plan,
                 candidateBranches: unresolvedBranches,
                 baseEntry: recentWindowEntry,
                 refreshedAt: fetchTimestamp,
-                session: session,
-                authHeader: authHeader
+                session: session
             )
         }
 #if DEBUG
         cmuxDebugLog(
-            "workspace.prRefresh.repo.success repo=\(repoSlug) pages=\(fetchedPageCount) " +
+            "workspace.prRefresh.repo.success repo=\(repoIdentity) pages=\(fetchedPageCount) " +
             "branches=\(lookupOutcome.cacheEntry.pullRequestsByBranch.count) " +
             "branchLookups=\(unresolvedBranches.count) transient=\(lookupOutcome.transientBranches.count)"
         )
@@ -4701,14 +4759,14 @@ class TabManager: ObservableObject {
     }
 
     private nonisolated static func workspacePullRequestBranchLookupOutcome(
-        repoSlug: String,
+        reference: GitRemoteReference,
+        plan: GitHostingRequestPlan,
         candidateBranches: [String],
         baseEntry: WorkspacePullRequestRepoCacheEntry,
         refreshedAt: Date,
-        session: URLSession,
-        authHeader: String?
+        session: URLSession
     ) async -> WorkspacePullRequestBranchLookupOutcome {
-        guard !candidateBranches.isEmpty else {
+        guard !candidateBranches.isEmpty, plan.supportsBranchFilter else {
             return WorkspacePullRequestBranchLookupOutcome(
                 cacheEntry: baseEntry,
                 transientBranches: []
@@ -4722,10 +4780,10 @@ class TabManager: ObservableObject {
             for branch in candidateBranches {
                 group.addTask {
                     let result = await Self.workspacePullRequestBranchFetchResult(
-                        repoSlug: repoSlug,
+                        reference: reference,
+                        plan: plan,
                         branch: branch,
-                        session: session,
-                        authHeader: authHeader
+                        session: session
                     )
                     return (branch, result)
                 }
@@ -4765,34 +4823,30 @@ class TabManager: ObservableObject {
     }
 
     private nonisolated static func workspacePullRequestBranchFetchResult(
-        repoSlug: String,
+        reference: GitRemoteReference,
+        plan: GitHostingRequestPlan,
         branch: String,
-        session: URLSession,
-        authHeader: String?
+        session: URLSession
     ) async -> WorkspacePullRequestBranchFetchResult {
-        guard let endpoint = workspacePullRequestBranchEndpoint(
-            repoSlug: repoSlug,
-            branch: branch
-        ) else {
+        guard let request = plan.branchRequest(for: reference, branch: branch) else {
+            // The caller guarantees plan.supportsBranchFilter, so a nil request means
+            // URL construction failed — a transient condition to retry, not a confirmed
+            // "not found" (which would cache the branch as known-absent and stop polling).
             return .transientFailure
         }
 
-        guard let response = await performWorkspacePullRequestRequest(
-            session: session,
-            endpoint: endpoint,
-            authHeader: authHeader
-        ) else {
+        guard let response = await performWorkspacePullRequestRequest(session: session, request: request) else {
 #if DEBUG
-            cmuxDebugLog("workspace.prRefresh.branch.fail repo=\(repoSlug) branch=\(branch) status=nil")
+            cmuxDebugLog("workspace.prRefresh.branch.fail repo=\(reference.identity) branch=\(branch) status=nil")
 #endif
             return .transientFailure
         }
 
         guard response.statusCode == 200,
-              let pullRequests = decodeJSON([WorkspacePullRequestRESTItem].self, from: response.data) else {
+              let pullRequests = plan.parsePullRequests(from: response.data) else {
 #if DEBUG
             cmuxDebugLog(
-                "workspace.prRefresh.branch.fail repo=\(repoSlug) " +
+                "workspace.prRefresh.branch.fail repo=\(reference.identity) " +
                 "branch=\(branch) status=\(response.statusCode)"
             )
 #endif
@@ -4800,7 +4854,7 @@ class TabManager: ObservableObject {
         }
 
         let matchingPullRequests = pullRequests
-            .map(Self.workspacePullRequestProbeItem)
+            .map(Self.probeItem(from:))
             .filter { normalizedBranchName($0.headRefName) == branch }
         if let preferredPullRequest = preferredPullRequest(from: matchingPullRequests) {
             return .found(preferredPullRequest)
@@ -4808,63 +4862,24 @@ class TabManager: ObservableObject {
         return .notFound
     }
 
-    private nonisolated static func workspacePullRequestBranchEndpoint(
-        repoSlug: String,
-        branch: String
-    ) -> String? {
-        let components = repoSlug.split(separator: "/", maxSplits: 1).map(String.init)
-        guard components.count == 2,
-              !components[0].isEmpty,
-              !components[1].isEmpty else {
-            return nil
-        }
-
-        var query = URLComponents()
-        query.queryItems = [
-            URLQueryItem(name: "state", value: "all"),
-            URLQueryItem(name: "head", value: "\(components[0]):\(branch)"),
-            URLQueryItem(name: "sort", value: "updated"),
-            URLQueryItem(name: "direction", value: "desc"),
-            URLQueryItem(name: "per_page", value: String(Self.workspacePullRequestRepoPageSize)),
-        ]
-        guard let percentEncodedQuery = query.percentEncodedQuery else {
-            return nil
-        }
-        return "repos/\(repoSlug)/pulls?\(percentEncodedQuery)"
-    }
-
-    private nonisolated static func workspacePullRequestProbeItem(
-        from pullRequest: WorkspacePullRequestRESTItem
+    private nonisolated static func probeItem(
+        from pullRequest: HostedPullRequest
     ) -> GitHubPullRequestProbeItem {
-        let rawState = pullRequest.mergedAt?.isEmpty == false ? "MERGED" : pullRequest.state
-        return GitHubPullRequestProbeItem(
+        GitHubPullRequestProbeItem(
             number: pullRequest.number,
-            state: rawState,
-            url: pullRequest.htmlURL,
+            state: pullRequest.state.rawValue,
+            url: pullRequest.url,
             updatedAt: pullRequest.updatedAt,
             mergedAt: pullRequest.mergedAt,
-            headRefName: pullRequest.head.ref,
-            baseRefName: pullRequest.base?.ref
+            headRefName: pullRequest.headRefName,
+            baseRefName: pullRequest.baseRefName
         )
     }
 
     private nonisolated static func performWorkspacePullRequestRequest(
         session: URLSession,
-        endpoint: String,
-        authHeader: String?
+        request: URLRequest
     ) async -> WorkspacePullRequestHTTPResponse? {
-        guard let url = URL(string: "https://api.github.com/\(endpoint)") else {
-            return nil
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("cmux-workspace-pr-poller", forHTTPHeaderField: "User-Agent")
-        if let authHeader, !authHeader.isEmpty {
-            request.setValue(authHeader, forHTTPHeaderField: "Authorization")
-        }
-
         do {
             let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -4877,28 +4892,6 @@ class TabManager: ObservableObject {
         } catch {
             return nil
         }
-    }
-
-    private nonisolated static func workspacePullRequestAuthHeaderValue(
-        commandRunner: any CommandRunning
-    ) async -> String? {
-        let environment = ProcessInfo.processInfo.environment
-        if let envToken = environment["GH_TOKEN"] ?? environment["GITHUB_TOKEN"] {
-            let trimmed = envToken.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return "Bearer \(trimmed)"
-            }
-        }
-
-        let directory = FileManager.default.currentDirectoryPath
-        let token = await commandRunner.runStandardOutput(
-            directory: directory,
-            executable: "gh",
-            arguments: ["auth", "token"],
-            timeout: workspacePullRequestProbeTimeout
-        )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !token.isEmpty else { return nil }
-        return "Bearer \(token)"
     }
 
     nonisolated static func pullRequestMapByNormalizedBranchForTesting(
@@ -5038,17 +5031,10 @@ class TabManager: ObservableObject {
         }
     }
 
-    private nonisolated static func decodeJSON<T: Decodable>(_ type: T.Type, from text: String) -> T? {
-        guard let data = text.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(T.self, from: data)
-    }
-
-    private nonisolated static func decodeJSON<T: Decodable>(_ type: T.Type, from data: Data) -> T? {
-        try? JSONDecoder().decode(T.self, from: data)
-    }
-
-    nonisolated static func githubRepositorySlugs(fromGitRemoteVOutput output: String) -> [String] {
-        var slugByRemoteName: [String: String] = [:]
+    nonisolated static func workspaceRepositoryReferences(
+        fromGitRemoteVOutput output: String
+    ) -> [GitRemoteReference] {
+        var referenceByRemoteName: [String: GitRemoteReference] = [:]
 
         for line in output.split(whereSeparator: \.isNewline) {
             let parts = line.split(whereSeparator: \.isWhitespace)
@@ -5058,14 +5044,14 @@ class TabManager: ObservableObject {
             let remoteURL = String(parts[1])
             let remoteKind = String(parts[2])
             guard remoteKind == "(fetch)",
-                  let repoSlug = githubRepositorySlug(fromRemoteURL: remoteURL) else {
+                  let reference = GitRemoteReference.parse(remoteURL: remoteURL) else {
                 continue
             }
 
-            slugByRemoteName[remoteName] = repoSlug
+            referenceByRemoteName[remoteName] = reference
         }
 
-        let orderedRemoteNames = slugByRemoteName.keys.sorted { lhs, rhs in
+        let orderedRemoteNames = referenceByRemoteName.keys.sorted { lhs, rhs in
             let lhsPriority = githubRemotePriority(lhs)
             let rhsPriority = githubRemotePriority(rhs)
             if lhsPriority != rhsPriority {
@@ -5074,16 +5060,16 @@ class TabManager: ObservableObject {
             return lhs < rhs
         }
 
-        var orderedSlugs: [String] = []
+        var orderedReferences: [GitRemoteReference] = []
         var seen: Set<String> = []
         for remoteName in orderedRemoteNames {
-            guard let repoSlug = slugByRemoteName[remoteName],
-                  seen.insert(repoSlug).inserted else {
+            guard let reference = referenceByRemoteName[remoteName],
+                  seen.insert(reference.identity).inserted else {
                 continue
             }
-            orderedSlugs.append(repoSlug)
+            orderedReferences.append(reference)
         }
-        return orderedSlugs
+        return orderedReferences
     }
 
 #if DEBUG
@@ -5147,28 +5133,34 @@ class TabManager: ObservableObject {
         return recorder.delay
     }
 
-    nonisolated static func githubRepositorySlugs(fromGitConfigForTesting config: String) -> [String] {
-        githubRepositorySlugs(fromGitRemoteVOutput: gitRemoteVLines(fromConfig: config).joined())
+    nonisolated static func workspaceRepositoryReferences(
+        fromGitConfigForTesting config: String
+    ) -> [GitRemoteReference] {
+        workspaceRepositoryReferences(fromGitRemoteVOutput: gitRemoteVLines(fromConfig: config).joined())
     }
 
-    nonisolated static func githubRepositorySlugs(directoryForTesting directory: String) -> [String] {
+    nonisolated static func workspaceRepositoryReferences(
+        directoryForTesting directory: String
+    ) -> [GitRemoteReference] {
         guard let repository = resolveGitRepository(containing: directory),
               let output = gitRemoteVOutput(repository: repository) else {
             return []
         }
-        return githubRepositorySlugs(fromGitRemoteVOutput: output)
+        return workspaceRepositoryReferences(fromGitRemoteVOutput: output)
     }
 #endif
 
     #if compiler(>=6.2)
     @concurrent
     #endif
-    private nonisolated static func githubRepositorySlugs(directory: String) async -> [String] {
+    private nonisolated static func workspaceRepositoryReferences(
+        directory: String
+    ) async -> [GitRemoteReference] {
         guard let repository = resolveGitRepository(containing: directory),
               let output = gitRemoteVOutput(repository: repository) else {
             return []
         }
-        return githubRepositorySlugs(fromGitRemoteVOutput: output)
+        return workspaceRepositoryReferences(fromGitRemoteVOutput: output)
     }
 
     private nonisolated static func githubRemotePriority(_ remoteName: String) -> Int {
@@ -5180,53 +5172,6 @@ class TabManager: ObservableObject {
         default:
             return 2
         }
-    }
-
-    private nonisolated static func githubRepositorySlug(fromRemoteURL remoteURL: String) -> String? {
-        let trimmed = remoteURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let githubPrefixes = [
-            "git@github.com:",
-            "ssh://git@github.com/",
-            "https://github.com/",
-            "http://github.com/",
-            "git://github.com/",
-        ]
-        for prefix in githubPrefixes where trimmed.hasPrefix(prefix) {
-            let path = String(trimmed.dropFirst(prefix.count))
-            return normalizedGitHubRepositorySlug(path)
-        }
-
-        guard let url = URL(string: trimmed),
-              let host = url.host?.lowercased(),
-              host == "github.com" else {
-            return nil
-        }
-
-        return normalizedGitHubRepositorySlug(url.path)
-    }
-
-    private nonisolated static func githubRepositorySlug(fromPullRequestURL url: URL) -> String? {
-        guard let host = url.host?.lowercased(),
-              host == "github.com" else {
-            return nil
-        }
-        return normalizedGitHubRepositorySlug(url.path)
-    }
-
-    private nonisolated static func normalizedGitHubRepositorySlug(_ rawPath: String) -> String? {
-        let trimmedPath = rawPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !trimmedPath.isEmpty else { return nil }
-        let components = trimmedPath.split(separator: "/").map(String.init)
-        guard components.count >= 2 else { return nil }
-        let owner = components[0]
-        var repo = components[1]
-        if repo.hasSuffix(".git") {
-            repo.removeLast(4)
-        }
-        guard !owner.isEmpty, !repo.isEmpty else { return nil }
-        return "\(owner)/\(repo)"
     }
 
     private nonisolated static func debugLogSnippet(_ value: String?) -> String? {
