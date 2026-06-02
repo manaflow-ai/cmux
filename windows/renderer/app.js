@@ -9617,6 +9617,19 @@ function quickSetupActionGrid() {
       run: () => chooseBackgroundImage()
     },
     {
+      id: "pane-shape",
+      icon: "%%",
+      label: "Pane shape",
+      body: "Resize the active pane or switch rows and columns.",
+      meta: () => {
+        const workspace = activeWorkspace();
+        return workspace?.panels?.length > 1 ? `${activePaneLayoutPercent(workspace)}%` : "Single";
+      },
+      cta: "Edit",
+      search: "pane shape split layout resize terminal percent rows columns",
+      run: () => openSettingsCategory("layout")
+    },
+    {
       id: "save-layout",
       icon: "Sv",
       label: "Save layout",
@@ -9629,7 +9642,7 @@ function quickSetupActionGrid() {
   ];
   const grid = document.createElement("div");
   grid.className = "quick-settings-shortcut-grid quick-action-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions clean ui speed tune focus mode background image wallpaper");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions clean ui speed tune focus mode background image wallpaper pane shape resize split rows columns");
   for (const action of actions) {
     const button = document.createElement("button");
     button.className = "quick-settings-shortcut quick-action";
