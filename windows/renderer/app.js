@@ -9950,7 +9950,7 @@ function paneShapePanel(workspace = activeWorkspace()) {
     }
   };
   const quick = wrapper.querySelector(".pane-shape-quick");
-  quickButtons = [10, 25, 33, 50, 67, 75, 90].map((quickPercent) => {
+  quickButtons = [1, 5, 10, 25, 33, 50, 67, 75, 90, 95, 99].map((quickPercent) => {
     const button = document.createElement("button");
     button.className = "pane-shape-quick-button";
     button.type = "button";
@@ -11802,7 +11802,7 @@ function showPaneSplitterContextMenu(event, splitter) {
   meta.className = "context-meta";
   meta.textContent = splitter?.dataset.orientation === "down" ? "Rows" : "Columns";
   const presets = contextMenuActionGroup(
-    ...[10, 25, 33, 50, 67, 75, 90].map((nextPercent) => (
+    ...[1, 5, 10, 25, 33, 50, 67, 75, 90, 95, 99].map((nextPercent) => (
       contextMenuButton(`${nextPercent}% / ${100 - nextPercent}%`, () => setPaneSplitterPercent(splitter, nextPercent, { toast: true }), percent === nextPercent)
     ))
   );
