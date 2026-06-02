@@ -10946,6 +10946,7 @@ const quickActionIconSvg = {
   browserPlus: controlIconSvg.browserPlus,
   paneBackground: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14M7 15l2-2 2 2"></path><circle cx="8" cy="9" r="1.2"></circle></svg>`,
   paneShape: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14M4 12h16"></path></svg>`,
+  paneSettings: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M8 9h5M8 15h8"></path><circle cx="16" cy="9" r="1.5"></circle><circle cx="11" cy="15" r="1.5"></circle></svg>`,
   saveLayout: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 4h10l2 2v14H6z"></path><path d="M8 4v6h8M9 17h6"></path></svg>`,
   terminalPlus: controlIconSvg.terminalPlus
 };
@@ -10959,6 +10960,11 @@ function activeTerminalPaneBackgroundLabel() {
   if (!panel) return "Select terminal";
   const background = normalizeBackgroundValue(panel.backgroundImage);
   return background ? appearanceBackgroundLabel(background) : "Default";
+}
+
+function activePaneSettingsQuickLabel() {
+  const panel = activePaneActionTarget() || activePanel();
+  return panel ? panelDisplayTitle(panel, true) : "No pane";
 }
 
 function quickSetupActionDefinitions() {
@@ -11053,6 +11059,17 @@ function quickSetupActionDefinitions() {
       run: () => choosePanelBackgroundImage()
     },
     {
+      id: "pane-settings",
+      icon: "paneSettings",
+      label: "Pane settings",
+      body: "Rename, color, text, image, and URL for the active pane.",
+      meta: activePaneSettingsQuickLabel,
+      cta: "Open",
+      search: "active pane settings customize rename color tab text size background browser url terminal",
+      disabled: () => !activePanel(),
+      run: () => openPaneSettings(activePaneActionTarget() || activePanel())
+    },
+    {
       id: "all-terminal-backgrounds",
       icon: "paneBackground",
       label: "All terminals",
@@ -11116,6 +11133,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   else if (activeTerminal && !normalizeBackgroundValue(activeTerminal.backgroundImage)) ids.push("pane-background");
   if (workspaceNeedsQuickRename(workspace)) ids.push("rename");
   if (workspace && panels.length > 1 && state.workspaceBlueprints.length < workspaceBlueprintsLimit) ids.push("save-layout");
+  if (workspace && panels.length > 0 && ids.length < 4) ids.push("pane-settings");
 
   return [...new Set(ids)].slice(0, 4);
 }
@@ -11302,7 +11320,7 @@ function quickActionDisclosurePanel() {
   return settingsDisclosurePanel({
     className: "quick-action-disclosure",
     content: "quick-actions",
-    searchTerms: "quick setup all actions terminal browser clean speed focus background layout",
+    searchTerms: "quick setup all actions terminal browser clean speed focus background layout active pane settings rename color",
     title: t("quickGuide.allActions"),
     body: t("quickGuide.allActions.body"),
     meta: formatMessage("quickGuide.actionCount", { count: actions.length })
