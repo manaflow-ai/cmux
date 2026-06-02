@@ -772,6 +772,7 @@ body.reduce-motion *::after {
 .settings-action:focus-visible,
 .settings-preset:focus-visible,
 .quick-settings-shortcut:focus-visible,
+.quick-overview-scope-item:focus-visible,
 .actions-group-card:focus-visible,
 .data-storage-row:focus-visible,
 .browser-home-preset:focus-visible,
@@ -6958,6 +6959,23 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
   background: color-mix(in oklch, var(--color-pane) 86%, var(--color-rail) 14%);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.quick-overview-scope-item:hover,
+.quick-overview-scope-item:focus-visible {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+}
+
+.quick-overview-scope-item:disabled {
+  cursor: default;
 }
 
 .quick-overview-scope-item::before {
@@ -6982,6 +7000,12 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .quick-overview-scope-item.is-muted {
   color: var(--color-faint);
+}
+
+.quick-overview-scope-item.is-muted:hover,
+.quick-overview-scope-item.is-muted:focus-visible {
+  border-color: var(--color-line);
+  background: color-mix(in oklch, var(--color-pane) 86%, var(--color-rail) 14%);
 }
 
 .quick-overview-scope-item b,

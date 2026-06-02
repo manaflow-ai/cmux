@@ -138,6 +138,8 @@ const windowsMessages = {
     "quickGuide.presets": "Setup presets",
     "quickGuide.presets.body": "Apply a complete workspace style.",
     "quickGuide.presetCount": "{count} presets",
+    "quickGuide.backgroundTargetTitle": "Customize {label} background",
+    "quickGuide.backgroundTargetUnavailable": "{label} cannot use a background right now.",
     "paneShape.resizeNeedsPane": "Open another pane to resize the active pane.",
     "paneShape.stackedRows": "Stacked rows",
     "paneShape.sideBySideColumns": "Side-by-side columns",

@@ -11415,6 +11415,25 @@ function setQuickScopeItemState(panel, scopeId, options = {}) {
   if (!item) return;
   item.classList.toggle("is-active", Boolean(options.active));
   item.classList.toggle("is-muted", Boolean(options.muted));
+  setDisabledIfChanged(item, Boolean(options.disabled));
+  const option = backgroundApplyTargetOption(scopeId);
+  const title = formatMessage("quickGuide.backgroundTargetTitle", { label: option.label });
+  setTitleIfChanged(item, title);
+  setAttributeIfChanged(item, "aria-label", `${title}. ${option.meta}.`);
+  item.onclick = () => openBackgroundTargetSettings(scopeId);
+}
+
+function openBackgroundTargetSettings(target = "app") {
+  const scope = normalizeBackgroundApplyTarget(target);
+  const option = backgroundApplyTargetOption(scope);
+  const status = activeBackgroundTargetStatus(scope);
+  if (!status.canTarget) {
+    toast(formatMessage("quickGuide.backgroundTargetUnavailable", { label: option.label }));
+    return false;
+  }
+  state.backgroundApplyTarget = scope;
+  openSettingsCategory("appearance", { query: "background image", focusSearch: false });
+  return true;
 }
 
 function quickSetupOverviewPanel() {
@@ -11443,15 +11462,15 @@ function quickSetupOverviewPanel() {
       <span><b>Performance</b><em data-quick-performance></em></span>
     </div>
     <div class="quick-overview-scope" aria-label="Background scope">
-      <span class="quick-overview-scope-item" data-quick-scope-item="app">
+      <button class="quick-overview-scope-item" type="button" data-quick-scope-item="app">
         <b>App image</b><em data-quick-scope-app></em>
-      </span>
-      <span class="quick-overview-scope-item" data-quick-scope-item="pane">
+      </button>
+      <button class="quick-overview-scope-item" type="button" data-quick-scope-item="pane">
         <b>Active terminal</b><em data-quick-scope-pane></em>
-      </span>
-      <span class="quick-overview-scope-item" data-quick-scope-item="all">
+      </button>
+      <button class="quick-overview-scope-item" type="button" data-quick-scope-item="all">
         <b>All terminals</b><em data-quick-scope-all></em>
-      </span>
+      </button>
     </div>
   `;
   panel.querySelector(".quick-overview-subtitle").textContent = folder;
@@ -11471,11 +11490,13 @@ function quickSetupOverviewPanel() {
   setQuickScopeItemState(panel, "app", { active: scope.hasBackground });
   setQuickScopeItemState(panel, "pane", {
     active: Boolean(activeTerminalBackground),
-    muted: !activeTerminal
+    muted: !activeTerminal,
+    disabled: !activeTerminal
   });
   setQuickScopeItemState(panel, "all", {
     active: scope.allPanesMatch,
-    muted: scope.paneCount === 0
+    muted: scope.paneCount === 0,
+    disabled: scope.paneCount === 0
   });
   return panel;
 }
