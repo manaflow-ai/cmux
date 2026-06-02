@@ -359,12 +359,14 @@ function branchFromGitDir(gitDir) {
   }
 }
 
-function gitBranch(rawPath) {
+function gitBranch(rawPath, options = {}) {
   const cwd = String(rawPath || "").trim();
   if (!cwd) return "";
   const resolved = path.resolve(cwd);
+  const searchParents = options.searchParents !== false;
   const now = Date.now();
-  const cached = gitBranchCache.get(resolved);
+  const cacheKey = `${resolved}:${searchParents ? "parents" : "cwd"}`;
+  const cached = gitBranchCache.get(cacheKey);
   if (cached && now - cached.at < gitBranchCacheTtlMs) return cached.branch;
   let branch = "";
   try {
@@ -387,13 +389,13 @@ function gitBranch(rawPath) {
         break;
       }
       const parent = path.dirname(current);
-      if (parent === current) break;
+      if (!searchParents || parent === current) break;
       current = parent;
     }
   } catch {
     branch = "";
   }
-  gitBranchCache.set(resolved, { at: now, branch });
+  gitBranchCache.set(cacheKey, { at: now, branch });
   return branch;
 }
 
@@ -889,7 +891,7 @@ class CmuxWindowsRuntime {
       }
     }
     const cwd = workspace.cwd || firstTerminalCwd || defaultWorkspaceDirectory();
-    const branch = gitBranch(cwd);
+    const branch = gitBranch(cwd, { searchParents: false });
     return {
       id: workspace.id,
       title: workspace.title,

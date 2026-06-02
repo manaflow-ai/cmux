@@ -4284,7 +4284,7 @@ function updateWorkspaceRow(button, workspace, index, activeId) {
   const compactPaneSummary = `${workspace.terminalCount || 0}T ${workspace.browserCount || 0}B`;
   const parts = workspaceRowParts(button);
   setDatasetIfChanged(button, "workspaceId", workspace.id);
-  setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}${branch ? " has-branch" : ""}${state.dragWorkspaceId === workspace.id ? " is-workspace-dragging" : ""}`);
+  setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}${branchVisible ? " has-branch" : ""}${state.dragWorkspaceId === workspace.id ? " is-workspace-dragging" : ""}`);
   setStylePropertyIfChanged(button, "--workspace-color", workspace.color || state.data.palette?.[0] || "");
   const rowHelp = `${title} - ${fullCwd}${branchVisible ? ` - ${branch}` : ""} - ${paneSummary} - drag to reorder, double-click to rename, right-click for workspace options`;
   setTitleIfChanged(button, rowHelp);
