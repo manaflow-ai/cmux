@@ -6436,7 +6436,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 // users never see them in $PROMPT_COMMAND; the test mirrors this.
                 let bashBootstrapPath = (integrationDir as NSString)
                     .appendingPathComponent("cmux-bash-bootstrap.bash")
-                if let rawBootstrap = try? String(contentsOfFile: bashBootstrapPath, encoding: .utf8) {
+                do {
+                    let rawBootstrap = try String(contentsOfFile: bashBootstrapPath, encoding: .utf8)
                     let bootstrap = rawBootstrap
                         .components(separatedBy: "\n")
                         .filter { line in
@@ -6447,13 +6448,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
                     if !bootstrap.isEmpty {
                         setManagedEnvironmentValue("PROMPT_COMMAND", bootstrap)
                     }
-                } else {
+                } catch {
                     // The bootstrap ships in the app bundle alongside
                     // cmux-bash-integration.bash, so a read failure means a
-                    // corrupt/partial bundle. Surface it in unified logging
-                    // rather than silently leaving bash without cmux integration.
+                    // corrupt/partial bundle. Surface it (with the underlying
+                    // error) in unified logging rather than silently leaving bash
+                    // without cmux integration. The path is logged privately so
+                    // user-specific install paths are not exposed in the log.
                     Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
-                        .error("cmux bash bootstrap missing or unreadable at \(bashBootstrapPath, privacy: .public); bash shell integration will not load")
+                        .error("cmux bash bootstrap unreadable at \(bashBootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); bash shell integration will not load")
                 }
             }
         }
