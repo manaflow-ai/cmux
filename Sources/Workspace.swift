@@ -16241,20 +16241,41 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func rememberedOrSpatialAdjacentPane(to sourcePaneId: PaneID, direction: NavigationDirection) -> PaneID? {
-        if let rememberedPaneId = rememberedAdjacentPane(to: sourcePaneId, direction: direction) {
+        let (paneById, boundsByPaneId) = spatialPaneBoundsById()
+        if let rememberedPaneId = rememberedAdjacentPane(
+            to: sourcePaneId,
+            direction: direction,
+            paneById: paneById,
+            boundsByPaneId: boundsByPaneId
+        ) {
             return rememberedPaneId
         }
-        return spatialAdjacentPane(to: sourcePaneId, direction: direction)
+        return spatialAdjacentPane(
+            to: sourcePaneId,
+            direction: direction,
+            paneById: paneById,
+            boundsByPaneId: boundsByPaneId
+        )
     }
 
-    private func rememberedAdjacentPane(to sourcePaneId: PaneID, direction: NavigationDirection) -> PaneID? {
+    private func rememberedAdjacentPane(
+        to sourcePaneId: PaneID,
+        direction: NavigationDirection,
+        paneById: [String: PaneID],
+        boundsByPaneId: [String: CGRect]
+    ) -> PaneID? {
         let key = PaneNavigationMemoryKey(
             paneId: sourcePaneId.id,
             direction: PaneNavigationMemoryDirection(direction)
         )
         guard let rememberedPaneUUID = paneNavigationMemory[key],
-              let rememberedPaneId = bonsplitController.allPaneIds.first(where: { $0.id == rememberedPaneUUID }),
-              spatialPaneIdsAdjacent(sourcePaneId, rememberedPaneId, direction: direction) else {
+              let rememberedPaneId = paneById[rememberedPaneUUID.uuidString],
+              spatialPaneIdsAdjacent(
+                sourcePaneId,
+                rememberedPaneId,
+                direction: direction,
+                boundsByPaneId: boundsByPaneId
+              ) else {
             paneNavigationMemory.removeValue(forKey: key)
             return nil
         }
@@ -16322,7 +16343,20 @@ final class Workspace: Identifiable, ObservableObject {
 
     func spatialAdjacentPane(to sourcePaneId: PaneID, direction: NavigationDirection) -> PaneID? {
         let (paneById, boundsByPaneId) = spatialPaneBoundsById()
+        return spatialAdjacentPane(
+            to: sourcePaneId,
+            direction: direction,
+            paneById: paneById,
+            boundsByPaneId: boundsByPaneId
+        )
+    }
 
+    private func spatialAdjacentPane(
+        to sourcePaneId: PaneID,
+        direction: NavigationDirection,
+        paneById: [String: PaneID],
+        boundsByPaneId: [String: CGRect]
+    ) -> PaneID? {
         let sourceId = sourcePaneId.id.uuidString
         guard let sourceBounds = boundsByPaneId[sourceId] else { return nil }
 
@@ -16355,6 +16389,20 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func spatialPaneIdsAdjacent(_ sourcePaneId: PaneID, _ candidatePaneId: PaneID, direction: NavigationDirection) -> Bool {
         let (_, boundsByPaneId) = spatialPaneBoundsById()
+        return spatialPaneIdsAdjacent(
+            sourcePaneId,
+            candidatePaneId,
+            direction: direction,
+            boundsByPaneId: boundsByPaneId
+        )
+    }
+
+    private func spatialPaneIdsAdjacent(
+        _ sourcePaneId: PaneID,
+        _ candidatePaneId: PaneID,
+        direction: NavigationDirection,
+        boundsByPaneId: [String: CGRect]
+    ) -> Bool {
         guard let sourceBounds = boundsByPaneId[sourcePaneId.id.uuidString],
               let candidateBounds = boundsByPaneId[candidatePaneId.id.uuidString] else {
             return false
