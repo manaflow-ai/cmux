@@ -276,8 +276,8 @@ const customColorPaletteLimit = 18;
 const savedBackgroundImagesLimit = 12;
 const paneLayoutScale = 1000;
 const paneLayoutMaxWeight = 10000;
-const paneResizeMinWidth = 8;
-const paneResizeMinHeight = 8;
+const paneResizeMinWidth = 1;
+const paneResizeMinHeight = 1;
 const settingsSaveDelay = 140;
 const browserTabSnapshotSaveDelay = 180;
 const terminalFontSizeMin = 10;
@@ -4624,7 +4624,11 @@ function applyPaneResize(resize = state.resizing) {
   const delta = current - start;
   const pairTotal = Math.max(2, previousSize + nextSize);
   const baseMinSize = vertical ? paneResizeMinHeight : paneResizeMinWidth;
-  const minSize = Math.min(baseMinSize, Math.max(1, Math.floor(pairTotal / 2) - 1));
+  const percentMinSize = Math.floor(pairTotal * (paneLayoutPercentMin / 100));
+  const minSize = Math.min(
+    Math.max(1, Math.max(baseMinSize, percentMinSize)),
+    Math.max(1, Math.floor(pairTotal / 2) - 1)
+  );
   const nextPrevious = Math.min(pairTotal - minSize, Math.max(minSize, previousSize + delta));
   const nextNext = pairTotal - nextPrevious;
   previousPane.style.flex = `0 0 ${nextPrevious}px`;

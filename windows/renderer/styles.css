@@ -36,8 +36,8 @@
   --ease-out: cubic-bezier(.16, 1, .3, 1);
   --ease-in-out: cubic-bezier(.65, 0, .35, 1);
   --scrollbar-size: 10px;
-  --pane-min-width: 8px;
-  --pane-min-height: 8px;
+  --pane-min-width: 1px;
+  --pane-min-height: 1px;
   --scrollbar-thumb: color-mix(in oklch, var(--color-line-strong) 74%, transparent);
   --scrollbar-thumb-hover: color-mix(in oklch, var(--color-muted) 72%, transparent);
   --shadow-soft: 0 10px 36px color-mix(in oklch, var(--color-canvas) 64%, transparent);
