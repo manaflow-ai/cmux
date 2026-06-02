@@ -8669,7 +8669,7 @@ function appearanceWorkspaceSettingsSignature(workspace = activeWorkspace()) {
 function quickSettingsSignature() {
   const panels = allPanels();
   const parts = [];
-  appendSignatureValue(parts, activeWorkspaceSettingsSignature());
+  appendSignatureValue(parts, quickWorkspaceSettingsSignature());
   appendSignatureValue(parts, state.data?.workspaces?.length || 0);
   appendSignatureValue(parts, panels.length);
   appendSignatureValue(parts, state.recentFolders.length);
@@ -8682,6 +8682,37 @@ function quickSettingsSignature() {
   appendSignatureValue(parts, state.customColorPalette.length);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
   appendSignatureValue(parts, state.performanceGuardTriggered);
+  return parts.join("");
+}
+
+function quickWorkspaceSettingsSignature(workspace = activeWorkspace()) {
+  if (!workspace) return "";
+  const activeTerminal = activeTerminalPanelForSettings();
+  const parts = [];
+  appendSignatureValue(parts, workspace.id);
+  appendSignatureValue(parts, workspace.title);
+  appendSignatureValue(parts, workspace.color);
+  appendSignatureValue(parts, workspace.cwdShort || workspace.cwd || "");
+  appendSignatureValue(parts, workspace.activePanelId);
+  appendSignatureValue(parts, paneLayoutDirection(workspace));
+  appendSignatureValue(parts, workspace.terminalCount);
+  appendSignatureValue(parts, workspace.browserCount);
+  appendSignatureValue(parts, activePaneLayoutPercent(workspace));
+  appendSignatureValue(parts, state.focusedPanelId || "");
+  appendSignatureValue(parts, activeTerminal?.id || "");
+  appendSignatureValue(parts, activeTerminal?.backgroundImage || "");
+  appendSignatureArray(parts, workspace.panels || [], (nextParts, panel) => {
+    appendSignatureValue(nextParts, panel.id);
+    appendSignatureValue(nextParts, panel.type);
+    appendSignatureValue(nextParts, panel.title || "");
+    appendSignatureValue(nextParts, Boolean(panel.titleLocked));
+    appendSignatureValue(nextParts, panel.color || "");
+    appendSignatureValue(nextParts, panel.cwdShort || "");
+    appendSignatureValue(nextParts, panel.type === "browser" ? panel.url || "" : "");
+    appendSignatureValue(nextParts, panel.type === "terminal" ? panel.backgroundImage || "" : "");
+    appendSignatureValue(nextParts, panel.type === "terminal" ? panel.terminalFontSize || 0 : 0);
+    appendSignatureValue(nextParts, isPendingPanel(panel));
+  });
   return parts.join("");
 }
 
@@ -9869,7 +9900,8 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
   titleInput.addEventListener("blur", () => {
     const nextTitle = titleInput.value.trim();
     if (!nextTitle) {
-      titleInput.value = editablePaneTitle(panel);
+      if (panel.titleLocked) updatePanel(panel.id, { title: "" });
+      titleInput.value = editablePaneTitle({ ...panel, title: "", titleLocked: false });
       return;
     }
     if (nextTitle !== panel.title) updatePanel(panel.id, { title: nextTitle });
@@ -13135,6 +13167,7 @@ function showPanelContextMenu(event, panel) {
   const isBrowser = panel.type === "browser";
   const generalActions = contextMenuActionGroup(
     contextMenuButton("Rename", () => renamePanel(panel)),
+    contextMenuButton("Default name", () => updatePanel(panel.id, { title: "" }), !panel.titleLocked),
     contextMenuButton("Duplicate", () => duplicatePanel(panel)),
     isTerminal
       ? contextMenuButton("New terminal tab", () => createTerminalPanel("right", { anchorPanelId: panel.id }))
@@ -13740,7 +13773,16 @@ async function renamePanel(panel) {
     placeholder: "Tab name",
     confirmLabel: "Rename"
   });
-  if (!title) return;
+  if (title === null) return;
+  if (!title) {
+    if (!panel.titleLocked) {
+      toast("Pane already uses the default name.");
+      return;
+    }
+    updatePanel(panel.id, { title: "" });
+    toast("Pane name reset.");
+    return;
+  }
   updatePanel(panel.id, { title });
 }
 
