@@ -14064,18 +14064,32 @@ function queueTerminalFontSizeSync(panelId, fontSize) {
   return true;
 }
 
-async function flushTerminalFontSizeSync() {
-  state.terminalFontSizeSyncTimer = 0;
+async function terminalFontSizeSyncFetch(panelId, terminalFontSize, options = {}) {
+  const response = await fetch(`/api/panels/${panelId}`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+      ...(launchToken ? { "x-local-token": launchToken } : {})
+    },
+    body: JSON.stringify({ terminalFontSize }),
+    keepalive: Boolean(options.keepalive)
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response;
+}
+
+async function flushTerminalFontSizeSync(options = {}) {
+  if (state.terminalFontSizeSyncTimer) {
+    clearTimeout(state.terminalFontSizeSyncTimer);
+    state.terminalFontSizeSyncTimer = 0;
+  }
   const entries = [...state.pendingTerminalFontSizeSync.entries()];
   state.pendingTerminalFontSizeSync.clear();
   await Promise.all(entries.map(async ([panelId, terminalFontSize]) => {
     const found = findPanelState(panelId);
     if (!found || found.panel.type !== "terminal" || normalizeTerminalFontSize(found.panel.terminalFontSize, 0) !== terminalFontSize) return;
     try {
-      await api(`/api/panels/${panelId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ terminalFontSize })
-      });
+      await terminalFontSizeSyncFetch(panelId, terminalFontSize, options);
     } catch {
       // The pane may have been closed before the debounce fired.
     }
@@ -14767,9 +14781,16 @@ window.addEventListener("keydown", (event) => {
 
 window.addEventListener("wheel", handleWindowWheelZoom, { passive: false, capture: true });
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) scheduleDeferredTerminalFitFlush();
+  if (document.hidden) {
+    flushTerminalFontSizeSync({ keepalive: true });
+  } else {
+    scheduleDeferredTerminalFitFlush();
+  }
 });
 window.addEventListener("focus", scheduleDeferredTerminalFitFlush);
+window.addEventListener("pagehide", () => {
+  flushTerminalFontSizeSync({ keepalive: true });
+});
 
 elements.sidebar.addEventListener("pointerdown", startSidebarResize);
 elements.inspector.addEventListener("pointerdown", startInspectorResize);
@@ -14807,6 +14828,7 @@ document.addEventListener("drop", clearAllDropTargets);
 window.addEventListener("beforeunload", () => {
   flushSettingsSave();
   flushBrowserTabSnapshotsSave();
+  flushTerminalFontSizeSync({ keepalive: true });
 });
 
 function updateMaximizeButton(maximized) {
