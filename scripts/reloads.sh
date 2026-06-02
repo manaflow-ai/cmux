@@ -175,6 +175,10 @@ XCODEBUILD_ARGS=(
   CODE_SIGN_STYLE=Automatic
   CODE_SIGN_ENTITLEMENTS="$STAGING_ENTITLEMENTS"
   ONLY_ACTIVE_ARCH=YES
+  # Pink/red app icon so the STAGING build is visually distinct from production
+  # cmux in the Dock, Finder, and Cmd-Tab. AppIcon-Staging is a hue-shifted
+  # variant of AppIcon in Assets.xcassets (same mechanism as AppIcon-Debug).
+  ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Staging
 )
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")
