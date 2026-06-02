@@ -482,6 +482,7 @@ const state = {
   surfaceTabsSignature: "",
   paneRenderSignature: "",
   paneFitSignature: "",
+  visiblePanePanelIds: new Set(),
   newSurfaceAddButtons: {
     terminal: null,
     browser: null
@@ -3146,7 +3147,7 @@ function previousPanelForWorkspace(workspace = activeWorkspace()) {
 }
 
 function visiblePanePanelIds() {
-  return new Set([...elements.paneGrid.querySelectorAll(".pane[data-panel-id]:not(.is-minimized)")].map((pane) => pane.dataset.panelId));
+  return state.visiblePanePanelIds;
 }
 
 function findPanelState(panelId) {
@@ -4593,8 +4594,9 @@ function renderPanes(workspace) {
   if (!workspace) {
     state.paneRenderSignature = "";
     state.paneFitSignature = "";
+    state.visiblePanePanelIds = new Set();
     renderEmptyWorkspace(null);
-    updateBrowserPaneActivity(new Set());
+    updateBrowserPaneActivity(state.visiblePanePanelIds);
     return;
   }
   const zoomedPanel = zoomedPanelForWorkspace(workspace);
@@ -4604,6 +4606,7 @@ function renderPanes(workspace) {
   const fitSignature = paneFitSignature(workspace, visiblePanels, tree);
   const shouldFitVisibleTerminals = fitSignature !== state.paneFitSignature;
   const liveVisiblePanelIds = new Set(visiblePanels.filter((panel) => !isPanelMinimized(panel)).map((panel) => panel.id));
+  state.visiblePanePanelIds = liveVisiblePanelIds;
   if (signature === state.paneRenderSignature && paneGridContainsPanels(visiblePanels)) {
     updateBrowserPaneActivity(liveVisiblePanelIds);
     resumeTerminalOutputAfterActivityChange(liveVisiblePanelIds);
@@ -4627,8 +4630,9 @@ function renderPanes(workspace) {
   if (panels.length === 0) {
     state.paneRenderSignature = "";
     state.paneFitSignature = "";
+    state.visiblePanePanelIds = new Set();
     renderEmptyWorkspace(workspace);
-    updateBrowserPaneActivity(new Set());
+    updateBrowserPaneActivity(state.visiblePanePanelIds);
     return;
   }
 
