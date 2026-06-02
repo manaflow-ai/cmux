@@ -8054,6 +8054,22 @@ class TabManager: ObservableObject {
         focusedBrowserPanel?.resetZoom() ?? false
     }
 
+    var canToggleBrowserFocusModeForFocusedBrowser: Bool {
+        focusedBrowserPanel?.canToggleBrowserFocusMode == true
+    }
+
+    @discardableResult
+    func toggleBrowserFocusModeForFocusedBrowser(reason: String) -> Bool {
+        guard let browserPanel = focusedBrowserPanel else { return false }
+        return browserPanel.toggleBrowserFocusMode(reason: reason, focusWebView: true)
+    }
+
+    @discardableResult
+    func setFocusedBrowserFocusModeActive(_ active: Bool, reason: String) -> Bool {
+        guard let browserPanel = focusedBrowserPanel else { return false }
+        return browserPanel.setBrowserFocusModeActive(active, reason: reason, focusWebView: active)
+    }
+
     @discardableResult
     func zoomInFocusedMarkdown() -> Bool {
         focusedMarkdownPanel?.zoomIn() ?? false
@@ -11751,6 +11767,7 @@ extension Notification.Name {
     static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
     static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
     static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
+    static let browserFocusModeStateDidChange = Notification.Name("cmux.browserFocusModeStateDidChange")
     static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")

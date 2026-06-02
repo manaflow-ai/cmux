@@ -206,6 +206,12 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "toggleBrowserDeveloperTools", combos: [["⌥", "⌘", "I"]], description: { en: "Toggle browser developer tools", ja: "ブラウザ開発者ツールを切り替え" } },
       { id: "showBrowserJavaScriptConsole", combos: [["⌥", "⌘", "C"]], description: { en: "Show browser JavaScript console", ja: "ブラウザJavaScriptコンソールを表示" } },
       {
+        id: "toggleBrowserFocusMode",
+        combos: [["⌥", "⌘", "↩"]],
+        description: { en: "Enter browser focus mode", ja: "ブラウザフォーカスモードに入る" },
+        note: { en: "Gives the focused web page first claim on shortcuts. Press Esc twice to exit.", ja: "フォーカス中のWebページにショートカットの優先権を渡します。Escを2回押すと終了します。" },
+      },
+      {
         id: "toggleReactGrab",
         combos: [["⌘", "⇧", "G"]],
         description: { en: "Toggle React Grab", ja: "React Grabを切り替え" },
