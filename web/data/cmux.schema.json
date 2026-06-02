@@ -39,6 +39,86 @@
         "additionalProperties": true
       }
     },
+    "directoryTools": {
+      "title": "directoryTools",
+      "description": "Browser-backed tools that open the focused terminal directory inside cmux. Built-ins provide VS Code Inline and Jupyter; entries with the same id override defaults, and enabled false disables a default.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]+$",
+            "description": "Stable id used for Command Palette commands. Use vscode-inline or jupyter to override built-in tools."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Command Palette title, for example Open Current Directory in Notebook."
+          },
+          "subtitle": {
+            "type": "string",
+            "description": "Optional Command Palette subtitle."
+          },
+          "keywords": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Extra search keywords for the Command Palette."
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Set false to remove a built-in or configured tool."
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["vscodeServeWeb", "shellWebServer"],
+            "default": "shellWebServer",
+            "description": "vscodeServeWeb runs VS Code's code-tunnel serve-web backend. shellWebServer runs command and opens the first local URL matched in output."
+          },
+          "applicationBundlePathCandidates": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Application bundle candidates for vscodeServeWeb. /Applications entries are also checked under ~/Applications."
+          },
+          "executablePathCandidates": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Executable candidates for shellWebServer availability. The resolved path is exposed to command as CMUX_TOOL_EXECUTABLE."
+          },
+          "command": {
+            "type": "string",
+            "description": "Shell command for shellWebServer. cmux sets CMUX_DIRECTORY, CMUX_TOOL_ID, and CMUX_TOOL_EXECUTABLE."
+          },
+          "cwd": {
+            "type": "string",
+            "default": "{directory}",
+            "description": "Working directory for shellWebServer. Supports {directory}; relative paths resolve from the focused directory."
+          },
+          "urlRegex": {
+            "type": "string",
+            "description": "Optional regular expression used to capture the browser URL from stdout/stderr. If it has a capture group, group 1 is used."
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": { "const": "shellWebServer" },
+                "enabled": { "not": { "const": false } }
+              }
+            },
+            "then": { "required": ["command"] }
+          }
+        ]
+      },
+      "default": []
+    },
     "vault": {
       "title": "vault",
       "description": "Vault session restore agent registrations. cmux includes Pi by default; use this section to add or override JSONL-backed coding agents without an app update.",

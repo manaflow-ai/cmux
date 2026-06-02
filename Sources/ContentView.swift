@@ -1133,6 +1133,7 @@ struct ContentView: View {
     @State private var commandPaletteResolvedSearchFingerprint: Int?
     @State private var commandPaletteResolvedMatchingQuery = ""
     @State private var commandPaletteTerminalOpenTargetAvailability: Set<TerminalDirectoryOpenTarget> = []
+    @State private var commandPaletteDirectoryToolAvailability: Set<String> = []
     @State private var commandPaletteForkableAgentActivePanelKey: String?
     @State private var commandPaletteForkableAgentProbeIDsByPanelKey: [String: UUID] = [:]
     @State var commandPaletteForkableAgentSupportedPanelKeys: Set<String> = []
@@ -1492,6 +1493,10 @@ struct ContentView: View {
         static let browserDisabled = "browser.disabled"
         static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> String {
             "terminal.openTarget.\(target.rawValue).available"
+        }
+
+        static func directoryToolAvailable(_ tool: CmuxResolvedDirectoryTool) -> String {
+            "terminal.directoryTool.\(tool.id).available"
         }
     }
 
@@ -5103,9 +5108,17 @@ struct ContentView: View {
         if commandPaletteTerminalOpenTargetAvailability != terminalOpenTargets {
             commandPaletteTerminalOpenTargetAvailability = terminalOpenTargets
         }
+        let directoryToolIDs = resolveCommandPaletteDirectoryTools(for: scope)
+        if commandPaletteDirectoryToolAvailability != directoryToolIDs {
+            commandPaletteDirectoryToolAvailability = directoryToolIDs
+        }
         refreshCommandPaletteForkableAgentAvailabilityIfNeeded(scope: scope)
         let commandsContext = scope == .commands
-            ? commandPaletteCommandsContext(terminalOpenTargets: terminalOpenTargets)
+            ? commandPaletteCommandsContext(
+                terminalOpenTargets: terminalOpenTargets,
+                directoryTools: cmuxConfigStore.loadedDirectoryTools,
+                availableDirectoryToolIDs: directoryToolIDs
+            )
             : nil
         let fingerprint = commandPaletteEntriesFingerprint(
             for: scope,
@@ -5923,7 +5936,9 @@ struct ContentView: View {
 
     private func commandPaletteCachedCommandsContext() -> CommandPaletteCommandsContext {
         commandPaletteCommandsContext(
-            terminalOpenTargets: commandPaletteTerminalOpenTargetAvailability
+            terminalOpenTargets: commandPaletteTerminalOpenTargetAvailability,
+            directoryTools: cmuxConfigStore.loadedDirectoryTools,
+            availableDirectoryToolIDs: commandPaletteDirectoryToolAvailability
         )
     }
 
@@ -5935,6 +5950,16 @@ struct ContentView: View {
             return []
         }
         return TerminalDirectoryOpenTarget.availableTargets()
+    }
+
+    private func resolveCommandPaletteDirectoryTools(
+        for scope: CommandPaletteListScope
+    ) -> Set<String> {
+        guard scope == .commands,
+              focusedPanelContext?.panel.panelType == .terminal else {
+            return []
+        }
+        return CmuxResolvedDirectoryTool.availableTools(cmuxConfigStore.loadedDirectoryTools)
     }
 
     static func commandPaletteForkableAgentPanelKey(workspaceId: UUID, panelId: UUID) -> String {
@@ -6353,10 +6378,16 @@ struct ContentView: View {
     }
 
     private func commandPaletteCommandsContext(
-        terminalOpenTargets: Set<TerminalDirectoryOpenTarget>
+        terminalOpenTargets: Set<TerminalDirectoryOpenTarget>,
+        directoryTools: [CmuxResolvedDirectoryTool],
+        availableDirectoryToolIDs: Set<String>
     ) -> CommandPaletteCommandsContext {
         let cliInstalledInPATH = AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false
-        var snapshot = commandPaletteContextSnapshot(terminalOpenTargets: terminalOpenTargets)
+        var snapshot = commandPaletteContextSnapshot(
+            terminalOpenTargets: terminalOpenTargets,
+            directoryTools: directoryTools,
+            availableDirectoryToolIDs: availableDirectoryToolIDs
+        )
         snapshot.setBool(CommandPaletteContextKeys.cliInstalledInPATH, cliInstalledInPATH)
         snapshot.setBool(
             CommandPaletteContextKeys.defaultTerminalIsDefault,
@@ -6501,7 +6532,9 @@ struct ContentView: View {
     }
 
     private func commandPaletteContextSnapshot(
-        terminalOpenTargets: Set<TerminalDirectoryOpenTarget>? = nil
+        terminalOpenTargets: Set<TerminalDirectoryOpenTarget>? = nil,
+        directoryTools: [CmuxResolvedDirectoryTool]? = nil,
+        availableDirectoryToolIDs: Set<String>? = nil
     ) -> CommandPaletteContextSnapshot {
         var snapshot = CommandPaletteContextSnapshot()
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
@@ -6592,6 +6625,18 @@ struct ContentView: View {
                         availableTargets.contains(target)
                     )
                 }
+                let tools = directoryTools ?? cmuxConfigStore.loadedDirectoryTools
+                let availableToolIDs = availableDirectoryToolIDs ?? CmuxResolvedDirectoryTool.availableTools(tools)
+                for tool in tools {
+                    snapshot.setBool(
+                        CommandPaletteContextKeys.directoryToolAvailable(tool),
+                        availableToolIDs.contains(tool.id)
+                    )
+                }
+                snapshot.setBool(
+                    CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscodeInline),
+                    tools.contains { $0.kind == .vscodeServeWeb && availableToolIDs.contains($0.id) }
+                )
             }
         }
 
@@ -6720,7 +6765,7 @@ struct ContentView: View {
                     )
                 ),
                 keywords: ["open", "folder", "directory", "project", "vs", "code", "inline", "editor", "browser"],
-                when: { _ in TerminalDirectoryOpenTarget.vscodeInline.isAvailable() }
+                when: { _ in configuredInlineVSCodeApplicationURL() != nil }
             )
         )
         contributions.append(
@@ -7477,6 +7522,22 @@ struct ContentView: View {
                 )
             )
         }
+        for tool in cmuxConfigStore.loadedDirectoryTools {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: tool.commandPaletteCommandId,
+                    title: constant(tool.title),
+                    subtitle: { context in
+                        tool.subtitle ?? terminalPanelSubtitle(context)
+                    },
+                    keywords: ["terminal", "directory", "open", "browser"] + tool.keywords,
+                    when: { context in
+                        context.bool(CommandPaletteContextKeys.panelIsTerminal)
+                            && context.bool(CommandPaletteContextKeys.directoryToolAvailable(tool))
+                    }
+                )
+            )
+        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.vscodeServeWebStop",
@@ -7883,7 +7944,14 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.openFolderInVSCodeInline") {
             DispatchQueue.main.async {
-                AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(tabManager: tabManager)
+                if let vscodeApplicationURL = configuredInlineVSCodeApplicationURL() {
+                    AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(
+                        vscodeApplicationURL: vscodeApplicationURL,
+                        tabManager: tabManager
+                    )
+                } else {
+                    NSSound.beep()
+                }
             }
         }
         registry.register(commandId: "palette.reopenPreviousSession") {
@@ -8287,6 +8355,14 @@ struct ContentView: View {
         for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
             registry.register(commandId: target.commandPaletteCommandId) {
                 if !openFocusedDirectory(in: target) {
+                    NSSound.beep()
+                }
+            }
+        }
+        for tool in cmuxConfigStore.loadedDirectoryTools {
+            let captured = tool
+            registry.register(commandId: tool.commandPaletteCommandId) {
+                if !openFocusedDirectory(with: captured) {
                     NSSound.beep()
                 }
             }
@@ -9776,6 +9852,11 @@ struct ContentView: View {
         return openFocusedDirectory(directoryURL, in: target)
     }
 
+    private func openFocusedDirectory(with tool: CmuxResolvedDirectoryTool) -> Bool {
+        guard let directoryURL = focusedTerminalDirectoryURL() else { return false }
+        return openFocusedDirectory(directoryURL, with: tool)
+    }
+
     private func openFocusedDirectory(_ directoryURL: URL, in target: TerminalDirectoryOpenTarget) -> Bool {
         switch target {
         case .finder:
@@ -9791,8 +9872,87 @@ struct ContentView: View {
         }
     }
 
-    private func openFocusedDirectoryInInlineVSCode(_ directoryURL: URL) -> Bool {
-        AppDelegate.shared?.openDirectoryInInlineVSCode(directoryURL, tabManager: tabManager) ?? false
+    private func openFocusedDirectory(_ directoryURL: URL, with tool: CmuxResolvedDirectoryTool) -> Bool {
+        guard tool.isAvailable() else { return false }
+        switch tool.kind {
+        case .vscodeServeWeb:
+            guard let vscodeApplicationURL = tool.applicationURL() else { return false }
+            return openFocusedDirectoryInInlineVSCode(directoryURL, vscodeApplicationURL: vscodeApplicationURL)
+        case .shellWebServer:
+            return openFocusedDirectoryInShellDirectoryTool(directoryURL, tool: tool)
+        }
+    }
+
+    private func openFocusedDirectoryInInlineVSCode(
+        _ directoryURL: URL,
+        vscodeApplicationURL: URL? = nil
+    ) -> Bool {
+        AppDelegate.shared?.openDirectoryInInlineVSCode(
+            directoryURL,
+            vscodeApplicationURL: vscodeApplicationURL,
+            tabManager: tabManager
+        ) ?? false
+    }
+
+    private func configuredInlineVSCodeApplicationURL() -> URL? {
+        cmuxConfigStore.loadedDirectoryTools
+            .first { $0.kind == .vscodeServeWeb && $0.isAvailable() }?
+            .applicationURL()
+    }
+
+    private func openFocusedDirectoryInShellDirectoryTool(
+        _ directoryURL: URL,
+        tool: CmuxResolvedDirectoryTool
+    ) -> Bool {
+        let targetWorkspaceId = tabManager.selectedWorkspace?.id
+            ?? tabManager.tabs.first?.id
+            ?? tabManager.addWorkspace(select: true).id
+        return authorizeDirectoryToolIfNeeded(tool) {
+            DirectoryToolWebServerController.shared.ensureWebServerURL(
+                tool: tool,
+                directoryURL: directoryURL.standardizedFileURL
+            ) { webServerURL in
+                guard let webServerURL,
+                      tabManager.openBrowser(
+                          inWorkspace: targetWorkspaceId,
+                          url: webServerURL,
+                          preferSplitRight: true
+                      ) != nil else {
+                    NSSound.beep()
+                    return
+                }
+            }
+        }
+    }
+
+    private func authorizeDirectoryToolIfNeeded(
+        _ tool: CmuxResolvedDirectoryTool,
+        onAuthorized: @escaping () -> Void
+    ) -> Bool {
+        let descriptor = CmuxActionTrustDescriptor(
+            actionID: "directoryTool.\(tool.id)",
+            kind: "directoryTool",
+            command: tool.displayCommand,
+            target: "browserSplit",
+            workspaceCommand: nil,
+            configPath: tool.sourcePath.map(canonicalConfigPath),
+            projectRoot: tool.sourcePath.map { canonicalConfigPath(CmuxButtonIcon.projectRoot(forConfigPath: $0)) },
+            iconFingerprint: nil
+        )
+        return CmuxConfigExecutor.authorizeProjectAutomationIfNeeded(
+            descriptor: descriptor,
+            confirm: false,
+            configSourcePath: tool.sourcePath,
+            globalConfigPath: cmuxConfigStore.globalConfigPath,
+            displayCommand: tool.displayCommand,
+            displayTitle: tool.title,
+            presentingWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            onAuthorized: onAuthorized
+        )
+    }
+
+    private func canonicalConfigPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     private func stopInlineVSCodeServeWeb() {
@@ -9800,7 +9960,8 @@ struct ContentView: View {
     }
 
     private func restartInlineVSCodeServeWeb() -> Bool {
-        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
+        guard let vscodeApplicationURL = configuredInlineVSCodeApplicationURL()
+            ?? TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             return false
         }
         VSCodeServeWebController.shared.restart(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in

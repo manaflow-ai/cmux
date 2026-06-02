@@ -7262,9 +7262,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func openDirectoryInInlineVSCode(
         _ directoryURL: URL,
+        vscodeApplicationURL preferredVSCodeApplicationURL: URL? = nil,
         tabManager preferredTabManager: TabManager? = nil
     ) -> Bool {
-        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
+        guard let vscodeApplicationURL = preferredVSCodeApplicationURL
+            ?? TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             return false
         }
 
@@ -7302,8 +7304,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
-        guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
+    func showOpenFolderInInlineVSCodePanel(
+        vscodeApplicationURL preferredVSCodeApplicationURL: URL? = nil,
+        tabManager preferredTabManager: TabManager? = nil
+    ) {
+        guard preferredVSCodeApplicationURL != nil || TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
             NSSound.beep()
             return
         }
@@ -7334,7 +7339,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if panel.runModal() == .OK,
            let url = panel.url,
-           !openDirectoryInInlineVSCode(url, tabManager: targetTabManager) {
+           !openDirectoryInInlineVSCode(
+               url,
+               vscodeApplicationURL: preferredVSCodeApplicationURL,
+               tabManager: targetTabManager
+           ) {
             NSSound.beep()
         }
     }

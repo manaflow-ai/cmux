@@ -93,7 +93,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     }
 
     static var commandPaletteShortcutTargets: [Self] {
-        Array(allCases)
+        allCases.filter { $0 != .vscodeInline }
     }
 
     static func availableTargets(in environment: DetectionEnvironment = .live) -> Set<Self> {
@@ -291,6 +291,96 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         }
         return deduped
     }
+}
+
+extension CmuxResolvedDirectoryTool {
+    static func availableTools(
+        _ tools: [CmuxResolvedDirectoryTool],
+        in environment: TerminalDirectoryOpenTarget.DetectionEnvironment = .live
+    ) -> Set<String> {
+        Set(tools.filter { $0.isAvailable(in: environment) }.map(\.id))
+    }
+
+    func isAvailable(in environment: TerminalDirectoryOpenTarget.DetectionEnvironment = .live) -> Bool {
+        switch kind {
+        case .vscodeServeWeb:
+            guard let applicationURL = applicationURL(in: environment) else { return false }
+            return VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+                vscodeApplicationURL: applicationURL,
+                isExecutableAtPath: environment.isExecutableFileAtPath
+            ) != nil
+        case .shellWebServer:
+            if executablePathCandidates.isEmpty {
+                return command?.isEmpty == false
+            }
+            return resolvedExecutablePath(in: environment) != nil
+        }
+    }
+
+    func applicationURL(in environment: TerminalDirectoryOpenTarget.DetectionEnvironment = .live) -> URL? {
+        guard let path = applicationPath(in: environment) else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    func resolvedExecutablePath(in environment: TerminalDirectoryOpenTarget.DetectionEnvironment = .live) -> String? {
+        for path in expandedCandidatePaths(executablePathCandidates, environment: environment)
+            where environment.isExecutableFileAtPath(path) {
+            return path
+        }
+        return nil
+    }
+
+    private func applicationPath(in environment: TerminalDirectoryOpenTarget.DetectionEnvironment) -> String? {
+        for path in expandedCandidatePaths(applicationBundlePathCandidates, environment: environment)
+            where environment.fileExistsAtPath(path) {
+            return path
+        }
+        for applicationName in applicationSearchNames {
+            guard let resolvedPath = environment.applicationPathForName(applicationName),
+                  environment.fileExistsAtPath(resolvedPath) else {
+                continue
+            }
+            return resolvedPath
+        }
+        return nil
+    }
+
+    private var applicationSearchNames: [String] {
+        directoryToolUniquePreservingOrder(
+            applicationBundlePathCandidates.map {
+                URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent
+            }
+        )
+    }
+
+    private func expandedCandidatePaths(
+        _ candidates: [String],
+        environment: TerminalDirectoryOpenTarget.DetectionEnvironment
+    ) -> [String] {
+        let globalPrefix = "/Applications/"
+        let userPrefix = "\(environment.homeDirectoryPath)/Applications/"
+        var expanded: [String] = []
+
+        for candidate in candidates {
+            let expandedCandidate = (candidate as NSString).expandingTildeInPath
+            expanded.append(expandedCandidate)
+            if expandedCandidate.hasPrefix(globalPrefix) {
+                let suffix = String(expandedCandidate.dropFirst(globalPrefix.count))
+                expanded.append(userPrefix + suffix)
+            }
+        }
+
+        return directoryToolUniquePreservingOrder(expanded)
+    }
+}
+
+private func directoryToolUniquePreservingOrder(_ values: [String]) -> [String] {
+    var seen: Set<String> = []
+    var deduped: [String] = []
+    for value in values where seen.insert(value).inserted {
+        deduped.append(value)
+    }
+    return deduped
 }
 
 enum VSCodeServeWebURLBuilder {
@@ -758,6 +848,225 @@ final class ServeWebOutputCollector {
         if webUIURL != nil { return true }
         _ = semaphore.wait(timeout: .now() + timeoutSeconds)
         return webUIURL != nil
+    }
+}
+
+enum DirectoryToolWebServerURLBuilder {
+    private static let defaultURLPattern = #"(https?://(?:127\.0\.0\.1|localhost):[^\s]+)"#
+
+    static func extractURL(from output: String, pattern: String?) -> URL? {
+        let regexPattern = pattern?.isEmpty == false ? pattern! : defaultURLPattern
+        guard let regex = try? NSRegularExpression(pattern: regexPattern) else {
+            return extractURL(from: output, pattern: nil)
+        }
+        let nsRange = NSRange(output.startIndex..<output.endIndex, in: output)
+        guard let match = regex.firstMatch(in: output, range: nsRange) else { return nil }
+        let captureRange = match.numberOfRanges > 1 ? match.range(at: 1) : match.range(at: 0)
+        guard captureRange.location != NSNotFound,
+              let range = Range(captureRange, in: output) else {
+            return nil
+        }
+        let rawURL = String(output[range])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+        return URL(string: rawURL)
+    }
+}
+
+final class DirectoryToolWebServerController {
+    static let shared = DirectoryToolWebServerController()
+    private static let startupTimeoutSeconds: TimeInterval = 60
+
+    private struct ServerKey: Hashable {
+        let toolID: String
+        let directoryPath: String
+    }
+
+    private let queue = DispatchQueue(label: "cmux.directoryTool.webServer")
+    private let launchQueue = DispatchQueue(label: "cmux.directoryTool.webServer.launch")
+    private var serversByKey: [ServerKey: (process: Process, url: URL)] = [:]
+
+    func ensureWebServerURL(
+        tool: CmuxResolvedDirectoryTool,
+        directoryURL: URL,
+        completion: @escaping (URL?) -> Void
+    ) {
+        let normalizedDirectoryURL = directoryURL.standardizedFileURL
+        let key = ServerKey(toolID: tool.id, directoryPath: normalizedDirectoryURL.path)
+        queue.async {
+            if let server = self.serversByKey[key],
+               server.process.isRunning {
+                DispatchQueue.main.async {
+                    completion(server.url)
+                }
+                return
+            }
+            self.serversByKey.removeValue(forKey: key)
+            self.launchQueue.async {
+                let result = self.launchWebServer(tool: tool, directoryURL: normalizedDirectoryURL)
+                self.queue.async {
+                    if let result {
+                        self.serversByKey[key] = result
+                    }
+                    DispatchQueue.main.async {
+                        completion(result?.url)
+                    }
+                }
+            }
+        }
+    }
+
+    private func launchWebServer(
+        tool: CmuxResolvedDirectoryTool,
+        directoryURL: URL
+    ) -> (process: Process, url: URL)? {
+        guard tool.kind == .shellWebServer,
+              let command = tool.command,
+              !command.isEmpty else {
+            return nil
+        }
+        let executablePath = tool.resolvedExecutablePath() ?? ""
+        guard !executablePath.isEmpty || tool.executablePathCandidates.isEmpty else {
+            return nil
+        }
+        let cwdURL = resolvedCwdURL(template: tool.cwd, directoryURL: directoryURL)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", command]
+        process.currentDirectoryURL = cwdURL
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_DIRECTORY"] = directoryURL.path
+        environment["CMUX_TOOL_ID"] = tool.id
+        environment["CMUX_TOOL_EXECUTABLE"] = executablePath
+        process.environment = environment
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let collector = DirectoryToolWebServerOutputCollector(urlPattern: tool.urlRegex)
+        let outputReader: (FileHandle) -> Void = { fileHandle in
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            case .data(let data):
+                collector.append(data)
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                fileHandle.readabilityHandler = nil
+            }
+        }
+        stdoutPipe.fileHandleForReading.readabilityHandler = outputReader
+        stderrPipe.fileHandleForReading.readabilityHandler = outputReader
+
+        process.terminationHandler = { terminatedProcess in
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
+            Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
+            collector.markProcessExited()
+            self.queue.async {
+                self.serversByKey = self.serversByKey.filter { $0.value.process !== terminatedProcess }
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            return nil
+        }
+
+        guard collector.waitForURL(timeoutSeconds: Self.startupTimeoutSeconds),
+              let url = collector.webServerURL else {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            if process.isRunning {
+                process.terminate()
+            }
+            return nil
+        }
+
+        return (process, url)
+    }
+
+    private func resolvedCwdURL(template: String?, directoryURL: URL) -> URL {
+        let raw = template?.replacingOccurrences(of: "{directory}", with: directoryURL.path) ?? directoryURL.path
+        let expanded = (raw as NSString).expandingTildeInPath
+        let path = (expanded as NSString).isAbsolutePath
+            ? expanded
+            : (directoryURL.path as NSString).appendingPathComponent(expanded)
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    private static func drainAvailableOutput(
+        from fileHandle: FileHandle,
+        collector: DirectoryToolWebServerOutputCollector
+    ) {
+        while true {
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            case .data(let data):
+                collector.append(data)
+            case .wouldBlock, .endOfFile:
+                return
+            }
+        }
+    }
+}
+
+final class DirectoryToolWebServerOutputCollector {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private let urlPattern: String?
+    private var outputBuffer = ""
+    private var resolvedURL: URL?
+    private var didSignal = false
+
+    init(urlPattern: String?) {
+        self.urlPattern = urlPattern
+    }
+
+    var webServerURL: URL? {
+        lock.lock()
+        defer { lock.unlock() }
+        return resolvedURL
+    }
+
+    func append(_ data: Data) {
+        guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard resolvedURL == nil else { return }
+        outputBuffer.append(text)
+        if let parsedURL = DirectoryToolWebServerURLBuilder.extractURL(from: outputBuffer, pattern: urlPattern) {
+            resolvedURL = parsedURL
+            outputBuffer.removeAll(keepingCapacity: false)
+            if !didSignal {
+                didSignal = true
+                semaphore.signal()
+            }
+        }
+    }
+
+    func markProcessExited() {
+        lock.lock()
+        defer { lock.unlock() }
+        if resolvedURL == nil,
+           let parsedURL = DirectoryToolWebServerURLBuilder.extractURL(from: outputBuffer, pattern: urlPattern) {
+            resolvedURL = parsedURL
+            outputBuffer.removeAll(keepingCapacity: false)
+        }
+        guard !didSignal else { return }
+        didSignal = true
+        semaphore.signal()
+    }
+
+    func waitForURL(timeoutSeconds: TimeInterval) -> Bool {
+        if webServerURL != nil { return true }
+        _ = semaphore.wait(timeout: .now() + timeoutSeconds)
+        return webServerURL != nil
     }
 }
 

@@ -21,3 +21,36 @@ Controls what the tab right-click `Fork Conversation` item does. The submenu sti
 Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
+
+## `directoryTools`
+
+Adds Command Palette tools that open the focused terminal directory in a cmux browser split.
+
+Built-in ids:
+
+- `vscode-inline`: starts VS Code `code-tunnel serve-web` and opens the directory inline.
+- `jupyter`: starts `jupyter lab` in the focused directory and opens the printed local URL.
+
+Use the same id to override a built-in. Set `enabled` to `false` to hide one.
+
+Example:
+
+```json
+{
+  "directoryTools": [
+    {
+      "id": "notebook",
+      "title": "Open Current Directory in Notebook",
+      "subtitle": "Notebook",
+      "keywords": ["notebook", "python"],
+      "kind": "shellWebServer",
+      "executablePathCandidates": ["/opt/homebrew/bin/jupyter"],
+      "command": "exec \"$CMUX_TOOL_EXECUTABLE\" lab --no-browser --ip=127.0.0.1 --port=0",
+      "cwd": "{directory}",
+      "urlRegex": "(http://127\\.0\\.0\\.1:[^\\s]+)"
+    }
+  ]
+}
+```
+
+For `shellWebServer`, cmux sets `CMUX_DIRECTORY`, `CMUX_TOOL_ID`, and `CMUX_TOOL_EXECUTABLE`. Project-local tools are prompted through the same trust flow as project-local custom commands.

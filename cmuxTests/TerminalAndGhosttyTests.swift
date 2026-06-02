@@ -2155,7 +2155,24 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
 
         let availableTargets = TerminalDirectoryOpenTarget.availableTargets(in: env)
         XCTAssertTrue(availableTargets.contains(.vscode))
-        XCTAssertTrue(availableTargets.contains(.vscodeInline))
+        XCTAssertFalse(availableTargets.contains(.vscodeInline))
+    }
+
+    func testDefaultDirectoryToolsDetectVSCodeInlineAndJupyter() {
+        let env = environment(
+            existingPaths: [
+                "/Applications/Visual Studio Code.app",
+                "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel",
+                "/opt/homebrew/bin/jupyter",
+            ]
+        )
+        let tools = CmuxDirectoryToolDefinition.defaultDefinitions.map {
+            CmuxResolvedDirectoryTool(definition: $0, sourcePath: nil)
+        }
+
+        let availableTools = CmuxResolvedDirectoryTool.availableTools(tools, in: env)
+        XCTAssertTrue(availableTools.contains("vscode-inline"))
+        XCTAssertTrue(availableTools.contains("jupyter"))
     }
 
     func testTowerDetectedViaApplicationLookupOutsideApplications() {

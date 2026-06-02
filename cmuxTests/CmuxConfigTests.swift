@@ -133,6 +133,47 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
+    func testDecodeDirectoryTool() throws {
+        let json = """
+        {
+          "directoryTools": [{
+            "id": "notebook",
+            "title": "Open Current Directory in Notebook",
+            "subtitle": "Notebook",
+            "keywords": ["notebook", "python"],
+            "kind": "shellWebServer",
+            "executablePathCandidates": ["/opt/homebrew/bin/notebook"],
+            "command": "notebook --no-browser",
+            "cwd": "{directory}",
+            "urlRegex": "(http://127\\\\.0\\\\.0\\\\.1:[^\\\\s]+)"
+          }]
+        }
+        """
+        let config = try decode(json)
+        let tool = try XCTUnwrap(config.directoryTools?.first)
+        XCTAssertEqual(tool.id, "notebook")
+        XCTAssertEqual(tool.title, "Open Current Directory in Notebook")
+        XCTAssertEqual(tool.subtitle, "Notebook")
+        XCTAssertEqual(tool.keywords, ["notebook", "python"])
+        XCTAssertEqual(tool.kind, .shellWebServer)
+        XCTAssertEqual(tool.executablePathCandidates, ["/opt/homebrew/bin/notebook"])
+        XCTAssertEqual(tool.command, "notebook --no-browser")
+        XCTAssertEqual(tool.cwd, "{directory}")
+    }
+
+    func testShellDirectoryToolRequiresCommand() {
+        let json = """
+        {
+          "directoryTools": [{
+            "id": "broken",
+            "title": "Broken",
+            "kind": "shellWebServer"
+          }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
     func testDecodeNewWorkspaceCommandTrimsWhitespace() throws {
         let json = """
         {
@@ -671,6 +712,66 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         XCTAssertTrue(store.configurationIssues.isEmpty)
         XCTAssertNotNil(store.resolvedAction(id: "bad"))
+    }
+
+    @MainActor
+    func testConfigStoreLoadsDefaultDirectoryTools() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-store-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.loadedDirectoryTools.map(\.id), ["vscode-inline", "jupyter"])
+        XCTAssertEqual(store.loadedDirectoryTools.first?.kind, .vscodeServeWeb)
+        XCTAssertEqual(store.loadedDirectoryTools.last?.kind, .shellWebServer)
+    }
+
+    @MainActor
+    func testLocalDirectoryToolsOverrideAndDisableDefaults() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-store-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalURL = root.appendingPathComponent("global.json")
+        let localURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "directoryTools": [{
+            "id": "custom",
+            "title": "Open in Custom",
+            "kind": "shellWebServer",
+            "command": "custom-server"
+          }]
+        }
+        """.write(to: globalURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "directoryTools": [
+            { "id": "jupyter", "enabled": false },
+            { "id": "custom", "title": "Open in Local Custom", "kind": "shellWebServer", "command": "local-server" }
+          ]
+        }
+        """.write(to: localURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalURL.path,
+            localConfigPath: localURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.loadedDirectoryTools.map(\.id), ["vscode-inline", "custom"])
+        let custom = try XCTUnwrap(store.loadedDirectoryTools.first { $0.id == "custom" })
+        XCTAssertEqual(custom.title, "Open in Local Custom")
+        XCTAssertEqual(custom.command, "local-server")
+        XCTAssertEqual(custom.sourcePath, localURL.path)
     }
 
     @MainActor
