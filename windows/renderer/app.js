@@ -5090,11 +5090,20 @@ function scheduleDeferredTerminalInit() {
     : setTimeout(run, Math.min(160, deferredTerminalInitIdleTimeoutMs));
 }
 
+function deferredTerminalInitQueueOrder(activeWorkspaceId) {
+  const queued = [...state.deferredTerminalInitQueue];
+  const activePanelId = state.data?.workspaces
+    ?.find((workspace) => workspace.id === activeWorkspaceId)
+    ?.activePanelId || "";
+  if (!activePanelId || !state.deferredTerminalInitQueue.has(activePanelId)) return queued;
+  return [activePanelId, ...queued.filter((panelId) => panelId !== activePanelId)];
+}
+
 function flushDeferredTerminalInit() {
   const activeWorkspaceId = state.data?.activeWorkspaceId || "";
   const visiblePanelIds = visiblePanePanelIds();
-  for (const panelId of [...state.deferredTerminalInitQueue]) {
-    state.deferredTerminalInitQueue.delete(panelId);
+  for (const panelId of deferredTerminalInitQueueOrder(activeWorkspaceId)) {
+    if (!state.deferredTerminalInitQueue.delete(panelId)) continue;
     if (state.terminals.has(panelId)) continue;
     const found = findPanelState(panelId);
     if (!found || found.workspace.id !== activeWorkspaceId || !visiblePanelIds.has(panelId)) continue;
