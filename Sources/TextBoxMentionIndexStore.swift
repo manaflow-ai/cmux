@@ -184,7 +184,7 @@ actor TextBoxMentionIndexStore {
     private func refreshFileIndexInBackground(rootDirectory: String, now: Date) {
         guard cachedFileIndex(rootDirectory: rootDirectory, now: now) == nil else { return }
         let refreshTask = fileIndexRefreshTask(rootDirectory: rootDirectory)
-        Task { [rootDirectory, now, refreshTask] in
+        Task { [rootDirectory, refreshTask] in
             let index = await refreshTask.task.value
             self.storeFileIndex(
                 rootDirectory: rootDirectory,
