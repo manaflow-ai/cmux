@@ -14335,7 +14335,8 @@ function optimisticMoveWorkspace(workspaceId, beforeWorkspaceId = null) {
     : -1;
   workspaces.splice(insertIndex >= 0 ? insertIndex : workspaces.length, 0, workspace);
   state.data.activeWorkspaceId = workspace.id;
-  render();
+  refreshAppStateSignature();
+  scheduleRender();
   return true;
 }
 
@@ -14368,7 +14369,10 @@ function optimisticUpdateWorkspace(workspaceId, updates = {}) {
       changed = true;
     }
   }
-  if (changed) render();
+  if (changed) {
+    refreshAppStateSignature();
+    scheduleRender();
+  }
   return true;
 }
 
