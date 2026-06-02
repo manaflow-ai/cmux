@@ -292,42 +292,152 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           run_unit_tests() {
-            # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
-            # intermittently crash inside XCTest's post-test memory checker or
-            # leave native display/WebKit work alive on GitHub macOS runners.
-            # When that happens, Swift's crash/backtrace handling or the stale
-            # app-host process keeps xcodebuild alive until the job-level timeout,
-            # hiding the actual unit test summary.
-            scripts/ci/xcodebuild_noninteractive.py \
-              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -disableAutomaticPackageResolution \
-              -destination "platform=macOS" \
-              CMUX_SKIP_ZIG_BUILD=1 \
-              -skip-testing:cmuxTests/FileExplorerStoreTests/testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath \
-              test 2>&1 &
-            local xcodebuild_pid=$!
-            local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
-            local deadline=$((SECONDS + timeout_seconds))
-            while kill -0 "$xcodebuild_pid" 2>/dev/null; do
-              if [ "$SECONDS" -ge "$deadline" ]; then
-                echo "xcodebuild unit test timeout after ${timeout_seconds}s; terminating"
-                kill -TERM "$xcodebuild_pid" 2>/dev/null || true
-                sleep 5
-                kill -KILL "$xcodebuild_pid" 2>/dev/null || true
-                wait "$xcodebuild_pid" 2>/dev/null || true
-                return 124
-              fi
-              sleep 5
-            done
-            wait "$xcodebuild_pid"
+            SOURCE_PACKAGES_DIR="$SOURCE_PACKAGES_DIR" python3 <<'PY'
+          import os
+          import select
+          import signal
+          import subprocess
+          import sys
+          import time
+
+          output_path = "/tmp/test-output.txt"
+          quiet_timeout = int(os.environ.get("CMUX_XCTEST_CRASH_QUIET_TIMEOUT_SECONDS", "120"))
+          overall_timeout = int(os.environ.get("CMUX_UNIT_TEST_TIMEOUT_SECONDS", "900"))
+          source_packages_dir = os.environ["SOURCE_PACKAGES_DIR"]
+          command = [
+              "xcodebuild",
+              "-project", "cmux.xcodeproj",
+              "-scheme", "cmux-unit",
+              "-configuration", "Debug",
+              "-clonedSourcePackagesDirPath", source_packages_dir,
+              "-disableAutomaticPackageResolution",
+              "-destination", "platform=macOS",
+              "CMUX_SKIP_ZIG_BUILD=1",
+              "-skip-testing:cmuxTests/FileExplorerStoreTests/testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath",
+              "test",
+          ]
+
+          def write_output(data, output):
+              if isinstance(data, bytes):
+                  text = data.decode("utf-8", errors="replace")
+              else:
+                  text = data
+              sys.stdout.write(text)
+              sys.stdout.flush()
+              output.write(text)
+              output.flush()
+
+          def drain_remaining_output(process, output, timeout=2.0):
+              if process.stdout is None:
+                  return
+              fd = process.stdout.fileno()
+              was_blocking = os.get_blocking(fd)
+              deadline = time.monotonic() + timeout
+              os.set_blocking(fd, False)
+              try:
+                  while time.monotonic() < deadline:
+                      wait_time = min(0.2, max(0.0, deadline - time.monotonic()))
+                      ready, _, _ = select.select([process.stdout], [], [], wait_time)
+                      if not ready:
+                          break
+                      try:
+                          chunk = os.read(fd, 65536)
+                      except BlockingIOError:
+                          continue
+                      if not chunk:
+                          break
+                      write_output(chunk, output)
+              finally:
+                  os.set_blocking(fd, was_blocking)
+
+          process = subprocess.Popen(
+              command,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.STDOUT,
+              bufsize=0,
+              start_new_session=True,
+          )
+          saw_app_host_crash = False
+          last_output_at = time.monotonic()
+          started_at = time.monotonic()
+          crash_marker = b"Program crashed:"
+          crash_detector_tail = b""
+
+          def terminate_process_group(reason, output):
+              write_output(reason, output)
+              process_group_id = None
+              try:
+                  process_group_id = os.getpgid(process.pid)
+                  os.killpg(process_group_id, signal.SIGTERM)
+              except ProcessLookupError:
+                  pass
+              try:
+                  process.wait(timeout=10)
+              except subprocess.TimeoutExpired:
+                  if process_group_id is None:
+                      try:
+                          process_group_id = os.getpgid(process.pid)
+                      except ProcessLookupError:
+                          process_group_id = None
+                  if process_group_id is not None:
+                      try:
+                          os.killpg(process_group_id, signal.SIGKILL)
+                      except ProcessLookupError:
+                          pass
+                  process.wait()
+              if process_group_id is not None:
+                  try:
+                      os.killpg(process_group_id, signal.SIGKILL)
+                  except ProcessLookupError:
+                      pass
+              drain_remaining_output(process, output)
+
+          with open(output_path, "w", encoding="utf-8", errors="replace") as output:
+              stdout_fd = process.stdout.fileno()
+              while True:
+                  if process.poll() is not None:
+                      drain_remaining_output(process, output)
+                      break
+
+                  if time.monotonic() - started_at > overall_timeout:
+                      terminate_process_group(
+                          f"xcodebuild unit test timeout after {overall_timeout}s; terminating\n",
+                          output,
+                      )
+                      break
+
+                  ready, _, _ = select.select([stdout_fd], [], [], 1.0)
+                  if ready:
+                      try:
+                          chunk = os.read(stdout_fd, 65536)
+                      except BlockingIOError:
+                          chunk = b""
+                      if chunk:
+                          write_output(chunk, output)
+                          last_output_at = time.monotonic()
+                          crash_detector_window = crash_detector_tail + chunk
+                          if crash_marker in crash_detector_window:
+                              saw_app_host_crash = True
+                          crash_detector_tail = crash_detector_window[-(len(crash_marker) - 1):]
+                          continue
+
+                  if saw_app_host_crash and time.monotonic() - last_output_at > quiet_timeout:
+                      terminate_process_group(
+                          f"xcodebuild produced no output for {quiet_timeout}s after an "
+                          "app-host crash; terminating so expected-failure parsing can continue.\n",
+                          output,
+                      )
+                      break
+
+          sys.exit(process.returncode if process.returncode is not None else 1)
+          PY
           }
 
-          # Stream output via tee so CI logs are visible in real time, while still
-          # capturing for post-run analysis of expected vs unexpected failures.
+          # Stream output in real time, while still capturing for post-run analysis
+          # of expected vs unexpected failures.
           set +e
-          run_unit_tests | tee /tmp/test-output.txt
-          EXIT_CODE=${PIPESTATUS[0]}
+          run_unit_tests
+          EXIT_CODE=$?
           OUTPUT=$(cat /tmp/test-output.txt)
           set -e
 
@@ -340,8 +450,8 @@ jobs:
             mkdir -p ~/Library/Caches/org.swift.swiftpm
             rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
             set +e
-            run_unit_tests | tee /tmp/test-output.txt
-            EXIT_CODE=${PIPESTATUS[0]}
+            run_unit_tests
+            EXIT_CODE=$?
             OUTPUT=$(cat /tmp/test-output.txt)
             set -e
           fi
