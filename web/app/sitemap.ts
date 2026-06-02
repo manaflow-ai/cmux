@@ -6,7 +6,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   const paths = [
     { path: "", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 1 },
-    { path: "/blog", lastModified: "2026-05-22", changeFrequency: "weekly" as const, priority: 0.8 },
+    { path: "/blog", lastModified: "2026-06-02", changeFrequency: "weekly" as const, priority: 0.8 },
+    { path: "/blog/cmux-history", lastModified: "2026-06-02", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-finder", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-vault", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/passkey-auth", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },

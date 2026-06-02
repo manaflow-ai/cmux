@@ -11,7 +11,9 @@ Version 1 only supports sidebar extensions. The API exposes a stable workspace s
 
 The snapshot includes workspace identity, title, detail text, paths, git branch, unread state, listening ports, pull request URLs, and shared surface metadata. It does not expose terminal buffers, shell history, environment variables, secrets, or arbitrary filesystem access.
 
-Host-side lifecycle, discovery, and display belong in `Packages/CMUXExtensionClient`.
+Host-side lifecycle, discovery, and display belong in `Packages/CMUXExtensionHostSupport`.
+Internal cmux-owned sidebar provider/render models live in `Packages/CmuxSidebarProviderKit`.
+They are separate from the public extension-author SDK.
 
 ## Five-Minute Sidebar Extension
 
@@ -52,14 +54,14 @@ import SwiftUI
 @Observable
 @MainActor
 final class ExampleSidebarExtension: CmuxSidebarExtension {
-    static let manifest = CMUXExtensionManifest(
+    static let manifest = CmuxExtensionManifest(
         id: "dev.example.sidebar",
-        displayName: "Example Sidebar",
-        requestedScopes: [.workspaceMetadata],
-        requestedActionScopes: [.selectWorkspace]
+        displayName: String(localized: "exampleSidebar.manifest.displayName", defaultValue: "Example Sidebar"),
+        readScopes: [.workspaceMetadata],
+        actionScopes: [.selectWorkspace]
     )
 
-    private(set) var snapshot: CMUXSidebarSnapshot?
+    private(set) var snapshot: CmuxSidebarSnapshot?
     private var host: CmuxSidebarHost?
 
     required init() {}
@@ -68,7 +70,7 @@ final class ExampleSidebarExtension: CmuxSidebarExtension {
         List(snapshot?.workspaces ?? []) { workspace in
             Button(workspace.title) {
                 Task { @MainActor in
-                    _ = await host?.selectWorkspace(workspace.id)
+                    try? await host?.selectWorkspace(workspace.id)
                 }
             }
         }
@@ -78,29 +80,39 @@ final class ExampleSidebarExtension: CmuxSidebarExtension {
         snapshot = context.snapshot
         host = context.host
     }
+
+    func connectionStatusDidChange(_ status: CmuxSidebarConnectionStatus) {
+        // Update optional connection UI here.
+    }
 }
 ```
 
 ## Extension Protocols
 
-`CmuxExtension` is the base protocol. It refines `AppExtension` and requires the
-manifest CMUX uses for identity, compatibility, and permission review.
-
-`CmuxUIExtension` adds SwiftUI content through a `body` property.
-
-`CmuxSidebarExtension` is the only concrete extension kind supported in version 1. It
-delivers `CmuxSidebarContext`, which contains the filtered `CMUXSidebarSnapshot` and a
-typed `CmuxSidebarHost` command channel.
+`CmuxSidebarExtension` is the public extension protocol. It refines `AppExtension`,
+requires a manifest and SwiftUI `body`, and delivers `CmuxSidebarContext`, which
+contains the filtered `CmuxSidebarSnapshot` and a typed `CmuxSidebarHost` command
+channel.
 
 The lower-level transport lives behind CMUX host SPI. New sidebar extensions should
 conform to `CmuxSidebarExtension` and should not handle XPC directly.
+
+`connectionStatusDidChange(_:)` reports `.connected`, `.waitingForHost`, or
+`.error(String)` when the host connection changes. Extensions that do not show
+connection state can omit the method.
+
+`context.host` is the public command channel for sidebar extensions. It exposes
+typed helpers for workspace, surface, and URL actions. Raw transport setup and
+host-side callbacks are SPI for CMUX's own host implementation.
+Creating or splitting a browser surface with a URL requires both the surface
+action scope and `openURL`.
 
 ## Permissions
 
 List every scope and action your extension needs in its manifest. CMUX filters the
 snapshot and rejects actions that have not been granted:
 
-- `workspaceList`: workspace identities and ordering
+- `workspaceList`: workspace identities and ordering only
 - `workspaceMetadata`: workspace names, branches, unread counts, and selection
 - `surfaceMetadata`: shared tab/surface names, kinds, focus, and unread counts
 - `workspacePaths`: local workspace and project paths
@@ -118,5 +130,6 @@ snapshot and rejects actions that have not been granted:
 - `navigateWorkspace`: select the next or previous workspace
 - `navigateSurface`: select the next or previous surface
 - `openURL`: open links from your UI
+- `createWorkspaceWithPath`: create workspaces for specific local folders
 
 If your extension does not appear, confirm the containing app has been launched, the embedded appex is signed by your team, the extension point identifier is unchanged, and CMUX's Sidebar Extensions browser shows the extension as enabled.
