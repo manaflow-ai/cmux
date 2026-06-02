@@ -14,6 +14,68 @@ import UserNotifications
 @testable import cmux
 #endif
 
+final class TerminalSurfaceResizePolicyTests: XCTestCase {
+    func testPixelOnlyResizeWithinExistingGridIsCoalesced() {
+        XCTAssertFalse(
+            TerminalSurface.shouldApplySurfacePixelSizeChange(
+                currentColumns: 80,
+                currentRows: 24,
+                currentCellWidthPx: 10,
+                currentCellHeightPx: 20,
+                targetWidthPx: 805,
+                targetHeightPx: 485,
+                coalescePixelOnlyResize: true,
+                hasAppliedPixelSize: true
+            ),
+            "Pixel-only live-resize churn inside the same terminal grid should not be forwarded to Ghostty as a PTY resize"
+        )
+    }
+
+    func testResizeAppliesWhenGridChangesOutsideLiveResizeOrFirstApply() {
+        XCTAssertTrue(
+            TerminalSurface.shouldApplySurfacePixelSizeChange(
+                currentColumns: 80,
+                currentRows: 24,
+                currentCellWidthPx: 10,
+                currentCellHeightPx: 20,
+                targetWidthPx: 810,
+                targetHeightPx: 485,
+                coalescePixelOnlyResize: true,
+                hasAppliedPixelSize: true
+            ),
+            "A resize that changes the terminal grid must still be forwarded"
+        )
+
+        XCTAssertTrue(
+            TerminalSurface.shouldApplySurfacePixelSizeChange(
+                currentColumns: 80,
+                currentRows: 24,
+                currentCellWidthPx: 10,
+                currentCellHeightPx: 20,
+                targetWidthPx: 805,
+                targetHeightPx: 485,
+                coalescePixelOnlyResize: false,
+                hasAppliedPixelSize: true
+            ),
+            "Non-live layout changes should keep Ghostty's renderer pixel size fresh even when the terminal grid is unchanged"
+        )
+
+        XCTAssertTrue(
+            TerminalSurface.shouldApplySurfacePixelSizeChange(
+                currentColumns: 80,
+                currentRows: 24,
+                currentCellWidthPx: 10,
+                currentCellHeightPx: 20,
+                targetWidthPx: 805,
+                targetHeightPx: 485,
+                coalescePixelOnlyResize: true,
+                hasAppliedPixelSize: false
+            ),
+            "The first observed pixel size must be applied even during live resize"
+        )
+    }
+}
+
 @MainActor
 final class GhosttyPasteboardHelperTests: XCTestCase {
     private func make1x1PNG(color: NSColor) throws -> Data {

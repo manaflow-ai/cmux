@@ -6144,6 +6144,33 @@ final class TerminalSurface: Identifiable, ObservableObject {
         abs(lhs - rhs) <= epsilon
     }
 
+    static func shouldApplySurfacePixelSizeChange(
+        currentColumns: UInt32,
+        currentRows: UInt32,
+        currentCellWidthPx: UInt32,
+        currentCellHeightPx: UInt32,
+        targetWidthPx: UInt32,
+        targetHeightPx: UInt32,
+        coalescePixelOnlyResize: Bool,
+        hasAppliedPixelSize: Bool
+    ) -> Bool {
+        // Ghostty uses one surface-size API for both renderer pixels and PTY geometry.
+        // Only coalesce pixel-only AppKit churn while an explicit live-resize owner
+        // is active; ordinary layout changes still need to keep renderer pixels fresh.
+        guard hasAppliedPixelSize else { return true }
+        guard coalescePixelOnlyResize else { return true }
+        guard currentColumns > 0,
+              currentRows > 0,
+              currentCellWidthPx > 0,
+              currentCellHeightPx > 0 else {
+            return true
+        }
+
+        let targetColumns = max(UInt32(1), targetWidthPx / currentCellWidthPx)
+        let targetRows = max(UInt32(1), targetHeightPx / currentCellHeightPx)
+        return targetColumns != currentColumns || targetRows != currentRows
+    }
+
     @MainActor
     func attachToView(_ view: GhosttyNSView) {
 #if DEBUG
@@ -6635,9 +6662,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         xScale: CGFloat,
         yScale: CGFloat,
         layerScale: CGFloat,
-        backingSize: CGSize? = nil
+        backingSize: CGSize? = nil,
+        coalescePixelOnlyResize: Bool = false
     ) -> Bool {
-        guard let surface = surface else { return false }
+        guard let runtimeSurface = surface else { return false }
         _ = layerScale
 
         let resolvedBackingWidth = backingSize?.width ?? (width * xScale)
@@ -6663,13 +6691,35 @@ final class TerminalSurface: Identifiable, ObservableObject {
         #endif
 
         if scaleChanged {
-            ghostty_surface_set_content_scale(surface, xScale, yScale)
+            ghostty_surface_set_content_scale(runtimeSurface, xScale, yScale)
             lastXScale = xScale
             lastYScale = yScale
         }
 
         if sizeChanged {
-            ghostty_surface_set_size(surface, wpx, hpx)
+            let currentSize = ghostty_surface_size(runtimeSurface)
+            let shouldApplySizeChange = Self.shouldApplySurfacePixelSizeChange(
+                currentColumns: UInt32(currentSize.columns),
+                currentRows: UInt32(currentSize.rows),
+                currentCellWidthPx: currentSize.cell_width_px,
+                currentCellHeightPx: currentSize.cell_height_px,
+                targetWidthPx: wpx,
+                targetHeightPx: hpx,
+                coalescePixelOnlyResize: coalescePixelOnlyResize && !scaleChanged,
+                hasAppliedPixelSize: lastPixelWidth > 0 && lastPixelHeight > 0
+            )
+            guard shouldApplySizeChange else {
+#if DEBUG
+                Self.sizeLog(
+                    "updateSize-skip-pixel-only surface=\(id.uuidString.prefix(8)) " +
+                    "size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) " +
+                    "grid=\(currentSize.columns)x\(currentSize.rows) " +
+                    "cell=\(currentSize.cell_width_px)x\(currentSize.cell_height_px)"
+                )
+#endif
+                return scaleChanged
+            }
+            ghostty_surface_set_size(runtimeSurface, wpx, hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
         }
@@ -8008,6 +8058,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         invalidateTextInputCoordinates()
     }
 
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        updateSurfaceSize(forcePixelOnlyResize: true)
+        invalidateTextInputCoordinates()
+    }
+
     override var isOpaque: Bool { false }
 
     private func resolvedSurfaceSize(preferred size: CGSize?) -> CGSize {
@@ -8059,10 +8115,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func activeSurfaceResizeDeferralReason() -> String? {
-        if inLiveResize || window?.inLiveResize == true {
+        if isWindowLiveResizeActive {
             return nil
         }
         return Self.shouldDeferSurfaceResizeForActiveDrag() ? "tabDrag" : nil
+    }
+
+    private var isWindowLiveResizeActive: Bool {
+        inLiveResize || window?.inLiveResize == true
     }
 
     private func scheduleDeferredSurfaceSizeRetryIfNeeded() {
@@ -8077,7 +8137,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @discardableResult
-    private func updateSurfaceSize(size: CGSize? = nil) -> Bool {
+    private func updateSurfaceSize(
+        size: CGSize? = nil,
+        forcePixelOnlyResize: Bool = false
+    ) -> Bool {
         guard let terminalSurface = terminalSurface else { return false }
         let size = resolvedSurfaceSize(preferred: size)
         guard size.width > 0 && size.height > 0 else {
@@ -8187,7 +8250,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             xScale: xScale,
             yScale: yScale,
             layerScale: layerScale,
-            backingSize: backingSize
+            backingSize: backingSize,
+            coalescePixelOnlyResize: isWindowLiveResizeActive && !forcePixelOnlyResize
         )
         return didChange || surfaceSizeChanged
     }
