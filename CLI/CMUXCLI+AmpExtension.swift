@@ -365,26 +365,26 @@ export default function (amp: PluginAPI) {
   // per-thread map.
   let turnActive = false;
 
-  // Best-effort cleanup so the badge doesn't get stuck after agent exits.
-  // Registering a SIGINT/SIGTERM listener disables Node's default exit-on-signal
-  // behavior, so we must explicitly call process.exit() to avoid leaving the
-  // plugin hung and blocking Amp's graceful shutdown.
-  const cleanupOnSignal = (signal: NodeJS.Signals) => {
+  // Best-effort cleanup so the badge doesn't get stuck after the agent exits.
+  // We intentionally only hook the `exit` event and do NOT register custom
+  // SIGINT/SIGTERM listeners:
+  //   - Registering a SIGINT/SIGTERM listener would disable Node's default
+  //     exit-on-signal behavior, so we'd then be responsible for calling
+  //     process.exit() ourselves.
+  //   - We don't know whether the Amp plugin host runs us as a dedicated child
+  //     process or shares its process with other plugins; calling
+  //     process.exit() in the shared-process case would short-circuit the
+  //     host's graceful shutdown.
+  // Letting Node's default signal handler run is correct in both deployments:
+  //   - dedicated child: signal -> default handler -> process exits -> `exit`
+  //     event fires -> clearStatus() runs.
+  //   - shared host: host process orchestrates shutdown, our `exit` listener
+  //     still runs as part of normal teardown.
+  process.on("exit", () => {
     try {
       clearStatus();
     } catch (_) {}
-    // 128 + signal number is the POSIX convention.
-    const code = signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 0;
-    process.exit(code);
-  };
-  const cleanupOnExit = () => {
-    try {
-      clearStatus();
-    } catch (_) {}
-  };
-  process.on("SIGINT", () => cleanupOnSignal("SIGINT"));
-  process.on("SIGTERM", () => cleanupOnSignal("SIGTERM"));
-  process.on("exit", cleanupOnExit);
+  });
 
   amp.on("session.start", async (event: SessionStartEvent, ctx) => {
     setStatus("idle", "circle", COLOR.idle);
