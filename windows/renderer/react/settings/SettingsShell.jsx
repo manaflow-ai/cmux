@@ -57,7 +57,9 @@ export function SettingsShell({
     event.preventDefault();
   };
   const clearSearch = () => {
+    if (!query) return;
     onClear();
+    searchInputRef.current?.focus({ preventScroll: true });
   };
   const tabTitleTemplate = safeLabels.tabTitle || localizedDefaults.tabTitle;
 
