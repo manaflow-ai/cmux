@@ -9352,12 +9352,41 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   gap: var(--space-2);
 }
 
+.active-background-input-row {
+  grid-column: 1 / -1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 118px;
+  gap: var(--space-1);
+  align-items: center;
+  padding: var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 86%, var(--color-rail) 14%);
+}
+
+.active-background-input {
+  width: 100%;
+  min-width: 0;
+}
+
+.active-background-input-row .settings-action {
+  height: 30px;
+  min-width: 0;
+  padding-inline: var(--space-1);
+  font-size: 11px;
+}
+
 @container (max-width: 330px) {
   .background-target-control {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .background-target-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .active-background-input-row {
     grid-template-columns: minmax(0, 1fr);
   }
 

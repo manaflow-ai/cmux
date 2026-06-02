@@ -8642,53 +8642,6 @@ function renderSettingsInspector(options = {}) {
     appearanceSection.append(appearanceActions);
     appearanceSection.append(activeBackgroundPanel({ tuning: true }));
     appearanceSection.append(appearanceBackgroundTemplateDisclosurePanel());
-
-    const imageInput = document.createElement("input");
-    imageInput.className = "setting-control";
-    imageInput.value = isBackgroundPreset(state.settings.backgroundImage) ? "" : state.settings.backgroundImage;
-    imageInput.placeholder = "URL or C:\\path\\image.png for selected target";
-    const applyImageInput = (showToast = false) => withDisabledControl(imageInput, async () => {
-      const next = imageInput.value.trim();
-      if (!next) {
-        if (showToast) toast("Enter an image URL or local path first.");
-        return null;
-      }
-      const changed = await applyBackgroundValueToTarget(next, state.backgroundApplyTarget, {
-        resetInput: imageInput,
-        render: false,
-        toast: showToast
-      });
-      if (changed !== null) renderSettingsInspector();
-      return changed;
-    });
-    imageInput.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter") return;
-      event.preventDefault();
-      applyImageInput(true);
-    });
-    const customImageRow = settingRow("Custom image", imageInput, true, "background image url local path file drop wallpaper");
-    installBackgroundDropTarget(customImageRow, { input: imageInput, applyTarget: () => state.backgroundApplyTarget });
-    appearanceSection.append(customImageRow);
-    const imageActions = document.createElement("div");
-    imageActions.className = "settings-actions background-actions";
-    imageActions.dataset.backgroundCustomActions = "true";
-    const imageApply = settingsActionButton(backgroundApplyTargetPrimaryLabel(), () => applyImageInput(true), "primary", "background image url local path apply selected target wallpaper");
-    imageApply.dataset.backgroundCustomAction = "apply";
-    const imagePaste = settingsActionButton("Paste", () => pasteBackgroundImageFromClipboard({ input: imageInput, target: () => state.backgroundApplyTarget }), "", "background image paste clipboard url local path selected target wallpaper");
-    imagePaste.dataset.backgroundCustomAction = "paste";
-    const imageChoose = settingsActionButton("Choose", () => chooseBackgroundImageForTarget(), "", "background image local file selected target wallpaper");
-    imageChoose.dataset.backgroundCustomAction = "choose";
-    const imageClear = settingsActionButton("Clear target", clearBackgroundApplyTarget, "danger", "background image local file wallpaper reset remove clear selected target");
-    imageClear.dataset.backgroundCustomAction = "clear";
-    imageActions.append(
-      imageApply,
-      imagePaste,
-      imageChoose,
-      imageClear
-    );
-    imageActions.dataset.settingsSearch = normalizeSettingsQuery("background image local file wallpaper apply clear paste clipboard selected target");
-    updateBackgroundCustomActionLabels(imageActions);
-    appearanceSection.append(imageActions);
     appearanceSection.append(savedBackgroundDisclosurePanel());
 
     nodes.push(appearanceSection);
@@ -9877,7 +9830,6 @@ function activeBackgroundPanel(options = {}) {
     </span>
     <span class="active-background-actions"></span>
   `;
-  installBackgroundDropTarget(panel, { applyTarget: () => state.backgroundApplyTarget });
   panel.querySelector(".active-background-preview").onclick = () => chooseBackgroundImageForTarget();
   panel.querySelector(".active-background-kicker").textContent = model.kicker;
   panel.querySelector(".active-background-title").textContent = model.label;
@@ -9889,7 +9841,42 @@ function activeBackgroundPanel(options = {}) {
   panel.insertBefore(activeBackgroundTargetControl(), actions);
   const targetStatus = activeBackgroundTargetStatus();
   const targetLabel = backgroundApplyTargetActionLabel(targetStatus.scope);
-  const choose = settingsActionButton("Choose", () => chooseBackgroundImageForTarget(), "primary", "active background choose local file apply wallpaper");
+
+  const imageInput = document.createElement("input");
+  imageInput.className = "setting-control active-background-input";
+  imageInput.value = isBackgroundPreset(model.background) ? "" : model.background || "";
+  imageInput.placeholder = "Image URL or C:\\path\\image.png";
+  imageInput.dataset.settingsSearch = normalizeSettingsQuery("active background image url local path file apply selected target wallpaper");
+  const applyTypedImage = (showToast = true) => withDisabledControl(imageInput, async () => {
+    const next = imageInput.value.trim();
+    if (!next) {
+      if (showToast) toast("Enter an image URL or local path first.");
+      return null;
+    }
+    const changed = await applyBackgroundValueToTarget(next, state.backgroundApplyTarget, {
+      resetInput: imageInput,
+      render: false,
+      toast: showToast
+    });
+    if (changed !== null) renderSettingsInspector();
+    return changed;
+  });
+  imageInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyTypedImage(true);
+  });
+  const applyTyped = settingsActionButton("Apply image", () => applyTypedImage(true), "primary", "active background image url local path apply selected target wallpaper");
+  applyTyped.dataset.backgroundAction = "apply-typed";
+  applyTyped.title = `Apply entered image to ${targetLabel}`;
+  applyTyped.disabled = !targetStatus.canTarget;
+  const inputRow = document.createElement("span");
+  inputRow.className = "active-background-input-row";
+  inputRow.append(imageInput, applyTyped);
+  panel.insertBefore(inputRow, actions);
+  installBackgroundDropTarget(panel, { input: imageInput, applyTarget: () => state.backgroundApplyTarget });
+
+  const choose = settingsActionButton("Choose", () => chooseBackgroundImageForTarget(), "", "active background choose local file apply wallpaper");
   choose.dataset.backgroundAction = "choose";
   choose.title = `Choose an image for ${targetLabel}`;
   choose.disabled = !targetStatus.canTarget;
@@ -10081,9 +10068,19 @@ function refreshBackgroundPreviewNodes() {
     const choose = panel.querySelector('[data-background-action="choose"]');
     const paste = panel.querySelector('[data-background-action="paste"]');
     const save = panel.querySelector('[data-background-action="save"]');
+    const applyTyped = panel.querySelector('[data-background-action="apply-typed"]');
     const applyCurrent = panel.querySelector('[data-background-action="apply-current"]');
     const open = panel.querySelector('[data-background-action="open"]');
     const clear = panel.querySelector('[data-background-action="clear"]');
+    const input = panel.querySelector(".active-background-input");
+    if (input && document.activeElement !== input) {
+      const nextValue = isBackgroundPreset(model.background) ? "" : model.background || "";
+      if (input.value !== nextValue) input.value = nextValue;
+    }
+    if (applyTyped) {
+      setDisabledIfChanged(applyTyped, !targetStatus.canTarget);
+      setTitleIfChanged(applyTyped, `Apply entered image to ${targetLabel}`);
+    }
     if (choose) {
       setDisabledIfChanged(choose, !targetStatus.canTarget);
       setTitleIfChanged(choose, `Choose an image for ${targetLabel}`);
