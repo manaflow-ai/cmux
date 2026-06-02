@@ -1030,7 +1030,25 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             "Cmd+N should not route to another window when object-key lookup misses"
         )
 
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        let workspaceCreationContext = appDelegate.debugPreferredMainWindowContextForWorkspaceCreation(
+            event: event,
+            debugSource: "test.cmdN.objectKeyMismatch"
+        )
+        XCTAssertEqual(
+            workspaceCreationContext?.windowId,
+            eventContext.windowId,
+            "Cmd+N workspace creation should target the event window when object-key lookup misses"
+        )
+        XCTAssertNotEqual(
+            workspaceCreationContext?.windowId,
+            staleContext.windowId,
+            "Cmd+N workspace creation should not target the stale active window when object-key lookup misses"
+        )
+
+        XCTAssertTrue(appDelegate.performNewWorkspaceAction(
+            event: event,
+            debugSource: "test.cmdN.objectKeyMismatch"
+        ))
         XCTAssertEqual(
             createdContextWindowIds,
             [eventContext.windowId],
