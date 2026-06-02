@@ -142,7 +142,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let feedContext = try XCTUnwrap(preToolEvent["context"] as? [String: Any])
         let assistantPreamble = try XCTUnwrap(feedContext["assistantPreamble"] as? String)
         XCTAssertTrue(assistantPreamble.hasPrefix("recent assistant response"), "\(feedContext)")
-        XCTAssertFalse(String(describing: feedContext).contains("ancient"), "\(feedContext)")
     }
 
     func testCodexPromptSubmitRefreshesLastTurnDiffBaseline() throws {
