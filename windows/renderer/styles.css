@@ -6649,6 +6649,112 @@ body.reduce-motion *::after {
   gap: var(--space-2);
 }
 
+.performance-overview {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
+}
+
+.performance-overview-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.performance-overview-status {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-success) 18%, transparent);
+}
+
+.performance-overview.is-tuned .performance-overview-status {
+  background: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-accent) 22%, transparent);
+}
+
+.performance-overview.is-warning .performance-overview-status {
+  background: var(--color-warning);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-warning) 24%, transparent);
+}
+
+.performance-overview.is-watching .performance-overview-status {
+  background: color-mix(in oklch, var(--color-warning) 68%, var(--color-success) 32%);
+}
+
+.performance-overview-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.performance-overview-title,
+.performance-overview-subtitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.performance-overview-title {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.performance-overview-subtitle {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.performance-overview-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.performance-overview-grid span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+}
+
+.performance-overview-grid b,
+.performance-overview-grid em {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-style: normal;
+}
+
+.performance-overview-grid b {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.performance-overview-grid em {
+  color: var(--color-text);
+  font: 11px/1.15 var(--font-mono);
+}
+
+.performance-overview-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .settings-metric {
   min-width: 0;
   display: grid;

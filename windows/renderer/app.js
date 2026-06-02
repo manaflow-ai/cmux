@@ -8065,6 +8065,7 @@ function renderSettingsInspector(options = {}) {
 
   if (shouldBuildSection("performance")) {
     const performanceSection = settingsSection("Performance", "speed smooth lag render diagnostics optimize preset");
+    performanceSection.append(performanceOverviewPanel());
     const performanceMetricGrid = settingsMetricGrid(performanceMetrics());
     performanceMetricGrid.dataset.performanceMetrics = "true";
     performanceSection.append(performanceMetricGrid);
@@ -8089,10 +8090,8 @@ function renderSettingsInspector(options = {}) {
     performanceActions.className = "settings-actions";
     performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset balanced reset render stats clear copy diagnostics report lag debug");
     performanceActions.append(
-      settingsActionButton("Tune now", () => tunePerformanceNow(), "", "performance tune optimize lag speed"),
       settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
       settingsActionButton("Speed preset", () => applySettingsPresetById("performance"), "", "performance speed preset optimize"),
-      settingsActionButton("Balanced preset", () => applySettingsPresetById("balanced"), "", "balanced preset restore"),
       settingsActionButton("Reset stats", resetRenderStats, "", "performance render stats reset")
     );
     performanceSection.append(performanceActions);
@@ -10445,6 +10444,108 @@ function settingsMetricCard(label, value, searchPrefix = "performance diagnostic
   return card;
 }
 
+function performanceOverviewModel() {
+  updateTerminalOutputBacklog();
+  const queuedBytes = state.terminalOutputStats.currentQueued || 0;
+  const lastRenderMs = state.renderStats.lastMs || 0;
+  const avgRenderMs = state.renderStats.avgMs || 0;
+  const pendingPanes = state.pendingPanels.size;
+  const pausedOutput = pausedTerminalOutputCount();
+  const guard = state.settings.performanceMode
+    ? "Tuned"
+    : state.settings.adaptivePerformance
+      ? (state.performanceGuardTriggered ? "Auto tuned" : "Watching")
+      : "Off";
+  const hasBacklog = queuedBytes >= terminalOutputBacklogThreshold;
+  const slowRender = lastRenderMs >= renderSlowFrameMs || avgRenderMs >= renderSlowFrameMs;
+  const verySlowRender = lastRenderMs >= renderVerySlowFrameMs || avgRenderMs >= renderVerySlowFrameMs;
+  const status = state.settings.performanceMode
+    ? "tuned"
+    : hasBacklog || verySlowRender
+      ? "warning"
+      : slowRender || pendingPanes > 0
+        ? "watching"
+        : "steady";
+  const title = status === "tuned"
+    ? "Speed tune active"
+    : status === "warning"
+      ? "Needs attention"
+      : status === "watching"
+        ? "Watching load"
+        : "Running steady";
+  const reason = state.performanceGuardTriggered && state.performanceGuardReason
+    ? state.performanceGuardReason
+    : state.settings.performanceMode
+      ? "Effects and hidden output are reduced."
+      : state.settings.adaptivePerformance
+        ? "Adaptive guard will tune if rendering or terminal output stalls."
+        : "Adaptive guard is disabled.";
+  return {
+    status,
+    title,
+    reason,
+    guard,
+    render: `${formatMs(lastRenderMs)} last / ${formatMs(avgRenderMs)} avg`,
+    output: queuedBytes ? `${formatBytes(queuedBytes)} queued` : "Clean",
+    shell: durationMetric(state.terminalConnectStats),
+    paneAdd: durationMetric(state.paneCreateStats),
+    paused: pausedOutput ? `${pausedOutput} paused` : "None",
+    pending: pendingPanes ? `${pendingPanes} pending` : "None"
+  };
+}
+
+function performanceOverviewPanel() {
+  const panel = document.createElement("div");
+  panel.className = "performance-overview";
+  panel.dataset.performanceOverview = "true";
+  panel.innerHTML = `
+    <div class="performance-overview-head">
+      <span class="performance-overview-status" aria-hidden="true"></span>
+      <span class="performance-overview-copy">
+        <span class="performance-overview-title"></span>
+        <span class="performance-overview-subtitle"></span>
+      </span>
+    </div>
+    <div class="performance-overview-grid">
+      <span><b>Guard</b><em data-performance-overview-value="guard"></em></span>
+      <span><b>Render</b><em data-performance-overview-value="render"></em></span>
+      <span><b>Output</b><em data-performance-overview-value="output"></em></span>
+      <span><b>Shell</b><em data-performance-overview-value="shell"></em></span>
+      <span><b>Pane add</b><em data-performance-overview-value="paneAdd"></em></span>
+      <span><b>Paused</b><em data-performance-overview-value="paused"></em></span>
+    </div>
+    <div class="settings-actions performance-overview-actions"></div>
+  `;
+  panel.querySelector(".performance-overview-actions").append(
+    settingsActionButton("Tune now", () => tunePerformanceNow(), "primary", "performance tune optimize lag speed"),
+    settingsActionButton("Balanced", () => applySettingsPresetById("balanced"), "", "balanced preset restore performance normal")
+  );
+  refreshPerformanceOverviewPanel(panel);
+  return panel;
+}
+
+function refreshPerformanceOverviewPanel(panel = elements.inspectorBody.querySelector("[data-performance-overview]")) {
+  if (!panel) return false;
+  const model = performanceOverviewModel();
+  panel.classList.toggle("is-tuned", model.status === "tuned");
+  panel.classList.toggle("is-warning", model.status === "warning");
+  panel.classList.toggle("is-watching", model.status === "watching");
+  panel.classList.toggle("is-steady", model.status === "steady");
+  const search = normalizeSettingsQuery(`performance overview speed lag guard ${model.status} ${model.title} ${model.reason} ${model.guard} ${model.render} ${model.output}`);
+  if (panel.dataset.settingsSearch !== search) {
+    panel.dataset.settingsSearch = search;
+    updateSettingsSearchIndexItemSearch(panel, search);
+  }
+  let changed = false;
+  changed = setTextIfChanged(panel.querySelector(".performance-overview-title"), model.title) || changed;
+  changed = setTextIfChanged(panel.querySelector(".performance-overview-subtitle"), model.reason) || changed;
+  for (const [key, value] of Object.entries(model)) {
+    const node = panel.querySelector(`[data-performance-overview-value="${key}"]`);
+    if (node) changed = setTextIfChanged(node, value) || changed;
+  }
+  return changed;
+}
+
 function performanceMetricsShouldRefresh() {
   return state.inspectorMode === "settings"
     && (state.settingsCategory === "performance" || normalizeSettingsQuery(state.settingsQuery));
@@ -10470,8 +10571,9 @@ function schedulePerformanceMetricsRefresh() {
 }
 
 function refreshPerformanceMetricsGrid() {
+  const overviewChanged = refreshPerformanceOverviewPanel();
   const grid = elements.inspectorBody.querySelector('[data-performance-metrics="true"]');
-  if (!grid) return false;
+  if (!grid) return overviewChanged;
   const metrics = performanceMetrics();
   const cards = [...grid.querySelectorAll(".settings-metric")];
   if (cards.length !== metrics.length) {
@@ -10491,7 +10593,7 @@ function refreshPerformanceMetricsGrid() {
     changed = setTextIfChanged(card.querySelector(".settings-metric-value"), value) || changed;
     changed = setTextIfChanged(card.querySelector(".settings-metric-label"), label) || changed;
   }
-  return changed;
+  return overviewChanged || changed;
 }
 
 function paneShapePanel(workspace = activeWorkspace()) {
