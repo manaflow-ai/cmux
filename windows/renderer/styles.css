@@ -5029,7 +5029,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .settings-actions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(136px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(112px, 100%), 1fr));
   gap: var(--space-2);
 }
 
@@ -6571,7 +6571,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .recent-folder-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(86px, 100%), 1fr));
   gap: var(--space-2);
 }
 
@@ -6590,7 +6590,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .settings-profile-actions {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(84px, 100%), 1fr));
 }
 
 .workspace-blueprint-list {
@@ -6599,7 +6599,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .workspace-blueprint-actions {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(76px, 100%), 1fr));
 }
 
 .quick-setup-overview {

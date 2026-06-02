@@ -8317,8 +8317,10 @@ function renderSettingsInspector(options = {}) {
     appearanceSection.append(savedColorsDisclosurePanel());
     const appearanceActions = document.createElement("div");
     appearanceActions.className = "settings-actions appearance-actions";
-    appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look reset theme accent background terminal colors default");
+    appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look save profile reset theme accent background terminal colors default profiles");
     appearanceActions.append(
+      settingsActionButton("Save profile", saveCurrentLookProfile, "primary", "appearance look save current settings profile theme accent background terminal layout performance"),
+      settingsActionButton("Profiles", () => openSettingsCategory("profiles"), "", "appearance look settings profiles saved apply update"),
       settingsActionButton("Reset look", resetAppearanceSettings, "", "appearance look reset theme accent background terminal colors default")
     );
     appearanceSection.append(appearanceActions);
@@ -13602,6 +13604,7 @@ function settingsActionIconMarkup(label, tone = "") {
   if (text.startsWith("export")) return controlIconMarkup("up");
   if (text.startsWith("home")) return controlIconMarkup("home");
   if (text.includes("speed") || text.includes("tune")) return quickActionIconMarkup("speed");
+  if (text.includes("profile")) return quickActionIconMarkup("profiles");
   if (text.includes("workspace")) return quickActionIconMarkup("workspace");
   if (text.includes("pane")) return quickActionIconMarkup("paneShape");
   if (text.includes("browser")) return controlIconMarkup("browser");
@@ -13901,11 +13904,11 @@ function settingsProfileCard(profile) {
   return card;
 }
 
-async function saveCurrentSettingsProfile() {
+async function saveCurrentSettingsProfile(options = {}) {
   const label = await showTextDialog({
-    title: "Save settings profile",
-    message: "Save the current look, layout, terminal, and performance settings.",
-    value: defaultSettingsProfileName(),
+    title: options.title || "Save settings profile",
+    message: options.message || "Save the current look, layout, terminal, and performance settings.",
+    value: options.value || defaultSettingsProfileName(options.baseName),
     placeholder: "Work setup",
     confirmLabel: "Save"
   });
@@ -13921,8 +13924,16 @@ async function saveCurrentSettingsProfile() {
   toast("Settings profile saved.");
 }
 
-function defaultSettingsProfileName() {
-  const base = "My profile";
+function saveCurrentLookProfile() {
+  return saveCurrentSettingsProfile({
+    title: "Save appearance profile",
+    message: "Save this look together with the current layout, terminal, and performance settings.",
+    baseName: "Look profile"
+  });
+}
+
+function defaultSettingsProfileName(baseName = "My profile") {
+  const base = String(baseName || "My profile").trim() || "My profile";
   if (!state.savedSettingsProfiles.some((profile) => profile.label.toLowerCase() === base.toLowerCase())) {
     return base;
   }
