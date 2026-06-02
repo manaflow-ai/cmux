@@ -1481,6 +1481,7 @@ body.reduce-motion *::after {
   position: absolute;
   right: 3px;
   top: 50%;
+  z-index: 2;
   transform: translateY(-50%);
   width: 20px;
   height: 20px;
@@ -1567,7 +1568,7 @@ body.reduce-motion *::after {
 .surface-tabs.is-crowded .surface-tab:hover .surface-label,
 .surface-tabs.is-crowded .surface-tab:focus-within .surface-label,
 .surface-tabs.is-crowded .surface-tab.is-active .surface-label {
-  padding-right: 18px;
+  padding-right: 24px;
 }
 
 .surface-close:hover {
