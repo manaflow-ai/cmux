@@ -68,6 +68,12 @@ func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
 	}
 
 	msg := err.Error()
+	// Pin the stable marker the Swift clients key their passthrough off of: a
+	// daemon wording change that dropped it would silently break client-side
+	// preservation of this diagnostic without failing any other assertion.
+	if !strings.Contains(msg, "could not allocate a remote PTY") {
+		t.Fatalf("error must preserve the stable PTY-allocation marker the clients key off: %q", msg)
+	}
 	if !strings.Contains(msg, "/dev/ptmx") {
 		t.Fatalf("error should name the device that could not be opened: %q", msg)
 	}
