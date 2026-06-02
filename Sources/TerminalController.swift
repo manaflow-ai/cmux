@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSettings
+import CmuxSocketControl
 import Carbon.HIToolbox
 import CMUXWorkstream
 import Foundation
@@ -129,6 +131,8 @@ class TerminalController {
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     private var tabManager: TabManager?
     private nonisolated(unsafe) var accessMode: SocketControlMode = .cmuxOnly
+    // Sendable value type; injected at construction so socket auth never reaches a global.
+    private nonisolated let passwordStore: SocketControlPasswordStore
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenBacklog: Int32 = 128
@@ -358,7 +362,8 @@ class TerminalController {
         }
     }
 
-    private init() {
+    private init(passwordStore: SocketControlPasswordStore = SocketControlPasswordStore()) {
+        self.passwordStore = passwordStore
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
             object: nil,
@@ -379,6 +384,15 @@ class TerminalController {
         listenerStateLock.lock()
         defer { listenerStateLock.unlock() }
         return body()
+    }
+
+    nonisolated func currentSocketPathForRemoteRestore() -> String? {
+        withListenerState {
+            if isRunning || acceptLoopAlive || listenerStartInProgress || serverSocket >= 0 {
+                return socketPath
+            }
+            return reservedStartupSocketPath
+        }
     }
 
     private nonisolated func listenerStateSnapshot() -> ListenerStateSnapshot {
@@ -2171,7 +2185,7 @@ class TerminalController {
         guard lowered == "auth" || lowered.hasPrefix("auth ") else {
             return nil
         }
-        guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
+        guard passwordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
             return "ERROR: Password mode is enabled but no socket password is configured in Settings."
         }
 
@@ -2184,7 +2198,7 @@ class TerminalController {
         guard !provided.isEmpty else {
             return "ERROR: Missing password. Usage: auth <password>"
         }
-        guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
+        guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
             return "ERROR: Invalid password"
         }
         authenticated = true
@@ -2208,7 +2222,7 @@ class TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "auth.login requires params.password")
         }
 
-        guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
+        guard passwordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
             return v2Error(
                 id: id,
                 code: "auth_unconfigured",
@@ -2216,7 +2230,7 @@ class TerminalController {
             )
         }
 
-        guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
+        guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
             return v2Error(id: id, code: "auth_failed", message: "Invalid password")
         }
         authenticated = true
@@ -3760,6 +3774,24 @@ class TerminalController {
             return v2Result(id: id, self.v2MarkdownOpen(params: params))
         case "file.open":
             return v2Result(id: id, self.v2FileOpen(params: params))
+
+        // Project
+        case "project.open":
+            return v2Result(id: id, self.v2ProjectOpen(params: params))
+        case "project.set_tab":
+            return v2Result(id: id, self.v2ProjectSetTab(params: params))
+        case "project.set_scheme":
+            return v2Result(id: id, self.v2ProjectSetScheme(params: params))
+        case "project.set_configuration":
+            return v2Result(id: id, self.v2ProjectSetConfiguration(params: params))
+        case "project.set_selected_target":
+            return v2Result(id: id, self.v2ProjectSetSelectedTarget(params: params))
+        case "project.set_selected_file":
+            return v2Result(id: id, self.v2ProjectSetSelectedFile(params: params))
+        case "project.set_settings_filter":
+            return v2Result(id: id, self.v2ProjectSetSettingsFilter(params: params))
+        case "project.get_state":
+            return v2Result(id: id, self.v2ProjectGetState(params: params))
 
         case "surface.read_text":
             return v2Result(id: id, self.v2SurfaceReadText(params: params))
@@ -6473,7 +6505,7 @@ class TerminalController {
         // Placement resolution: explicit `placement` param wins, then the
         // group's per-cwd `newWorkspacePlacement` from cmux.json, then the
         // global default. The CLI exposes this as
-        // `cmux workspace-group new-workspace <group> --placement <top|end>`.
+        // `cmux workspace-group new-workspace <group> --placement <afterCurrent|top|end>`.
         let placementRaw = v2String(params, "placement")
         let explicitPlacement = WorkspaceGroupNewPlacement(rawString: placementRaw)
         if let raw = placementRaw,
@@ -6481,7 +6513,7 @@ class TerminalController {
            explicitPlacement == nil {
             return .err(
                 code: "invalid_params",
-                message: "placement must be one of: top, end",
+                message: "placement must be one of: afterCurrent, top, end",
                 data: ["placement": raw]
             )
         }
@@ -6542,12 +6574,15 @@ class TerminalController {
         let symbol: String? = (params["symbol"] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let normalized: String? = (symbol?.isEmpty == false) ? symbol : nil
         var ok = false
+        var storedIconSymbol: String?
         v2MainSync {
             ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
-            if ok { tabManager.setWorkspaceGroupIcon(groupId: gid, symbol: normalized) }
+            if ok {
+                storedIconSymbol = tabManager.setWorkspaceGroupIcon(groupId: gid, symbol: normalized)
+            }
         }
         return ok
-            ? .ok(["group_id": gid.uuidString, "icon_symbol": v2OrNull(normalized)])
+            ? .ok(["group_id": gid.uuidString, "icon_symbol": v2OrNull(storedIconSymbol)])
             : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
     }
 
@@ -6815,6 +6850,21 @@ class TerminalController {
         let localSocketPath = v2RawString(params, "local_socket_path")
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        var persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if v2HasNonNullParam(params, "persistent_daemon_slot") {
+            guard let persistentDaemonSlot,
+                  !persistentDaemonSlot.isEmpty,
+                  persistentDaemonSlot.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil,
+                  persistentDaemonSlot != ".",
+                  persistentDaemonSlot != ".." else {
+                return .err(
+                    code: "invalid_params",
+                    message: "persistent_daemon_slot must contain only letters, numbers, '.', '_' or '-'",
+                    data: nil
+                )
+            }
+        }
         let daemonWebSocketURL = v2RawString(params, "daemon_websocket_url")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let daemonWebSocketToken = v2RawString(params, "daemon_websocket_token")?
@@ -6856,6 +6906,20 @@ class TerminalController {
             )
         }
         let skipDaemonBootstrap = v2Bool(params, "skip_daemon_bootstrap") ?? false
+        if persistentDaemonSlot != nil, !preserveAfterTerminalExit {
+            return .err(
+                code: "invalid_params",
+                message: "preserve_after_terminal_exit is required when persistent_daemon_slot is set",
+                data: nil
+            )
+        }
+        if preserveAfterTerminalExit,
+           transport == .ssh,
+           !skipDaemonBootstrap,
+           daemonWebSocketEndpoint == nil,
+           persistentDaemonSlot == nil {
+            persistentDaemonSlot = "ssh-\(workspaceId.uuidString.lowercased())"
+        }
         if relayPort != nil {
             guard let relayID, !relayID.isEmpty else {
                 return .err(code: "invalid_params", message: "relay_id is required when relay_port is set", data: nil)
@@ -6902,6 +6966,7 @@ class TerminalController {
                 foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
                 daemonWebSocketEndpoint: daemonWebSocketEndpoint,
                 preserveAfterTerminalExit: preserveAfterTerminalExit,
+                persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
                 skipDaemonBootstrap: skipDaemonBootstrap
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
@@ -12212,12 +12277,19 @@ class TerminalController {
             let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
             let insertFirst = (direction == .left || direction == .up)
 
+            if params["font_size"] != nil, v2Double(params, "font_size") == nil {
+                result = .err(code: "invalid_params", message: "Invalid 'font_size' (expected a number)", data: nil)
+                return
+            }
+            let fontSize = v2Double(params, "font_size").map { MarkdownFontSizeSettings.clamp($0) }
+
             let createdPanel = ws.newMarkdownSplit(
                 from: sourceSurfaceId,
                 orientation: orientation,
                 insertFirst: insertFirst,
                 filePath: filePath,
-                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false),
+                fontSize: fontSize
             )
 
             guard let markdownPanelId = createdPanel?.id else {
@@ -12246,6 +12318,182 @@ class TerminalController {
             ])
         }
         return result
+    }
+
+    // MARK: - Project
+
+    private func v2ProjectOpen(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let rawPath = v2String(params, "path") else {
+            return .err(code: "invalid_params", message: "Missing 'path' parameter", data: nil)
+        }
+        let expanded = (rawPath as NSString).expandingTildeInPath
+        let resolved: String
+        if expanded.hasPrefix("/") {
+            resolved = expanded
+        } else {
+            resolved = (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent(expanded)
+        }
+        guard FileManager.default.fileExists(atPath: resolved) else {
+            return .err(code: "not_found", message: "Project not found at \(resolved)", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to create project panel", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+            guard let paneId = ws.bonsplitController.focusedPaneId else {
+                result = .err(code: "not_found", message: "No focused pane to open project in", data: nil)
+                return
+            }
+
+            guard let panel = ws.newProjectSurface(
+                inPane: paneId,
+                projectPath: resolved,
+                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+            ) else {
+                result = .err(code: "internal_error", message: "Failed to create project panel", data: nil)
+                return
+            }
+            let targetPaneUUID = ws.paneId(forPanelId: panel.id)?.id
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "workspace_id": ws.id.uuidString,
+                "pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                "surface_id": panel.id.uuidString,
+                "path": resolved
+            ])
+        }
+        return result
+    }
+
+    // MARK: - Project state driving (debug RPC for autonomous iteration)
+
+    private func v2ResolveProjectPanel(params: [String: Any]) -> (Workspace, ProjectPanel)? {
+        guard let tabManager = v2ResolveTabManager(params: params) else { return nil }
+        var result: (Workspace, ProjectPanel)?
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId,
+                  let panel = ws.panels[surfaceId] as? ProjectPanel else { return }
+            result = (ws, panel)
+        }
+        return result
+    }
+
+    private func v2ProjectSetTab(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        guard let raw = v2String(params, "tab"),
+              let tab = ProjectPanelTab(rawValue: raw) else {
+            return .err(code: "invalid_params", message: "tab must be one of files|targets|buildSettings|schemes", data: nil)
+        }
+        v2MainSync { panel.activeTab = tab }
+        return .ok(["tab": tab.rawValue])
+    }
+
+    private func v2ProjectSetScheme(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let name = v2String(params, "name")
+        v2MainSync { panel.selectedSchemeName = name }
+        return .ok(["scheme": name ?? ""])
+    }
+
+    private func v2ProjectSetConfiguration(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let name = v2String(params, "name")
+        v2MainSync { panel.selectedConfigurationName = name }
+        return .ok(["configuration": name ?? ""])
+    }
+
+    private func v2ProjectSetSelectedTarget(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let name = v2String(params, "name")
+        var resolvedID: String?
+        v2MainSync {
+            if let name, !name.isEmpty,
+               let module = panel.loadState.model?.modules.first,
+               let target = module.targets.first(where: { $0.displayName == name }) {
+                panel.selectedTargetID = target.id
+                resolvedID = target.id.rawValue
+            } else {
+                panel.selectedTargetID = nil
+            }
+        }
+        return .ok(["target_name": name ?? "", "target_id": resolvedID ?? ""])
+    }
+
+    private func v2ProjectSetSelectedFile(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let path = v2String(params, "path")
+        v2MainSync { panel.selectedFilePath = path }
+        return .ok(["selected_file": path ?? ""])
+    }
+
+    private func v2ProjectSetSettingsFilter(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let text = v2String(params, "text") ?? ""
+        v2MainSync { panel.settingsSearchText = text }
+        return .ok(["filter": text])
+    }
+
+    private func v2ProjectGetState(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        var snapshot: [String: Any] = [:]
+        v2MainSync {
+            snapshot["surface_id"] = panel.id.uuidString
+            snapshot["project_url"] = panel.projectURL.path
+            snapshot["active_tab"] = panel.activeTab.rawValue
+            snapshot["selected_scheme"] = panel.selectedSchemeName ?? ""
+            snapshot["selected_configuration"] = panel.selectedConfigurationName ?? ""
+            snapshot["selected_target_id"] = panel.selectedTargetID?.rawValue ?? ""
+            snapshot["selected_file"] = panel.selectedFilePath ?? ""
+            snapshot["settings_filter"] = panel.settingsSearchText
+            switch panel.loadState {
+            case .idle:
+                snapshot["load_state"] = "idle"
+            case .loading:
+                snapshot["load_state"] = "loading"
+            case let .failed(reason):
+                snapshot["load_state"] = "failed"
+                snapshot["load_error"] = reason
+            case let .loaded(model):
+                snapshot["load_state"] = "loaded"
+                snapshot["module_count"] = model.modules.count
+                if let module = model.modules.first {
+                    snapshot["module_name"] = module.displayName
+                    snapshot["target_count"] = module.targets.count
+                    snapshot["target_names"] = module.targets.map(\.displayName)
+                    snapshot["scheme_count"] = module.schemes.count
+                    snapshot["scheme_names"] = module.schemes.map(\.name)
+                    snapshot["configuration_names"] = module.configurationNames
+                    snapshot["root_group_children"] = module.rootGroup.children.count
+                }
+            }
+        }
+        return .ok(snapshot)
     }
 
     // MARK: - Browser
@@ -12317,6 +12565,7 @@ class TerminalController {
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
+            let transparentBackground = v2Bool(params, "transparent_background") ?? false
             let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
 
             var createdSplit = true
@@ -12330,6 +12579,7 @@ class TerminalController {
                     selectWhenNotFocused: true,
                     creationPolicy: .automationPreload,
                     omnibarVisible: omnibarVisible,
+                    transparentBackground: transparentBackground,
                     bypassRemoteProxy: bypassRemoteProxy
                 )
                 createdSplit = false
@@ -12342,6 +12592,7 @@ class TerminalController {
                     focus: focus,
                     creationPolicy: .automationPreload,
                     omnibarVisible: omnibarVisible,
+                    transparentBackground: transparentBackground,
                     bypassRemoteProxy: bypassRemoteProxy
                 )
             }
@@ -12371,6 +12622,7 @@ class TerminalController {
                 "created_split": createdSplit,
                 "placement_strategy": placementStrategy,
                 "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible,
+                "transparent_background": transparentBackground,
                 "bypass_remote_proxy": bypassRemoteProxy
             ])
         }
@@ -16452,8 +16704,7 @@ class TerminalController {
             // starting SidebarDragFailsafeMonitor — it would otherwise post
             // mouse_up_failsafe immediately because no real mouse is pressed.
             dragState.isSimulated = true
-            dragState.draggedTabId = fromTabId
-            dragState.dropIndicator = nil
+            dragState.beginDragging(tabId: fromTabId)
             return true
         }
         guard startedOK else {
@@ -16475,7 +16726,7 @@ class TerminalController {
             }
             let tickOK: Bool = v2MainSync {
                 guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
-                dragState.dropIndicator = SidebarDropIndicator(tabId: targetTabId, edge: edge)
+                dragState.setDropIndicator(SidebarDropIndicator(tabId: targetTabId, edge: edge))
                 return true
             }
             if !tickOK {
@@ -16489,8 +16740,7 @@ class TerminalController {
 
         v2MainSync {
             guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
-            dragState.draggedTabId = nil
-            dragState.dropIndicator = nil
+            dragState.clearDrag()
             dragState.isSimulated = false
         }
 
@@ -16808,7 +17058,7 @@ class TerminalController {
 
         Input commands:
           send <text>                     - Send text to current terminal
-          send_key <key>                  - Send special key (ctrl-c, ctrl-d, enter, tab, escape)
+          send_key <key>                  - Send special key (ctrl-c, ctrl-d, ctrl-f, enter, tab, escape)
           send_surface <id|idx> <text>    - Send text to a specific terminal
           send_key_surface <id|idx> <key> - Send special key to a specific terminal
           read_screen [id|idx] [--scrollback] [--lines N] - Read terminal text (plain text)
@@ -20714,7 +20964,7 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
-            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+            guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
@@ -20951,7 +21201,7 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
-            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+            guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
@@ -21273,7 +21523,11 @@ class TerminalController {
         }
 
         v2MainSync {
-            GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.reloadConfiguration(source: "socket.reload_config")
+            } else {
+                GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
+            }
         }
         return "OK Reloaded config"
     }

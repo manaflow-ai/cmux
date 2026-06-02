@@ -40,6 +40,7 @@ const sectionOrder = [
   "terminal",
   "notifications",
   "sidebar",
+  "workspaceGroups",
   "workspaceColors",
   "sidebarAppearance",
   "automation",
@@ -47,6 +48,7 @@ const sectionOrder = [
   "ui",
   "commands",
   "browser",
+  "markdown",
   "shortcuts",
 ] as const;
 
@@ -68,6 +70,8 @@ const settingsFileExample = `{
   //   "showScrollBar": false,
   //   "copyOnSelect": true,
   //   "autoResumeAgentSessions": true,
+  //   "showTextBoxOnNewTerminals": false,
+  //   "focusTextBoxOnNewTerminals": false,
   //   "agentHibernation": {
   //     "enabled": false,
   //     "idleSeconds": 3600,
@@ -85,6 +89,12 @@ const settingsFileExample = `{
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
   // },
 
+  // "markdown": {
+  //   // Default body font size (points) for newly opened markdown viewers.
+  //   // Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.
+  //   "fontSize": 15
+  // },
+
   // "automation": {
   //   "suppressSubagentNotifications": true
   // },
@@ -95,6 +105,10 @@ const settingsFileExample = `{
   //     "Blue": "#1565C0",
   //     "Neon Mint": "#00F5D4"
   //   }
+  // },
+
+  // "workspaceGroups": {
+  //   "newWorkspacePlacement": "afterCurrent"
   // },
 
   // "shortcuts": {
@@ -119,6 +133,11 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 
 function localizedText(text: LocalizedText, locale: string) {
   return locale.startsWith("ja") ? text.ja : text.en;
+}
+
+function shortcutToConfig(shortcut: { combos: string[][]; configValue?: string }) {
+  if (shortcut.configValue) return shortcut.configValue;
+  return shortcutComboToConfig(shortcut.combos[0] ?? []);
 }
 
 function shortcutComboToConfig(combo: string[]) {
@@ -273,6 +292,8 @@ touch ~/.config/ghostty/config`}</CodeBlock>
       <DocsHeading level={2} id="example-config">{t("exampleConfig")}</DocsHeading>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`font-family = SF Mono
 font-size = 13
+sidebar-font-size = 14
+surface-tab-bar-font-size = 11
 theme = One Dark
 scrollback-limit = 50000000
 split-divider-color = #3e4451
@@ -418,7 +439,7 @@ working-directory = ~/code`}</CodeBlock>
                 </div>
                 <div className="text-sm text-muted">
                   <div className="font-medium text-foreground">Default file value</div>
-                  <code>{shortcutComboToConfig(shortcut.combos[0] ?? [])}</code>
+                  <code>{shortcutToConfig(shortcut)}</code>
                 </div>
               </div>
             ))}

@@ -45,7 +45,7 @@
     "taglinePrefix": "Il terminale progettato per ",
     "typingCodingAgents": "agenti di codice",
     "typingMultitasking": "multitasking",
-    "subtitle": "App macOS nativa basata su Ghostty. Tab verticali, notifiche quando gli agenti hanno bisogno di attenzione, pannelli divisi e un'API socket per l'automazione.",
+    "subtitle": "App macOS nativa basata su Ghostty. Tab verticali, notifiche quando gli agenti hanno bisogno di attenzione, pannelli divisi e una <cliLink>CLI</cliLink> per la programmabilità.",
     "features": "Funzionalità",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -495,15 +495,24 @@
           "confirmQuit": "Controlla quando cmux chiede conferma prima di uscire. Le build DEV escono sempre immediatamente indipendentemente da questa impostazione. Il vecchio app.warnBeforeQuit è ancora accettato come fallback booleano.",
           "warnBeforeQuit": "Fallback booleano legacy per la conferma di uscita. Usa app.confirmQuit per le nuove configurazioni.",
           "warnBeforeClosingTabXButton": "Mostra una conferma prima di chiudere una scheda con il pulsante di chiusura scheda.",
-          "hideTabCloseButton": "Nasconde i pulsanti di chiusura scheda nella barra delle schede del riquadro."
+          "hideTabCloseButton": "Nasconde i pulsanti di chiusura scheda nella barra delle schede del riquadro.",
+          "forkConversationDefaultDestination": "Destinazione predefinita per l'azione principale Fork Conversation nel menu contestuale della scheda. Il sottomenu mostra comunque tutte le destinazioni."
         },
         "terminal": {
-          "copyOnSelect": "Copia il testo selezionato nel terminale negli appunti di sistema quando la selezione viene confermata, incluse le selezioni di parole e righe con doppio e triplo clic."
+          "copyOnSelect": "Copia il testo selezionato nel terminale negli appunti di sistema quando la selezione viene confermata, incluse le selezioni di parole e righe con doppio e triplo clic.",
+          "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
+          "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox."
         },
         "browser": {
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
           "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
           "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "Valore predefinito globale per dove Cmd-N dentro un gruppo, il pulsante + nell’intestazione del gruppo e le azioni di gruppo configurate inseriscono il nuovo workspace: `afterCurrent` (dopo il workspace attivo nel gruppo, con fallback a top), `top` (seconda posizione, subito dopo l’ancora) o `end` (dopo l’ultimo membro).",
+          "byCwd": {
+            "newWorkspacePlacement": "Override per cwd per dove Cmd-N dentro il gruppo, il pulsante + nell’intestazione del gruppo e le azioni di gruppo configurate inseriscono il nuovo workspace: `afterCurrent` (dopo il workspace attivo nel gruppo, con fallback a top), `top` (seconda posizione, subito dopo l’ancora) o `end` (dopo l’ultimo membro). Se omesso, usa il valore predefinito globale."
+          }
         }
       }
     },
@@ -626,7 +635,8 @@
         "notifications": "Notifiche",
         "find": "Ricerca",
         "terminal": "Terminale",
-        "window": "Finestra"
+        "window": "Finestra",
+        "diffViewer": "Visualizzatore diff"
       },
       "sc": {
         "ws-new": "Nuovo workspace",
@@ -672,7 +682,7 @@
       "metaTitle": "Scorciatoie da tastiera"
     },
     "api": {
-      "title": "Riferimento API",
+      "title": "Riferimento CLI",
       "metaDescription": "Riferimento API CLI e socket Unix di cmux. Gestione workspace, pannelli divisi, controllo input, notifiche, metadati della barra laterale, variabili d'ambiente e metodi di rilevamento.",
       "intro": "cmux fornisce sia uno strumento CLI che un socket Unix per il controllo programmatico. Ogni comando è disponibile tramite entrambe le interfacce.",
       "socket": "Socket",
@@ -751,7 +761,7 @@
       "pythonClient": "Client Python",
       "shellScript": "Script shell",
       "buildScriptNotification": "Script di build con notifica",
-      "metaTitle": "Riferimento API"
+      "metaTitle": "Riferimento CLI"
     },
     "notifications": {
       "title": "Notifiche",
@@ -894,7 +904,7 @@
       "authoringCallout": "Quando aggiungi una nuova competenza, includi <code>agents/openai.yaml</code> così l’installer espone un nome chiaro, una descrizione breve e un prompt predefinito.",
       "relatedTitle": "Documentazione correlata",
       "relatedBrowserAutomation": "Automazione del browser",
-      "relatedApi": "Riferimento API",
+      "relatedApi": "Riferimento CLI",
       "relatedCustomCommands": "Comandi personalizzati"
     },
     "changelog": {
@@ -909,7 +919,7 @@
       "sessionRestore": "Ripristino sessione",
       "customCommands": "Comandi personalizzati",
       "keyboardShortcuts": "Scorciatoie da tastiera",
-      "apiReference": "Riferimento API",
+      "apiReference": "Riferimento CLI",
       "browserAutomation": "Automazione del browser",
       "skills": "Competenze",
       "notifications": "Notifiche",
@@ -919,7 +929,8 @@
       "changelog": "Changelog",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (Beta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1053,6 +1064,21 @@
       "daemonSession": "Gestione della sessione",
       "daemonSessionHow": "Mantiene le sessioni tra le riconnessioni, coordina il ridimensionamento PTY tra più allegati",
       "daemonPath": "Il binario del daemon è archiviato in ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote sull'host remoto e verificato rispetto a un manifest SHA-256 incorporato nell'app."
+    },
+    "textBox": {
+      "title": "TextBox (Beta)",
+      "metaTitle": "TextBox (Beta)",
+      "metaDescription": "Configura l'input TextBox beta di cmux per nuove schede, divisioni e workspace del terminale.",
+      "intro": "TextBox è la superficie di input avanzata di cmux per comporre prompt prima di inviarli a un terminale.",
+      "betaCallout": "TextBox è una funzionalità beta. Valori predefiniti e comportamento possono cambiare durante i test.",
+      "defaultsTitle": "Valori predefiniti",
+      "defaultsDesc": "Le impostazioni di TextBox sono in Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals apre nuovi workspace, schede e divisioni del terminale con TextBox visibile, mantenendo il focus nel terminale.",
+      "focusSetting": "Focus TextBox on New Terminals sposta il focus della tastiera in TextBox. Il focus mostra anche TextBox.",
+      "maxLinesSetting": "TextBox Max Lines limita l'altezza di TextBox prima che il contenuto inizi a scorrere.",
+      "configTitle": "cmux.json",
+      "configDesc": "Imposta gli stessi valori predefiniti in ~/.config/cmux/cmux.json sotto terminal:",
+      "focusNote": "Le sessioni ripristinate mantengono la visibilità e lo stato del focus di TextBox salvati. Questi valori si applicano solo alle nuove superfici terminale."
     }
   },
   "legal": {

@@ -1373,6 +1373,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
     var textBoxDraft: SessionTextBoxInputDraftSnapshot?
+    var isRemoteTerminal: Bool?
     var remotePTYSessionID: String?
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
@@ -1386,6 +1387,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
+        isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil
     ) {
@@ -1396,6 +1398,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.hibernation = hibernation
         self.resumeBinding = resumeBinding
         self.textBoxDraft = textBoxDraft
+        self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
     }
@@ -1496,9 +1499,78 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var shouldRenderWebView: Bool
     var pageZoom: Double
     var developerToolsVisible: Bool
+    var isMuted: Bool
     var omnibarVisible: Bool? = nil
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
+    /// True when the surface is a transparent internal cmux UI (e.g. the diff
+    /// viewer). Restored so the surface comes back transparent, not opaque.
+    var transparentBackground: Bool? = nil
+    /// Diff viewer token + request path, when this browser surface hosts a diff
+    /// viewer. Restored by re-registering the token with the app-owned
+    /// `CmuxDiffViewerURLSchemeHandler` and navigating via the custom scheme,
+    /// independent of the (possibly-dead) local HTTP server.
+    var diffViewerToken: String? = nil
+    var diffViewerRequestPath: String? = nil
+
+    init(
+        urlString: String?,
+        profileID: UUID?,
+        shouldRenderWebView: Bool,
+        pageZoom: Double,
+        developerToolsVisible: Bool,
+        isMuted: Bool = false,
+        omnibarVisible: Bool? = nil,
+        backHistoryURLStrings: [String]?,
+        forwardHistoryURLStrings: [String]?,
+        transparentBackground: Bool? = nil,
+        diffViewerToken: String? = nil,
+        diffViewerRequestPath: String? = nil
+    ) {
+        self.urlString = urlString
+        self.profileID = profileID
+        self.shouldRenderWebView = shouldRenderWebView
+        self.pageZoom = pageZoom
+        self.developerToolsVisible = developerToolsVisible
+        self.isMuted = isMuted
+        self.omnibarVisible = omnibarVisible
+        self.backHistoryURLStrings = backHistoryURLStrings
+        self.forwardHistoryURLStrings = forwardHistoryURLStrings
+        self.transparentBackground = transparentBackground
+        self.diffViewerToken = diffViewerToken
+        self.diffViewerRequestPath = diffViewerRequestPath
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case urlString
+        case profileID
+        case shouldRenderWebView
+        case pageZoom
+        case developerToolsVisible
+        case isMuted
+        case omnibarVisible
+        case backHistoryURLStrings
+        case forwardHistoryURLStrings
+        case transparentBackground
+        case diffViewerToken
+        case diffViewerRequestPath
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        urlString = try container.decodeIfPresent(String.self, forKey: .urlString)
+        profileID = try container.decodeIfPresent(UUID.self, forKey: .profileID)
+        shouldRenderWebView = try container.decode(Bool.self, forKey: .shouldRenderWebView)
+        pageZoom = try container.decode(Double.self, forKey: .pageZoom)
+        developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)
+        isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        omnibarVisible = try container.decodeIfPresent(Bool.self, forKey: .omnibarVisible)
+        backHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .backHistoryURLStrings)
+        forwardHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .forwardHistoryURLStrings)
+        transparentBackground = try container.decodeIfPresent(Bool.self, forKey: .transparentBackground)
+        diffViewerToken = try container.decodeIfPresent(String.self, forKey: .diffViewerToken)
+        diffViewerRequestPath = try container.decodeIfPresent(String.self, forKey: .diffViewerRequestPath)
+    }
 }
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
@@ -1523,6 +1595,28 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let raw = try container.decodeIfPresent(String.self, forKey: .mode)
         self.mode = raw.flatMap { RightSidebarMode(rawValue: $0) }
+    }
+}
+
+struct SessionProjectPanelSnapshot: Codable, Sendable {
+    var projectPath: String
+    var selectedNodePath: String?
+    var activeTab: String?
+    var selectedSchemeName: String?
+    var selectedConfigurationName: String?
+
+    init(
+        projectPath: String,
+        selectedNodePath: String? = nil,
+        activeTab: String? = nil,
+        selectedSchemeName: String? = nil,
+        selectedConfigurationName: String? = nil
+    ) {
+        self.projectPath = projectPath
+        self.selectedNodePath = selectedNodePath
+        self.activeTab = activeTab
+        self.selectedSchemeName = selectedSchemeName
+        self.selectedConfigurationName = selectedConfigurationName
     }
 }
 
@@ -1605,6 +1699,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
+    var project: SessionProjectPanelSnapshot?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {
@@ -1679,6 +1774,10 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
+    /// Original workspace ID captured when the snapshot comes from a live workspace.
+    /// Restore uses this to remap closed-panel history onto the new workspace IDs;
+    /// legacy or externally-created snapshots can leave it nil.
+    var workspaceId: UUID? = nil
     var processTitle: String
     var customTitle: String?
     var customDescription: String?
@@ -1739,6 +1838,7 @@ struct SessionTabManagerSnapshot: Codable, Sendable {
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {
+    var windowId: UUID? = nil
     var frame: SessionRectSnapshot?
     var display: SessionDisplaySnapshot?
     var tabManager: SessionTabManagerSnapshot
@@ -1885,7 +1985,14 @@ enum SessionScrollbackReplayStore {
     private static func normalizedScrollback(_ scrollback: String?) -> String? {
         guard let scrollback else { return nil }
         guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
-        guard let truncated = SessionPersistencePolicy.truncatedScrollback(scrollback) else { return nil }
+        // Restored history must not reconfigure the live terminal's colors: the
+        // active theme owns the default foreground/background (and palette), so
+        // default-colored cells track it. The captured scrollback bakes the
+        // capture-time theme via terminal-color OSC sequences (e.g. OSC 10/11),
+        // which would otherwise survive a theme change as white-on-white output
+        // (issue #5165). Strip them before replay.
+        let themePortable = strippingTerminalColorOSCSequences(scrollback)
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(themePortable) else { return nil }
         return ansiSafeReplayText(truncated)
     }
 
@@ -1900,6 +2007,97 @@ enum SessionScrollbackReplayStore {
             output += ansiReset
         }
         return output
+    }
+
+    /// Removes terminal-color OSC sequences (palette entries and the dynamic
+    /// foreground/background/cursor/highlight colors plus their resets) from
+    /// captured scrollback so the restored history does not reconfigure the live
+    /// terminal's colors.
+    ///
+    /// Ghostty's `write_screen_file:copy,vt` export bakes the capture-time theme
+    /// by prepending `OSC 10` / `OSC 11` (and resolving palette entries). Replaying
+    /// those into a freshly launched terminal would override the active theme's
+    /// default colors, so restored default-colored cells would keep the old theme
+    /// (white-on-white after a theme change — issue #5165). Explicit per-cell SGR
+    /// colors and every non-color escape sequence (titles, hyperlinks, prompt
+    /// marks, …) are preserved verbatim.
+    private static func strippingTerminalColorOSCSequences(_ text: String) -> String {
+        let escByte: UInt8 = 0x1B
+        let oscIntroducer: UInt8 = 0x5D // ]
+        let bel: UInt8 = 0x07
+        let backslash: UInt8 = 0x5C
+        let zero: UInt8 = 0x30
+        let nine: UInt8 = 0x39
+
+        let bytes = Array(text.utf8)
+        guard bytes.contains(escByte) else { return text }
+
+        var output = [UInt8]()
+        output.reserveCapacity(bytes.count)
+        let count = bytes.count
+        var index = 0
+        while index < count {
+            let byte = bytes[index]
+            guard byte == escByte,
+                  index + 1 < count,
+                  bytes[index + 1] == oscIntroducer else {
+                output.append(byte)
+                index += 1
+                continue
+            }
+
+            // Parse the OSC numeric command (Ps) following `ESC ]`.
+            var cursor = index + 2
+            var code = 0
+            var sawDigit = false
+            while cursor < count, bytes[cursor] >= zero, bytes[cursor] <= nine {
+                code = (code * 10) + Int(bytes[cursor] - zero)
+                sawDigit = true
+                cursor += 1
+                if code > 100_000 { break } // overflow guard for malformed input
+            }
+
+            guard sawDigit, isTerminalColorOSCCode(code) else {
+                // Not a terminal-color OSC; emit `ESC` and resume scanning so the
+                // rest of the preserved sequence is copied verbatim.
+                output.append(byte)
+                index += 1
+                continue
+            }
+
+            // Consume through the OSC terminator (BEL or `ESC \` / ST). A truncated
+            // (unterminated) color OSC at the end of the buffer is dropped as well.
+            var end = cursor
+            var terminated = false
+            while end < count {
+                if bytes[end] == bel {
+                    end += 1
+                    terminated = true
+                    break
+                }
+                if bytes[end] == escByte, end + 1 < count, bytes[end + 1] == backslash {
+                    end += 2
+                    terminated = true
+                    break
+                }
+                end += 1
+            }
+            index = terminated ? end : count
+        }
+
+        return String(decoding: output, as: UTF8.self)
+    }
+
+    /// Returns `true` for OSC command numbers that configure terminal colors
+    /// (palette entries and the dynamic foreground/background/cursor/highlight
+    /// colors plus their resets), which restored scrollback must not carry.
+    private static func isTerminalColorOSCCode(_ code: Int) -> Bool {
+        switch code {
+        case 4, 5, 104, 105: return true // palette / special color set + reset
+        case 10...19: return true        // dynamic colors (fg, bg, cursor, …)
+        case 110...119: return true      // dynamic color resets
+        default: return false
+        }
     }
 
     private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {

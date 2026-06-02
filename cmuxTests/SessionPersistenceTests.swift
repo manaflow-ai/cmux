@@ -126,6 +126,45 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(store.notificationMenuSnapshot.hasUnreadNotifications)
     }
 
+    @MainActor
+    func testRestoreSessionNotificationsKeepsNotificationIdsUniqueWhenSnapshotIsDuplicated() throws {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let duplicateId = UUID()
+        let liveWorkspaceId = UUID()
+        let restoredWorkspaceId = UUID()
+        let existing = TerminalNotification(
+            id: duplicateId,
+            tabId: liveWorkspaceId,
+            surfaceId: nil,
+            title: "Existing",
+            subtitle: "codex",
+            body: "Already in the running app",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isRead: false
+        )
+        let restored = TerminalNotification(
+            id: duplicateId,
+            tabId: restoredWorkspaceId,
+            surfaceId: nil,
+            title: "Restored",
+            subtitle: "codex",
+            body: "From the previous launch snapshot",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_001),
+            isRead: false
+        )
+
+        store.replaceNotificationsForTesting([existing])
+        store.restoreSessionNotifications([restored], forTabId: restoredWorkspaceId)
+
+        XCTAssertEqual(store.notifications.count, 2)
+        XCTAssertEqual(Set(store.notifications.map(\.id)).count, 2)
+        XCTAssertTrue(store.notifications.contains { $0.tabId == liveWorkspaceId && $0.id == duplicateId })
+        XCTAssertTrue(store.notifications.contains { $0.tabId == restoredWorkspaceId && $0.id != duplicateId })
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -344,6 +383,7 @@ final class SessionPersistenceTests: XCTestCase {
             shouldRenderWebView: true,
             pageZoom: 1.2,
             developerToolsVisible: true,
+            isMuted: true,
             omnibarVisible: false,
             backHistoryURLStrings: [
                 "https://example.com/a",
@@ -358,6 +398,7 @@ final class SessionPersistenceTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: data)
         XCTAssertEqual(decoded.urlString, source.urlString)
         XCTAssertEqual(decoded.profileID, source.profileID)
+        XCTAssertEqual(decoded.isMuted, source.isMuted)
         XCTAssertEqual(decoded.omnibarVisible, false)
         XCTAssertEqual(decoded.backHistoryURLStrings, source.backHistoryURLStrings)
         XCTAssertEqual(decoded.forwardHistoryURLStrings, source.forwardHistoryURLStrings)
@@ -376,6 +417,7 @@ final class SessionPersistenceTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: json)
         XCTAssertEqual(decoded.urlString, "https://example.com/current")
         XCTAssertNil(decoded.profileID)
+        XCTAssertFalse(decoded.isMuted)
         XCTAssertNil(decoded.omnibarVisible)
         XCTAssertNil(decoded.backHistoryURLStrings)
         XCTAssertNil(decoded.forwardHistoryURLStrings)
@@ -442,6 +484,72 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(contents.contains("\(red)RED\(reset)"))
         XCTAssertTrue(contents.hasPrefix(reset))
         XCTAssertTrue(contents.hasSuffix(reset))
+    }
+
+    // Regression for https://github.com/manaflow-ai/cmux/issues/5165.
+    //
+    // Ghostty's `write_screen_file:copy,vt` export (used to capture session
+    // scrollback) prepends OSC 10 / OSC 11 sequences that bake the capture-time
+    // theme's default foreground/background. Replaying those into a freshly
+    // launched terminal reconfigures the live terminal's dynamic colors, so
+    // restored default-colored cells keep the OLD theme instead of tracking the
+    // active one — producing white-on-white scrollback after a theme change.
+    // The active theme owns default fg/bg, so the restored history must not carry
+    // these terminal-color OSC sequences.
+    func testScrollbackReplayStripsThemeBakedDefaultColorOSCSequences() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let esc = "\u{001B}"
+        // Captured under a dark theme: default fg baked white, default bg baked dark.
+        let setForeground = "\(esc)]10;rgb:ff/ff/ff\(esc)\\"
+        let setBackground = "\(esc)]11;rgb:28/2c/34\(esc)\\"
+        // A BEL-terminated cursor-color OSC, the other dynamic-color terminator form.
+        let setCursor = "\(esc)]12;rgb:c0/c1/b5\u{0007}"
+        // Palette set/reset and a dynamic-color reset are equally theme state that
+        // restored history must not re-impose, so they are stripped too.
+        let setPalette = "\(esc)]4;1;rgb:aa/00/00\(esc)\\"
+        let resetPalette = "\(esc)]104;1\(esc)\\"
+        let resetForeground = "\(esc)]110;\(esc)\\"
+        let red = "\(esc)[31m"
+        let reset = "\(esc)[0m"
+        // OSC 8 hyperlinks are scrollback content, not terminal color config; keep them.
+        let hyperlink = "\(esc)]8;;https://example.com\(esc)\\link\(esc)]8;;\(esc)\\"
+        let source = "\(setForeground)\(setBackground)\(setCursor)"
+            + "\(setPalette)\(resetPalette)\(resetForeground)plain default text\n"
+            + "\(red)RED\(reset) \(hyperlink)\n"
+
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: source,
+            tempDirectory: tempDir
+        )
+
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
+            XCTFail("Expected replay file path")
+            return
+        }
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file contents")
+            return
+        }
+
+        // Terminal-color OSC sequences must be stripped so the active theme owns
+        // default fg/bg/cursor and restored default cells track it.
+        XCTAssertFalse(contents.contains("\(esc)]10;"), "OSC 10 (set foreground) must be stripped")
+        XCTAssertFalse(contents.contains("\(esc)]11;"), "OSC 11 (set background) must be stripped")
+        XCTAssertFalse(contents.contains("\(esc)]12;"), "OSC 12 (set cursor color) must be stripped")
+        XCTAssertFalse(contents.contains("\(esc)]4;"), "OSC 4 (set palette entry) must be stripped")
+        XCTAssertFalse(contents.contains("\(esc)]104;"), "OSC 104 (reset palette entry) must be stripped")
+        XCTAssertFalse(contents.contains("\(esc)]110;"), "OSC 110 (reset foreground) must be stripped")
+        XCTAssertFalse(contents.contains("rgb:ff/ff/ff"), "baked default-color payload must be gone")
+        XCTAssertFalse(contents.contains("rgb:aa/00/00"), "baked palette payload must be gone")
+
+        // Explicit SGR colors, plain text, and hyperlinks are preserved verbatim.
+        XCTAssertTrue(contents.contains("plain default text"))
+        XCTAssertTrue(contents.contains("\(red)RED\(reset)"))
+        XCTAssertTrue(contents.contains(hyperlink), "non-color OSC sequences must be preserved")
     }
 
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
@@ -1345,6 +1453,15 @@ final class SessionPersistenceTests: XCTestCase {
                 ]
             ),
             (
+                .kiro,
+                [
+                    "/usr/local/bin/kiro-cli",
+                    "chat",
+                    "--agent",
+                    "cmux",
+                ]
+            ),
+            (
                 .opencode,
                 [
                     "/usr/local/bin/opencode",
@@ -1552,6 +1669,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = [:]
             case .gemini:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
+            case .kiro:
+                resolvedEnvironment = ["KIRO_HOME": "/tmp/kiro"]
             case .antigravity:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
             case .opencode:
@@ -4866,6 +4985,158 @@ extension SessionPersistenceTests {
         )
         XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
         XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+    }
+
+    func testHermesAgentHookSurfaceResumeBootstrapsSubrouterAndRewritesStaleCodexProvider() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-surface-resume-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try """
+        model = "gpt-5.5"
+        openai_base_url = "http://subrouter-team:31415/v1"
+        chatgpt_base_url = "http://subrouter-team:31415/backend-api"
+        """.write(to: codexHome.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "cd '/tmp/project' && 'hermes' '--provider' 'openai-codex' '--resume' 'hermes-session-123'",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            environment: [
+                "CODEX_HOME": codexHome.path,
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        XCTAssertTrue(input.contains("config set model.provider"))
+        XCTAssertTrue(input.contains("config set model.base_url"))
+        XCTAssertTrue(input.contains("config set model.api_mode"))
+        XCTAssertTrue(input.contains("codex_responses"))
+        XCTAssertTrue(input.contains("gpt-5.5"))
+        XCTAssertTrue(input.contains("'--provider' '\\''custom'\\'''") || input.contains("'--provider' 'custom'"))
+        XCTAssertFalse(input.contains("openai-codex"))
+    }
+
+    func testHermesAgentHookSurfaceResumeBootstrapUsesCapturedExecutable() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "cd '/tmp/hermes' && '/opt/homebrew/bin/hermes' '--provider' 'custom' '--resume' 'hermes-session-123'",
+            cwd: "/tmp/hermes",
+            source: "agent-hook",
+            environment: [
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.provider"))
+        XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.base_url"))
+    }
+
+    func testHermesAgentHookSurfaceResumeBootstrapStaysInsideCwdGuard() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "{ cd -- '/tmp/hermes project' 2>/dev/null || [ ! -d '/tmp/hermes project' ]; } && './hermes' '--provider' 'custom' '--resume' 'hermes-session-123'",
+            cwd: "/tmp/hermes project",
+            source: "agent-hook",
+            environment: [
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        let cdRange = try XCTUnwrap(input.range(of: "cd --"))
+        let bootstrapRange = try XCTUnwrap(input.range(of: "config set model.provider"))
+        XCTAssertLessThan(cdRange.lowerBound, bootstrapRange.lowerBound)
+        XCTAssertTrue(input.contains("'./hermes' config set model.provider"))
+        XCTAssertTrue(input.contains("'./hermes' '--provider' 'custom' '--resume'"))
+    }
+
+    func testHermesAgentHookSurfaceResumeReplacesExistingBootstrap() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "cd '/tmp/project' && '/opt/homebrew/bin/hermes' config set model.provider 'custom' >/dev/null && '/opt/homebrew/bin/hermes' config set model.base_url 'http://old-subrouter:9999/v1' >/dev/null && '/opt/homebrew/bin/hermes' config set model.api_mode 'codex_responses' >/dev/null && '/opt/homebrew/bin/hermes' '--provider' 'custom' '--resume' 'hermes-session-123'",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            environment: [
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        XCTAssertEqual(input.components(separatedBy: "config set model.provider").count - 1, 1)
+        XCTAssertTrue(input.contains("http://subrouter-team:31415/v1"))
+        XCTAssertFalse(input.contains("http://old-subrouter:9999/v1"))
+    }
+
+    func testHermesAgentHookSurfaceResumeHandlesMalformedTrailingEscape() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "cd '/tmp/project' && '/opt/homebrew/bin/hermes' \\",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            environment: [
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        XCTAssertTrue(input.contains("config set model.provider"))
+    }
+
+    func testHermesAgentHookSurfaceResumeSkipsCodexBootstrapForExplicitProvider() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "cd '/tmp/project' && '/opt/homebrew/bin/hermes' '--provider' 'anthropic' '--resume' 'hermes-session-123'",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            environment: [
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        XCTAssertFalse(input.contains("config set model.provider"))
+        XCTAssertTrue(input.contains("'--provider' '\\''anthropic'\\'''") || input.contains("'--provider' 'anthropic'"))
     }
 
     private func makeSurfaceResumeApprovalStoreURL() throws -> URL {
