@@ -5877,12 +5877,26 @@ function newBrowserTabFromPanel(panel = focusedPanel()) {
     focusPanel(browserPanel.id);
     return createBrowserTab(session, state.settings.browserHomeUrl);
   }
-  const found = findPanelState(browserPanel.id);
-  return createPanel("browser", "right", {
-    workspaceId: found?.workspace.id,
-    anchorPanelId: browserPanel.id,
-    url: state.settings.browserHomeUrl
-  });
+  return createBrowserTabSnapshotForPanel(browserPanel, state.settings.browserHomeUrl);
+}
+
+function createBrowserTabSnapshotForPanel(browserPanel, value = state.settings.browserHomeUrl) {
+  if (!browserPanel?.id) return false;
+  const snapshot = browserTabSnapshotForPanelId(browserPanel.id, browserPanel.url || state.settings.browserHomeUrl);
+  if (snapshot.tabs.length >= browserTabLimit) {
+    toast(`Browser tab limit is ${browserTabLimit}. Close one first.`);
+    return false;
+  }
+  const tab = normalizeBrowserTab({ url: value }, state.settings.browserHomeUrl);
+  if (!tab) return false;
+  snapshot.tabs.push(tab);
+  snapshot.activeTabId = tab.id;
+  state.browserTabSnapshots.set(browserPanel.id, normalizeBrowserTabSnapshot(snapshot, tab.url));
+  saveBrowserTabSnapshots(state.browserTabSnapshots);
+  queueBrowserUrlSync(browserPanel.id, tab.url);
+  focusPanel(browserPanel.id);
+  scheduleRender();
+  return true;
 }
 
 function updateBrowserPaneActivity(visiblePanelIds = new Set()) {
