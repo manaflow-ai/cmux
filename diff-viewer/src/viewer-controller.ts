@@ -1506,8 +1506,30 @@ function setupSourceSelector(options) {
       return;
     }
     showStatusMessage(label("loadingDiff"), { pending: true });
-    window.location.href = next.url;
+    window.location.href = resolveDiffNavigationURL(next.url);
   });
+}
+
+// A restored diff viewer runs under the app-owned cmux-diff-viewer:// scheme,
+// but the source/repo/base option URLs were generated against the now-dead
+// local HTTP server. Rewrite them to the custom scheme (reusing the current
+// page's token as the host, dropping query/fragment the scheme handler rejects)
+// so the diff switcher keeps working post-restore. Same-session http pages pass
+// through unchanged.
+function resolveDiffNavigationURL(rawURL: string): string {
+  try {
+    const target = new URL(rawURL, window.location.href);
+    if (
+      window.location.protocol === "cmux-diff-viewer:" &&
+      (target.protocol === "http:" || target.protocol === "https:")
+    ) {
+      const rest = target.pathname.split("/").filter(Boolean).slice(1).join("/");
+      return `cmux-diff-viewer://${window.location.host}/${rest}`;
+    }
+    return target.href;
+  } catch {
+    return rawURL;
+  }
 }
 
 function diffSourceDetail() {
@@ -1542,7 +1564,7 @@ function setupNavigationSelector(selectElement, options, fallbackValue, labelTex
       return;
     }
     showStatusMessage(label("loadingDiff"), { pending: true });
-    window.location.href = next.url;
+    window.location.href = resolveDiffNavigationURL(next.url);
   });
 }
 
