@@ -7388,7 +7388,7 @@ function renderInspector() {
       card.innerHTML = `
         <div class="notification-title"></div>
         <div class="notification-body"></div>
-        <button class="notification-action">Jump to pane</button>
+        <button class="notification-action" type="button">Jump to pane</button>
       `;
       card.querySelector(".notification-title").textContent = workspace.title;
       card.querySelector(".notification-body").textContent = panel.notificationText || panel.title || "Terminal needs attention.";
