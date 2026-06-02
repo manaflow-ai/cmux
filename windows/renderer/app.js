@@ -2524,7 +2524,7 @@ function renderPaneLayoutStylesForVisiblePanes(direction) {
 }
 
 function clearPaneFlex(pane) {
-  pane.style.flex = "";
+  setStylePropertyIfChanged(pane, "flex", "");
 }
 
 function clearVisiblePaneFlex() {
@@ -4532,8 +4532,8 @@ function renderPaneTreeNode(node, workspace, panelById, visibleCount) {
   const split = getPaneSplitNode(node);
   const splitter = getPaneSplitter(workspace, node);
   const firstRatio = paneTreeRatio(node.ratio);
-  first.style.flex = `${Math.round(firstRatio * paneLayoutScale)} 1 0px`;
-  second.style.flex = `${Math.round((1 - firstRatio) * paneLayoutScale)} 1 0px`;
+  setStylePropertyIfChanged(first, "flex", `${Math.round(firstRatio * paneLayoutScale)} 1 0px`);
+  setStylePropertyIfChanged(second, "flex", `${Math.round((1 - firstRatio) * paneLayoutScale)} 1 0px`);
   replaceChildrenIfChanged(split, [first, splitter, second]);
   return split;
 }
