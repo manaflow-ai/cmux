@@ -6844,8 +6844,18 @@ function renderSettingsInspector(options = {}) {
     workspaceSection.append(folderActions);
     workspaceSection.append(recentFoldersSettings());
     workspaceSection.append(workspaceStarterGrid());
-    workspaceSection.append(settingRow("Color", swatchGrid(workspaceColorPalette(), workspace?.color, (color) => setWorkspaceColor(color))));
-    workspaceSection.append(settingRow("Custom color", colorPicker(workspace?.color, (color) => setWorkspaceColor(color)), false, "custom workspace color hex picker"));
+    workspaceSection.append(settingRow(
+      "Color",
+      colorControlPanel({
+        colors: workspaceColorPalette(),
+        activeColor: workspace?.color,
+        fallbackColor: state.settings.accent,
+        onPick: (color) => setWorkspaceColor(color),
+        searchTerms: "workspace custom color hex picker"
+      }),
+      true,
+      "workspace color custom hex picker palette swatch"
+    ));
     nodes.push(workspaceSection);
   }
 
@@ -8200,15 +8210,18 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
 
   wrapper.append(settingRow(
     "Pane color",
-    swatchGrid(workspaceColorPalette(), panel.color || workspace?.color, (color) => updatePanel(panel.id, { color })),
+    colorControlPanel({
+      colors: workspaceColorPalette(),
+      activeColor: panel.color || workspace?.color,
+      fallbackColor: workspace?.color || state.settings.accent,
+      onPick: (color) => updatePanel(panel.id, { color }),
+      onClear: () => updatePanel(panel.id, { color: "" }),
+      clearLabel: "Default",
+      clearDisabled: !panel.color,
+      searchTerms: "active pane custom color hex picker reset default clear"
+    }),
     true,
-    "active pane color tab custom"
-  ));
-  wrapper.append(settingRow(
-    "Custom pane color",
-    colorPicker(panel.color || workspace?.color, (color) => updatePanel(panel.id, { color })),
-    false,
-    "active pane custom color hex picker"
+    "active pane color tab custom hex picker palette swatch reset default clear"
   ));
 
   if (panel.type === "terminal") {
@@ -8315,8 +8328,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     settingsActionButton("Focus pane", () => focusPanel(panel.id), "", "active pane focus"),
     settingsActionButton("Duplicate", () => duplicatePanel(panel), "", "active pane duplicate"),
     settingsActionButton("Split right", () => splitPanel(panel, "right"), "", "active pane split right"),
-    settingsActionButton("Split down", () => splitPanel(panel, "down"), "", "active pane split down"),
-    settingsActionButton("Clear color", () => updatePanel(panel.id, { color: "" }), "danger", "active pane clear color")
+    settingsActionButton("Split down", () => splitPanel(panel, "down"), "", "active pane split down")
   );
   if (panel.type === "terminal") {
     actions.append(settingsActionButton("Restart", () => restartPanel(panel.id), "", "active pane terminal restart"));
@@ -9013,9 +9025,15 @@ function quickColorControlRows(workspace = activeWorkspace()) {
   if (!workspace) return rows;
   rows.push(settingRow(
     "Workspace color",
-    swatchGrid(workspaceColorPalette(), workspace.color, (color) => setWorkspaceColor(color, workspace.id)),
+    colorControlPanel({
+      colors: workspaceColorPalette(),
+      activeColor: workspace.color,
+      fallbackColor: state.settings.accent,
+      onPick: (color) => setWorkspaceColor(color, workspace.id),
+      searchTerms: "quick setup workspace custom color hex picker"
+    }),
     true,
-    "quick setup workspace color tab sidebar customize"
+    "quick setup workspace color tab sidebar customize custom hex picker"
   ));
   const panel = workspace.panels.find((candidate) => candidate.id === workspace.activePanelId)
     || workspace.panels[0]
@@ -9023,9 +9041,18 @@ function quickColorControlRows(workspace = activeWorkspace()) {
   if (panel) {
     rows.push(settingRow(
       "Pane color",
-      swatchGrid(workspaceColorPalette(), panel.color || workspace.color, (color) => updatePanel(panel.id, { color })),
+      colorControlPanel({
+        colors: workspaceColorPalette(),
+        activeColor: panel.color || workspace.color,
+        fallbackColor: workspace.color || state.settings.accent,
+        onPick: (color) => updatePanel(panel.id, { color }),
+        onClear: () => updatePanel(panel.id, { color: "" }),
+        clearLabel: "Default",
+        clearDisabled: !panel.color,
+        searchTerms: "quick setup active pane custom color hex picker reset default clear"
+      }),
       true,
-      "quick setup active pane terminal browser tab color customize"
+      "quick setup active pane terminal browser tab color customize custom hex picker reset default clear"
     ));
   }
   return rows;
@@ -9691,6 +9718,34 @@ function colorPicker(activeColor, onPick, fallback = "#5d8cff") {
   });
   wrapper.append(input, swatch);
   return wrapper;
+}
+
+function colorControlPanel({
+  colors,
+  activeColor,
+  fallbackColor = "#5d8cff",
+  onPick,
+  onClear,
+  clearLabel = "Default",
+  clearDisabled = false,
+  searchTerms = ""
+}) {
+  const panel = document.createElement("div");
+  panel.className = `settings-color-panel${onClear ? " has-clear" : ""}`;
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`color palette swatch custom hex picker ${searchTerms}`);
+  panel.append(swatchGrid(colors, activeColor, onPick));
+
+  const custom = document.createElement("div");
+  custom.className = "settings-color-custom";
+  custom.append(colorPicker(activeColor, onPick, fallbackColor));
+  if (onClear) {
+    const clear = settingsActionButton(clearLabel, onClear, "", `color reset default clear ${searchTerms}`);
+    clear.classList.add("settings-color-clear");
+    clear.disabled = clearDisabled;
+    custom.append(clear);
+  }
+  panel.append(custom);
+  return panel;
 }
 
 function savedColorPalettePanel() {

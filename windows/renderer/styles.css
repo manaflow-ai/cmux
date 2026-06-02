@@ -5960,6 +5960,38 @@ body.reduce-motion *::after {
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--swatch-color) 34%, transparent);
 }
 
+.settings-color-panel {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.settings-color-panel .swatch-grid {
+  grid-template-columns: repeat(auto-fit, minmax(26px, 1fr));
+}
+
+.settings-color-custom {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(74px, auto);
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-color-panel:not(.has-clear) .settings-color-custom {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-color-clear {
+  width: 100%;
+}
+
+@container (max-width: 330px) {
+  .settings-color-custom {
+    grid-template-columns: 1fr;
+  }
+}
+
 .terminal-font-choice-grid {
   min-width: 0;
   display: grid;
