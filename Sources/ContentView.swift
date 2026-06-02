@@ -9090,7 +9090,11 @@ struct ContentView: View {
              "palette.forkAgentConversationTop",
              "palette.forkAgentConversationBottom",
              "palette.forkAgentConversationNewTab",
-             "palette.forkAgentConversationNewWorkspace":
+             "palette.forkAgentConversationNewWorkspace",
+             // Entering browser focus mode focuses the web view synchronously;
+             // dismiss the palette first so its makeFirstResponder(nil) doesn't
+             // clear that focus and leave focus mode active without key routing.
+             "palette.browserFocusMode":
             return true
         default:
             return false
