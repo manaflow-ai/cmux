@@ -3144,6 +3144,27 @@ struct ContentView: View {
             moveCommandPaletteSelection(by: delta)
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteQuerySetRequested)) { notification in
+            guard isCommandPalettePresented else { return }
+            guard case .commands = commandPaletteMode else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            guard let query = notification.userInfo?["query"] as? String else { return }
+            let requestedMode = notification.userInfo?["mode"] as? String
+            if requestedMode == CommandPaletteListScope.commands.rawValue {
+                commandPaletteQuery = Self.commandPaletteCommandsPrefix + query
+            } else {
+                commandPaletteQuery = query
+            }
+            resetCommandPaletteSearchFocus()
+            syncCommandPaletteDebugStateForObservedWindow()
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameInputInteractionRequested)) { notification in
             guard isCommandPalettePresented else { return }
             guard case .renameInput = commandPaletteMode else { return }

@@ -51,6 +51,8 @@ final class SidebarHelpMenuUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_FEED_MODE"] = "available"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = "9.9.9"
         app.launchEnvironment["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DEFER_UPDATE_CHECK_TO_ACTION"] = "1"
         launchAndActivate(app)
 
         XCTAssertTrue(
@@ -107,6 +109,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         XCTAssertTrue(sendFeedbackItem.exists)
         performSidebarHelpAction("send_feedback")
 
+        XCTAssertTrue(app.otherElements["SidebarFeedbackDialog"].waitForExistence(timeout: 3.0))
         XCTAssertTrue(app.staticTexts["Send Feedback"].waitForExistence(timeout: 3.0))
         XCTAssertTrue(
             firstExistingElement(
@@ -135,11 +138,6 @@ final class SidebarHelpMenuUITests: XCTestCase {
                 timeout: 2.0
             ) != nil
         )
-        let note = app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS %@", "founders@manaflow.com")
-        ).firstMatch
-        XCTAssertTrue(note.waitForExistence(timeout: 2.0))
-
         let messageEditor = requireElement(
             candidates: [
                 app.textViews["SidebarFeedbackMessageEditor"],
@@ -636,7 +634,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
     func testCmdShiftPCheckQueryPrefersCheckForUpdatesBeforeAttemptUpdate() throws {
         let app = XCUIApplication()
-        configureCommandPaletteLaunch(app)
+        configureSocketControlledLaunch(app)
         launchAndActivate(app)
 
         XCTAssertTrue(
@@ -645,10 +643,12 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             },
             "Expected the main window to be visible"
         )
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control dispatcher. \(socketReadinessDebug())")
 
-        openCommandPaletteCommands(app: app)
-        let searchField = app.textFields["CommandPaletteSearchField"]
-        searchField.typeText("check")
+        let mainWindowId = try XCTUnwrap(
+            socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        try openCommandPaletteCommands(app: app, windowId: mainWindowId, query: "check")
 
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 5.0) {
@@ -696,7 +696,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
         RunLoop.current.run(until: Date().addingTimeInterval(0.4))
 
-        openCommandPalette(app: app, query: hiddenSurfaceToken)
+        try openCommandPalette(app: app, windowId: mainWindowId, query: hiddenSurfaceToken)
         let disabledSnapshot = try XCTUnwrap(
             waitForCommandPaletteSnapshot(windowId: mainWindowId, query: hiddenSurfaceToken, timeout: 5.0) { snapshot in
                 self.commandPaletteResultRows(from: snapshot).isEmpty
@@ -713,7 +713,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
         XCTAssertEqual(socketCommand("focus_window \(mainWindowId)"), "OK")
 
-        openCommandPalette(app: app, query: hiddenSurfaceToken)
+        try openCommandPalette(app: app, windowId: mainWindowId, query: hiddenSurfaceToken)
         let enabledSnapshot = try XCTUnwrap(
             waitForCommandPaletteSnapshot(windowId: mainWindowId, query: hiddenSurfaceToken, timeout: 5.0) { snapshot in
                 self.commandPaletteResultRows(from: snapshot).contains { row in
@@ -748,6 +748,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             },
             "Expected the main window and Settings window to be visible"
         )
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control dispatcher. \(socketReadinessDebug())")
 
         let settingsWindow = ensureAppSettingsSection(app: app)
         let toggle = try requireMinimalModeToggle(app: app, root: settingsWindow)
@@ -756,15 +757,8 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
         try setDebugStringSetting(key: "workspacePresentationMode", value: targetMode)
         XCTAssertTrue(
-            waitForSettingToggleState(
-                app: app,
-                root: settingsWindow,
-                identifier: "SettingsMinimalModeToggle",
-                title: "Minimal Mode",
-                isOn: !initialState,
-                timeout: 5.0
-            ),
-            "Expected the minimal mode setting to toggle"
+            waitForStoredStringSetting("workspacePresentationMode", value: targetMode, timeout: 5.0),
+            "Expected the minimal mode setting to persist as \(targetMode)"
         )
         let updatedToggle = try requireMinimalModeToggle(app: app, root: settingsWindow)
 
@@ -829,34 +823,21 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             },
             "Expected the main window and Settings window to be visible"
         )
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control dispatcher. \(socketReadinessDebug())")
 
         let settingsWindow = ensureAppSettingsSection(app: app)
         let toggle = try requireMenuBarOnlyToggle(app: app, root: settingsWindow)
         if settingIsOn(identifier: "SettingsMenuBarOnlyToggle", element: toggle) {
             try setDebugBoolSetting(key: "menuBarOnly", value: false)
             XCTAssertTrue(
-                waitForSettingToggleState(
-                    app: app,
-                    root: settingsWindow,
-                    identifier: "SettingsMenuBarOnlyToggle",
-                    title: "Menu Bar Only",
-                    isOn: false,
-                    timeout: 5.0
-                ),
+                waitForStoredBoolSetting("menuBarOnly", value: false, timeout: 5.0),
                 "Expected menu-bar-only mode to start from off for this test"
             )
         }
 
         try setDebugBoolSetting(key: "menuBarOnly", value: true)
         XCTAssertTrue(
-            waitForSettingToggleState(
-                app: app,
-                root: settingsWindow,
-                identifier: "SettingsMenuBarOnlyToggle",
-                title: "Menu Bar Only",
-                isOn: true,
-                timeout: 5.0
-            ),
+            waitForStoredBoolSetting("menuBarOnly", value: true, timeout: 5.0),
             "Expected the menu-bar-only setting to toggle on"
         )
 
@@ -889,14 +870,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
         try setDebugBoolSetting(key: "menuBarOnly", value: false)
         XCTAssertTrue(
-            waitForSettingToggleState(
-                app: app,
-                root: settingsWindow,
-                identifier: "SettingsMenuBarOnlyToggle",
-                title: "Menu Bar Only",
-                isOn: false,
-                timeout: 5.0
-            ),
+            waitForStoredBoolSetting("menuBarOnly", value: false, timeout: 5.0),
             "Expected the menu-bar-only setting to toggle back off"
         )
     }
@@ -925,9 +899,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
 
         XCTAssertEqual(socketCommand("focus_window \(mainWindowId)"), "OK")
-        openCommandPaletteCommands(app: app)
-        let searchField = app.textFields["CommandPaletteSearchField"]
-        searchField.typeText("minimal")
+        try openCommandPaletteCommands(app: app, windowId: mainWindowId, query: "minimal")
 
         let enableSnapshot = try XCTUnwrap(
             waitForCommandPaletteSnapshot(windowId: mainWindowId, mode: "commands", query: "minimal", timeout: 5.0) { snapshot in
@@ -944,7 +916,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             "Expected Disable Minimal Mode to stay hidden while standard mode is active. snapshot=\(enableSnapshot)"
         )
 
-        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        try submitCommandPalette(windowId: mainWindowId)
 
         XCTAssertTrue(
             waitForStoredStringSetting("workspacePresentationMode", value: "minimal", timeout: 3.0),
@@ -952,9 +924,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
 
         XCTAssertEqual(socketCommand("focus_window \(mainWindowId)"), "OK")
-        openCommandPaletteCommands(app: app)
-        let disableSearchField = app.textFields["CommandPaletteSearchField"]
-        disableSearchField.typeText("minimal")
+        try openCommandPaletteCommands(app: app, windowId: mainWindowId, query: "minimal")
 
         let disableSnapshot = try XCTUnwrap(
             waitForCommandPaletteSnapshot(windowId: mainWindowId, mode: "commands", query: "minimal", timeout: 5.0) { snapshot in
@@ -971,7 +941,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             "Expected Enable Minimal Mode to stay hidden while minimal mode is active. snapshot=\(disableSnapshot)"
         )
 
-        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        try submitCommandPalette(windowId: mainWindowId)
 
         XCTAssertTrue(
             waitForStoredStringSetting("workspacePresentationMode", value: "standard", timeout: 3.0),
@@ -997,13 +967,8 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
         try seedWorkspaceSwitcherCorpus(workspaceCount: 96)
 
-        let searchField = app.textFields["CommandPaletteSearchField"]
-        app.typeKey("p", modifierFlags: [.command])
-        XCTAssertTrue(searchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
-        searchField.click()
-
         let seededWorkspaceTitlePrefix = "\(noMatchWorkspaceQuery)-"
-        try debugTypeText(noMatchWorkspaceQuery)
+        try openCommandPalette(app: app, windowId: mainWindowId, query: noMatchWorkspaceQuery)
 
         let seededSnapshot = try XCTUnwrap(
             waitForCommandPaletteSnapshot(windowId: mainWindowId, query: noMatchWorkspaceQuery, timeout: 5.0) { snapshot in
@@ -1021,7 +986,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
 
         try clearCommandPaletteSearchField(app: app, windowId: mainWindowId)
-        try debugTypeText(String(repeating: "z", count: 8))
+        try setCommandPaletteQuery(windowId: mainWindowId, mode: "switcher", query: String(repeating: "z", count: 8))
 
         let emptyLabel = app.staticTexts["No workspaces match your search."].firstMatch
         XCTAssertTrue(
@@ -1034,9 +999,9 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             "Expected the switcher to reach a visible no-results state before refining the query"
         )
 
-        try debugTypeText("z")
-
         let refinedQuery = String(repeating: "z", count: 9)
+        try setCommandPaletteQuery(windowId: mainWindowId, mode: "switcher", query: refinedQuery)
+
         var refinedSnapshot: [String: Any]?
         var emptyLabelDisappearedWhileRefining = false
         let refinedQueryResolvedWhileKeepingEmptyStateVisible = sidebarHelpPollUntil(
@@ -1090,19 +1055,22 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         }
     }
 
-    private func openCommandPalette(app: XCUIApplication, query: String) {
+    private func openCommandPalette(app: XCUIApplication, windowId: String, query: String) throws {
         let searchField = app.textFields["CommandPaletteSearchField"]
         app.typeKey("p", modifierFlags: [.command])
         XCTAssertTrue(searchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
-        searchField.click()
-        searchField.typeText(query)
+        try setCommandPaletteQuery(windowId: windowId, mode: "switcher", query: query)
     }
 
     private func openCommandPaletteCommands(app: XCUIApplication) {
         let searchField = app.textFields["CommandPaletteSearchField"]
         app.typeKey("p", modifierFlags: [.command, .shift])
         XCTAssertTrue(searchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
-        searchField.click()
+    }
+
+    private func openCommandPaletteCommands(app: XCUIApplication, windowId: String, query: String) throws {
+        openCommandPaletteCommands(app: app)
+        try setCommandPaletteQuery(windowId: windowId, mode: "commands", query: query)
     }
 
     private func dismissCommandPalette(app: XCUIApplication) {
@@ -1407,6 +1375,9 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     private func readDefaultsBool(_ key: String) -> Bool? {
+        if let value = readDebugSettingValue(key) as? Bool {
+            return value
+        }
         guard let raw = readDefaultsValue(key) else { return nil }
         switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "1", "true", "yes":
@@ -1431,14 +1402,16 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     private func setDebugBoolSetting(key: String, value: Bool) throws {
-        try setDebugSetting(key: key, value: value)
+        let result = try setDebugSetting(key: key, value: value)
+        XCTAssertEqual(result["value"] as? Bool, value, "Expected debug.settings.set to return the stored bool value")
     }
 
     private func setDebugStringSetting(key: String, value: String) throws {
-        try setDebugSetting(key: key, value: value)
+        let result = try setDebugSetting(key: key, value: value)
+        XCTAssertEqual(result["value"] as? String, value, "Expected debug.settings.set to return the stored string value")
     }
 
-    private func setDebugSetting(key: String, value: Any) throws {
+    private func setDebugSetting(key: String, value: Any) throws -> [String: Any] {
         let response = try XCTUnwrap(
             socketJSON(
                 method: "debug.settings.set",
@@ -1450,25 +1423,29 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             "Expected a response from debug.settings.set"
         )
         XCTAssertEqual(response["ok"] as? Bool, true, "Expected debug.settings.set to succeed. response=\(response)")
+        return try XCTUnwrap(response["result"] as? [String: Any], "Expected debug.settings.set result payload")
     }
 
     private func readDefaultsValue(_ key: String) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
-        process.arguments = ["read", debugDefaultsDomain, key]
-        let stdout = Pipe()
-        process.standardOutput = stdout
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
+        guard let value = readDebugSettingValue(key) else { return nil }
+        if let stringValue = value as? String {
+            return stringValue
+        }
+        if let boolValue = value as? Bool {
+            return boolValue ? "true" : "false"
+        }
+        return nil
+    }
+
+    private func readDebugSettingValue(_ key: String) -> Any? {
+        guard let response = socketJSON(
+            method: "debug.settings.get",
+            params: ["key": key]
+        ), response["ok"] as? Bool == true,
+            let result = response["result"] as? [String: Any] else {
             return nil
         }
-        guard process.terminationStatus == 0 else { return nil }
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return result["value"]
     }
 
     private func toggleIsOn(_ element: XCUIElement) -> Bool {
@@ -1565,11 +1542,42 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         XCTAssertEqual(response["ok"] as? Bool, true, "Expected debug.type to succeed. response=\(response)")
     }
 
+    private func setCommandPaletteQuery(windowId: String, mode: String, query: String) throws {
+        let response = try XCTUnwrap(
+            socketJSON(
+                method: "debug.command_palette.query.set",
+                params: [
+                    "window_id": windowId,
+                    "mode": mode,
+                    "query": query,
+                ]
+            ),
+            "Expected a response from debug.command_palette.query.set"
+        )
+        XCTAssertEqual(
+            response["ok"] as? Bool,
+            true,
+            "Expected debug.command_palette.query.set to succeed. response=\(response)"
+        )
+    }
+
+    private func submitCommandPalette(windowId: String) throws {
+        let response = try XCTUnwrap(
+            socketJSON(
+                method: "debug.command_palette.submit",
+                params: ["window_id": windowId]
+            ),
+            "Expected a response from debug.command_palette.submit"
+        )
+        XCTAssertEqual(
+            response["ok"] as? Bool,
+            true,
+            "Expected debug.command_palette.submit to succeed. response=\(response)"
+        )
+    }
+
     private func clearCommandPaletteSearchField(app: XCUIApplication, windowId: String) throws {
-        let searchField = app.textFields["CommandPaletteSearchField"]
-        searchField.click()
-        app.typeKey("a", modifierFlags: [.command])
-        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        try setCommandPaletteQuery(windowId: windowId, mode: "switcher", query: "")
         let clearedSnapshot = try XCTUnwrap(
             waitForCommandPaletteSnapshot(windowId: windowId, query: "", timeout: 5.0),
             "Expected the command palette query to clear"

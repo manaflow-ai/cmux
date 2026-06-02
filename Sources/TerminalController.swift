@@ -3827,8 +3827,14 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugCommandPaletteSelection(params: params))
         case "debug.command_palette.results":
             return v2Result(id: id, self.v2DebugCommandPaletteResults(params: params))
+        case "debug.command_palette.query.set":
+            return v2Result(id: id, self.v2DebugCommandPaletteQuerySet(params: params))
+        case "debug.command_palette.submit":
+            return v2Result(id: id, self.v2DebugCommandPaletteSubmit(params: params))
         case "debug.settings.set":
             return v2Result(id: id, self.v2DebugSettingsSet(params: params))
+        case "debug.settings.get":
+            return v2Result(id: id, self.v2DebugSettingsGet(params: params))
         case "debug.sidebar_help.perform":
             return v2Result(id: id, self.v2DebugSidebarHelpPerform(params: params))
         case "debug.command_palette.rename_input.interact":
@@ -4118,7 +4124,10 @@ class TerminalController {
             "debug.command_palette.visible",
             "debug.command_palette.selection",
             "debug.command_palette.results",
+            "debug.command_palette.query.set",
+            "debug.command_palette.submit",
             "debug.settings.set",
+            "debug.settings.get",
             "debug.sidebar_help.perform",
             "debug.command_palette.rename_input.interact",
             "debug.command_palette.rename_input.delete_backward",
@@ -16191,6 +16200,73 @@ class TerminalController {
         ])
     }
 
+    private func v2DebugCommandPaletteQuerySet(params: [String: Any]) -> V2CallResult {
+        guard let query = v2String(params, "query") else {
+            return .err(code: "invalid_params", message: "Missing command palette query", data: nil)
+        }
+        let requestedWindowId = v2UUID(params, "window_id")
+        let mode = v2String(params, "mode") ?? "switcher"
+        guard mode == "switcher" || mode == "commands" else {
+            return .err(code: "invalid_params", message: "Unsupported command palette mode", data: ["mode": mode])
+        }
+
+        var result: V2CallResult = .ok(["query": query, "mode": mode])
+        v2MainSync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(
+                name: .commandPaletteQuerySetRequested,
+                object: targetWindow,
+                userInfo: [
+                    "query": query,
+                    "mode": mode,
+                ]
+            )
+        }
+        return result
+    }
+
+    private func v2DebugCommandPaletteSubmit(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        var result: V2CallResult = .ok([:])
+        v2MainSync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(name: .commandPaletteSubmitRequested, object: targetWindow)
+        }
+        return result
+    }
+
     private func v2DebugSettingsSet(params: [String: Any]) -> V2CallResult {
         guard let key = v2String(params, "key") else {
             return .err(code: "invalid_params", message: "Missing setting key", data: nil)
@@ -16232,6 +16308,30 @@ class TerminalController {
             defaults.synchronize()
             NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
             result = .ok(payload)
+        }
+        return result
+    }
+
+    private func v2DebugSettingsGet(params: [String: Any]) -> V2CallResult {
+        guard let key = v2String(params, "key") else {
+            return .err(code: "invalid_params", message: "Missing setting key", data: nil)
+        }
+
+        var result: V2CallResult = .ok(["key": key])
+        v2MainSync {
+            let defaults = UserDefaults.standard
+            switch key {
+            case CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey:
+                result = .ok(["key": key, "value": defaults.bool(forKey: key)])
+            case MenuBarOnlySettings.menuBarOnlyKey:
+                result = .ok(["key": key, "value": defaults.bool(forKey: key)])
+            case WorkspacePresentationModeSettings.modeKey:
+                let rawValue = defaults.string(forKey: key) ?? WorkspacePresentationModeSettings.defaultMode.rawValue
+                let mode = WorkspacePresentationModeSettings.Mode(rawValue: rawValue) ?? WorkspacePresentationModeSettings.defaultMode
+                result = .ok(["key": key, "value": mode.rawValue])
+            default:
+                result = .err(code: "invalid_params", message: "Unsupported debug setting key", data: ["key": key])
+            }
         }
         return result
     }
