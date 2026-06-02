@@ -17678,7 +17678,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// whether to surface the Fork Conversation item for a given anchor tab. Restricted to
     /// `.supportedWithoutProbe` so we never offer an item that may quietly fail; agents
     /// requiring a probe (e.g. shell-launched OpenCode) stay reachable from the command
-    /// palette path that performs that probe first.
+    /// palette after that probe succeeds.
     func canForkAgentConversationFromPanel(_ panelId: UUID) -> Bool {
         guard panels[panelId] is TerminalPanel else { return false }
         guard let snapshot = forkableAgentSnapshot(forPanelId: panelId) else {
