@@ -7505,45 +7505,36 @@ class TabManager: ObservableObject {
     private func runCloseConfirmationAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
         // Presentation (activate + sheet-on-main-window, else app-modal) is
         // shared with every other cmux dialog via `runCmuxModalAlert`. This
-        // wrapper only adds the close-confirmation-specific UITest telemetry.
-        let presentingWindow = closeConfirmationPresentingWindow()
-        #if DEBUG
-        let willPresentAsSheet = presentingWindow != nil && presentingWindow?.attachedSheet == nil
-        if willPresentAsSheet, let presentingWindow {
-            DispatchQueue.main.async {
+        // wrapper only adds the close-confirmation-specific UITest telemetry,
+        // recorded from the presenter's actual path so the label can never
+        // disagree with how the alert was really shown.
+        return runCmuxModalAlert(
+            alert,
+            presentingWindow: closeConfirmationPresentingWindow()
+        ) { presentation in
+            #if DEBUG
+            switch presentation {
+            case .sheet(let hostWindow):
+                // The sheet attaches after this hook returns, so read the
+                // attachment on the next runloop turn (during the modal loop).
+                DispatchQueue.main.async {
+                    UITestRecorder.record([
+                        "closeConfirmationPresentation": "sheet",
+                        "closeConfirmationAttachedSheet": hostWindow.attachedSheet == nil ? "0" : "1",
+                    ])
+                }
+            case .appModal(let hostWindowHadAttachedSheet):
                 UITestRecorder.record([
-                    "closeConfirmationPresentation": "sheet",
-                    "closeConfirmationAttachedSheet": presentingWindow.attachedSheet == nil ? "0" : "1",
+                    "closeConfirmationPresentation": "appModal",
+                    "closeConfirmationAttachedSheet": hostWindowHadAttachedSheet ? "1" : "0",
                 ])
             }
-        } else {
-            UITestRecorder.record([
-                "closeConfirmationPresentation": "appModal",
-                "closeConfirmationAttachedSheet": (presentingWindow?.attachedSheet != nil) ? "1" : "0",
-            ])
+            #endif
         }
-        #endif
-        return runCmuxModalAlert(alert, presentingWindow: presentingWindow)
     }
 
     private func closeConfirmationPresentingWindow() -> NSWindow? {
-        if let window, window.isVisible, isCloseConfirmationMainWindow(window) {
-            return window
-        }
-        if let keyWindow = NSApp.keyWindow, keyWindow.isVisible, isCloseConfirmationMainWindow(keyWindow) {
-            return keyWindow
-        }
-        if let mainWindow = NSApp.mainWindow, mainWindow.isVisible, isCloseConfirmationMainWindow(mainWindow) {
-            return mainWindow
-        }
-        return NSApp.windows.first { candidate in
-            candidate.isVisible && isCloseConfirmationMainWindow(candidate)
-        }
-    }
-
-    private func isCloseConfirmationMainWindow(_ candidate: NSWindow) -> Bool {
-        guard let raw = candidate.identifier?.rawValue else { return false }
-        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+        cmuxMainWindowForModalPresentation(preferring: window)
     }
 
     private struct CloseOtherTabsInFocusedPanePlan {
