@@ -31,6 +31,7 @@ public final class SidebarScript {
                 defaultValue: "The script must define a 'render-row' function.",
                 bundle: .module))
         }
+        baseEnv.freeze()
     }
 
     /// Renders one row to a pure node tree. Throws a localized `LispError` if the

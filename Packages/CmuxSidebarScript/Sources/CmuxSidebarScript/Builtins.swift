@@ -78,7 +78,7 @@ enum Builtins {
         def("nth") { args, _ in
             try pair("nth", args)
             let list = try listArg(args[0], "nth")
-            let i = Int(try num(args[1], "nth"))
+            let i = try intValue(args[1], "nth")
             return (i >= 0 && i < list.count) ? list[i] : (args.count > 2 ? args[2] : .null)
         }
         def("reverse") { args, _ in .list((try listArg(one(args, "reverse"), "reverse")).reversed()) }
@@ -91,37 +91,47 @@ enum Builtins {
             try pair("contains?", args)
             return .bool((try listArg(args[0], "contains?")).contains(args[1]))
         }
-        def("range") { args, _ in try rangeBuiltin(args) }
+        def("range") { args, ev in try rangeBuiltin(args, ev) }
 
         // MARK: Higher-order
         def("map") { args, ev in
             try pair("map", args)
             let fn = args[0]
-            return .list(try listArg(args[1], "map").map { try ev.apply(fn, [$0]) })
+            let list = try listArg(args[1], "map")
+            try ev.consumeStep(list.count)
+            return .list(try list.map { try ev.apply(fn, [$0]) })
         }
         def("map-indexed") { args, ev in
             try pair("map-indexed", args)
             let fn = args[0]
-            return .list(try listArg(args[1], "map-indexed").enumerated().map {
+            let list = try listArg(args[1], "map-indexed")
+            try ev.consumeStep(list.count)
+            return .list(try list.enumerated().map {
                 try ev.apply(fn, [.int($0.offset), $0.element])
             })
         }
         def("filter") { args, ev in
             try pair("filter", args)
             let fn = args[0]
-            return .list(try listArg(args[1], "filter").filter { try ev.apply(fn, [$0]).isTruthy })
+            let list = try listArg(args[1], "filter")
+            try ev.consumeStep(list.count)
+            return .list(try list.filter { try ev.apply(fn, [$0]).isTruthy })
         }
         def("reduce") { args, ev in
             guard args.count == 3 else { throw LispError.arity("reduce", expected: "3 arguments", got: args.count) }
             let fn = args[0]
             var acc = args[1]
-            for item in try listArg(args[2], "reduce") { acc = try ev.apply(fn, [acc, item]) }
+            let list = try listArg(args[2], "reduce")
+            try ev.consumeStep(list.count)
+            for item in list { acc = try ev.apply(fn, [acc, item]) }
             return acc
         }
         def("for-each") { args, ev in
             try pair("for-each", args)
             let fn = args[0]
-            for item in try listArg(args[1], "for-each") { _ = try ev.apply(fn, [item]) }
+            let list = try listArg(args[1], "for-each")
+            try ev.consumeStep(list.count)
+            for item in list { _ = try ev.apply(fn, [item]) }
             return .null
         }
 
@@ -136,6 +146,7 @@ enum Builtins {
             try pair("split", args)
             let s = try str(args[0], "split"), sep = try str(args[1], "split")
             let parts = sep.isEmpty ? s.map { String($0) } : s.components(separatedBy: sep)
+            guard parts.count <= Evaluator.generatedCollectionLimit else { throw LispError.collectionLimit }
             return .list(parts.map { .string($0) })
         }
         def("upper") { args, _ in .string((try str(one(args, "upper"), "upper")).uppercased()) }
@@ -160,8 +171,8 @@ enum Builtins {
             let s = try str(args[0], "replace")
             return .string(s.replacingOccurrences(of: try str(args[1], "replace"), with: try str(args[2], "replace")))
         }
-        def("pad-left") { args, _ in try pad(args, left: true) }
-        def("pad-right") { args, _ in try pad(args, left: false) }
+        def("pad-left") { args, ev in try pad(args, left: true, ev) }
+        def("pad-right") { args, ev in try pad(args, left: false, ev) }
 
         // MARK: Records (maps)
         def("record") { args, _ in
@@ -241,7 +252,7 @@ enum Builtins {
         return true
     }
 
-    private static func rangeBuiltin(_ args: [LispValue]) throws -> LispValue {
+    private static func rangeBuiltin(_ args: [LispValue], _ ev: Evaluator) throws -> LispValue {
         let nums = try args.map { try num($0, "range") }
         let start: Double, end: Double, step: Double
         switch nums.count {
@@ -250,7 +261,16 @@ enum Builtins {
         case 3: start = nums[0]; end = nums[1]; step = nums[2]
         default: throw LispError.arity("range", expected: "1 to 3 arguments", got: args.count)
         }
+        guard start.isFinite, end.isFinite, step.isFinite else {
+            throw LispError.type("range", expected: "finite numbers", got: args.first ?? .null)
+        }
         guard step != 0 else { return .list([]) }
+        let rawCount = (end - start) / step
+        guard rawCount.isFinite else { throw LispError.collectionLimit }
+        guard rawCount <= Double(Evaluator.generatedCollectionLimit) else { throw LispError.collectionLimit }
+        let count = rawCount > 0 ? Int(ceil(rawCount)) : 0
+        guard count <= Evaluator.generatedCollectionLimit else { throw LispError.collectionLimit }
+        try ev.consumeStep(count)
         var out: [LispValue] = []
         var x = start
         if step > 0 { while x < end { out.append(.int(Int(x))); x += step } }
@@ -261,8 +281,8 @@ enum Builtins {
     private static func substringBuiltin(_ args: [LispValue]) throws -> LispValue {
         guard args.count >= 2 else { throw LispError.arity("substring", expected: "2 or 3 arguments", got: args.count) }
         let s = Array(try str(args[0], "substring"))
-        let from = max(0, min(s.count, Int(try num(args[1], "substring"))))
-        let to = args.count > 2 ? max(from, min(s.count, Int(try num(args[2], "substring")))) : s.count
+        let from = max(0, min(s.count, try intValue(args[1], "substring")))
+        let to = args.count > 2 ? max(from, min(s.count, try intValue(args[2], "substring"))) : s.count
         return .string(String(s[from..<to]))
     }
 
@@ -279,14 +299,25 @@ enum Builtins {
         }
     }
 
-    private static func pad(_ args: [LispValue], left: Bool) throws -> LispValue {
+    private static func pad(_ args: [LispValue], left: Bool, _ ev: Evaluator) throws -> LispValue {
         guard args.count >= 2 else { throw LispError.arity("pad", expected: "2 or 3 arguments", got: args.count) }
         let s = display(args[0])
-        let width = Int(try num(args[1], "pad"))
+        let width = try intValue(args[1], "pad")
         let padChar = args.count > 2 ? display(args[2]).first ?? " " : " "
         if s.count >= width { return .string(s) }
-        let padding = String(repeating: padChar, count: width - s.count)
+        let paddingCount = width - s.count
+        guard paddingCount <= Evaluator.generatedCollectionLimit else { throw LispError.collectionLimit }
+        try ev.consumeStep(paddingCount)
+        let padding = String(repeating: padChar, count: paddingCount)
         return .string(left ? padding + s : s + padding)
+    }
+
+    private static func intValue(_ v: LispValue, _ form: String) throws -> Int {
+        let n = try num(v, form)
+        guard n.isFinite, n >= Double(Int.min), n <= Double(Int.max) else {
+            throw LispError.type(form, expected: "a finite integer", got: v)
+        }
+        return Int(n)
     }
 
     /// Human-readable rendering for `str`/`join`. Integers print without a

@@ -3,11 +3,19 @@ import Foundation
 /// A lexical scope. `define` writes into the current scope; lookup and `set!`
 /// walk up the parent chain.
 public final class LispEnvironment {
+    public enum SetResult {
+        case assigned
+        case missing
+        case immutable
+    }
+
     private var vars: [String: LispValue]
+    private var isMutable: Bool
     public let parent: LispEnvironment?
 
-    public init(parent: LispEnvironment? = nil) {
+    public init(parent: LispEnvironment? = nil, isMutable: Bool = true) {
         self.vars = [:]
+        self.isMutable = isMutable
         self.parent = parent
     }
 
@@ -24,17 +32,22 @@ public final class LispEnvironment {
         return nil
     }
 
+    public func freeze() {
+        isMutable = false
+    }
+
     @discardableResult
-    public func set(_ name: String, _ value: LispValue) -> Bool {
+    public func set(_ name: String, _ value: LispValue) -> SetResult {
         var scope: LispEnvironment? = self
         while let s = scope {
             if s.vars[name] != nil {
+                guard s.isMutable else { return .immutable }
                 s.vars[name] = value
-                return true
+                return .assigned
             }
             scope = s.parent
         }
-        return false
+        return .missing
     }
 
     /// A child scope. Used for function calls and `let`.

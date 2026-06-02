@@ -91,10 +91,26 @@ public struct LispError: Error, CustomStringConvertible {
         ))
     }
 
+    static func immutableBinding(_ name: String) -> LispError {
+        .eval(String(
+            localized: "sidebarScript.error.immutableBinding",
+            defaultValue: "Cannot change top-level binding '\(name)' while rendering.",
+            bundle: .module
+        ))
+    }
+
     static var stepLimit: LispError {
         .eval(String(
             localized: "sidebarScript.error.stepLimit",
             defaultValue: "Script did too much work (possible infinite loop).",
+            bundle: .module
+        ))
+    }
+
+    static var collectionLimit: LispError {
+        .eval(String(
+            localized: "sidebarScript.error.collectionLimit",
+            defaultValue: "Script tried to create too many values at once.",
             bundle: .module
         ))
     }

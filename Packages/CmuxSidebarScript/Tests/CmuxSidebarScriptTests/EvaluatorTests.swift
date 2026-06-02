@@ -89,4 +89,26 @@ import Testing
             for f in forms { _ = try ev.eval(f, in: env) }
         }
     }
+
+    @Test func generatedCollectionsAreCapped() {
+        #expect(throws: LispError.self) {
+            try run("(count (range 100000))")
+        }
+        #expect(throws: LispError.self) {
+            try run("(pad-left \"x\" 100000)")
+        }
+        let longString = String(repeating: "a", count: Evaluator.generatedCollectionLimit + 1)
+        #expect(throws: LispError.self) {
+            try run("(count (split \"\(longString)\" \"\"))")
+        }
+    }
+
+    @Test func nonFiniteIntegerInputsThrow() {
+        #expect(throws: LispError.self) {
+            try run("(nth (list 1 2 3) (/ 0 0))")
+        }
+        #expect(throws: LispError.self) {
+            try run("(substring \"abc\" (/ 1 0))")
+        }
+    }
 }

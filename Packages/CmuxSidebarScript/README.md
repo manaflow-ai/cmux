@@ -56,6 +56,9 @@ so a form reads like SwiftUI.
 
 A malformed script raises a localized `LispError` at compile time; a render
 fault raises one per row. The host treats both as "fall back to the native row".
+Top-level bindings are frozen after compile, so `render-row` stays deterministic
+for a given workspace. `set!` is still available for local `let` bindings inside
+one render pass.
 
 ## Usage
 

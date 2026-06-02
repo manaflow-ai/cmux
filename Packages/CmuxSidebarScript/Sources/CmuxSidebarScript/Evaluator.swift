@@ -12,17 +12,26 @@ public final class Evaluator {
     public let stepLimit: Int
     public let depthLimit: Int
 
+    /// Maximum number of values one builtin may generate at once. This prevents
+    /// scripts from allocating giant arrays before the step budget can trip.
+    public static let generatedCollectionLimit = 4_096
+
     // A sidebar row never legitimately recurses deep; this bound trips a runaway
     // script well before its Swift call stack (which uses several frames per Lisp
     // level) can overflow a small worker-thread stack.
-    public init(stepLimit: Int = 2_000_000, depthLimit: Int = 64) {
+    public init(stepLimit: Int = 100_000, depthLimit: Int = 64) {
         self.stepLimit = stepLimit
         self.depthLimit = depthLimit
     }
 
-    public func eval(_ form: LispValue, in env: LispEnvironment) throws -> LispValue {
-        steps += 1
+    public func consumeStep(_ count: Int = 1) throws {
+        guard count > 0 else { return }
+        steps += count
         if steps > stepLimit { throw LispError.stepLimit }
+    }
+
+    public func eval(_ form: LispValue, in env: LispEnvironment) throws -> LispValue {
+        try consumeStep()
 
         switch form {
         case .int, .double, .string, .bool, .null, .keyword, .function, .style, .node, .map:
@@ -125,7 +134,14 @@ public final class Evaluator {
                     defaultValue: "'set!' needs a name and a value.", bundle: .module))
             }
             let value = try eval(args[1], in: env)
-            if !env.set(target, value) { throw LispError.unbound(target) }
+            switch env.set(target, value) {
+            case .assigned:
+                break
+            case .missing:
+                throw LispError.unbound(target)
+            case .immutable:
+                throw LispError.immutableBinding(target)
+            }
             return value
 
         case "fn", "lambda":

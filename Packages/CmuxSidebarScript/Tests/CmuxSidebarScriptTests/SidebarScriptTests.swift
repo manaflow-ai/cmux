@@ -91,4 +91,28 @@ import Testing
         let b = try script.render(sampleContext())
         #expect(a == b)
     }
+
+    @Test func renderCannotMutateTopLevelBindings() throws {
+        let script = try SidebarScript(source: """
+        (def counter 0)
+        (def (render-row ws)
+          (do
+            (set! counter (+ counter 1))
+            (text (str counter))))
+        """)
+        #expect(throws: LispError.self) {
+            _ = try script.render(SidebarScriptContext(title: "x"))
+        }
+    }
+
+    @Test func renderCanMutateLocalBindings() throws {
+        let script = try SidebarScript(source: """
+        (def (render-row ws)
+          (let ((value 1))
+            (set! value 2)
+            (text (str value))))
+        """)
+        let node = try script.render(SidebarScriptContext(title: "x"))
+        #expect(node.containsText("2"))
+    }
 }
