@@ -610,6 +610,12 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("fontSize") {
             logInvalid("markdown.fontSize", sourcePath: sourcePath)
         }
+
+        if let value = jsonString(section["fontFamily"]) {
+            snapshot.managedUserDefaults[MarkdownFontFamily.key] = .string(MarkdownFontFamily.normalized(value))
+        } else if section.keys.contains("fontFamily") {
+            logInvalid("markdown.fontFamily", sourcePath: sourcePath)
+        }
     }
 
     private func parseSidebarSection(

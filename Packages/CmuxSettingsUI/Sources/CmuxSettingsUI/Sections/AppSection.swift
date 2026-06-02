@@ -36,6 +36,7 @@ public struct AppSection: View {
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
     @State private var markdownFontSize: DefaultsValueModel<Int>
+    @State private var markdownFontFamily: DefaultsValueModel<String>
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<Bool>
     @State private var dockBadge: DefaultsValueModel<Bool>
@@ -77,6 +78,7 @@ public struct AppSection: View {
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
+        _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
         _dockBadge = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge))
@@ -333,6 +335,22 @@ public struct AppSection: View {
                 .accessibilityLabel(
                     String(localized: "settings.app.markdownFontSize", defaultValue: "Markdown Viewer Font Size")
                 )
+            }
+            SettingsCardDivider()
+
+            // Markdown Viewer Font Family
+            SettingsCardRow(
+                configurationReview: .json("markdown.fontFamily"),
+                String(localized: "settings.app.markdownFontFamily", defaultValue: "Markdown Viewer Font"),
+                subtitle: String(localized: "settings.app.markdownFontFamily.subtitle", defaultValue: "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.")
+            ) {
+                TextField(
+                    String(localized: "settings.app.markdownFontFamily.placeholder", defaultValue: "System"),
+                    text: Binding(get: { markdownFontFamily.current }, set: { markdownFontFamily.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+                .accessibilityIdentifier("SettingsMarkdownFontFamilyTextField")
             }
             SettingsCardDivider()
 
