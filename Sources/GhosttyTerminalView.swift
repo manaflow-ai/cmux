@@ -1743,7 +1743,7 @@ func terminalKeyboardCopyModeResolve(
     return .perform(action, count: count)
 }
 
-private final class GhosttySurfaceCallbackContext {
+final class GhosttySurfaceCallbackContext {
     weak var surfaceView: GhosttyNSView?
     weak var terminalSurface: TerminalSurface?
     let surfaceId: UUID
@@ -4369,9 +4369,20 @@ class GhosttyApp {
         }
     }
 
-    private static func callbackContext(from userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceCallbackContext? {
+    /// Resolves a ghostty surface `userdata` pointer back to its
+    /// ``GhosttySurfaceCallbackContext``, or `nil` if the pointer is null.
+    ///
+    /// Exposed as `internal` (rather than folding into the private
+    /// ``callbackContext(from:)`` wrapper) so it can be exercised by unit tests
+    /// with both a live context pointer and a known-garbage pointer without
+    /// launching the app or invoking a private ghostty callback.
+    static func resolveCallbackContext(from userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceCallbackContext? {
         guard let userdata else { return nil }
         return Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
+    }
+
+    private static func callbackContext(from userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceCallbackContext? {
+        resolveCallbackContext(from: userdata)
     }
 
     private static func runtimeApp(from userdata: UnsafeMutableRawPointer?) -> GhosttyApp? {
