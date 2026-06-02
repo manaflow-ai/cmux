@@ -316,7 +316,18 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         }
 
         if app.state == .runningForeground { return }
-        if app.state == .runningBackground { return }
+
+        // launch() can leave the app backgrounded on some runners. Bring it to
+        // the foreground so subsequent typeKey() input is routed to cmux and not
+        // the wrong target; tolerate runners where activation genuinely can't win.
+        if app.state == .runningBackground {
+            app.activate()
+            if app.state == .runningForeground { return }
+            XCTExpectFailure("App could not be foregrounded on this runner", options: options) {
+                XCTFail("cmux stayed backgrounded after activate(); key input may not reach it. state=\(app.state.rawValue)")
+            }
+            return
+        }
 
         XCTFail("App failed to start. state=\(app.state.rawValue)")
     }
