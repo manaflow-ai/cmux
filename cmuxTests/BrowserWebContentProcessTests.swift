@@ -125,7 +125,6 @@ struct BrowserWebContentProcessTests {
             )
         )
         let popupWindow = try #require(popupWebView.window)
-        #expect(popupWebView.window === popupWindow)
 
         popupWebView.navigationDelegate?.webViewWebContentProcessDidTerminate?(popupWebView)
 
