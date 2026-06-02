@@ -373,31 +373,46 @@ func resolvedBrowserOmnibarPillBackgroundColor(
     return themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
 }
 
-private struct BrowserChromeStyle {
+struct BrowserChromeStyle {
     let backgroundColor: NSColor
     let colorScheme: ColorScheme
     let omnibarPillBackgroundColor: NSColor
 
     static func resolve(
         for colorScheme: ColorScheme,
-        themeBackgroundColor: NSColor
+        themeBackgroundColor: NSColor,
+        drawsSurfaceBackground: Bool = true
     ) -> BrowserChromeStyle {
-        let backgroundColor = resolvedBrowserChromeBackgroundColor(
+        let semanticBackgroundColor = resolvedBrowserChromeBackgroundColor(
             for: colorScheme,
             themeBackgroundColor: themeBackgroundColor
         )
         let chromeColorScheme = resolvedBrowserChromeColorScheme(
             for: colorScheme,
-            themeBackgroundColor: backgroundColor
+            themeBackgroundColor: semanticBackgroundColor
         )
-        let omnibarPillBackgroundColor = resolvedBrowserOmnibarPillBackgroundColor(
+        let resolvedOmnibarPillBackgroundColor = resolvedBrowserOmnibarPillBackgroundColor(
             for: chromeColorScheme,
-            themeBackgroundColor: backgroundColor
+            themeBackgroundColor: semanticBackgroundColor
         )
+        let omnibarPillBackgroundColor = drawsSurfaceBackground
+            ? resolvedOmnibarPillBackgroundColor
+            : resolvedOmnibarPillBackgroundColor.withAlphaComponent(0.74)
         return BrowserChromeStyle(
-            backgroundColor: backgroundColor,
+            backgroundColor: drawsSurfaceBackground ? semanticBackgroundColor : .clear,
             colorScheme: chromeColorScheme,
             omnibarPillBackgroundColor: omnibarPillBackgroundColor
+        )
+    }
+
+    static func current(for colorScheme: ColorScheme) -> BrowserChromeStyle {
+        resolve(
+            for: colorScheme,
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
+            drawsSurfaceBackground: !GhosttyBackgroundTheme.usesClearSurfaceBackground(
+                opacity: GhosttyApp.shared.defaultBackgroundOpacity,
+                backgroundBlur: GhosttyApp.shared.defaultBackgroundBlur
+            )
         )
     }
 }
@@ -458,10 +473,7 @@ struct BrowserPanelView: View {
     @State private var suppressNextFocusGainedSelectAll: Bool = false
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
-    @State private var browserChromeStyle = BrowserChromeStyle.resolve(
-        for: .light,
-        themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
-    )
+    @State private var browserChromeStyle = BrowserChromeStyle.current(for: .light)
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
     private let omnibarPillCornerRadius: CGFloat = 10
@@ -1681,10 +1693,7 @@ struct BrowserPanelView: View {
     }
 
     private func refreshBrowserChromeStyle() {
-        browserChromeStyle = BrowserChromeStyle.resolve(
-            for: colorScheme,
-            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
-        )
+        browserChromeStyle = BrowserChromeStyle.current(for: colorScheme)
     }
 
     private func syncWebViewResponderPolicyWithViewState(
