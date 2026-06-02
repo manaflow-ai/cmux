@@ -36,6 +36,7 @@ public final class UpdateController {
     private var stateReactionTask: Task<Void, Never>?
     private var noUpdateDismissTask: Task<Void, Never>?
     private var backgroundProbeTask: Task<Void, Never>?
+    private var recheckTask: Task<Void, Never>?
 
     // Readiness retry. Sparkle's `canCheckForUpdates` exposes no push signal usable under
     // Swift 6 strict concurrency (KVO on the @MainActor `SPUUpdater` "sends" a non-Sendable
@@ -90,6 +91,7 @@ public final class UpdateController {
         noUpdateDismissTask?.cancel()
         backgroundProbeTask?.cancel()
         readyCheckTask?.cancel()
+        recheckTask?.cancel()
     }
 
     // MARK: - Reaction stream
@@ -220,10 +222,16 @@ public final class UpdateController {
         isForceInstalling = false
         model.cancelActiveStateForNewCheck()
 
-        // Re-issue on a later main-actor turn so Sparkle processes the prior session's
-        // cancellation/dismissal first (replaces a fixed 100ms settle delay).
-        Task { @MainActor [weak self] in
-            self?.updater.checkForUpdates()
+        // Give Sparkle a beat to tear down the just-dismissed check session before starting a
+        // new one. Without this delay the re-check is coalesced/dropped by Sparkle and the pill
+        // simply hides until the user checks again (a real regression caught in dogfood). This
+        // is a bounded, cancellable delay via the injected clock (matches the prior 100ms).
+        recheckTask?.cancel()
+        recheckTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await self.clock.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            self.updater.checkForUpdates()
         }
     }
 
