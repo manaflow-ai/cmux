@@ -13036,7 +13036,11 @@ async function movePanelRelative(panelId, targetPanelId, placement) {
   const found = findPanelState(targetPanelId);
   if (!found || !panelId || !targetPanelId || panelId === targetPanelId) return;
   if (placement === "center") {
-    swapPanePositions(panelId, targetPanelId);
+    const persistSteps = panelOrderSwapPersistenceSteps(found.workspace, panelId, targetPanelId);
+    if (swapPanePositions(panelId, targetPanelId)) {
+      await persistPanelOrderSwap(persistSteps);
+      queueFocusSync({ type: "panel", panelId });
+    }
     return;
   }
   const direction = placement === "top" || placement === "bottom" ? "down" : "right";
@@ -13056,6 +13060,57 @@ async function movePanelRelative(panelId, targetPanelId, placement) {
   }
 }
 
+function swapWorkspacePanelOrder(workspace, panelId, targetPanelId) {
+  const sourceIndex = workspace?.panels?.findIndex((panel) => panel.id === panelId) ?? -1;
+  const targetIndex = workspace?.panels?.findIndex((panel) => panel.id === targetPanelId) ?? -1;
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return false;
+  [workspace.panels[sourceIndex], workspace.panels[targetIndex]] = [workspace.panels[targetIndex], workspace.panels[sourceIndex]];
+  return true;
+}
+
+function panelOrderSwapPersistenceSteps(workspace, panelId, targetPanelId) {
+  const panels = workspace?.panels || [];
+  const sourceIndex = panels.findIndex((panel) => panel.id === panelId);
+  const targetIndex = panels.findIndex((panel) => panel.id === targetPanelId);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return [];
+  if (sourceIndex < targetIndex) {
+    const targetNextPanel = panels[targetIndex + 1];
+    return [
+      { panelId: targetPanelId, updates: { workspaceId: workspace.id, beforePanelId: panelId } },
+      {
+        panelId,
+        updates: targetNextPanel
+          ? { workspaceId: workspace.id, beforePanelId: targetNextPanel.id }
+          : { workspaceId: workspace.id, moveToEnd: true }
+      }
+    ];
+  }
+  const sourceNextPanel = panels[sourceIndex + 1];
+  return [
+    { panelId, updates: { workspaceId: workspace.id, beforePanelId: targetPanelId } },
+    {
+      panelId: targetPanelId,
+      updates: sourceNextPanel
+        ? { workspaceId: workspace.id, beforePanelId: sourceNextPanel.id }
+        : { workspaceId: workspace.id, moveToEnd: true }
+    }
+  ];
+}
+
+async function persistPanelOrderSwap(steps = []) {
+  try {
+    for (const step of steps) {
+      if (!step?.panelId || !step.updates) continue;
+      await api(`/api/panels/${step.panelId}`, {
+        method: "PATCH",
+        body: JSON.stringify(step.updates)
+      });
+    }
+  } catch {
+    await loadState();
+  }
+}
+
 function swapPanePositions(panelId, targetPanelId) {
   const source = findPanelState(panelId);
   const target = findPanelState(targetPanelId);
@@ -13065,6 +13120,7 @@ function swapPanePositions(panelId, targetPanelId) {
   if (!swapped) return false;
   state.paneTrees.set(target.workspace.id, swapped);
   savePaneTreeLayouts(state.paneTrees);
+  swapWorkspacePanelOrder(target.workspace, panelId, targetPanelId);
   target.workspace.activePanelId = panelId;
   state.data.activeWorkspaceId = target.workspace.id;
   render();
