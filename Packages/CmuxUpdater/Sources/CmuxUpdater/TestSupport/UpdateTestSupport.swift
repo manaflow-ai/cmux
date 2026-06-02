@@ -42,6 +42,16 @@ public struct UpdateTestSupport {
             )))
         case "notFound":
             transition(to: .notFound(.init(acknowledgement: {})))
+        case "error":
+            let message = env["CMUX_UI_TEST_UPDATE_ERROR_MESSAGE"] ?? "Test update error"
+            let error = NSError(domain: "cmux.update.uitest", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+            transition(to: .error(.init(
+                error: error,
+                retry: {},
+                dismiss: {},
+                technicalDetails: "ui-test error",
+                feedURLString: env["CMUX_UI_TEST_FEED_URL"]
+            )))
         default:
             break
         }

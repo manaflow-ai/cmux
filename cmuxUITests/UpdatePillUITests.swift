@@ -200,6 +200,38 @@ final class UpdatePillUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Check Automatically"].exists)
     }
 
+    func testUpdatePillShowsErrorStateWithRetryAndDetails() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "error"
+        launchAndActivate(app)
+
+        // A generic update error surfaces the "Update Failed" pill title.
+        let pill = pillButton(app: app, expectedLabel: "Update Failed")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(pill.label, "Update Failed")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "update-error")
+        attachElementDebug(name: "update-error-pill", element: pill)
+
+        pill.click()
+
+        XCTAssertTrue(
+            app.staticTexts["Update Failed"].waitForExistence(timeout: 8.0),
+            "Expected the error popover title to appear"
+        )
+        XCTAssertTrue(
+            app.buttons["Retry"].waitForExistence(timeout: 2.0),
+            "Expected a Retry button in the error popover"
+        )
+        XCTAssertTrue(
+            app.buttons["Copy Details"].exists,
+            "Expected a Copy Details button in the error popover"
+        )
+    }
+
     private func pillButton(app: XCUIApplication, expectedLabel: String) -> XCUIElement {
         // On macOS, SwiftUI accessibility identifiers are not always reliably surfaced for titlebar-style
         // UI across OS/Xcode versions. Prefer the pill's accessibility label, but keep an identifier
