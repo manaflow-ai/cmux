@@ -10357,6 +10357,7 @@ function syncSettingsDisclosuresForSearch(query) {
   if (!query) return;
   for (const disclosure of elements.inspectorBody.querySelectorAll(".settings-disclosure")) {
     disclosure.open = true;
+    ensureSettingsDisclosureContent(disclosure);
   }
 }
 
@@ -11221,11 +11222,22 @@ function quickSetupActionGrid() {
   return grid;
 }
 
+function ensureSettingsDisclosureContent(disclosure) {
+  if (!disclosure || disclosure.dataset.disclosureMounted === "true") return false;
+  if (disclosure.dataset.disclosureContent !== "quick-actions") return false;
+  disclosure.append(quickSetupActionGrid());
+  disclosure.dataset.disclosureMounted = "true";
+  return true;
+}
+
 function quickActionDisclosurePanel() {
   const actions = quickSetupActionDefinitions();
+  const shouldMount = Boolean(normalizeSettingsQuery(state.settingsQuery));
   const details = document.createElement("details");
   details.className = "settings-disclosure quick-action-disclosure";
-  details.open = Boolean(normalizeSettingsQuery(state.settingsQuery));
+  details.open = shouldMount;
+  details.dataset.disclosureContent = "quick-actions";
+  details.dataset.disclosureMounted = "false";
   details.dataset.settingsSearch = normalizeSettingsQuery("quick setup all actions terminal browser clean speed focus background layout");
   const summary = document.createElement("summary");
   summary.className = "settings-disclosure-summary";
@@ -11239,7 +11251,11 @@ function quickActionDisclosurePanel() {
   setTextIfChanged(summary.querySelector(".settings-disclosure-title"), t("quickGuide.allActions"));
   setTextIfChanged(summary.querySelector(".settings-disclosure-body"), t("quickGuide.allActions.body"));
   setTextIfChanged(summary.querySelector(".settings-disclosure-meta"), formatMessage("quickGuide.actionCount", { count: actions.length }));
-  details.append(summary, quickSetupActionGrid());
+  details.append(summary);
+  if (shouldMount) ensureSettingsDisclosureContent(details);
+  details.addEventListener("toggle", () => {
+    if (details.open) ensureSettingsDisclosureContent(details);
+  });
   return details;
 }
 
