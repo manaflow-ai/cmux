@@ -1930,13 +1930,21 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
         view = containerView
         containerView.translatesAutoresizingMaskIntoConstraints = true
-        // Prevent the titlebar accessory from clipping button backgrounds
-        // at the bottom edge (the system constrains accessory height to the
-        // titlebar, which can be slightly shorter than the button frames).
+        // The shortcut-hint pills (and button backgrounds) sit below the button
+        // row and overflow the accessory's titlebar-height content frame on
+        // purpose. macOS 26.5 began re-deriving `layer.masksToBounds` from the
+        // AppKit `clipsToBounds` property on every layout pass, which clobbered
+        // a bare `layer?.masksToBounds = false` write and re-clipped that
+        // overflow (the hint captions got cut off at the bottom). Set
+        // `clipsToBounds = false` on both the container and the hosting view so
+        // the non-clipping intent persists across layout on every macOS version.
         containerView.wantsLayer = true
+        containerView.clipsToBounds = false
         containerView.layer?.masksToBounds = false
         hostingView.translatesAutoresizingMaskIntoConstraints = true
         hostingView.autoresizingMask = []
+        hostingView.clipsToBounds = false
+        hostingView.layer?.masksToBounds = false
         containerView.addSubview(hostingView)
 
         userDefaultsObserver = NotificationCenter.default.addObserver(
