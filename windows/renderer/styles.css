@@ -4838,7 +4838,7 @@ body.reduce-motion *::after {
 .active-pane-summary {
   min-width: 0;
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
+  grid-template-columns: 10px minmax(0, 1fr) auto;
   gap: var(--space-2);
   align-items: center;
   padding-bottom: var(--space-1);
@@ -4884,6 +4884,59 @@ body.reduce-motion *::after {
 .active-pane-empty {
   color: var(--color-muted);
   font-size: 11px;
+}
+
+.active-pane-background-chip {
+  min-width: 0;
+  max-width: 132px;
+  height: 30px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px 3px 3px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 82%, var(--color-rail) 18%);
+  color: var(--color-muted);
+  font: 11px/1 var(--font-ui);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.active-pane-background-chip:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+  color: var(--color-text);
+}
+
+.active-pane-background-chip[hidden] {
+  display: none;
+}
+
+.active-pane-background-chip-preview {
+  width: 28px;
+  height: 22px;
+  display: block;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 74%, transparent);
+  border-radius: var(--radius-1);
+  background:
+    linear-gradient(135deg, color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%), var(--color-pane-warm));
+}
+
+.active-pane-summary.has-background .active-pane-background-chip-preview {
+  background-image: var(--active-pane-background-image);
+  background-size: var(--active-pane-background-size, cover);
+  background-repeat: var(--active-pane-background-repeat, no-repeat);
+  background-position: var(--active-pane-background-position, center);
+}
+
+.active-pane-background-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .active-pane-actions {
@@ -5039,6 +5092,16 @@ body.reduce-motion *::after {
 
   .active-pane-title-control {
     grid-template-columns: 1fr;
+  }
+
+  .active-pane-summary {
+    grid-template-columns: 10px minmax(0, 1fr);
+  }
+
+  .active-pane-background-chip {
+    grid-column: 2;
+    justify-self: start;
+    max-width: min(100%, 132px);
   }
 
   .active-pane-text-control {

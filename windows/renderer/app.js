@@ -9970,19 +9970,20 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     || null;
   const wrapper = document.createElement("div");
   wrapper.className = "active-pane-panel";
-  wrapper.dataset.settingsSearch = normalizeSettingsQuery("active pane tab terminal browser rename color text size split duplicate focus controls");
+  wrapper.dataset.settingsSearch = normalizeSettingsQuery("active pane tab terminal browser rename color text size split duplicate focus controls background image wallpaper");
   if (!panel) {
     wrapper.innerHTML = `<div class="active-pane-empty">Open a terminal or browser pane to customize it here.</div>`;
     return wrapper;
   }
 
+  const paneBackground = panel.type === "terminal" ? normalizeBackgroundValue(panel.backgroundImage) : "";
   const typeLabel = panel.type === "browser" ? "Browser" : "Terminal";
   const title = panelDisplayTitle(panel, false);
   const meta = panel.type === "browser"
     ? browserPanelUrl(panel) || panel.url || state.settings.browserHomeUrl
     : `${panel.cwdShort || workspace?.cwdShort || "~"} / ${optionLabel(terminalProfiles, panel.shellProfile || state.settings.terminalProfile, "Shell")}`;
   const summary = document.createElement("div");
-  summary.className = "active-pane-summary";
+  summary.className = `active-pane-summary${paneBackground ? " has-background" : ""}`;
   summary.innerHTML = `
     <span class="active-pane-color"></span>
     <span class="active-pane-copy">
@@ -9990,6 +9991,10 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
       <span class="active-pane-title"></span>
       <span class="active-pane-meta"></span>
     </span>
+    <button class="active-pane-background-chip" type="button">
+      <span class="active-pane-background-chip-preview" aria-hidden="true"></span>
+      <span class="active-pane-background-chip-label"></span>
+    </button>
   `;
   summary.style.setProperty("--active-pane-color", panel.color || workspace?.color || state.settings.accent);
   summary.querySelector(".active-pane-kind").textContent = typeLabel;
@@ -9997,6 +10002,23 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
   summary.querySelector(".active-pane-title").title = title;
   summary.querySelector(".active-pane-meta").textContent = meta;
   summary.querySelector(".active-pane-meta").title = meta;
+  const backgroundChip = summary.querySelector(".active-pane-background-chip");
+  if (panel.type === "terminal") {
+    const backgroundLabel = paneBackground ? "Pane image" : "Default look";
+    const backgroundTitle = paneBackground
+      ? `Pane background: ${appearanceBackgroundLabel(paneBackground)}`
+      : "Pane background uses terminal colors";
+    backgroundChip.style.setProperty("--active-pane-background-image", backgroundCss(paneBackground));
+    backgroundChip.style.setProperty("--active-pane-background-repeat", backgroundRepeatCss(paneBackground));
+    backgroundChip.style.setProperty("--active-pane-background-size", backgroundSizeCss(state.settings.backgroundFit));
+    backgroundChip.style.setProperty("--active-pane-background-position", backgroundPositionCss(state.settings.backgroundPosition));
+    backgroundChip.querySelector(".active-pane-background-chip-label").textContent = backgroundLabel;
+    backgroundChip.title = `${backgroundTitle}. Click to choose.`;
+    backgroundChip.setAttribute("aria-label", `${backgroundTitle}. Choose pane background.`);
+    backgroundChip.onclick = () => choosePanelBackgroundImage(panel);
+  } else {
+    backgroundChip.hidden = true;
+  }
   wrapper.append(summary);
 
   const titleInput = document.createElement("input");
