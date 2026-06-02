@@ -7974,13 +7974,6 @@ function renderSettingsInspector(options = {}) {
     quickSection.append(quickSetupActionGrid());
     quickSection.append(paneShapePanel(workspace));
     quickSection.append(...quickColorControlRows(workspace));
-    quickSection.append(settingRow(
-      "Background templates",
-      backgroundPresetGrid(),
-      true,
-      "quick setup background preset template wallpaper image look customize"
-    ));
-    quickSection.append(activeBackgroundPanel());
     quickSection.append(quickSettingsShortcutGrid());
     quickSection.append(settingsPresetGrid());
     nodes.push(quickSection);
