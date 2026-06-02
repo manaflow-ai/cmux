@@ -7732,7 +7732,7 @@ body.reduce-motion *::after {
 .background-action-group {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(92px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(76px, 100%), 1fr));
   gap: var(--space-1);
   align-items: center;
   padding: var(--space-1);
