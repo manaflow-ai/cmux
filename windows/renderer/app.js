@@ -6701,10 +6701,17 @@ function renderBrowserTabs(session) {
 
 function updateBrowserTabNewButton(session) {
   if (!session?.tabNew) return;
+  const tabCount = Array.isArray(session.tabs) ? session.tabs.length : 0;
   const atLimit = browserTabAtLimit(session);
-  session.tabNew.classList.toggle("is-disabled", atLimit);
+  const label = atLimit
+    ? browserTabLimitMessage()
+    : `${t("browser.newTab")} (${tabCount}/${browserTabLimit})`;
+  toggleClassIfChanged(session.tabNew, "is-disabled", atLimit);
   session.tabNew.setAttribute("aria-disabled", String(atLimit));
-  session.tabNew.title = atLimit ? browserTabLimitMessage() : t("browser.newTab");
+  if (session.tabNew.getAttribute("aria-label") !== label) {
+    session.tabNew.setAttribute("aria-label", label);
+  }
+  setTitleIfChanged(session.tabNew, label);
 }
 
 function browserTabAtLimit(session) {
