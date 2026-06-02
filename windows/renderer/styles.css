@@ -4855,6 +4855,14 @@ body.reduce-motion *::after {
   grid-template-columns: repeat(auto-fit, minmax(min(112px, 100%), 1fr));
 }
 
+.active-pane-title-control {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(74px, auto);
+  align-items: center;
+  gap: var(--space-1);
+}
+
 .active-pane-background {
   min-width: 0;
   display: grid;
@@ -4991,6 +4999,10 @@ body.reduce-motion *::after {
   }
 
   .active-pane-background-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .active-pane-title-control {
     grid-template-columns: 1fr;
   }
 

@@ -1092,6 +1092,9 @@ class CmuxWindowsRuntime {
       if (title) {
         found.panel.title = title.slice(0, 80);
         found.panel.titleLocked = true;
+      } else {
+        found.panel.title = found.panel.type === "browser" ? "Browser" : "Terminal";
+        found.panel.titleLocked = false;
       }
     }
     if (Object.hasOwn(updates, "color")) {

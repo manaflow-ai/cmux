@@ -9791,6 +9791,10 @@ function paneBackgroundControlPanel(panel) {
   return control;
 }
 
+function editablePaneTitle(panel) {
+  return panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal");
+}
+
 function activePaneSettingsPanel(workspace = activeWorkspace()) {
   const panel = workspace?.panels.find((candidate) => candidate.id === workspace.activePanelId)
     || focusedPanel()
@@ -9829,20 +9833,33 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
 
   const titleInput = document.createElement("input");
   titleInput.className = "setting-control";
-  titleInput.value = panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal");
+  titleInput.value = editablePaneTitle(panel);
   titleInput.placeholder = "Pane name";
   titleInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") titleInput.blur();
+    if (event.key === "Enter") {
+      titleInput.blur();
+    } else if (event.key === "Escape") {
+      titleInput.value = editablePaneTitle(panel);
+      titleInput.blur();
+    }
   });
   titleInput.addEventListener("blur", () => {
     const nextTitle = titleInput.value.trim();
     if (!nextTitle) {
-      titleInput.value = panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal");
+      titleInput.value = editablePaneTitle(panel);
       return;
     }
     if (nextTitle !== panel.title) updatePanel(panel.id, { title: nextTitle });
   });
-  wrapper.append(settingRow("Pane name", titleInput, false, "active pane rename tab title"));
+  const titleReset = settingsActionButton("Default", () => {
+    titleInput.value = editablePaneTitle({ ...panel, title: "" });
+    updatePanel(panel.id, { title: "" });
+  }, "", "active pane rename default automatic title clear");
+  titleReset.disabled = !panel.titleLocked;
+  const titleControl = document.createElement("span");
+  titleControl.className = "active-pane-title-control";
+  titleControl.append(titleInput, titleReset);
+  wrapper.append(settingRow("Pane name", titleControl, false, "active pane rename tab title default automatic clear"));
 
   wrapper.append(settingRow(
     "Pane color",
@@ -15022,6 +15039,9 @@ function optimisticUpdatePanel(panelId, updates = {}, options = {}) {
     if (title) {
       found.panel.title = title.slice(0, 80);
       found.panel.titleLocked = true;
+    } else {
+      found.panel.title = found.panel.type === "browser" ? "Browser" : "Terminal";
+      found.panel.titleLocked = false;
     }
   }
   if (Object.hasOwn(updates, "color")) {
@@ -15062,7 +15082,11 @@ function panelUpdateReconcileNeeded(panelId, updates = {}) {
   }
   if (Object.hasOwn(updates, "title")) {
     const title = String(updates.title || "").trim();
-    if (title && found.panel.title !== title.slice(0, 80)) return true;
+    if (title) {
+      if (found.panel.title !== title.slice(0, 80) || !found.panel.titleLocked) return true;
+    } else if (found.panel.titleLocked) {
+      return true;
+    }
   }
   if (Object.hasOwn(updates, "color")) {
     const color = String(updates.color || "").trim();
