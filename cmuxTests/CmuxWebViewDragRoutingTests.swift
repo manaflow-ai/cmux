@@ -253,6 +253,62 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
 
         XCTAssertEqual(cmuxUnitTestWKWebViewDragLifecycleEvents, [])
     }
+
+    func testMouseBackButtonRoutesThroughOwnerCallback() {
+        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 320, height: 240), configuration: WKWebViewConfiguration())
+        var backCount = 0
+        var forwardCount = 0
+        webView.onMouseBackButton = {
+            backCount += 1
+            return true
+        }
+        webView.onMouseForwardButton = {
+            forwardCount += 1
+            return true
+        }
+
+        webView.otherMouseDown(with: makeOtherMouseEvent(buttonNumber: 3))
+
+        XCTAssertEqual(backCount, 1)
+        XCTAssertEqual(forwardCount, 0)
+    }
+
+    func testMouseForwardButtonRoutesThroughOwnerCallback() {
+        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 320, height: 240), configuration: WKWebViewConfiguration())
+        var backCount = 0
+        var forwardCount = 0
+        webView.onMouseBackButton = {
+            backCount += 1
+            return true
+        }
+        webView.onMouseForwardButton = {
+            forwardCount += 1
+            return true
+        }
+
+        webView.otherMouseDown(with: makeOtherMouseEvent(buttonNumber: 4))
+
+        XCTAssertEqual(backCount, 0)
+        XCTAssertEqual(forwardCount, 1)
+    }
+
+    private func makeOtherMouseEvent(buttonNumber: Int) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: .otherMouseDown,
+            location: NSPoint(x: 12, y: 24),
+            modifierFlags: [],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1,
+            buttonNumber: buttonNumber
+        ) else {
+            fatalError("Failed to create other mouse event")
+        }
+        return event
+    }
 }
 
 @MainActor
