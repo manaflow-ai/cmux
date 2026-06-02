@@ -1,6 +1,7 @@
 import XCTest
 import CmuxSocketControl
 import AppKit
+import Testing
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -939,69 +940,74 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
     }
 }
 
-final class GhosttyTerminalContextMenuTests: XCTestCase {
-    func testLookUpTitleIncludesQuotedSelectionPreview() {
-        XCTAssertEqual(
-            GhosttyNSView.lookUpMenuTitle(for: "hello"),
-            "Look Up “hello”"
-        )
+@MainActor
+@Suite("Ghostty terminal context menu")
+struct GhosttyTerminalContextMenuTests {
+    @Test
+    func lookUpTitleIncludesQuotedSelectionPreview() {
+        let title = GhosttyNSView.lookUpMenuTitle(for: "hello")
+
+        #expect(title.contains("hello"))
     }
 
-    func testLookUpTitleNormalizesWhitespaceAndTruncatesLongText() {
+    @Test
+    func lookUpTitleNormalizesWhitespaceAndTruncatesLongText() {
         let title = GhosttyNSView.lookUpMenuTitle(
             for: "  abc\tdef\n" + String(repeating: "x", count: 80),
             previewLimit: 10
         )
 
-        XCTAssertEqual(title, "Look Up “abc def xx…”")
+        #expect(title.contains("abc def xx…"))
     }
 
-    func testTextServicesRequireSendOnlyTextAndSelection() {
-        XCTAssertTrue(
+    @Test
+    func textServicesRequireSendOnlyTextAndSelection() {
+        #expect(
             GhosttyNSView.supportsTextServiceRequest(
                 sendType: .string,
                 returnType: nil,
                 hasSelection: true
             )
         )
-        XCTAssertTrue(
+        #expect(
             GhosttyNSView.supportsTextServiceRequest(
                 sendType: NSPasteboard.PasteboardType("public.utf8-plain-text"),
                 returnType: nil,
                 hasSelection: true
             )
         )
-        XCTAssertFalse(
+        #expect(
             GhosttyNSView.supportsTextServiceRequest(
                 sendType: .string,
                 returnType: nil,
                 hasSelection: false
-            )
+            ) == false
         )
-        XCTAssertFalse(
+        #expect(
             GhosttyNSView.supportsTextServiceRequest(
                 sendType: .string,
                 returnType: .string,
                 hasSelection: true
-            )
+            ) == false
         )
-        XCTAssertFalse(
+        #expect(
             GhosttyNSView.supportsTextServiceRequest(
                 sendType: .png,
                 returnType: nil,
                 hasSelection: true
-            )
+            ) == false
         )
     }
 
-    func testTextServicesExposeAppKitPasteboardWriterSelector() {
+    @Test
+    func textServicesExposeAppKitPasteboardWriterSelector() {
         let view = GhosttyNSView(frame: .zero)
 
-        XCTAssertTrue(
+        #expect(
             view.responds(to: NSSelectorFromString("writeSelectionToPasteboard:types:"))
         )
-        XCTAssertFalse(
-            view.responds(to: NSSelectorFromString("writeSelectionTo:types:"))
+        #expect(
+            view.responds(to: NSSelectorFromString("writeSelectionTo:types:")) == false
         )
     }
 }

@@ -10784,7 +10784,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var payload: [String: Any] = [
             "menuTitles": titles,
             "hasCopy": titles.contains(String(localized: "terminalContextMenu.copy", defaultValue: "Copy")) ? "1" : "0",
-            "hasLookUp": titles.contains { $0.hasPrefix("Look Up ") } ? "1" : "0",
+            "hasLookUp": menu.items.contains { $0.action == #selector(lookUpContextMenuText(_:)) } ? "1" : "0",
             "hasPaste": titles.contains(String(localized: "terminalContextMenu.paste", defaultValue: "Paste")) ? "1" : "0",
             "hasSplitHorizontally": titles.contains(String(localized: "terminalContextMenu.splitHorizontally", defaultValue: "Split Horizontally")) ? "1" : "0",
             "hasResetTerminal": titles.contains(String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal")) ? "1" : "0"

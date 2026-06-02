@@ -811,6 +811,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         viewportOffsetDelta: Int? = nil
     ) -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchEnvironment["CMUX_TAG"] = "ui-test-terminal-cmd-click"
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_SETUP"] = "1"
