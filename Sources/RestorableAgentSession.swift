@@ -1407,7 +1407,7 @@ struct RestorableAgentSessionIndex: Sendable {
         // Pick the sibling whose birthtime is closest to the Workflow container directory.
         let dirPath = (projectRoot as NSString).appendingPathComponent(excludingSessionId)
         guard let dirBirth = (try? fileManager.attributesOfItem(atPath: dirPath))?[.creationDate] as? Date else {
-            return siblings.first
+            return siblings.sorted().first
         }
         return siblings.min { a, b in
             let pathA = (projectRoot as NSString).appendingPathComponent("\(a).jsonl")
