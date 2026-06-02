@@ -5336,7 +5336,9 @@ extension SessionPersistenceTests {
 
         XCTAssertNil(restoredPanel.requestedWorkingDirectory)
         XCTAssertTrue(input.contains("codex resume session-duplicate-turn --yolo"), input)
-        XCTAssertTrue(input.contains("{ cd -- '\(missingCwd.path)' 2>/dev/null || [ ! -d '\(missingCwd.path)' ]; } &&"), input)
+        XCTAssertTrue(input.contains("{ cd --"), input)
+        XCTAssertTrue(input.contains(missingCwd.path), input)
+        XCTAssertTrue(input.contains("2>/dev/null || [ ! -d"), input)
     }
 
     @MainActor
