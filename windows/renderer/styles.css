@@ -1437,7 +1437,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-padding-inline: 10px 244px;
+  scroll-padding-inline: 10px 212px;
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
   background: color-mix(in oklch, var(--color-terminal-gutter) 88%, var(--color-canvas) 12%);
@@ -1790,14 +1790,14 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   position: sticky;
   z-index: 3;
   height: 29px;
-  flex: 0 0 112px;
-  min-width: 112px;
-  max-width: 112px;
+  flex: 0 0 96px;
+  min-width: 96px;
+  max-width: 96px;
   grid-template-columns: 23px minmax(0, 1fr);
   justify-items: start;
   justify-content: center;
-  gap: 7px;
-  padding: 0 8px;
+  gap: 6px;
+  padding: 0 7px;
   border-color: var(--color-line);
   border-radius: var(--radius-1);
   background: color-mix(in oklch, var(--color-pane) 88%, var(--color-terminal-gutter) 12%);
@@ -1807,14 +1807,14 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .surface-new-terminal {
-  right: 124px;
+  right: 108px;
   color: color-mix(in oklch, var(--color-success) 72%, var(--color-text));
 }
 
 .surface-new-browser {
-  flex-basis: 112px;
-  min-width: 112px;
-  max-width: 112px;
+  flex-basis: 96px;
+  min-width: 96px;
+  max-width: 96px;
   right: 6px;
   color: color-mix(in oklch, var(--color-accent) 76%, var(--color-text));
 }
