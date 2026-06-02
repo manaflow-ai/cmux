@@ -2883,7 +2883,7 @@ function appendSignatureValue(parts, value) {
 function appendSignatureArray(parts, values, appendItem) {
   const items = Array.isArray(values) ? values : [];
   parts.push("[", String(items.length), "]");
-  for (const item of items) appendItem(parts, item);
+  items.forEach((item, index) => appendItem(parts, item, index));
 }
 
 function appendPanelSignature(parts, panel = {}) {
@@ -3337,26 +3337,23 @@ function renderWorkspaces() {
 function workspaceListSignature() {
   const activeId = state.data?.activeWorkspaceId || "";
   const paletteColor = state.data?.palette?.[0] || "";
-  return stableJson([
-    activeId,
-    paletteColor,
-    state.settings.sidebarDetailMode,
-    ...(state.data?.workspaces || []).map((workspace, index) => {
-      const attentionTotal = workspace.panels.filter((panel) => panel.needsAttention).length;
-      const branch = workspaceRowBranch(workspace);
-      return [
-        workspace.id,
-        workspace.title || `Workspace ${index + 1}`,
-        workspace.cwdShort || "~",
-        branch,
-        workspace.color || paletteColor,
-        workspace.terminalCount || 0,
-        workspace.browserCount || 0,
-        workspace.latestNotification || "",
-        attentionTotal
-      ];
-    })
-  ]);
+  const parts = [];
+  appendSignatureValue(parts, activeId);
+  appendSignatureValue(parts, paletteColor);
+  appendSignatureValue(parts, state.settings.sidebarDetailMode);
+  appendSignatureArray(parts, state.data?.workspaces || [], (nextParts, workspace, index) => {
+    const attentionTotal = workspace.panels.filter((panel) => panel.needsAttention).length;
+    appendSignatureValue(nextParts, workspace.id);
+    appendSignatureValue(nextParts, workspace.title || `Workspace ${index + 1}`);
+    appendSignatureValue(nextParts, workspace.cwdShort || "~");
+    appendSignatureValue(nextParts, workspaceRowBranch(workspace));
+    appendSignatureValue(nextParts, workspace.color || paletteColor);
+    appendSignatureValue(nextParts, workspace.terminalCount || 0);
+    appendSignatureValue(nextParts, workspace.browserCount || 0);
+    appendSignatureValue(nextParts, workspace.latestNotification || "");
+    appendSignatureValue(nextParts, attentionTotal);
+  });
+  return parts.join("");
 }
 
 function createWorkspaceRow() {
