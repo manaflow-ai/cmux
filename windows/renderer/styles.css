@@ -2511,6 +2511,10 @@ body.reduce-motion *::after {
   text-align: center;
 }
 
+.terminal-deferred.is-paused {
+  cursor: pointer;
+}
+
 .terminal-deferred-title {
   color: var(--color-text);
   font-size: 13px;

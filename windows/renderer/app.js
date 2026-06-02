@@ -5542,6 +5542,9 @@ function renderDeferredTerminal(panel, body) {
     `;
     body.replaceChildren(deferred);
   }
+  const isActive = panel.id === activeWorkspace()?.activePanelId;
+  toggleClassIfChanged(deferred, "is-paused", !isActive);
+  setTextIfChanged(deferred.querySelector(".terminal-deferred-title"), isActive ? "Preparing terminal" : "Click to start terminal");
   setTextIfChanged(deferred.querySelector(".terminal-deferred-meta"), panel.cwdShort || panel.cwd || "~");
 }
 
@@ -5582,9 +5585,13 @@ function deferredTerminalInitQueueOrder(activeWorkspaceId) {
 
 function flushDeferredTerminalInit() {
   const activeWorkspaceId = state.data?.activeWorkspaceId || "";
+  const activePanelId = state.data?.workspaces
+    ?.find((workspace) => workspace.id === activeWorkspaceId)
+    ?.activePanelId || "";
   const visiblePanelIds = visiblePanePanelIds();
   for (const panelId of deferredTerminalInitQueueOrder(activeWorkspaceId)) {
     if (!state.deferredTerminalInitQueue.delete(panelId)) continue;
+    if (panelId !== activePanelId) continue;
     if (state.terminals.has(panelId)) continue;
     const found = findPanelState(panelId);
     if (!found || found.workspace.id !== activeWorkspaceId || !visiblePanelIds.has(panelId)) continue;
@@ -5597,7 +5604,7 @@ function flushDeferredTerminalInit() {
     if (found.workspace.activePanelId === panelId) focusTerminalSession(panelId);
     break;
   }
-  if (state.deferredTerminalInitQueue.size > 0) scheduleDeferredTerminalInit();
+  if (activePanelId && state.deferredTerminalInitQueue.has(activePanelId)) scheduleDeferredTerminalInit();
 }
 
 function ensureTerminal(panel, body) {
