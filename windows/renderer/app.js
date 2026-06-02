@@ -7785,6 +7785,7 @@ function activeBackgroundPanel(options = {}) {
       ? "Built-in preset"
       : filePath || normalized;
   panel.className = `active-background-panel${hasBackground ? " has-image" : ""}`;
+  panel.dataset.activeBackgroundTuning = options.tuning ? "true" : "false";
   panel.dataset.settingsSearch = normalizeSettingsQuery("active background image wallpaper current preview source choose save open clear fit position effects opacity strength transparency tune");
   panel.style.setProperty("--active-background-image", backgroundCss(background));
   panel.style.setProperty("--active-background-repeat", backgroundRepeatCss(background));
@@ -7846,7 +7847,9 @@ function refreshAppearancePreview() {
   const preview = elements.inspectorBody.querySelector(".appearance-preview");
   if (preview) preview.replaceWith(appearancePreviewPanel());
   for (const activeBackground of elements.inspectorBody.querySelectorAll(".active-background-panel")) {
-    activeBackground.replaceWith(activeBackgroundPanel());
+    activeBackground.replaceWith(activeBackgroundPanel({
+      tuning: activeBackground.dataset.activeBackgroundTuning === "true"
+    }));
   }
   const themeSelect = elements.inspectorBody.querySelector('[data-setting-control="theme"]');
   if (themeSelect && themeSelect.value !== state.settings.theme) themeSelect.value = state.settings.theme;
