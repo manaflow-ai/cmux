@@ -109,6 +109,10 @@ class UpdateViewModel: ObservableObject {
         }
     }
 
+    var pillHelpText: String {
+        String(localized: "update.pill.help", defaultValue: "Open update details and actions")
+    }
+
     var maxWidthText: String {
         if let detectedText = detectedUpdateText {
             return detectedText
