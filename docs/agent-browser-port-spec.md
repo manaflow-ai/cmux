@@ -265,6 +265,15 @@ cmux capabilities
 cmux browser identify --surface <surface-id>   # wrapper over system.identify + browser fields
 ```
 
+Agent MCP transport:
+```bash
+codex mcp add cmux-browser -- cmux browser mcp-server
+claude mcp add cmux-browser -- cmux browser mcp-server
+```
+
+`cmux browser mcp-server` exposes the in-app browser command surface as stdio MCP tools. It can
+initialize and list tools without opening the app socket; tool calls use the resolved cmux socket.
+
 Flash:
 ```bash
 cmux trigger-flash [--workspace <id>] [--surface <id>]

@@ -3097,6 +3097,17 @@ struct CMUXCLI {
             return
         }
 
+        let browserNoSocketArgs = commandArgs.filter { $0 != "--json" }
+        if command == "browser",
+           ["mcp-server", "mcp"].contains(browserNoSocketArgs.first?.lowercased() ?? "") {
+            try runBrowserMCPServer(
+                commandArgs: Array(browserNoSocketArgs.dropFirst()),
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
         let browserAvailabilityArgs = commandArgs.filter { $0 != "--json" }
         if command == "disable-browser" ||
             command == "enable-browser" ||
@@ -10741,6 +10752,34 @@ struct CMUXCLI {
         return (result.status, result.stdout, result.stderr)
     }
 
+    private func runBrowserMCPServer(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
+        if commandArgs.contains("--help") || commandArgs.contains("-h") {
+            print("""
+            Usage: cmux browser mcp-server
+
+            Start a stdio MCP server that exposes cmux in-app browser automation tools.
+
+            Register it with agents:
+              codex mcp add cmux-browser -- cmux browser mcp-server
+              claude mcp add cmux-browser -- cmux browser mcp-server
+            """)
+            return
+        }
+        guard commandArgs.isEmpty else {
+            throw CLIError(message: "browser mcp-server does not accept arguments")
+        }
+
+        try CMUXBrowserMCPServer(
+            cli: self,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword
+        ).run()
+    }
+
     private func runBrowserCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -14400,6 +14439,7 @@ struct CMUXCLI {
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
               download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              mcp-server
               profiles <list|add|rename|clear|delete> [...]
               import [--interactive|--non-interactive|-y|--yes] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--create-profile] [--domain <domain>]
               cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--all]
@@ -14427,6 +14467,7 @@ struct CMUXCLI {
               cmux browser open https://example.com
               cmux browser surface:1 navigate https://google.com
               cmux browser --surface surface:1 snapshot --interactive
+              cmux browser mcp-server
             """
         // Legacy browser aliases — point users to `cmux browser --help`
         case "open-browser":
@@ -31530,6 +31571,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 #endif
 }
+
 
 private enum CMUXCLIOutput {
     static func writeStandardError(_ message: String) {

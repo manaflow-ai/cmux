@@ -37,7 +37,7 @@ export default function BrowserAutomationPage() {
               <code>identify</code>, <code>open</code>, <code>open-split</code>,{" "}
               <code>navigate</code>, <code>back</code>, <code>forward</code>,{" "}
               <code>reload</code>, <code>url</code>, <code>focus-webview</code>,{" "}
-              <code>is-webview-focused</code>
+              <code>is-webview-focused</code>, <code>mcp-server</code>
             </td>
           </tr>
           <tr>
@@ -103,6 +103,10 @@ cmux browser identify --surface surface:2
 # Positional vs flag targeting are equivalent
 cmux browser surface:2 url
 cmux browser --surface surface:2 url`}</CodeBlock>
+
+      <CodeBlock lang="bash">{`# Register cmux browser MCP tools once
+codex mcp add cmux-browser -- cmux browser mcp-server
+claude mcp add cmux-browser -- cmux browser mcp-server`}</CodeBlock>
 
       <DocsHeading level={2} id="navigation">{t("navigation")}</DocsHeading>
       <CodeBlock lang="bash">{`cmux browser open https://example.com

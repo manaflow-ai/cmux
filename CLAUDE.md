@@ -73,6 +73,17 @@ ambient cmux terminal context (`CMUX_SOCKET`, `CMUX_SOCKET_PASSWORD`, workspace/
 IDs, cmuxd socket, and debug log), then sets `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, and
 `CMUX_BUNDLED_CLI_PATH` for the selected tag.
 
+For Codex or Claude sessions that should test web UIs through cmux's in-app browser instead of an
+external Chrome instance, register the bundled stdio MCP server once:
+
+```bash
+codex mcp add cmux-browser -- cmux browser mcp-server
+claude mcp add cmux-browser -- cmux browser mcp-server
+```
+
+`cmux browser mcp-server` initializes without a live app socket so MCP clients can list tools during
+startup. Actual browser tool calls use the session's `CMUX_SOCKET_PATH`, which cmux terminals inject.
+
 After making code changes, always use `reload.sh --tag` to build. **Never run bare `xcodebuild` or `open` an untagged `cmux DEV.app`.** Untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
 
 ```bash
