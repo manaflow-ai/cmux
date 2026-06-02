@@ -222,6 +222,69 @@
         ]
       }
     },
+    "gitHosting": {
+      "title": "gitHosting",
+      "description": "Git hosting providers for the sidebar pull request poller. Maps remote hosts to GitHub (including GitHub Enterprise Server), GitLab, Bitbucket, or fully custom REST providers, so PR/MR links appear for hosts beyond github.com.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "autoDetect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-detect the public hosts github.com, gitlab.com, and bitbucket.org."
+        },
+        "autoDiscoverGitHubEnterprise": {
+          "type": "boolean",
+          "default": true,
+          "description": "Treat any otherwise-unmatched host that `gh auth token --hostname <host>` can authenticate as a GitHub Enterprise Server instance (REST /api/v3/). Self-configuring, no hostname allowlist."
+        },
+        "providers": {
+          "type": "array",
+          "description": "Ordered host to provider rules, consulted top to bottom (first match wins).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "host": {
+                "type": "string",
+                "description": "Exact host (e.g. gitlab.example.com) or *.suffix wildcard (e.g. *.corp.example) this rule matches."
+              },
+              "preset": {
+                "type": "string",
+                "enum": ["github", "gitlab", "bitbucket"],
+                "description": "Built-in provider to base the host on. Combine with apiBaseURL and token for a self-hosted instance."
+              },
+              "apiBaseURL": {
+                "type": "string",
+                "description": "Override the REST API base URL (must end with /). Supports the {host} template token."
+              },
+              "token": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Where to find the API token: environment variables first, then a command's stdout.",
+                "properties": {
+                  "environment": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Environment variable names checked in order."
+                  },
+                  "command": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "A token-printing command (first element is the executable). {host} in arguments is replaced with the target host."
+                  }
+                }
+              },
+              "spec": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "A complete custom provider definition (apiBaseURL, pullRequestsPath, query, branchFilter, auth, response field mappings). Takes precedence over preset."
+              }
+            }
+          }
+        }
+      }
+    },
     "app": {
       "title": "app",
       "description": "General app preferences from Settings > App.",

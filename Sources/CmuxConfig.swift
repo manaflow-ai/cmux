@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxGitHosting
 import Combine
 import CryptoKit
 import Foundation
@@ -16,9 +17,11 @@ struct CmuxConfigFile: Codable, Sendable {
     var commands: [CmuxCommandDefinition]
     var vault: CmuxVaultConfigDefinition?
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
+    /// Git hosting providers for the sidebar pull request poller. See ``GitHostingConfig``.
+    var gitHosting: GitHostingConfig?
 
     private enum CodingKeys: String, CodingKey {
-        case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups, gitHosting
     }
 
     init(
@@ -29,7 +32,8 @@ struct CmuxConfigFile: Codable, Sendable {
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
         vault: CmuxVaultConfigDefinition? = nil,
-        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
+        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil,
+        gitHosting: GitHostingConfig? = nil
     ) {
         self.actions = actions
         self.ui = ui
@@ -39,6 +43,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.commands = commands
         self.vault = vault
         self.workspaceGroups = workspaceGroups
+        self.gitHosting = gitHosting
     }
 
     init(from decoder: Decoder) throws {
@@ -90,6 +95,7 @@ struct CmuxConfigFile: Codable, Sendable {
             CmuxConfigWorkspaceGroupsDefinition.self,
             forKey: .workspaceGroups
         )
+        gitHosting = try container.decodeIfPresent(GitHostingConfig.self, forKey: .gitHosting)
     }
 
     private static func normalizedActions(
@@ -1895,6 +1901,9 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
+    /// Resolved git hosting providers for the sidebar pull request poller. Empty
+    /// (the default) preserves cmux's original github.com behavior.
+    @Published private(set) var gitHostingConfig: GitHostingConfig = .default
     @Published private(set) var configRevision: UInt64 = 0
 
     /// Which config file each command came from, keyed by command id.
@@ -2322,6 +2331,8 @@ final class CmuxConfigStore: ObservableObject {
         }
         issues.append(contentsOf: resolvedNewWorkspaceContextMenuItems.issues)
         configurationIssues = issues
+        let resolvedGitHosting = localConfig?.gitHosting ?? globalConfig?.gitHosting ?? .default
+        gitHostingConfig = resolvedGitHosting
         if fileWatchingEnabled {
             updateLocalHookFileWatchers(
                 paths: localHookPaths,
@@ -2329,6 +2340,7 @@ final class CmuxConfigStore: ObservableObject {
             )
         }
         applySurfaceTabBarButtonsToCurrentManager()
+        tabManager?.applyGitHostingConfig(resolvedGitHosting)
         configRevision &+= 1
     }
 

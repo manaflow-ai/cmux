@@ -390,6 +390,80 @@ working-directory = ~/code`}</CodeBlock>
         );
       })}
 
+      <DocsHeading level={2} id="git-hosting">Pull request providers</DocsHeading>
+      <p>
+        The sidebar shows a pull request link for a workspace&apos;s current branch. By default
+        cmux polls github.com and discovers any GitHub Enterprise Server host that the{" "}
+        <code>gh</code> CLI is authenticated to. The <code>gitHosting</code> section adds GitLab,
+        Bitbucket, self-hosted instances, and fully custom REST hosts. Rules are matched top to
+        bottom by host (exact or a <code>*.suffix</code> wildcard), and the first match wins.
+      </p>
+      <p>
+        gitlab.com and bitbucket.org are auto-detected, but they need a token. Set one with an
+        environment variable, or point a rule at a token command. Self-hosted instances need a rule
+        that names a <code>preset</code> and the instance&apos;s <code>apiBaseURL</code>.
+      </p>
+      <CodeBlock title="~/.config/cmux/cmux.json" lang="json">
+        {`{
+  "gitHosting": {
+    "providers": [
+      // gitlab.com: just supply a token (host is auto-detected).
+      { "host": "gitlab.com", "preset": "gitlab",
+        "token": { "environment": ["GITLAB_TOKEN"] } },
+
+      // Self-hosted GitLab on a custom domain.
+      { "host": "gitlab.example.com", "preset": "gitlab",
+        "apiBaseURL": "https://gitlab.example.com/api/v4/",
+        "token": { "environment": ["EXAMPLE_GITLAB_TOKEN"] } },
+
+      // Bitbucket Cloud.
+      { "host": "bitbucket.org", "preset": "bitbucket",
+        "token": { "environment": ["BITBUCKET_TOKEN"] } },
+
+      // GitHub Enterprise on a subdomain wildcard, token via gh.
+      { "host": "*.ghe.example.com", "preset": "github",
+        "apiBaseURL": "https://{host}/api/v3/",
+        "token": { "command": ["gh", "auth", "token", "--hostname", "{host}"] } }
+    ]
+  }
+}`}
+      </CodeBlock>
+      <p>
+        For a host with no preset, describe it from scratch with a <code>spec</code>. Each field
+        path is a dotted key path into one pull request object in the JSON response, and{" "}
+        <code>stateMap</code> maps the provider&apos;s native states onto cmux&apos;s{" "}
+        <code>OPEN</code>, <code>MERGED</code>, and <code>CLOSED</code>.
+      </p>
+      <CodeBlock title="Custom provider (Gitea-style)" lang="json">
+        {`{
+  "gitHosting": {
+    "providers": [
+      { "host": "git.internal",
+        "spec": {
+          "apiBaseURL": "https://{host}/api/v1/",
+          "pullRequestsPath": "repos/{path}/pulls",
+          "query": [{ "name": "state", "value": "all" }],
+          "auth": { "scheme": "token", "token": { "environment": ["GITEA_TOKEN"] } },
+          "response": {
+            "number": "number", "url": "html_url", "state": "state",
+            "mergedWhenPresent": "merged_at",
+            "headRef": "head.ref", "baseRef": "base.ref",
+            "stateMap": { "OPEN": "OPEN", "CLOSED": "CLOSED" }
+          }
+        } }
+    ]
+  }
+}`}
+      </CodeBlock>
+      <p>
+        URL and query fields accept the template tokens <code>{"{host}"}</code>,{" "}
+        <code>{"{path}"}</code>, <code>{"{pathEncoded}"}</code> (slashes percent-encoded for
+        GitLab project paths), <code>{"{owner}"}</code>, <code>{"{name}"}</code>, and{" "}
+        <code>{"{branch}"}</code> in a branch filter. Set <code>autoDetect</code> or{" "}
+        <code>autoDiscoverGitHubEnterprise</code> to <code>false</code> to turn off the built-in
+        behavior.
+      </p>
+
       <DocsHeading level={3} id="shortcuts-bindings">
         <code>shortcuts.bindings</code>
       </DocsHeading>
