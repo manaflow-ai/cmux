@@ -8775,7 +8775,15 @@ function activeBackgroundPanel(options = {}) {
   const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }), "", "active background save current");
   save.dataset.backgroundAction = "save";
   save.disabled = !isCustomBackgroundImage(state.settings.backgroundImage);
-  const pane = settingsActionButton("Pane", () => applyPanelBackgroundImage(state.settings.backgroundImage), "", "active background apply to active terminal pane");
+  const open = settingsActionButton("Open", () => openBackgroundImageSource(), "", "active background open local file url source reveal");
+  open.dataset.backgroundAction = "open";
+  open.disabled = !canOpenBackgroundImageSource(state.settings.backgroundImage);
+  const imageGroup = document.createElement("span");
+  imageGroup.className = "background-action-group background-action-group-image";
+  imageGroup.innerHTML = `<span class="background-action-title">Image</span>`;
+  imageGroup.append(chooseAndSave, paste, save, open);
+
+  const pane = settingsActionButton("Active terminal", () => applyPanelBackgroundImage(state.settings.backgroundImage), "", "active background apply to active terminal pane");
   pane.dataset.backgroundAction = "pane";
   pane.disabled = !hasBackground || !resolveTerminalPanel(focusedPanel());
   const allPanes = settingsActionButton("All terminals", () => applyWorkspaceBackgroundImageToTerminals(state.settings.backgroundImage), "", "active background apply to all terminal panes workspace");
@@ -8784,25 +8792,17 @@ function activeBackgroundPanel(options = {}) {
   const clearPanes = settingsActionButton("Clear terminals", () => applyWorkspaceBackgroundImageToTerminals(""), "danger", "active background clear all terminal pane images workspace");
   clearPanes.dataset.backgroundAction = "clear-panes";
   clearPanes.disabled = !hasPaneBackgrounds;
-  const open = settingsActionButton("Open", () => openBackgroundImageSource(), "", "active background open local file url source reveal");
-  open.dataset.backgroundAction = "open";
-  open.disabled = !canOpenBackgroundImageSource(state.settings.backgroundImage);
-  const clear = settingsActionButton("Clear", () => {
+  const clear = settingsActionButton("Clear app", () => {
     const changed = updateSettings({ backgroundImage: "" }, { immediate: true });
     if (changed) renderSettingsInspector();
-  }, "danger", "active background clear remove reset");
+  }, "danger", "active background clear app remove reset");
   clear.dataset.backgroundAction = "clear";
   clear.disabled = !hasBackground;
-  actions.append(
-    chooseAndSave,
-    paste,
-    save,
-    pane,
-    allPanes,
-    clearPanes,
-    open,
-    clear
-  );
+  const scopeGroup = document.createElement("span");
+  scopeGroup.className = "background-action-group background-action-group-scope";
+  scopeGroup.innerHTML = `<span class="background-action-title">Apply current image</span>`;
+  scopeGroup.append(pane, allPanes, clearPanes, clear);
+  actions.append(imageGroup, scopeGroup);
   if (options.tuning) {
     const refreshBackgroundSummary = () => {
       const title = appearanceBackgroundLabel(state.settings.backgroundImage);
@@ -8867,10 +8867,20 @@ function refreshBackgroundPreviewNodes() {
     setTextIfChanged(source, model.source);
     if (title) title.title = model.label;
     if (source) source.title = model.source;
+    const workspace = activeWorkspace();
+    const terminalPanels = workspaceTerminalPanels(workspace);
+    const hasTerminalPanes = terminalPanels.length > 0;
+    const hasPaneBackgrounds = terminalPanels.some((candidate) => normalizeBackgroundValue(candidate.backgroundImage));
     const save = panel.querySelector('[data-background-action="save"]');
+    const pane = panel.querySelector('[data-background-action="pane"]');
+    const allPanes = panel.querySelector('[data-background-action="all-panes"]');
+    const clearPanes = panel.querySelector('[data-background-action="clear-panes"]');
     const open = panel.querySelector('[data-background-action="open"]');
     const clear = panel.querySelector('[data-background-action="clear"]');
     if (save) save.disabled = !isCustomBackgroundImage(model.background);
+    if (pane) pane.disabled = !model.hasBackground || !resolveTerminalPanel(focusedPanel());
+    if (allPanes) allPanes.disabled = !model.hasBackground || !hasTerminalPanes;
+    if (clearPanes) clearPanes.disabled = !hasPaneBackgrounds;
     if (open) open.disabled = !canOpenBackgroundImageSource(model.background);
     if (clear) clear.disabled = !model.hasBackground;
     for (const control of panel.querySelectorAll("[data-setting-control]")) {

@@ -7529,11 +7529,49 @@ body.reduce-motion *::after {
 .active-background-actions {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(104px, 100%), 1fr));
-  gap: var(--space-1);
+  grid-template-columns: 1fr;
+  gap: var(--space-2);
 }
 
 @container (max-width: 330px) {
+  .active-background-actions {
+    gap: var(--space-1);
+  }
+}
+
+.background-action-group {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(92px, 100%), 1fr));
+  gap: var(--space-1);
+  align-items: center;
+  padding: var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 80%, var(--color-rail) 20%);
+}
+
+.background-action-title {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-faint);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.background-action-group .settings-action {
+  height: 28px;
+  min-width: 0;
+  padding-inline: var(--space-1);
+  font-size: 11px;
+}
+
+@container (min-width: 470px) {
   .active-background-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
