@@ -1592,7 +1592,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .surface-tab.is-pending .surface-dot {
   background: var(--color-faint);
-  animation: cmux-pulse 900ms ease-in-out infinite;
+  animation: cmux-pulse 900ms var(--ease-in-out) infinite;
 }
 
 .shell:not(.pane-color-markers) .surface-tab:not(.has-attention):not(.is-zoomed):not(.is-pending):not(.is-minimized) .surface-dot {
