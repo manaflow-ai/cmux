@@ -2096,40 +2096,35 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testCmdWTargetsAuxiliaryWindowInsteadOfMainTerminalPanel() throws {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
+#if DEBUG
+        struct CloseShortcutWindowProbe: Equatable {
+            let id: UUID
+            let ownsCloseShortcut: Bool
         }
 
-#if DEBUG
-        let auxiliaryWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
-        auxiliaryWindow.isReleasedWhenClosed = false
-        auxiliaryWindow.animationBehavior = .none
-        auxiliaryWindow.identifier = NSUserInterfaceItemIdentifier("cmux.about")
-        appDelegate.debugAuxiliaryCloseShortcutWindowOverride = { auxiliaryWindow }
-        defer {
-            appDelegate.debugAuxiliaryCloseShortcutWindowOverride = nil
-            closeTestWindow(auxiliaryWindow)
-        }
+        let terminalPanelWindow = CloseShortcutWindowProbe(id: UUID(), ownsCloseShortcut: false)
+        let auxiliaryWindow = CloseShortcutWindowProbe(id: UUID(), ownsCloseShortcut: true)
 
         guard let event = makeKeyDownEvent(
             key: "w",
             modifiers: [.command],
             keyCode: 13,
-            windowNumber: auxiliaryWindow.windowNumber
+            windowNumber: 0
         ) else {
             XCTFail("Failed to construct Cmd+W event")
             return
         }
 
-        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .closeTab))
-        XCTAssertTrue(
-            appDelegate.debugAuxiliaryWindowForFocusedCloseShortcut(event: event) === auxiliaryWindow,
+        XCTAssertTrue(KeyboardShortcutSettings.shortcut(for: .closeTab).matches(event: event))
+        XCTAssertEqual(
+            selectAuxiliaryCloseShortcutTarget(
+                debugWindow: auxiliaryWindow,
+                keyWindow: nil,
+                mainWindow: terminalPanelWindow,
+                eventWindow: nil,
+                ownsCloseShortcut: { $0.ownsCloseShortcut }
+            ),
+            auxiliaryWindow,
             "Cmd+W should target the auxiliary window before the active terminal manager"
         )
 #else

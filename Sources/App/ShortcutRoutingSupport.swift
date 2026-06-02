@@ -514,6 +514,28 @@ func selectFocusedCloseShortcutTarget<Window>(
     return eventWindow
 }
 
+func selectAuxiliaryCloseShortcutTarget<Window>(
+    debugWindow: Window?,
+    keyWindow: Window?,
+    mainWindow: Window?,
+    eventWindow: Window?,
+    ownsCloseShortcut: (Window) -> Bool
+) -> Window? {
+    if let debugWindow, ownsCloseShortcut(debugWindow) {
+        return debugWindow
+    }
+    if let keyWindow, ownsCloseShortcut(keyWindow) {
+        return keyWindow
+    }
+    if let mainWindow, ownsCloseShortcut(mainWindow) {
+        return mainWindow
+    }
+    if let eventWindow, ownsCloseShortcut(eventWindow) {
+        return eventWindow
+    }
+    return nil
+}
+
 enum BrowserZoomShortcutAction: Equatable {
     case zoomIn
     case zoomOut

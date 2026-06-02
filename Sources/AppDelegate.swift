@@ -6342,18 +6342,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func auxiliaryWindowForFocusedCloseShortcut(event: NSEvent) -> NSWindow? {
 #if DEBUG
-        if let debugWindow = debugAuxiliaryCloseShortcutWindowOverride?(),
-           cmuxWindowShouldOwnCloseShortcut(debugWindow) {
-            return debugWindow
-        }
+        let debugWindow = debugAuxiliaryCloseShortcutWindowOverride?()
+#else
+        let debugWindow: NSWindow? = nil
 #endif
-        return [
-            NSApp.keyWindow,
-            NSApp.mainWindow,
-            resolvedShortcutEventWindow(event),
-        ]
-        .compactMap { $0 }
-        .first { cmuxWindowShouldOwnCloseShortcut($0) }
+        return selectAuxiliaryCloseShortcutTarget(
+            debugWindow: debugWindow,
+            keyWindow: NSApp.keyWindow,
+            mainWindow: NSApp.mainWindow,
+            eventWindow: resolvedShortcutEventWindow(event),
+            ownsCloseShortcut: { cmuxWindowShouldOwnCloseShortcut($0) }
+        )
     }
 
     /// Re-sync app-level active window pointers from the currently focused main terminal window.
@@ -13389,7 +13388,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // The Close Tab shortcut must close the focused panel even if first-responder
         // momentarily lags on a browser NSTextView during split focus transitions.
         if matchConfiguredShortcut(event: event, action: .closeTab) {
-            let routedManager = tabManagerForFocusedCloseShortcut(event: event)
             // Browser popup windows primarily intercept the configured Close Tab shortcut
             // in BrowserPopupPanel. This AppDelegate path is a fallback for cases where
             // AppKit routes the event through the global shortcut handler first.
@@ -13401,6 +13399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 targetWindow.performClose(nil)
                 return true
             } else {
+                let routedManager = tabManagerForFocusedCloseShortcut(event: event)
                 if let routedManager {
 #if DEBUG
                     let selectedWorkspace = routedManager.selectedWorkspace
