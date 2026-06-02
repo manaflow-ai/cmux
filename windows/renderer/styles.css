@@ -1664,6 +1664,7 @@ body.reduce-motion *::after {
   transition: opacity var(--dur-fast) var(--ease-out);
 }
 
+.pane-splitter:hover::after,
 .pane-splitter:focus-visible::after,
 .pane-splitter.is-dragging::after {
   opacity: 1;
