@@ -6574,6 +6574,7 @@ function loadDeferredBrowserSession(session) {
   const sourceUrl = browserViewSourceUrl(targetUrl, state.settings.browserHomeUrl);
   clearDeferredBrowserSession(session);
   if (session.view.src !== sourceUrl) {
+    session.content?.classList?.remove("has-loaded");
     session.setLoading?.(true);
     session.setStatus?.("Loading");
     session.view.src = sourceUrl;
@@ -7019,6 +7020,7 @@ function activateBrowserTab(session, tabId) {
   clearDeferredBrowserSession(session);
   const sourceUrl = browserViewSourceUrl(tab.url, state.settings.browserHomeUrl);
   if (session.view.src !== sourceUrl) {
+    session.content?.classList?.remove("has-loaded");
     session.view.src = sourceUrl;
     session.setLoading?.(true);
     session.setStatus?.("Loading");
@@ -7310,7 +7312,9 @@ function ensureBrowser(panel, body) {
     const next = normalizeUrl(address.value, state.settings.browserHomeUrl);
     address.value = next;
     clearDeferredBrowserSession(session);
-    view.src = browserViewSourceUrl(next, state.settings.browserHomeUrl);
+    const sourceUrl = browserViewSourceUrl(next, state.settings.browserHomeUrl);
+    if (view.src !== sourceUrl) content.classList.remove("has-loaded");
+    view.src = sourceUrl;
     browserLoadFailed = false;
     hideBrowserError();
     setLoading(true);
@@ -7492,6 +7496,7 @@ function ensureBrowser(panel, body) {
     setStatus,
     setLoading,
     updateNavState,
+    content,
     view,
     deferredPane,
     address,
@@ -9466,6 +9471,8 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
         updateActiveBrowserTabUrl(session, nextUrl);
         const sourceUrl = browserViewSourceUrl(nextUrl, state.settings.browserHomeUrl);
         if (session.view.src !== sourceUrl) {
+          session.content?.classList?.remove("has-loaded");
+          session.setLoading?.(true);
           session.view.src = sourceUrl;
           session.setStatus?.("Loading");
         }
