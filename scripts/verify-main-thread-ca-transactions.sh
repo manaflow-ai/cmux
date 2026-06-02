@@ -9,6 +9,7 @@ HOLD_SECONDS="${CMUX_CA_ASSERT_HOLD_SECONDS:-8}"
 READY_TIMEOUT_SECONDS="${CMUX_CA_ASSERT_READY_TIMEOUT_SECONDS:-60}"
 APP_PID_FILE="${CMUX_CA_ASSERT_PID_FILE:-/tmp/cmux-ca-main-thread-${TAG}.pid}"
 DIAGNOSTICS_PATH="${CMUX_CA_ASSERT_DIAGNOSTICS:-/tmp/cmux-ca-main-thread-${TAG}.diagnostics.json}"
+APP_LAUNCHER_PID=""
 
 if [ -z "$APP_PATH" ]; then
   echo "usage: CMUX_APP_PATH=/path/to/cmux.app $0" >&2
@@ -137,6 +138,10 @@ cleanup() {
     kill "$APP_PID" >/dev/null 2>&1 || true
     wait "$APP_PID" >/dev/null 2>&1 || true
   fi
+  if [ -n "$APP_LAUNCHER_PID" ]; then
+    kill "$APP_LAUNCHER_PID" >/dev/null 2>&1 || true
+    wait "$APP_LAUNCHER_PID" >/dev/null 2>&1 || true
+  fi
   rm -f "$SOCKET_PATH" "$APP_PID_FILE" "$DIAGNOSTICS_PATH"
 }
 trap cleanup EXIT
@@ -145,29 +150,94 @@ kill_recorded_app
 kill_stale_ci_apps
 rm -f "$SOCKET_PATH" "$LOG_PATH" "$STARTUP_LOG_PATH" "$DIAGNOSTICS_PATH"
 
-CA_ASSERT_MAIN_THREAD_TRANSACTIONS=1 \
-CA_DEBUG_TRANSACTIONS=1 \
-CMUX_STARTUP_BREADCRUMBS=1 \
-CMUX_UI_TEST_MODE=1 \
-CMUX_UI_TEST_SOCKET_SANITY=1 \
-CMUX_UI_TEST_DIAGNOSTICS_PATH="$DIAGNOSTICS_PATH" \
-CMUX_DISABLE_SESSION_RESTORE=1 \
-CMUX_SOCKET_ENABLE=1 \
-CMUX_SOCKET_MODE=automation \
-CMUX_TAG="$TAG" \
-CMUX_SOCKET_PATH="$SOCKET_PATH" \
-CMUX_ALLOW_SOCKET_OVERRIDE=1 \
-"$BINARY" >"$LOG_PATH" 2>&1 &
-APP_PID=$!
-echo "$APP_PID" >"$APP_PID_FILE"
+APP_ENV=(
+  "CA_ASSERT_MAIN_THREAD_TRANSACTIONS=1"
+  "CA_DEBUG_TRANSACTIONS=1"
+  "CMUX_STARTUP_BREADCRUMBS=1"
+  "CMUX_UI_TEST_MODE=1"
+  "CMUX_UI_TEST_SOCKET_SANITY=1"
+  "CMUX_UI_TEST_DIAGNOSTICS_PATH=$DIAGNOSTICS_PATH"
+  "CMUX_DISABLE_SESSION_RESTORE=1"
+  "CMUX_SOCKET_ENABLE=1"
+  "CMUX_SOCKET_MODE=automation"
+  "CMUX_TAG=$TAG"
+  "CMUX_SOCKET_PATH=$SOCKET_PATH"
+  "CMUX_ALLOW_SOCKET_OVERRIDE=1"
+)
+
+find_launched_app_pid() {
+  local pids pid args
+  pids="$(pgrep -x "cmux DEV" 2>/dev/null || true)"
+  for pid in $pids; do
+    args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+    if [[ "$args" == *"$BINARY"* ]]; then
+      printf '%s\n' "$pid"
+      return 0
+    fi
+  done
+  return 1
+}
+
+refresh_app_pid_from_process_table() {
+  local resolved
+  resolved="$(find_launched_app_pid || true)"
+  [ -n "$resolved" ] || return 1
+  APP_PID="$resolved"
+  echo "$APP_PID" >"$APP_PID_FILE"
+  return 0
+}
+
+launch_app() {
+  local current_user gui_user gui_uid
+  current_user="$(id -un)"
+  gui_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
+  if [ -n "$gui_user" ] &&
+     [ "$gui_user" != "root" ] &&
+     gui_uid="$(id -u "$gui_user" 2>/dev/null)" &&
+     command -v sudo >/dev/null 2>&1 &&
+     sudo -n true 2>/dev/null; then
+    echo "Launching cmux in console GUI bootstrap for $gui_user ($gui_uid); current user: $current_user"
+    sudo -n launchctl asuser "$gui_uid" \
+      sudo -n -H -u "$gui_user" /usr/bin/env "${APP_ENV[@]}" "$BINARY" >"$LOG_PATH" 2>&1 &
+  else
+    echo "Launching cmux in current bootstrap"
+    env "${APP_ENV[@]}" "$BINARY" >"$LOG_PATH" 2>&1 &
+  fi
+  APP_LAUNCHER_PID=$!
+
+  local resolve_deadline=$((SECONDS + 5))
+  while [ "$SECONDS" -lt "$resolve_deadline" ]; do
+    if refresh_app_pid_from_process_table; then
+      return
+    fi
+    sleep 0.25
+  done
+}
+
+launch_app
 
 wait_for_app_alive() {
-  if ! kill -0 "$APP_PID" >/dev/null 2>&1; then
+  if [ -z "$APP_PID" ] || ! kill -0 "$APP_PID" >/dev/null 2>&1; then
+    refresh_app_pid_from_process_table || true
+  fi
+
+  if [ -n "$APP_PID" ] && kill -0 "$APP_PID" >/dev/null 2>&1; then
+    return
+  fi
+
+  if [ -n "$APP_LAUNCHER_PID" ] && kill -0 "$APP_LAUNCHER_PID" >/dev/null 2>&1; then
+    return
+  fi
+
+  if [ -n "$APP_PID" ]; then
     wait "$APP_PID" >/dev/null 2>&1 || true
+  fi
+  if [ -n "$APP_LAUNCHER_PID" ]; then
+    wait "$APP_LAUNCHER_PID" >/dev/null 2>&1 || true
+  fi
     echo "FAIL: cmux exited while CA_ASSERT_MAIN_THREAD_TRANSACTIONS=1 was active" >&2
     dump_diagnostics
     exit 1
-  fi
 }
 
 ready_deadline=$((SECONDS + READY_TIMEOUT_SECONDS))

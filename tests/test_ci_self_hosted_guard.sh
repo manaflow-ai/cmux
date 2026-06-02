@@ -18,6 +18,7 @@ NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 RELEASE_FILE="$ROOT_DIR/.github/workflows/release.yml"
 TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
 TERMINAL_CORPUS_NIGHTLY_FILE="$ROOT_DIR/.github/workflows/terminal-corpus-nightly.yml"
+CA_REGRESSION_SCRIPT="$ROOT_DIR/scripts/verify-main-thread-ca-transactions.sh"
 
 check_macos_runner() {
   local file="$1" job="$2"
@@ -372,6 +373,25 @@ check_build_and_lag_budget() {
   echo "PASS: tests-build-and-lag keeps enough time and restores source-fingerprinted DerivedData for cold builds"
 }
 
+check_ca_regression_launches_in_gui_bootstrap() {
+  if ! grep -Fq 'launchctl asuser "$gui_uid"' "$CA_REGRESSION_SCRIPT"; then
+    echo "FAIL: verify-main-thread-ca-transactions.sh must launch the app in the console GUI bootstrap when available"
+    exit 1
+  fi
+
+  if ! grep -Fq 'stat -f %Su /dev/console' "$CA_REGRESSION_SCRIPT"; then
+    echo "FAIL: verify-main-thread-ca-transactions.sh must resolve the console GUI user before launching the app"
+    exit 1
+  fi
+
+  if ! grep -Fq 'CMUX_UI_TEST_SOCKET_SANITY=1' "$CA_REGRESSION_SCRIPT"; then
+    echo "FAIL: verify-main-thread-ca-transactions.sh must keep socket sanity diagnostics enabled"
+    exit 1
+  fi
+
+  echo "PASS: CoreAnimation startup verifier uses the console GUI bootstrap and keeps socket diagnostics"
+}
+
 check_zig_helper_build_runner() {
   local file="$1" job="$2"
   if ! awk -v job="$job" '
@@ -437,5 +457,6 @@ check_split_theme_regression_timeout
 check_tests_deriveddata_cache
 check_ui_regression_budget
 check_build_and_lag_budget
+check_ca_regression_launches_in_gui_bootstrap
 check_zig_helper_build_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_zig_helper_build_runner "$RELEASE_FILE" "build-ghostty-cli-helper"
