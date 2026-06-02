@@ -717,7 +717,6 @@ body.reduce-motion *::after {
 .workspace-card {
   min-width: 0;
   display: grid;
-  grid-template-rows: auto auto auto auto;
   align-content: center;
   gap: 3px;
   padding: var(--space-2) var(--space-3) var(--space-2) 0;
@@ -764,6 +763,7 @@ body.reduce-motion *::after {
 }
 
 .workspace-meta,
+.workspace-detail-line,
 .workspace-path,
 .workspace-branch {
   min-width: 0;
@@ -778,7 +778,19 @@ body.reduce-motion *::after {
   display: none;
 }
 
+.workspace-detail-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.workspace-row.has-branch .workspace-detail-line {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 88px);
+}
+
 .workspace-row.is-active .workspace-meta,
+.workspace-row.is-active .workspace-detail-line,
 .workspace-row.is-active .workspace-path,
 .workspace-row.is-active .workspace-branch {
   color: var(--color-muted);

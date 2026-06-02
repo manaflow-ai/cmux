@@ -3304,8 +3304,10 @@ function createWorkspaceRow() {
         <span class="workspace-badge"></span>
       </span>
       <span class="workspace-meta"></span>
-      <span class="workspace-path"></span>
-      <span class="workspace-branch"></span>
+      <span class="workspace-detail-line">
+        <span class="workspace-path"></span>
+        <span class="workspace-branch"></span>
+      </span>
     </span>
   `;
   button._workspaceParts = workspaceRowParts(button);
@@ -3430,14 +3432,16 @@ function updateWorkspaceRow(button, workspace, index, activeId) {
   const paneSummary = `${workspace.terminalCount || 0} terminal${workspace.terminalCount === 1 ? "" : "s"} / ${workspace.browserCount || 0} browser${workspace.browserCount === 1 ? "" : "s"}`;
   const parts = workspaceRowParts(button);
   setDatasetIfChanged(button, "workspaceId", workspace.id);
-  setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}`);
+  setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}${branch ? " has-branch" : ""}`);
   setStylePropertyIfChanged(button, "--workspace-color", workspace.color || state.data.palette?.[0] || "");
   setTitleIfChanged(button, `${title} - ${cwd}${branch ? ` - ${branch}` : ""} - ${paneSummary} - double-click to rename`);
   setTextIfChanged(parts.name, title);
   setTextIfChanged(parts.badge, hasAttention ? String(attentionTotal) : "");
   setTextIfChanged(parts.meta, workspace.latestNotification || "");
   setTextIfChanged(parts.path, cwd);
+  setTitleIfChanged(parts.path, cwd);
   setTextIfChanged(parts.branch, branch ? `git ${branch}` : "");
+  setTitleIfChanged(parts.branch, branch ? `git ${branch}` : "");
   setHiddenIfChanged(parts.branch, !branch);
 }
 
