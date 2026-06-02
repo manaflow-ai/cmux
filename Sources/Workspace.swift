@@ -16387,16 +16387,6 @@ final class Workspace: Identifiable, ObservableObject {
         return (paneById, boundsByPaneId)
     }
 
-    private func spatialPaneIdsAdjacent(_ sourcePaneId: PaneID, _ candidatePaneId: PaneID, direction: NavigationDirection) -> Bool {
-        let (_, boundsByPaneId) = spatialPaneBoundsById()
-        return spatialPaneIdsAdjacent(
-            sourcePaneId,
-            candidatePaneId,
-            direction: direction,
-            boundsByPaneId: boundsByPaneId
-        )
-    }
-
     private func spatialPaneIdsAdjacent(
         _ sourcePaneId: PaneID,
         _ candidatePaneId: PaneID,
