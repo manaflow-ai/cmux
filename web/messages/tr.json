@@ -242,6 +242,22 @@
         "p3": "Bu, geçerli workspace’i okunmamış döngüsünün arkasına gönderir ve durumu temizlemeden dolaşmayı sürdürmenizi sağlar.",
         "p4": "Cmd+Option+U geçerli workspace’in okundu veya okunmadı durumunu değiştirir.",
         "p5": "Cmd+Shift+U ile yeni okunmamış workspace’e atlayıp yanıtlamadan önce bağlam değiştirmek istediğinizde kullanışlıdır."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Kapatılan terminalleri, tarayıcıları, workspace’leri ve agent oturumlarını Cmd+Shift+T ile yeniden açın, odağınızı Cmd+[ ve Cmd+] ile geri izleyin.",
+        "date": "2 Haziran 2026",
+        "p1": "Düzen için bir terminal sekmesini kapatıyorsunuz, sonra ona ihtiyacınız olduğunu fark ediyorsunuz. Ya da koca bir workspace’i kapatıp görevin ortasındaki agent’ı kaybediyorsunuz. cmux artık kapattıklarınızın ve odaklandıklarınızın geçmişini tutuyor; geri getirmek için tek bir kısayol yeterli.",
+        "reopenTitle": "Kapattığınızı yeniden açın",
+        "reopenP": "Son kapattığınız şeyi yeniden açmak için <code>Cmd+Shift+T</code> tuşlarına basın. Terminal sekmeleri, tarayıcı sekmeleri, workspace’ler ve pencereler için çalışır ve onları kapattığınız sırayla teker teker geri yükler. Her yüzey, bölmeleri olduğu gibi korunarak eski yerine döner.",
+        "agentTitle": "Agent oturumları da geri gelir",
+        "agentP": "Geçmiş, kapatılan agent oturumlarını da yeniden açar. Bir Claude Code, Codex veya OpenCode oturumunu yeniden açın; kaldığı yerden devam eder. cmux’ün agent oturumlarını izleyebilmesi için <code>cmux hooks setup</code> komutunu bir kez çalıştırın; ardından her şey gibi yeniden açılırlar.",
+        "agentP2": "Bu, desteklenen agent’ları kendi yerel devam ettirme komutlarıyla sürdüren cmux <link>oturum geri yükleme</link> üzerine kuruludur.",
+        "focusTitle": "Bulunduğunuz yere geri dönün",
+        "focusP": "Başlık çubuğundaki geri ve ileri düğmeleri ya da <code>Cmd+[</code> ve <code>Cmd+]</code>, tıpkı tarayıcıdaki geri ve ileri gibi, üzerinde çalıştığınız önceki ve sonraki workspace veya pencereye atlar.",
+        "fullHistoryTitle": "Tam geçmiş paneli",
+        "fullHistoryP": "Son öğeden fazlasına ihtiyaç duyduğunuzda tam geçmiş panelini açın: kapattığınız ve odaklandığınız her şeyin güne göre gruplanmış, aranabilir bir görünümü; zaman damgaları ve bir Clear Closed eylemi ile birlikte.",
+        "docsCta": "Geçmiş gezinmesini yeniden atamak dahil tam liste için <link>klavye kısayolları</link>na bakın."
       }
     },
     "zenOfCmux": {
@@ -367,6 +383,10 @@
         "AI kodlama ajanları",
         "workspace okunmamış"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: kapatılan terminalleri ve oturumları yeniden açın",
+      "metaDescription": "cmux, kapattıklarınızın ve odaklandıklarınızın geçmişini tutar. Kapatılan terminalleri, tarayıcıları, workspace’leri ve Claude Code, Codex ve OpenCode oturumlarını Cmd+Shift+T ile yeniden açın, odağı Cmd+[ ve Cmd+] ile ileri geri taşıyın."
     }
   },
   "docs": {

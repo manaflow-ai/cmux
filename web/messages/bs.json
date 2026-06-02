@@ -242,6 +242,22 @@
         "p3": "To šalje trenutni workspace na kraj nepročitanog ciklusa, pa možete nastaviti prolaziti kroz nepročitani rad bez brisanja statusa.",
         "p4": "Cmd+Option+U mijenja trenutni workspace između pročitanog i nepročitanog.",
         "p5": "Korisno je kada skočite na novi nepročitani workspace preko Cmd+Shift+U, ali želite promijeniti kontekst prije odgovora."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Ponovo otvorite zatvorene terminale, preglednike, workspace-ove i sesije agenata pomoću Cmd+Shift+T i vratite se kroz svoj fokus pomoću Cmd+[ i Cmd+].",
+        "date": "2. juni 2026.",
+        "p1": "Zatvorite karticu terminala da raščistite, a onda shvatite da vam je trebala. Ili zatvorite cijeli workspace i izgubite agenta usred zadatka. cmux sada vodi historiju onoga što ste zatvorili i fokusirali, pa je za povratak dovoljna jedna prečica.",
+        "reopenTitle": "Ponovo otvorite ono što ste zatvorili",
+        "reopenP": "Pritisnite <code>Cmd+Shift+T</code> da ponovo otvorite posljednje što ste zatvorili. Radi za kartice terminala, kartice preglednika, workspace-ove i prozore i vraća ih jedan po jedan redoslijedom kojim ste ih zatvarali. Svaka površina se vraća na svoje mjesto, s netaknutim oknima.",
+        "agentTitle": "I sesije agenata se vraćaju",
+        "agentP": "Historija ponovo otvara i zatvorene sesije agenata. Ponovo otvorite sesiju Claude Code, Codex ili OpenCode i nastavlja se tamo gdje je stala. Jednom pokrenite <code>cmux hooks setup</code> da cmux može pratiti sesije agenata; nakon toga se otvaraju kao i sve ostalo.",
+        "agentP2": "Ovo se oslanja na cmux <link>obnavljanje sesije</link>, koje nastavlja podržane agente putem njihovih vlastitih nativnih komandi za nastavak.",
+        "focusTitle": "Vratite se tamo gdje ste bili",
+        "focusP": "Dugmad naprijed i nazad u naslovnoj traci, ili <code>Cmd+[</code> i <code>Cmd+]</code>, skaču na prethodni i sljedeći workspace ili prozor u kojem ste radili, isto kao naprijed i nazad u pregledniku.",
+        "fullHistoryTitle": "Potpuni panel historije",
+        "fullHistoryP": "Kada vam treba više od posljednje stavke, otvorite potpuni panel historije: pretraživi prikaz grupisan po danima svega što ste zatvorili i fokusirali, s vremenskim oznakama i akcijom Clear Closed.",
+        "docsCta": "Pogledajte <link>prečice na tastaturi</link> za potpunu listu, uključujući kako ponovo dodijeliti navigaciju historijom."
       }
     },
     "zenOfCmux": {
@@ -367,6 +383,10 @@
         "AI agenti za kodiranje",
         "workspace nepročitan"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: ponovno otvaranje zatvorenih terminala i sesija",
+      "metaDescription": "cmux vodi historiju onoga što ste zatvorili i fokusirali. Ponovo otvorite zatvorene terminale, preglednike, workspace-ove i sesije Claude Code, Codex i OpenCode pomoću Cmd+Shift+T, a fokus pomjerajte naprijed i nazad pomoću Cmd+[ i Cmd+]."
     }
   },
   "docs": {

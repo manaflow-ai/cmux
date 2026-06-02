@@ -26,6 +26,7 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    @State private var browserFocusModeMenuRevision = 0
     @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
@@ -331,6 +332,9 @@ struct cmuxApp: App {
                 }
                 .onChange(of: socketControlMode) { _ in
                     updateSocketController()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .browserFocusModeStateDidChange)) { _ in
+                    browserFocusModeMenuRevision &+= 1
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -844,6 +848,14 @@ struct cmuxApp: App {
                 }
             }
 
+            let browserFocusModeMenu = browserFocusModeMenuSnapshot
+            Button(browserFocusModeMenu.title) {
+                if !activeTabManager.toggleBrowserFocusModeForFocusedBrowser(reason: "viewMenu") {
+                    NSSound.beep()
+                }
+            }
+            .disabled(!browserFocusModeMenu.canToggle)
+
             splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
                 _ = activeTabManager.zoomInFocusedBrowser()
             }
@@ -1001,6 +1013,17 @@ struct cmuxApp: App {
 
     private var notificationMenuSnapshot: NotificationMenuSnapshot {
         notificationStore.notificationMenuSnapshot
+    }
+
+    private var browserFocusModeMenuSnapshot: (title: String, canToggle: Bool) {
+        let _ = browserFocusModeMenuRevision
+        let panel = activeTabManager.focusedBrowserPanel
+        return (
+            title: panel?.isBrowserFocusModeActive == true
+                ? String(localized: "menu.view.exitBrowserFocusMode", defaultValue: "Exit Browser Focus Mode")
+                : String(localized: "menu.view.enterBrowserFocusMode", defaultValue: "Enter Browser Focus Mode"),
+            canToggle: panel?.canToggleBrowserFocusMode == true
+        )
     }
 
     var activeTabManager: TabManager {
