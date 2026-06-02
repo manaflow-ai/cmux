@@ -602,7 +602,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testForkableAgentFallbackSnapshotRequiresVerifiedProbeForVisibility() {
+    func testForkableAgentProbeFreeFallbackSnapshotIsVisibleBeforePaletteProbe() {
         let workspaceId = UUID()
         let panelId = UUID()
         let supportedKey = ContentView.commandPaletteForkableAgentPanelKey(
@@ -644,7 +644,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(
+        XCTAssertTrue(
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
@@ -669,7 +669,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 fallbackSnapshot: directOpenCode
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
@@ -688,7 +688,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 isRemoteTerminal: true
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
@@ -738,7 +738,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
         XCTAssertNotNil(snapshot.forkStartupInput(allowLauncherScript: true))
         XCTAssertNil(snapshot.forkStartupInput(allowLauncherScript: false))
-        XCTAssertFalse(
+        XCTAssertTrue(
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
@@ -799,7 +799,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testImmediateForkExecutionRejectsFallbackSnapshotBeforeProbeVerification() {
+    func testImmediateForkExecutionUsesProbeFreeFallbackSnapshotBeforeProbeVerification() {
         let workspaceId = UUID()
         let panelId = UUID()
         let fallback = SessionRestorableAgentSnapshot(
@@ -807,6 +807,38 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             sessionId: "fallback-codex-session",
             workingDirectory: "/tmp/fallback repo",
             launchCommand: nil
+        )
+
+        let snapshot = ContentView.commandPaletteImmediateForkExecutionSnapshot(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: false,
+            supportedPanelKeys: [],
+            supportedRemoteContextsByPanelKey: [:],
+            snapshotFingerprintsByPanelKey: [:],
+            fallbackSnapshot: fallback,
+            cachedSnapshot: nil
+        )
+
+        XCTAssertEqual(snapshot?.sessionId, fallback.sessionId)
+    }
+
+    func testImmediateForkExecutionRejectsProbeRequiredFallbackSnapshotBeforeProbeVerification() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let fallback = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "fallback-opencode-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "environment"
+            )
         )
 
         let snapshot = ContentView.commandPaletteImmediateForkExecutionSnapshot(
