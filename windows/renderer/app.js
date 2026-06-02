@@ -9365,12 +9365,16 @@ function activeBackgroundPanel(options = {}) {
   updateActiveBackgroundScopeChips(panel, activeBackgroundScopeModel(state.settings.backgroundImage));
   const actions = panel.querySelector(".active-background-actions");
   panel.insertBefore(activeBackgroundTargetControl(), actions);
+  const targetStatus = activeBackgroundTargetStatus();
+  const targetLabel = backgroundApplyTargetActionLabel(targetStatus.scope);
   const choose = settingsActionButton("Choose", () => chooseBackgroundImageForTarget(), "primary", "active background choose local file apply wallpaper");
   choose.dataset.backgroundAction = "choose";
-  choose.title = `Choose an image for ${backgroundApplyTargetActionLabel()}`;
+  choose.title = `Choose an image for ${targetLabel}`;
+  choose.disabled = !targetStatus.canTarget;
   const paste = settingsActionButton("Paste", () => pasteBackgroundImageFromClipboard({ target: () => state.backgroundApplyTarget }), "", "active background paste clipboard image url local path apply");
   paste.dataset.backgroundAction = "paste";
-  paste.title = `Paste an image for ${backgroundApplyTargetActionLabel()}`;
+  paste.title = `Paste an image for ${targetLabel}`;
+  paste.disabled = !targetStatus.canTarget;
   const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: activeBackgroundPanelViewModel().background }), "", "active background save current");
   save.dataset.backgroundAction = "save";
   save.title = "Save the selected background";
@@ -9386,12 +9390,12 @@ function activeBackgroundPanel(options = {}) {
 
   const applyCurrent = settingsActionButton("Apply current", applyCurrentBackgroundToTarget, "", "active background apply current app image to selected target pane all terminals");
   applyCurrent.dataset.backgroundAction = "apply-current";
-  applyCurrent.title = `Apply current app background to ${backgroundApplyTargetActionLabel()}`;
-  applyCurrent.disabled = !state.settings.backgroundImage || !activeBackgroundTargetStatus().canTarget || state.backgroundApplyTarget === "app";
+  applyCurrent.title = `Apply current app background to ${targetLabel}`;
+  applyCurrent.disabled = !state.settings.backgroundImage || !targetStatus.canTarget || targetStatus.scope === "app";
   const clear = settingsActionButton("Clear target", clearBackgroundApplyTarget, "danger", "active background clear selected target app pane all terminals");
   clear.dataset.backgroundAction = "clear";
-  clear.title = `Clear ${backgroundApplyTargetActionLabel()}`;
-  clear.disabled = !activeBackgroundTargetStatus().canTarget || !activeBackgroundTargetStatus().hasValue;
+  clear.title = `Clear ${targetLabel}`;
+  clear.disabled = !targetStatus.canTarget || !targetStatus.hasValue;
   const scopeGroup = document.createElement("span");
   scopeGroup.className = "background-action-group background-action-group-scope";
   scopeGroup.innerHTML = `<span class="background-action-title">Selected target</span>`;
