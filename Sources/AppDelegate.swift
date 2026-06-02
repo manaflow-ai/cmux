@@ -13183,6 +13183,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .toggleBrowserFocusMode) {
+            // Reached only when focus mode is off (the active-focus-mode bypass
+            // returns earlier), so this enters focus mode for the focused browser.
+            // Exit stays double-Escape, which is forwarded to the page first.
+            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event),
+                  focusedBrowserPanel.canToggleBrowserFocusMode else {
+                return false
+            }
+            _ = focusedBrowserPanel.toggleBrowserFocusMode(reason: "configuredShortcut", focusWebView: true)
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .browserBack) {
             guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false

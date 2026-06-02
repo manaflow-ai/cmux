@@ -722,16 +722,26 @@ struct BrowserPanelView: View {
     }
 
     private var browserFocusModeButtonHelp: String {
-        let title = panel.isBrowserFocusModeActive
-            ? String(localized: "browser.focusMode.exit.help", defaultValue: "Exit browser focus mode")
-            : String(localized: "browser.focusMode.enter.help", defaultValue: "Enter browser focus mode")
-        guard panel.isBrowserFocusModeActive else { return title }
         let format = String(localized: "browser.focusMode.helpWithShortcut.format", defaultValue: "%@ (%@)")
-        return String(format: format, title, browserFocusModeShortcutHint)
+        if panel.isBrowserFocusModeActive {
+            let title = String(localized: "browser.focusMode.exit.help", defaultValue: "Exit browser focus mode")
+            // Active: show the double-Escape exit hint.
+            return String(format: format, title, browserFocusModeShortcutHint)
+        }
+        let title = String(localized: "browser.focusMode.enter.help", defaultValue: "Enter browser focus mode")
+        // Inactive: show the configured enter shortcut, if one is bound.
+        guard let enterHint = browserFocusModeEnterShortcutHint else { return title }
+        return String(format: format, title, enterHint)
     }
 
     private var browserFocusModeShortcutHint: String {
         String(localized: "browser.focusMode.shortcutHint", defaultValue: "Esc Esc")
+    }
+
+    private var browserFocusModeEnterShortcutHint: String? {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleBrowserFocusMode)
+        guard !shortcut.isUnbound else { return nil }
+        return shortcut.displayString
     }
 
     private var shouldShowBrowserFocusModeShortcutHint: Bool {
