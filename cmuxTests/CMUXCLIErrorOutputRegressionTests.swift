@@ -1285,10 +1285,10 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     }
 
     private func stableSocketURL() throws -> URL {
-        let appSupport = try XCTUnwrap(
-            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        )
-        let directory = appSupport.appendingPathComponent("cmux", isDirectory: true)
+        // Mirrors CmuxStateDirectory.url() + cmux.sock (non-TCC ~/.local/state/cmux;
+        // see https://github.com/manaflow-ai/cmux/issues/5146).
+        let directory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent("cmux.sock", isDirectory: false)
     }
