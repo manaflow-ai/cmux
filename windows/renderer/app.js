@@ -3061,7 +3061,7 @@ function markInteractedPanel(panelId) {
     updateBrowserPaneActivity(visiblePanePanelIds());
     scheduleRender();
   }
-  if (zoomChanged && wasActive) render();
+  if (zoomChanged && wasActive) scheduleRender();
   return found.panel;
 }
 
@@ -4192,12 +4192,14 @@ const surfaceAddTabConfigs = {
   terminal: {
     className: "surface-new-terminal",
     icon: "terminalPlus",
-    title: "New terminal pane"
+    title: "New terminal pane",
+    label: "Term"
   },
   browser: {
     className: "surface-new-browser",
     icon: "browserPlus",
-    title: "New browser pane"
+    title: "New browser pane",
+    label: "Web"
   }
 };
 
@@ -4217,6 +4219,7 @@ function getNewSurfaceTab(kind, workspace) {
     button.type = "button";
     button.innerHTML = `
       <span class="surface-new-icon">${controlIconMarkup(config.icon)}</span>
+      <span class="surface-new-label"></span>
     `;
     button.onclick = (event) => {
       event.preventDefault();
@@ -4237,11 +4240,12 @@ function getNewSurfaceTab(kind, workspace) {
     });
     state.newSurfaceAddButtons[kind] = button;
   }
+  setTextIfChanged(button.querySelector(".surface-new-label"), config.label);
   setDatasetIfChanged(button, "workspaceId", workspace.id);
   button.disabled = paneCreationButtonsDisabled();
   const title = button.disabled ? paneCreationLimitLabel() : `${config.title}. Right-click for more add options`;
   setTitleIfChanged(button, title);
-  if (button.getAttribute("aria-label") !== config.title) button.setAttribute("aria-label", config.title);
+  if (button.getAttribute("aria-label") !== title) button.setAttribute("aria-label", title);
   return button;
 }
 
@@ -14752,7 +14756,8 @@ function setPaneMinimized(panelId, minimized = true) {
     state.lastInteractedPanelId = panelId;
     clearDifferentZoomedPanelOnFocus(found.workspace, panelId);
   }
-  render();
+  refreshAppStateSignature();
+  scheduleRender();
   if (!shouldMinimize) {
     showPaneSwitchHud(found.panel, found.workspace);
     focusTerminalSession(panelId);
@@ -14793,7 +14798,8 @@ function restoreMinimizedPanes(workspace = activeWorkspace()) {
     state.lastInteractedPanelId = active.id;
     clearDifferentZoomedPanelOnFocus(targetWorkspace, active.id);
   }
-  render();
+  refreshAppStateSignature();
+  scheduleRender();
   if (active) focusTerminalSession(active.id);
   return true;
 }
@@ -14809,7 +14815,8 @@ function togglePaneZoom(panelId = activePaneActionTarget()?.id) {
   found.workspace.activePanelId = panelId;
   state.data.activeWorkspaceId = found.workspace.id;
   state.focusedPanelId = panelId;
-  render();
+  refreshAppStateSignature();
+  scheduleRender();
   focusTerminalSession(panelId);
   const session = state.terminals.get(panelId);
   if (session) requestAnimationFrame(() => scheduleFitTerminal(session, true));

@@ -1159,7 +1159,7 @@ body.reduce-motion *::after {
   display: inline-flex;
 }
 
-.shell.toolbar-minimal .command-strip .tool-button:not(#newTerminalButton):not(#newBrowserButton):not(#toolsMenuButton):not(#settingsButton) {
+.shell.toolbar-minimal .command-strip .tool-button:not(#newTerminalButton):not(#splitRightButton):not(#newBrowserButton):not(#toolsMenuButton):not(#settingsButton) {
   display: none;
 }
 
@@ -1196,6 +1196,26 @@ body.reduce-motion *::after {
   overflow: hidden;
   white-space: nowrap;
   clip-path: inset(50%);
+}
+
+.shell.toolbar-minimal #newTerminalButton,
+.shell.toolbar-minimal #newBrowserButton {
+  width: auto;
+  min-width: 78px;
+  padding: 0 9px;
+  gap: 6px;
+}
+
+.shell.toolbar-minimal #newTerminalButton .tool-label,
+.shell.toolbar-minimal #newBrowserButton .tool-label {
+  position: static;
+  width: auto;
+  height: auto;
+  max-width: 62px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  clip-path: none;
 }
 
 .shell.toolbar-standard .tool-button {
@@ -1280,7 +1300,7 @@ body.reduce-motion *::after {
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-padding-inline: 10px 86px;
+  scroll-padding-inline: 10px 134px;
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
   background: color-mix(in oklch, var(--color-terminal-gutter) 88%, var(--color-canvas) 12%);
@@ -1633,23 +1653,23 @@ body.reduce-motion *::after {
   align-self: center;
   position: sticky;
   z-index: 3;
-  height: 24px;
-  flex: 0 0 34px;
-  min-width: 34px;
-  max-width: 34px;
-  grid-template-columns: minmax(0, 1fr);
+  height: 25px;
+  flex: 0 0 58px;
+  min-width: 58px;
+  max-width: 58px;
+  grid-template-columns: 17px minmax(0, auto);
   justify-items: center;
   justify-content: center;
-  gap: 0;
+  gap: 4px;
   border-color: color-mix(in oklch, var(--color-line) 64%, transparent);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane) 22%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 42%, transparent);
   color: var(--color-muted);
   font: inherit;
 }
 
 .surface-new-terminal {
-  right: 43px;
+  right: 70px;
 }
 
 .surface-new-browser {
@@ -1674,6 +1694,25 @@ body.reduce-motion *::after {
   height: 18px;
 }
 
+.surface-new-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.surface-new-terminal {
+  border-color: color-mix(in oklch, var(--color-accent) 45%, var(--color-line) 55%);
+}
+
+.surface-new-browser {
+  border-color: color-mix(in oklch, var(--color-success) 38%, var(--color-line) 62%);
+}
+
 .surface-new-tab:hover {
   border-color: var(--color-line-strong);
   background: var(--color-pane-active);
@@ -1681,10 +1720,10 @@ body.reduce-motion *::after {
 }
 
 .shell.density-compact .surface-new-tab {
-  height: 28px;
-  flex-basis: 34px;
-  min-width: 34px;
-  max-width: 34px;
+  height: 27px;
+  flex-basis: 58px;
+  min-width: 58px;
+  max-width: 58px;
 }
 
 @container (max-width: 440px) {
@@ -1693,6 +1732,8 @@ body.reduce-motion *::after {
     flex-basis: 30px;
     min-width: 30px;
     max-width: 30px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
   }
 
   .surface-new-terminal {
@@ -1701,6 +1742,10 @@ body.reduce-motion *::after {
 
   .surface-new-browser {
     right: 5px;
+  }
+
+  .surface-new-label {
+    display: none;
   }
 }
 
