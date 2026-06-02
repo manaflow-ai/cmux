@@ -6057,7 +6057,7 @@ function createBrowserTabSnapshotForPanel(browserPanel, value = state.settings.b
   if (!browserPanel?.id) return false;
   const snapshot = browserTabSnapshotForPanelId(browserPanel.id, browserPanel.url || state.settings.browserHomeUrl);
   if (snapshot.tabs.length >= browserTabLimit) {
-    toast(`Browser tab limit is ${browserTabLimit}. Close one first.`);
+    toast(browserTabLimitMessage());
     return false;
   }
   const tab = normalizeBrowserTab({ url: value }, state.settings.browserHomeUrl);
@@ -6283,12 +6283,18 @@ function renderBrowserTabs(session) {
 
 function updateBrowserTabNewButton(session) {
   if (!session?.tabNew) return;
-  const atLimit = (session.tabs?.length || 0) >= browserTabLimit;
+  const atLimit = browserTabAtLimit(session);
   session.tabNew.classList.toggle("is-disabled", atLimit);
   session.tabNew.setAttribute("aria-disabled", String(atLimit));
-  session.tabNew.title = atLimit
-    ? `Browser tab limit reached (${browserTabLimit})`
-    : t("browser.newTab");
+  session.tabNew.title = atLimit ? browserTabLimitMessage() : t("browser.newTab");
+}
+
+function browserTabAtLimit(session) {
+  return (session?.tabs?.length || 0) >= browserTabLimit;
+}
+
+function browserTabLimitMessage() {
+  return `Browser tab limit reached (${browserTabLimit}). Close one first.`;
 }
 
 function scheduleBrowserTabsRender(session) {
@@ -6485,8 +6491,8 @@ function moveBrowserTabToEnd(session, tabId) {
 
 function duplicateBrowserTab(session, tabId) {
   if (!session) return false;
-  if (session.tabs.length >= browserTabLimit) {
-    toast(`Browser tab limit is ${browserTabLimit}. Close one first.`);
+  if (browserTabAtLimit(session)) {
+    toast(browserTabLimitMessage());
     return false;
   }
   const index = session.tabs.findIndex((tab) => tab.id === tabId);
@@ -6603,8 +6609,8 @@ function activateBrowserTab(session, tabId) {
 
 function createBrowserTab(session, value = state.settings.browserHomeUrl, options = {}) {
   if (!session) return false;
-  if (session.tabs.length >= browserTabLimit) {
-    toast(`Browser tab limit is ${browserTabLimit}. Close one first.`);
+  if (browserTabAtLimit(session)) {
+    toast(browserTabLimitMessage());
     return false;
   }
   const tab = normalizeBrowserTab({ url: value }, state.settings.browserHomeUrl);
@@ -6886,7 +6892,14 @@ function ensureBrowser(panel, body) {
   go.onclick = navigate;
   external.onclick = () => openBrowserPanelExternally(panel);
   external.oncontextmenu = (event) => showExternalBrowserProfileMenu(event, browserPanelUrl(panel));
-  tabNew.onclick = () => createBrowserTab(session, state.settings.browserHomeUrl, { focusAddress: true });
+  tabNew.onclick = (event) => {
+    if (browserTabAtLimit(session)) {
+      event.preventDefault();
+      toast(browserTabLimitMessage());
+      return;
+    }
+    createBrowserTab(session, state.settings.browserHomeUrl, { focusAddress: true });
+  };
   tabStrip.addEventListener("dblclick", (event) => {
     if (event.target.closest?.(".browser-tab, .browser-tab-new, button, input")) return;
     createBrowserTab(session, state.settings.browserHomeUrl, { focusAddress: true });

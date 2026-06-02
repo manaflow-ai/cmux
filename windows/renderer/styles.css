@@ -2824,12 +2824,19 @@ body.reduce-motion *::after {
   color: var(--color-faint);
   border-color: color-mix(in oklch, var(--color-line) 30%, transparent);
   background: color-mix(in oklch, var(--color-pane) 24%, transparent);
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .browser-tab-new.is-disabled:hover {
   color: var(--color-faint);
   border-color: color-mix(in oklch, var(--color-line) 30%, transparent);
   background: color-mix(in oklch, var(--color-pane) 24%, transparent);
+  box-shadow: none;
+}
+
+.browser-tab-new.is-disabled:active {
+  transform: none;
 }
 
 @container (max-width: 260px) {
