@@ -5232,21 +5232,6 @@ final class TerminalSurfaceRegistry {
         }
     }
 
-#if DEBUG
-    @MainActor
-    func debugRuntimeSurfaceCountForTesting() -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return runtimeSurfaceOwners.count
-    }
-
-    @MainActor
-    func debugReleaseRuntimeSurfacesForTesting() {
-        for surface in allSurfaces() where surface.debugHasRuntimeSurfaceForTesting() {
-            surface.releaseSurfaceForTesting()
-        }
-    }
-#endif
 }
 
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
@@ -7427,7 +7412,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// Test-only helper to deterministically simulate a released runtime surface.
     @MainActor
     func releaseSurfaceForTesting() {
-        teardownSurface()
+        let callbackContext = surfaceCallbackContext
+        surfaceCallbackContext = nil
+
+        guard let surfaceToFree = surface else {
+            callbackContext?.release()
+            return
+        }
+
+        TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
+        surface = nil
+        ghostty_surface_free(surfaceToFree)
+        callbackContext?.release()
     }
 
     /// Test-only helper to simulate a stale Swift wrapper whose native surface

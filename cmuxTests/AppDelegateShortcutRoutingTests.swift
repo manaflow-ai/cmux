@@ -134,6 +134,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
 #if DEBUG
     private var originalRuntimeSurfaceCreationSuppression = false
+    private var testOwnedTabManagers: [TabManager] = []
 #endif
 
     private func makeKeyEvent(
@@ -195,7 +196,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         #if DEBUG
         originalRuntimeSurfaceCreationSuppression = TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting
         TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = true
-        drainRuntimeSurfacesForShortcutRoutingTests()
+        testOwnedTabManagers.removeAll(keepingCapacity: false)
         KeyboardShortcutRecorderActivity.resetForTesting()
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
         #endif
@@ -254,17 +255,41 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         Self.retainedTextBoxRenderScrollViews.removeAll()
         Self.retainedTextBoxRestoreViews.removeAll()
         #if DEBUG
-        drainRuntimeSurfacesForShortcutRoutingTests()
+        tearDownShortcutRoutingTabManagers()
         TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = originalRuntimeSurfaceCreationSuppression
         #endif
         super.tearDown()
     }
 
+    private func makeShortcutRoutingTabManager(
+        autoWelcomeIfNeeded: Bool = true,
+        createInitialWorkspace: Bool = true
+    ) -> TabManager {
 #if DEBUG
-    private func drainRuntimeSurfacesForShortcutRoutingTests() {
-        TerminalSurfaceRegistry.shared.debugReleaseRuntimeSurfacesForTesting()
-        waitUntil(timeout: 1.0) {
-            TerminalSurfaceRegistry.shared.debugRuntimeSurfaceCountForTesting() == 0
+        let previousSuppression = TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = true
+        defer { TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = previousSuppression }
+        let manager = TabManager(
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+            debugCreateInitialWorkspace: createInitialWorkspace
+        )
+        testOwnedTabManagers.append(manager)
+        return manager
+#else
+        return TabManager(
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+            debugCreateInitialWorkspace: createInitialWorkspace
+        )
+#endif
+    }
+
+#if DEBUG
+    private func tearDownShortcutRoutingTabManagers() {
+        defer { testOwnedTabManagers.removeAll(keepingCapacity: false) }
+        guard let appDelegate = AppDelegate.shared else { return }
+
+        for manager in testOwnedTabManagers.reversed() {
+            appDelegate.debugTeardownTabManagerForTesting(manager)
         }
     }
 #endif
@@ -314,7 +339,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
         let originalTabManager = appDelegate.tabManager
-        let manager = TabManager(debugCreateInitialWorkspace: false)
+        let manager = makeShortcutRoutingTabManager(createInitialWorkspace: false)
         appDelegate.tabManager = manager
         defer {
             appDelegate.tabManager = originalTabManager
@@ -1137,7 +1162,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         liveWorkspace.setCustomTitle("Current Work")
         let windowIdsAfterLiveWindow = mainWindowIds()
 
-        let restoredManager = TabManager(autoWelcomeIfNeeded: false)
+        let restoredManager = makeShortcutRoutingTabManager(autoWelcomeIfNeeded: false)
         let restoredWorkspace = try XCTUnwrap(restoredManager.selectedWorkspace)
         restoredWorkspace.setCustomTitle("Previous Work")
         let snapshot = AppSessionSnapshot(
@@ -1180,11 +1205,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let liveManager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: liveWindowId))
         let oldRestoredWindowId = UUID()
 
-        let restoredManager = TabManager(autoWelcomeIfNeeded: false)
+        let restoredManager = makeShortcutRoutingTabManager(autoWelcomeIfNeeded: false)
         let restoredWorkspace = try XCTUnwrap(restoredManager.selectedWorkspace)
         restoredWorkspace.setCustomTitle("Previous Work")
 
-        let closedWorkspaceManager = TabManager(autoWelcomeIfNeeded: false)
+        let closedWorkspaceManager = makeShortcutRoutingTabManager(autoWelcomeIfNeeded: false)
         let closedWorkspace = try XCTUnwrap(closedWorkspaceManager.selectedWorkspace)
         closedWorkspace.setCustomTitle("Closed Previous Workspace")
         let closedRecordId = UUID()
@@ -1240,7 +1265,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             }
         }
 
-        let sourceManager = TabManager(autoWelcomeIfNeeded: false)
+        let sourceManager = makeShortcutRoutingTabManager(autoWelcomeIfNeeded: false)
         let sourceWorkspace = try XCTUnwrap(sourceManager.selectedWorkspace)
         let originalWorkspaceId = sourceWorkspace.id
         var closedPanelSnapshot = try XCTUnwrap(sourceWorkspace.sessionSnapshot(includeScrollback: false).panels.first)
@@ -1419,7 +1444,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let appDelegate = AppDelegate()
         defer { AppDelegate.shared = previousAppDelegate }
 
-        let orphanManager = TabManager(debugCreateInitialWorkspace: false)
+        let orphanManager = makeShortcutRoutingTabManager(createInitialWorkspace: false)
 #if DEBUG
         let orphanWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: orphanManager)
 #else
@@ -1444,7 +1469,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let appDelegate = AppDelegate()
         defer { AppDelegate.shared = previousAppDelegate }
 
-        let orphanManager = TabManager(debugCreateInitialWorkspace: false)
+        let orphanManager = makeShortcutRoutingTabManager(createInitialWorkspace: false)
 #if DEBUG
         let orphanWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: orphanManager)
         let previousOpenNewMainWindowHandler = appDelegate.debugOpenNewMainWindowHandler
@@ -2937,7 +2962,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let manager = TabManager()
+        let manager = makeShortcutRoutingTabManager()
 
         guard let workspace = manager.selectedWorkspace,
               let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
@@ -8328,7 +8353,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testTabManagerSessionRestoreRestoresTextBoxDraftsAcrossWorkspaces() throws {
-        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let manager = makeShortcutRoutingTabManager(autoWelcomeIfNeeded: false)
         let firstWorkspace = try XCTUnwrap(manager.tabs.first)
         let secondWorkspace = manager.addWorkspace(
             title: "Second",
@@ -8355,7 +8380,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(snapshot.workspaces.count, 2)
         XCTAssertEqual(snapshot.selectedWorkspaceIndex, 1)
 
-        let restoredManager = TabManager(autoWelcomeIfNeeded: false)
+        let restoredManager = makeShortcutRoutingTabManager(autoWelcomeIfNeeded: false)
         restoredManager.restoreSessionSnapshot(snapshot)
 
         XCTAssertEqual(restoredManager.tabs.count, 2)
@@ -8367,8 +8392,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testAppSessionSnapshotRoundTripsTextBoxDraftsAcrossWindows() throws {
-        let firstManager = TabManager(autoWelcomeIfNeeded: false)
-        let secondManager = TabManager(autoWelcomeIfNeeded: false)
+        let firstManager = makeShortcutRoutingTabManager(autoWelcomeIfNeeded: false)
+        let secondManager = makeShortcutRoutingTabManager(autoWelcomeIfNeeded: false)
 
         try installTextBoxSessionDraft(
             on: XCTUnwrap(firstManager.selectedWorkspace?.focusedTerminalPanel),
@@ -8398,8 +8423,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let decoded = try JSONDecoder().decode(AppSessionSnapshot.self, from: data)
         XCTAssertEqual(decoded.windows.count, 2)
 
-        let restoredFirstManager = TabManager(autoWelcomeIfNeeded: false)
-        let restoredSecondManager = TabManager(autoWelcomeIfNeeded: false)
+        let restoredFirstManager = makeShortcutRoutingTabManager(autoWelcomeIfNeeded: false)
+        let restoredSecondManager = makeShortcutRoutingTabManager(autoWelcomeIfNeeded: false)
         restoredFirstManager.restoreSessionSnapshot(decoded.windows[0].tabManager)
         restoredSecondManager.restoreSessionSnapshot(decoded.windows[1].tabManager)
 
@@ -9473,7 +9498,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         MainWindowFocusController(
             windowId: UUID(),
             window: nil,
-            tabManager: TabManager(),
+            tabManager: makeShortcutRoutingTabManager(),
             fileExplorerState: nil
         )
     }
@@ -9485,9 +9510,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     ) -> (windowId: UUID, window: NSWindow, tabManager: TabManager) {
         let windowId = UUID()
         let window = makeRegisteredShortcutRoutingWindow(id: windowId)
-        let tabManager = TabManager(
+        let tabManager = makeShortcutRoutingTabManager(
             autoWelcomeIfNeeded: false,
-            debugCreateInitialWorkspace: createInitialWorkspace
+            createInitialWorkspace: createInitialWorkspace
         )
         let registeredWindowId = appDelegate.registerMainWindowContextForTesting(
             windowId: windowId,
@@ -9583,13 +9608,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let deadline = Date(timeIntervalSinceNow: timeout)
         while !condition(), Date() < deadline {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
-        }
-    }
-
-    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) {
-        let deadline = Date(timeIntervalSinceNow: timeout)
-        while !condition(), Date() < deadline {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
         }
     }
 
