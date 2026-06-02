@@ -7298,7 +7298,9 @@ function renderSettingsInspector(options = {}) {
       event.preventDefault();
       applyImageInput(true);
     });
-    imageInput.addEventListener("blur", async () => {
+    imageInput.addEventListener("blur", async (event) => {
+      const relatedElement = event.relatedTarget?.nodeType === Node.ELEMENT_NODE ? event.relatedTarget : null;
+      if (relatedElement?.closest?.(".background-actions")) return;
       await applyImageInput();
     });
     const customImageRow = settingRow("Custom image", imageInput, true, "background image url local path file drop wallpaper");
