@@ -4002,7 +4002,12 @@ function currentUiOperationLabel() {
   const operations = [...state.uiOperations.values()];
   const latest = operations.at(-1);
   const createCount = operations.filter((operation) => operation.kind === "create-panel").length;
-  if (latest?.kind === "create-panel" && createCount > 1) return `Starting ${createCount} panes...`;
+  const elapsed = paneCreationElapsedSeconds();
+  const elapsedSuffix = elapsed >= 2 ? ` (${elapsed}s)` : "";
+  if (latest?.kind === "create-panel" && createCount > 1) return `Starting ${createCount} panes${elapsedSuffix}...`;
+  if (latest?.kind === "create-panel" && elapsedSuffix) {
+    return String(latest.label || "Starting pane...").replace(/\.\.\.$/, `${elapsedSuffix}...`);
+  }
   return latest?.label || "";
 }
 
@@ -4017,7 +4022,9 @@ function paneCreationLimitLabel() {
 function paneCreationQueueStatusLabel() {
   const count = paneCreationOperationCount();
   if (count <= 0) return "";
-  return `${count}/${maxConcurrentPaneCreations} pane startup${count === 1 ? "" : "s"} running.`;
+  const elapsed = paneCreationElapsedSeconds();
+  const elapsedLabel = elapsed >= 2 ? ` Oldest ${elapsed}s.` : "";
+  return `${count}/${maxConcurrentPaneCreations} pane startup${count === 1 ? "" : "s"} running.${elapsedLabel}`;
 }
 
 function paneCreationActionTitle(baseTitle, readyHint = "") {
@@ -4041,8 +4048,10 @@ function paneCreationButtonBaseTitle(button) {
 function updatePaneCreationButtonState(button) {
   if (!button) return;
   const disabled = paneCreationButtonsDisabled();
+  const creating = paneCreationOperationCount() > 0;
   const title = paneCreationActionTitle(paneCreationButtonBaseTitle(button));
   setDisabledIfChanged(button, disabled);
+  toggleClassIfChanged(button, "is-creating", creating && !disabled);
   setTitleIfChanged(button, title);
   setAttributeIfChanged(button, "aria-label", title);
 }
@@ -4053,6 +4062,23 @@ function paneCreationOperationCount() {
     if (operation.kind === "create-panel") count += 1;
   }
   return count;
+}
+
+function paneCreationElapsedSeconds() {
+  let oldestStartedAtMs = 0;
+  for (const panel of state.pendingPanels.values()) {
+    const startedAt = Number(panel.pendingStartedAt || 0);
+    if (startedAt && (!oldestStartedAtMs || startedAt < oldestStartedAtMs)) oldestStartedAtMs = startedAt;
+  }
+  const nowMs = Date.now();
+  for (const operation of state.uiOperations.values()) {
+    if (operation.kind !== "create-panel") continue;
+    const startedAt = Number(operation.startedAt || 0);
+    if (!startedAt) continue;
+    const wallStartedAt = nowMs - Math.max(0, performance.now() - startedAt);
+    if (!oldestStartedAtMs || wallStartedAt < oldestStartedAtMs) oldestStartedAtMs = wallStartedAt;
+  }
+  return oldestStartedAtMs ? Math.max(0, Math.floor((nowMs - oldestStartedAtMs) / 1000)) : 0;
 }
 
 function isUiOperationActive(key) {
@@ -4153,20 +4179,21 @@ function updateRuntimeStatusLabels() {
 
 function updateOperationChrome() {
   const label = currentUiOperationLabel();
-  const creatingPane = paneCreationButtonsDisabled();
   toggleClassIfChanged(elements.shell, "operation-pending", Boolean(label));
   toggleClassIfChanged(elements.statusSummary, "is-busy", Boolean(label));
   setTextIfChanged(elements.statusSummary, label || defaultStatusSummary());
   for (const button of elements.paneCreationButtons) updatePaneCreationButtonState(button);
   for (const button of Object.values(state.newSurfaceAddButtons)) {
     if (button) {
-      setDisabledIfChanged(button, creatingPane);
       const config = surfaceAddTabConfigs[button.dataset.addKind];
-      const title = config
-        ? paneCreationActionTitle(config.title, "Right-click to choose right or below.")
-        : paneCreationActionTitle(paneCreationButtonBaseTitle(button));
-      setTitleIfChanged(button, title);
-      setAttributeIfChanged(button, "aria-label", title);
+      if (config) {
+        updateSurfaceAddButtonState(button, config);
+      } else {
+        setDisabledIfChanged(button, paneCreationButtonsDisabled());
+        const title = paneCreationActionTitle(paneCreationButtonBaseTitle(button));
+        setTitleIfChanged(button, title);
+        setAttributeIfChanged(button, "aria-label", title);
+      }
     }
   }
   updateVisibleEmptyWorkspaceControls();
@@ -4174,7 +4201,7 @@ function updateOperationChrome() {
 
 async function withUiOperation(key, kind, label, task) {
   if (state.uiOperations.has(key)) return null;
-  state.uiOperations.set(key, { kind, label });
+  state.uiOperations.set(key, { kind, label, startedAt: performance.now() });
   updateOperationChrome();
   try {
     return await task();
@@ -4865,16 +4892,23 @@ function getNewSurfaceTab(kind, workspace) {
     });
     state.newSurfaceAddButtons[kind] = button;
   }
-  const parts = surfaceAddTabParts(button);
-  const disabled = paneCreationButtonsDisabled();
-  setTextIfChanged(parts.label, disabled ? "Starting" : config.label);
   setDatasetIfChanged(button, "workspaceId", workspace.id);
   setDatasetIfChanged(button, "addKind", kind);
+  updateSurfaceAddButtonState(button, config);
+  return button;
+}
+
+function updateSurfaceAddButtonState(button, config) {
+  if (!button || !config) return;
+  const parts = surfaceAddTabParts(button);
+  const disabled = paneCreationButtonsDisabled();
+  const creating = paneCreationOperationCount() > 0;
+  setTextIfChanged(parts.label, config.label);
   setDisabledIfChanged(button, disabled);
+  toggleClassIfChanged(button, "is-creating", creating && !disabled);
   const title = paneCreationActionTitle(config.title, "Right-click to choose right or below.");
   setTitleIfChanged(button, title);
   setAttributeIfChanged(button, "aria-label", title);
-  return button;
 }
 
 function surfaceAddTabParts(button) {
@@ -5299,6 +5333,7 @@ function updatePendingPaneTimers() {
     const body = pane ? paneParts(pane).body : null;
     if (body?.isConnected) renderPendingPane(panel, body);
   }
+  updateOperationChrome();
 }
 
 function getPaneSplitNode(splitNode) {
