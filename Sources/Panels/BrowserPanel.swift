@@ -2669,9 +2669,11 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     /// Whether a diff viewer surface can be restored through the custom scheme.
-    /// Requires a local-only manifest and an entry page that is not a pending
-    /// placeholder — pending pages poll a deferred-load wait endpoint that only
-    /// the local HTTP server implements, so they would render-fail under the
+    /// Requires a local-only manifest and an entry page that is neither a
+    /// pending placeholder nor a redirect stub. Pending pages poll a
+    /// deferred-load wait endpoint, and redirect pages bounce to the original
+    /// `http://127.0.0.1:<port>` URL; both only work against the local HTTP
+    /// server, which is gone after restart, so they would fail under the
     /// custom scheme.
     func diffViewerRestorable(token: String, requestPath: String) -> Bool {
         guard let files = localManifestFiles(token: token),
@@ -2682,7 +2684,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         defer { try? handle.close() }
         let head = (try? handle.read(upToCount: 1024)) ?? Data()
         if let text = String(data: head, encoding: .utf8),
-           text.contains("data-cmux-diff-pending=\"true\"") {
+           text.contains("data-cmux-diff-pending=\"true\"") || text.contains("data-cmux-diff-redirect") {
             return false
         }
         return true
