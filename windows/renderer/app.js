@@ -12583,11 +12583,57 @@ function workspaceStarterGrid() {
   return section;
 }
 
+function settingsActionIconMarkup(label, tone = "") {
+  const text = String(label || "").trim().toLowerCase();
+  if (!text) return "";
+  if (tone === "danger" || text.startsWith("delete") || text.startsWith("clear") || text.startsWith("reset")) {
+    return controlIconMarkup("close");
+  }
+  if (text.startsWith("save") || text.includes("+ save")) return quickActionIconMarkup("saveLayout");
+  if (text.startsWith("add") || text.startsWith("new")) return controlIconMarkup("plus");
+  if (text.startsWith("apply") || text === "use" || text.startsWith("use ")) return controlIconMarkup("arrowRight");
+  if (text.startsWith("choose") || text.startsWith("paste")) return quickActionIconMarkup("background");
+  if (text.startsWith("open external") || text === "external") return controlIconMarkup("external");
+  if (text.startsWith("open")) return controlIconMarkup("external");
+  if (text.startsWith("refresh") || text.startsWith("restart")) return controlIconMarkup("reload");
+  if (text.startsWith("rename") || text === "edit") return quickActionIconMarkup("rename");
+  if (text.startsWith("run")) return controlIconMarkup("terminal");
+  if (text.startsWith("focus") || text.startsWith("leave focus")) return quickActionIconMarkup("focus");
+  if (text.startsWith("split")) return controlIconMarkup("splitRight");
+  if (text.startsWith("duplicate")) return quickActionIconMarkup("paneShape");
+  if (text.startsWith("copy")) return quickActionIconMarkup("actions");
+  if (text.startsWith("import")) return controlIconMarkup("down");
+  if (text.startsWith("export")) return controlIconMarkup("up");
+  if (text.startsWith("home")) return controlIconMarkup("home");
+  if (text.includes("speed") || text.includes("tune")) return quickActionIconMarkup("speed");
+  if (text.includes("workspace")) return quickActionIconMarkup("workspace");
+  if (text.includes("pane")) return quickActionIconMarkup("paneShape");
+  if (text.includes("browser")) return controlIconMarkup("browser");
+  if (text.includes("terminal")) return controlIconMarkup("terminal");
+  return "";
+}
+
+function setSettingsActionLabel(button, label) {
+  const labelNode = button?.querySelector?.(".settings-action-label");
+  if (labelNode) {
+    setTextIfChanged(labelNode, label);
+    return;
+  }
+  setTextIfChanged(button, label);
+}
+
 function settingsActionButton(label, onClick, tone = "", searchTerms = "") {
   const button = document.createElement("button");
   button.className = `settings-action${tone ? ` ${tone}` : ""}`;
   button.type = "button";
-  button.textContent = label;
+  const icon = settingsActionIconMarkup(label, tone);
+  if (icon) {
+    button.classList.add("has-icon");
+    button.innerHTML = `<span class="settings-action-icon" aria-hidden="true">${icon}</span><span class="settings-action-label"></span>`;
+    setSettingsActionLabel(button, label);
+  } else {
+    button.textContent = label;
+  }
   button.title = label;
   button.dataset.settingsSearch = normalizeSettingsQuery(`${label} ${searchTerms}`);
   button.onclick = (event) => {
@@ -12622,7 +12668,7 @@ async function runSettingsAction(button, label, promise) {
   button.disabled = true;
   button.classList.add("is-busy");
   button.setAttribute("aria-busy", "true");
-  button.textContent = "Working";
+  setSettingsActionLabel(button, "Working");
   try {
     await promise;
   } catch (error) {
@@ -12633,7 +12679,7 @@ async function runSettingsAction(button, label, promise) {
     button.disabled = false;
     button.classList.remove("is-busy");
     button.removeAttribute("aria-busy");
-    button.textContent = previousText || label;
+    setSettingsActionLabel(button, previousText || label);
   }
 }
 
