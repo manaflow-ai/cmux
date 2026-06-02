@@ -644,6 +644,7 @@ class CmuxWindowsRuntime {
     this.terminals = new Map();
     this.pendingTerminalPrewarms = new Map();
     this.terminalMetadataTimer = null;
+    this.persistBroadcastTimer = null;
     this.launchToken = String(options.launchToken || crypto.randomBytes(32).toString("base64url"));
     this.closed = false;
     this.sessionRepaired = false;
@@ -941,7 +942,7 @@ class CmuxWindowsRuntime {
     if (options.direction === "down" || options.direction === "right") {
       workspace.splitDirection = options.direction;
     }
-    this.persistAndBroadcast();
+    this.schedulePersistAndBroadcast();
     this.scheduleTerminalPrewarm(panel);
     return panel;
   }
@@ -1124,12 +1125,24 @@ class CmuxWindowsRuntime {
   }
 
   persistAndBroadcast() {
+    if (this.persistBroadcastTimer) {
+      clearTimeout(this.persistBroadcastTimer);
+      this.persistBroadcastTimer = null;
+    }
     if (this.terminalMetadataTimer) {
       clearTimeout(this.terminalMetadataTimer);
       this.terminalMetadataTimer = null;
     }
     this.persistSession();
     this.broadcastState();
+  }
+
+  schedulePersistAndBroadcast() {
+    if (this.persistBroadcastTimer) return;
+    this.persistBroadcastTimer = setTimeout(() => {
+      this.persistBroadcastTimer = null;
+      this.persistAndBroadcast();
+    }, 0);
   }
 
   scheduleTerminalMetadataBroadcast() {
@@ -1599,6 +1612,10 @@ class CmuxWindowsRuntime {
     if (this.terminalMetadataTimer) {
       clearTimeout(this.terminalMetadataTimer);
       this.terminalMetadataTimer = null;
+    }
+    if (this.persistBroadcastTimer) {
+      clearTimeout(this.persistBroadcastTimer);
+      this.persistBroadcastTimer = null;
     }
     for (const pending of this.pendingTerminalPrewarms.values()) {
       pending.canceled = true;
