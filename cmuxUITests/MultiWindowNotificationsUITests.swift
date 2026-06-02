@@ -204,6 +204,14 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             socketPath = expectedSocketPath
         }
 
+        let terminalSurfaceId = try XCTUnwrap(
+            ensureReadableTerminalSurface(timeout: 10.0),
+            "Expected a readable terminal surface before opening the notifications popover. " +
+            "workspaces=\(socketCommand("list_workspaces") ?? "<nil>") " +
+            "surfaces=\(currentWorkspaceId().flatMap { socketCommand("list_surfaces \($0)") } ?? "<nil>") " +
+            "diagnostics=\(loadDiagnostics() ?? [:])"
+        )
+
         _ = socketCommand("clear_notifications")
 
         app.typeKey("i", modifierFlags: [.command])
@@ -217,8 +225,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         let marker = "cmux_notif_block_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))"
         let before = try XCTUnwrap(
-            waitForCurrentTerminalText(timeout: 8.0),
-            "Expected focused terminal text to become readable before typing. diagnostics=\(loadDiagnostics() ?? [:])"
+            waitForTerminalText(surfaceId: terminalSurfaceId, timeout: 8.0),
+            "Expected terminal text to become readable before typing. " +
+            "surface=\(terminalSurfaceId) diagnostics=\(loadDiagnostics() ?? [:])"
         )
         XCTAssertFalse(before.contains(marker), "Unexpected marker precondition collision")
 
@@ -226,8 +235,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
 
         let after = try XCTUnwrap(
-            waitForCurrentTerminalText(timeout: 4.0),
-            "Expected terminal text from control socket after typing. diagnostics=\(loadDiagnostics() ?? [:])"
+            waitForTerminalText(surfaceId: terminalSurfaceId, timeout: 4.0),
+            "Expected terminal text from control socket after typing. " +
+            "surface=\(terminalSurfaceId) diagnostics=\(loadDiagnostics() ?? [:])"
         )
         XCTAssertFalse(after.contains(marker), "Expected typing to be blocked while empty notifications popover is open")
     }
@@ -864,6 +874,68 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return surfaceId ?? firstSurfaceId(forWorkspaceId: workspaceId)
     }
 
+    private func currentWorkspaceId() -> String? {
+        guard let response = socketCommand("current_workspace"),
+              UUID(uuidString: response.trimmingCharacters(in: .whitespacesAndNewlines)) != nil else {
+            return nil
+        }
+        return response.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func surfaceIds(forWorkspaceId workspaceId: String) -> [String] {
+        guard let response = socketCommand("list_surfaces \(workspaceId)"),
+              !response.isEmpty,
+              !response.hasPrefix("ERROR"),
+              response != "No surfaces" else {
+            return []
+        }
+
+        return response.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
+            let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { return nil }
+            let candidate = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return UUID(uuidString: candidate) == nil ? nil : candidate
+        }
+    }
+
+    private func currentWorkspaceSurfaceIds() -> [String] {
+        guard let workspaceId = currentWorkspaceId() else { return [] }
+        return surfaceIds(forWorkspaceId: workspaceId)
+    }
+
+    private func okUUID(from response: String?) -> String? {
+        guard let response, response.hasPrefix("OK ") else { return nil }
+        let value = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return UUID(uuidString: value) == nil ? nil : value
+    }
+
+    private func ensureReadableTerminalSurface(timeout: TimeInterval) -> String? {
+        if let existingSurfaceId = waitForReadableTerminalSurface(timeout: 2.0) {
+            return existingSurfaceId
+        }
+
+        if okUUID(from: socketCommand("new_surface --type=terminal")) == nil {
+            _ = okUUID(from: socketCommand("new_workspace ui-test-empty-notifications"))
+            _ = okUUID(from: socketCommand("new_surface --type=terminal"))
+        }
+
+        return waitForReadableTerminalSurface(timeout: timeout)
+    }
+
+    private func waitForReadableTerminalSurface(timeout: TimeInterval) -> String? {
+        var matchedSurfaceId: String?
+        _ = waitForCondition(timeout: timeout) {
+            for surfaceId in self.currentWorkspaceSurfaceIds() {
+                if self.readTerminalText(surfaceId: surfaceId) != nil {
+                    matchedSurfaceId = surfaceId
+                    return true
+                }
+            }
+            return false
+        }
+        return matchedSurfaceId
+    }
+
     private func waitForSurfaceIdViaCLI(forWorkspaceId workspaceId: String, timeout: TimeInterval) -> String? {
         var surfaceId: String?
         _ = waitForCondition(timeout: timeout) {
@@ -1474,8 +1546,14 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
     }
 
-    private func readCurrentTerminalText() -> String? {
-        guard let response = socketCommand("read_terminal_text"), response.hasPrefix("OK ") else {
+    private func readTerminalText(surfaceId: String? = nil) -> String? {
+        let command: String
+        if let surfaceId {
+            command = "read_terminal_text \(surfaceId)"
+        } else {
+            command = "read_terminal_text"
+        }
+        guard let response = socketCommand(command), response.hasPrefix("OK ") else {
             return nil
         }
         let encoded = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1483,13 +1561,13 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return String(data: data, encoding: .utf8)
     }
 
-    private func waitForCurrentTerminalText(timeout: TimeInterval) -> String? {
+    private func waitForTerminalText(surfaceId: String?, timeout: TimeInterval) -> String? {
         var matched: String?
         _ = waitForCondition(timeout: timeout) {
-            matched = self.readCurrentTerminalText()
+            matched = self.readTerminalText(surfaceId: surfaceId)
             return matched != nil
         }
-        return matched ?? readCurrentTerminalText()
+        return matched ?? readTerminalText(surfaceId: surfaceId)
     }
 
     private func loadData() -> [String: String]? {

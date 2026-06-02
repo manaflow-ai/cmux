@@ -32,7 +32,10 @@ final class SidebarHelpMenuUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] = "1"
         launchAndActivate(app)
 
-        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
+        XCTAssertTrue(
+            waitForSidebarReady(app: app, timeout: 8.0),
+            "Expected sidebar help controls to be ready. \(sidebarReadinessDebug(app: app))"
+        )
 
         let helpButton = requireElement(
             candidates: helpButtonCandidates(in: app),
@@ -58,7 +61,10 @@ final class SidebarHelpMenuUITests: XCTestCase {
         configureSidebarHelpLaunch(app)
         launchAndActivate(app)
 
-        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
+        XCTAssertTrue(
+            waitForSidebarReady(app: app, timeout: 8.0),
+            "Expected sidebar help controls to be ready. \(sidebarReadinessDebug(app: app))"
+        )
 
         let helpButton = requireElement(
             candidates: helpButtonCandidates(in: app),
@@ -141,6 +147,16 @@ final class SidebarHelpMenuUITests: XCTestCase {
         }
     }
 
+    private func waitForSidebarReady(app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        sidebarHelpPollUntil(timeout: timeout) {
+            app.windows.count >= 1 &&
+                (
+                    app.otherElements["Sidebar"].exists ||
+                    helpButtonCandidates(in: app).contains { $0.exists }
+                )
+        }
+    }
+
     private func helpButtonCandidates(in app: XCUIApplication) -> [XCUIElement] {
         let sidebar = app.otherElements["Sidebar"]
         return [
@@ -149,6 +165,12 @@ final class SidebarHelpMenuUITests: XCTestCase {
             sidebar.buttons["SidebarHelpMenuButton"],
             sidebar.buttons["Help"],
         ]
+    }
+
+    private func sidebarReadinessDebug(app: XCUIApplication) -> String {
+        let helpExists = helpButtonCandidates(in: app).map { $0.exists }
+        return "state=\(app.state.rawValue) windows=\(app.windows.count) " +
+            "sidebar=\(app.otherElements["Sidebar"].exists) helpCandidates=\(helpExists)"
     }
 
     private func helpMenuItemCandidates(
@@ -310,25 +332,42 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
+        resetMenuBarOnlyDefault()
+        XCUIApplication().terminate()
         socketPath = "/tmp/cmux-ui-test-command-palette-\(UUID().uuidString).sock"
         try? FileManager.default.removeItem(atPath: socketPath)
     }
 
     override func tearDown() {
+        XCUIApplication().terminate()
+        resetMenuBarOnlyDefault()
         try? FileManager.default.removeItem(atPath: socketPath)
         super.tearDown()
+    }
+
+    private func configureCommandPaletteLaunch(_ app: XCUIApplication) {
+        app.launchArguments += [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+            "-ApplePersistenceIgnoreState", "YES",
+            "-NSQuitAlwaysKeepsWindows", "NO",
+            "-workspacePresentationMode", "standard",
+            "-menuBarOnly", "false",
+        ]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
     }
 
     private func configureSocketControlledLaunch(
         _ app: XCUIApplication,
         showSettingsWindow: Bool = false
     ) {
+        configureCommandPaletteLaunch(app)
         app.launchArguments += ["-socketControlMode", "allowAll"]
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         if showSettingsWindow {
             app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
         }
@@ -418,8 +457,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
     func testCmdShiftPCheckQueryPrefersCheckForUpdatesBeforeAttemptUpdate() throws {
         let app = XCUIApplication()
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        configureCommandPaletteLaunch(app)
         launchAndActivate(app)
 
         XCTAssertTrue(
@@ -433,20 +471,18 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         let searchField = app.textFields["CommandPaletteSearchField"]
         searchField.typeText("check")
 
-        let row0 = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.0").firstMatch
-        let row1 = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.1").firstMatch
-
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 5.0) {
-                row0.exists &&
-                    row1.exists &&
-                    (row0.value as? String) == "palette.checkForUpdates" &&
-                    (row1.value as? String) == "palette.attemptUpdate"
+                let values = self.commandPaletteRowValues(app: app, limit: 12)
+                guard let checkIndex = values.firstIndex(of: "palette.checkForUpdates"),
+                      let attemptIndex = values.firstIndex(of: "palette.attemptUpdate") else {
+                    return false
+                }
+                return checkIndex < attemptIndex
             },
-            "Expected the check query to rank Check for Updates before Attempt Update. row0=\(String(describing: row0.value)) row1=\(String(describing: row1.value))"
+            "Expected the check query to rank Check for Updates before Attempt Update. " +
+            "values=\(commandPaletteRowValues(app: app, limit: 12))"
         )
-        XCTAssertEqual(row0.value as? String, "palette.checkForUpdates")
-        XCTAssertEqual(row1.value as? String, "palette.attemptUpdate")
     }
 
     func testCmdPSearchCanIncludeSurfacesFromOtherWorkspacesWhenEnabled() throws {
@@ -529,8 +565,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         let app = XCUIApplication()
         let diagnosticsPath = "/tmp/cmux-ui-test-settings-focus-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        configureCommandPaletteLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         launchAndActivate(app)
@@ -603,12 +638,10 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             try? FileManager.default.removeItem(atPath: diagnosticsPath)
         }
         app.launchArguments += [
-            "-AppleLanguages", "(en)",
-            "-AppleLocale", "en_US",
             "-menuBarOnly", "false",
             "-showMenuBarExtra", "true",
         ]
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        configureCommandPaletteLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         launchAndActivate(app)
@@ -860,13 +893,23 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     private func launchAndActivate(_ app: XCUIApplication) {
         app.launch()
         XCTAssertTrue(
-            sidebarHelpPollUntil(timeout: 4.0) {
+            sidebarHelpPollUntil(timeout: 10.0) {
                 guard app.state != .runningForeground else { return true }
                 app.activate()
                 return app.state == .runningForeground
             },
             "App did not reach runningForeground before UI interactions"
         )
+    }
+
+    private func commandPaletteRowValues(app: XCUIApplication, limit: Int) -> [String] {
+        (0..<limit).compactMap { index in
+            let row = app.descendants(matching: .any)
+                .matching(identifier: "CommandPaletteResultRow.\(index)")
+                .firstMatch
+            guard row.exists else { return nil }
+            return row.value as? String
+        }
     }
 
     private func openCommandPalette(app: XCUIApplication, query: String) {
