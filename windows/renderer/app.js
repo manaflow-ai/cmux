@@ -5265,8 +5265,6 @@ function renderPaneNode(panel, workspace, visibleCount) {
     } else {
       ensureTerminal(panel, body);
     }
-    const terminal = state.terminals.get(panel.id);
-    if (terminal) scheduleFitTerminal(terminal);
   }
   if (panel.type === "browser") {
     const body = parts.body;
