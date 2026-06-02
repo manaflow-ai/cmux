@@ -71,9 +71,13 @@ func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
 	if !strings.Contains(msg, "/dev/ptmx") {
 		t.Fatalf("error should name the device that could not be opened: %q", msg)
 	}
+	// The EACCES remediation hint is appended for any permission-denied failure
+	// independent of /proc/self/mountinfo, so these assertions hold even in a
+	// container/sandbox without a real devpts mount (describeDevPTS may add
+	// nothing there). Key off the hint, not the optional mount summary.
 	lowered := strings.ToLower(msg)
-	if !strings.Contains(lowered, "ptmxmode") && !strings.Contains(lowered, "devpts") {
-		t.Fatalf("error should explain the hardened devpts cause: %q", msg)
+	if !strings.Contains(lowered, "ptmxmode") || !strings.Contains(lowered, "remount") {
+		t.Fatalf("error should explain the hardened devpts cause and remediation: %q", msg)
 	}
 
 	if stderr.Len() == 0 {
