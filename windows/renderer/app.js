@@ -3908,8 +3908,9 @@ function renderPaneTreeNode(node, workspace, panelById, visibleCount) {
 }
 
 function renderPaneNode(panel, workspace, visibleCount) {
-  let pane = elements.paneGrid.querySelector(`[data-panel-id="${panel.id}"]`) || state.paneCache.get(panel.id);
+  let pane = state.paneCache.get(panel.id) || elements.paneGrid.querySelector(`[data-panel-id="${panel.id}"]`);
   if (!pane) pane = createPane(panel);
+  const parts = paneParts(pane);
   setDatasetIfChanged(pane, "panelId", panel.id);
   setStylePropertyIfChanged(pane, "--panel-color", panel.color || workspace.color || "var(--color-accent)");
   toggleClassIfChanged(pane, "is-active", panel.id === workspace.activePanelId);
@@ -3922,29 +3923,25 @@ function renderPaneNode(panel, workspace, visibleCount) {
   const pending = isPendingPanel(panel);
   toggleClassIfChanged(pane, "is-pending", pending);
   if (visibleCount <= 1) clearPaneFlex(pane);
-  setTextIfChanged(pane.querySelector(".pane-type"), panel.type === "browser" ? "web" : "term");
+  setTextIfChanged(parts.type, panel.type === "browser" ? "web" : "term");
   const title = panelDisplayTitle(panel, false);
-  const titleNode = pane.querySelector(".pane-title");
-  setTextIfChanged(titleNode, title);
-  setTitleIfChanged(titleNode, title);
-  setTitleIfChanged(pane.querySelector(".pane-header"), `${title} - double-click to rename`);
-  const zoomButton = pane.querySelector(".zoom");
-  setTextIfChanged(zoomButton, zoomed ? "↙" : "□");
-  setTitleIfChanged(zoomButton, zoomed ? "Show all panes" : "Focus pane");
-  const minimizeButton = pane.querySelector(".minimize");
-  setTextIfChanged(minimizeButton, isPanelMinimized(panel) ? "+" : "-");
-  setTitleIfChanged(minimizeButton, isPanelMinimized(panel) ? "Restore pane" : "Minimize pane");
-  for (const button of pane.querySelectorAll(".pane-tool")) {
+  setTextIfChanged(parts.title, title);
+  setTitleIfChanged(parts.title, title);
+  setTitleIfChanged(parts.header, `${title} - double-click to rename`);
+  setTextIfChanged(parts.zoom, zoomed ? "↙" : "□");
+  setTitleIfChanged(parts.zoom, zoomed ? "Show all panes" : "Focus pane");
+  setTextIfChanged(parts.minimize, isPanelMinimized(panel) ? "+" : "-");
+  setTitleIfChanged(parts.minimize, isPanelMinimized(panel) ? "Restore pane" : "Minimize pane");
+  for (const button of parts.tools) {
     button.disabled = pending && !button.classList.contains("close");
   }
-  const closeButton = pane.querySelector(".close");
-  setTitleIfChanged(closeButton, pending ? "Cancel pane" : "Close");
+  setTitleIfChanged(parts.close, pending ? "Cancel pane" : "Close");
   if (pending) {
-    renderPendingPane(panel, pane.querySelector(".pane-body"));
+    renderPendingPane(panel, parts.body);
     return pane;
   }
   if (panel.type === "terminal") {
-    const body = pane.querySelector(".pane-body");
+    const body = parts.body;
     const deferUntilPaint = shouldDeferTerminalInitUntilPaint(panel, workspace);
     if (shouldDeferInitialTerminalLoad(panel, workspace, visibleCount)) {
       renderDeferredTerminal(panel, body);
@@ -3957,7 +3954,7 @@ function renderPaneNode(panel, workspace, visibleCount) {
     if (terminal) scheduleFitTerminal(terminal);
   }
   if (panel.type === "browser") {
-    const body = pane.querySelector(".pane-body");
+    const body = parts.body;
     if (shouldRenderDeferredBrowserShell(panel)) {
       renderDeferredBrowserShell(panel, body);
     } else {
@@ -4030,7 +4027,7 @@ function updatePendingPaneTimers() {
   for (const panel of state.pendingPanels.values()) {
     const pane = state.paneCache.get(panel.id)
       || [...elements.paneGrid.querySelectorAll(".pane[data-panel-id]")].find((candidate) => candidate.dataset.panelId === panel.id);
-    const body = pane?.querySelector(".pane-body");
+    const body = pane ? paneParts(pane).body : null;
     if (body?.isConnected) renderPendingPane(panel, body);
   }
 }
@@ -4612,6 +4609,7 @@ function createPane(panel) {
     </div>
     <div class="pane-body"></div>
   `;
+  const parts = paneParts(pane);
   pane.addEventListener("pointerenter", () => {
     state.hoveredPanelId = pane.dataset.panelId;
   });
@@ -4624,7 +4622,7 @@ function createPane(panel) {
   pane.addEventListener("wheel", handlePaneWheelZoom, { passive: false, capture: true });
   pane.addEventListener("focusin", () => markInteractedPanel(pane.dataset.panelId));
   pane.addEventListener("pointerdown", () => markInteractedPanel(pane.dataset.panelId), { capture: true });
-  const header = pane.querySelector(".pane-header");
+  const header = parts.header;
   header.draggable = false;
   header.addEventListener("click", () => {
     if (state.suppressPaneHeaderClick) {
@@ -4645,35 +4643,35 @@ function createPane(panel) {
     if (found) showPanelContextMenu(event, found.panel);
   });
   header.addEventListener("pointerdown", (event) => startPanePointerDrag(event, pane));
-  pane.querySelector(".split-right").onclick = (event) => {
+  parts.splitRight.onclick = (event) => {
     event.stopPropagation();
     splitPanelFromPaneId(pane.dataset.panelId, "right");
   };
-  pane.querySelector(".split-down").onclick = (event) => {
+  parts.splitDown.onclick = (event) => {
     event.stopPropagation();
     splitPanelFromPaneId(pane.dataset.panelId, "down");
   };
-  pane.querySelector(".zoom").onclick = (event) => {
+  parts.zoom.onclick = (event) => {
     event.stopPropagation();
     togglePaneZoom(pane.dataset.panelId);
   };
-  pane.querySelector(".minimize").onclick = (event) => {
+  parts.minimize.onclick = (event) => {
     event.stopPropagation();
     togglePaneMinimized(pane.dataset.panelId);
   };
-  pane.querySelector(".font-down").onclick = (event) => {
+  parts.fontDown.onclick = (event) => {
     event.stopPropagation();
     changePaneTerminalFontSize(pane.dataset.panelId, -1);
   };
-  pane.querySelector(".font-up").onclick = (event) => {
+  parts.fontUp.onclick = (event) => {
     event.stopPropagation();
     changePaneTerminalFontSize(pane.dataset.panelId, 1);
   };
-  pane.querySelector(".restart").onclick = (event) => {
+  parts.restart.onclick = (event) => {
     event.stopPropagation();
     restartPanel(pane.dataset.panelId);
   };
-  pane.querySelector(".close").onclick = (event) => {
+  parts.close.onclick = (event) => {
     event.stopPropagation();
     closePanel(pane.dataset.panelId);
   };
@@ -4698,6 +4696,25 @@ function createPane(panel) {
   });
   state.paneCache.set(panel.id, pane);
   return pane;
+}
+
+function paneParts(pane) {
+  pane._paneParts ||= {
+    header: pane.querySelector(".pane-header"),
+    type: pane.querySelector(".pane-type"),
+    title: pane.querySelector(".pane-title"),
+    body: pane.querySelector(".pane-body"),
+    splitRight: pane.querySelector(".split-right"),
+    splitDown: pane.querySelector(".split-down"),
+    minimize: pane.querySelector(".minimize"),
+    zoom: pane.querySelector(".zoom"),
+    fontDown: pane.querySelector(".font-down"),
+    fontUp: pane.querySelector(".font-up"),
+    restart: pane.querySelector(".restart"),
+    close: pane.querySelector(".close"),
+    tools: [...pane.querySelectorAll(".pane-tool")]
+  };
+  return pane._paneParts;
 }
 
 function paneDropPosition(event, pane) {
@@ -4971,7 +4988,8 @@ function flushDeferredTerminalInit() {
     if (state.terminals.has(panelId)) continue;
     const found = findPanelState(panelId);
     if (!found || found.workspace.id !== activeWorkspaceId || !visiblePanelIds.has(panelId)) continue;
-    const body = state.paneCache.get(panelId)?.querySelector(".pane-body");
+    const pane = state.paneCache.get(panelId);
+    const body = pane ? paneParts(pane).body : null;
     if (!body?.querySelector(".terminal-deferred")) continue;
     ensureTerminal(found.panel, body);
     const terminal = state.terminals.get(panelId);
