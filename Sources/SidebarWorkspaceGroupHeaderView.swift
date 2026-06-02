@@ -27,7 +27,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.rowSpacing == rhs.rowSpacing &&
             lhs.isFirstRow == rhs.isFirstRow &&
             lhs.isBeingDragged == rhs.isBeingDragged &&
-            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible
+            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
+            lhs.isReorderEnabled == rhs.isReorderEnabled
     }
 
     let groupId: UUID
@@ -51,8 +52,11 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isFirstRow: Bool
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
-    let onDragStart: () -> NSItemProvider
-    let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate
+    /// Reorder gesture callbacks dispatched into the shared reorder helpers.
+    let onReorderChanged: (CGPoint, CGPoint) -> Void
+    let onReorderEnded: (CGPoint, CGPoint) -> Void
+    /// False for the floating follower copy.
+    let isReorderEnabled: Bool
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
     let onTapPlus: () -> Void
@@ -220,7 +224,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-        .opacity(isBeingDragged ? 0.6 : 1)
+        // The dragged header renders invisible; its visible copy is the floating
+        // follower and this slot is the gap that opens during a reorder.
+        .opacity(isBeingDragged ? 0 : 1)
         .overlay(alignment: .top) {
             SidebarWorkspaceTopDropIndicator(
                 isVisible: topDropIndicatorVisible,
@@ -228,9 +234,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 rowSpacing: rowSpacing
             )
         }
-        .onDrag(onDragStart)
-        .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
+        .modifier(SidebarReorderRowModifier(
+            enabled: isReorderEnabled,
+            workspaceId: anchorWorkspaceId,
+            onChanged: onReorderChanged,
+            onEnded: onReorderEnded
+        ))
         .onHover { hovering in
             isHovered = hovering
         }

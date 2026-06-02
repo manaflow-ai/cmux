@@ -183,7 +183,7 @@ struct WorkspaceGroupTests {
                 groupMemberIds = memberWorkspaceIds
             case .groupHeader:
                 break
-            case .workspace(let workspace):
+            case .workspace(let workspace, _):
                 visibleWorkspaceIds.append(workspace.id)
             }
         }
@@ -707,5 +707,73 @@ struct WorkspaceGroupTests {
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   doc.text   ") == "doc.text")
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("not.an.sf.symbol") == "doc.text")
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   ") == "doc.text")
+    }
+}
+
+/// Covers the gesture-driven reorder hit-testing + hysteresis that
+/// `SidebarReorderIndicatorResolver` adds on top of `SidebarDropPlanner`.
+@Suite("Sidebar reorder indicator resolver")
+struct SidebarReorderIndicatorResolverTests {
+    private func band(_ id: UUID, _ minY: CGFloat, _ maxY: CGFloat) -> SidebarReorderIndicatorResolver.Band {
+        .init(id: id, minY: minY, maxY: maxY)
+    }
+
+    @Test func cursorBelowAllRowsAppendsToEnd() {
+        let a = UUID(); let b = UUID(); let c = UUID()
+        let bands = [band(a, 0, 20), band(b, 22, 42), band(c, 44, 64)]
+        let indicator = SidebarReorderIndicatorResolver.resolve(
+            cursorY: 200, bands: bands, draggedId: a, pinnedIds: [], current: nil, hysteresisMargin: 6
+        )
+        #expect(indicator?.tabId == nil)
+        #expect(indicator?.edge == .bottom)
+    }
+
+    @Test func cursorInTopHalfOfFirstRowTargetsItsTop() {
+        let a = UUID(); let b = UUID(); let c = UUID()
+        let bands = [band(a, 0, 20), band(b, 22, 42), band(c, 44, 64)]
+        // Dragging C; hovering the top half of A should land it before A.
+        let indicator = SidebarReorderIndicatorResolver.resolve(
+            cursorY: 3, bands: bands, draggedId: c, pinnedIds: [], current: nil, hysteresisMargin: 6
+        )
+        #expect(indicator?.tabId == a)
+        #expect(indicator?.edge == .top)
+    }
+
+    @Test func hysteresisHoldsCurrentEdgeNearMidpoint() {
+        let a = UUID(); let b = UUID(); let c = UUID()
+        let bands = [band(a, 0, 20), band(b, 20, 40), band(c, 40, 60)]
+        // Dragging A. Current landing slot is "after B" (canonicalized to top of C).
+        let current = SidebarDropIndicator(tabId: c, edge: .top)
+        // Cursor just above B's midpoint (30) and within the 6pt dead-zone: the
+        // raw decision flips to "before B", but stickiness keeps the current slot.
+        let held = SidebarReorderIndicatorResolver.resolve(
+            cursorY: 29, bands: bands, draggedId: a, pinnedIds: [], current: current, hysteresisMargin: 6
+        )
+        #expect(held == current)
+        // With no hysteresis the same cursor flips the slot.
+        let flipped = SidebarReorderIndicatorResolver.resolve(
+            cursorY: 29, bands: bands, draggedId: a, pinnedIds: [], current: current, hysteresisMargin: 0
+        )
+        #expect(flipped != current)
+    }
+
+    @Test func clearMidpointCrossingFlipsEdge() {
+        let a = UUID(); let b = UUID(); let c = UUID()
+        let bands = [band(a, 0, 20), band(b, 20, 40), band(c, 40, 60)]
+        let current = SidebarDropIndicator(tabId: c, edge: .top) // after B
+        // Dragging C; cursor well into the top of B (far outside the dead-zone)
+        // lands before B.
+        let indicator = SidebarReorderIndicatorResolver.resolve(
+            cursorY: 22, bands: bands, draggedId: c, pinnedIds: [], current: current, hysteresisMargin: 6
+        )
+        #expect(indicator?.tabId == b)
+        #expect(indicator?.edge == .top)
+    }
+
+    @Test func emptyBandsResolveToNil() {
+        let indicator = SidebarReorderIndicatorResolver.resolve(
+            cursorY: 10, bands: [], draggedId: UUID(), pinnedIds: [], current: nil, hysteresisMargin: 6
+        )
+        #expect(indicator == nil)
     }
 }
