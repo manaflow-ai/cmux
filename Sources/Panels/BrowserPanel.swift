@@ -3103,7 +3103,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
     @Published private(set) var webViewInstanceID: UUID = UUID()
-    @Published private(set) var hasRecoverableWebContentTermination = false
+    private(set) var hasRecoverableWebContentTermination = false
     private var pendingWebContentRecoveryURL: URL?
 
     /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
@@ -4032,7 +4032,7 @@ final class BrowserPanel: Panel, ObservableObject {
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
         websiteDataStore: WKWebsiteDataStore,
-        processPool: WKProcessPool
+        processPool: WKProcessPool = WKProcessPool()
     ) {
         configuration.processPool = processPool
         configuration.mediaTypesRequiringUserActionForPlayback = []
