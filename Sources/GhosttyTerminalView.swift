@@ -1561,6 +1561,22 @@ func terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: NSEvent.Modi
     return normalized.contains(.command)
 }
 
+func terminalKeyboardSelectionMoveForCommandEquivalent(
+    keyCode: UInt16,
+    modifierFlags: NSEvent.ModifierFlags
+) -> TerminalKeyboardCopyModeSelectionMove? {
+    let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
+    guard normalized == [.command, .shift] else { return nil }
+
+    switch keyCode {
+    case 123: return .beginningOfLine // Left
+    case 124: return .endOfLine       // Right
+    case 126: return .home            // Up
+    case 125: return .end             // Down
+    default: return nil
+    }
+}
+
 func terminalKeyboardCopyModeAction(
     keyCode: UInt16,
     charactersIgnoringModifiers: String?,
@@ -8310,18 +8326,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeVisualActive = false
         keyboardCopyModeActive = active
         if active, let surface {
-            keyboardCopyModeViewportRow = keyboardCopyModeSelectionAnchor(surface: surface)?.row
-            _ = ghostty_surface_clear_selection_compat(surface)
-            if keyboardCopyModeViewportRow == nil {
-                keyboardCopyModeViewportRow = keyboardCopyModeImeViewportRow(surface: surface)
-            }
-            // Create a 1-cell selection at the terminal cursor to serve as a
-            // visible cursor indicator in copy mode.
-            _ = ghostty_surface_select_cursor_cell_compat(surface)
+            resetKeyboardCopyModeCursorSelection(surface: surface)
         } else {
             keyboardCopyModeViewportRow = nil
         }
         terminalSurface?.setKeyboardCopyModeActive(active)
+    }
+
+    private func resetKeyboardCopyModeCursorSelection(surface: ghostty_surface_t) {
+        _ = ghostty_surface_clear_selection_compat(surface)
+        if let anchor = keyboardCopyModeSelectionAnchor(surface: surface) {
+            keyboardCopyModeViewportRow = anchor.row
+        } else {
+            keyboardCopyModeViewportRow = keyboardCopyModeImeViewportRow(surface: surface)
+            // Create a 1-cell selection at the terminal cursor to serve as a
+            // visible cursor indicator in copy mode.
+            _ = ghostty_surface_select_cursor_cell_compat(surface)
+        }
     }
 
     private func performBindingAction(_ action: String, repeatCount: Int) {
@@ -8452,9 +8473,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyboardCopyModeVisualActive = true
         case .clearSelection:
             keyboardCopyModeVisualActive = false
-            _ = ghostty_surface_clear_selection_compat(surface)
-            // Re-create 1-cell cursor at terminal cursor position.
-            _ = ghostty_surface_select_cursor_cell_compat(surface)
+            resetKeyboardCopyModeCursorSelection(surface: surface)
         case .copyAndExit:
             _ = performBindingAction("copy_to_clipboard")
             _ = ghostty_surface_clear_selection_compat(surface)
@@ -9138,6 +9157,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return true
         }
 
+        // Explicit after-menu-miss path used by the window-level direct-to-menu
+        // router before an unclaimed Cmd+Shift+Arrow can fall through to keyDown.
+        if !shouldRetryMainMenu,
+           handleTerminalSelectionCommandEquivalent(event, surface: surface) {
+            return true
+        }
+
         let equivalent: String
         switch event.charactersIgnoringModifiers {
         case "\r":
@@ -9179,6 +9205,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             lastPerformKeyEvent = event.timestamp; return false
         }
 
+        // AppKit can re-enter performKeyEquivalent with the same timestamp after
+        // the local two-call menu dance; handle that path before synthesizing keyDown.
+        if handleTerminalSelectionCommandEquivalent(event, surface: surface) {
+            return true
+        }
+
         let finalEvent = NSEvent.keyEvent(
             with: .keyDown,
             location: event.locationInWindow,
@@ -9198,6 +9230,31 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return false
+    }
+
+    @discardableResult
+    private func handleTerminalSelectionCommandEquivalent(
+        _ event: NSEvent,
+        surface: ghostty_surface_t
+    ) -> Bool {
+        guard let move = terminalKeyboardSelectionMoveForCommandEquivalent(
+            keyCode: event.keyCode,
+            modifierFlags: event.modifierFlags
+        ) else {
+            return false
+        }
+
+        keyboardCopyModeInputState.reset()
+        if !keyboardCopyModeActive {
+            setKeyboardCopyModeActive(true)
+        } else if !keyboardCopyModeVisualActive {
+            resetKeyboardCopyModeCursorSelection(surface: surface)
+        }
+        keyboardCopyModeVisualActive = true
+        performBindingAction("adjust_selection:\(move.rawValue)", repeatCount: 1)
+        keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
+        invalidateTextInputCoordinates(selectionChanged: true)
+        return true
     }
 
     override func keyDown(with event: NSEvent) {
