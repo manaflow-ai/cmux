@@ -11,6 +11,8 @@ import WebKit
 @MainActor
 @Suite(.serialized)
 struct BrowserWebContentProcessTests {
+    private let recoveryURL = URL(string: "data:text/html,cmux-recovery")!
+
     @Test
     func browserPanelsUseSeparateWebContentProcessPools() {
         let first = BrowserPanel(workspaceId: UUID())
@@ -25,10 +27,30 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func configureWebViewConfigurationPreservesCopiedProcessPoolWhenOmitted() {
+        let configuration = WKWebViewConfiguration()
+        let originalProcessPool = configuration.processPool
+        let suppliedProcessPool = WKProcessPool()
+
+        BrowserPanel.configureWebViewConfiguration(
+            configuration,
+            websiteDataStore: .nonPersistent()
+        )
+        #expect(configuration.processPool === originalProcessPool)
+
+        BrowserPanel.configureWebViewConfiguration(
+            configuration,
+            websiteDataStore: .nonPersistent(),
+            processPool: suppliedProcessPool
+        )
+        #expect(configuration.processPool === suppliedProcessPool)
+    }
+
+    @Test
     func webViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
-            initialURL: URL(string: "https://example.com")
+            initialURL: recoveryURL
         )
         defer { panel.close() }
         let oldWebView = panel.webView
@@ -49,7 +71,7 @@ struct BrowserWebContentProcessTests {
     func reloadRecoversTerminatedWebView() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
-            initialURL: URL(string: "https://example.com")
+            initialURL: recoveryURL
         )
         defer { panel.close() }
 
@@ -66,7 +88,7 @@ struct BrowserWebContentProcessTests {
     func workspaceContextResetClearsTerminatedWebViewRecovery() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
-            initialURL: URL(string: "https://example.com")
+            initialURL: recoveryURL
         )
         defer { panel.close() }
 
@@ -103,11 +125,13 @@ struct BrowserWebContentProcessTests {
             )
         )
         let popupWindow = try #require(popupWebView.window)
+        #expect(popupWebView.window === popupWindow)
 
         popupWebView.navigationDelegate?.webViewWebContentProcessDidTerminate?(popupWebView)
 
         #expect(popupWebView.navigationDelegate == nil)
         #expect(popupWebView.uiDelegate == nil)
+        #expect(popupWebView.window == nil)
         #expect(!popupWindow.isVisible)
     }
 }
