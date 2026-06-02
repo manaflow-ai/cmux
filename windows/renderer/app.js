@@ -3092,7 +3092,9 @@ function applyPendingPanelsToState(nextData) {
         state.focusedPanelId = resolvedPanel.id;
         state.lastInteractedPanelId = resolvedPanel.id;
       }
-      deferCreatedTerminalInitUntilPaint(resolvedPanel, workspace);
+      deferCreatedTerminalInitUntilPaint(resolvedPanel, workspace, {
+        activeWorkspaceId: nextData.activeWorkspaceId
+      });
       continue;
     }
     if (workspace.panels.some((panel) => panel.id === pendingPanel.id)) continue;
@@ -12796,11 +12798,12 @@ function addPendingPanel(workspace, panel, anchorPanelId, direction, options = {
 }
 
 function shouldInitCreatedTerminalImmediately(panel, workspace, options = {}) {
+  const activeWorkspaceId = options.activeWorkspaceId || state.data?.activeWorkspaceId;
   return panel?.type === "terminal"
     && options.focus !== false
     && options.immediateTerminalInit !== false
     && workspace?.activePanelId === panel.id
-    && state.data?.activeWorkspaceId === workspace.id
+    && activeWorkspaceId === workspace.id
     && !state.terminals.has(panel.id)
     && !isPanelMinimized(panel)
     && !isPendingPanel(panel);
