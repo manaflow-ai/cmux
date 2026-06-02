@@ -4958,6 +4958,7 @@ function createPane(panel) {
   pane.addEventListener("dragover", (event) => {
     if (!state.dragPanelId || state.dragPanelId === pane.dataset.panelId) return;
     event.preventDefault();
+    clearPaneGridDropTarget();
     pane.dataset.dropPosition = paneDropPosition(event, pane);
     pane.classList.add("is-drop-target");
   });
@@ -5054,9 +5055,12 @@ function finishPanePointerDrag(event) {
     const target = drag.targetPane;
     const targetPanelId = target?.dataset.panelId || "";
     const placement = target?.dataset.dropPosition || (target ? paneDropPosition(event, target) : "");
+    const targetWorkspaceId = target === elements.paneGrid ? activeWorkspace()?.id || "" : "";
     state.suppressPaneHeaderClick = true;
     if (targetPanelId && targetPanelId !== drag.panelId && placement) {
       movePanelRelative(drag.panelId, targetPanelId, placement);
+    } else if (targetWorkspaceId) {
+      movePanelToWorkspace(drag.panelId, targetWorkspaceId);
     }
     setTimeout(() => {
       state.suppressPaneHeaderClick = false;
@@ -5083,8 +5087,57 @@ function cancelPanePointerDrag(event) {
 function panePointerDropTarget(event, sourcePanelId) {
   const element = document.elementFromPoint(event.clientX, event.clientY);
   const pane = element?.closest?.(".pane[data-panel-id]");
-  if (!pane || pane.dataset.panelId === sourcePanelId) return null;
+  if (!pane) return paneGridPointerDropTarget(event, sourcePanelId);
+  if (pane.dataset.panelId === sourcePanelId) return null;
   return pane;
+}
+
+function paneGridCanAcceptPanelDrop(event = null) {
+  if (!state.dragPanelId) return false;
+  const workspace = activeWorkspace();
+  if (!workspace?.id) return false;
+  if (!findPanelState(state.dragPanelId)) return false;
+  const target = event?.target?.nodeType === Node.ELEMENT_NODE ? event.target : event?.target?.parentElement;
+  if (target?.closest?.(".pane[data-panel-id]")) return false;
+  return true;
+}
+
+function paneGridPointerDropTarget(event, sourcePanelId) {
+  const workspace = activeWorkspace();
+  if (!workspace?.id || !sourcePanelId || !findPanelState(sourcePanelId)) return null;
+  const element = document.elementFromPoint(event.clientX, event.clientY);
+  if (!element || !elements.paneGrid.contains(element)) return null;
+  if (element.closest?.(".pane[data-panel-id]")) return null;
+  return elements.paneGrid;
+}
+
+function clearPaneGridDropTarget() {
+  elements.paneGrid.classList.remove("is-drop-target");
+  elements.paneGrid.removeAttribute("data-drop-position");
+}
+
+function handlePaneGridDragOver(event) {
+  if (!paneGridCanAcceptPanelDrop(event)) {
+    clearPaneGridDropTarget();
+    return;
+  }
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  elements.paneGrid.classList.add("is-drop-target");
+}
+
+function handlePaneGridDragLeave(event) {
+  if (event.currentTarget.contains(event.relatedTarget)) return;
+  clearPaneGridDropTarget();
+}
+
+function handlePaneGridDrop(event) {
+  if (!paneGridCanAcceptPanelDrop(event)) return;
+  event.preventDefault();
+  const panelId = state.dragPanelId;
+  const workspaceId = activeWorkspace()?.id || "";
+  clearPaneGridDropTarget();
+  if (panelId && workspaceId) movePanelToWorkspace(panelId, workspaceId);
 }
 
 function clearPaneDropTarget(pane) {
@@ -5093,6 +5146,7 @@ function clearPaneDropTarget(pane) {
 }
 
 function clearAllDropTargets() {
+  clearPaneGridDropTarget();
   for (const pane of document.querySelectorAll(".pane.is-drop-target")) clearPaneDropTarget(pane);
   for (const node of document.querySelectorAll(".is-drop-before, .is-drop-after, .workspace-row.is-drop-target, .workspace-row.is-workspace-drop-before, .workspace-row.is-workspace-drop-after")) {
     node.classList.remove("is-drop-before", "is-drop-after", "is-drop-target", "is-workspace-drop-before", "is-workspace-drop-after");
@@ -14901,6 +14955,9 @@ window.addEventListener("pagehide", () => {
 
 elements.sidebar.addEventListener("pointerdown", startSidebarResize);
 elements.inspector.addEventListener("pointerdown", startInspectorResize);
+elements.paneGrid.addEventListener("dragover", handlePaneGridDragOver);
+elements.paneGrid.addEventListener("dragleave", handlePaneGridDragLeave);
+elements.paneGrid.addEventListener("drop", handlePaneGridDrop);
 elements.workspaceList.addEventListener("dragover", handleWorkspaceListDragOver);
 elements.workspaceList.addEventListener("dragleave", handleWorkspaceListDragLeave);
 elements.workspaceList.addEventListener("drop", handleWorkspaceListDrop);
