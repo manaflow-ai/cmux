@@ -937,17 +937,20 @@ class CmuxWindowsRuntime {
       }
     };
     this.pendingTerminalPrewarms.set(panelId, pending);
-    if (response?.destroyed) {
-      run();
+    if (
+      response
+      && typeof response.once === "function"
+      && !response.destroyed
+      && !response.writableEnded
+      && !response.writableFinished
+    ) {
+      pending.handleType = "response";
+      pending.handle = run;
+      pending.response = response;
+      response.once("finish", run);
       return;
     }
-    if (typeof setImmediate === "function") {
-      pending.handleType = "immediate";
-      pending.handle = setImmediate(run);
-      return;
-    }
-    pending.handleType = "timeout";
-    pending.handle = setTimeout(run, 0);
+    run();
   }
 
   createWorkspace(title, runtimeOptions = {}) {
@@ -1707,9 +1710,7 @@ class CmuxWindowsRuntime {
     for (const pending of this.pendingTerminalPrewarms.values()) {
       pending.canceled = true;
       if (!pending.handle) continue;
-      if (pending.handleType === "timeout") clearTimeout(pending.handle);
-      else if (pending.handleType === "response") pending.response?.removeListener?.("finish", pending.handle);
-      else clearImmediate(pending.handle);
+      if (pending.handleType === "response") pending.response?.removeListener?.("finish", pending.handle);
     }
     this.pendingTerminalPrewarms.clear();
     for (const terminal of this.terminals.values()) terminal.close();
