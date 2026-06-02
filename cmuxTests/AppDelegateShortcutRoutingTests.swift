@@ -2440,6 +2440,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 appDelegate.debugHandleCustomShortcut(event: reboundEvent),
                 "The rebound Ctrl+Option+1 shortcut should be routed by cmux"
             )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
             XCTAssertEqual(
                 manager.selectedTabId,
