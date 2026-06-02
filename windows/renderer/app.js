@@ -427,7 +427,10 @@ const state = {
   surfaceTabsSignature: "",
   paneRenderSignature: "",
   paneFitSignature: "",
-  newTabButton: null,
+  newSurfaceAddButtons: {
+    terminal: null,
+    browser: null
+  },
   paletteOpen: false,
   paletteIndex: 0,
   paletteRenderFrame: 0,
@@ -3399,7 +3402,9 @@ function updateOperationChrome() {
     const button = document.getElementById(id);
     if (button) button.disabled = creatingPane;
   }
-  if (state.newTabButton) state.newTabButton.disabled = creatingPane;
+  for (const button of Object.values(state.newSurfaceAddButtons)) {
+    if (button) button.disabled = creatingPane;
+  }
   updateVisibleEmptyWorkspaceControls();
 }
 
@@ -3643,10 +3648,12 @@ function renderSurfaceTabs(workspace) {
   const signature = surfaceTabsSignature(workspace);
   if (
     signature === state.surfaceTabsSignature
-    && state.newTabButton
-    && state.newTabButton.dataset.workspaceId === workspace.id
+    && state.newSurfaceAddButtons.terminal
+    && state.newSurfaceAddButtons.browser
+    && state.newSurfaceAddButtons.terminal.dataset.workspaceId === workspace.id
+    && state.newSurfaceAddButtons.browser.dataset.workspaceId === workspace.id
     && state.surfaceTabButtons.size === workspace.panels.length
-    && elements.surfaceTabs.childNodes.length === workspace.panels.length + 1
+    && elements.surfaceTabs.childNodes.length === workspace.panels.length + 2
   ) {
     return;
   }
@@ -3666,7 +3673,7 @@ function renderSurfaceTabs(workspace) {
     updateSurfaceTab(button, workspace, panel);
     return button;
   });
-  nodes.push(getNewSurfaceTab(workspace));
+  nodes.push(...getNewSurfaceTabs(workspace));
   replaceChildrenIfChanged(elements.surfaceTabs, nodes);
   state.surfaceTabsSignature = signature;
   scheduleSurfaceTabsOverflowRefresh({ ensureActive: true });
@@ -3967,37 +3974,76 @@ function clearSurfaceTabDropTargets() {
   }
 }
 
-function getNewSurfaceTab(workspace) {
-  if (!state.newTabButton) {
-    state.newTabButton = document.createElement("button");
-    state.newTabButton.className = "surface-tab surface-new-tab";
-    state.newTabButton.type = "button";
-    state.newTabButton.title = "Add pane";
-    state.newTabButton.setAttribute("aria-label", "Add pane");
-    state.newTabButton.textContent = "+";
-    state.newTabButton.onclick = (event) => showNewSurfaceTabMenu(event, newSurfaceTabWorkspace());
-    state.newTabButton.addEventListener("contextmenu", (event) => showNewSurfaceTabMenu(event, newSurfaceTabWorkspace()));
-    state.newTabButton.addEventListener("dragover", (event) => {
-      if (!state.dragPanelId) return;
-      event.preventDefault();
-      state.newTabButton.classList.add("is-drop-before");
-    });
-    state.newTabButton.addEventListener("dragleave", () => state.newTabButton.classList.remove("is-drop-before"));
-    state.newTabButton.addEventListener("drop", (event) => {
-      event.preventDefault();
-      state.newTabButton.classList.remove("is-drop-before");
-      if (state.dragPanelId) movePanelToWorkspace(state.dragPanelId, state.newTabButton.dataset.workspaceId);
-    });
+const surfaceAddTabConfigs = {
+  terminal: {
+    className: "surface-new-terminal",
+    kindLabel: "T",
+    title: "New terminal pane"
+  },
+  browser: {
+    className: "surface-new-browser",
+    kindLabel: "W",
+    title: "New browser pane"
   }
-  setDatasetIfChanged(state.newTabButton, "workspaceId", workspace.id);
-  state.newTabButton.disabled = paneCreationButtonsDisabled();
-  setTitleIfChanged(state.newTabButton, state.newTabButton.disabled ? paneCreationLimitLabel() : "Add pane");
-  return state.newTabButton;
+};
+
+function getNewSurfaceTabs(workspace) {
+  return [
+    getNewSurfaceTab("terminal", workspace),
+    getNewSurfaceTab("browser", workspace)
+  ];
 }
 
-function newSurfaceTabWorkspace() {
-  const workspaceId = state.newTabButton?.dataset.workspaceId || activeWorkspace()?.id || "";
+function getNewSurfaceTab(kind, workspace) {
+  const config = surfaceAddTabConfigs[kind];
+  let button = state.newSurfaceAddButtons[kind];
+  if (!button) {
+    button = document.createElement("button");
+    button.className = `surface-tab surface-new-tab ${config.className}`;
+    button.type = "button";
+    button.innerHTML = `
+      <span class="surface-new-plus" aria-hidden="true">+</span>
+      <span class="surface-new-kind" aria-hidden="true">${config.kindLabel}</span>
+    `;
+    button.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      createSurfaceAddPane(kind, surfaceAddButtonWorkspace(button));
+    };
+    button.addEventListener("contextmenu", (event) => showNewSurfaceTabMenu(event, surfaceAddButtonWorkspace(button)));
+    button.addEventListener("dragover", (event) => {
+      if (!state.dragPanelId) return;
+      event.preventDefault();
+      button.classList.add("is-drop-before");
+    });
+    button.addEventListener("dragleave", () => button.classList.remove("is-drop-before"));
+    button.addEventListener("drop", (event) => {
+      event.preventDefault();
+      button.classList.remove("is-drop-before");
+      if (state.dragPanelId) movePanelToWorkspace(state.dragPanelId, button.dataset.workspaceId);
+    });
+    state.newSurfaceAddButtons[kind] = button;
+  }
+  setDatasetIfChanged(button, "workspaceId", workspace.id);
+  button.disabled = paneCreationButtonsDisabled();
+  const title = button.disabled ? paneCreationLimitLabel() : `${config.title}. Right-click for more add options`;
+  setTitleIfChanged(button, title);
+  if (button.getAttribute("aria-label") !== config.title) button.setAttribute("aria-label", config.title);
+  return button;
+}
+
+function surfaceAddButtonWorkspace(button) {
+  const workspaceId = button?.dataset.workspaceId || activeWorkspace()?.id || "";
   return state.data?.workspaces.find((candidate) => candidate.id === workspaceId) || activeWorkspace();
+}
+
+function createSurfaceAddPane(kind, workspace) {
+  if (!workspace || paneCreationButtonsDisabled()) return;
+  if (kind === "browser") {
+    openBrowserHome(workspace.id, { mode: "pane" });
+    return;
+  }
+  createPanel("terminal", "right", { workspaceId: workspace.id });
 }
 
 function showNewSurfaceTabMenu(event, workspace = activeWorkspace()) {

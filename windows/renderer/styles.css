@@ -412,7 +412,7 @@ body.reduce-motion *::after {
   min-height: 40px;
 }
 
-.shell.focus-mode .command-strip .tool-button:not(#newTerminalButton):not(#toolsMenuButton):not(#settingsButton) {
+.shell.focus-mode .command-strip .tool-button:not(#newTerminalButton):not(#newBrowserButton):not(#toolsMenuButton):not(#settingsButton) {
   display: none;
 }
 
@@ -1127,7 +1127,7 @@ body.reduce-motion *::after {
   display: inline-flex;
 }
 
-.shell.toolbar-minimal .command-strip .tool-button:not(#newTerminalButton):not(#toolsMenuButton):not(#settingsButton) {
+.shell.toolbar-minimal .command-strip .tool-button:not(#newTerminalButton):not(#newBrowserButton):not(#toolsMenuButton):not(#settingsButton) {
   display: none;
 }
 
@@ -1250,7 +1250,7 @@ body.reduce-motion *::after {
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-padding-inline: 10px 54px;
+  scroll-padding-inline: 10px 86px;
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
   background: color-mix(in oklch, var(--color-terminal-gutter) 88%, var(--color-canvas) 12%);
@@ -1570,19 +1570,40 @@ body.reduce-motion *::after {
 .surface-new-tab {
   align-self: center;
   position: sticky;
-  right: 6px;
   z-index: 3;
   height: 24px;
-  flex: 0 0 32px;
-  min-width: 32px;
-  max-width: 32px;
-  grid-template-columns: 1fr;
+  flex: 0 0 34px;
+  min-width: 34px;
+  max-width: 34px;
+  grid-template-columns: auto auto;
   justify-items: center;
+  justify-content: center;
+  gap: 1px;
   border-color: color-mix(in oklch, var(--color-line) 64%, transparent);
   border-radius: var(--radius-1);
   background: color-mix(in oklch, var(--color-pane) 22%, transparent);
   color: var(--color-muted);
-  font: 18px/1 var(--font-mono);
+  font: 11px/1 var(--font-mono);
+  font-weight: 760;
+}
+
+.surface-new-terminal {
+  right: 43px;
+}
+
+.surface-new-browser {
+  right: 6px;
+}
+
+.surface-new-plus {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.surface-new-kind {
+  color: var(--color-faint);
+  font-size: 10px;
+  line-height: 1;
 }
 
 .surface-new-tab:hover {
@@ -1601,10 +1622,17 @@ body.reduce-motion *::after {
 @container (max-width: 440px) {
   .surface-new-tab,
   .shell.density-compact .surface-new-tab {
-    right: 5px;
     flex-basis: 30px;
     min-width: 30px;
     max-width: 30px;
+  }
+
+  .surface-new-terminal {
+    right: 38px;
+  }
+
+  .surface-new-browser {
+    right: 5px;
   }
 }
 
