@@ -210,20 +210,24 @@ check_tests_deriveddata_cache() {
   if ! awk '
     /^  tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /name: Compute DerivedData cache fingerprint/ { saw_fingerprint_step=1 }
+    in_job && /deriveddata-cache-fingerprint\.sh tests/ { saw_fingerprint_mode=1 }
     in_job && /path: \.ci-derived-data\/tests/ { saw_cache_path=1 }
+    in_job && /key: deriveddata-tests-\$\{\{ steps\.deriveddata-fingerprint\.outputs\.hash \}\}-\$\{\{ steps\.ghostty-revision\.outputs\.sha \}\}/ { saw_key=1 }
     in_job && /restore-keys:[[:space:]]*\|/ { in_restore=1; next }
-    in_job && in_restore && /deriveddata-tests-/ { saw_restore=1 }
+    in_job && in_restore && /deriveddata-tests-\$\{\{ steps\.deriveddata-fingerprint\.outputs\.hash \}\}-\$\{\{ steps\.ghostty-revision\.outputs\.sha \}\}-/ { saw_restore=1 }
+    in_job && in_restore && /deriveddata-tests-/ && !/steps\.deriveddata-fingerprint\.outputs\.hash/ { saw_broad_restore=1 }
     in_job && in_restore && /^[[:space:]]{10}[^[:space:]-]/ { in_restore=0 }
     in_job && /DERIVED_DATA_PATH="\$PWD\/\.ci-derived-data\/tests"/ { saw_derived_data_env += 1 }
     in_job && /-derivedDataPath "\$DERIVED_DATA_PATH"/ { saw_derived_data += 1 }
     in_job && /CLI_BIN="\$DERIVED_DATA_PATH\/Build\/Products\/Debug\/cmux"/ { saw_cli_path=1 }
-    END { exit(saw_cache_path && saw_restore && saw_derived_data_env >= 3 && saw_derived_data >= 2 && saw_cli_path ? 0 : 1) }
+    END { exit(saw_fingerprint_step && saw_fingerprint_mode && saw_cache_path && saw_key && saw_restore && !saw_broad_restore && saw_derived_data_env >= 3 && saw_derived_data >= 2 && saw_cli_path ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: tests job must cache and reuse an explicit DerivedData path across split-theme and unit XCTest steps"
+    echo "FAIL: tests job must cache and reuse a source-fingerprinted explicit DerivedData path across split-theme and unit XCTest steps"
     exit 1
   fi
 
-  echo "PASS: tests job reuses explicit cached DerivedData across XCTest steps"
+  echo "PASS: tests job reuses source-fingerprinted explicit cached DerivedData across XCTest steps"
 }
 
 check_ui_regression_budget() {
@@ -243,6 +247,20 @@ check_ui_regression_budget() {
 
   if ! grep -Fq 'path: .ci-derived-data/ui-regressions' "$CI_FILE"; then
     echo "FAIL: ui-regressions must cache its explicit DerivedData path"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  ui-regressions:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /name: Compute DerivedData cache fingerprint/ { saw_fingerprint_step=1 }
+    in_job && /deriveddata-cache-fingerprint\.sh app/ { saw_fingerprint_mode=1 }
+    in_job && /key: deriveddata-ui-regressions-\$\{\{ steps\.deriveddata-fingerprint\.outputs\.hash \}\}-\$\{\{ steps\.ghostty-revision\.outputs\.sha \}\}/ { saw_key=1 }
+    in_job && /restore-keys: deriveddata-ui-regressions-\$\{\{ steps\.deriveddata-fingerprint\.outputs\.hash \}\}-\$\{\{ steps\.ghostty-revision\.outputs\.sha \}\}-/ { saw_restore=1 }
+    in_job && /restore-keys: deriveddata-ui-regressions-/ && !/steps\.deriveddata-fingerprint\.outputs\.hash/ { saw_broad_restore=1 }
+    END { exit(saw_fingerprint_step && saw_fingerprint_mode && saw_key && saw_restore && !saw_broad_restore ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: ui-regressions DerivedData cache must be source-fingerprinted and must not use a broad stale restore key"
     exit 1
   fi
 
@@ -287,19 +305,23 @@ check_build_and_lag_budget() {
   if ! awk '
     /^  tests-build-and-lag:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /name: Compute DerivedData cache fingerprint/ { saw_fingerprint_step=1 }
+    in_job && /deriveddata-cache-fingerprint\.sh app/ { saw_fingerprint_mode=1 }
     in_job && /path: \.ci-derived-data\/build/ { saw_cache_path=1 }
+    in_job && /key: deriveddata-build-\$\{\{ steps\.deriveddata-fingerprint\.outputs\.hash \}\}-\$\{\{ steps\.ghostty-revision\.outputs\.sha \}\}/ { saw_key=1 }
     in_job && /restore-keys:[[:space:]]*\|/ { in_restore=1; next }
-    in_job && in_restore && /deriveddata-build-/ { saw_restore=1 }
+    in_job && in_restore && /deriveddata-build-\$\{\{ steps\.deriveddata-fingerprint\.outputs\.hash \}\}-\$\{\{ steps\.ghostty-revision\.outputs\.sha \}\}-/ { saw_restore=1 }
+    in_job && in_restore && /deriveddata-build-/ && !/steps\.deriveddata-fingerprint\.outputs\.hash/ { saw_broad_restore=1 }
     in_job && in_restore && /^[[:space:]]{10}[^[:space:]-]/ { in_restore=0 }
     in_job && /DERIVED_DATA_PATH="\$PWD\/\.ci-derived-data\/build"/ { saw_derived_data_env += 1 }
     in_job && /-derivedDataPath "\$DERIVED_DATA_PATH"/ { saw_derived_data=1 }
-    END { exit(saw_cache_path && saw_restore && saw_derived_data_env >= 3 && saw_derived_data ? 0 : 1) }
+    END { exit(saw_fingerprint_step && saw_fingerprint_mode && saw_cache_path && saw_key && saw_restore && !saw_broad_restore && saw_derived_data_env >= 3 && saw_derived_data ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: tests-build-and-lag must restore and use its workspace-local DerivedData path so retries are not always cold"
+    echo "FAIL: tests-build-and-lag must restore and use its source-fingerprinted workspace-local DerivedData path so retries are not always cold"
     exit 1
   fi
 
-  echo "PASS: tests-build-and-lag keeps enough time and restores DerivedData for cold builds"
+  echo "PASS: tests-build-and-lag keeps enough time and restores source-fingerprinted DerivedData for cold builds"
 }
 
 check_zig_helper_build_runner() {
