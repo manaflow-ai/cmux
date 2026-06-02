@@ -6,6 +6,11 @@ import {
   shouldPruneToken,
 } from "../services/apns/payload";
 import { signApnsJwt, normalizeP8 } from "../services/apns/sender";
+import {
+  MAX_PUSH_BODY_CHARS,
+  normalizeApnsBundle,
+  parsePushPayload,
+} from "../services/apns/routePolicy";
 
 describe("apns payload", () => {
   test("builds a time-sensitive alert with deep-link keys", () => {
@@ -64,6 +69,59 @@ describe("apns host + pruning", () => {
     expect(shouldPruneToken(0, "timeout")).toBe(false); // transient
     expect(shouldPruneToken(503, "ServiceUnavailable")).toBe(false); // transient
     expect(shouldPruneToken(429, "TooManyRequests")).toBe(false);
+  });
+});
+
+describe("apns route policy", () => {
+  test("allows only cmux iOS bundle IDs and derives the APNs environment", () => {
+    expect(normalizeApnsBundle("com.cmuxterm.app")).toEqual({
+      bundleId: "com.cmuxterm.app",
+      environment: "production",
+    });
+    expect(normalizeApnsBundle("dev.cmux.app.beta")).toEqual({
+      bundleId: "dev.cmux.app.beta",
+      environment: "production",
+    });
+    expect(normalizeApnsBundle("dev.cmux.ios.push1")).toEqual({
+      bundleId: "dev.cmux.ios.push1",
+      environment: "sandbox",
+    });
+
+    expect(normalizeApnsBundle("com.example.app")).toBeNull();
+    expect(normalizeApnsBundle("dev.cmux.ios.bad_topic")).toBeNull();
+    expect(normalizeApnsBundle("dev.cmux.ios.-bad")).toBeNull();
+  });
+
+  test("bounds and trims push payloads before sending to APNs", () => {
+    const parsed = parsePushPayload({
+      title: " agent ",
+      subtitle: " workspace ",
+      body: " done ",
+      workspaceId: " ws-1 ",
+      surfaceId: " sf-1 ",
+      hideContent: true,
+    });
+
+    expect(parsed).toEqual({
+      ok: true,
+      value: {
+        title: "agent",
+        subtitle: "workspace",
+        body: "done",
+        workspaceId: "ws-1",
+        surfaceId: "sf-1",
+        hideContent: true,
+      },
+    });
+
+    expect(parsePushPayload({ title: "", body: "" })).toEqual({
+      ok: false,
+      error: "empty_notification",
+    });
+    expect(parsePushPayload({ title: "agent", body: "x".repeat(MAX_PUSH_BODY_CHARS + 1) })).toEqual({
+      ok: false,
+      error: "body_too_long",
+    });
   });
 });
 
