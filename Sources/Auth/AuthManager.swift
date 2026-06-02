@@ -241,6 +241,7 @@ final class AuthManager: ObservableObject {
 
         let signInURL = AuthEnvironment.signInURL()
         let callbackScheme = AuthEnvironment.callbackScheme
+        authLog("webauth: begin url=\(Self.redactedURLDescription(signInURL)) scheme=\(callbackScheme)")
 
         let session = ASWebAuthenticationSession(
             url: signInURL,
@@ -253,13 +254,19 @@ final class AuthManager: ObservableObject {
                     self.finishBrowserSignInAttempt(attemptID)
                 }
                 if let error {
-                    self.authLog("auth.webauth failed: \(error)")
+                    let nsError = error as NSError
+                    self.authLog("webauth: callback error domain=\(nsError.domain) code=\(nsError.code) desc=\(nsError.localizedDescription)")
                     return
                 }
-                guard let callbackURL else { return }
+                guard let callbackURL else {
+                    self.authLog("webauth: callback returned without URL or error")
+                    return
+                }
+                self.authLog("webauth: callback url=\(Self.redactedURLDescription(callbackURL))")
                 let callbackPayload = AuthCallbackRouter.callbackPayload(from: callbackURL)
                 do {
                     try await self.handleCallbackURL(callbackURL)
+                    self.authLog("webauth: handleCallbackURL ok")
                     if self.signOutCancelledBrowserSignInAttemptID == attemptID,
                        self.activeBrowserSignInAttemptID == nil,
                        let callbackPayload {
@@ -273,17 +280,18 @@ final class AuthManager: ObservableObject {
                         self.signOutCancelledBrowserSignInAttemptID = nil
                     }
                 } catch {
-                    self.authLog("auth.webauth callback failed: \(error)")
+                    self.authLog("webauth: handleCallbackURL threw \(error)")
                 }
             }
         }
         session.presentationContextProvider = AuthPresentationContext.shared
         session.prefersEphemeralWebBrowserSession = false
 
-        if session.start() {
+        let started = session.start()
+        authLog("webauth: session.start() returned \(started)")
+        if started {
             webAuthSession = session
         } else {
-            authLog("auth.webauth: session.start() returned false")
             finishBrowserSignInAttempt(attemptID)
         }
     }
@@ -801,9 +809,26 @@ final class AuthManager: ObservableObject {
     }
     #endif
 
+    /// Render a URL as scheme/host/path plus query-key names with value lengths,
+    /// so auth diagnostics keep structural signal without leaking OAuth tokens,
+    /// refresh tokens, or other secrets that live in the query string.
+    nonisolated static func redactedURLDescription(_ url: URL) -> String {
+        let scheme = url.scheme ?? "nil"
+        let host = url.host ?? ""
+        let portPart = url.port.map { ":\($0)" } ?? ""
+        let path = url.path
+        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let keysSummary = queryItems
+            .map { "\($0.name)(\($0.value?.count ?? 0))" }
+            .joined(separator: ",")
+        let queryPart = keysSummary.isEmpty ? "" : "?[\(keysSummary)]"
+        let fragmentPart = url.fragment.flatMap { $0.isEmpty ? nil : " #len=\($0.count)" } ?? ""
+        return "\(scheme)://\(host)\(portPart)\(path)\(queryPart)\(fragmentPart)"
+    }
+
     // ISO8601DateFormatter is expensive to construct (calendar + locale +
     // time zone). Reuse one instance across the high-frequency authLog path.
-    private static let logTimestampFormatter: ISO8601DateFormatter = {
+    private nonisolated static let logTimestampFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         return f
