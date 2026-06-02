@@ -244,6 +244,7 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
+            "required": ["host"],
             "properties": {
               "host": {
                 "type": "string",

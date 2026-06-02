@@ -113,6 +113,12 @@ public struct GitRemoteReference: Sendable, Equatable, Hashable {
         // host from path. Reject values whose pre-colon segment already contains a
         // slash (that would be a bare filesystem path, not a remote).
         let afterUser = value.split(separator: "@", maxSplits: 1).last.map(String.init) ?? value
+        // Bracketed IPv6 literal host: [::1]:owner/repo.
+        if afterUser.hasPrefix("["), let bracketEnd = afterUser.range(of: "]:") {
+            let host = String(afterUser[afterUser.index(after: afterUser.startIndex)..<bracketEnd.lowerBound])
+            guard !host.isEmpty else { return nil }
+            return make(host: host, httpsPort: nil, rawPath: String(afterUser[bracketEnd.upperBound...]))
+        }
         guard let colonIndex = afterUser.firstIndex(of: ":") else { return nil }
         let host = String(afterUser[..<colonIndex])
         let rawPath = String(afterUser[afterUser.index(after: colonIndex)...])
@@ -122,9 +128,11 @@ public struct GitRemoteReference: Sendable, Equatable, Hashable {
 
     private static func make(host: String, httpsPort: Int?, rawPath: String) -> GitRemoteReference? {
         let normalizedHost = host.lowercased()
+        // Drop default HTTP(S) ports so `host` and `host:443` are one cache identity.
+        let normalizedPort = (httpsPort == 443 || httpsPort == 80) ? nil : httpsPort
         let path = normalizedRepositoryPath(rawPath)
         guard let path else { return nil }
-        return GitRemoteReference(host: normalizedHost, httpsPort: httpsPort, path: path)
+        return GitRemoteReference(host: normalizedHost, httpsPort: normalizedPort, path: path)
     }
 
     private static func normalizedRepositoryPath(_ rawPath: String) -> String? {

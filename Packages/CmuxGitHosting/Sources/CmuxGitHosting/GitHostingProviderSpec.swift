@@ -94,8 +94,14 @@ public struct GitHostingProviderSpec: Sendable, Codable, Equatable {
         apiBaseURL = try container.decode(String.self, forKey: .apiBaseURL)
         pullRequestsPath = try container.decode(String.self, forKey: .pullRequestsPath)
         query = try container.decodeIfPresent([GitHostingQueryItem].self, forKey: .query) ?? []
-        pageParam = try container.decodeIfPresent(String.self, forKey: .pageParam) ?? "page"
-        perPageParam = try container.decodeIfPresent(String.self, forKey: .perPageParam) ?? "per_page"
+        // An absent param falls back to the default name; an explicit `null` means
+        // the endpoint is unpaginated and that query item should be omitted.
+        pageParam = container.contains(.pageParam)
+            ? try container.decodeIfPresent(String.self, forKey: .pageParam)
+            : "page"
+        perPageParam = container.contains(.perPageParam)
+            ? try container.decodeIfPresent(String.self, forKey: .perPageParam)
+            : "per_page"
         pageSize = try container.decodeIfPresent(Int.self, forKey: .pageSize) ?? 100
         pageLimit = try container.decodeIfPresent(Int.self, forKey: .pageLimit) ?? 2
         branchFilter = try container.decodeIfPresent(GitHostingBranchFilter.self, forKey: .branchFilter)

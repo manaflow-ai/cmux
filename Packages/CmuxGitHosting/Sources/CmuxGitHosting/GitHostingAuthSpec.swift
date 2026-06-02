@@ -44,7 +44,11 @@ public struct GitHostingAuthSpec: Sendable, Codable, Equatable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         header = try container.decodeIfPresent(String.self, forKey: .header) ?? "Authorization"
-        scheme = try container.decodeIfPresent(String.self, forKey: .scheme) ?? "Bearer"
+        // Distinguish an absent `scheme` (default Bearer) from an explicit `null`
+        // (send the raw token with no scheme prefix).
+        scheme = container.contains(.scheme)
+            ? try container.decodeIfPresent(String.self, forKey: .scheme)
+            : "Bearer"
         token = try container.decodeIfPresent(GitHostingTokenSource.self, forKey: .token) ?? .none
         allowsAnonymous = try container.decodeIfPresent(Bool.self, forKey: .allowsAnonymous) ?? false
     }

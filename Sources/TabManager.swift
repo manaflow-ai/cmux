@@ -4475,7 +4475,8 @@ class TabManager: ObservableObject {
             config: gitHostingConfig,
             environment: ProcessInfo.processInfo.environment,
             commandRunner: commandRunner,
-            workingDirectory: repoDirectoriesBySlug.values.first ?? FileManager.default.currentDirectoryPath,
+            workingDirectory: repoDirectoriesBySlug.sorted { $0.key < $1.key }.first?.value
+                ?? FileManager.default.currentDirectoryPath,
             tokenCommandTimeout: Self.workspacePullRequestProbeTimeout
         )
 

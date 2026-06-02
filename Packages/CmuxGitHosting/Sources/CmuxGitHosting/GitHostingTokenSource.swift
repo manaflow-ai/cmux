@@ -28,4 +28,14 @@ public struct GitHostingTokenSource: Sendable, Codable, Equatable {
 
     /// A token source that resolves nothing (used for anonymous access).
     public static let none = GitHostingTokenSource()
+
+    private enum CodingKeys: String, CodingKey {
+        case environment, command
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        environment = try container.decodeIfPresent([String].self, forKey: .environment) ?? []
+        command = try container.decodeIfPresent([String].self, forKey: .command)
+    }
 }
