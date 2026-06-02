@@ -5692,6 +5692,53 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         }
     }
 
+    func testForkedSplitCanBeForkedAgainImmediately() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/tmp/fork repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: ["/Users/example/.bun/bin/codex", "--search"],
+                workingDirectory: "/tmp/fork repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let rightForkPanel = try XCTUnwrap(
+            workspace.forkAgentConversation(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot,
+                direction: .right
+            )
+        )
+        let immediateForkSnapshot = try XCTUnwrap(
+            workspace.forkableAgentSnapshot(forPanelId: rightForkPanel.id)
+        )
+
+        let bottomForkPanel = try XCTUnwrap(
+            workspace.forkAgentConversation(
+                fromPanelId: rightForkPanel.id,
+                snapshot: immediateForkSnapshot,
+                direction: .down
+            )
+        )
+
+        XCTAssertNotEqual(bottomForkPanel.id, rightForkPanel.id)
+        XCTAssertEqual(workspace.focusedPanelId, bottomForkPanel.id)
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 3)
+        XCTAssertEqual(bottomForkPanel.requestedWorkingDirectory, "/tmp/fork repo")
+        XCTAssertEqual(
+            bottomForkPanel.surface.initialInput,
+            snapshot.forkCommand.map { $0 + "\n" }
+        )
+    }
+
     func testForkAgentConversationUsesWorkspaceDirectoryFallback() throws {
         let workspace = Workspace()
         workspace.currentDirectory = "/tmp/workspace fork repo"
