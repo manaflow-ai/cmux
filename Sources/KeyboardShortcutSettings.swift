@@ -455,13 +455,13 @@ enum KeyboardShortcutSettings {
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .openDiffViewer:
-                // Cmd+Ctrl+D. The natural "D for Diff" chord (Cmd+Shift+D) collides
-                // with Split Down, and the entire Cmd-based "D" family is already
-                // taken by split actions (Cmd+D, Cmd+Shift+D, Cmd+Opt+D,
-                // Cmd+Shift+Opt+D). Cmd+Ctrl+D is free and matches cmux's
-                // Cmd+Ctrl+<letter> app-shortcut family (Close Window = Cmd+Ctrl+W,
-                // Toggle Full Screen = Cmd+Ctrl+F).
-                return StoredShortcut(key: "d", command: true, shift: false, option: false, control: true)
+                // Cmd+Ctrl+Shift+D. The plain Cmd+Ctrl+D chord is reserved by macOS for
+                // "Look Up & data detectors" — the OS swallows it before it reaches the
+                // app's key monitor — and the rest of the Cmd-based "D" family is taken
+                // by split actions (Cmd+D, Cmd+Shift+D, Cmd+Opt+D, Cmd+Shift+Opt+D).
+                // Adding Shift yields a chord that reaches cmux while keeping the "D for
+                // Diff" mnemonic. Rebindable in Settings → Keyboard Shortcuts.
+                return StoredShortcut(key: "d", command: true, shift: true, option: false, control: true)
             case .diffViewerScrollDown:
                 return StoredShortcut(key: "j", command: false, shift: false, option: false, control: false)
             case .diffViewerScrollUp:

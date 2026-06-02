@@ -1977,13 +1977,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        // Default is Cmd+Ctrl+D (the natural Cmd+Shift+D collides with Split Down), and
-        // it must be conflict-free so the recorder accepts it as-is.
-        let cmdCtrlD = StoredShortcut(key: "d", command: true, shift: false, option: false, control: true)
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .openDiffViewer), cmdCtrlD)
+        // Default is Cmd+Ctrl+Shift+D. Plain Cmd+Ctrl+D is reserved by macOS ("Look Up")
+        // and never reaches the app, and the rest of the Cmd+D family is taken by split
+        // actions; the default must be conflict-free so the recorder accepts it as-is.
+        let cmdCtrlShiftD = StoredShortcut(key: "d", command: true, shift: true, option: false, control: true)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .openDiffViewer), cmdCtrlShiftD)
         XCTAssertEqual(
-            KeyboardShortcutSettings.Action.openDiffViewer.normalizedRecordedShortcutResult(cmdCtrlD),
-            .accepted(cmdCtrlD),
+            KeyboardShortcutSettings.Action.openDiffViewer.normalizedRecordedShortcutResult(cmdCtrlShiftD),
+            .accepted(cmdCtrlShiftD),
             "Default Open Diff Viewer shortcut must not conflict with any other action"
         )
         XCTAssertTrue(
@@ -2006,18 +2007,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         guard let event = makeKeyDownEvent(
             key: "d",
-            modifiers: [.command, .control],
+            modifiers: [.command, .control, .shift],
             keyCode: 2, // kVK_ANSI_D
             windowNumber: targetWindow.windowNumber
         ) else {
-            XCTFail("Failed to construct Cmd+Ctrl+D event")
+            XCTFail("Failed to construct Cmd+Ctrl+Shift+D event")
             return
         }
 
 #if DEBUG
         XCTAssertTrue(
             appDelegate.debugHandleCustomShortcut(event: event),
-            "Cmd+Ctrl+D should be consumed by the Open Diff Viewer shortcut"
+            "Cmd+Ctrl+Shift+D should be consumed by the Open Diff Viewer shortcut"
         )
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
@@ -2025,7 +2026,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(
             openDiffViewerCount,
             1,
-            "Cmd+Ctrl+D must route to the shared diff-open path (same path as the command palette)"
+            "Cmd+Ctrl+Shift+D must route to the shared diff-open path (same path as the command palette)"
         )
     }
 
