@@ -8030,7 +8030,7 @@ function renderSettingsInspector(options = {}) {
     const quickSection = settingsSection("Quick setup");
     quickSection.append(quickSetupOverviewPanel());
     quickSection.append(quickSetupGuidePanel());
-    quickSection.append(quickSetupActionGrid());
+    quickSection.append(quickActionDisclosurePanel());
     quickSection.append(paneShapePanel(workspace));
     quickSection.append(...quickColorControlRows(workspace));
     quickSection.append(quickSettingsShortcutGrid());
@@ -10353,6 +10353,13 @@ function scrollSettingsSearchTargetIntoView(target) {
   elements.inspectorBody.scrollTo({ top: Math.max(0, Math.round(top)), behavior });
 }
 
+function syncSettingsDisclosuresForSearch(query) {
+  if (!query) return;
+  for (const disclosure of elements.inspectorBody.querySelectorAll(".settings-disclosure")) {
+    disclosure.open = true;
+  }
+}
+
 function applySettingsFilter() {
   const query = normalizeSettingsQuery(state.settingsQuery);
   const tokens = settingsSearchTokens(query);
@@ -10397,6 +10404,7 @@ function applySettingsFilter() {
     : elements.inspectorBody.querySelector(".settings-empty");
   state.settingsSearchEmpty = empty || null;
   if (empty) setHiddenIfChanged(empty, !query || visibleSections > 0);
+  syncSettingsDisclosuresForSearch(query);
   const clear = state.settingsSearchClear?.isConnected
     ? state.settingsSearchClear
     : elements.inspectorBody.querySelector(".settings-search-clear");
@@ -11211,6 +11219,28 @@ function quickSetupActionGrid() {
     grid.append(button);
   }
   return grid;
+}
+
+function quickActionDisclosurePanel() {
+  const actions = quickSetupActionDefinitions();
+  const details = document.createElement("details");
+  details.className = "settings-disclosure quick-action-disclosure";
+  details.open = Boolean(normalizeSettingsQuery(state.settingsQuery));
+  details.dataset.settingsSearch = normalizeSettingsQuery("quick setup all actions terminal browser clean speed focus background layout");
+  const summary = document.createElement("summary");
+  summary.className = "settings-disclosure-summary";
+  summary.innerHTML = `
+    <span class="settings-disclosure-copy">
+      <span class="settings-disclosure-title"></span>
+      <span class="settings-disclosure-body"></span>
+    </span>
+    <span class="settings-disclosure-meta"></span>
+  `;
+  setTextIfChanged(summary.querySelector(".settings-disclosure-title"), t("quickGuide.allActions"));
+  setTextIfChanged(summary.querySelector(".settings-disclosure-body"), t("quickGuide.allActions.body"));
+  setTextIfChanged(summary.querySelector(".settings-disclosure-meta"), formatMessage("quickGuide.actionCount", { count: actions.length }));
+  details.append(summary, quickSetupActionGrid());
+  return details;
 }
 
 function quickColorControlRows(workspace = activeWorkspace()) {
