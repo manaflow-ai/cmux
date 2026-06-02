@@ -2219,7 +2219,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testCmdWTargetsAuxiliaryWindowInsteadOfMainTerminalPanel() throws {
-#if DEBUG
         struct CloseShortcutWindowProbe: Equatable {
             let id: UUID
             let ownsCloseShortcut: Bool
@@ -2250,9 +2249,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             auxiliaryWindow,
             "Cmd+W should target the auxiliary window before the active terminal manager"
         )
-#else
-        throw XCTSkip("focused close shortcut debug routing hooks are only available in DEBUG builds")
-#endif
     }
 
     func testCmdPhysicalIWithDvorakCharactersDoesNotTriggerShowNotifications() {
