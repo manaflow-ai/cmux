@@ -3335,6 +3335,7 @@ function createWorkspaceRow() {
   button.addEventListener("dragover", (event) => {
     if (!state.dragPanelId && !state.dragWorkspaceId) return;
     event.preventDefault();
+    clearWorkspaceListDropTarget();
     if (state.dragPanelId) {
       button.classList.add("is-drop-target");
       return;
@@ -3358,6 +3359,44 @@ function createWorkspaceRow() {
     }
   });
   return button;
+}
+
+function clearWorkspaceListDropTarget() {
+  elements.workspaceList.classList.remove("is-workspace-drop-end");
+}
+
+function isWorkspaceRowEvent(event) {
+  return Boolean(event.target?.closest?.(".workspace-row"));
+}
+
+function workspaceListCanDropToEnd() {
+  const workspaces = state.data?.workspaces || [];
+  return Boolean(
+    state.dragWorkspaceId
+    && workspaces.length > 1
+    && workspaces.some((workspace) => workspace.id === state.dragWorkspaceId)
+    && workspaces.at(-1)?.id !== state.dragWorkspaceId
+  );
+}
+
+function handleWorkspaceListDragOver(event) {
+  if (isWorkspaceRowEvent(event) || !workspaceListCanDropToEnd()) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  elements.workspaceList.classList.add("is-workspace-drop-end");
+}
+
+function handleWorkspaceListDragLeave(event) {
+  if (event.currentTarget.contains(event.relatedTarget)) return;
+  clearWorkspaceListDropTarget();
+}
+
+function handleWorkspaceListDrop(event) {
+  if (isWorkspaceRowEvent(event) || !workspaceListCanDropToEnd()) return;
+  event.preventDefault();
+  const workspaceId = state.dragWorkspaceId;
+  clearWorkspaceListDropTarget();
+  updateWorkspaceOrder(workspaceId, { moveToEnd: true });
 }
 
 function workspaceRowParts(button) {
@@ -4830,6 +4869,7 @@ function clearAllDropTargets() {
   for (const node of document.querySelectorAll(".is-drop-before, .is-drop-after, .workspace-row.is-drop-target, .workspace-row.is-workspace-drop-before, .workspace-row.is-workspace-drop-after")) {
     node.classList.remove("is-drop-before", "is-drop-after", "is-drop-target", "is-workspace-drop-before", "is-workspace-drop-after");
   }
+  clearWorkspaceListDropTarget();
   for (const pane of document.querySelectorAll(".pane.is-dragging")) pane.classList.remove("is-dragging");
   document.body.classList.remove("pane-drag-active");
   state.panePointerDrag = null;
@@ -14050,6 +14090,9 @@ window.addEventListener("focus", scheduleDeferredTerminalFitFlush);
 
 elements.sidebar.addEventListener("pointerdown", startSidebarResize);
 elements.inspector.addEventListener("pointerdown", startInspectorResize);
+elements.workspaceList.addEventListener("dragover", handleWorkspaceListDragOver);
+elements.workspaceList.addEventListener("dragleave", handleWorkspaceListDragLeave);
+elements.workspaceList.addEventListener("drop", handleWorkspaceListDrop);
 new MutationObserver(scheduleVisiblePaneLayoutApply).observe(elements.paneGrid, {
   childList: true
 });

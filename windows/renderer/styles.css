@@ -544,9 +544,23 @@ body.reduce-motion *::after {
 }
 
 .workspace-list {
+  position: relative;
   min-height: 0;
   overflow: auto;
   padding: var(--space-2);
+}
+
+.workspace-list.is-workspace-drop-end {
+  background: color-mix(in oklch, var(--color-accent) 5%, transparent);
+}
+
+.workspace-list.is-workspace-drop-end::after {
+  content: "";
+  display: block;
+  height: 2px;
+  margin: var(--space-1) var(--space-2) 0;
+  border-radius: 2px;
+  background: var(--color-accent);
 }
 
 .workspace-row {
