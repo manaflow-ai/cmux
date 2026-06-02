@@ -17021,7 +17021,7 @@ function applyTerminalWheelZoom(event, panel) {
   if (!steps) return true;
   const direction = zoomState.remainder < 0 ? 1 : -1;
   zoomState.remainder -= Math.sign(zoomState.remainder) * terminalWheelZoomThreshold * steps;
-  changeTerminalFontSize(direction * steps, { panel: terminalPanel, toast: false, status: true });
+  changeTerminalFontSize(direction * steps, { panel: terminalPanel, focus: false, toast: false, status: true });
   return true;
 }
 
@@ -17540,7 +17540,12 @@ function showTerminalTextSizeStatus(panelId, size) {
 function changeTerminalFontSize(delta, options = {}) {
   const panel = resolveTerminalPanel(options.panel || (options.event ? keyboardPanelFromEvent(options.event) : null) || activePaneActionTarget());
   if (!panel) return false;
-  markInteractedPanel(panel.id);
+  if (options.focus === false) {
+    const active = activeWorkspace();
+    if (active?.activePanelId === panel.id) markInteractedPanel(panel.id);
+  } else {
+    markInteractedPanel(panel.id);
+  }
   const currentSize = terminalFontSizeForPanel(panel);
   const nextSize = normalizeTerminalFontSize(currentSize + delta, currentSize);
   if (nextSize === currentSize) return false;

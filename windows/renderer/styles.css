@@ -1437,7 +1437,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-padding-inline: 10px 88px;
+  scroll-padding-inline: 10px 164px;
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
   background: color-mix(in oklch, var(--color-terminal-gutter) 88%, var(--color-canvas) 12%);
@@ -1790,31 +1790,33 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   position: sticky;
   z-index: 3;
   height: 29px;
-  flex: 0 0 34px;
-  min-width: 34px;
-  max-width: 34px;
-  grid-template-columns: minmax(0, 1fr);
+  flex: 0 0 78px;
+  min-width: 78px;
+  max-width: 78px;
+  grid-template-columns: auto minmax(0, 1fr);
   justify-items: center;
   justify-content: center;
-  gap: 0;
-  padding: 0 6px;
+  gap: 6px;
+  padding: 0 8px;
   border-color: var(--color-line);
   border-radius: var(--radius-1);
   background: color-mix(in oklch, var(--color-pane) 88%, var(--color-terminal-gutter) 12%);
   color: var(--color-text);
   font: 720 11px/1 var(--font-ui);
-  box-shadow: 0 1px 0 color-mix(in oklch, var(--color-canvas) 40%, transparent);
+  box-shadow:
+    0 1px 0 color-mix(in oklch, var(--color-canvas) 40%, transparent),
+    inset 0 1px 0 color-mix(in oklch, var(--color-text) 7%, transparent);
 }
 
 .surface-new-terminal {
-  right: 43px;
+  right: 82px;
   color: color-mix(in oklch, var(--color-success) 72%, var(--color-text));
 }
 
 .surface-new-browser {
-  flex-basis: 34px;
-  min-width: 34px;
-  max-width: 34px;
+  flex-basis: 70px;
+  min-width: 70px;
+  max-width: 70px;
   right: 6px;
   color: color-mix(in oklch, var(--color-accent) 76%, var(--color-text));
 }
@@ -1875,7 +1877,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .surface-new-label {
-  display: none;
+  display: block;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -1887,20 +1889,20 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .surface-new-tab .surface-new-label::before {
-  content: "+ ";
+  content: "";
   font-weight: 820;
 }
 
 .surface-new-terminal {
-  border-color: color-mix(in oklch, var(--color-accent) 36%, var(--color-line) 64%);
-  background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane) 90%);
-  color: color-mix(in oklch, var(--color-accent) 66%, var(--color-text) 34%);
+  border-color: color-mix(in oklch, var(--color-success) 36%, var(--color-line) 64%);
+  background: color-mix(in oklch, var(--color-success) 10%, var(--color-pane) 90%);
+  color: color-mix(in oklch, var(--color-success) 66%, var(--color-text) 34%);
 }
 
 .surface-new-browser {
-  border-color: color-mix(in oklch, var(--color-success) 32%, var(--color-line) 68%);
-  background: color-mix(in oklch, var(--color-success) 9%, var(--color-pane) 91%);
-  color: color-mix(in oklch, var(--color-success) 62%, var(--color-text) 38%);
+  border-color: color-mix(in oklch, var(--color-accent) 32%, var(--color-line) 68%);
+  background: color-mix(in oklch, var(--color-accent) 9%, var(--color-pane) 91%);
+  color: color-mix(in oklch, var(--color-accent) 62%, var(--color-text) 38%);
 }
 
 .surface-new-tab:hover {
