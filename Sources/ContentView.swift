@@ -13421,7 +13421,7 @@ final class FeedbackComposerMessageEditorView: NSView {
     }
 }
 
-private enum SidebarHelpMenuAction {
+enum SidebarHelpMenuAction {
     case importBrowserData
     case keyboardShortcuts
     case docs
@@ -13432,6 +13432,39 @@ private enum SidebarHelpMenuAction {
     case checkForUpdates
     case sendFeedback
     case welcome
+
+    init?(debugName rawName: String) {
+        let name = rawName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+
+        switch name {
+        case "check_for_updates", "checkforupdates":
+            self = .checkForUpdates
+        case "send_feedback", "sendfeedback":
+            self = .sendFeedback
+        default:
+            return nil
+        }
+    }
+}
+
+enum SidebarHelpMenuActionPerformer {
+    static func performCheckForUpdates() {
+        Task { @MainActor in
+            AppDelegate.shared?.checkForUpdates(nil)
+        }
+    }
+
+    static func requestFeedbackComposer(onSendFeedback: (() -> Void)? = nil, targetWindow: NSWindow? = nil) {
+        if let onSendFeedback {
+            onSendFeedback()
+            return
+        }
+
+        FeedbackComposerBridge.openComposer(in: targetWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)
+    }
 }
 
 private struct SidebarFeedbackComposerSheet: View {
@@ -14149,12 +14182,10 @@ private struct SidebarHelpMenuButton: View {
             guard let discordURL else { return }
             NSWorkspace.shared.open(discordURL)
         case .checkForUpdates:
-            Task { @MainActor in
-                AppDelegate.shared?.checkForUpdates(nil)
-            }
+            SidebarHelpMenuActionPerformer.performCheckForUpdates()
         case .sendFeedback:
             isPopoverPresented = false
-            onSendFeedback()
+            SidebarHelpMenuActionPerformer.requestFeedbackComposer(onSendFeedback: onSendFeedback)
         case .welcome:
             isPopoverPresented = false
             Task { @MainActor in

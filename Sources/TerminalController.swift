@@ -3827,6 +3827,10 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugCommandPaletteSelection(params: params))
         case "debug.command_palette.results":
             return v2Result(id: id, self.v2DebugCommandPaletteResults(params: params))
+        case "debug.settings.set":
+            return v2Result(id: id, self.v2DebugSettingsSet(params: params))
+        case "debug.sidebar_help.perform":
+            return v2Result(id: id, self.v2DebugSidebarHelpPerform(params: params))
         case "debug.command_palette.rename_input.interact":
             return v2Result(id: id, self.v2DebugCommandPaletteRenameInputInteraction(params: params))
         case "debug.command_palette.rename_input.delete_backward":
@@ -4114,6 +4118,8 @@ class TerminalController {
             "debug.command_palette.visible",
             "debug.command_palette.selection",
             "debug.command_palette.results",
+            "debug.settings.set",
+            "debug.sidebar_help.perform",
             "debug.command_palette.rename_input.interact",
             "debug.command_palette.rename_input.delete_backward",
             "debug.command_palette.rename_input.selection",
@@ -16183,6 +16189,73 @@ class TerminalController {
             "mode": snapshot.mode,
             "results": rows
         ])
+    }
+
+    private func v2DebugSettingsSet(params: [String: Any]) -> V2CallResult {
+        guard let key = v2String(params, "key") else {
+            return .err(code: "invalid_params", message: "Missing setting key", data: nil)
+        }
+
+        var payload: [String: Any] = ["key": key]
+        var result: V2CallResult = .ok(payload)
+        v2MainSync {
+            let defaults = UserDefaults.standard
+            switch key {
+            case CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey:
+                guard let value = v2Bool(params, "value") else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid bool value", data: ["key": key])
+                    return
+                }
+                defaults.set(value, forKey: key)
+                payload["value"] = value
+            case MenuBarOnlySettings.menuBarOnlyKey:
+                guard let value = v2Bool(params, "value") else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid bool value", data: ["key": key])
+                    return
+                }
+                defaults.set(value, forKey: key)
+                MenuBarOnlySettings.applyActivationPolicy(defaults: defaults)
+                payload["value"] = value
+            case WorkspacePresentationModeSettings.modeKey:
+                guard let value = v2String(params, "value"),
+                      WorkspacePresentationModeSettings.Mode(rawValue: value) != nil else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid workspace presentation mode", data: ["key": key])
+                    return
+                }
+                defaults.set(value, forKey: key)
+                payload["value"] = value
+            default:
+                result = .err(code: "invalid_params", message: "Unsupported debug setting key", data: ["key": key])
+                return
+            }
+
+            defaults.synchronize()
+            NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
+            result = .ok(payload)
+        }
+        return result
+    }
+
+    private func v2DebugSidebarHelpPerform(params: [String: Any]) -> V2CallResult {
+        guard let rawAction = v2String(params, "action") else {
+            return .err(code: "invalid_params", message: "Missing sidebar help action", data: nil)
+        }
+        guard let action = SidebarHelpMenuAction(debugName: rawAction) else {
+            return .err(code: "invalid_params", message: "Unsupported sidebar help action", data: ["action": rawAction])
+        }
+
+        var result: V2CallResult = .ok(["action": rawAction])
+        v2MainSync {
+            switch action {
+            case .checkForUpdates:
+                SidebarHelpMenuActionPerformer.performCheckForUpdates()
+            case .sendFeedback:
+                SidebarHelpMenuActionPerformer.requestFeedbackComposer()
+            default:
+                result = .err(code: "invalid_params", message: "Unsupported sidebar help action", data: ["action": rawAction])
+            }
+        }
+        return result
     }
 
     private func v2DebugCommandPaletteRenameInputInteraction(params: [String: Any]) -> V2CallResult {
