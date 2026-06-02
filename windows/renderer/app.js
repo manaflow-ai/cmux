@@ -8467,7 +8467,7 @@ function renderSettingsInspector(options = {}) {
     const actionsSection = settingsSection("Actions", "commands shortcuts keyboard palette run tools");
     actionsSection.append(settingsActionsOverviewPanel());
     actionsSection.append(settingsCommandGroupShortcutGrid());
-    actionsSection.append(settingsCommandList());
+    actionsSection.append(settingsCommandListDisclosurePanel());
     nodes.push(actionsSection);
   }
 
@@ -11230,6 +11230,7 @@ function ensureSettingsDisclosureContent(disclosure) {
     "quick-categories": quickSettingsShortcutGrid,
     "quick-presets": settingsPresetGrid,
     "saved-backgrounds": savedBackgroundImagesPanel,
+    "settings-command-list": settingsCommandList,
     "terminal-colors": terminalColorPresetGrid,
     "terminal-fonts": terminalFontChoiceGrid
   }[disclosure.dataset.disclosureContent];
@@ -11342,6 +11343,17 @@ function terminalColorDisclosurePanel() {
     title: t("terminal.colorPresets"),
     body: t("terminal.colorPresets.body"),
     meta: formatMessage("terminal.colorPresetCount", { count: terminalColorPresets.length })
+  });
+}
+
+function settingsCommandListDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "settings-command-list-disclosure",
+    content: "settings-command-list",
+    searchTerms: "actions commands shortcuts keyboard palette run tools all command list groups",
+    title: t("actions.commandList"),
+    body: t("actions.commandList.body"),
+    meta: formatMessage("actions.commandCount", { count: commands.length })
   });
 }
 
@@ -11986,8 +11998,17 @@ function settingsCommandGroupShortcutGrid() {
 }
 
 function jumpToSettingsCommandGroup(group) {
-  const target = [...elements.inspectorBody.querySelectorAll(".settings-command-group")]
+  let target = [...elements.inspectorBody.querySelectorAll(".settings-command-group")]
     .find((node) => node.dataset.commandGroup === group);
+  if (!target) {
+    const disclosure = elements.inspectorBody.querySelector('[data-disclosure-content="settings-command-list"]');
+    if (disclosure) {
+      disclosure.open = true;
+      ensureSettingsDisclosureContent(disclosure);
+      target = [...elements.inspectorBody.querySelectorAll(".settings-command-group")]
+        .find((node) => node.dataset.commandGroup === group);
+    }
+  }
   if (!target) return;
   const reduceMotion = document.body.classList.contains("reduce-motion") || state.settings.reduceMotion || state.settings.performanceMode;
   target.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });

@@ -4931,6 +4931,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .settings-disclosure[open] > .background-preset-grid,
 .settings-disclosure[open] > .quick-settings-shortcut-grid,
 .settings-disclosure[open] > .saved-background-panel,
+.settings-disclosure[open] > .settings-command-list,
 .settings-disclosure[open] > .settings-preset-grid,
 .settings-disclosure[open] > .terminal-color-preset-grid,
 .settings-disclosure[open] > .terminal-font-choice-grid {
