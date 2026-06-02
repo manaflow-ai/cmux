@@ -48,6 +48,7 @@ const sectionOrder = [
   "ui",
   "commands",
   "browser",
+  "markdown",
   "shortcuts",
 ] as const;
 
@@ -86,6 +87,12 @@ const settingsFileExample = `{
   //   "customSearchEngineURLTemplate": "https://search.example.com/?q={query}",
   //   "openTerminalLinksInCmuxBrowser": true,
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
+  // },
+
+  // "markdown": {
+  //   // Default body font size (points) for newly opened markdown viewers.
+  //   // Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.
+  //   "fontSize": 15
   // },
 
   // "automation": {
