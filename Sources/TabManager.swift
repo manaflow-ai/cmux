@@ -1359,8 +1359,6 @@ class TabManager: ObservableObject {
     private nonisolated static let selectedPollInterval: TimeInterval = 10
     private nonisolated static let workspacePullRequestRepoCacheLifetime: TimeInterval = 15
     private nonisolated static let workspacePullRequestRepoCachePruneLifetime: TimeInterval = 60
-    private nonisolated static let workspacePullRequestRepoPageSize = 100
-    private nonisolated static let workspacePullRequestRepoPageLimit = 2
     private nonisolated static let workspacePullRequestTerminalStateSweepInterval: TimeInterval = 15 * 60
     private nonisolated static let workspacePullRequestPollJitterFraction = 0.10
     private nonisolated static let workspacePullRequestProbeTimeout: TimeInterval = 5.0
@@ -2123,7 +2121,11 @@ class TabManager: ObservableObject {
     func applyGitHostingConfig(_ config: GitHostingConfig) {
         guard config != workspaceGitHostingConfig else { return }
         workspaceGitHostingConfig = config
-        workspacePullRequestRepoCacheBySlug.removeAll()
+        // Fully reset poll state — not just the repo cache — so the new provider takes
+        // effect immediately: this cancels any in-flight refresh (whose old-config
+        // results could otherwise repopulate the cleared cache) and drops the existing
+        // poll schedule, so repos previously parked as unsupported/not-found re-probe now.
+        resetWorkspacePullRequestRefreshState()
         refreshTrackedWorkspacePullRequestsIfNeeded(reason: "gitHostingConfigChanged", allowCachedResultsOverride: false)
     }
 
@@ -4471,19 +4473,31 @@ class TabManager: ObservableObject {
         configuration.timeoutIntervalForResource = max(Self.workspacePullRequestProbeTimeout, 8)
         let session = URLSession(configuration: configuration)
 
-        let resolver = GitHostingResolver(
-            config: gitHostingConfig,
-            environment: ProcessInfo.processInfo.environment,
-            commandRunner: commandRunner,
-            workingDirectory: repoDirectoriesBySlug.sorted { $0.key < $1.key }.first?.value
-                ?? FileManager.default.currentDirectoryPath,
-            tokenCommandTimeout: Self.workspacePullRequestProbeTimeout
-        )
+        struct ResolverPlanKey: Hashable {
+            let hostWithPort: String
+            let workingDirectory: String
+        }
 
-        // Resolve one plan per distinct host so each host's token is looked up once.
-        var plansByHost: [String: GitHostingRequestPlan?] = [:]
-        for reference in repoReferencesBySlug.values where plansByHost[reference.hostWithPort] == nil {
-            plansByHost[reference.hostWithPort] = await resolver.resolvePlan(
+        // Resolve one plan per distinct (host, repo directory) pair so command-based
+        // token/discovery lookups run in the right checkout. Keying by host alone would
+        // let a host's credentials be resolved from an unrelated repo's working
+        // directory in mixed-repo windows (e.g. a CWD-sensitive `.envrc` token script).
+        let fallbackDirectory = FileManager.default.currentDirectoryPath
+        var plansByKey: [ResolverPlanKey: GitHostingRequestPlan?] = [:]
+        for (identity, reference) in repoReferencesBySlug {
+            let key = ResolverPlanKey(
+                hostWithPort: reference.hostWithPort,
+                workingDirectory: repoDirectoriesBySlug[identity] ?? fallbackDirectory
+            )
+            guard plansByKey[key] == nil else { continue }
+            let resolver = GitHostingResolver(
+                config: gitHostingConfig,
+                environment: ProcessInfo.processInfo.environment,
+                commandRunner: commandRunner,
+                workingDirectory: key.workingDirectory,
+                tokenCommandTimeout: Self.workspacePullRequestProbeTimeout
+            )
+            plansByKey[key] = await resolver.resolvePlan(
                 forHost: reference.host,
                 port: reference.httpsPort
             )
@@ -4494,7 +4508,11 @@ class TabManager: ObservableObject {
             returning: [(String, WorkspacePullRequestRepoFetchResult)].self
         ) { group in
             for (identity, reference) in repoReferencesBySlug {
-                guard let plan = plansByHost[reference.hostWithPort] ?? nil else {
+                let planKey = ResolverPlanKey(
+                    hostWithPort: reference.hostWithPort,
+                    workingDirectory: repoDirectoriesBySlug[identity] ?? fallbackDirectory
+                )
+                guard let plan = plansByKey[planKey] ?? nil else {
                     group.addTask { (identity, .unsupported) }
                     continue
                 }
@@ -4549,7 +4567,10 @@ class TabManager: ObservableObject {
             var sawSuccess = false
             var sawUnsupported = false
 
-            for repoSlug in candidate.repoSlugs {
+            // `repoSlugs` is ordered by preference, so the first remote with a match
+            // for this branch wins. Use a labeled break: a bare `break` exits only the
+            // `switch`, letting a lower-priority remote overwrite the match.
+            repoLoop: for repoSlug in candidate.repoSlugs {
                 guard let repoResult = repoResults[repoSlug] else { continue }
                 switch repoResult {
                 case .success(let cacheEntry, let usedCache, let transientBranches):
@@ -4560,7 +4581,7 @@ class TabManager: ObservableObject {
                     if let candidateMatch = cacheEntry.pullRequestsByBranch[candidate.branch] {
                         matchedPullRequest = candidateMatch
                         matchedPullRequestUsedCache = usedCache
-                        break
+                        break repoLoop
                     }
                     if transientBranches.contains(candidate.branch) {
                         sawTransientFailure = true
