@@ -8054,6 +8054,86 @@ body.reduce-motion *::after {
   color: var(--color-faint);
 }
 
+.background-target-control {
+  grid-column: 1 / -1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 78%, var(--color-rail) 22%);
+}
+
+.background-target-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-faint);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.background-target-options {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.background-target-option {
+  min-width: 0;
+  min-height: 38px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 5px 7px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-canvas) 24%, transparent);
+  color: var(--color-muted);
+  text-align: left;
+}
+
+.background-target-option:hover:not(:disabled) {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane);
+  color: var(--color-text);
+}
+
+.background-target-option.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-line) 42%);
+  background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane) 86%);
+  color: var(--color-text);
+}
+
+.background-target-option:disabled {
+  color: var(--color-faint);
+  cursor: default;
+}
+
+.background-target-name,
+.background-target-meta {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.background-target-name {
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.background-target-meta {
+  font-size: 10px;
+}
+
 .active-background-actions,
 .background-action-groups {
   grid-column: 1 / -1;
@@ -8063,6 +8143,14 @@ body.reduce-motion *::after {
 }
 
 @container (max-width: 330px) {
+  .background-target-control {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .background-target-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .active-background-actions,
   .background-action-groups {
     gap: var(--space-1);

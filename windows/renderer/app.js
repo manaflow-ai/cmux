@@ -458,6 +458,7 @@ const state = {
   workspaceBlueprints: loadWorkspaceBlueprints(),
   customColorPalette: loadCustomColorPalette(),
   savedBackgroundImages: loadSavedBackgroundImages(),
+  backgroundApplyTarget: "app",
   closedPanels: [],
   workspaceRows: new Map(),
   surfaceTabButtons: new Map(),
@@ -1098,6 +1099,12 @@ function installBackgroundDropTarget(target, options = {}) {
     if (options.save) {
       const saved = await applyAndSaveCustomBackgroundImage(background);
       if (saved && options.input && !payload.inputValue) options.input.value = "";
+      return;
+    }
+    if (options.applyTarget) {
+      const target = typeof options.applyTarget === "function" ? options.applyTarget() : options.applyTarget;
+      const changed = await applyBackgroundValueToTarget(payload.url, target, { toast: true });
+      if (changed !== null && options.input && !payload.inputValue) options.input.value = "";
       return;
     }
     const changed = await applyCustomBackgroundImage(payload.url, { toast: true });
@@ -2033,6 +2040,64 @@ async function applyWorkspaceBackgroundImageToTerminals(value, workspace = activ
     toast(`${changedPanels.length} terminal pane${changedPanels.length === 1 ? "" : "s"} ${action}.`);
   }
   return true;
+}
+
+function normalizeBackgroundApplyTarget(target) {
+  return ["app", "pane", "all"].includes(target) ? target : "app";
+}
+
+function backgroundApplyTargetOptions(workspace = activeWorkspace()) {
+  const activeTerminal = activeTerminalPanelForSettings();
+  const paneCount = workspaceTerminalPanels(workspace).length;
+  return [
+    {
+      id: "app",
+      label: "App",
+      meta: "whole window",
+      disabled: false
+    },
+    {
+      id: "pane",
+      label: "Active terminal",
+      meta: activeTerminal ? panelDisplayTitle(activeTerminal, true) : "select a terminal",
+      disabled: !activeTerminal
+    },
+    {
+      id: "all",
+      label: "All terminals",
+      meta: paneCount ? `${paneCount} pane${paneCount === 1 ? "" : "s"}` : "open a terminal",
+      disabled: paneCount === 0
+    }
+  ];
+}
+
+function backgroundApplyTargetActionLabel(target = state.backgroundApplyTarget) {
+  const option = backgroundApplyTargetOptions().find((candidate) => candidate.id === normalizeBackgroundApplyTarget(target));
+  return option ? `${option.label} - ${option.meta}` : "App - whole window";
+}
+
+async function applyBackgroundValueToTarget(value, target = state.backgroundApplyTarget, options = {}) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  if (scope === "pane") return applyPanelBackgroundImage(value, activeTerminalPanelForSettings(), options);
+  if (scope === "all") return applyWorkspaceBackgroundImageToTerminals(value, activeWorkspace(), options);
+  return applyCustomBackgroundImage(value, options);
+}
+
+async function applyCurrentBackgroundToTarget() {
+  const target = normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
+  if (target === "app") {
+    toast("The app already uses the current background.");
+    return false;
+  }
+  if (!state.settings.backgroundImage) {
+    toast("Choose an app background first.");
+    return false;
+  }
+  return applyBackgroundValueToTarget(state.settings.backgroundImage, target, { toast: true });
+}
+
+async function clearBackgroundApplyTarget() {
+  return applyBackgroundValueToTarget("", state.backgroundApplyTarget, { toast: true });
 }
 
 async function applySavedBackgroundImageToPanel(backgroundId, panel = focusedPanel()) {
@@ -8926,29 +8991,131 @@ function backgroundTuningPanel(onCommit = null) {
   return panel;
 }
 
-function activeBackgroundPanel(options = {}) {
-  const panel = document.createElement("div");
-  const background = state.settings.backgroundImage;
+function activeBackgroundTargetControl() {
+  const control = document.createElement("div");
+  control.className = "background-target-control";
+  control.dataset.settingsSearch = normalizeSettingsQuery("background image target apply app active terminal all terminals scope destination");
+
+  const label = document.createElement("span");
+  label.className = "background-target-label";
+  label.textContent = "Target";
+
+  const options = document.createElement("div");
+  options.className = "background-target-options";
+  for (const target of backgroundApplyTargetOptions()) {
+    const button = document.createElement("button");
+    button.className = "background-target-option";
+    button.type = "button";
+    button.dataset.backgroundTarget = target.id;
+    button.innerHTML = `
+      <span class="background-target-name"></span>
+      <span class="background-target-meta"></span>
+    `;
+    button.onclick = () => {
+      const nextTarget = normalizeBackgroundApplyTarget(button.dataset.backgroundTarget);
+      if (state.backgroundApplyTarget === nextTarget) return;
+      state.backgroundApplyTarget = nextTarget;
+      refreshBackgroundPreviewNodes();
+    };
+    options.append(button);
+  }
+  control.append(label, options);
+  updateActiveBackgroundTargetControl(control);
+  return control;
+}
+
+function updateActiveBackgroundTargetControl(root) {
+  const options = backgroundApplyTargetOptions();
+  for (const button of root.querySelectorAll("[data-background-target]")) {
+    const target = options.find((candidate) => candidate.id === button.dataset.backgroundTarget);
+    if (!target) continue;
+    const active = target.id === normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
+    setClassNameIfChanged(button, `background-target-option${active ? " is-active" : ""}${target.disabled ? " is-disabled" : ""}`);
+    setDisabledIfChanged(button, target.disabled);
+    setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
+    setTitleIfChanged(button, `${target.label}: ${target.meta}`);
+    setTextIfChanged(button.querySelector(".background-target-name"), target.label);
+    setTextIfChanged(button.querySelector(".background-target-meta"), target.meta);
+  }
+}
+
+function activeBackgroundTargetStatus(target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  const activeTerminal = activeTerminalPanelForSettings();
+  const terminalPanels = workspaceTerminalPanels(workspace);
+  const paneBackgrounds = terminalPanels.filter((panel) => normalizeBackgroundValue(panel.backgroundImage));
+  return {
+    scope,
+    canTarget: scope === "app" || (scope === "pane" ? Boolean(activeTerminal) : terminalPanels.length > 0),
+    hasValue: scope === "app"
+      ? Boolean(state.settings.backgroundImage)
+      : scope === "pane"
+        ? Boolean(activeTerminal && normalizeBackgroundValue(activeTerminal.backgroundImage))
+        : paneBackgrounds.length > 0
+  };
+}
+
+function backgroundSourceText(background, emptyText = "Drop an image here, paste one, or choose a local file.") {
+  const normalized = normalizeBackgroundValue(background);
+  if (!normalized) return emptyText;
+  const preset = backgroundPresetMap.get(normalized);
+  return preset ? "Built-in preset" : backgroundFilePath(background) || normalized;
+}
+
+function activeBackgroundPanelViewModel(target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  const activeTerminal = activeTerminalPanelForSettings();
+  const terminalPanels = workspaceTerminalPanels(workspace);
+  let background = "";
+  let kicker = "App background";
+  let emptySource = "Drop an image here, paste one, or choose a local file.";
+  let mixed = false;
+
+  if (scope === "pane") {
+    kicker = "Active terminal background";
+    background = activeTerminal?.backgroundImage || "";
+    emptySource = activeTerminal ? "No background on the active terminal." : "Select a terminal pane first.";
+  } else if (scope === "all") {
+    kicker = "All terminal backgrounds";
+    emptySource = terminalPanels.length ? "No terminal backgrounds in this workspace." : "Open a terminal pane first.";
+    const backgrounds = terminalPanels
+      .map((panel) => normalizeBackgroundValue(panel.backgroundImage))
+      .filter(Boolean);
+    const uniqueBackgrounds = [...new Set(backgrounds)];
+    if (uniqueBackgrounds.length === 1 && backgrounds.length === terminalPanels.length) {
+      background = uniqueBackgrounds[0];
+    } else if (uniqueBackgrounds.length > 0) {
+      mixed = true;
+    }
+  } else {
+    background = state.settings.backgroundImage;
+  }
+
   const normalized = normalizeBackgroundValue(background);
   const hasBackground = Boolean(normalized);
-  const preset = backgroundPresetMap.get(normalized);
-  const filePath = backgroundFilePath(background);
-  const terminalPanels = (activeWorkspace()?.panels || []).filter((candidate) => candidate.type === "terminal");
-  const hasTerminalPanes = terminalPanels.length > 0;
-  const hasPaneBackgrounds = terminalPanels.some((candidate) => normalizeBackgroundValue(candidate.backgroundImage));
-  const label = hasBackground ? appearanceBackgroundLabel(background) : "None";
-  const source = !hasBackground
-    ? "Drop an image here, paste one, or choose a local file."
-    : preset
-      ? "Built-in preset"
-      : filePath || normalized;
-  panel.className = `active-background-panel${hasBackground ? " has-image" : ""}`;
+  return {
+    background,
+    hasBackground,
+    kicker,
+    label: mixed ? "Mixed terminal backgrounds" : hasBackground ? appearanceBackgroundLabel(background) : "None",
+    source: mixed ? "Terminal panes have different backgrounds." : backgroundSourceText(background, emptySource),
+    image: mixed ? "none" : backgroundCss(background),
+    repeat: mixed ? "no-repeat" : backgroundRepeatCss(background),
+    size: backgroundSizeCss(state.settings.backgroundFit),
+    position: backgroundPositionCss(state.settings.backgroundPosition)
+  };
+}
+
+function activeBackgroundPanel(options = {}) {
+  const panel = document.createElement("div");
+  const model = activeBackgroundPanelViewModel();
+  panel.className = `active-background-panel${model.hasBackground ? " has-image" : ""}`;
   panel.dataset.activeBackgroundTuning = options.tuning ? "true" : "false";
   panel.dataset.settingsSearch = normalizeSettingsQuery("active background image wallpaper current preview source choose save open clear fit position effects opacity strength transparency tune");
-  panel.style.setProperty("--active-background-image", backgroundCss(background));
-  panel.style.setProperty("--active-background-repeat", backgroundRepeatCss(background));
-  panel.style.setProperty("--active-background-size", backgroundSizeCss(state.settings.backgroundFit));
-  panel.style.setProperty("--active-background-position", backgroundPositionCss(state.settings.backgroundPosition));
+  panel.style.setProperty("--active-background-image", model.image);
+  panel.style.setProperty("--active-background-repeat", model.repeat);
+  panel.style.setProperty("--active-background-size", model.size);
+  panel.style.setProperty("--active-background-position", model.position);
   panel.innerHTML = `
     <button class="active-background-preview" type="button" title="Choose background image"></button>
     <span class="active-background-copy">
@@ -8963,64 +9130,55 @@ function activeBackgroundPanel(options = {}) {
     </span>
     <span class="active-background-actions"></span>
   `;
-  installBackgroundDropTarget(panel);
-  panel.querySelector(".active-background-preview").onclick = () => chooseBackgroundImage();
-  panel.querySelector(".active-background-title").textContent = label;
-  panel.querySelector(".active-background-title").title = label;
-  panel.querySelector(".active-background-source").textContent = source;
-  panel.querySelector(".active-background-source").title = source;
-  updateActiveBackgroundScopeChips(panel, activeBackgroundScopeModel(background));
+  installBackgroundDropTarget(panel, { applyTarget: () => state.backgroundApplyTarget });
+  panel.querySelector(".active-background-preview").onclick = () => chooseBackgroundImageForTarget();
+  panel.querySelector(".active-background-kicker").textContent = model.kicker;
+  panel.querySelector(".active-background-title").textContent = model.label;
+  panel.querySelector(".active-background-title").title = model.label;
+  panel.querySelector(".active-background-source").textContent = model.source;
+  panel.querySelector(".active-background-source").title = model.source;
+  updateActiveBackgroundScopeChips(panel, activeBackgroundScopeModel(state.settings.backgroundImage));
   const actions = panel.querySelector(".active-background-actions");
-  const choose = settingsActionButton("Choose", () => chooseBackgroundImage(), "primary", "active background choose local file apply wallpaper");
+  panel.insertBefore(activeBackgroundTargetControl(), actions);
+  const choose = settingsActionButton("Choose", () => chooseBackgroundImageForTarget(), "primary", "active background choose local file apply wallpaper");
   choose.dataset.backgroundAction = "choose";
-  choose.title = "Choose an image for the app background";
-  const paste = settingsActionButton("Paste", () => pasteBackgroundImageFromClipboard(), "", "active background paste clipboard image url local path apply");
+  choose.title = `Choose an image for ${backgroundApplyTargetActionLabel()}`;
+  const paste = settingsActionButton("Paste", () => pasteBackgroundImageFromClipboard({ target: () => state.backgroundApplyTarget }), "", "active background paste clipboard image url local path apply");
   paste.dataset.backgroundAction = "paste";
-  paste.title = "Paste an image URL, local path, or copied image";
-  const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }), "", "active background save current");
+  paste.title = `Paste an image for ${backgroundApplyTargetActionLabel()}`;
+  const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: activeBackgroundPanelViewModel().background }), "", "active background save current");
   save.dataset.backgroundAction = "save";
-  save.title = "Save the current app background";
-  save.disabled = !isCustomBackgroundImage(state.settings.backgroundImage);
-  const open = settingsActionButton("Open", () => openBackgroundImageSource(), "", "active background open local file url source reveal");
+  save.title = "Save the selected background";
+  save.disabled = !isCustomBackgroundImage(model.background);
+  const open = settingsActionButton("Open", () => openBackgroundImageSource(activeBackgroundPanelViewModel().background), "", "active background open local file url source reveal");
   open.dataset.backgroundAction = "open";
-  open.title = "Open the current background source";
-  open.disabled = !canOpenBackgroundImageSource(state.settings.backgroundImage);
+  open.title = "Open the selected background source";
+  open.disabled = !canOpenBackgroundImageSource(model.background);
   const imageGroup = document.createElement("span");
   imageGroup.className = "background-action-group background-action-group-image";
   imageGroup.innerHTML = `<span class="background-action-title">Image source</span>`;
   imageGroup.append(choose, paste, save, open);
 
-  const pane = settingsActionButton("Pane", () => applyPanelBackgroundImage(state.settings.backgroundImage), "", "active background apply to active terminal pane");
-  pane.dataset.backgroundAction = "pane";
-  pane.title = "Apply current background to the active terminal";
-  pane.disabled = !hasBackground || !resolveTerminalPanel(focusedPanel());
-  const allPanes = settingsActionButton("All terminals", () => applyWorkspaceBackgroundImageToTerminals(state.settings.backgroundImage), "", "active background apply to all terminal panes workspace");
-  allPanes.dataset.backgroundAction = "all-panes";
-  allPanes.title = "Apply current background to all terminals";
-  allPanes.disabled = !hasBackground || !hasTerminalPanes;
-  const clearPanes = settingsActionButton("Clear terminals", () => applyWorkspaceBackgroundImageToTerminals(""), "danger", "active background clear all terminal pane images workspace");
-  clearPanes.dataset.backgroundAction = "clear-panes";
-  clearPanes.title = "Clear backgrounds from all terminals";
-  clearPanes.disabled = !hasPaneBackgrounds;
-  const clear = settingsActionButton("Clear app", () => {
-    const changed = updateSettings({ backgroundImage: "" }, { immediate: true });
-    if (changed) renderSettingsInspector();
-  }, "danger", "active background clear app remove reset");
+  const applyCurrent = settingsActionButton("Apply current", applyCurrentBackgroundToTarget, "", "active background apply current app image to selected target pane all terminals");
+  applyCurrent.dataset.backgroundAction = "apply-current";
+  applyCurrent.title = `Apply current app background to ${backgroundApplyTargetActionLabel()}`;
+  applyCurrent.disabled = !state.settings.backgroundImage || !activeBackgroundTargetStatus().canTarget || state.backgroundApplyTarget === "app";
+  const clear = settingsActionButton("Clear target", clearBackgroundApplyTarget, "danger", "active background clear selected target app pane all terminals");
   clear.dataset.backgroundAction = "clear";
-  clear.title = "Clear the app background";
-  clear.disabled = !hasBackground;
+  clear.title = `Clear ${backgroundApplyTargetActionLabel()}`;
+  clear.disabled = !activeBackgroundTargetStatus().canTarget || !activeBackgroundTargetStatus().hasValue;
   const scopeGroup = document.createElement("span");
   scopeGroup.className = "background-action-group background-action-group-scope";
-  scopeGroup.innerHTML = `<span class="background-action-title">Apply to</span>`;
-  scopeGroup.append(pane, allPanes, clearPanes, clear);
+  scopeGroup.innerHTML = `<span class="background-action-title">Selected target</span>`;
+  scopeGroup.append(applyCurrent, clear);
   actions.append(imageGroup, scopeGroup);
   if (options.tuning) {
     const refreshBackgroundSummary = () => {
-      const title = appearanceBackgroundLabel(state.settings.backgroundImage);
+      const nextModel = activeBackgroundPanelViewModel();
       panel.style.setProperty("--active-background-size", backgroundSizeCss(state.settings.backgroundFit));
       panel.style.setProperty("--active-background-position", backgroundPositionCss(state.settings.backgroundPosition));
-      panel.querySelector(".active-background-title").textContent = title;
-      panel.querySelector(".active-background-title").title = title;
+      panel.querySelector(".active-background-title").textContent = nextModel.label;
+      panel.querySelector(".active-background-title").title = nextModel.label;
     };
     panel.append(backgroundTuningPanel(refreshBackgroundSummary));
   }
@@ -9117,44 +9275,65 @@ function refreshAppearancePreviewOpacity(value = state.settings.backgroundOpacit
 }
 
 function refreshBackgroundPreviewNodes() {
-  const model = activeBackgroundViewModel();
+  const appModel = activeBackgroundViewModel();
   for (const preview of elements.inspectorBody.querySelectorAll(".appearance-preview")) {
-    preview.style.setProperty("--preview-background-image", model.image);
+    preview.style.setProperty("--preview-background-image", appModel.image);
     preview.style.setProperty("--preview-background-opacity", String(state.settings.backgroundOpacity / 100));
-    preview.style.setProperty("--preview-background-size", model.size);
-    preview.style.setProperty("--preview-background-repeat", model.repeat);
-    preview.style.setProperty("--preview-background-position", model.position);
+    preview.style.setProperty("--preview-background-size", appModel.size);
+    preview.style.setProperty("--preview-background-repeat", appModel.repeat);
+    preview.style.setProperty("--preview-background-position", appModel.position);
     setTextIfChanged(preview.querySelector("[data-preview-background]"), appearanceBackgroundLabel(state.settings.backgroundImage));
   }
   for (const panel of elements.inspectorBody.querySelectorAll(".active-background-panel")) {
+    const workspace = activeWorkspace();
+    const model = activeBackgroundPanelViewModel(state.backgroundApplyTarget, workspace);
     toggleClassIfChanged(panel, "has-image", model.hasBackground);
     panel.style.setProperty("--active-background-image", model.image);
     panel.style.setProperty("--active-background-repeat", model.repeat);
     panel.style.setProperty("--active-background-size", model.size);
     panel.style.setProperty("--active-background-position", model.position);
+    const kicker = panel.querySelector(".active-background-kicker");
     const title = panel.querySelector(".active-background-title");
     const source = panel.querySelector(".active-background-source");
+    setTextIfChanged(kicker, model.kicker);
     setTextIfChanged(title, model.label);
     setTextIfChanged(source, model.source);
     if (title) title.title = model.label;
     if (source) source.title = model.source;
-    const workspace = activeWorkspace();
-    const terminalPanels = workspaceTerminalPanels(workspace);
-    const hasTerminalPanes = terminalPanels.length > 0;
-    const hasPaneBackgrounds = terminalPanels.some((candidate) => normalizeBackgroundValue(candidate.backgroundImage));
-    updateActiveBackgroundScopeChips(panel, activeBackgroundScopeModel(model.background, workspace));
+    updateActiveBackgroundScopeChips(panel, activeBackgroundScopeModel(state.settings.backgroundImage, workspace));
+    updateActiveBackgroundTargetControl(panel);
+    const targetStatus = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
+    const targetLabel = backgroundApplyTargetActionLabel(targetStatus.scope);
+    const choose = panel.querySelector('[data-background-action="choose"]');
+    const paste = panel.querySelector('[data-background-action="paste"]');
     const save = panel.querySelector('[data-background-action="save"]');
-    const pane = panel.querySelector('[data-background-action="pane"]');
-    const allPanes = panel.querySelector('[data-background-action="all-panes"]');
-    const clearPanes = panel.querySelector('[data-background-action="clear-panes"]');
+    const applyCurrent = panel.querySelector('[data-background-action="apply-current"]');
     const open = panel.querySelector('[data-background-action="open"]');
     const clear = panel.querySelector('[data-background-action="clear"]');
-    if (save) save.disabled = !isCustomBackgroundImage(model.background);
-    if (pane) pane.disabled = !model.hasBackground || !resolveTerminalPanel(focusedPanel());
-    if (allPanes) allPanes.disabled = !model.hasBackground || !hasTerminalPanes;
-    if (clearPanes) clearPanes.disabled = !hasPaneBackgrounds;
-    if (open) open.disabled = !canOpenBackgroundImageSource(model.background);
-    if (clear) clear.disabled = !model.hasBackground;
+    if (choose) {
+      setDisabledIfChanged(choose, !targetStatus.canTarget);
+      setTitleIfChanged(choose, `Choose an image for ${targetLabel}`);
+    }
+    if (paste) {
+      setDisabledIfChanged(paste, !targetStatus.canTarget);
+      setTitleIfChanged(paste, `Paste an image for ${targetLabel}`);
+    }
+    if (save) {
+      setDisabledIfChanged(save, !isCustomBackgroundImage(model.background));
+      setTitleIfChanged(save, "Save the selected background");
+    }
+    if (applyCurrent) {
+      setDisabledIfChanged(applyCurrent, !state.settings.backgroundImage || !targetStatus.canTarget || targetStatus.scope === "app");
+      setTitleIfChanged(applyCurrent, `Apply current app background to ${targetLabel}`);
+    }
+    if (open) {
+      setDisabledIfChanged(open, !canOpenBackgroundImageSource(model.background));
+      setTitleIfChanged(open, "Open the selected background source");
+    }
+    if (clear) {
+      setDisabledIfChanged(clear, !targetStatus.canTarget || !targetStatus.hasValue);
+      setTitleIfChanged(clear, `Clear ${targetLabel}`);
+    }
     for (const control of panel.querySelectorAll("[data-setting-control]")) {
       const key = control.dataset.settingControl;
       if (!Object.hasOwn(state.settings, key)) continue;
@@ -12324,6 +12503,18 @@ async function chooseBackgroundImage(options = {}) {
   renderSettingsInspector();
 }
 
+async function chooseBackgroundImageForTarget() {
+  if (!window.cmuxNative?.pickBackgroundImage) {
+    toast("Local image picker is unavailable.");
+    return null;
+  }
+  const url = await window.cmuxNative.pickBackgroundImage();
+  if (!url) return null;
+  const changed = await applyBackgroundValueToTarget(url, state.backgroundApplyTarget, { render: false, toast: true });
+  if (changed !== null) renderSettingsInspector();
+  return changed;
+}
+
 async function pasteBackgroundImageFromClipboard(options = {}) {
   if (!window.cmuxNative?.readClipboard) {
     toast("Clipboard is unavailable.");
@@ -12350,6 +12541,12 @@ async function pasteBackgroundImageFromClipboard(options = {}) {
   }
   if (options.input) options.input.value = pastedImage ? "Copied image" : value;
   const background = pastedImage ? { url: value, label: "Clipboard image" } : { url: value };
+  if (options.target) {
+    const target = typeof options.target === "function" ? options.target() : options.target;
+    const changed = await applyBackgroundValueToTarget(value, target, { resetInput: options.input, toast: true });
+    if (changed !== null && pastedImage && options.input) options.input.value = "";
+    return changed;
+  }
   if (options.save) {
     const saved = await applyAndSaveCustomBackgroundImage(background, { resetInput: options.input });
     if (saved && options.input) options.input.value = pastedImage ? "" : saved.url;
