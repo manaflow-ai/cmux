@@ -3644,7 +3644,11 @@ function allAttentionPanels() {
 }
 
 function currentUiOperationLabel() {
-  return [...state.uiOperations.values()].at(-1)?.label || "";
+  const operations = [...state.uiOperations.values()];
+  const latest = operations.at(-1);
+  const createCount = operations.filter((operation) => operation.kind === "create-panel").length;
+  if (latest?.kind === "create-panel" && createCount > 1) return `Starting ${createCount} panes...`;
+  return latest?.label || "";
 }
 
 function paneCreationButtonsDisabled() {
@@ -3653,6 +3657,39 @@ function paneCreationButtonsDisabled() {
 
 function paneCreationLimitLabel() {
   return `Pane startup queue is full (${maxConcurrentPaneCreations}). Wait for one to finish.`;
+}
+
+function paneCreationQueueStatusLabel() {
+  const count = paneCreationOperationCount();
+  if (count <= 0) return "";
+  return `${count}/${maxConcurrentPaneCreations} pane startup${count === 1 ? "" : "s"} running.`;
+}
+
+function paneCreationActionTitle(baseTitle, readyHint = "") {
+  if (paneCreationButtonsDisabled()) return paneCreationLimitLabel();
+  const queueLabel = paneCreationQueueStatusLabel();
+  const title = String(baseTitle || "Add pane").trim();
+  const titleSentence = /[.!?]$/.test(title) ? title : `${title}.`;
+  return [titleSentence, queueLabel, readyHint].filter(Boolean).join(" ");
+}
+
+function paneCreationButtonBaseTitle(button) {
+  if (!button) return "Add pane";
+  if (!button.dataset.paneCreationBaseTitle) {
+    button.dataset.paneCreationBaseTitle = button.getAttribute("title")
+      || button.getAttribute("aria-label")
+      || "Add pane";
+  }
+  return button.dataset.paneCreationBaseTitle;
+}
+
+function updatePaneCreationButtonState(button) {
+  if (!button) return;
+  const disabled = paneCreationButtonsDisabled();
+  const title = paneCreationActionTitle(paneCreationButtonBaseTitle(button));
+  setDisabledIfChanged(button, disabled);
+  setTitleIfChanged(button, title);
+  setAttributeIfChanged(button, "aria-label", title);
 }
 
 function paneCreationOperationCount() {
@@ -3765,9 +3802,17 @@ function updateOperationChrome() {
   toggleClassIfChanged(elements.shell, "operation-pending", Boolean(label));
   toggleClassIfChanged(elements.statusSummary, "is-busy", Boolean(label));
   setTextIfChanged(elements.statusSummary, label || defaultStatusSummary());
-  for (const button of elements.paneCreationButtons) setDisabledIfChanged(button, creatingPane);
+  for (const button of elements.paneCreationButtons) updatePaneCreationButtonState(button);
   for (const button of Object.values(state.newSurfaceAddButtons)) {
-    if (button) setDisabledIfChanged(button, creatingPane);
+    if (button) {
+      setDisabledIfChanged(button, creatingPane);
+      const config = surfaceAddTabConfigs[button.dataset.addKind];
+      const title = config
+        ? paneCreationActionTitle(config.title, "Right-click to choose right or below.")
+        : paneCreationActionTitle(paneCreationButtonBaseTitle(button));
+      setTitleIfChanged(button, title);
+      setAttributeIfChanged(button, "aria-label", title);
+    }
   }
   updateVisibleEmptyWorkspaceControls();
 }
@@ -4420,7 +4465,7 @@ function getNewSurfaceTab(kind, workspace) {
   setDatasetIfChanged(button, "workspaceId", workspace.id);
   setDatasetIfChanged(button, "addKind", kind);
   setDisabledIfChanged(button, paneCreationButtonsDisabled());
-  const title = button.disabled ? paneCreationLimitLabel() : `${config.title}. Right-click to choose right or below.`;
+  const title = paneCreationActionTitle(config.title, "Right-click to choose right or below.");
   setTitleIfChanged(button, title);
   setAttributeIfChanged(button, "aria-label", title);
   return button;
