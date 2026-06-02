@@ -947,7 +947,7 @@ struct GhosttyTerminalContextMenuTests {
     func lookUpTitleIncludesQuotedSelectionPreview() {
         let title = GhosttyNSView.lookUpMenuTitle(for: "hello")
 
-        #expect(title.contains("hello"))
+        #expect(title == Self.localizedLookUpTitle(preview: "hello"))
     }
 
     @Test
@@ -957,7 +957,7 @@ struct GhosttyTerminalContextMenuTests {
             previewLimit: 10
         )
 
-        #expect(title.contains("abc def xx…"))
+        #expect(title == Self.localizedLookUpTitle(preview: "abc def xx…"))
     }
 
     @Test
@@ -1008,6 +1008,13 @@ struct GhosttyTerminalContextMenuTests {
         )
         #expect(
             view.responds(to: NSSelectorFromString("writeSelectionTo:types:")) == false
+        )
+    }
+
+    private static func localizedLookUpTitle(preview: String) -> String {
+        String.localizedStringWithFormat(
+            String(localized: "terminalContextMenu.lookUpFormat", defaultValue: "Look Up “%@”"),
+            preview
         )
     }
 }
