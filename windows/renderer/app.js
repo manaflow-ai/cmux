@@ -139,6 +139,8 @@ const controlIconSvg = {
   terminal: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="m8 10 3 3-3 3"></path><path d="M13 16h4"></path></svg>`,
   browserPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10" cy="12" r="6"></circle><path d="M4 12h12M10 6c1.7 1.9 1.7 10.1 0 12M10 6c-1.7 1.9-1.7 10.1 0 12"></path><path d="M18 14v6M15 17h6"></path></svg>`,
   terminalPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="14" height="14" rx="2"></rect><path d="m7 10 3 3-3 3"></path><path d="M12 16h4"></path><path d="M18 13v6M15 16h6"></path></svg>`,
+  splitRight: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14"></path></svg>`,
+  settings: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"></path></svg>`,
   up: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"></path></svg>`
 };
 
@@ -334,6 +336,7 @@ const terminalFontSizeMax = 22;
 const terminalWheelZoomThreshold = 80;
 const terminalWheelZoomIdleResetMs = 450;
 const terminalWheelZoomMaxSteps = 3;
+const paletteVisibleResultLimit = 80;
 const deferredTerminalInitIdleTimeoutMs = 140;
 const browserLoadTimeoutMs = 15000;
 const browserSuspendStopDelayMs = 1200;
@@ -469,6 +472,7 @@ const state = {
   paletteRenderFrame: 0,
   paletteFocusFrame: 0,
   paletteListSignature: "",
+  paletteEntriesCache: null,
   surfaceTabScrollFrame: 0,
   surfaceTabScrollTargetId: "",
   surfaceTabOverflowFrame: 0,
@@ -640,6 +644,8 @@ const elements = {
 elements.paneLayoutStyle = document.createElement("style");
 elements.paneLayoutStyle.id = "paneLayoutStyle";
 document.head.appendChild(elements.paneLayoutStyle);
+elements.paletteInput.placeholder = t("palette.placeholder");
+elements.paletteInput.setAttribute("aria-label", t("palette.searchLabel"));
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
@@ -13217,6 +13223,88 @@ function flushPaletteRender() {
   renderPalette();
 }
 
+function paletteEntriesForOpenSession() {
+  if (!state.paletteEntriesCache) state.paletteEntriesCache = paletteEntries();
+  return state.paletteEntriesCache;
+}
+
+function paletteQuickActions() {
+  const workspace = activeWorkspace();
+  const active = focusedPanel();
+  const creatingPane = paneCreationButtonsDisabled();
+  return [
+    {
+      id: "quick.terminal",
+      label: t("palette.quickTerminal"),
+      meta: workspace?.title || t("palette.quickWorkspace"),
+      shortcut: "Ctrl+T",
+      icon: "terminalPlus",
+      disabled: creatingPane,
+      run: () => createTerminalPanel("right", { workspaceId: workspace?.id })
+    },
+    {
+      id: "quick.browser",
+      label: t("palette.quickBrowser"),
+      meta: hostnameOf(state.settings.browserHomeUrl),
+      shortcut: "Ctrl+Shift+L",
+      icon: "browserPlus",
+      disabled: creatingPane,
+      run: () => openBrowserHome(workspace?.id)
+    },
+    {
+      id: "quick.split",
+      label: t("palette.quickSplit"),
+      meta: active?.type === "browser" ? hostnameOf(active.url) : active?.title || t("palette.quickPane"),
+      shortcut: "",
+      icon: "splitRight",
+      disabled: !active || creatingPane,
+      run: () => splitActivePanel("right")
+    },
+    {
+      id: "quick.settings",
+      label: t("palette.quickSettings"),
+      meta: t("palette.quickSettingsMeta"),
+      shortcut: "Ctrl+,",
+      icon: "settings",
+      disabled: false,
+      run: () => openInspector("settings")
+    }
+  ];
+}
+
+function renderPaletteQuickActions() {
+  const group = document.createElement("div");
+  group.className = "palette-quick-actions";
+  group.setAttribute("aria-label", t("palette.quickActions"));
+  for (const action of paletteQuickActions()) {
+    const button = document.createElement("button");
+    button.className = "palette-quick-action";
+    button.type = "button";
+    button.disabled = Boolean(action.disabled);
+    button.title = `${action.label}${action.meta ? ` - ${action.meta}` : ""}`;
+    button.innerHTML = `
+      <span class="palette-quick-icon" aria-hidden="true"></span>
+      <span class="palette-quick-copy">
+        <span class="palette-quick-label"></span>
+        <span class="palette-quick-meta"></span>
+      </span>
+      <span class="palette-quick-shortcut"></span>
+    `;
+    button.querySelector(".palette-quick-icon").innerHTML = controlIconMarkup(action.icon);
+    button.querySelector(".palette-quick-label").textContent = action.label;
+    button.querySelector(".palette-quick-meta").textContent = action.meta || "";
+    button.querySelector(".palette-quick-shortcut").textContent = action.shortcut || "";
+    button.onclick = () => {
+      if (button.disabled) return;
+      closePalette();
+      elements.paletteInput.value = "";
+      action.run();
+    };
+    group.append(button);
+  }
+  return group;
+}
+
 function renderPalette() {
   elements.palette.classList.toggle("is-open", state.paletteOpen);
   elements.palette.setAttribute("aria-hidden", String(!state.paletteOpen));
@@ -13224,46 +13312,62 @@ function renderPalette() {
 
   const query = normalizeSettingsQuery(elements.paletteInput.value);
   const tokens = settingsSearchTokens(query);
-  const matches = paletteEntries()
+  const allMatches = paletteEntriesForOpenSession()
     .filter((entry) => paletteEntryMatches(entry, tokens))
     .sort((left, right) => paletteEntryScore(right, query, tokens) - paletteEntryScore(left, query, tokens));
+  const matches = allMatches.slice(0, paletteVisibleResultLimit);
   state.paletteIndex = Math.min(state.paletteIndex, Math.max(0, matches.length - 1));
-  const signature = paletteListSignature(query, matches);
+  const signature = paletteListSignature(query, matches, allMatches.length);
   if (signature === state.paletteListSignature) {
     updatePaletteSelection();
     return;
   }
   state.paletteListSignature = signature;
-  const nodes = matches.map((entry, index) => {
+  const nodes = [];
+  if (!query) nodes.push(renderPaletteQuickActions());
+  nodes.push(...matches.map((entry, index) => {
     const button = document.createElement("button");
+    const kind = paletteEntryKind(entry);
     button.type = "button";
-    button.className = `palette-item${index === state.paletteIndex ? " is-selected" : ""}`;
+    button.className = `palette-item palette-kind-${kind}${index === state.paletteIndex ? " is-selected" : ""}`;
     button.setAttribute("aria-selected", String(index === state.paletteIndex));
     button.innerHTML = `
+      <span class="palette-icon" aria-hidden="true"></span>
       <span class="palette-main">
         <span class="palette-label"></span>
         <span class="palette-meta"></span>
       </span>
       <span class="palette-shortcut"></span>
     `;
+    button.querySelector(".palette-icon").innerHTML = paletteEntryIconMarkup(entry, kind);
     button.querySelector(".palette-label").textContent = entry.label;
     button.querySelector(".palette-meta").textContent = entry.meta;
     button.querySelector(".palette-shortcut").textContent = entry.shortcut;
     button.onclick = () => runPaletteCommand(entry);
     return button;
-  });
-  if (nodes.length === 0) {
+  }));
+  if (matches.length === 0) {
     const empty = document.createElement("div");
     empty.className = "palette-empty";
-    empty.textContent = "No matching commands, workspaces, panes, or settings.";
+    empty.textContent = t("palette.empty");
     nodes.push(empty);
+  }
+  if (allMatches.length > matches.length) {
+    const more = document.createElement("div");
+    more.className = "palette-more";
+    more.textContent = formatMessage("palette.moreResults", {
+      visible: matches.length,
+      total: allMatches.length
+    });
+    nodes.push(more);
   }
   elements.paletteList.replaceChildren(...nodes);
 }
 
-function paletteListSignature(query, entries) {
+function paletteListSignature(query, entries, totalCount = entries.length) {
   const parts = [];
   appendSignatureValue(parts, query);
+  appendSignatureValue(parts, totalCount);
   appendSignatureArray(parts, entries, (nextParts, entry) => {
     appendSignatureValue(nextParts, entry.id);
     appendSignatureValue(nextParts, entry.label);
@@ -13271,6 +13375,29 @@ function paletteListSignature(query, entries) {
     appendSignatureValue(nextParts, entry.shortcut);
   });
   return parts.join("");
+}
+
+function paletteEntryKind(entry) {
+  const id = String(entry?.id || "");
+  if (id.startsWith("terminal.") || id.startsWith("recentCommand.") || id.startsWith("commandSnippet.")) return "terminal";
+  if (id.startsWith("browser.") || id.startsWith("recentBrowser.") || id.startsWith("browserHomePreset.")) return "browser";
+  if (id.startsWith("workspace.") || id.startsWith("recentFolder.") || id.startsWith("workspaceBlueprint.")) return "workspace";
+  if (id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.")) return "settings";
+  if (id.startsWith("layout.")) return "layout";
+  if (id.startsWith("background") || id.startsWith("savedBackground")) return "look";
+  if (id.startsWith("savedColor.") || id.startsWith("terminalColor.")) return "color";
+  return "command";
+}
+
+function paletteEntryIconMarkup(entry, kind = paletteEntryKind(entry)) {
+  if (kind === "terminal") return controlIconMarkup("terminal");
+  if (kind === "browser") return controlIconMarkup("browser");
+  if (kind === "workspace") return quickActionIconMarkup("workspace");
+  if (kind === "settings") return controlIconMarkup("settings");
+  if (kind === "layout") return controlIconMarkup("splitRight");
+  if (kind === "look") return quickActionIconMarkup("background");
+  if (kind === "color") return quickActionIconMarkup("appearance");
+  return quickActionIconMarkup("actions");
 }
 
 function updatePaletteSelection() {
@@ -13564,6 +13691,8 @@ function schedulePaletteFocus() {
 function openPalette() {
   state.paletteOpen = true;
   state.paletteIndex = 0;
+  state.paletteEntriesCache = paletteEntries();
+  state.paletteListSignature = "";
   renderPalette();
   elements.paletteList.scrollTop = 0;
   schedulePaletteFocus();
@@ -13572,6 +13701,8 @@ function openPalette() {
 function closePalette() {
   state.paletteOpen = false;
   cancelPaletteFocus();
+  state.paletteEntriesCache = null;
+  state.paletteListSignature = "";
   elements.paletteList.scrollTop = 0;
   renderPalette();
 }
@@ -16013,7 +16144,7 @@ elements.paletteInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
     flushPaletteRender();
-    elements.paletteList.children[state.paletteIndex]?.click();
+    elements.paletteList.querySelectorAll(".palette-item")[state.paletteIndex]?.click();
   }
   if (event.key === "Escape") {
     closePalette();

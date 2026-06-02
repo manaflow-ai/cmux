@@ -652,6 +652,7 @@ body.reduce-motion *::after {
 .context-action,
 .context-color,
 .sidebar-action,
+.palette-quick-action,
 .palette-item,
 .notification-action,
 .window-control {
@@ -767,6 +768,8 @@ body.reduce-motion *::after {
 .settings-page-tab:focus-visible,
 .context-action:focus-visible,
 .context-color:focus-visible,
+.palette-quick-action:focus-visible,
+.palette-item:focus-visible,
 .rail-button:focus-visible,
 .notification-action:focus-visible,
 .window-control:focus-visible {
@@ -803,6 +806,8 @@ body.reduce-motion *::after {
 .background-preset:active,
 .settings-page-tab:active,
 .context-action:active,
+.palette-quick-action:active,
+.palette-item:active,
 .rail-button:active,
 .notification-action:active,
 .window-control:active {
@@ -8374,15 +8379,116 @@ textarea.dialog-input {
   padding: var(--space-2);
 }
 
+.palette-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+  padding: 0 0 var(--space-2);
+  margin-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.palette-quick-action {
+  min-width: 0;
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px var(--space-2);
+  padding: var(--space-2);
+  text-align: left;
+  background: color-mix(in oklch, var(--color-pane) 80%, transparent);
+}
+
+.palette-quick-action:hover:not(:disabled) {
+  border-color: var(--color-line);
+  background: var(--color-pane);
+  color: var(--color-text);
+}
+
+.palette-quick-action:disabled {
+  cursor: default;
+  opacity: .48;
+}
+
+.palette-quick-icon {
+  width: 26px;
+  height: 26px;
+  grid-row: 1 / 3;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane));
+  color: var(--color-accent-hover);
+}
+
+.palette-quick-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.palette-quick-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.palette-quick-label,
+.palette-quick-meta,
+.palette-quick-shortcut {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.palette-quick-label {
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.palette-quick-meta {
+  color: var(--color-faint);
+  font-size: 10px;
+}
+
+.palette-quick-shortcut {
+  grid-column: 2;
+  color: var(--color-faint);
+  font: 10px/1 var(--font-mono);
+}
+
 .palette-item {
   width: 100%;
-  min-height: 38px;
-  display: flex;
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(38px, auto);
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
   padding: 0 var(--space-3);
   text-align: left;
+}
+
+.palette-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-1);
+  color: var(--color-faint);
+  background: color-mix(in oklch, currentColor 7%, transparent);
+}
+
+.palette-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.palette-kind-terminal .palette-icon,
+.palette-kind-browser .palette-icon {
+  color: var(--color-accent-hover);
 }
 
 .palette-main {
@@ -8418,14 +8524,28 @@ textarea.dialog-input {
 
 .palette-shortcut {
   flex: 0 0 auto;
+  min-width: 0;
   color: var(--color-faint);
   font: 11px/1 var(--font-mono);
+  text-align: right;
+}
+
+.palette-shortcut:empty,
+.palette-quick-shortcut:empty {
+  display: none;
 }
 
 .palette-empty {
   padding: var(--space-3);
   color: var(--color-muted);
   font-size: 12px;
+  text-align: center;
+}
+
+.palette-more {
+  padding: var(--space-2) var(--space-3) 0;
+  color: var(--color-faint);
+  font-size: 11px;
   text-align: center;
 }
 
@@ -8612,6 +8732,14 @@ textarea.dialog-input {
 
   .terminal-search-status {
     display: none;
+  }
+
+  .palette-quick-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .palette-quick-action {
+    min-height: 48px;
   }
 
   .browser-home-preset-grid,
