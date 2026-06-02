@@ -10854,9 +10854,11 @@ const quickActionIconSvg = {
   speed: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 16a7 7 0 0 1 14 0"></path><path d="m12 16 4-5"></path><path d="M8 20h8"></path></svg>`,
   focus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4H5a1 1 0 0 0-1 1v3M16 4h3a1 1 0 0 1 1 1v3M8 20H5a1 1 0 0 1-1-1v-3M16 20h3a1 1 0 0 0 1-1v-3"></path><circle cx="12" cy="12" r="2.5"></circle></svg>`,
   background: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><circle cx="9" cy="10" r="1.5"></circle><path d="m7 17 4-4 3 3 2-2 2 3"></path></svg>`,
+  browserPlus: controlIconSvg.browserPlus,
   paneBackground: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14M7 15l2-2 2 2"></path><circle cx="8" cy="9" r="1.2"></circle></svg>`,
   paneShape: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14M4 12h16"></path></svg>`,
-  saveLayout: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 4h10l2 2v14H6z"></path><path d="M8 4v6h8M9 17h6"></path></svg>`
+  saveLayout: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 4h10l2 2v14H6z"></path><path d="M8 4v6h8M9 17h6"></path></svg>`,
+  terminalPlus: controlIconSvg.terminalPlus
 };
 
 function quickActionIconMarkup(icon) {
@@ -10872,6 +10874,28 @@ function activeTerminalPaneBackgroundLabel() {
 
 function quickSetupActionGrid() {
   const actions = [
+    {
+      id: "new-terminal",
+      icon: "terminalPlus",
+      label: "New terminal",
+      body: "Start a terminal pane in the active workspace.",
+      meta: () => paneCreationQueueStatusLabel() || optionLabel(terminalProfiles, state.settings.terminalProfile, "Auto"),
+      cta: "+ Terminal",
+      search: "new terminal add pane shell powershell command prompt quick setup",
+      disabled: () => !activeWorkspace() || paneCreationButtonsDisabled(),
+      run: () => createTerminalPanel("right", { workspaceId: activeWorkspace()?.id })
+    },
+    {
+      id: "new-browser",
+      icon: "browserPlus",
+      label: "New browser",
+      body: "Open the home page in a browser pane.",
+      meta: () => paneCreationQueueStatusLabel() || hostnameOf(state.settings.browserHomeUrl),
+      cta: "+ Browser",
+      search: "new browser add pane web google home quick setup",
+      disabled: () => !activeWorkspace() || paneCreationButtonsDisabled(),
+      run: () => openBrowserHome(activeWorkspace()?.id, { mode: "pane" })
+    },
     {
       id: "rename",
       icon: "rename",
@@ -10980,7 +11004,7 @@ function quickSetupActionGrid() {
   ];
   const grid = document.createElement("div");
   grid.className = "quick-settings-shortcut-grid quick-action-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions clean ui speed tune focus mode background image wallpaper pane shape resize split rows columns");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions new terminal browser add pane clean ui speed tune focus mode background image wallpaper pane shape resize split rows columns");
   for (const action of actions) {
     const button = document.createElement("button");
     button.className = "quick-settings-shortcut quick-action";

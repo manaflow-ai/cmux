@@ -6628,6 +6628,25 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   color: var(--color-text);
 }
 
+.quick-action[data-quick-action="new-terminal"] .quick-action-icon,
+.quick-action[data-quick-action="new-terminal"] .quick-action-cta {
+  border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-line) 42%);
+  color: color-mix(in oklch, var(--color-accent) 68%, var(--color-text) 32%);
+}
+
+.quick-action[data-quick-action="new-browser"] .quick-action-icon,
+.quick-action[data-quick-action="new-browser"] .quick-action-cta {
+  border-color: color-mix(in oklch, var(--color-success) 48%, var(--color-line) 52%);
+  color: color-mix(in oklch, var(--color-success) 62%, var(--color-text) 38%);
+}
+
+.quick-action:disabled .quick-action-icon,
+.quick-action:disabled .quick-action-cta {
+  border-color: var(--color-line);
+  background: color-mix(in oklch, var(--color-pane-warm) 76%, var(--color-rail) 24%);
+  color: var(--color-faint);
+}
+
 .quick-action-icon {
   grid-column: 1;
   grid-row: 1 / span 2;
