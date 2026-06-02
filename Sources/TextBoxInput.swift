@@ -4218,7 +4218,7 @@ final class TextBoxInputTextView: NSTextView {
         }
 
         if flags.contains(.control) {
-            guard let key = controlKey(for: event) else { return false }
+            guard let key = mentionCompletionControlNavigationKey(for: event) else { return false }
             // Only claim the navigation keys once there are rows to move through;
             // otherwise (active query still loading or zero hits) let them fall
             // through to normal text editing instead of being silently swallowed.
@@ -4252,11 +4252,9 @@ final class TextBoxInputTextView: NSTextView {
             guard !flags.contains(.shift) else { return false }
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
             if shouldBypassMentionCompletionReturnAcceptance() { return false }
-            if mentionCompletionController.hasStaleSuggestions { return true }
             return acceptMentionCompletion()
         case kVK_Tab:
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
-            if mentionCompletionController.hasStaleSuggestions { return true }
             return acceptMentionCompletion()
         case kVK_Escape:
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
@@ -4285,11 +4283,9 @@ final class TextBoxInputTextView: NSTextView {
         case #selector(NSResponder.insertNewline(_:)):
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
             if shouldBypassMentionCompletionReturnAcceptance() { return false }
-            if mentionCompletionController.hasStaleSuggestions { return true }
             return acceptMentionCompletion()
         case #selector(NSResponder.insertTab(_:)):
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
-            if mentionCompletionController.hasStaleSuggestions { return true }
             return acceptMentionCompletion()
         case #selector(NSResponder.cancelOperation(_:)):
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
@@ -4727,6 +4723,14 @@ final class TextBoxInputTextView: NSTextView {
 
     func debugAcceptMentionCompletion(suggestion: TextBoxMentionSuggestion) -> Bool {
         acceptMentionCompletion(suggestion)
+    }
+
+    func debugControlKey(for event: NSEvent) -> String? {
+        controlKey(for: event)
+    }
+
+    func debugMentionCompletionControlNavigationKey(for event: NSEvent) -> String? {
+        mentionCompletionControlNavigationKey(for: event)
     }
 #endif
 
@@ -5582,11 +5586,18 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func controlKey(for event: NSEvent) -> String? {
+        physicalControlKey(for: event) ?? event.charactersIgnoringModifiers?.lowercased()
+    }
+
+    private func mentionCompletionControlNavigationKey(for event: NSEvent) -> String? {
         let normalizedKey = KeyboardLayout.normalizedCharacters(for: event)
         if normalizedKey.count == 1, normalizedKey.allSatisfy(\.isASCII) {
             return normalizedKey
         }
+        return controlKey(for: event)
+    }
 
+    private func physicalControlKey(for event: NSEvent) -> String? {
         switch Int(event.keyCode) {
         case kVK_ANSI_A: return "a"
         case kVK_ANSI_B: return "b"
@@ -5616,7 +5627,7 @@ final class TextBoxInputTextView: NSTextView {
         case kVK_ANSI_Z: return "z"
         case kVK_ANSI_Backslash: return "\\"
         default:
-            return event.charactersIgnoringModifiers?.lowercased()
+            return nil
         }
     }
 }

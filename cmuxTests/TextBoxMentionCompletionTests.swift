@@ -77,6 +77,29 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxControlForwardingKeepsPhysicalControlKeyRouting() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        guard let event = makeKeyDownEvent(
+            key: "n",
+            modifiers: [.control],
+            keyCode: UInt16(kVK_ANSI_G),
+            windowNumber: 0
+        ) else {
+            #expect(Bool(false), "Failed to construct remapped Control-N event")
+            return
+        }
+
+        #expect(textView.debugMentionCompletionControlNavigationKey(for: event) == "n")
+        #expect(textView.debugControlKey(for: event) == "g")
+
+        var forwardedControls: [String] = []
+        textView.onForwardControl = { forwardedControls.append($0) }
+        textView.keyDown(with: event)
+
+        #expect(forwardedControls == ["g"])
+    }
+
+    @Test
     func testTextBoxMentionCompletionDetectsFileAndSkillTokens() {
         let filePrompt = "open @Sources/TextBox"
         let fileQuery = TextBoxMentionCompletionDetector.query(

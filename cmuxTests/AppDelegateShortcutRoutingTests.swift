@@ -7227,7 +7227,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         var submitCount = 0
         textView.onSubmit = { submitCount += 1 }
         textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
-        XCTAssertEqual(submitCount, 0)
+        XCTAssertEqual(submitCount, 1)
         XCTAssertEqual(textView.string, "@z")
 
         textView.string = "/z"
