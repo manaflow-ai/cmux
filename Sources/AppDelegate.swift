@@ -1255,6 +1255,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             name: .feedRequestSendText,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleScreenParametersDidChange(_:)),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
@@ -3240,6 +3246,105 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
         }
+    }
+
+    /// Coalescing token so the burst of `didChangeScreenParameters` notifications a
+    /// single display reconfiguration emits only triggers one reconcile pass.
+    private var screenParametersReconcileToken = 0
+
+    /// cmux main windows set `isMovable = false` (for the custom titlebar drag
+    /// handling in `WindowDragHandleView` / `configureCmuxMainWindowDragBehavior`),
+    /// which opts them out of AppKit's automatic on-screen constraining when the
+    /// display configuration changes. The system therefore leaves them where they
+    /// were after a resolution change, a display connect/disconnect, or a Screen
+    /// Sharing virtual display being resized, so a window sized for the previous
+    /// geometry overflows the new screen instead of re-fitting like ordinary
+    /// (movable) windows do. Reconcile the geometry ourselves.
+    @objc private func handleScreenParametersDidChange(_ notification: Notification) {
+        screenParametersReconcileToken &+= 1
+        let token = screenParametersReconcileToken
+        // Let AppKit settle the new `NSScreen` geometry before we read it back.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self, self.screenParametersReconcileToken == token else { return }
+            self.reconcileMainWindowFramesAfterScreenChange()
+        }
+    }
+
+    private func reconcileMainWindowFramesAfterScreenChange() {
+        let displays = currentDisplayGeometries()
+        guard !displays.available.isEmpty else { return }
+
+        let minWidth = CGFloat(SessionPersistencePolicy.minimumWindowWidth)
+        let minHeight = CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+
+        for context in mainWindowContexts.values {
+            guard let window = resolvedWindow(for: context) else { continue }
+            let currentFrame = window.frame
+
+            // Fit the window inside the (possibly smaller) visible frame of the
+            // display it now belongs to. The decision is a no-op when the window
+            // already fits, so windows on displays the reconfiguration did not affect
+            // are left untouched.
+            guard let reconciledFrame = Self.reconciledFrameAfterScreenChange(
+                currentFrame: currentFrame,
+                windowDisplayID: window.screen?.cmuxDisplayID,
+                availableDisplays: displays.available,
+                fallbackDisplay: displays.fallback,
+                minWidth: minWidth,
+                minHeight: minHeight
+            ), !Self.framesAreApproximatelyEqual(reconciledFrame, currentFrame) else { continue }
+
+            window.setFrame(reconciledFrame, display: true)
+#if DEBUG
+            cmuxDebugLog(
+                "window.reconcileForScreenChange window=\(context.windowId.uuidString.prefix(8)) " +
+                    "from={\(debugNSRectDescription(currentFrame))} " +
+                    "to={\(debugNSRectDescription(reconciledFrame))}"
+            )
+#endif
+        }
+    }
+
+    /// Pure geometry decision used by `reconcileMainWindowFramesAfterScreenChange`:
+    /// fit `currentFrame` inside the visible frame of the display the window belongs
+    /// to after a reconfiguration, picking that display by ID (then by overlap /
+    /// proximity, then the fallback). Returns `nil` when there are no displays to
+    /// reconcile against. Left non-private and factored out so it can be unit tested
+    /// without a live window or screen.
+    nonisolated static func reconciledFrameAfterScreenChange(
+        currentFrame: CGRect,
+        windowDisplayID: UInt32?,
+        availableDisplays: [SessionDisplayGeometry],
+        fallbackDisplay: SessionDisplayGeometry?,
+        minWidth: CGFloat,
+        minHeight: CGFloat
+    ) -> CGRect? {
+        guard !availableDisplays.isEmpty else { return nil }
+        let reference = SessionDisplaySnapshot(
+            displayID: windowDisplayID,
+            frame: SessionRectSnapshot(currentFrame),
+            visibleFrame: nil
+        )
+        guard let target = display(for: reference, in: availableDisplays) ?? fallbackDisplay else {
+            return nil
+        }
+        return clampFrame(
+            currentFrame,
+            within: target.visibleFrame,
+            minWidth: minWidth,
+            minHeight: minHeight
+        )
+    }
+
+    private nonisolated static func framesAreApproximatelyEqual(
+        _ lhs: CGRect,
+        _ rhs: CGRect,
+        tolerance: CGFloat = 0.5
+    ) -> Bool {
+        abs(lhs.origin.x - rhs.origin.x) <= tolerance
+            && abs(lhs.origin.y - rhs.origin.y) <= tolerance
+            && abs(lhs.size.width - rhs.size.width) <= tolerance
+            && abs(lhs.size.height - rhs.size.height) <= tolerance
     }
 
     private func resolvedWindowFrame(from snapshot: SessionWindowSnapshot?) -> NSRect? {
