@@ -7176,6 +7176,7 @@ function renderSettingsInspector(options = {}) {
       settingsActionButton("Paste", () => pasteBackgroundImageFromClipboard({ input: imageInput }), "", "background image paste clipboard url local path wallpaper"),
       settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input: imageInput, save: true }), "", "background image paste clipboard copied image apply save wallpaper"),
       settingsActionButton("Choose file", chooseBackgroundImage, "", "background image local file wallpaper"),
+      settingsActionButton("Choose + save", () => chooseBackgroundImage({ save: true }), "", "background image local file choose apply save wallpaper library"),
       settingsActionButton("Clear image", () => {
         updateSettings({ backgroundImage: "" }, { immediate: true });
         renderSettingsInspector();
