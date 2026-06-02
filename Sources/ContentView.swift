@@ -6,6 +6,8 @@ import CMUXExtensionClient
 import CmuxExtensionKit
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSwiftRender
+import CmuxSwiftRenderUI
 import ImageIO
 import Observation
 import SwiftUI
@@ -10019,7 +10021,72 @@ enum CmuxExtensionSidebarSelection {
     }
 
     static var descriptors: [CmuxExtensionSidebarProviderDescriptor] {
-        [.defaultWorkspaces, hostedExtensionsDescriptor] + providers.map { $0.descriptor }
+        var result: [CmuxExtensionSidebarProviderDescriptor] = [.defaultWorkspaces]
+        if isEnabled { result.append(hostedExtensionsDescriptor) }
+        if customSidebarsEnabled { result += customSidebarDescriptors }
+        result += providers.map { $0.descriptor }
+        return result
+    }
+
+    // MARK: - Custom sidebars (beta)
+
+    /// Provider-id prefix for user/agent-authored custom sidebars. The
+    /// suffix after the prefix is the sidebar's file base name.
+    static let customSidebarProviderPrefix = "cmux.sidebar.custom."
+
+    /// Synchronous read of the experimental custom-sidebars flag, mirroring
+    /// ``isEnabled`` for the AppKit/static paths (the picker menu).
+    static var customSidebarsEnabled: Bool {
+        let key = SettingCatalog().betaFeatures.customSidebars
+        return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
+    }
+
+    /// Directory custom sidebars are authored into.
+    static var customSidebarsDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/cmux/sidebars", isDirectory: true)
+    }
+
+    /// One provider descriptor per `<name>.swift`/`<name>.json` file in the
+    /// sidebars directory (`.swift` preferred when both exist), titled by the
+    /// file's base name.
+    static var customSidebarDescriptors: [CmuxExtensionSidebarProviderDescriptor] {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: customSidebarsDirectory,
+            includingPropertiesForKeys: nil
+        ) else { return [] }
+        var extensionByName: [String: String] = [:]
+        for url in entries {
+            let ext = url.pathExtension.lowercased()
+            guard ext == "swift" || ext == "json" else { continue }
+            let name = url.deletingPathExtension().lastPathComponent
+            if extensionByName[name] == "swift" { continue }
+            extensionByName[name] = ext
+        }
+        return extensionByName.keys.sorted().map { name in
+            CmuxExtensionSidebarProviderDescriptor(
+                id: customSidebarProviderPrefix + name,
+                title: CmuxExtensionLocalizedText(key: "sidebar.provider.custom.\(name)", defaultValue: name),
+                subtitle: CmuxExtensionLocalizedText(
+                    key: "sidebar.provider.custom.subtitle",
+                    defaultValue: String(localized: "sidebar.provider.custom.subtitle", defaultValue: "Custom sidebar")
+                ),
+                systemImageName: "wand.and.stars",
+                isHostProvided: false
+            )
+        }
+    }
+
+    /// Resolves a custom-sidebar provider id to its backing file URL
+    /// (`.swift` preferred), or `nil` if neither file exists.
+    static func customSidebarFileURL(forProviderId providerId: String) -> URL? {
+        guard providerId.hasPrefix(customSidebarProviderPrefix) else { return nil }
+        let name = String(providerId.dropFirst(customSidebarProviderPrefix.count))
+        let swiftURL = customSidebarsDirectory.appendingPathComponent("\(name).swift")
+        if FileManager.default.fileExists(atPath: swiftURL.path) { return swiftURL }
+        let jsonURL = customSidebarsDirectory.appendingPathComponent("\(name).json")
+        if FileManager.default.fileExists(atPath: jsonURL.path) { return jsonURL }
+        return nil
     }
 
     static var hostedExtensionsDescriptor: CmuxExtensionSidebarProviderDescriptor {
@@ -10069,11 +10136,11 @@ enum CmuxExtensionSidebarSelection {
 
     @MainActor
     static func showMenu(anchorView: NSView, event: NSEvent?) {
-        // The sidebar-toggle right-click menu only switches between sidebar
-        // providers, which exists solely for the experimental Extensions
-        // feature. While it is disabled there is nothing to choose, so the
-        // menu does not appear.
-        guard isEnabled else { return }
+        // The sidebar-toggle right-click menu switches between sidebar
+        // providers. It exists for the experimental Extensions feature and
+        // for custom sidebars; while both are disabled there is nothing to
+        // choose, so the menu does not appear.
+        guard isEnabled || customSidebarsEnabled else { return }
         let menu = NSMenu()
         let selectedProviderId = descriptor(
             for: UserDefaults.standard.string(forKey: defaultsKey) ?? defaultProviderId
@@ -10378,6 +10445,7 @@ struct VerticalTabsSidebar: View {
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
+    @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
 
     // The provider to actually render. When the experimental Extensions feature
     // is disabled, fall back to the default workspaces sidebar regardless of the
@@ -10387,9 +10455,65 @@ struct VerticalTabsSidebar: View {
     // persisted selection via an observer) routes correctly on the first render
     // pass and restores the user's choice if extensions are re-enabled.
     private var effectiveExtensionSidebarProviderId: String {
-        extensionsExperimentalEnabled
-            ? selectedExtensionSidebarProviderId
-            : CmuxExtensionSidebarSelection.defaultProviderId
+        let selected = selectedExtensionSidebarProviderId
+        if selected.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix) {
+            // Touch the @LiveSetting so toggling the flag in Settings still
+            // re-renders, but decide with the synchronous UserDefaults read:
+            // on a sidebar remount @LiveSetting's initial value lags one tick,
+            // which would otherwise flash the default sidebar for a frame
+            // before swapping to the custom one.
+            _ = customSidebarsExperimentalEnabled
+            return CmuxExtensionSidebarSelection.customSidebarsEnabled
+                ? selected
+                : CmuxExtensionSidebarSelection.defaultProviderId
+        }
+        return extensionsExperimentalEnabled ? selected : CmuxExtensionSidebarSelection.defaultProviderId
+    }
+
+    /// Live, read-only projection of workspace state handed to custom
+    /// sidebars so interpreted Swift can bind to it (e.g.
+    /// `ForEach(workspaces) { w in Text(w.title) }`) and re-render when it
+    /// changes. A value snapshot built fresh each render, never the store
+    /// itself, so it respects the sidebar snapshot-boundary rule.
+    private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
+        let selectedId = tabManager.selectedTabId
+        let workspaces: [SwiftValue] = tabManager.tabs.map { workspace in
+            let focusedPanelId = workspace.focusedPanelId
+            var tabs: [SwiftValue] = []
+            for paneId in workspace.bonsplitController.allPaneIds {
+                for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+                    guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
+                    tabs.append(.object([
+                        "id": .string(panelId.uuidString),
+                        "title": .string(tab.title),
+                        "focused": .bool(panelId == focusedPanelId),
+                    ]))
+                }
+            }
+            return .object([
+                "id": .string(workspace.id.uuidString),
+                "title": .string(workspace.customTitle ?? workspace.title),
+                "selected": .bool(workspace.id == selectedId),
+                "directory": .string(workspace.currentDirectory),
+                "tabs": .array(tabs),
+            ])
+        }
+        let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
+        let c = Calendar.current.dateComponents([.hour, .minute, .second, .weekday], from: now)
+        let hour = c.hour ?? 0, minute = c.minute ?? 0, second = c.second ?? 0
+        let clock: SwiftValue = .object([
+            "time": .string(String(format: "%02d:%02d:%02d", hour, minute, second)),
+            "hour": .int(hour),
+            "minute": .int(minute),
+            "second": .int(second),
+            "epoch": .int(Int(now.timeIntervalSince1970)),
+        ])
+        return [
+            "workspaces": .array(workspaces),
+            "workspaceCount": .int(tabManager.tabs.count),
+            "selectedTitle": .string(selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? ""),
+            "clock": clock,
+        ]
     }
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
@@ -10906,6 +11030,25 @@ struct VerticalTabsSidebar: View {
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
                     topHeight: 0,
+                    bottomHeight: sidebarBottomScrimHeight
+                )
+            )
+        } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
+                  let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId) {
+            // Periodic tick so the custom sidebar re-renders live (clock,
+            // countdowns, and refreshed workspace/data context), mirroring the
+            // default sidebar's TimelineView. No banned timers involved.
+            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                CustomSidebarView(
+                    fileURL: customSidebarURL,
+                    dataContext: customSidebarDataContext(now: timeline.date),
+                    dispatch: makeCmuxSidebarActionDispatch()
+                )
+                    .id(customSidebarURL)
+            }
+            .mask(
+                SidebarWorkspaceScrollEdgeFadeMask(
+                    topHeight: sidebarTopScrimHeight,
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
