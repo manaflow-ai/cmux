@@ -6028,7 +6028,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } catch {
             outputCollector.cancel()
 #if DEBUG
-            cmuxDebugLog("openDiffViewer failed error=\(error.localizedDescription)")
+            cmuxDebugLog("openDiffViewer failed errorType=\(type(of: error))")
 #endif
             return false
         }
