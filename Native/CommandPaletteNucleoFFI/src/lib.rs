@@ -505,23 +505,31 @@ fn keyword_exact_line_score(query_char_count: usize) -> f64 {
     1_800.0 + f64::from(query_char_count as u32) * 10.0
 }
 
-/// Tier scores for a literal title match. Keyword-exact tops out at `30_030`
-/// (`keyword_exact_line_score`), so both literal-title tiers stay strictly above it: a workspace
-/// whose visible title matches the query always outranks one that only matched a hidden field.
-/// Exact beats prefix; ties within a tier fall back to the existing `(rank, index)` order.
-const TITLE_EXACT_SCORE: f64 = 34_000.0;
-const TITLE_PREFIX_SCORE: f64 = 32_000.0;
+/// Upper bound of `keyword_exact_line_score` for one short (<= 3 char) query token (`30_000 + 3 *
+/// 10`). A hidden exact-keyword line can contribute at most this much per token.
+const KEYWORD_EXACT_CEILING: f64 = 30_030.0;
+/// Per-query-token tier scores for a literal title match, derived from `KEYWORD_EXACT_CEILING` plus
+/// a margin so each stays strictly above the per-token keyword path. Exact beats prefix; ties
+/// within a tier fall back to the existing `(rank, index)` order.
+const TITLE_PREFIX_TOKEN_SCORE: f64 = KEYWORD_EXACT_CEILING + 2_000.0;
+const TITLE_EXACT_TOKEN_SCORE: f64 = KEYWORD_EXACT_CEILING + 4_000.0;
 
 /// Scores a whole-query literal match against the candidate title: the full query equal to the
-/// title (`TITLE_EXACT_SCORE`) or a leading prefix of it (`TITLE_PREFIX_SCORE`). Returns `None`
-/// when the query is not a title prefix; the fuzzy/keyword tiers still apply in that case.
+/// title (exact tier) or a leading prefix of it (prefix tier). Returns `None` when the query is
+/// not a title prefix; the fuzzy/keyword tiers still apply in that case.
 ///
-/// All prefix matches share one flat score on purpose: a per-length penalty would invent a
-/// "shortest title wins" rule that mis-ranks when one title is a character-prefix of another
-/// (e.g. query "workspace 1901" preferring "Workspace 19010" over "Workspace 1901 ..."). Equal
-/// scores instead defer to `scored_candidate_order`'s `(rank, index)` tiebreak, which keeps the
-/// switcher's natural order. Diacritic-only differences fall through to `None` and are handled by
-/// the fuzzy matcher (`Normalization::Smart`).
+/// The tier scores are multiplied by the query's token count. `weighted_query_score` *sums* the
+/// per-token keyword path, so a hidden row with an exact metadata line for every query token can
+/// reach `token_count * KEYWORD_EXACT_CEILING` (e.g. query "ios app" scoring a hidden "ios" +
+/// "app" near 60_060). A flat title constant would lose to that sum; scaling per token keeps a
+/// visible title match dominant for any query length, not just single-token queries.
+///
+/// Prefix matches of the same length share one score on purpose: a per-character-length penalty
+/// would invent a "shortest title wins" rule that mis-ranks when one title is a character-prefix
+/// of another (e.g. query "workspace 1901" preferring "Workspace 19010" over "Workspace 1901
+/// ..."). Equal scores defer to `scored_candidate_order`'s `(rank, index)` tiebreak, which keeps
+/// the switcher's natural order. Diacritic-only differences fall through to `None` and are handled
+/// by the fuzzy matcher (`Normalization::Smart`).
 fn title_literal_score(candidate: &Candidate, query: &str) -> Option<f64> {
     let query = query.trim();
     if query.is_empty() {
@@ -537,10 +545,11 @@ fn title_literal_score(candidate: &Candidate, query: &str) -> Option<f64> {
         }
     }
 
+    let token_count = query.split_whitespace().count().max(1) as f64;
     if title_chars.next().is_none() {
-        Some(TITLE_EXACT_SCORE)
+        Some(TITLE_EXACT_TOKEN_SCORE * token_count)
     } else {
-        Some(TITLE_PREFIX_SCORE)
+        Some(TITLE_PREFIX_TOKEN_SCORE * token_count)
     }
 }
 

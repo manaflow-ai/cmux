@@ -137,6 +137,38 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         XCTAssertTrue(resultIDs.contains("workspace.forkSessionNotFound"))
     }
 
+    func testNucleoFFIPrefersTitleOverSummedHiddenKeywordsForMultiTokenQuery() throws {
+        // Regression: the per-token keyword path is summed, so a multi-token query like "ios app"
+        // can give a hidden row an exact line per token (~30_030 each, ~60_060 summed) that beats a
+        // flat title-literal score. The title tier is scaled by query token count so a visible
+        // title match still wins for multi-token queries.
+        // https://github.com/manaflow-ai/cmux/pull/5148
+        let library = try NucleoLibrary()
+        let entries = [
+            FixtureEntry(
+                id: "workspace.iosApp",
+                rank: 0,
+                title: "iOS App",
+                searchableTexts: ["iOS App", "Workspace", "workspace", "switch", "go"]
+            ),
+            FixtureEntry(
+                id: "workspace.hiddenMetadataRow",
+                rank: 1,
+                title: "Some Unrelated Workspace",
+                // Both query tokens present only as hidden metadata tokens (branch/description).
+                searchableTexts: [
+                    "Some Unrelated Workspace", "Workspace", "workspace", "switch", "go",
+                    "branch", "ios", "app",
+                ]
+            ),
+        ]
+        let index = try NucleoIndex(library: library, entries: entries)
+
+        let resultIDs = try index.search(query: "ios app", limit: 5).map(\.id)
+
+        XCTAssertEqual(resultIDs.first, "workspace.iosApp")
+    }
+
     func testNucleoFFIDoesNotMatchSingleTokenAcrossSearchFields() throws {
         let library = try NucleoLibrary()
         let entries = [
