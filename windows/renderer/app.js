@@ -2191,32 +2191,13 @@ function cleanupPaneLayouts() {
 
 function storedPaneWeightsForPanels(panels, direction, zoomedPanel) {
   if (zoomedPanel || panels.length <= 1) return null;
-  const persisted = loadPaneLayouts();
   const weights = new Map();
   for (const panel of panels) {
-    const persistedLayout = persisted.get(panel.id);
-    if (persistedLayout) {
-      state.paneLayouts.set(panel.id, {
-        ...(state.paneLayouts.get(panel.id) || {}),
-        ...persistedLayout
-      });
-    }
     const weight = storedPaneWeight(panel.id, direction);
     if (!weight) return null;
     weights.set(panel.id, weight);
   }
   return weights;
-}
-
-function storedPaneWeightFromStorage(panelId, direction) {
-  const persistedLayout = loadPaneLayouts().get(panelId);
-  if (persistedLayout) {
-    state.paneLayouts.set(panelId, {
-      ...(state.paneLayouts.get(panelId) || {}),
-      ...persistedLayout
-    });
-  }
-  return storedPaneWeight(panelId, direction);
 }
 
 function paneIdSelector(panelId) {
@@ -2241,7 +2222,7 @@ function renderPaneLayoutStylesForVisiblePanes(direction) {
   }
   const weights = new Map();
   for (const pane of panes) {
-    const weight = storedPaneWeightFromStorage(pane.dataset.panelId, direction);
+    const weight = storedPaneWeight(pane.dataset.panelId, direction);
     if (!weight) {
       elements.paneLayoutStyle.textContent = "";
       return false;
@@ -2282,7 +2263,7 @@ function applyStoredPaneLayoutToVisiblePanes(direction) {
     elements.paneLayoutStyle.textContent = "";
     return false;
   }
-  const weights = panes.map((pane) => storedPaneWeightFromStorage(pane.dataset.panelId, direction));
+  const weights = panes.map((pane) => storedPaneWeight(pane.dataset.panelId, direction));
   if (weights.some((weight) => !weight)) {
     elements.paneLayoutStyle.textContent = "";
     return false;
