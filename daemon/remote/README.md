@@ -133,7 +133,7 @@ The command prints the exact release asset URL, expected SHA-256, local cache st
 
 ## CLI relay
 
-The `cli` subcommand (or `cmux` wrapper/symlink) connects to the local cmux app through an SSH reverse forward and relays commands. It supports both v1 text protocol and v2 JSON-RPC commands.
+The `cli` subcommand (or `cmux` wrapper/symlink) connects to the local cmux app through an SSH reverse forward and relays commands using the v2 JSON-RPC protocol.
 
 Cloud VM images install `/usr/local/bin/cmux` as a symlink to `cmuxd-remote`,
 so `cmux --help` works before a user-specific SSH bootstrap has written
@@ -157,6 +157,20 @@ Integration additions for the relay path:
 2. A background `ssh -N -R` process reverse-forwards a TCP port to the authenticated local relay server. The relay address is written to `~/.cmux/socket_addr` on the remote.
 3. Relay startup writes `~/.cmux/relay/<port>.daemon_path` so the wrapper can route each shell to the correct daemon binary when multiple local cmux instances or versions coexist.
 4. Relay startup writes `~/.cmux/relay/<port>.auth` with the relay ID and token needed for HMAC authentication.
+
+### Protocol and flags
+
+All relay commands use v2 JSON-RPC. Flags map to JSON params via `flagToParamKey` (e.g. `--workspace` → `workspace_id`). Boolean flags (`--focus`) accept `true`/`false`/`1`/`0` and are sent as JSON booleans.
+
+Environment fallbacks:
+- `CMUX_WORKSPACE_ID` — used as `workspace_id` when `--workspace` is not provided
+- `CMUX_SURFACE_ID` — used as `surface_id` when `--surface` is not provided
+
+### Migration notes
+
+**`new-workspace`**: The flags `--command` and `--working-directory` were removed. They were accepted by the old relay but sent incorrect param names that `workspace.create` does not use, so the server silently ignored them. Use `--cwd` for the working directory.
+
+**Window commands**: Prior to this release, `list-windows`, `current-window`, `new-window`, `focus-window`, and `close-window` used a v1 text protocol and returned plain-text responses (e.g. `window:abc123` per line). They now use v2 JSON-RPC and return JSON. Scripts parsing that output will need updating.
 
 Browser relay behavior:
 
