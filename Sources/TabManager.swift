@@ -7503,35 +7503,27 @@ class TabManager: ObservableObject {
     }
 
     private func runCloseConfirmationAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
-        if NSApp.activationPolicy() == .regular {
-            NSApp.activate(ignoringOtherApps: true)
-        }
-
+        // Presentation (activate + sheet-on-main-window, else app-modal) is
+        // shared with every other cmux dialog via `runCmuxModalAlert`. This
+        // wrapper only adds the close-confirmation-specific UITest telemetry.
         let presentingWindow = closeConfirmationPresentingWindow()
-        let hasAttachedSheet = presentingWindow?.attachedSheet != nil
-        guard let presentingWindow, !hasAttachedSheet else {
-            #if DEBUG
+        #if DEBUG
+        let willPresentAsSheet = presentingWindow != nil && presentingWindow?.attachedSheet == nil
+        if willPresentAsSheet, let presentingWindow {
+            DispatchQueue.main.async {
+                UITestRecorder.record([
+                    "closeConfirmationPresentation": "sheet",
+                    "closeConfirmationAttachedSheet": presentingWindow.attachedSheet == nil ? "0" : "1",
+                ])
+            }
+        } else {
             UITestRecorder.record([
                 "closeConfirmationPresentation": "appModal",
-                "closeConfirmationAttachedSheet": hasAttachedSheet ? "1" : "0",
-            ])
-            #endif
-
-            return alert.runModal()
-        }
-
-        alert.beginSheetModal(for: presentingWindow) { result in
-            NSApp.stopModal(withCode: result)
-        }
-        #if DEBUG
-        DispatchQueue.main.async {
-            UITestRecorder.record([
-                "closeConfirmationPresentation": "sheet",
-                "closeConfirmationAttachedSheet": presentingWindow.attachedSheet == nil ? "0" : "1",
+                "closeConfirmationAttachedSheet": (presentingWindow?.attachedSheet != nil) ? "1" : "0",
             ])
         }
         #endif
-        return NSApp.runModal(for: alert.window)
+        return runCmuxModalAlert(alert, presentingWindow: presentingWindow)
     }
 
     private func closeConfirmationPresentingWindow() -> NSWindow? {
