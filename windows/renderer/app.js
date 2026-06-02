@@ -4993,6 +4993,12 @@ function terminalPanelFolder(panel) {
   return panel.cwdShort || "~";
 }
 
+function terminalPanelSmartSurfaceTitle(panel) {
+  const title = String(panel?.title || "").trim();
+  if (title && (panel.titleLocked || title.toLowerCase() !== "terminal")) return title;
+  return terminalPanelFolder(panel);
+}
+
 function panelDisplayTitle(panel, surface = false) {
   if (isPendingPanel(panel)) return panel.title || (panel.type === "browser" ? "Opening browser" : "Starting terminal");
   if (panel.type === "browser") {
@@ -5002,7 +5008,7 @@ function panelDisplayTitle(panel, surface = false) {
   if (state.settings.titleDetailMode === "compact") return panel.title || "Terminal";
   if (state.settings.titleDetailMode === "folder") return terminalPanelFolder(panel);
   if (state.settings.titleDetailMode === "detailed") return terminalPanelTitle(panel);
-  return surface ? panel.title || "Terminal" : terminalPanelTitle(panel);
+  return surface ? terminalPanelSmartSurfaceTitle(panel) : terminalPanelTitle(panel);
 }
 
 function browserUrlChangeNeedsRender(panel, nextUrl) {
