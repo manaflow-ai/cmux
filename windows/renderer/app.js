@@ -4449,8 +4449,6 @@ function paneRenderSignature(workspace, visiblePanels, tree) {
     appendSignatureValue(nextParts, Boolean(panel.needsAttention));
     appendSignatureValue(nextParts, isPanelMinimized(panel));
     appendSignatureValue(nextParts, isPendingPanel(panel));
-    appendSignatureValue(nextParts, state.terminals.has(panel.id));
-    appendSignatureValue(nextParts, state.browserViews.has(panel.id));
   });
   return parts.join("");
 }
