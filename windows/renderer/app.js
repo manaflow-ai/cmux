@@ -10545,6 +10545,8 @@ function paneShapePanel(workspace = activeWorkspace()) {
   `;
   const titleNode = wrapper.querySelector(".pane-shape-title");
   const valueNode = wrapper.querySelector(".pane-shape-slider-value");
+  let rangePreviewFrame = 0;
+  let rangePreviewPercent = percent;
   let quickButtons = [];
   let smaller = null;
   let bigger = null;
@@ -10589,6 +10591,20 @@ function paneShapePanel(workspace = activeWorkspace()) {
     updatePercentView(nextPercent);
     updateControlStates(nextPercent);
   };
+  const cancelRangePreview = () => {
+    if (!rangePreviewFrame) return;
+    cancelAnimationFrame(rangePreviewFrame);
+    rangePreviewFrame = 0;
+  };
+  const scheduleRangePreview = (nextPercent) => {
+    rangePreviewPercent = nextPercent;
+    if (rangePreviewFrame) return;
+    rangePreviewFrame = requestAnimationFrame(() => {
+      rangePreviewFrame = 0;
+      const appliedPercent = applyActivePaneLayoutPercent(rangePreviewPercent, { render: false });
+      syncPercentInputs(appliedPercent);
+    });
+  };
   range.min = String(paneLayoutPercentMin);
   range.max = String(paneLayoutPercentMax);
   range.step = "1";
@@ -10600,21 +10616,17 @@ function paneShapePanel(workspace = activeWorkspace()) {
   number.disabled = !multiPane;
   number.setAttribute("aria-label", t("paneShape.sizeAria"));
   range.oninput = () => {
-    const nextPercent = applyActivePaneLayoutPercent(range.value, { render: false });
+    const nextPercent = clampPaneLayoutPercent(range.value);
     syncPercentInputs(nextPercent);
+    scheduleRangePreview(nextPercent);
   };
   range.onchange = () => {
+    cancelRangePreview();
     const nextPercent = applyActivePaneLayoutPercent(range.value, { save: true, toast: true });
     syncPercentInputs(nextPercent);
   };
-  number.oninput = () => {
-    if (!number.value.trim()) return;
-    const parsed = Number(number.value);
-    if (!Number.isFinite(parsed)) return;
-    const nextPercent = applyActivePaneLayoutPercent(parsed, { render: false });
-    syncPercentInputs(nextPercent);
-  };
   number.onchange = () => {
+    cancelRangePreview();
     const value = number.value.trim() || String(activePaneLayoutPercent(workspace));
     const nextPercent = applyActivePaneLayoutPercent(value, { save: true, toast: true });
     syncPercentInputs(nextPercent);
