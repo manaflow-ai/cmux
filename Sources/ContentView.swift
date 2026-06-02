@@ -2579,6 +2579,23 @@ struct ContentView: View {
         }
 
         sidebarSelectionState.selection = .tabs
+        if workspace.isRemoteWorkspace {
+            Task { [weak workspace, fileExplorerStore] in
+                guard let workspace else { return }
+                do {
+                    let localURL = try await fileExplorerStore.materializeRemoteFileForPreview(path: filePath)
+                    _ = workspace.openFileSurfaces(
+                        inPane: paneId,
+                        filePaths: [localURL.path],
+                        focus: true,
+                        reuseExisting: true
+                    )
+                } catch {
+                    NSSound.beep()
+                }
+            }
+            return
+        }
         _ = workspace.openFileSurfaces(
             inPane: paneId,
             filePaths: [filePath],
@@ -2628,6 +2645,7 @@ struct ContentView: View {
                         sshOptions: config.sshOptions
                     ),
                     displayTarget: config.displayTarget,
+                    rootPath: tab.currentDirectory,
                     isAvailable: tab.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )
