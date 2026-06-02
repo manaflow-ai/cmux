@@ -7427,18 +7427,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// Test-only helper to deterministically simulate a released runtime surface.
     @MainActor
     func releaseSurfaceForTesting() {
-        let callbackContext = surfaceCallbackContext
-        surfaceCallbackContext = nil
-
-        guard let surfaceToFree = surface else {
-            callbackContext?.release()
-            return
-        }
-
-        TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
-        surface = nil
-        ghostty_surface_free(surfaceToFree)
-        callbackContext?.release()
+        teardownSurface()
     }
 
     /// Test-only helper to simulate a stale Swift wrapper whose native surface
