@@ -2771,6 +2771,19 @@ function findPanelState(panelId) {
   return null;
 }
 
+function closingPanelShowsWorkspaceHome(workspace, panelId) {
+  return Boolean(
+    workspace
+    && Array.isArray(workspace.panels)
+    && workspace.panels.length === 1
+    && workspace.panels[0]?.id === panelId
+  );
+}
+
+function closePaneActionLabel(workspace, panelId) {
+  return closingPanelShowsWorkspaceHome(workspace, panelId) ? "Close to cmux home" : "Close pane";
+}
+
 function panelFromElement(target) {
   const element = target?.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
   const panelId = element?.closest?.(".pane[data-panel-id]")?.dataset?.panelId || "";
@@ -3941,11 +3954,12 @@ function updateSurfaceTab(button, workspace, panel) {
   const parts = surfaceTabParts(button);
   setDatasetIfChanged(button, "panelId", panel.id);
   setClassNameIfChanged(button, `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${isPanelZoomed(panel, workspace) ? " is-zoomed" : ""}${minimized ? " is-minimized" : ""}${pending ? " is-pending" : ""}${panel.needsAttention ? " has-attention" : ""}`);
-  setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""}${pending ? " - starting" : ""}${minimized ? " - minimized, click to restore" : ""} - middle-click to ${pending ? "cancel" : "close"}, double-click to rename, right-click for pane options`);
+  const closeActionLabel = pending ? "cancel" : closePaneActionLabel(workspace, panel.id).toLowerCase();
+  setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""}${pending ? " - starting" : ""}${minimized ? " - minimized, click to restore" : ""} - middle-click to ${closeActionLabel}, double-click to rename, right-click for pane options`);
   setStylePropertyIfChanged(button, "--tab-color", panel.color || workspace.color || "var(--color-accent)");
   setDatasetIfChanged(parts.dot, "tabIndex", String(ordinal));
   setTextIfChanged(parts.label, label);
-  setTitleIfChanged(parts.close, pending ? "Cancel pane" : "Close pane");
+  setTitleIfChanged(parts.close, pending ? "Cancel pane" : closePaneActionLabel(workspace, panel.id));
 }
 
 function surfaceTabDropPlacement(event, button) {
@@ -4207,7 +4221,11 @@ function renderPaneNode(panel, workspace, visibleCount) {
     button.disabled = (pending && !button.classList.contains("close"))
       || (terminalOnlyButtons.includes(button) && panel.type !== "terminal");
   }
-  setTitleIfChanged(parts.close, pending ? "Cancel pane" : "Close");
+  const closeActionLabel = pending ? "Cancel pane" : closePaneActionLabel(workspace, panel.id);
+  setTitleIfChanged(parts.close, closeActionLabel);
+  if (parts.close.getAttribute("aria-label") !== closeActionLabel) {
+    parts.close.setAttribute("aria-label", closeActionLabel);
+  }
   if (pending) {
     renderPendingPane(panel, parts.body);
     return pane;
@@ -11571,7 +11589,7 @@ function showPanelContextMenu(event, panel) {
     contextMenuButton("Close other panes", () => closeOtherPanes(panel.id), found.workspace.panels.length <= 1, "danger"),
     contextMenuButton("Close panes to right", () => closePanelsById(panesToRight.map((candidate) => candidate.id)), panesToRight.length === 0, "danger"),
     contextMenuButton("Close all panes", () => closeAllPanes(found.workspace), found.workspace.panels.length === 0, "danger"),
-    contextMenuButton("Close", () => closePanel(panel.id), false, "danger")
+    contextMenuButton(closePaneActionLabel(found.workspace, panel.id), () => closePanel(panel.id), false, "danger")
   );
   const colorTitle = document.createElement("div");
   colorTitle.className = "context-section-title";
