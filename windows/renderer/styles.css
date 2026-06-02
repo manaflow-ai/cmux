@@ -6253,9 +6253,9 @@ body.reduce-motion *::after {
   background-image:
     var(--active-background-image),
     linear-gradient(135deg, color-mix(in oklch, var(--color-text) 8%, transparent), transparent);
-  background-size: cover;
+  background-size: var(--active-background-size, cover), cover;
   background-repeat: var(--active-background-repeat, repeat), no-repeat;
-  background-position: center;
+  background-position: var(--active-background-position, center), center;
 }
 
 .active-background-panel:not(.has-image) .active-background-preview {
@@ -6305,6 +6305,41 @@ body.reduce-motion *::after {
 @container (max-width: 330px) {
   .active-background-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.background-tuning-panel {
+  grid-column: 1 / -1;
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-line);
+}
+
+.background-tuning-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.background-tuning-row {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.background-tuning-row-wide {
+  grid-template-columns: minmax(74px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+}
+
+@container (max-width: 330px) {
+  .background-tuning-grid,
+  .background-tuning-row-wide {
+    grid-template-columns: 1fr;
   }
 }
 

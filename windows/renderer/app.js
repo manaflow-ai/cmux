@@ -6875,7 +6875,7 @@ function renderSettingsInspector(options = {}) {
       settingsActionButton("Reset look", resetAppearanceSettings, "", "appearance look reset theme accent background terminal colors default")
     );
     appearanceSection.append(appearanceActions);
-    appearanceSection.append(activeBackgroundPanel());
+    appearanceSection.append(activeBackgroundPanel({ tuning: true }));
     appearanceSection.append(settingRow("Background preset", backgroundPresetGrid(), true));
 
     const imageInput = document.createElement("input");
@@ -6917,63 +6917,6 @@ function renderSettingsInspector(options = {}) {
     appearanceSection.append(imageActions);
     appearanceSection.append(settingRow("Saved backgrounds", savedBackgroundImagesPanel(), true, "saved background image wallpaper library apply rename delete save"));
 
-    const fitSelect = document.createElement("select");
-    fitSelect.className = "setting-select";
-    fitSelect.dataset.settingControl = "backgroundFit";
-    for (const [value, label] of backgroundFitOptions) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      fitSelect.append(option);
-    }
-    fitSelect.value = state.settings.backgroundFit;
-    fitSelect.onchange = () => updateSettings({ backgroundFit: fitSelect.value });
-    appearanceSection.append(settingRow("Image fit", fitSelect, false, "background image fit cover contain stretch original wallpaper size"));
-
-    const positionSelect = document.createElement("select");
-    positionSelect.className = "setting-select";
-    positionSelect.dataset.settingControl = "backgroundPosition";
-    for (const [value, label] of backgroundPositionOptions) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      positionSelect.append(option);
-    }
-    positionSelect.value = state.settings.backgroundPosition;
-    positionSelect.onchange = () => updateSettings({ backgroundPosition: positionSelect.value });
-    appearanceSection.append(settingRow("Image position", positionSelect, false, "background image position center top bottom left right wallpaper align"));
-
-    const effectsSelect = document.createElement("select");
-    effectsSelect.className = "setting-select";
-    effectsSelect.dataset.settingControl = "backgroundEffects";
-    for (const [value, label] of backgroundEffectsOptions) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      effectsSelect.append(option);
-    }
-    effectsSelect.value = state.settings.backgroundEffects;
-    effectsSelect.onchange = () => updateSettings({ backgroundEffects: effectsSelect.value });
-    appearanceSection.append(settingRow("Image effects", effectsSelect, false, "background image effects flat fast glass blur wallpaper performance"));
-
-    const opacityInput = document.createElement("input");
-    opacityInput.className = "setting-control";
-    opacityInput.type = "range";
-    opacityInput.min = "0";
-    opacityInput.max = "42";
-    opacityInput.value = String(state.settings.backgroundOpacity);
-    const opacityRow = settingRow(
-      `Image strength ${state.settings.backgroundOpacity}%`,
-      opacityInput,
-      false,
-      "background image opacity strength wallpaper transparency"
-    );
-    bindDeferredSettingRange(opacityInput, opacityRow, {
-      settingKey: "backgroundOpacity",
-      formatLabel: (value) => `Image strength ${value}%`,
-      preview: (value) => elements.shell.style.setProperty("--background-opacity", String(value / 100))
-    });
-    appearanceSection.append(opacityRow);
     nodes.push(appearanceSection);
   }
 
@@ -7737,7 +7680,66 @@ function appearancePreviewPanel() {
   return preview;
 }
 
-function activeBackgroundPanel() {
+function backgroundTuningSelect(label, settingKey, options, onCommit) {
+  const row = document.createElement("label");
+  row.className = "background-tuning-row";
+  const text = document.createElement("span");
+  text.className = "setting-label";
+  text.textContent = label;
+  const select = document.createElement("select");
+  select.className = "setting-select";
+  select.dataset.settingControl = settingKey;
+  for (const [value, optionLabelText] of options) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = optionLabelText;
+    select.append(option);
+  }
+  select.value = state.settings[settingKey];
+  select.onchange = () => {
+    updateSettings({ [settingKey]: select.value });
+    onCommit?.();
+  };
+  row.append(text, select);
+  return row;
+}
+
+function backgroundTuningPanel(onCommit = null) {
+  const panel = document.createElement("div");
+  panel.className = "background-tuning-panel";
+  panel.dataset.settingsSearch = normalizeSettingsQuery("background image fit position effects opacity strength wallpaper transparency tune");
+
+  const controls = document.createElement("div");
+  controls.className = "background-tuning-grid";
+  controls.append(
+    backgroundTuningSelect("Fit", "backgroundFit", backgroundFitOptions, onCommit),
+    backgroundTuningSelect("Position", "backgroundPosition", backgroundPositionOptions, onCommit),
+    backgroundTuningSelect("Effects", "backgroundEffects", backgroundEffectsOptions, onCommit)
+  );
+
+  const opacityInput = document.createElement("input");
+  opacityInput.className = "setting-control";
+  opacityInput.type = "range";
+  opacityInput.min = "0";
+  opacityInput.max = "42";
+  opacityInput.value = String(state.settings.backgroundOpacity);
+  const opacityRow = document.createElement("label");
+  opacityRow.className = "background-tuning-row background-tuning-row-wide";
+  const opacityLabel = document.createElement("span");
+  opacityLabel.className = "setting-label";
+  opacityLabel.textContent = `Strength ${state.settings.backgroundOpacity}%`;
+  opacityRow.append(opacityLabel, opacityInput);
+  bindDeferredSettingRange(opacityInput, opacityRow, {
+    settingKey: "backgroundOpacity",
+    formatLabel: (value) => `Strength ${value}%`,
+    preview: (value) => elements.shell.style.setProperty("--background-opacity", String(value / 100))
+  });
+
+  panel.append(controls, opacityRow);
+  return panel;
+}
+
+function activeBackgroundPanel(options = {}) {
   const panel = document.createElement("div");
   const background = state.settings.backgroundImage;
   const normalized = normalizeBackgroundValue(background);
@@ -7751,9 +7753,11 @@ function activeBackgroundPanel() {
       ? "Built-in preset"
       : filePath || normalized;
   panel.className = `active-background-panel${hasBackground ? " has-image" : ""}`;
-  panel.dataset.settingsSearch = normalizeSettingsQuery("active background image wallpaper current preview source choose save open clear");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("active background image wallpaper current preview source choose save open clear fit position effects opacity strength transparency tune");
   panel.style.setProperty("--active-background-image", backgroundCss(background));
   panel.style.setProperty("--active-background-repeat", backgroundRepeatCss(background));
+  panel.style.setProperty("--active-background-size", backgroundSizeCss(state.settings.backgroundFit));
+  panel.style.setProperty("--active-background-position", backgroundPositionCss(state.settings.backgroundPosition));
   panel.innerHTML = `
     <button class="active-background-preview" type="button" title="Choose background image"></button>
     <span class="active-background-copy">
@@ -7785,6 +7789,16 @@ function activeBackgroundPanel() {
     open,
     clear
   );
+  if (options.tuning) {
+    const refreshBackgroundSummary = () => {
+      const title = appearanceBackgroundLabel(state.settings.backgroundImage);
+      panel.style.setProperty("--active-background-size", backgroundSizeCss(state.settings.backgroundFit));
+      panel.style.setProperty("--active-background-position", backgroundPositionCss(state.settings.backgroundPosition));
+      panel.querySelector(".active-background-title").textContent = title;
+      panel.querySelector(".active-background-title").title = title;
+    };
+    panel.append(backgroundTuningPanel(refreshBackgroundSummary));
+  }
   return panel;
 }
 
