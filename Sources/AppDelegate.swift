@@ -866,6 +866,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserAddressBarBlurObserver: NSObjectProtocol?
     private var browserWebViewFirstResponderObserver: NSObjectProtocol?
     let updateLog = UpdateLogStore()
+    let focusLog = FocusLogStore()
     private lazy var updateController = UpdateController(log: updateLog)
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog)
     private let windowDecorationsController = WindowDecorationsController()
@@ -1123,7 +1124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let mainWindowNumber = NSApp.mainWindow?.windowNumber ?? -1
         let ws = workspaceId.map { String($0.uuidString.prefix(8)) } ?? "nil"
         let wd = workingDirectory.map { String($0.prefix(120)) } ?? "-"
-        FocusLogStore.shared.append(
+        focusLog.append(
             "cmdn.route phase=\(phase) src=\(source) reason=\(reason) eventWin=\(eventWindowNumber) eventNum=\(eventNumber) keyCode=\(eventKeyCode) chars=\(eventChars) keyWin=\(keyWindowNumber) mainWin=\(mainWindowNumber) activeTM=\(pointerString(tabManager)) chosen={\(summarizeContextForWorkspaceRouting(chosenContext))} ws=\(ws) wd=\(wd) contexts=[\(summarizeAllContextsForWorkspaceRouting())]"
         )
     }
@@ -7817,7 +7818,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func synchronizeShortcutRoutingContext(event: NSEvent) -> Bool {
         guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
 #if DEBUG
-            FocusLogStore.shared.append(
+            focusLog.append(
                 "shortcut.route reason=no_context_no_fallback eventWin=\(event.windowNumber) keyCode=\(event.keyCode)"
             )
 #endif
@@ -7841,7 +7842,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
 #if DEBUG
-        FocusLogStore.shared.append(
+        focusLog.append(
             "shortcut.route reason=sync activeTM=\(pointerString(tabManager)) chosen={\(summarizeContextForWorkspaceRouting(context))}"
         )
 #endif
@@ -8590,12 +8591,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pasteboard.setString(payload, forType: .string)
     }
     @objc func copyFocusLogs(_ sender: Any?) {
-        let logText = FocusLogStore.shared.snapshot()
+        let logText = focusLog.snapshot()
         let payload: String
         if logText.isEmpty {
-            payload = "No focus logs captured.\nLog file: \(FocusLogStore.shared.logPath())"
+            payload = "No focus logs captured.\nLog file: \(focusLog.logPath())"
         } else {
-            payload = logText + "\nLog file: \(FocusLogStore.shared.logPath())"
+            payload = logText + "\nLog file: \(focusLog.logPath())"
         }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
