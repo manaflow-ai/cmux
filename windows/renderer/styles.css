@@ -1405,6 +1405,14 @@ body.reduce-motion *::after {
   background: var(--color-pane);
 }
 
+.surface-new-tab:disabled .surface-new-icon {
+  animation: cmux-pulse 900ms var(--ease-in-out) infinite;
+}
+
+body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
+  animation: none;
+}
+
 .surface-tabs {
   position: relative;
   isolation: isolate;
@@ -1415,7 +1423,7 @@ body.reduce-motion *::after {
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-padding-inline: 10px 92px;
+  scroll-padding-inline: 10px 204px;
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
   background: color-mix(in oklch, var(--color-terminal-gutter) 88%, var(--color-canvas) 12%);
@@ -1768,14 +1776,14 @@ body.reduce-motion *::after {
   position: sticky;
   z-index: 3;
   height: 28px;
-  flex: 0 0 36px;
-  min-width: 36px;
-  max-width: 36px;
-  grid-template-columns: minmax(0, 1fr);
-  justify-items: center;
+  flex: 0 0 92px;
+  min-width: 92px;
+  max-width: 92px;
+  grid-template-columns: 21px minmax(0, 1fr);
+  justify-items: start;
   justify-content: center;
-  gap: 0;
-  padding: 0 6px;
+  gap: 6px;
+  padding: 0 8px;
   border-color: var(--color-line);
   border-radius: var(--radius-1);
   background: color-mix(in oklch, var(--color-pane) 88%, var(--color-terminal-gutter) 12%);
@@ -1785,10 +1793,13 @@ body.reduce-motion *::after {
 }
 
 .surface-new-terminal {
-  right: 47px;
+  right: 104px;
 }
 
 .surface-new-browser {
+  flex-basis: 92px;
+  min-width: 92px;
+  max-width: 92px;
   right: 6px;
 }
 
@@ -1842,7 +1853,7 @@ body.reduce-motion *::after {
 }
 
 .surface-new-label {
-  display: none;
+  display: block;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -1882,14 +1893,25 @@ body.reduce-motion *::after {
   flex-basis: 34px;
   min-width: 34px;
   max-width: 34px;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 0;
   padding-inline: 5px;
+}
+
+.shell.density-compact .surface-tabs {
+  scroll-padding-inline: 10px 88px;
 }
 
 .shell.density-compact .surface-new-terminal {
   right: 43px;
 }
 
-@container (max-width: 560px) {
+.shell.density-compact .surface-new-label {
+  display: none;
+}
+
+@container (max-width: 700px) {
   .surface-tabs {
     scroll-padding-inline: 10px 78px;
   }
@@ -1900,6 +1922,7 @@ body.reduce-motion *::after {
     min-width: 30px;
     max-width: 30px;
     grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
     gap: 0;
   }
 

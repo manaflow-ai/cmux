@@ -4505,10 +4505,11 @@ function getNewSurfaceTab(kind, workspace) {
     state.newSurfaceAddButtons[kind] = button;
   }
   const parts = surfaceAddTabParts(button);
-  setTextIfChanged(parts.label, config.label);
+  const disabled = paneCreationButtonsDisabled();
+  setTextIfChanged(parts.label, disabled ? "Starting" : config.label);
   setDatasetIfChanged(button, "workspaceId", workspace.id);
   setDatasetIfChanged(button, "addKind", kind);
-  setDisabledIfChanged(button, paneCreationButtonsDisabled());
+  setDisabledIfChanged(button, disabled);
   const title = paneCreationActionTitle(config.title, "Right-click to choose right or below.");
   setTitleIfChanged(button, title);
   setAttributeIfChanged(button, "aria-label", title);
