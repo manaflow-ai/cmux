@@ -15659,7 +15659,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func moveSurfaceToAdjacentPane(panelId: UUID, direction: NavigationDirection) -> Bool {
         guard panels[panelId] != nil,
               let sourcePaneId = paneId(forPanelId: panelId),
-              let targetPaneId = bonsplitController.adjacentPane(to: sourcePaneId, direction: direction) else {
+              let targetPaneId = spatialAdjacentPane(to: sourcePaneId, direction: direction) else {
             return false
         }
         return moveSurface(panelId: panelId, toPane: targetPaneId, focus: true)
@@ -16200,7 +16200,10 @@ final class Workspace: Identifiable, ObservableObject {
             prev.unfocus()
         }
 
-        bonsplitController.navigateFocus(direction: direction)
+        if let focusedPaneId = bonsplitController.focusedPaneId,
+           let targetPaneId = spatialAdjacentPane(to: focusedPaneId, direction: direction) {
+            bonsplitController.focusPane(targetPaneId)
+        }
 
         // Always reconcile selection/focus after navigation so AppKit first-responder and
         // bonsplit's focused pane stay aligned, even through split tree mutations.
@@ -16209,6 +16212,109 @@ final class Workspace: Identifiable, ObservableObject {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
 
+    }
+
+    private struct SpatialPaneCandidate {
+        let paneId: PaneID
+        let bounds: CGRect
+    }
+
+    private func spatialAdjacentPane(to sourcePaneId: PaneID, direction: NavigationDirection) -> PaneID? {
+        let paneById = Dictionary(uniqueKeysWithValues: bonsplitController.allPaneIds.map { ($0.id.uuidString, $0) })
+        var boundsByPaneId: [String: CGRect] = [:]
+        browserCollectNormalizedPaneBounds(
+            node: bonsplitController.treeSnapshot(),
+            availableRect: CGRect(x: 0, y: 0, width: 1, height: 1),
+            into: &boundsByPaneId
+        )
+
+        let sourceId = sourcePaneId.id.uuidString
+        guard let sourceBounds = boundsByPaneId[sourceId] else { return nil }
+
+        let epsilon: CGFloat = 0.000_1
+        let candidates: [SpatialPaneCandidate] = boundsByPaneId.compactMap { paneId, bounds in
+            guard paneId != sourceId,
+                  let pane = paneById[paneId],
+                  spatialPane(bounds, isInDirection: direction, from: sourceBounds, epsilon: epsilon) else {
+                return nil
+            }
+            return SpatialPaneCandidate(paneId: pane, bounds: bounds)
+        }
+
+        return candidates.sorted { lhs, rhs in
+            let lhsOverlap = spatialPerpendicularOverlap(lhs.bounds, sourceBounds, direction: direction)
+            let rhsOverlap = spatialPerpendicularOverlap(rhs.bounds, sourceBounds, direction: direction)
+            let lhsHasOverlap = lhsOverlap > epsilon
+            let rhsHasOverlap = rhsOverlap > epsilon
+            if lhsHasOverlap != rhsHasOverlap { return lhsHasOverlap }
+
+            let lhsCenterDistance = spatialPerpendicularCenterDistance(lhs.bounds, sourceBounds, direction: direction)
+            let rhsCenterDistance = spatialPerpendicularCenterDistance(rhs.bounds, sourceBounds, direction: direction)
+            if abs(lhsCenterDistance - rhsCenterDistance) > epsilon {
+                return lhsCenterDistance < rhsCenterDistance
+            }
+
+            let lhsAxisDistance = spatialAxisDistance(lhs.bounds, sourceBounds, direction: direction)
+            let rhsAxisDistance = spatialAxisDistance(rhs.bounds, sourceBounds, direction: direction)
+            if abs(lhsAxisDistance - rhsAxisDistance) > epsilon {
+                return lhsAxisDistance < rhsAxisDistance
+            }
+
+            if abs(lhsOverlap - rhsOverlap) > epsilon {
+                return lhsOverlap > rhsOverlap
+            }
+
+            return lhs.paneId.id.uuidString < rhs.paneId.id.uuidString
+        }.first?.paneId
+    }
+
+    private func spatialPane(
+        _ candidate: CGRect,
+        isInDirection direction: NavigationDirection,
+        from source: CGRect,
+        epsilon: CGFloat
+    ) -> Bool {
+        switch direction {
+        case .left:
+            return candidate.maxX <= source.minX + epsilon
+        case .right:
+            return candidate.minX >= source.maxX - epsilon
+        case .up:
+            return candidate.maxY <= source.minY + epsilon
+        case .down:
+            return candidate.minY >= source.maxY - epsilon
+        }
+    }
+
+    private func spatialPerpendicularOverlap(_ candidate: CGRect, _ source: CGRect, direction: NavigationDirection) -> CGFloat {
+        switch direction {
+        case .left, .right:
+            return max(0, min(source.maxY, candidate.maxY) - max(source.minY, candidate.minY))
+        case .up, .down:
+            return max(0, min(source.maxX, candidate.maxX) - max(source.minX, candidate.minX))
+        }
+    }
+
+    private func spatialPerpendicularCenterDistance(_ candidate: CGRect, _ source: CGRect, direction: NavigationDirection) -> CGFloat {
+        switch direction {
+        case .left, .right:
+            return abs(candidate.midY - source.midY)
+        case .up, .down:
+            return abs(candidate.midX - source.midX)
+        }
+    }
+
+    private func spatialAxisDistance(_ candidate: CGRect, _ source: CGRect, direction: NavigationDirection) -> CGFloat {
+        switch direction {
+        case .left:
+            return source.minX - candidate.maxX
+        case .right:
+            return candidate.minX - source.maxX
+        case .up:
+            return source.minY - candidate.maxY
+        case .down:
+            return candidate.minY - source.maxY
+        }
     }
 
     // MARK: - Surface Navigation
