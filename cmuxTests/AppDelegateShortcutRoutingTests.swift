@@ -2331,6 +2331,44 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testGhosttyConfigDoesNotRetainNumberedGotoTabFallback() throws {
+        // Regression for https://github.com/manaflow-ai/cmux/issues/5189.
+        // cmux owns "Select Workspace 1…9" (default ⌘1–9) through KeyboardShortcutSettings.
+        // Ghostty's built-in super+1…8 = goto_tab and super+9 = last_tab fallbacks must be
+        // unbound — exactly like cmux already unbinds super+d / super+w — so the numbered
+        // shortcut is driven solely by the configured value. Otherwise a remapped-away ⌘1–9
+        // still reaches the focused terminal and switches "tabs", making the rebind look
+        // hardcoded.
+        guard let ghosttyConfig = GhosttyApp.shared.config else {
+            XCTFail("Expected loaded Ghostty config")
+            return
+        }
+
+        let digitKeyCodes: [(String, UInt32)] = [
+            ("1", UInt32(kVK_ANSI_1)),
+            ("2", UInt32(kVK_ANSI_2)),
+            ("3", UInt32(kVK_ANSI_3)),
+            ("4", UInt32(kVK_ANSI_4)),
+            ("5", UInt32(kVK_ANSI_5)),
+            ("6", UInt32(kVK_ANSI_6)),
+            ("7", UInt32(kVK_ANSI_7)),
+            ("8", UInt32(kVK_ANSI_8)),
+            ("9", UInt32(kVK_ANSI_9)),
+        ]
+
+        for (digit, keyCode) in digitKeyCodes {
+            XCTAssertFalse(
+                ghosttyConfigKeyIsBinding(
+                    ghosttyConfig,
+                    key: digit,
+                    modifiers: [.command],
+                    keyCode: keyCode
+                ),
+                "Ghostty must not retain its super+\(digit) goto_tab/last_tab fallback; the numbered workspace shortcut is owned by KeyboardShortcutSettings"
+            )
+        }
+    }
+
     func testBrowserPopupPanelCloseShortcutFollowsCloseTabRemap() throws {
         let defaultCloseTab = KeyboardShortcutSettings.Action.closeTab.defaultShortcut
         let previousMainMenu = NSApp.mainMenu
