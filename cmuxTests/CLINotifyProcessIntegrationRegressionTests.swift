@@ -73,6 +73,45 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
+        let context = try makeClaudeHookContext(name: "claude-pretool-tail")
+        defer { context.cleanup() }
+
+        let transcriptURL = context.root.appendingPathComponent("large-claude-session.jsonl")
+        _ = FileManager.default.createFile(atPath: transcriptURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: transcriptURL)
+
+        func writeLine(_ line: String) throws {
+            try handle.write(contentsOf: Data((line + "\n").utf8))
+        }
+
+        try writeLine(#"{"type":"user","message":{"role":"user","content":"ancient user message"}}"#)
+        try writeLine(#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ancient assistant response"},{"type":"tool_use","name":"Bash","input":{"command":"echo old"}}]}}"#)
+        let fillerPayload = String(repeating: "x", count: 1_200)
+        for _ in 0..<1_200 {
+            try writeLine(#"{"type":"user","message":{"role":"user","content":"\#(fillerPayload)"}}"#)
+        }
+        try writeLine(#"{"type":"user","message":{"role":"user","content":"recent user message"}}"#)
+        try writeLine(#"{"type":"assistant","message":{"role":"assistant","content":"recent assistant response"}}"#)
+        try handle.close()
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"tail-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo recent"}}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let preToolEvent = try XCTUnwrap(
+            feedPushEvents(in: context).last { $0["hook_event_name"] as? String == "PreToolUse" }
+        )
+        let feedContext = try XCTUnwrap(preToolEvent["context"] as? [String: Any])
+        XCTAssertEqual(feedContext["lastUserMessage"] as? String, "recent user message")
+        XCTAssertEqual(feedContext["assistantPreamble"] as? String, "recent assistant response")
+        XCTAssertFalse(String(describing: feedContext).contains("ancient"), "\(feedContext)")
+    }
+
     func testCodexPromptSubmitRefreshesLastTurnDiffBaseline() throws {
         let context = try makeClaudeHookContext(name: "codex-prompt-baseline")
         defer { context.cleanup() }
@@ -7606,6 +7645,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
         return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+    }
+
+    private func feedPushEvents(in context: ClaudeHookContext) -> [[String: Any]] {
+        context.state.snapshot().compactMap { line in
+            guard let payload = jsonObject(line),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event
+        }
     }
 
     func testBrowserImportDefaultsNonInteractiveInCodingAgent() throws {
