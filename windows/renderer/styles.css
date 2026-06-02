@@ -1246,6 +1246,22 @@ body.reduce-motion *::after {
   flex: 0 0 auto;
 }
 
+.tool-button.add-tool {
+  gap: 5px;
+  padding-right: 7px;
+}
+
+.tool-add-mark {
+  width: 15px;
+  height: 15px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in oklch, currentColor 34%, transparent);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, currentColor 9%, transparent);
+  font: 800 12px/1 var(--font-ui);
+}
+
 .command-strip .advanced-tool {
   display: none;
 }
@@ -1293,12 +1309,16 @@ body.reduce-motion *::after {
   clip-path: inset(50%);
 }
 
+.shell.toolbar-compact .tool-add-mark {
+  display: none;
+}
+
 .shell.toolbar-minimal #newTerminalButton,
 .shell.toolbar-minimal #newBrowserButton {
   width: auto;
-  min-width: 78px;
+  min-width: 92px;
   padding: 0 9px;
-  gap: 6px;
+  gap: 5px;
 }
 
 .shell.toolbar-minimal #newTerminalButton .tool-label,

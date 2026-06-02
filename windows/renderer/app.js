@@ -16928,6 +16928,55 @@ function consumeGlobalShortcut(event) {
   event.stopPropagation();
 }
 
+function paneTextSizeShortcutKind(event) {
+  if (!event.ctrlKey || event.altKey || event.metaKey) return "";
+  if (event.key === "=" || event.key === "+") return "increase";
+  if (event.key === "-") return "decrease";
+  if (event.key === "0") return "reset";
+  return "";
+}
+
+function terminalPanelForShortcutEvent(event) {
+  return resolveTerminalPanel(keyboardPanelFromEvent(event));
+}
+
+function browserPanelForShortcutEvent(event) {
+  return resolveBrowserPanel(keyboardPanelFromEvent(event));
+}
+
+function runTerminalKeyShortcut(event, action) {
+  const panel = terminalPanelForShortcutEvent(event);
+  if (!panel) return false;
+  consumeGlobalShortcut(event);
+  action(panel);
+  return true;
+}
+
+function lockBrowserPanelZoom(panel) {
+  const browserPanel = resolveBrowserPanel(panel);
+  if (!browserPanel) return false;
+  markInteractedPanel(browserPanel.id);
+  const session = state.browserViews.get(browserPanel.id);
+  if (session?.view) lockBrowserViewZoom(session.view);
+  return true;
+}
+
+function handlePaneTextSizeKeyShortcut(event, kind) {
+  if (!kind) return false;
+  const terminalPanel = terminalPanelForShortcutEvent(event);
+  if (terminalPanel) {
+    consumeGlobalShortcut(event);
+    if (kind === "reset") resetTerminalFontSize({ panel: terminalPanel, toast: false, status: true });
+    else changeTerminalFontSize(kind === "increase" ? 1 : -1, { panel: terminalPanel, toast: false, status: true });
+    return true;
+  }
+  const browserPanel = browserPanelForShortcutEvent(event);
+  if (!browserPanel) return false;
+  consumeGlobalShortcut(event);
+  lockBrowserPanelZoom(browserPanel);
+  return true;
+}
+
 function announceNewAttention(previous, next) {
   if (!previous || !next) return;
   const oldAttention = new Set(previous.workspaces.flatMap((workspace) =>
@@ -17010,6 +17059,13 @@ window.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   if (state.activeDialog) return;
   const editingText = isFormEditableTarget(event.target);
+  const textSizeShortcutKind = paneTextSizeShortcutKind(event);
+  const directBrowserPanel = textSizeShortcutKind ? resolveBrowserPanel(panelFromEvent(event)) : null;
+  if (
+    textSizeShortcutKind
+    && (!editingText || directBrowserPanel)
+    && handlePaneTextSizeKeyShortcut(event, textSizeShortcutKind)
+  ) return;
   if (event.key === "Escape" && state.contextMenu && !state.contextMenu.hidden) {
     consumeGlobalShortcut(event);
     hideContextMenu();
@@ -17020,11 +17076,9 @@ window.addEventListener("keydown", (event) => {
     consumeGlobalShortcut(event);
     toggleFocusMode();
   } else if (event.ctrlKey && key === "f") {
-    consumeGlobalShortcut(event);
-    openTerminalSearch();
+    runTerminalKeyShortcut(event, openTerminalSearch);
   } else if (event.ctrlKey && event.shiftKey && event.key === "Enter") {
-    consumeGlobalShortcut(event);
-    promptRunTerminalCommand();
+    runTerminalKeyShortcut(event, promptRunTerminalCommand);
   } else if (event.ctrlKey && key === "tab") {
     consumeGlobalShortcut(event);
     cycleActivePane(event.shiftKey ? -1 : 1);
@@ -17047,15 +17101,11 @@ window.addEventListener("keydown", (event) => {
     consumeGlobalShortcut(event);
     cycleWorkspace(-1);
   } else if (event.key === "F3") {
-    consumeGlobalShortcut(event);
-    if (event.shiftKey) findPreviousInTerminal();
-    else findNextInTerminal();
+    runTerminalKeyShortcut(event, event.shiftKey ? findPreviousInTerminal : findNextInTerminal);
   } else if (event.ctrlKey && event.shiftKey && key === "c") {
-    consumeGlobalShortcut(event);
-    copyActiveTerminalSelection();
+    runTerminalKeyShortcut(event, copyActiveTerminalSelection);
   } else if (event.ctrlKey && event.shiftKey && key === "v") {
-    consumeGlobalShortcut(event);
-    pasteClipboardToTerminal();
+    runTerminalKeyShortcut(event, pasteClipboardToTerminal);
   } else if (event.ctrlKey && event.shiftKey && key === "p") {
     consumeGlobalShortcut(event);
     if (state.paletteOpen) closePalette();
@@ -17078,7 +17128,7 @@ window.addEventListener("keydown", (event) => {
       consumeGlobalShortcut(event);
       focusBrowserAddress(panel);
     }
-  } else if (event.ctrlKey && key === "r") {
+  } else if (event.ctrlKey && !event.shiftKey && key === "r") {
     const panel = keyboardPanelFromEvent(event);
     if (resolveBrowserPanel(panel)) {
       consumeGlobalShortcut(event);
@@ -17098,20 +17148,9 @@ window.addEventListener("keydown", (event) => {
     consumeGlobalShortcut(event);
     openInspector("settings");
   } else if (event.ctrlKey && key === "k") {
-    consumeGlobalShortcut(event);
-    clearActiveTerminal();
-  } else if (event.ctrlKey && (event.key === "=" || event.key === "+")) {
-    consumeGlobalShortcut(event);
-    changeTerminalFontSize(1, { event, toast: false, status: true });
-  } else if (event.ctrlKey && event.key === "-") {
-    consumeGlobalShortcut(event);
-    changeTerminalFontSize(-1, { event, toast: false, status: true });
-  } else if (event.ctrlKey && event.key === "0") {
-    consumeGlobalShortcut(event);
-    resetTerminalFontSize({ event, toast: false, status: true });
+    runTerminalKeyShortcut(event, clearTerminalPanel);
   } else if (event.ctrlKey && event.shiftKey && key === "r") {
-    consumeGlobalShortcut(event);
-    restartActiveTerminal();
+    runTerminalKeyShortcut(event, (panel) => restartPanel(panel.id));
   } else if (event.ctrlKey && event.shiftKey && key === "m") {
     consumeGlobalShortcut(event);
     togglePaneZoom(keyboardPanelFromEvent(event)?.id);
