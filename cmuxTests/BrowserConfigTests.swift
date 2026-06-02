@@ -2861,6 +2861,23 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertTrue(panel.shouldRenderWebView)
     }
 
+    func testWorkspaceContextResetClearsTerminatedWebViewRecovery() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "https://example.com")
+        )
+        defer { panel.close() }
+
+        panel.debugSimulateWebContentProcessTermination()
+        XCTAssertTrue(panel.hasRecoverableWebContentTermination)
+
+        panel.resetForWorkspaceContextChange(reason: "test")
+
+        XCTAssertFalse(panel.hasRecoverableWebContentTermination)
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertNil(panel.preferredURLStringForOmnibar())
+    }
+
     func testWebViewReplacementPreservesEmptyNewTabRenderState() {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }

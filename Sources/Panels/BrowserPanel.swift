@@ -5141,14 +5141,18 @@ final class BrowserPanel: Panel, ObservableObject {
         guard oldWebView === webView else { return }
 
         let wasRenderable = shouldRenderWebView
-        let restoreURL = Self.remoteProxyDisplayURL(for: oldWebView.url)
-            ?? currentURL
-            ?? Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
+        let attemptedURL = Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
             ?? navigationDelegate?.lastAttemptedURL
+        let liveURL = Self.remoteProxyDisplayURL(for: oldWebView.url)
+            ?? currentURL
+        let restoreURL = (isMainFrameProvisionalNavigationActive ? attemptedURL : nil)
+            ?? liveURL
+            ?? attemptedURL
             ?? resolvedCurrentSessionHistoryURL()
         let restoreURLString = restoreURL?.absoluteString
-        let shouldRestoreURL = wasRenderable && restoreURLString != nil && restoreURLString != blankURLString
-        let shouldShowManualRecovery = waitForManualRecovery && wasRenderable
+        let hasRecoveryTarget = restoreURLString != nil && restoreURLString != blankURLString
+        let shouldRestoreURL = wasRenderable && hasRecoveryTarget
+        let shouldShowManualRecovery = waitForManualRecovery && wasRenderable && hasRecoveryTarget
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar()
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
@@ -5203,7 +5207,7 @@ final class BrowserPanel: Panel, ObservableObject {
             )
         }
 
-        if shouldShowManualRecovery {
+        if shouldShowManualRecovery, let restoreURL {
             pendingWebContentRecoveryURL = restoreURL
             hasRecoverableWebContentTermination = true
             refreshNavigationAvailability()
@@ -6092,6 +6096,8 @@ extension BrowserPanel {
         isDownloading ||
         activeDownloadCount != 0 ||
         preferredDeveloperToolsVisible ||
+        hasRecoverableWebContentTermination ||
+        pendingWebContentRecoveryURL != nil ||
         webView.superview != nil
     }
 
@@ -6124,6 +6130,7 @@ extension BrowserPanel {
         developerToolsRestoreRetryAttempt = 0
         preferredAttachedDeveloperToolsWidth = nil
         preferredAttachedDeveloperToolsWidthFraction = nil
+        clearWebContentTerminationRecovery()
 
         loadingEndWorkItem?.cancel()
         loadingEndWorkItem = nil
