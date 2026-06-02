@@ -6001,12 +6001,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor in
                 AppDelegate.shared?.diffViewerProcesses.removeValue(forKey: processIdentifier)
                 guard terminationStatus != 0 else { return }
-                let detail = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                let limitedDetail = detail.isEmpty
-                    ? "status=\(terminationStatus)"
-                    : String(detail.prefix(240))
 #if DEBUG
-                cmuxDebugLog("openDiffViewer exited status=\(terminationStatus) detail=\(limitedDetail)")
+                // Log only non-sensitive metadata: the child's stdout/stderr can echo
+                // repo paths and file contents, so report a byte count, not the text.
+                cmuxDebugLog("openDiffViewer exited status=\(terminationStatus) outputBytes=\(output.utf8.count)")
 #endif
                 NSSound.beep()
             }
@@ -6020,13 +6018,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 diffViewerProcesses.removeValue(forKey: processIdentifier)
             }
 #if DEBUG
-            cmuxDebugLog("openDiffViewer pid=\(process.processIdentifier) cwd=\(cwd)")
+            cmuxDebugLog("openDiffViewer pid=\(process.processIdentifier)")
 #endif
             return true
         } catch {
             outputCollector.cancel()
 #if DEBUG
-            cmuxDebugLog("openDiffViewer failed cwd=\(cwd) error=\(error.localizedDescription)")
+            cmuxDebugLog("openDiffViewer failed error=\(error.localizedDescription)")
 #endif
             return false
         }
