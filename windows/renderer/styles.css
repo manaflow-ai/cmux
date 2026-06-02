@@ -3754,6 +3754,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   overflow: hidden;
   contain: layout paint;
+  background: var(--color-canvas);
 }
 
 .browser-loading {
@@ -4046,6 +4047,9 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .browser-view {
   grid-area: 1 / 1;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
   display: block;
   align-self: stretch;
   justify-self: stretch;

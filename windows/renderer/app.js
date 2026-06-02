@@ -4463,13 +4463,13 @@ const surfaceAddTabConfigs = {
     className: "surface-new-terminal",
     icon: "terminalPlus",
     title: "New terminal pane",
-    label: "+ Terminal"
+    label: "Terminal"
   },
   browser: {
     className: "surface-new-browser",
     icon: "browserPlus",
     title: "New browser pane",
-    label: "+ Browser"
+    label: "Browser"
   }
 };
 
