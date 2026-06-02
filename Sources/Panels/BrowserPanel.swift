@@ -44,11 +44,32 @@ enum GhosttyBackgroundTheme {
         WindowAppearanceSnapshot.clampedOpacity(opacity)
     }
 
+    static func usesClearSurfaceBackground(
+        opacity: Double,
+        backgroundBlur: GhosttyBackgroundBlur,
+        usesTransparentWindow: Bool = cmuxShouldUseTransparentBackgroundWindow()
+    ) -> Bool {
+        usesTransparentWindow || backgroundBlur.isMacOSGlassStyle || opacity < 0.999
+    }
+
     static func color(backgroundColor: NSColor, opacity: Double) -> NSColor {
         WindowAppearanceSnapshot.compositedTerminalColor(
             backgroundColor: backgroundColor,
             opacity: opacity
         )
+    }
+
+    static func surfaceColor(
+        backgroundColor: NSColor,
+        opacity: Double,
+        backgroundBlur: GhosttyBackgroundBlur,
+        usesTransparentWindow: Bool = cmuxShouldUseTransparentBackgroundWindow()
+    ) -> NSColor {
+        usesClearSurfaceBackground(
+            opacity: opacity,
+            backgroundBlur: backgroundBlur,
+            usesTransparentWindow: usesTransparentWindow
+        ) ? .clear : color(backgroundColor: backgroundColor, opacity: opacity)
     }
 
     static func color(
@@ -85,6 +106,14 @@ enum GhosttyBackgroundTheme {
         color(
             backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
             opacity: GhosttyApp.shared.defaultBackgroundOpacity
+        )
+    }
+
+    static func currentSurfaceColor() -> NSColor {
+        surfaceColor(
+            backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
+            opacity: GhosttyApp.shared.defaultBackgroundOpacity,
+            backgroundBlur: GhosttyApp.shared.defaultBackgroundBlur
         )
     }
 }
@@ -3919,7 +3948,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // Match only the unpainted/loading background so newly-created browsers don't flash
         // white before content loads. Do not force page appearance or inject color-scheme CSS;
         // websites must keep control of their own theme.
-        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentSurfaceColor()
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         return webView
@@ -4905,7 +4934,14 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
-                self.webView.underPageBackgroundColor = GhosttyBackgroundTheme.color(from: notification)
+                self.webView.underPageBackgroundColor = GhosttyBackgroundTheme.surfaceColor(
+                    backgroundColor: (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
+                        ?? GhosttyApp.shared.defaultBackgroundColor,
+                    opacity: (notification.userInfo?[GhosttyNotificationKey.backgroundOpacity] as? NSNumber)?.doubleValue
+                        ?? (notification.userInfo?[GhosttyNotificationKey.backgroundOpacity] as? Double)
+                        ?? GhosttyApp.shared.defaultBackgroundOpacity,
+                    backgroundBlur: GhosttyApp.shared.defaultBackgroundBlur
+                )
             }
             .store(in: &webViewCancellables)
     }
@@ -6985,7 +7021,7 @@ extension BrowserPanel {
     }
 
     func refreshAppearanceDrivenColors() {
-        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentSurfaceColor()
     }
 
     func suppressOmnibarAutofocus(for seconds: TimeInterval) {
