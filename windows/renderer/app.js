@@ -2723,6 +2723,27 @@ function terminalTheme(panel = null) {
   };
 }
 
+function terminalThemeSignature(panel = null) {
+  const paneBackground = panel?.type === "terminal" ? normalizeBackgroundValue(panel.backgroundImage) : "";
+  return [
+    state.settings.theme,
+    state.settings.accent,
+    state.settings.terminalBackground || terminalColorDefaults.background,
+    state.settings.terminalForeground || terminalColorDefaults.foreground,
+    state.settings.terminalCursorColor || "",
+    paneBackground ? "pane-bg" : ""
+  ].join("|");
+}
+
+function applyTerminalThemeIfChanged(session, panel = null, options = {}) {
+  if (!session?.term) return false;
+  const signature = terminalThemeSignature(panel);
+  if (!options.force && session.terminalThemeSignature === signature) return false;
+  session.term.options.theme = terminalTheme(panel);
+  session.terminalThemeSignature = signature;
+  return true;
+}
+
 function refreshTerminalAppearance() {
   for (const session of state.terminals.values()) {
     const panel = findPanelState(session.panelId)?.panel;
@@ -2733,7 +2754,7 @@ function refreshTerminalAppearance() {
     session.term.options.scrollback = state.settings.terminalScrollback;
     session.term.options.cursorStyle = state.settings.terminalCursorStyle;
     session.term.options.cursorBlink = state.settings.terminalCursorBlink;
-    session.term.options.theme = terminalTheme(panel);
+    applyTerminalThemeIfChanged(session, panel);
     scheduleFitTerminal(session, true);
   }
 }
@@ -4550,7 +4571,7 @@ function renderPaneNode(panel, workspace, visibleCount) {
   setStylePropertyIfChanged(pane, "--pane-background-position", backgroundPositionCss(state.settings.backgroundPosition));
   setStylePropertyIfChanged(pane, "--pane-background-opacity", String(Math.max(0.12, Math.min(0.42, state.settings.backgroundOpacity / 100 || 0.18))));
   const terminalSession = state.terminals.get(panel.id);
-  if (terminalSession && panel.type === "terminal") terminalSession.term.options.theme = terminalTheme(panel);
+  if (terminalSession && panel.type === "terminal") applyTerminalThemeIfChanged(terminalSession, panel);
   toggleClassIfChanged(pane, "is-active", panel.id === workspace.activePanelId);
   const zoomed = isPanelZoomed(panel, workspace);
   const minimized = isPanelMinimized(panel);
@@ -5890,6 +5911,8 @@ function ensureTerminal(panel, body) {
   body.appendChild(host);
 
   const fontSize = terminalFontSizeForPanel(panel);
+  const theme = terminalTheme(panel);
+  const themeSignature = terminalThemeSignature(panel);
   const term = new TerminalConstructor({
     cursorBlink: state.settings.terminalCursorBlink,
     cursorStyle: state.settings.terminalCursorStyle,
@@ -5899,7 +5922,7 @@ function ensureTerminal(panel, body) {
     fontSize,
     lineHeight: state.settings.terminalLineHeight,
     scrollback: state.settings.terminalScrollback,
-    theme: terminalTheme(panel)
+    theme
   });
   const fitAddon = new FitAddonConstructor();
   const webLinksAddon = new WebLinksAddonConstructor();
@@ -5939,7 +5962,8 @@ function ensureTerminal(panel, body) {
     focusDisposable: null,
     connectionStatusTimer: 0,
     createdAt: performance.now(),
-    hasOutput: false
+    hasOutput: false,
+    terminalThemeSignature: themeSignature
   };
   session.searchOverlay = createTerminalSearchOverlay(panel, session);
   if (session.searchOverlay) host.append(session.searchOverlay);
