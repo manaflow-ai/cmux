@@ -15081,6 +15081,36 @@ struct TabItemView: View, Equatable {
         }
     }
 
+    @ViewBuilder
+    private func nativeSidebarMetadata(
+        workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+    ) -> some View {
+        let metadataEntries = workspaceSnapshot.metadataEntries
+        let metadataBlocks = workspaceSnapshot.metadataBlocks
+        if !metadataEntries.isEmpty {
+            SidebarMetadataRows(
+                entries: metadataEntries,
+                isActive: usesInvertedActiveForeground,
+                activeForegroundColor: activeSecondaryColor(0.95),
+                activeSecondaryForegroundColor: activeSecondaryColor(0.65),
+                fontScale: fontScale,
+                onFocus: { updateSelection() }
+            )
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+        if !metadataBlocks.isEmpty {
+            SidebarMetadataMarkdownBlocks(
+                blocks: metadataBlocks,
+                isActive: usesInvertedActiveForeground,
+                activeForegroundColor: activeSecondaryColor(0.8),
+                activeSecondaryForegroundColor: activeSecondaryColor(0.65),
+                fontScale: fontScale,
+                onFocus: { updateSelection() }
+            )
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
+
     var body: some View {
         let workspaceSnapshot = self.workspaceSnapshot
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
@@ -15146,30 +15176,7 @@ struct TabItemView: View, Equatable {
             remoteWorkspaceSection
 
             if detailVisibility.showsMetadata {
-                let metadataEntries = workspaceSnapshot.metadataEntries
-                let metadataBlocks = workspaceSnapshot.metadataBlocks
-                if !metadataEntries.isEmpty {
-                    SidebarMetadataRows(
-                        entries: metadataEntries,
-                        isActive: usesInvertedActiveForeground,
-                        activeForegroundColor: activeSecondaryColor(0.95),
-                        activeSecondaryForegroundColor: activeSecondaryColor(0.65),
-                        fontScale: fontScale,
-                        onFocus: { updateSelection() }
-                    )
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-                if !metadataBlocks.isEmpty {
-                    SidebarMetadataMarkdownBlocks(
-                        blocks: metadataBlocks,
-                        isActive: usesInvertedActiveForeground,
-                        activeForegroundColor: activeSecondaryColor(0.8),
-                        activeSecondaryForegroundColor: activeSecondaryColor(0.65),
-                        fontScale: fontScale,
-                        onFocus: { updateSelection() }
-                    )
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
+                nativeSidebarMetadata(workspaceSnapshot: workspaceSnapshot)
             }
 
             if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
