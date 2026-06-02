@@ -1247,19 +1247,33 @@ body.reduce-motion *::after {
 }
 
 .tool-button.add-tool {
+  position: relative;
   gap: 5px;
   padding-right: 7px;
+  font-weight: 720;
 }
 
 .tool-add-mark {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   display: inline-grid;
   place-items: center;
-  border: 1px solid color-mix(in oklch, currentColor 34%, transparent);
+  border: 1px solid color-mix(in oklch, currentColor 45%, transparent);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, currentColor 9%, transparent);
+  background: color-mix(in oklch, currentColor 14%, transparent);
   font: 800 12px/1 var(--font-ui);
+}
+
+#newBrowserButton {
+  border-color: color-mix(in oklch, var(--color-success) 44%, var(--color-line) 56%);
+  background: color-mix(in oklch, var(--color-success) 13%, var(--color-pane) 87%);
+  color: color-mix(in oklch, var(--color-success) 76%, var(--color-text) 24%);
+}
+
+#newBrowserButton:hover {
+  border-color: color-mix(in oklch, var(--color-success) 58%, var(--color-line-strong) 42%);
+  background: color-mix(in oklch, var(--color-success) 18%, var(--color-pane-active) 82%);
+  color: var(--color-text);
 }
 
 .command-strip .advanced-tool {
@@ -1423,7 +1437,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-padding-inline: 10px 204px;
+  scroll-padding-inline: 10px 228px;
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
   background: color-mix(in oklch, var(--color-terminal-gutter) 88%, var(--color-canvas) 12%);
@@ -1775,31 +1789,31 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   align-self: center;
   position: sticky;
   z-index: 3;
-  height: 28px;
-  flex: 0 0 92px;
-  min-width: 92px;
-  max-width: 92px;
-  grid-template-columns: 21px minmax(0, 1fr);
+  height: 29px;
+  flex: 0 0 104px;
+  min-width: 104px;
+  max-width: 104px;
+  grid-template-columns: 23px minmax(0, 1fr);
   justify-items: start;
   justify-content: center;
-  gap: 6px;
+  gap: 7px;
   padding: 0 8px;
   border-color: var(--color-line);
   border-radius: var(--radius-1);
   background: color-mix(in oklch, var(--color-pane) 88%, var(--color-terminal-gutter) 12%);
   color: var(--color-text);
-  font: inherit;
+  font: 720 11px/1 var(--font-ui);
   box-shadow: 0 1px 0 color-mix(in oklch, var(--color-canvas) 40%, transparent);
 }
 
 .surface-new-terminal {
-  right: 104px;
+  right: 116px;
 }
 
 .surface-new-browser {
-  flex-basis: 92px;
-  min-width: 92px;
-  max-width: 92px;
+  flex-basis: 104px;
+  min-width: 104px;
+  max-width: 104px;
   right: 6px;
 }
 
@@ -1834,8 +1848,8 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   position: relative;
   display: grid;
   place-items: center;
-  width: 21px;
-  height: 21px;
+  width: 23px;
+  height: 23px;
   border: 1px solid color-mix(in oklch, currentColor 38%, var(--color-line) 62%);
   border-radius: var(--radius-1);
   background: color-mix(in oklch, currentColor 9%, var(--color-pane));
@@ -1865,16 +1879,19 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .surface-new-tab .surface-new-label::before {
-  content: "";
+  content: "+ ";
+  font-weight: 820;
 }
 
 .surface-new-terminal {
   border-color: color-mix(in oklch, var(--color-accent) 36%, var(--color-line) 64%);
+  background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane) 90%);
   color: color-mix(in oklch, var(--color-accent) 66%, var(--color-text) 34%);
 }
 
 .surface-new-browser {
   border-color: color-mix(in oklch, var(--color-success) 32%, var(--color-line) 68%);
+  background: color-mix(in oklch, var(--color-success) 9%, var(--color-pane) 91%);
   color: color-mix(in oklch, var(--color-success) 62%, var(--color-text) 38%);
 }
 
@@ -1905,6 +1922,10 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .shell.density-compact .surface-new-terminal {
   right: 43px;
+}
+
+.shell.density-compact .surface-new-browser {
+  right: 6px;
 }
 
 .shell.density-compact .surface-new-label {
