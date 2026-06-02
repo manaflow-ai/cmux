@@ -7516,7 +7516,7 @@ function renderSettingsInspector(options = {}) {
     }
     cursorSelect.value = state.settings.terminalCursorStyle;
     cursorSelect.onchange = () => updateSettings({ terminalCursorStyle: cursorSelect.value });
-    terminalSection.append(settingRow("Cursor", cursorSelect));
+    terminalSection.append(settingRow("Cursor", cursorSelect, false, "terminal cursor line bar block underline powershell caret shape"));
     terminalSection.append(settingRow("Cursor blink", toggleInput(state.settings.terminalCursorBlink, (checked) => updateSettings({ terminalCursorBlink: checked }))));
     terminalSection.append(settingRow("Color preset", terminalColorPresetGrid(), true, "terminal color theme preset powershell high contrast light warm graphite default"));
     terminalSection.append(settingRow(

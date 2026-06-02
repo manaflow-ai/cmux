@@ -84,7 +84,7 @@ const windowsMessages = {
     "config.terminalProfile.gitBash": "Git Bash",
     "config.terminalProfile.custom": "Custom path",
     "config.terminalCursor.block": "Block",
-    "config.terminalCursor.bar": "Bar",
+    "config.terminalCursor.bar": "Line",
     "config.terminalCursor.underline": "Underline",
     "config.terminalFont.cascadia": "Cascadia Mono",
     "config.terminalFont.cascadiaCode": "Cascadia Code",
