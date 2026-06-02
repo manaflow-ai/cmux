@@ -5632,21 +5632,50 @@ function requestTerminalInitAfterPaint(panelId) {
   return true;
 }
 
+function startDeferredTerminal(panelId) {
+  const found = findPanelState(panelId);
+  if (!found || found.panel.type !== "terminal") return false;
+  focusPanel(panelId);
+  const requested = requestImmediateTerminalInit(panelId);
+  if (requested) scheduleRender();
+  return requested;
+}
+
 function renderDeferredTerminal(panel, body) {
   let deferred = body.querySelector(".terminal-deferred");
   if (!deferred) {
     deferred = document.createElement("div");
     deferred.className = "terminal-deferred";
     deferred.innerHTML = `
-      <span class="terminal-deferred-title">Preparing terminal</span>
-      <span class="terminal-deferred-meta"></span>
+      <span class="terminal-deferred-icon" aria-hidden="true">${controlIconMarkup("terminalPlus")}</span>
+      <span class="terminal-deferred-copy">
+        <span class="terminal-deferred-title">Preparing terminal</span>
+        <span class="terminal-deferred-meta"></span>
+        <span class="terminal-deferred-action"></span>
+      </span>
     `;
+    deferred.addEventListener("click", () => startDeferredTerminal(deferred.dataset.panelId));
+    deferred.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      startDeferredTerminal(deferred.dataset.panelId);
+    });
     body.replaceChildren(deferred);
   }
   const isActive = panel.id === activeWorkspace()?.activePanelId;
-  toggleClassIfChanged(deferred, "is-paused", !isActive);
-  setTextIfChanged(deferred.querySelector(".terminal-deferred-title"), isActive ? "Preparing terminal" : "Click to start terminal");
-  setTextIfChanged(deferred.querySelector(".terminal-deferred-meta"), panel.cwdShort || panel.cwd || "~");
+  setDatasetIfChanged(deferred, "panelId", panel.id);
+  toggleClassIfChanged(deferred, "is-startable", !isActive);
+  deferred.setAttribute("role", isActive ? "status" : "button");
+  deferred.tabIndex = isActive ? -1 : 0;
+  const profile = optionLabel(terminalProfiles, panel.shellProfile || state.settings.terminalProfile, "Shell");
+  const folder = panel.cwdShort || panel.cwd || "~";
+  const title = isActive ? "Preparing terminal" : "Start terminal";
+  const action = isActive ? "Starting after layout is ready" : "Click or press Enter";
+  setTitleIfChanged(deferred, `${title} - ${profile} / ${folder}`);
+  deferred.setAttribute("aria-label", `${title}. ${profile}. ${folder}. ${action}.`);
+  setTextIfChanged(deferred.querySelector(".terminal-deferred-title"), title);
+  setTextIfChanged(deferred.querySelector(".terminal-deferred-meta"), `${profile} / ${folder}`);
+  setTextIfChanged(deferred.querySelector(".terminal-deferred-action"), action);
 }
 
 function queueDeferredTerminalInit(panelId, options = {}) {

@@ -2538,17 +2538,54 @@ body.reduce-motion *::after {
   width: 100%;
   height: 100%;
   display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
   align-content: center;
-  justify-items: center;
+  align-items: center;
+  justify-content: center;
   gap: var(--space-2);
   padding: var(--space-4);
   background: var(--color-pane);
   color: var(--color-muted);
-  text-align: center;
+  text-align: left;
+  outline: none;
 }
 
-.terminal-deferred.is-paused {
+.terminal-deferred.is-startable {
   cursor: pointer;
+}
+
+.terminal-deferred.is-startable:hover .terminal-deferred-icon,
+.terminal-deferred.is-startable:focus-visible .terminal-deferred-icon {
+  border-color: color-mix(in oklch, var(--color-accent) 62%, var(--color-line) 38%);
+  background: color-mix(in oklch, var(--color-accent) 18%, var(--color-pane) 82%);
+  color: var(--color-text);
+}
+
+.terminal-deferred.is-startable:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--color-focus);
+}
+
+.terminal-deferred-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-pane-warm) 84%, var(--color-terminal-gutter) 16%);
+  color: var(--color-muted);
+}
+
+.terminal-deferred-icon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.terminal-deferred-copy {
+  min-width: 0;
+  max-width: min(360px, 100%);
+  display: grid;
+  gap: 4px;
 }
 
 .terminal-deferred-title {
@@ -2558,12 +2595,49 @@ body.reduce-motion *::after {
 }
 
 .terminal-deferred-meta {
-  max-width: min(320px, 100%);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-faint);
   font: 11px/1.35 var(--font-mono);
+}
+
+.terminal-deferred-action {
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 7px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane-warm) 80%, transparent);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.terminal-deferred.is-startable .terminal-deferred-action {
+  border-color: color-mix(in oklch, var(--color-accent) 46%, var(--color-line) 54%);
+  background: color-mix(in oklch, var(--color-accent) 12%, var(--color-pane) 88%);
+  color: var(--color-text);
+}
+
+@container (max-width: 220px) {
+  .terminal-deferred {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    text-align: center;
+  }
+
+  .terminal-deferred-copy {
+    justify-items: center;
+  }
+
+  .terminal-deferred-action {
+    width: auto;
+  }
 }
 
 .pending-pane {
