@@ -3923,7 +3923,8 @@ function renderSurfaceTabs(workspace) {
     clearSurfaceTabs();
     return;
   }
-  const signature = surfaceTabsSignature(workspace);
+  const tabLabels = surfaceTabLabels(workspace);
+  const signature = surfaceTabsSignature(workspace, tabLabels);
   if (
     signature === state.surfaceTabsSignature
     && state.newSurfaceAddButtons.terminal
@@ -3948,7 +3949,7 @@ function renderSurfaceTabs(workspace) {
       button = createSurfaceTab();
       state.surfaceTabButtons.set(panel.id, button);
     }
-    updateSurfaceTab(button, workspace, panel);
+    updateSurfaceTab(button, workspace, panel, tabLabels.get(panel.id));
     return button;
   });
   nodes.push(...getNewSurfaceTabs(workspace));
@@ -3966,7 +3967,7 @@ function clearSurfaceTabs() {
   resetSurfaceTabsOverflow();
 }
 
-function surfaceTabsSignature(workspace) {
+function surfaceTabsSignature(workspace, tabLabels = surfaceTabLabels(workspace)) {
   const zoomedPanelId = zoomedPanelIdForWorkspace(workspace) || "";
   const parts = [];
   appendSignatureValue(parts, workspace.id);
@@ -3976,7 +3977,7 @@ function surfaceTabsSignature(workspace) {
   appendSignatureValue(parts, paneCreationButtonsDisabled());
   appendSignatureArray(parts, workspace.panels, (nextParts, panel) => {
     appendSignatureValue(nextParts, panel.id);
-    appendSignatureValue(nextParts, surfaceTabLabel(workspace, panel));
+    appendSignatureValue(nextParts, tabLabels.get(panel.id) || surfaceTabLabel(workspace, panel));
     appendSignatureValue(nextParts, panelDisplayTitle(panel, false));
     appendSignatureValue(nextParts, panel.color || workspace.color || "var(--color-accent)");
     appendSignatureValue(nextParts, panel.id === workspace.activePanelId);
@@ -4224,8 +4225,7 @@ function surfaceTabParts(button) {
   return button._surfaceParts;
 }
 
-function updateSurfaceTab(button, workspace, panel) {
-  const label = surfaceTabLabel(workspace, panel);
+function updateSurfaceTab(button, workspace, panel, label = surfaceTabLabel(workspace, panel)) {
   const fullTitle = panelDisplayTitle(panel, false);
   const minimized = isPanelMinimized(panel);
   const pending = isPendingPanel(panel);
@@ -4722,6 +4722,26 @@ function compactSurfaceTabLabel(label) {
   const normalized = String(label || "").replace(/\s+/g, " ").trim();
   if (normalized.length <= 42) return normalized;
   return `${normalized.slice(0, 24).trim()}...${normalized.slice(-14).trim()}`;
+}
+
+function surfaceTabLabels(workspace) {
+  const panels = workspace?.panels || [];
+  const baseLabels = new Map();
+  const counts = new Map();
+  for (const panel of panels) {
+    const label = panelDisplayTitle(panel, true);
+    baseLabels.set(panel.id, label);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  const seen = new Map();
+  const labels = new Map();
+  for (const panel of panels) {
+    const base = baseLabels.get(panel.id) || "";
+    const index = (seen.get(base) || 0) + 1;
+    seen.set(base, index);
+    labels.set(panel.id, compactSurfaceTabLabel((counts.get(base) || 0) > 1 ? `${base} ${index}` : base));
+  }
+  return labels;
 }
 
 function surfaceTabLabel(workspace, panel) {

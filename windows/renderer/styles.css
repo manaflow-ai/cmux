@@ -1767,6 +1767,33 @@ body.reduce-motion *::after {
   right: 6px;
 }
 
+.surface-tabs.is-crowded {
+  scroll-padding-inline: 10px 80px;
+}
+
+.surface-tabs.is-crowded .surface-new-tab,
+.shell.density-compact .surface-tabs.is-crowded .surface-new-tab {
+  flex-basis: 32px;
+  min-width: 32px;
+  max-width: 32px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  padding-inline: 6px;
+}
+
+.surface-tabs.is-crowded .surface-new-terminal,
+.shell.density-compact .surface-tabs.is-crowded .surface-new-terminal {
+  right: 43px;
+}
+
+.surface-tabs.is-crowded .surface-new-browser {
+  right: 6px;
+}
+
+.surface-tabs.is-crowded .surface-new-label {
+  display: none;
+}
+
 .surface-new-icon {
   position: relative;
   display: grid;
