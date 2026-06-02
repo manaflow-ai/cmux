@@ -298,6 +298,25 @@ struct WorkspaceContentView: View {
         // Recreate the Bonsplit subtree on zoom enter/exit so stale pre-zoom pane chrome
         // cannot remain stacked above portal-hosted browser content.
         .id(splitZoomRenderIdentity)
+
+        Group {
+            switch workspace.layoutMode {
+            case .bonsplit:
+                bonsplitView
+            case .paper:
+                PaperCanvasWorkspaceView(
+                    workspace: workspace,
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isWorkspaceInputActive: isWorkspaceInputActive,
+                    workspacePortalPriority: workspacePortalPriority,
+                    appearance: appearance,
+                    isSplit: isSplit,
+                    usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
+                    isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                    workspaceManualUnreadPanelId: workspaceManualUnreadPanelId
+                )
+            }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             updateAgentHibernationPresentationVisibility()
@@ -355,26 +374,7 @@ struct WorkspaceContentView: View {
                 notificationPayloadHex: payloadHex
             )
         }
-
-        Group {
-            switch workspace.layoutMode {
-            case .bonsplit:
-                bonsplitView
-            case .paper:
-                PaperCanvasWorkspaceView(
-                    workspace: workspace,
-                    isWorkspaceVisible: isWorkspaceVisible,
-                    isWorkspaceInputActive: isWorkspaceInputActive,
-                    workspacePortalPriority: workspacePortalPriority,
-                    appearance: appearance,
-                    isSplit: isSplit,
-                    usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
-                    isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
-                    workspaceManualUnreadPanelId: workspaceManualUnreadPanelId
-                )
-            }
-        }
-            .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
+        .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
     }
 
     private func syncBonsplitNotificationBadges() {
@@ -807,17 +807,22 @@ struct PaperCanvasWorkspaceView: View {
     private func paperCanvasView(_ paperLayoutState: PaperLayoutState, viewportSize: CGSize) -> some View {
         let visibleColumns = paperLayoutState.visibleColumns(count: workspace.paperVisibleColumnCount)
         let visibleColumnCount = max(1, visibleColumns.count)
-        let requestedRowCount = min(4, max(1, workspace.paperVisibleRowCount))
+        let visibleRowCount = min(4, max(1, workspace.paperVisibleRowCount))
         let totalColumnSpacing = paperColumnSpacing * CGFloat(max(0, visibleColumnCount - 1))
-        let totalRowSpacing = paperRowSpacing * CGFloat(max(0, requestedRowCount - 1))
+        let totalRowSpacing = paperRowSpacing * CGFloat(max(0, visibleRowCount - 1))
         let paneSize = CGSize(
             width: max(1, (viewportSize.width - totalColumnSpacing) / CGFloat(visibleColumnCount)),
-            height: max(1, (viewportSize.height - totalRowSpacing) / CGFloat(requestedRowCount))
+            height: max(1, (viewportSize.height - totalRowSpacing) / CGFloat(visibleRowCount))
         )
 
         HStack(alignment: .top, spacing: paperColumnSpacing) {
             ForEach(visibleColumns, id: \.x) { column in
-                paperColumnView(column, paperLayoutState: paperLayoutState, paneSize: paneSize)
+                paperColumnView(
+                    column,
+                    paperLayoutState: paperLayoutState,
+                    visibleRowCount: visibleRowCount,
+                    paneSize: paneSize
+                )
             }
         }
         .frame(width: viewportSize.width, height: viewportSize.height, alignment: .topLeading)
@@ -827,10 +832,11 @@ struct PaperCanvasWorkspaceView: View {
     private func paperColumnView(
         _ column: PaperLayoutState.PaperColumn,
         paperLayoutState: PaperLayoutState,
+        visibleRowCount: Int,
         paneSize: CGSize
     ) -> some View {
         VStack(alignment: .leading, spacing: paperRowSpacing) {
-            ForEach(paperLayoutState.visiblePanes(in: column, rowCount: workspace.paperVisibleRowCount)) { pane in
+            ForEach(paperLayoutState.visiblePanes(in: column, rowCount: visibleRowCount)) { pane in
                 paperPaneView(pane, paneSize: paneSize)
             }
         }
