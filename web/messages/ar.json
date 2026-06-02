@@ -533,8 +533,17 @@
           "byCwd": {
             "newWorkspacePlacement": "تجاوز لكل cwd لمكان وضع مساحة العمل الجديدة عند استخدام Cmd-N داخل المجموعة أو زر + في رأس المجموعة أو إجراءات المجموعة المضبوطة: `afterCurrent` (بعد مساحة العمل النشطة داخل المجموعة، مع الرجوع إلى top)، أو `top` (الموضع الثاني بعد المرساة مباشرة)، أو `end` (بعد آخر عضو). عند الحذف، يتم الرجوع إلى الإعداد الافتراضي العام."
           }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "أوامر مخصصة",

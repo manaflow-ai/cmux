@@ -533,8 +533,17 @@
           "byCwd": {
             "newWorkspacePlacement": "ការកំណត់ជំនួសតាម cwd សម្រាប់ទីតាំងដែល Cmd-N នៅក្នុងក្រុម ប៊ូតុង + ក្នុងក្បាលក្រុម និងសកម្មភាពក្រុមដែលបានកំណត់ ដាក់ workspace ថ្មី: `afterCurrent` (បន្ទាប់ពី workspace សកម្មក្នុងក្រុម ហើយត្រឡប់ទៅ top ប្រសិនបើគ្មាន), `top` (ទីតាំងទីពីរ បន្ទាប់ពី anchor ភ្លាមៗ) ឬ `end` (បន្ទាប់ពីសមាជិកចុងក្រោយ). បើមិនកំណត់ វានឹងប្រើតម្លៃលំនាំដើមសកល។"
           }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "ពាក្យបញ្ជាផ្ទាល់ខ្លួន",
