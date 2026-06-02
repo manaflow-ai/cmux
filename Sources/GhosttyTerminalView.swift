@@ -9505,6 +9505,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEvent.composing = false
             for text in accumulatedText {
                 if shouldSendText(text) {
+                    if markedTextBefore {
+                        imeConsumedKeyUps.insert(event.keyCode)
+                        sendCommittedIMETextToSurface(text, action: action, sourceEvent: event)
+                        continue
+                    }
 #if DEBUG
                     let sendTimingStart = CmuxTypingTiming.start()
                     let ghosttySendStart = ProcessInfo.processInfo.systemUptime
@@ -9532,7 +9537,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                         extra: "textBytes=\(text.utf8.count)"
                     )
 #endif
-                } else {
+                } else if !markedTextBefore {
                     keyEvent.consumed_mods = GHOSTTY_MODS_NONE
                     keyEvent.text = nil
                     #if DEBUG
@@ -9649,6 +9654,38 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         // Rendering is driven by Ghostty's wakeups/renderer.
+    }
+
+    @discardableResult
+    private func sendCommittedIMETextToSurface(
+        _ text: String,
+        action: ghostty_input_action_e,
+        sourceEvent: NSEvent
+    ) -> Bool {
+        guard let surface else { return false }
+
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = action
+        keyEvent.keycode = 0
+        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = 0
+        keyEvent.composing = false
+
+        return text.withCString { ptr in
+            keyEvent.text = ptr
+#if DEBUG
+            return sendTimedGhosttyKey(
+                surface,
+                keyEvent,
+                path: "terminal.keyDown.committedIMETextGhosttySend",
+                event: sourceEvent,
+                extra: "textBytes=\(text.utf8.count)"
+            )
+#else
+            return sendGhosttyKey(surface, keyEvent)
+#endif
+        }
     }
 
     @discardableResult
