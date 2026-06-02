@@ -16185,6 +16185,19 @@ function shouldInitCreatedTerminalImmediately(panel, workspace, options = {}) {
     && !isPendingPanel(panel);
 }
 
+function startCreatedTerminalImmediately(panel) {
+  if (!panel?.id || state.terminals.has(panel.id)) return false;
+  const pane = state.paneCache.get(panel.id);
+  const body = pane ? paneParts(pane).body : null;
+  if (!body) return false;
+  ensureTerminal(panel, body);
+  const terminal = state.terminals.get(panel.id);
+  if (!terminal) return false;
+  scheduleFitTerminal(terminal, true);
+  focusTerminalSession(panel.id);
+  return true;
+}
+
 function deferCreatedTerminalInitUntilPaint(panel, workspace, options = {}) {
   if (
     panel?.type !== "terminal"
@@ -16197,7 +16210,7 @@ function deferCreatedTerminalInitUntilPaint(panel, workspace, options = {}) {
     return false;
   }
   if (shouldInitCreatedTerminalImmediately(panel, workspace, options)) {
-    requestImmediateTerminalInit(panel.id);
+    if (!startCreatedTerminalImmediately(panel)) requestImmediateTerminalInit(panel.id);
     return false;
   }
   state.paintDeferredTerminalInitPanelIds.add(panel.id);
