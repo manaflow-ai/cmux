@@ -18095,11 +18095,17 @@ extension Workspace: BonsplitDelegate {
         gitBranch = panelGitBranches[panelId]
         pullRequest = panelPullRequests[panelId]
 
-        // Post notification
-        NotificationCenter.default.post(
-            name: .ghosttyDidFocusSurface,
-            object: nil,
-            userInfo: [GhosttyNotificationKey.tabId: self.id, GhosttyNotificationKey.surfaceId: panelId, GhosttyNotificationKey.explicitFocusIntent: explicitFocusIntent]
+        // Broadcast the focus change. This is deferred + coalesced (not posted
+        // synchronously) so the `@Published` mutations above settle before any
+        // observer runs, and so a notification-driven focus cycle (command-palette
+        // restore + cross-workspace handoff) cannot synchronously re-enter
+        // applyTabSelectionNow and hang the main thread. See issue #5100.
+        FocusSurfaceBroadcaster.shared.emit(
+            FocusSurfaceBroadcaster.FocusSurfacePayload(
+                workspaceId: self.id,
+                panelId: panelId,
+                explicitFocusIntent: explicitFocusIntent
+            )
         )
         publishCmuxFocusedSelection(paneId: focusedPane, surfaceId: panelId, origin: "bonsplit_selection")
 #if DEBUG
