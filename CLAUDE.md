@@ -124,6 +124,16 @@ This creates an isolated app with its own name, bundle ID, socket, and derived d
 
 Before launching a new tagged run, clean up any older tags you started in this session (quit old tagged app + remove its `/tmp` socket/derived data).
 
+## Cleaning a dispatch workspace (cmuxNNN slots)
+
+PR work is dispatched into reusable workspace slots — each a clone at `~/manaflow/term/cmuxNNN` paired with a cmux workspace titled `cmuxNNN: #<PR> <desc>`. **"Clean cmuxNNN"** means recycle that slot back to its pristine, pre-work state — **not** close it. The end state is identical to the idle slots already titled `cmuxNNN (main, clean)`:
+
+- Clone reset to `main`: `git checkout main && git fetch origin main && git reset --hard origin/main && git clean -fdx` (no diffs, no untracked/build artifacts).
+- The cmux workspace collapsed to exactly **one terminal pane**, cwd = the clone, screen cleared — no PR-browser pane, no extra surfaces, no running agent.
+- Workspace renamed to `cmuxNNN (main, clean)`.
+
+Steps: `cmux tree --workspace <id>` to list surfaces → `cmux close-surface --surface surface:<n>` for the browser + any extra terminals (keep one) → in the survivor, stop the agent, reset the clone as above, `clear` → `cmux workspace rename workspace:<id> --title "cmuxNNN (main, clean)"`. Never `cmux workspace close` — that destroys the slot instead of recycling it.
+
 ## Cloud VM secrets
 
 Cloud VM build, test, and local dev scripts use provider secrets from `~/.secrets/cmux.env`.
