@@ -114,8 +114,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         setFontSize(MarkdownFontSizeSettings.resolvedDefault())
     }
 
+    /// Sets the preview font size to an explicit point value (clamped). Used by
+    /// the header font-size popover's manual entry. Returns `true` if changed.
     @discardableResult
-    private func setFontSize(_ candidate: Double) -> Bool {
+    func setFontSize(_ candidate: Double) -> Bool {
         let clamped = MarkdownFontSizeSettings.clamp(candidate)
         guard abs(clamped - fontSize) > 0.0001 else { return false }
         fontSize = clamped
@@ -499,6 +501,13 @@ enum MarkdownFontSizeSettings {
             return defaultPointSize
         }
         return clamp(raw.doubleValue)
+    }
+
+    /// Persists `points` (clamped, rounded to integer points) as the default
+    /// `markdown.fontSize` so new viewers start at this size. The Settings UI
+    /// stepper and runtime both read the same key.
+    static func setDefault(_ points: Double, defaults: UserDefaults = .standard) {
+        defaults.set(Int(clamp(points).rounded()), forKey: key)
     }
 
     /// The WKWebView `pageZoom` factor that renders the body at `pointSize`.

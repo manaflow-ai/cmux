@@ -127,6 +127,9 @@ struct MarkdownPanelView: View {
                     action: { panel.saveTextContent() }
                 )
             }
+            if panel.displayMode == .preview {
+                MarkdownFontSizeControl(panel: panel)
+            }
             markdownModeButton
             MarkdownPanelToolbar(
                 confirmation: copyConfirmation?.label,
@@ -297,5 +300,90 @@ private struct MarkdownPanelToolbar: View {
             label: title,
             action: action
         )
+    }
+}
+
+/// Header popover control for the markdown viewer's font size: step buttons, a
+/// manual point-size field, reset, and set-as-default. Drives the same
+/// `MarkdownPanel` zoom methods as the keyboard shortcuts, command palette, and
+/// CLI so every entrypoint shares one path.
+@MainActor
+private struct MarkdownFontSizeControl: View {
+    @ObservedObject var panel: MarkdownPanel
+    @State private var isPresented = false
+
+    private var label: String {
+        String(localized: "markdown.toolbar.fontSize", defaultValue: "Font Size")
+    }
+
+    var body: some View {
+        Button { isPresented.toggle() } label: {
+            PanelHeaderIconGlyph(systemName: "textformat.size")
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .help(label)
+        .accessibilityLabel(label)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            popoverContent
+        }
+    }
+
+    private var popoverContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 8) {
+                stepButton(
+                    systemName: "minus",
+                    label: String(localized: "markdown.fontSize.decrease", defaultValue: "Decrease font size"),
+                    action: { _ = panel.zoomOut() }
+                )
+                TextField(
+                    String(localized: "markdown.fontSize.field", defaultValue: "Size"),
+                    value: Binding(get: { panel.fontSize }, set: { panel.setFontSize($0) }),
+                    format: .number
+                )
+                .frame(width: 52)
+                .multilineTextAlignment(.center)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityLabel(label)
+                Text(String(localized: "markdown.fontSize.unit", defaultValue: "pt"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                stepButton(
+                    systemName: "plus",
+                    label: String(localized: "markdown.fontSize.increase", defaultValue: "Increase font size"),
+                    action: { _ = panel.zoomIn() }
+                )
+            }
+
+            Divider()
+
+            Button(String(localized: "markdown.fontSize.reset", defaultValue: "Reset to default")) {
+                _ = panel.resetZoom()
+            }
+            .buttonStyle(.link)
+
+            Button(String(localized: "markdown.fontSize.setDefault", defaultValue: "Set as default for new viewers")) {
+                MarkdownFontSizeSettings.setDefault(panel.fontSize)
+            }
+            .buttonStyle(.link)
+        }
+        .padding(12)
+        .frame(width: 232)
+    }
+
+    private func stepButton(systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .frame(width: 24, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.bordered)
+        .help(label)
+        .accessibilityLabel(label)
     }
 }
