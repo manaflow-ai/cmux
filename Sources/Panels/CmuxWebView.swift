@@ -798,16 +798,6 @@ final class CmuxWebView: WKWebView {
         super.keyDown(with: event)
     }
 
-    // Prevents NSBeep when an action selector reaches this view with no handler.
-    // A status-only diff/web page (e.g. the empty diff state) has no focusable or
-    // editable content, so a click or key command can fall through to the responder
-    // chain; the default `doCommand(by:)` would emit the system "unable to act" beep.
-    // WebKit routes editable/selectable interactions through its internal content
-    // view, so an empty override here only suppresses genuinely unhandled actions.
-    override func doCommand(by selector: Selector) {
-        // Intentionally empty - prevents the system beep on unhandled commands.
-    }
-
     // MARK: - Focus on click
 
     // The SwiftUI Color.clear overlay (.onTapGesture) that focuses panes can't receive

@@ -3716,8 +3716,9 @@ extension CMUXCLI {
                     )
                     // The originally selected source is empty; leave its own page as
                     // a friendly empty state so switching back to it never shows a
-                    // raw error.
-                    writeDeferredDiffViewerEmptyState(message: error.message, page: page, sourceSet: sourceSet)
+                    // raw error. This is a secondary page (the fallback page is the
+                    // returned result), so a write failure here is best-effort.
+                    try? writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
                     completion.completedPageURLs.insert(page.url)
                     return completion
                 } catch is EmptyDiffSourceError {
@@ -3726,28 +3727,32 @@ extension CMUXCLI {
                     throw fallbackError
                 }
             }
-            // No source has changes: render the selected source's friendly empty state.
-            return writeDeferredDiffViewerEmptyState(message: error.message, page: page, sourceSet: sourceSet)
+            // No source has changes: render the selected source's friendly empty
+            // state. A write failure must propagate so the deferred pipeline does
+            // not report success while a stale loading page remains.
+            try writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
+            return deferredDiffViewerEmptyStateCompletion(message: error.message, page: page)
         } catch let error as EmptyDiffSourceError {
             // Sources that never fall back (last turn) still render their own
             // friendly empty state rather than surfacing a developer-facing error.
-            return writeDeferredDiffViewerEmptyState(message: error.message, page: page, sourceSet: sourceSet)
+            try writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
+            return deferredDiffViewerEmptyStateCompletion(message: error.message, page: page)
         }
     }
 
-    /// Writes the friendly, non-error empty diff state for a deferred source page
-    /// and returns a completion describing the (empty) result.
+    /// Writes the friendly, non-error empty diff state for a deferred source page.
     ///
     /// Used when a source has no changes to show: the panel renders plain-language
     /// text plus the source switcher instead of a raw error, and the CLI exits
-    /// successfully so the launcher never emits an error beep.
-    @discardableResult
-    private func writeDeferredDiffViewerEmptyState(
+    /// successfully so the launcher never emits an error beep. Throws if the
+    /// replacement page cannot be written, so callers never report success while a
+    /// stale loading page remains.
+    private func writeDiffViewerEmptyStatePage(
         message: String,
         page: DiffViewerDeferredSourcePage,
         sourceSet: DiffViewerDeferredSourceSet
-    ) -> DiffViewerDeferredCompletion {
-        try? writeDiffViewerStatusHTML(
+    ) throws {
+        try writeDiffViewerStatusHTML(
             to: page.url,
             title: page.titleOverride ?? page.source.title,
             sourceLabel: "git \(page.source.slug)",
@@ -3762,7 +3767,16 @@ extension CMUXCLI {
             repoRoot: page.context.repoRoot,
             branchBaseRef: page.source == .branch ? page.context.branchBaseRef : nil
         )
-        return DiffViewerDeferredCompletion(
+    }
+
+    /// Builds the completion describing a rendered empty diff state for a deferred
+    /// source page. Pure value construction; the page must already be written via
+    /// ``writeDiffViewerEmptyStatePage(message:page:sourceSet:)``.
+    private func deferredDiffViewerEmptyStateCompletion(
+        message: String,
+        page: DiffViewerDeferredSourcePage
+    ) -> DiffViewerDeferredCompletion {
+        DiffViewerDeferredCompletion(
             input: DiffInput(
                 patch: "",
                 sourceLabel: "git \(page.source.slug)",
