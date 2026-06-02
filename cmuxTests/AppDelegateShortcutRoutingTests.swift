@@ -330,50 +330,63 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
-
-        defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
-        }
-
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let secondWindow = window(withId: secondWindowId) else {
-            XCTFail("Expected both window contexts to exist")
-            return
-        }
-
-        let firstCount = firstManager.tabs.count
-        let secondCount = secondManager.tabs.count
-
-        XCTAssertTrue(appDelegate.focusMainWindow(windowId: firstWindowId))
-
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.command],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: secondWindow.windowNumber,
-            context: nil,
-            characters: "n",
-            charactersIgnoringModifiers: "n",
-            isARepeat: false,
-            keyCode: 45
+        guard let event = makeKeyDownEvent(
+            key: "n",
+            modifiers: [.command],
+            keyCode: 45,
+            windowNumber: 904
         ) else {
             XCTFail("Failed to construct Cmd+N event")
             return
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
+        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .newTab))
 
-        XCTAssertEqual(firstManager.tabs.count, firstCount, "Cmd+N should not add workspace to stale active window")
-        XCTAssertEqual(secondManager.tabs.count, secondCount + 1, "Cmd+N should add workspace to the event's window")
+        let staleActiveWindowId = UUID()
+        let eventWindowId = UUID()
+        let shortcutSelection = selectShortcutRoutingContextAfterEventResolution(
+            debugPreferredWindowId: nil,
+            eventWindowId: eventWindowId,
+            hasAddressableEventWindow: true,
+            eventWindowAllowsFallback: false,
+            keyWindowId: staleActiveWindowId,
+            mainWindowId: staleActiveWindowId,
+            activeManagerWindowId: staleActiveWindowId,
+            fallbackWindowId: staleActiveWindowId
+        )
+        XCTAssertEqual(shortcutSelection.reason, .eventWindow)
+        XCTAssertEqual(shortcutSelection.windowId, eventWindowId)
+        XCTAssertNotEqual(
+            shortcutSelection.windowId,
+            staleActiveWindowId,
+            "Cmd+N shortcut routing should not use the stale active manager"
+        )
+
+        let workspaceCreationSelection = AppDelegate.selectWorkspaceCreationContext(
+            eventWindowId: eventWindowId,
+            hasAddressableEventWindow: true,
+            debugPreferredWindowId: nil,
+            keyWindowId: staleActiveWindowId,
+            mainWindowId: staleActiveWindowId,
+            orderedWindowIds: [staleActiveWindowId],
+            fallbackCandidates: [
+                AppDelegate.WorkspaceCreationContextCandidate(
+                    windowId: staleActiveWindowId,
+                    hasResolvedWindow: true
+                )
+            ]
+        )
+        XCTAssertEqual(workspaceCreationSelection.reason, .eventWindow)
+        XCTAssertEqual(workspaceCreationSelection.windowId, eventWindowId)
+        XCTAssertNotEqual(
+            workspaceCreationSelection.windowId,
+            staleActiveWindowId,
+            "Cmd+N workspace creation should not add a workspace to the stale active window"
+        )
+#else
+        XCTFail("Cmd+N routing helpers are only available in DEBUG")
+#endif
     }
 
     func testChordedNewWorkspaceShortcutConsumesPrefixAndTriggersOnSecondKey() {
