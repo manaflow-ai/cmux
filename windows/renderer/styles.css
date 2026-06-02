@@ -942,14 +942,31 @@ body.reduce-motion *::after {
 
 .workspace-detail-line {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
+}
+
+.workspace-counts {
+  display: none;
+  min-width: max-content;
+  padding: 2px 5px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--color-pane) 72%, transparent);
+  color: var(--color-muted);
+  font: 700 10px/1 var(--font-mono);
 }
 
 .workspace-row.is-active .workspace-detail-line,
 .workspace-row.is-active .workspace-path {
   color: var(--color-muted);
+}
+
+.workspace-row.is-active .workspace-counts {
+  border-color: color-mix(in oklch, var(--workspace-color, var(--color-accent)) 48%, var(--color-line));
+  background: color-mix(in oklch, var(--workspace-color, var(--color-accent)) 16%, var(--color-pane));
+  color: var(--color-text);
 }
 
 .shell.workspace-detail-compact .workspace-card {
@@ -958,6 +975,10 @@ body.reduce-motion *::after {
 
 .shell.workspace-detail-detailed .workspace-path {
   font-family: var(--font-mono);
+}
+
+.shell.workspace-detail-detailed .workspace-counts {
+  display: inline-flex;
 }
 
 .sidebar-footer {
@@ -1714,22 +1735,37 @@ body.reduce-motion *::after {
 }
 
 .surface-new-icon {
+  position: relative;
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
-  border: 1px solid currentColor;
+  width: 18px;
+  height: 18px;
+  border: 1px solid color-mix(in oklch, currentColor 72%, transparent);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, currentColor 10%, transparent);
-  font: 760 13px/1 var(--font-ui);
+  background: color-mix(in oklch, currentColor 8%, transparent);
 }
 
-.surface-new-icon::before {
+.surface-new-icon::after {
   content: "+";
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 11px;
+  height: 11px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-pane);
+  border-radius: 999px;
+  background: currentColor;
+  color: var(--color-canvas);
+  font: 800 9px/1 var(--font-ui);
 }
 
 .surface-new-tab svg {
-  display: none;
+  display: block;
+  width: 13px;
+  height: 13px;
+  stroke-width: 2;
 }
 
 .surface-new-label {

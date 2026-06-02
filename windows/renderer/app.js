@@ -136,6 +136,7 @@ const controlIconSvg = {
   plus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"></path></svg>`,
   reload: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 1 1-2.34-5.66"></path><path d="M20 4v6h-6"></path></svg>`,
   browser: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"></circle><path d="M4 12h16M12 4c2.2 2.3 2.2 13.7 0 16M12 4c-2.2 2.3-2.2 13.7 0 16"></path></svg>`,
+  terminal: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="m8 10 3 3-3 3"></path><path d="M13 16h4"></path></svg>`,
   browserPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10" cy="12" r="6"></circle><path d="M4 12h12M10 6c1.7 1.9 1.7 10.1 0 12M10 6c-1.7 1.9-1.7 10.1 0 12"></path><path d="M18 14v6M15 17h6"></path></svg>`,
   terminalPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="14" height="14" rx="2"></rect><path d="m7 10 3 3-3 3"></path><path d="M12 16h4"></path><path d="M18 13v6M15 16h6"></path></svg>`,
   up: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"></path></svg>`
@@ -3762,6 +3763,7 @@ function createWorkspaceRow() {
       </span>
       <span class="workspace-detail-line">
         <span class="workspace-path"></span>
+        <span class="workspace-counts"></span>
       </span>
     </span>
   `;
@@ -3861,7 +3863,8 @@ function workspaceRowParts(button) {
   button._workspaceParts ||= {
     name: button.querySelector(".workspace-name"),
     badge: button.querySelector(".workspace-badge"),
-    path: button.querySelector(".workspace-path")
+    path: button.querySelector(".workspace-path"),
+    counts: button.querySelector(".workspace-counts")
   };
   return button._workspaceParts;
 }
@@ -3878,6 +3881,7 @@ function updateWorkspaceRow(button, workspace, index, activeId) {
   const title = workspaceDisplayTitle(workspace, `Workspace ${index + 1}`);
   const cwd = isAppHomeWorkspace(workspace) ? "home" : workspace.cwdShort || "~";
   const paneSummary = `${workspace.terminalCount || 0} terminal${workspace.terminalCount === 1 ? "" : "s"} / ${workspace.browserCount || 0} browser${workspace.browserCount === 1 ? "" : "s"}`;
+  const compactPaneSummary = `${workspace.terminalCount || 0}T ${workspace.browserCount || 0}B`;
   const parts = workspaceRowParts(button);
   setDatasetIfChanged(button, "workspaceId", workspace.id);
   setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}${state.dragWorkspaceId === workspace.id ? " is-workspace-dragging" : ""}`);
@@ -3889,6 +3893,8 @@ function updateWorkspaceRow(button, workspace, index, activeId) {
   setTextIfChanged(parts.badge, hasAttention ? String(attentionTotal) : "");
   setTextIfChanged(parts.path, cwd);
   setTitleIfChanged(parts.path, cwd);
+  setTextIfChanged(parts.counts, compactPaneSummary);
+  setTitleIfChanged(parts.counts, paneSummary);
 }
 
 function renderSurfaceTabs(workspace) {
@@ -4232,13 +4238,13 @@ function clearSurfaceTabDropTargets() {
 const surfaceAddTabConfigs = {
   terminal: {
     className: "surface-new-terminal",
-    icon: "terminalPlus",
+    icon: "terminal",
     title: "New terminal pane",
     label: "Terminal"
   },
   browser: {
     className: "surface-new-browser",
-    icon: "browserPlus",
+    icon: "browser",
     title: "New browser pane",
     label: "Browser"
   }
@@ -4790,7 +4796,7 @@ function emptyWorkspaceLaunchers() {
   const launchers = [
     {
       id: "terminal",
-      icon: "terminalPlus",
+      icon: "terminal",
       label: "Terminal",
       meta: "New shell",
       kind: "panel",
@@ -4800,7 +4806,7 @@ function emptyWorkspaceLaunchers() {
     },
     {
       id: "browser",
-      icon: "browserPlus",
+      icon: "browser",
       label: "Browser",
       meta: "Home page",
       kind: "panel",
