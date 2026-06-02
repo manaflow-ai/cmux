@@ -141,6 +141,32 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
 
+    func testBrowserFocusModeToggleIsBrowserScopedAndDoesNotCollideWithSplitZoom() {
+        let focusMode = KeyboardShortcutSettings.Action.toggleBrowserFocusMode
+
+        // Scoped to browser panels so it only claims the key when a browser is focused.
+        XCTAssertEqual(focusMode.shortcutContext, .browserPanel)
+
+        // Default is Ctrl+Cmd+Return: a modifier tier web pages don't bind, distinct
+        // from the other Return-based shortcut (Cmd+Shift+Return = toggle split zoom).
+        let focusModeShortcut = focusMode.defaultShortcut
+        XCTAssertEqual(
+            focusModeShortcut,
+            StoredShortcut(key: "\r", command: true, shift: false, option: false, control: true)
+        )
+        XCTAssertNotEqual(
+            focusModeShortcut,
+            KeyboardShortcutSettings.Action.toggleSplitZoom.defaultShortcut
+        )
+        XCTAssertFalse(
+            focusMode.conflicts(
+                with: KeyboardShortcutSettings.Action.toggleSplitZoom.defaultShortcut,
+                proposedAction: .toggleSplitZoom,
+                configuredShortcut: focusModeShortcut
+            )
+        )
+    }
+
     func testMarkdownZoomIsScopedToFocusedMarkdownPanelAndDoesNotCollideWithBrowserZoom() {
         for action in [
             KeyboardShortcutSettings.Action.markdownZoomIn,
