@@ -119,6 +119,7 @@ const terminalOutputPerformanceChunkSize = 16384;
 const terminalOutputBacklogThreshold = 262144;
 const terminalHiddenOutputQueueLimit = terminalOutputBacklogThreshold * 4;
 const terminalHiddenOutputPreserveBytes = terminalOutputBacklogThreshold * 2;
+const embeddedBackgroundDataUrlLimitBytes = 2 * 1024 * 1024;
 const renderSlowFrameMs = 24;
 const renderVerySlowFrameMs = 72;
 const renderSlowFrameTriggerCount = 4;
@@ -963,14 +964,37 @@ function droppedBackgroundText(dataTransfer) {
   return dataTransfer?.getData("text/plain")?.trim() || "";
 }
 
-function droppedBackgroundValue(dataTransfer) {
+function readDroppedBackgroundFileAsDataUrl(file) {
+  return new Promise((resolve) => {
+    if (!file || file.size > embeddedBackgroundDataUrlLimitBytes) {
+      resolve({ ok: false, error: "too_large" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve({ ok: true, url: String(reader.result || "") });
+    reader.onerror = () => resolve({ ok: false, error: "unreadable" });
+    reader.readAsDataURL(file);
+  });
+}
+
+async function droppedBackgroundPayload(dataTransfer) {
   const file = firstDroppedBackgroundFile(dataTransfer);
   if (file) {
     const filePath = window.cmuxNative?.filePath?.(file) || file.path || "";
     const fileUrl = localPathToFileUrl(filePath);
-    if (fileUrl) return fileUrl;
+    if (fileUrl) return { url: fileUrl, inputValue: fileUrl };
+    const embedded = await readDroppedBackgroundFileAsDataUrl(file);
+    if (embedded.ok && embedded.url) {
+      return {
+        url: embedded.url,
+        inputValue: "",
+        label: defaultBackgroundLabel(file.name) || "Dropped image"
+      };
+    }
+    return { url: "", error: embedded.error || "unreadable" };
   }
-  return droppedBackgroundText(dataTransfer);
+  const text = droppedBackgroundText(dataTransfer);
+  return text ? { url: text, inputValue: text } : null;
 }
 
 function hasBackgroundDropData(dataTransfer, options = {}) {
@@ -995,17 +1019,22 @@ function installBackgroundDropTarget(target, options = {}) {
     if (!hasBackgroundDropData(event.dataTransfer, options)) return;
     event.preventDefault();
     setDropping(false);
-    const value = droppedBackgroundValue(event.dataTransfer);
-    if (!value) {
-      toast("Drop a supported image file or image URL.");
+    const payload = await droppedBackgroundPayload(event.dataTransfer);
+    if (!payload?.url) {
+      toast(payload?.error === "too_large"
+        ? "Dropped image is too large for a saved background."
+        : "Drop a supported image file or image URL.");
       return;
     }
-    if (options.input) options.input.value = value;
+    const background = payload.label ? { url: payload.url, label: payload.label } : { url: payload.url };
+    if (options.input && payload.inputValue) options.input.value = payload.inputValue;
     if (options.save) {
-      await applyAndSaveCustomBackgroundImage({ url: value });
+      const saved = await applyAndSaveCustomBackgroundImage(background);
+      if (saved && options.input && !payload.inputValue) options.input.value = "";
       return;
     }
-    await applyCustomBackgroundImage(value, { toast: true });
+    const changed = await applyCustomBackgroundImage(payload.url, { toast: true });
+    if (changed !== null && options.input && !payload.inputValue) options.input.value = "";
   });
 }
 
