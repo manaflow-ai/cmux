@@ -726,7 +726,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
         XCTAssertEqual(
             identities(TabManager.workspaceRepositoryReferences(directoryForTesting: repoURL.path)),
-
+            ["github.com/manaflow-ai/cmux", "github.com/austinwang/cmux"]
         )
     }
 
@@ -767,7 +767,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
         XCTAssertEqual(
             identities(TabManager.workspaceRepositoryReferences(directoryForTesting: repoURL.path)),
-
+            ["github.com/manaflow-ai/cmux"]
         )
     }
 
@@ -809,7 +809,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
         XCTAssertEqual(
             identities(TabManager.workspaceRepositoryReferences(directoryForTesting: repoURL.path)),
-
+            ["github.com/manaflow-ai/cmux"]
         )
     }
 
