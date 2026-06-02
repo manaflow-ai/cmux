@@ -203,6 +203,13 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         if let expectedSocketPath = diagnostics["socketExpectedPath"], !expectedSocketPath.isEmpty {
             socketPath = expectedSocketPath
         }
+        let ping = waitForCmuxPing(timeout: 6.0)
+        XCTAssertEqual(
+            ping.stdout,
+            "PONG",
+            "Expected the test harness to reach the control socket. stdout=\(ping.stdout ?? "<nil>") " +
+            "stderr=\(ping.stderr ?? "<nil>") diagnostics=\(diagnostics)"
+        )
 
         let terminalSurfaceId = try XCTUnwrap(
             ensureReadableTerminalSurface(timeout: 10.0),
@@ -875,11 +882,20 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     private func currentWorkspaceId() -> String? {
-        guard let response = socketCommand("current_workspace"),
-              UUID(uuidString: response.trimmingCharacters(in: .whitespacesAndNewlines)) != nil else {
-            return nil
+        if let response = socketCommand("current_workspace") {
+            let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+            if UUID(uuidString: trimmed) != nil {
+                return trimmed
+            }
         }
-        return response.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let result = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: ["current-workspace", "--id-format", "uuids"],
+            responseTimeoutSeconds: 4.0
+        )
+        guard result.terminationStatus == 0 else { return nil }
+        return firstUUID(in: result.stdout)
     }
 
     private func surfaceIds(forWorkspaceId workspaceId: String) -> [String] {
@@ -900,7 +916,11 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
     private func currentWorkspaceSurfaceIds() -> [String] {
         guard let workspaceId = currentWorkspaceId() else { return [] }
-        return surfaceIds(forWorkspaceId: workspaceId)
+        let directSurfaceIds = surfaceIds(forWorkspaceId: workspaceId)
+        if directSurfaceIds.isEmpty == false {
+            return directSurfaceIds
+        }
+        return firstSurfaceIdViaCLI(forWorkspaceId: workspaceId).map { [$0] } ?? []
     }
 
     private func okUUID(from response: String?) -> String? {
@@ -914,12 +934,58 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return existingSurfaceId
         }
 
-        if okUUID(from: socketCommand("new_surface --type=terminal")) == nil {
-            _ = okUUID(from: socketCommand("new_workspace ui-test-empty-notifications"))
-            _ = okUUID(from: socketCommand("new_surface --type=terminal"))
+        if currentWorkspaceId() == nil {
+            _ = createWorkspaceViaCLI()
+        }
+
+        if createTerminalSurface() == nil {
+            _ = createWorkspaceViaCLI()
+            _ = createTerminalSurface()
         }
 
         return waitForReadableTerminalSurface(timeout: timeout)
+    }
+
+    private func createWorkspaceViaCLI() -> String? {
+        if let workspaceId = okUUID(from: socketCommand("new_workspace ui-test-empty-notifications")) {
+            return workspaceId
+        }
+        let result = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: [
+                "new-workspace",
+                "--name",
+                "ui-test-empty-notifications",
+                "--focus",
+                "true",
+                "--id-format",
+                "uuids",
+            ],
+            responseTimeoutSeconds: 4.0
+        )
+        guard result.terminationStatus == 0 else { return nil }
+        return firstUUID(in: result.stdout)
+    }
+
+    private func createTerminalSurface() -> String? {
+        if let surfaceId = okUUID(from: socketCommand("new_surface --type=terminal")) {
+            return surfaceId
+        }
+        let result = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: [
+                "new-surface",
+                "--type",
+                "terminal",
+                "--focus",
+                "true",
+                "--id-format",
+                "uuids",
+            ],
+            responseTimeoutSeconds: 4.0
+        )
+        guard result.terminationStatus == 0 else { return nil }
+        return firstUUID(in: result.stdout)
     }
 
     private func waitForReadableTerminalSurface(timeout: TimeInterval) -> String? {
@@ -1011,6 +1077,17 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return String(token)
         }
         return nil
+    }
+
+    private func firstUUID(in output: String) -> String? {
+        let pattern = #"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(output.startIndex..<output.endIndex, in: output)
+        guard let match = regex.firstMatch(in: output, range: range),
+              let matchRange = Range(match.range, in: output) else {
+            return nil
+        }
+        return String(output[matchRange]).uppercased()
     }
 
     private func runCmuxNotify(
@@ -1561,13 +1638,27 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return String(data: data, encoding: .utf8)
     }
 
+    private func readTerminalTextViaCLI(surfaceId: String?) -> String? {
+        var arguments = ["read-screen"]
+        if let surfaceId {
+            arguments.append(contentsOf: ["--surface", surfaceId])
+        }
+        let result = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: arguments,
+            responseTimeoutSeconds: 4.0
+        )
+        guard result.terminationStatus == 0 else { return nil }
+        return result.stdout
+    }
+
     private func waitForTerminalText(surfaceId: String?, timeout: TimeInterval) -> String? {
         var matched: String?
         _ = waitForCondition(timeout: timeout) {
-            matched = self.readTerminalText(surfaceId: surfaceId)
+            matched = self.readTerminalText(surfaceId: surfaceId) ?? self.readTerminalTextViaCLI(surfaceId: surfaceId)
             return matched != nil
         }
-        return matched ?? readTerminalText(surfaceId: surfaceId)
+        return matched ?? readTerminalText(surfaceId: surfaceId) ?? readTerminalTextViaCLI(surfaceId: surfaceId)
     }
 
     private func loadData() -> [String: String]? {
