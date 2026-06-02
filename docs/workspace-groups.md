@@ -66,7 +66,7 @@ cmux workspace-group add --group <group-id> --workspace <workspace-id>
 cmux workspace-group remove --workspace <workspace-id>
 cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
 cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
-cmux workspace-group set-color <group-id> [--hex #RRGGBB]
+cmux workspace-group set-color <group-id> [--hex "#RRGGBB"]
 cmux workspace-group set-icon <group-id> [--symbol <sf-symbol>]
 ```
 
