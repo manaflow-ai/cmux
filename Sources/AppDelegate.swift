@@ -7108,6 +7108,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
+#if DEBUG
+        if let context,
+           let debugCreationOverride = debugAddWorkspaceInPreferredMainWindowCreationOverride {
+            let workspaceId = debugCreationOverride(context, nil)
+            if let workspaceId {
+                logWorkspaceCreationRouting(
+                    phase: "created",
+                    source: debugSource,
+                    reason: "workspace_created_debug_override",
+                    event: event,
+                    chosenContext: context,
+                    workspaceId: workspaceId
+                )
+            }
+            return workspaceId != nil
+        }
+#endif
+
         let workspaceGroupTarget = context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
         if let context,
            executeConfiguredNewWorkspaceActionIfAvailable(
