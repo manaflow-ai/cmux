@@ -94,38 +94,6 @@ enum ProcessPipeReader {
         return result.data
     }
 
-    static func copyDataToEndOfFileOrDiscard(from input: FileHandle, to output: FileHandle) {
-        var copiedBytes = 0
-        while true {
-            switch readOnce(
-                fileDescriptor: input.fileDescriptor,
-                maxLength: defaultChunkSize,
-                operation: "copyDataToEndOfFile"
-            ) {
-            case .success(let data):
-                guard !data.isEmpty else { return }
-                do {
-                    try output.write(contentsOf: data)
-                    copiedBytes += data.count
-                } catch {
-                    logReadFailure(
-                        ProcessPipeReadError(operation: "copyDataToEndOfFile.write", errnoCode: EIO),
-                        fileDescriptor: input.fileDescriptor,
-                        partialByteCount: copiedBytes
-                    )
-                    return
-                }
-            case .failure(let error):
-                logReadFailure(
-                    error,
-                    fileDescriptor: input.fileDescriptor,
-                    partialByteCount: copiedBytes
-                )
-                return
-            }
-        }
-    }
-
     static func readAvailableDataOrEndOfFile(from fileHandle: FileHandle) -> ProcessPipeAvailableRead {
         switch readAvailableData(from: fileHandle) {
         case .success(let result):

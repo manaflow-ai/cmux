@@ -91,24 +91,6 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
               let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
         }
-        if workspace.isRemoteWorkspace {
-            let store = fileExplorerStore
-            Task { [weak workspace, weak store] in
-                guard let workspace, let store else { return }
-                do {
-                    let localURL = try await store.materializeRemoteFileForPreview(path: filePath)
-                    _ = workspace.openFileSurfaces(
-                        inPane: paneId,
-                        filePaths: [localURL.path],
-                        focus: true,
-                        reuseExisting: true
-                    )
-                } catch {
-                    NSSound.beep()
-                }
-            }
-            return
-        }
         _ = workspace.openFileSurfaces(
             inPane: paneId,
             filePaths: [filePath],
@@ -202,7 +184,6 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                         sshOptions: configuration.sshOptions
                     ),
                     displayTarget: configuration.displayTarget,
-                    rootPath: workspace.currentDirectory,
                     isAvailable: workspace.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )
