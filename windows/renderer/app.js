@@ -4941,11 +4941,11 @@ function createPane(panel) {
   };
   parts.fontDown.onclick = (event) => {
     event.stopPropagation();
-    changePaneTerminalFontSize(pane.dataset.panelId, -1);
+    changePaneTerminalFontSize(pane.dataset.panelId, -1, { toast: false, status: true });
   };
   parts.fontUp.onclick = (event) => {
     event.stopPropagation();
-    changePaneTerminalFontSize(pane.dataset.panelId, 1);
+    changePaneTerminalFontSize(pane.dataset.panelId, 1, { toast: false, status: true });
   };
   parts.restart.onclick = (event) => {
     event.stopPropagation();
@@ -14330,11 +14330,11 @@ function changeTerminalFontSize(delta, options = {}) {
   return true;
 }
 
-function changePaneTerminalFontSize(panelId, delta) {
+function changePaneTerminalFontSize(panelId, delta, options = {}) {
   const found = findPanelState(panelId);
   if (!found || found.panel.type !== "terminal") return false;
   focusPanel(panelId);
-  return changeTerminalFontSize(delta, { panel: found.panel });
+  return changeTerminalFontSize(delta, { panel: found.panel, ...options });
 }
 
 function resetTerminalFontSize(options = {}) {
@@ -14355,15 +14355,16 @@ function resetTerminalFontSize(options = {}) {
   }
   queueTerminalFontSizeSync(panel.id, 0);
   refreshActivePaneTextControls(panel.id);
+  if (options.status) showTerminalTextSizeStatus(panel.id, nextSize);
   if (options.toast !== false) toast(`Pane text reset to ${nextSize}px.`);
   return true;
 }
 
-function resetPaneTerminalFontSize(panelId) {
+function resetPaneTerminalFontSize(panelId, options = {}) {
   const found = findPanelState(panelId);
   if (!found || found.panel.type !== "terminal") return false;
   focusPanel(panelId);
-  return resetTerminalFontSize({ panel: found.panel });
+  return resetTerminalFontSize({ panel: found.panel, ...options });
 }
 
 async function writeClipboardText(text) {
@@ -14916,13 +14917,13 @@ window.addEventListener("keydown", (event) => {
     clearActiveTerminal();
   } else if (event.ctrlKey && (event.key === "=" || event.key === "+")) {
     consumeGlobalShortcut(event);
-    changeTerminalFontSize(1, { event });
+    changeTerminalFontSize(1, { event, toast: false, status: true });
   } else if (event.ctrlKey && event.key === "-") {
     consumeGlobalShortcut(event);
-    changeTerminalFontSize(-1, { event });
+    changeTerminalFontSize(-1, { event, toast: false, status: true });
   } else if (event.ctrlKey && event.key === "0") {
     consumeGlobalShortcut(event);
-    resetTerminalFontSize({ event });
+    resetTerminalFontSize({ event, toast: false, status: true });
   } else if (event.ctrlKey && event.shiftKey && key === "r") {
     consumeGlobalShortcut(event);
     restartActiveTerminal();
