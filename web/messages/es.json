@@ -245,19 +245,19 @@
       },
       "cmuxHistory": {
         "title": "cmux history",
-        "summary": "Reopen closed terminals, browsers, workspaces, and agent sessions with Cmd+Shift+T, and retrace your focus with Cmd+[ and Cmd+].",
-        "date": "June 2, 2026",
-        "p1": "You close a terminal tab to clear clutter, then realize you needed it. Or you close a whole workspace and lose the agent that was mid task. cmux now keeps a history of what you closed and what you focused, so getting it back takes one shortcut.",
-        "reopenTitle": "Reopen what you closed",
-        "reopenP": "Press <code>Cmd+Shift+T</code> to reopen the last thing you closed. It works for terminal tabs, browser tabs, workspaces, and windows, and restores them one at a time in the order you closed them. Each surface comes back where it was, with its panes intact.",
-        "agentTitle": "Agent sessions come back too",
-        "agentP": "History also reopens closed agent sessions. Reopen a Claude Code, Codex, or OpenCode session and it resumes where it left off. Run <code>cmux hooks setup</code> once so cmux can track agent sessions, then they reopen like everything else.",
-        "agentP2": "This builds on cmux <link>session restore</link>, which resumes supported agents through their own native resume commands.",
-        "focusTitle": "Jump back to where you were",
-        "focusP": "The back and forward buttons in the titlebar, or <code>Cmd+[</code> and <code>Cmd+]</code>, jump to the previous and next workspace or window you were working in, the same way back and forward work in a browser.",
-        "fullHistoryTitle": "The full history pane",
-        "fullHistoryP": "When you need more than the last item, open the full History pane: a searchable, day grouped view of everything you closed and focused, with timestamps and a Clear Closed action.",
-        "docsCta": "See the <link>keyboard shortcuts</link> for the full list, including how to rebind history navigation."
+        "summary": "Vuelve a abrir terminales, navegadores, workspaces y sesiones de agentes cerrados con Cmd+Shift+T, y vuelve sobre tu foco con Cmd+[ y Cmd+].",
+        "date": "2 de junio de 2026",
+        "p1": "Cierras una pestaña de terminal para ordenar y luego te das cuenta de que la necesitabas. O cierras un workspace entero y pierdes el agente que estaba a mitad de tarea. Ahora cmux guarda un historial de lo que cerraste y enfocaste, así que recuperarlo es cuestión de un atajo.",
+        "reopenTitle": "Vuelve a abrir lo que cerraste",
+        "reopenP": "Pulsa <code>Cmd+Shift+T</code> para volver a abrir lo último que cerraste. Funciona con pestañas de terminal, pestañas del navegador, workspaces y ventanas, y las restaura una a una en el orden en que las cerraste. Cada superficie vuelve a su sitio, con sus paneles intactos.",
+        "agentTitle": "Las sesiones de agentes también vuelven",
+        "agentP": "El historial también vuelve a abrir sesiones de agentes cerradas. Vuelve a abrir una sesión de Claude Code, Codex u OpenCode y se reanuda donde la dejaste. Ejecuta <code>cmux hooks setup</code> una vez para que cmux pueda hacer seguimiento de las sesiones de agentes; después se vuelven a abrir como todo lo demás.",
+        "agentP2": "Esto se apoya en la <link>restauración de sesiones</link> de cmux, que reanuda los agentes compatibles mediante sus propios comandos nativos de reanudación.",
+        "focusTitle": "Vuelve a donde estabas",
+        "focusP": "Los botones de atrás y adelante de la barra de título, o <code>Cmd+[</code> y <code>Cmd+]</code>, saltan al workspace o ventana anterior y siguiente en los que estabas trabajando, igual que atrás y adelante en un navegador.",
+        "fullHistoryTitle": "El panel de historial completo",
+        "fullHistoryP": "Cuando necesitas más que el último elemento, abre el panel de historial completo: una vista buscable y agrupada por día de todo lo que cerraste y enfocaste, con marcas de tiempo y una acción Clear Closed.",
+        "docsCta": "Consulta los <link>atajos de teclado</link> para ver la lista completa, incluido cómo reasignar la navegación del historial."
       }
     },
     "zenOfCmux": {
@@ -385,8 +385,8 @@
       ]
     },
     "cmuxHistory": {
-      "metaTitle": "cmux history: reopen closed terminals and sessions",
-      "metaDescription": "cmux keeps a history of what you closed and focused. Reopen closed terminals, browsers, workspaces, and Claude Code, Codex, and OpenCode sessions with Cmd+Shift+T, and move focus back and forward with Cmd+[ and Cmd+]."
+      "metaTitle": "cmux history: vuelve a abrir terminales y sesiones cerradas",
+      "metaDescription": "cmux guarda un historial de lo que cerraste y enfocaste. Vuelve a abrir terminales, navegadores, workspaces y sesiones de Claude Code, Codex y OpenCode cerrados con Cmd+Shift+T, y mueve el foco hacia atrás y adelante con Cmd+[ y Cmd+]."
     }
   },
   "docs": {
