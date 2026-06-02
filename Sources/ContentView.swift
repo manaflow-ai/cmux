@@ -4556,6 +4556,7 @@ struct ContentView: View {
                 width: CGFloat.greatestFiniteMagnitude,
                 height: CGFloat.greatestFiniteMagnitude
             )
+            textView.configureCmuxNaturalWritingDirectionForComposedText()
             scrollView.documentView = textView
 
             placeholderField.translatesAutoresizingMaskIntoConstraints = false
@@ -4838,6 +4839,7 @@ struct ContentView: View {
             view.placeholder = placeholder
             view.maximumHeight = maxHeight
             view.textView.string = text
+            view.textView.applyCmuxNaturalWritingDirectionToComposedText()
             view.textView.delegate = context.coordinator
             view.textView.setAccessibilityLabel(accessibilityLabel)
             view.textView.setAccessibilityIdentifier(accessibilityIdentifier)
@@ -4873,6 +4875,7 @@ struct ContentView: View {
             if nsView.textView.string != text {
                 context.coordinator.isProgrammaticMutation = true
                 nsView.textView.string = text
+                nsView.textView.applyCmuxNaturalWritingDirectionToComposedText()
                 context.coordinator.isProgrammaticMutation = false
             }
             nsView.onMeasuredHeightChange = { [weak coordinator = context.coordinator] height in
@@ -13181,6 +13184,7 @@ private struct FeedbackComposerMessageEditor: NSViewRepresentable {
         let view = FeedbackComposerMessageEditorView()
         view.placeholder = placeholder
         view.textView.string = text
+        view.textView.applyCmuxNaturalWritingDirectionToComposedText()
         view.textView.delegate = context.coordinator
         view.textView.setAccessibilityLabel(accessibilityLabel)
         view.textView.setAccessibilityIdentifier(accessibilityIdentifier)
@@ -13191,6 +13195,7 @@ private struct FeedbackComposerMessageEditor: NSViewRepresentable {
     func updateNSView(_ nsView: FeedbackComposerMessageEditorView, context: Context) {
         if nsView.textView.string != text {
             nsView.textView.string = text
+            nsView.textView.applyCmuxNaturalWritingDirectionToComposedText()
             nsView.refreshTextLayout()
         }
         nsView.placeholder = placeholder
@@ -13289,6 +13294,7 @@ final class FeedbackComposerMessageEditorView: NSView {
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
         )
+        textView.configureCmuxNaturalWritingDirectionForComposedText()
 
         scrollView.documentView = textView
         addSubview(scrollView)

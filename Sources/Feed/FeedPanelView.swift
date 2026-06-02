@@ -3257,6 +3257,7 @@ private final class FeedInlineTextEditorView: NSView {
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
         )
+        textView.configureCmuxNaturalWritingDirectionForComposedText()
         addSubview(textView)
 
         placeholderField.textColor = .placeholderTextColor
@@ -3451,6 +3452,7 @@ private struct FeedInlineTextField: NSViewRepresentable {
         let view = FeedInlineTextEditorView(frame: .zero)
         view.textView.delegate = context.coordinator
         view.textView.string = text
+        view.textView.applyCmuxNaturalWritingDirectionToComposedText()
         view.textView.onActivate = { [weak coordinator = context.coordinator] in
             coordinator?.activateField()
         }
@@ -3478,6 +3480,7 @@ private struct FeedInlineTextField: NSViewRepresentable {
         if nsView.textView.string != text, !nsView.textView.hasMarkedText() {
             context.coordinator.isProgrammaticMutation = true
             nsView.textView.string = text
+            nsView.textView.applyCmuxNaturalWritingDirectionToComposedText()
             context.coordinator.isProgrammaticMutation = false
             nsView.refreshMetrics()
         }
