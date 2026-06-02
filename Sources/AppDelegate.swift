@@ -1120,6 +1120,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupEmptyNotificationsBlockingUITest = false
     private var emptyNotificationsBlockingUITestRecorder: DispatchSourceTimer?
     private var emptyNotificationsBlockingUITestObservers: [NSObjectProtocol] = []
+    private var didSetupUITestSocketBridge = false
+    private var uiTestSocketBridgeTimer: DispatchSourceTimer?
+    private let uiTestSocketBridgeQueue = DispatchQueue(label: "cmux.ui-test.socket-bridge")
+    private var uiTestSocketBridgeLastRequestId: String?
+    private var uiTestSocketBridgeProcessingRequestIds: Set<String> = []
     private var didSetupDisplayResolutionUITestDiagnostics = false
     private var displayResolutionUITestObservers: [NSObjectProtocol] = []
     private var didSetupFeedSidebarUITest = false
@@ -2090,6 +2095,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupBonsplitTabDragUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
         setupEmptyNotificationsBlockingUITestIfNeeded()
+        setupUITestSocketBridgeIfNeeded()
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
         setupPortalStatsUITestDiagnosticsIfNeeded()
 
@@ -2979,6 +2985,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.writeUITestDiagnosticsIfNeeded(stage: "socketSanityPostRestart")
             }
         }
+    }
+
+    private func setupUITestSocketBridgeIfNeeded() {
+        let env = ProcessInfo.processInfo.environment
+        guard !didSetupUITestSocketBridge else { return }
+        guard let path = env["CMUX_UI_TEST_SOCKET_BRIDGE_PATH"], !path.isEmpty else { return }
+        didSetupUITestSocketBridge = true
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(50))
+        timer.setEventHandler { [weak self] in
+            self?.processUITestSocketBridgeRequestIfNeeded(path: path)
+        }
+        uiTestSocketBridgeTimer = timer
+        timer.resume()
+    }
+
+    private func processUITestSocketBridgeRequestIfNeeded(path: String) {
+        let url = URL(fileURLWithPath: path)
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let requestId = object["id"] as? String,
+              let line = object["line"] as? String,
+              !requestId.isEmpty,
+              !line.isEmpty,
+              object["completed"] as? Bool != true else {
+            return
+        }
+        guard requestId != uiTestSocketBridgeLastRequestId,
+              !uiTestSocketBridgeProcessingRequestIds.contains(requestId) else {
+            return
+        }
+
+        uiTestSocketBridgeProcessingRequestIds.insert(requestId)
+        uiTestSocketBridgeQueue.async { [weak self] in
+            let response = TerminalController.shared.handleSocketLine(line)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.uiTestSocketBridgeProcessingRequestIds.remove(requestId)
+                self.uiTestSocketBridgeLastRequestId = requestId
+                self.writeUITestSocketBridgeResponse(
+                    requestId: requestId,
+                    line: line,
+                    response: response,
+                    path: path
+                )
+            }
+        }
+    }
+
+    private func writeUITestSocketBridgeResponse(
+        requestId: String,
+        line: String,
+        response: String,
+        path: String
+    ) {
+        let url = URL(fileURLWithPath: path)
+        let payload: [String: Any] = [
+            "id": requestId,
+            "line": line,
+            "response": response,
+            "completed": true,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
+            return
+        }
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: url, options: .atomic)
     }
 
     private func setupDisplayResolutionUITestDiagnosticsIfNeeded() {
