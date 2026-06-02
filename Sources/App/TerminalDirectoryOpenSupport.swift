@@ -872,7 +872,24 @@ enum DirectoryToolWebServerURLBuilder {
 
 final class DirectoryToolWebServerController {
     static let shared = DirectoryToolWebServerController()
-    private static let startupTimeoutSeconds: TimeInterval = 60
+    private static let defaultStartupTimeoutSeconds: TimeInterval = 20
+
+    enum LaunchResult {
+        case opened(URL)
+        case failed(LaunchFailure)
+    }
+
+    struct LaunchFailure: Sendable, Equatable {
+        enum Reason: Sendable, Equatable {
+            case invalidConfiguration
+            case launchFailed
+            case exitedWithoutURL(status: Int32)
+            case timedOut
+        }
+
+        var reason: Reason
+        var output: String
+    }
 
     private struct ServerKey: Hashable {
         let toolID: String
@@ -886,7 +903,7 @@ final class DirectoryToolWebServerController {
     func ensureWebServerURL(
         tool: CmuxResolvedDirectoryTool,
         directoryURL: URL,
-        completion: @escaping (URL?) -> Void
+        completion: @escaping (LaunchResult) -> Void
     ) {
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
         let key = ServerKey(toolID: tool.id, directoryPath: normalizedDirectoryURL.path)
@@ -894,7 +911,7 @@ final class DirectoryToolWebServerController {
             if let server = self.serversByKey[key],
                server.process.isRunning {
                 DispatchQueue.main.async {
-                    completion(server.url)
+                    completion(.opened(server.url))
                 }
                 return
             }
@@ -902,25 +919,35 @@ final class DirectoryToolWebServerController {
             self.launchQueue.async {
                 let result = self.launchWebServer(tool: tool, directoryURL: normalizedDirectoryURL)
                 self.queue.async {
-                    if let result {
-                        self.serversByKey[key] = result
+                    if case .opened(let process, let url) = result {
+                        self.serversByKey[key] = (process, url)
                     }
                     DispatchQueue.main.async {
-                        completion(result?.url)
+                        switch result {
+                        case .opened(_, let url):
+                            completion(.opened(url))
+                        case .failed(let failure):
+                            completion(.failed(failure))
+                        }
                     }
                 }
             }
         }
     }
 
+    private enum InternalLaunchResult {
+        case opened(process: Process, url: URL)
+        case failed(LaunchFailure)
+    }
+
     private func launchWebServer(
         tool: CmuxResolvedDirectoryTool,
         directoryURL: URL
-    ) -> (process: Process, url: URL)? {
+    ) -> InternalLaunchResult {
         guard tool.kind == .shellWebServer,
               let command = tool.command,
               !command.isEmpty else {
-            return nil
+            return .failed(LaunchFailure(reason: .invalidConfiguration, output: ""))
         }
         let executablePath = tool.resolvedExecutablePath() ?? ""
         let cwdURL = resolvedCwdURL(template: tool.cwd, directoryURL: directoryURL)
@@ -970,20 +997,27 @@ final class DirectoryToolWebServerController {
         } catch {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
-            return nil
+            return .failed(LaunchFailure(reason: .launchFailed, output: error.localizedDescription))
         }
 
-        guard collector.waitForURL(timeoutSeconds: Self.startupTimeoutSeconds),
+        let configuredStartupTimeoutSeconds = tool.startupTimeoutSeconds
+            ?? Self.defaultStartupTimeoutSeconds
+        let startupTimeoutSeconds = max(1, TimeInterval(configuredStartupTimeoutSeconds))
+        guard collector.waitForURL(timeoutSeconds: startupTimeoutSeconds),
               let url = collector.webServerURL else {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
             if process.isRunning {
                 process.terminate()
+                return .failed(LaunchFailure(reason: .timedOut, output: collector.outputSnippet))
             }
-            return nil
+            return .failed(LaunchFailure(
+                reason: .exitedWithoutURL(status: process.terminationStatus),
+                output: collector.outputSnippet
+            ))
         }
 
-        return (process, url)
+        return .opened(process: process, url: url)
     }
 
     private func resolvedCwdURL(template: String?, directoryURL: URL) -> URL {
@@ -1026,6 +1060,15 @@ final class DirectoryToolWebServerOutputCollector {
         lock.lock()
         defer { lock.unlock() }
         return resolvedURL
+    }
+
+    var outputSnippet: String {
+        lock.lock()
+        defer { lock.unlock() }
+        let trimmed = outputBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 800 else { return trimmed }
+        let suffix = trimmed.suffix(800)
+        return "..." + suffix
     }
 
     func append(_ data: Data) {

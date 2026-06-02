@@ -103,6 +103,19 @@
           "urlRegex": {
             "type": "string",
             "description": "Optional regular expression used to capture the browser URL from stdout/stderr. If it has a capture group, group 1 is used."
+          },
+          "failureMessage": {
+            "type": "string",
+            "description": "Optional message shown when the tool exits, times out, or does not print a URL."
+          },
+          "installCommand": {
+            "type": "string",
+            "description": "Optional shell command offered in the failure alert. cmux runs it in a visible terminal tab only after the user clicks Run Install Command."
+          },
+          "startupTimeoutSeconds": {
+            "type": "number",
+            "minimum": 1,
+            "description": "Seconds to wait for the tool to print a URL before showing the failure alert."
           }
         },
         "allOf": [

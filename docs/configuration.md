@@ -45,12 +45,15 @@ Example:
       "keywords": ["notebook", "python"],
       "kind": "shellWebServer",
       "executablePathCandidates": ["/opt/homebrew/bin/jupyter"],
-      "command": "exec \"$CMUX_TOOL_EXECUTABLE\" lab --no-browser --ip=127.0.0.1 --port=0",
+      "command": "TOOL=\"${CMUX_TOOL_EXECUTABLE:-$(command -v jupyter || true)}\"; if [ -z \"$TOOL\" ]; then echo \"Notebook is not installed\" >&2; exit 127; fi; exec \"$TOOL\" lab --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50",
       "cwd": "{directory}",
-      "urlRegex": "(http://127\\.0\\.0\\.1:[^\\s]+)"
+      "urlRegex": "(http://(?:127\\.0\\.0\\.1|localhost):[^\\s]+)",
+      "failureMessage": "Notebook is not installed or did not print a local URL.",
+      "installCommand": "python3 -m pip install --user jupyterlab",
+      "startupTimeoutSeconds": 20
     }
   ]
 }
 ```
 
-For `shellWebServer`, cmux sets `CMUX_DIRECTORY`, `CMUX_TOOL_ID`, and `CMUX_TOOL_EXECUTABLE`. Project-local tools are prompted through the same trust flow as project-local custom commands.
+For `shellWebServer`, cmux sets `CMUX_DIRECTORY`, `CMUX_TOOL_ID`, and `CMUX_TOOL_EXECUTABLE`. If startup fails, cmux shows `failureMessage`, captured output, and an optional `installCommand` button. Install commands run in a visible terminal tab after the user clicks the button. Project-local tools are prompted through the same trust flow as project-local custom commands.

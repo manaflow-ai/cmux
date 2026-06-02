@@ -9911,16 +9911,137 @@ struct ContentView: View {
             DirectoryToolWebServerController.shared.ensureWebServerURL(
                 tool: tool,
                 directoryURL: directoryURL.standardizedFileURL
-            ) { webServerURL in
-                guard let webServerURL,
-                      tabManager.openBrowser(
+            ) { result in
+                switch result {
+                case .opened(let webServerURL):
+                    guard tabManager.openBrowser(
                           inWorkspace: targetWorkspaceId,
                           url: webServerURL,
                           preferSplitRight: true
-                      ) != nil else {
-                    NSSound.beep()
-                    return
+                    ) != nil else {
+                        NSSound.beep()
+                        return
+                    }
+                case .failed(let failure):
+                    showDirectoryToolLaunchFailureAlert(
+                        tool: tool,
+                        failure: failure,
+                        directoryURL: directoryURL
+                    )
                 }
+            }
+        }
+    }
+
+    private func showDirectoryToolLaunchFailureAlert(
+        tool: CmuxResolvedDirectoryTool,
+        failure: DirectoryToolWebServerController.LaunchFailure,
+        directoryURL: URL
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        let titleFormat = String(
+            localized: "directoryTool.launchFailure.title",
+            defaultValue: "Couldn't Start %@"
+        )
+        alert.messageText = String(format: titleFormat, tool.subtitle ?? tool.title)
+        alert.informativeText = directoryToolLaunchFailureMessage(tool: tool, failure: failure)
+
+        let installCommand = tool.installCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if installCommand?.isEmpty == false {
+            alert.addButton(withTitle: String(
+                localized: "directoryTool.launchFailure.runInstall",
+                defaultValue: "Run Install Command"
+            ))
+            alert.addButton(withTitle: String(
+                localized: "directoryTool.launchFailure.copyInstall",
+                defaultValue: "Copy Install Command"
+            ))
+        }
+        alert.addButton(withTitle: String(
+            localized: "directoryTool.launchFailure.ok",
+            defaultValue: "OK"
+        ))
+
+        let response = alert.runModal()
+        guard let installCommand, !installCommand.isEmpty else { return }
+        if response == .alertFirstButtonReturn {
+            runDirectoryToolInstallCommand(
+                installCommand,
+                tool: tool,
+                directoryURL: directoryURL
+            )
+        } else if response == .alertSecondButtonReturn {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(installCommand, forType: .string)
+        }
+    }
+
+    private func directoryToolLaunchFailureMessage(
+        tool: CmuxResolvedDirectoryTool,
+        failure: DirectoryToolWebServerController.LaunchFailure
+    ) -> String {
+        let baseMessage: String
+        if let configuredMessage = tool.failureMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !configuredMessage.isEmpty {
+            baseMessage = configuredMessage
+        } else {
+            switch failure.reason {
+            case .invalidConfiguration:
+                baseMessage = String(
+                    localized: "directoryTool.launchFailure.invalidConfiguration",
+                    defaultValue: "This directory tool is missing a command."
+                )
+            case .launchFailed:
+                baseMessage = String(
+                    localized: "directoryTool.launchFailure.launchFailed",
+                    defaultValue: "cmux could not launch this directory tool."
+                )
+            case .exitedWithoutURL:
+                baseMessage = String(
+                    localized: "directoryTool.launchFailure.exitedWithoutURL",
+                    defaultValue: "The directory tool exited before printing a local URL."
+                )
+            case .timedOut:
+                baseMessage = String(
+                    localized: "directoryTool.launchFailure.timedOut",
+                    defaultValue: "The directory tool did not print a local URL before the startup timeout."
+                )
+            }
+        }
+
+        let output = failure.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !output.isEmpty else { return baseMessage }
+        let outputFormat = String(
+            localized: "directoryTool.launchFailure.outputFormat",
+            defaultValue: "%@\n\nOutput:\n%@"
+        )
+        return String(format: outputFormat, baseMessage, output)
+    }
+
+    private func runDirectoryToolInstallCommand(
+        _ command: String,
+        tool: CmuxResolvedDirectoryTool,
+        directoryURL: URL
+    ) {
+        _ = CmuxConfigExecutor.prepareShellInputIfAuthorized(
+            command,
+            confirm: true,
+            actionID: "directoryTool.\(tool.id).install",
+            target: .newTabInCurrentPane,
+            configSourcePath: tool.sourcePath,
+            globalConfigPath: cmuxConfigStore.globalConfigPath,
+            displayTitle: String(
+                localized: "directoryTool.install.title",
+                defaultValue: "Install Directory Tool"
+            ),
+            presentingWindow: NSApp.keyWindow ?? NSApp.mainWindow
+        ) { shellInput in
+            if let workspace = tabManager.selectedWorkspace {
+                workspace.clearSplitZoom()
+                workspace.newTerminalSurfaceInFocusedPane(focus: true, initialInput: shellInput)
+            } else {
+                tabManager.newSurface(initialInput: shellInput)
             }
         }
     }

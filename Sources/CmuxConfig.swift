@@ -344,6 +344,9 @@ struct CmuxDirectoryToolDefinition: Codable, Sendable, Hashable {
     var command: String?
     var cwd: String?
     var urlRegex: String?
+    var failureMessage: String?
+    var installCommand: String?
+    var startupTimeoutSeconds: Double?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -357,6 +360,9 @@ struct CmuxDirectoryToolDefinition: Codable, Sendable, Hashable {
         case command
         case cwd
         case urlRegex
+        case failureMessage
+        case installCommand
+        case startupTimeoutSeconds
     }
 
     init(
@@ -370,7 +376,10 @@ struct CmuxDirectoryToolDefinition: Codable, Sendable, Hashable {
         executablePathCandidates: [String] = [],
         command: String? = nil,
         cwd: String? = nil,
-        urlRegex: String? = nil
+        urlRegex: String? = nil,
+        failureMessage: String? = nil,
+        installCommand: String? = nil,
+        startupTimeoutSeconds: Double? = nil
     ) {
         self.id = id
         self.title = title
@@ -383,6 +392,9 @@ struct CmuxDirectoryToolDefinition: Codable, Sendable, Hashable {
         self.command = command
         self.cwd = cwd
         self.urlRegex = urlRegex
+        self.failureMessage = failureMessage
+        self.installCommand = installCommand
+        self.startupTimeoutSeconds = startupTimeoutSeconds
     }
 
     init(from decoder: Decoder) throws {
@@ -416,6 +428,9 @@ struct CmuxDirectoryToolDefinition: Codable, Sendable, Hashable {
         command = try Self.optionalTrimmedString(forKey: .command, in: container)
         cwd = try Self.optionalTrimmedString(forKey: .cwd, in: container)
         urlRegex = try Self.optionalTrimmedString(forKey: .urlRegex, in: container)
+        failureMessage = try Self.optionalTrimmedString(forKey: .failureMessage, in: container)
+        installCommand = try Self.optionalTrimmedString(forKey: .installCommand, in: container)
+        startupTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .startupTimeoutSeconds)
 
         switch kind {
         case .vscodeServeWeb:
@@ -452,6 +467,9 @@ struct CmuxDirectoryToolDefinition: Codable, Sendable, Hashable {
         try container.encodeIfPresent(command, forKey: .command)
         try container.encodeIfPresent(cwd, forKey: .cwd)
         try container.encodeIfPresent(urlRegex, forKey: .urlRegex)
+        try container.encodeIfPresent(failureMessage, forKey: .failureMessage)
+        try container.encodeIfPresent(installCommand, forKey: .installCommand)
+        try container.encodeIfPresent(startupTimeoutSeconds, forKey: .startupTimeoutSeconds)
     }
 
     static let defaultVSCodeApplicationBundlePathCandidates = [
@@ -478,16 +496,25 @@ struct CmuxDirectoryToolDefinition: Codable, Sendable, Hashable {
                 "/opt/homebrew/bin/jupyter",
                 "/usr/local/bin/jupyter",
                 "/usr/bin/jupyter",
+                "~/.local/bin/jupyter",
+                "~/.pyenv/shims/jupyter",
+                "~/.asdf/shims/jupyter",
             ],
             command: """
             TOOL="${CMUX_TOOL_EXECUTABLE:-$(command -v jupyter || true)}"; \
             if [ -z "$TOOL" ]; then TOOL="$(command -v jupyter-lab || true)"; fi; \
-            if [ -z "$TOOL" ]; then exit 127; fi; \
-            if [ "$(basename "$TOOL")" = "jupyter-lab" ]; then exec "$TOOL" --no-browser --ip=127.0.0.1 --port=0; fi; \
-            exec "$TOOL" lab --no-browser --ip=127.0.0.1 --port=0
+            if [ -z "$TOOL" ]; then echo "Jupyter is not installed or is not on PATH." >&2; exit 127; fi; \
+            if [ "$(basename "$TOOL")" = "jupyter-lab" ]; then exec "$TOOL" --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50; fi; \
+            exec "$TOOL" lab --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50
             """,
             cwd: "{directory}",
-            urlRegex: "(http://127\\.0\\.0\\.1:[^\\s]+)"
+            urlRegex: "(http://(?:127\\.0\\.0\\.1|localhost):[^\\s]+)",
+            failureMessage: String(
+                localized: "directoryTool.jupyter.failureMessage",
+                defaultValue: "Jupyter is not installed or did not print a local URL. Install JupyterLab, then run this command again."
+            ),
+            installCommand: "python3 -m pip install --user jupyterlab",
+            startupTimeoutSeconds: 20
         ),
     ]
 
@@ -540,6 +567,9 @@ struct CmuxResolvedDirectoryTool: Sendable, Hashable, Identifiable {
     var command: String?
     var cwd: String?
     var urlRegex: String?
+    var failureMessage: String?
+    var installCommand: String?
+    var startupTimeoutSeconds: Double?
     var sourcePath: String?
 
     var commandPaletteCommandId: String {
@@ -566,6 +596,9 @@ struct CmuxResolvedDirectoryTool: Sendable, Hashable, Identifiable {
         command = definition.command
         cwd = definition.cwd
         urlRegex = definition.urlRegex
+        failureMessage = definition.failureMessage
+        installCommand = definition.installCommand
+        startupTimeoutSeconds = definition.startupTimeoutSeconds
         self.sourcePath = sourcePath
     }
 }

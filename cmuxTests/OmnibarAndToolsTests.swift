@@ -311,6 +311,37 @@ final class ServeWebOutputCollectorTests: XCTestCase {
 }
 
 
+final class DirectoryToolWebServerOutputCollectorTests: XCTestCase {
+    func testWaitForURLReturnsFalseAfterProcessExitSignal() {
+        let collector = DirectoryToolWebServerOutputCollector(urlPattern: nil)
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            collector.append(Data("Jupyter is not installed\n".utf8))
+            collector.markProcessExited()
+        }
+
+        let start = Date()
+        let resolved = collector.waitForURL(timeoutSeconds: 1)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertFalse(resolved)
+        XCTAssertLessThan(elapsed, 0.5)
+        XCTAssertEqual(collector.outputSnippet, "Jupyter is not installed")
+    }
+
+    func testCustomRegexParsesLocalhostJupyterURL() {
+        let collector = DirectoryToolWebServerOutputCollector(
+            urlPattern: "(http://(?:127\\.0\\.0\\.1|localhost):[^\\s]+)"
+        )
+
+        collector.append(Data("http://localhost:8888/lab?token=test-token\n".utf8))
+
+        XCTAssertTrue(collector.waitForURL(timeoutSeconds: 0.1))
+        XCTAssertEqual(collector.webServerURL?.absoluteString, "http://localhost:8888/lab?token=test-token")
+    }
+}
+
+
 final class VSCodeServeWebControllerTests: XCTestCase {
     func testStopDuringInFlightLaunchDoesNotDropNextGenerationCompletion() {
         let firstLaunchStarted = expectation(description: "first launch started")

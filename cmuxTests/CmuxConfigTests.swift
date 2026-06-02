@@ -145,7 +145,10 @@ final class CmuxConfigDecodingTests: XCTestCase {
             "executablePathCandidates": ["/opt/homebrew/bin/notebook"],
             "command": "notebook --no-browser",
             "cwd": "{directory}",
-            "urlRegex": "(http://127\\\\.0\\\\.0\\\\.1:[^\\\\s]+)"
+            "urlRegex": "(http://127\\\\.0\\\\.0\\\\.1:[^\\\\s]+)",
+            "failureMessage": "Notebook is missing",
+            "installCommand": "python3 -m pip install notebook",
+            "startupTimeoutSeconds": 7
           }]
         }
         """
@@ -159,6 +162,10 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(tool.executablePathCandidates, ["/opt/homebrew/bin/notebook"])
         XCTAssertEqual(tool.command, "notebook --no-browser")
         XCTAssertEqual(tool.cwd, "{directory}")
+        XCTAssertEqual(tool.urlRegex, "(http://127\\.0\\.0\\.1:[^\\s]+)")
+        XCTAssertEqual(tool.failureMessage, "Notebook is missing")
+        XCTAssertEqual(tool.installCommand, "python3 -m pip install notebook")
+        XCTAssertEqual(tool.startupTimeoutSeconds, 7)
     }
 
     func testShellDirectoryToolRequiresCommand() {
