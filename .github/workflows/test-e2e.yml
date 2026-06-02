@@ -296,28 +296,43 @@ jobs:
           # The display churn regression creates its own virtual display above,
           # so recording must start after that harness is ready.
           if [ "$RECORD_VIDEO" = "true" ]; then
-            DEVLIST=$( ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true )
-            echo "Available devices:"
-            echo "$DEVLIST" | grep -E "AVFoundation|Capture screen"
-
-            SCREEN_INDEX=$( echo "$DEVLIST" | grep "Capture screen" | head -1 \
-              | sed 's/.*\[\([0-9]*\)\].*/\1/' )
-            SCREEN_INDEX="${SCREEN_INDEX:-0}"
-            echo "Using screen device index: $SCREEN_INDEX"
-
-            ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 \
-              -i "${SCREEN_INDEX}:none" \
-              -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
-              /tmp/test-recording-raw.mp4 </dev/null >/tmp/ffmpeg.log 2>&1 &
-            RECORD_PID=$!
-            echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
-            sleep 2
-
-            if kill -0 "$RECORD_PID" 2>/dev/null; then
-              echo "Recording started (PID $RECORD_PID)"
+            printf '%s\n' \
+              '#include <CoreGraphics/CoreGraphics.h>' \
+              '' \
+              'int main(void) {' \
+              '  return CGPreflightScreenCaptureAccess() ? 0 : 1;' \
+              '}' > /tmp/cmux-screen-capture-preflight.c
+            if ! clang -framework CoreGraphics -o /tmp/cmux-screen-capture-preflight /tmp/cmux-screen-capture-preflight.c; then
+              echo "::warning::Could not build screen-capture permission preflight; skipping recording"
+            elif ! /tmp/cmux-screen-capture-preflight; then
+              echo "::warning::Screen capture permission is unavailable; skipping recording to avoid blocking UI tests with a privacy prompt"
             else
-              echo "::warning::ffmpeg screen recording failed to start"
-              cat /tmp/ffmpeg.log
+              DEVLIST=$( ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true )
+              echo "Available devices:"
+              echo "$DEVLIST" | grep -E "AVFoundation|Capture screen" || true
+
+              SCREEN_INDEX=$( echo "$DEVLIST" | grep "Capture screen" | head -1 \
+                | sed 's/.*\[\([0-9]*\)\].*/\1/' )
+              if [ -z "$SCREEN_INDEX" ]; then
+                echo "::warning::No AVFoundation screen capture device found; skipping recording"
+              else
+                echo "Using screen device index: $SCREEN_INDEX"
+
+                ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 \
+                  -i "${SCREEN_INDEX}:none" \
+                  -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+                  /tmp/test-recording-raw.mp4 </dev/null >/tmp/ffmpeg.log 2>&1 &
+                RECORD_PID=$!
+                echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
+                sleep 2
+
+                if kill -0 "$RECORD_PID" 2>/dev/null; then
+                  echo "Recording started (PID $RECORD_PID)"
+                else
+                  echo "::warning::ffmpeg screen recording failed to start"
+                  cat /tmp/ffmpeg.log
+                fi
+              fi
             fi
           fi
 

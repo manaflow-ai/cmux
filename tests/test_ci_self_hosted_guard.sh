@@ -119,6 +119,23 @@ check_e2e_runner_fallbacks() {
   echo "PASS: test-e2e.yml exposes Depot runner choices, identity guard, and duplicate-queue cancellation"
 }
 
+check_e2e_recording_preflight() {
+  if ! awk '
+    /cmux-screen-capture-preflight\.c/ { saw_source=1 }
+    /CGPreflightScreenCaptureAccess/ { saw_preflight=1 }
+    /Screen capture permission is unavailable/ { saw_warning=1 }
+    /skipping recording to avoid blocking UI tests with a privacy prompt/ { saw_prompt_warning=1 }
+    /No AVFoundation screen capture device found; skipping recording/ { saw_no_device=1 }
+    /grep -E "AVFoundation\|Capture screen" \|\| true/ { saw_nonfatal_grep=1 }
+    END { exit(saw_source && saw_preflight && saw_warning && saw_prompt_warning && saw_no_device && saw_nonfatal_grep ? 0 : 1) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must preflight screen-capture permission and skip optional recording instead of triggering macOS privacy prompts"
+    exit 1
+  fi
+
+  echo "PASS: test-e2e.yml preflights screen recording permission before ffmpeg"
+}
+
 check_xcode_selection() {
   if grep -R -n "ls -d /Applications/Xcode" "$ROOT_DIR/.github/workflows"; then
     echo "FAIL: workflow Xcode selection must use find/sort/tail fallback, not ls/glob ordering"
@@ -394,6 +411,7 @@ check_self_hosted_workspace_prep "$COMPAT_FILE" "compat-tests"
 # test-e2e.yml is manual, so keep the Depot GUI runner choices but cancel
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
+check_e2e_recording_preflight
 check_self_hosted_workspace_prep "$E2E_FILE" "e2e"
 
 # perf-activation.yml
