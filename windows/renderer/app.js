@@ -5705,6 +5705,18 @@ function lockBrowserViewZoom(view) {
   }
 }
 
+function applyBrowserWheelZoomGuard(event, panel) {
+  const browserPanel = resolveBrowserPanel(panel);
+  if (!browserPanel || !event.ctrlKey) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation?.();
+  markInteractedPanel(browserPanel.id);
+  const session = state.browserViews.get(browserPanel.id);
+  if (session?.view) lockBrowserViewZoom(session.view);
+  return true;
+}
+
 function resolveBrowserPanel(panel = focusedPanel()) {
   const found = panel?.id ? findPanelState(panel.id) : null;
   const candidate = found?.panel || panel;
@@ -6632,12 +6644,7 @@ function ensureBrowser(panel, body) {
     queueBrowserUrlSync(panel.id, next);
   };
   const handleBrowserWheel = (event) => {
-    if (!event.ctrlKey) return;
-    markInteractedPanel(panel.id);
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation?.();
-    lockBrowserViewZoom(view);
+    applyBrowserWheelZoomGuard(event, panel);
   };
   go.onclick = navigate;
   external.onclick = () => openBrowserPanelExternally(panel);
@@ -13388,6 +13395,7 @@ function handleWindowWheelZoom(event) {
     applyTerminalWheelZoom(event, panel);
     return;
   }
+  if (panel?.type === "browser" && applyBrowserWheelZoomGuard(event, panel)) return;
   if (event.target?.closest?.(".terminal-host")) {
     event.preventDefault();
     event.stopPropagation();
