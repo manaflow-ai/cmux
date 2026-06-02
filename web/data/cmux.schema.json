@@ -231,16 +231,19 @@
         "autoDetect": {
           "type": "boolean",
           "default": true,
-          "description": "Auto-detect the public hosts github.com, gitlab.com, and bitbucket.org."
+          "description": "Auto-detect the public hosts github.com, gitlab.com, and bitbucket.org.",
+          "descriptionKey": "schemaDescriptions.gitHosting.autoDetect"
         },
         "autoDiscoverGitHubEnterprise": {
           "type": "boolean",
           "default": true,
-          "description": "Treat any otherwise-unmatched host that `gh auth token --hostname <host>` can authenticate as a GitHub Enterprise Server instance (REST /api/v3/). Self-configuring, no hostname allowlist."
+          "description": "Treat any otherwise-unmatched host that `gh auth token --hostname <host>` can authenticate as a GitHub Enterprise Server instance (REST /api/v3/). Self-configuring, no hostname allowlist.",
+          "descriptionKey": "schemaDescriptions.gitHosting.autoDiscoverGitHubEnterprise"
         },
         "providers": {
           "type": "array",
           "description": "Ordered host to provider rules, consulted top to bottom (first match wins).",
+          "descriptionKey": "schemaDescriptions.gitHosting.providers",
           "items": {
             "type": "object",
             "additionalProperties": false,

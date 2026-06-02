@@ -40,6 +40,7 @@ const sectionOrder = [
   "terminal",
   "notifications",
   "sidebar",
+  "gitHosting",
   "workspaceGroups",
   "workspaceColors",
   "sidebarAppearance",
@@ -397,19 +398,9 @@ working-directory = ~/code`}</CodeBlock>
         );
       })}
 
-      <DocsHeading level={2} id="git-hosting">Pull request providers</DocsHeading>
-      <p>
-        The sidebar shows a pull request link for a workspace&apos;s current branch. By default
-        cmux polls github.com and discovers any GitHub Enterprise Server host that the{" "}
-        <code>gh</code> CLI is authenticated to. The <code>gitHosting</code> section adds GitLab,
-        Bitbucket, self-hosted instances, and fully custom REST hosts. Rules are matched top to
-        bottom by host (exact or a <code>*.suffix</code> wildcard), and the first match wins.
-      </p>
-      <p>
-        gitlab.com and bitbucket.org are auto-detected, but they need a token. Set one with an
-        environment variable, or point a rule at a token command. Self-hosted instances need a rule
-        that names a <code>preset</code> and the instance&apos;s <code>apiBaseURL</code>.
-      </p>
+      <DocsHeading level={2} id="git-hosting">{t("gitHosting.title")}</DocsHeading>
+      <p>{t.rich("gitHosting.intro1", { code: (chunks) => <code>{chunks}</code> })}</p>
+      <p>{t.rich("gitHosting.intro2", { code: (chunks) => <code>{chunks}</code> })}</p>
       <CodeBlock title="~/.config/cmux/cmux.json" lang="json">
         {`{
   "gitHosting": {
@@ -435,13 +426,8 @@ working-directory = ~/code`}</CodeBlock>
   }
 }`}
       </CodeBlock>
-      <p>
-        For a host with no preset, describe it from scratch with a <code>spec</code>. Each field
-        path is a dotted key path into one pull request object in the JSON response, and{" "}
-        <code>stateMap</code> maps the provider&apos;s native states onto cmux&apos;s{" "}
-        <code>OPEN</code>, <code>MERGED</code>, and <code>CLOSED</code>.
-      </p>
-      <CodeBlock title="Custom provider (Gitea-style)" lang="json">
+      <p>{t.rich("gitHosting.spec", { code: (chunks) => <code>{chunks}</code> })}</p>
+      <CodeBlock title={t("gitHosting.customProviderTitle")} lang="json">
         {`{
   "gitHosting": {
     "providers": [
@@ -463,12 +449,10 @@ working-directory = ~/code`}</CodeBlock>
 }`}
       </CodeBlock>
       <p>
-        URL and query fields accept the template tokens <code>{"{host}"}</code>,{" "}
-        <code>{"{path}"}</code>, <code>{"{pathEncoded}"}</code> (slashes percent-encoded for
-        GitLab project paths), <code>{"{owner}"}</code>, <code>{"{name}"}</code>, and{" "}
-        <code>{"{branch}"}</code> in a branch filter. Set <code>autoDetect</code> or{" "}
-        <code>autoDiscoverGitHubEnterprise</code> to <code>false</code> to turn off the built-in
-        behavior.
+        {t("gitHosting.templatesLead")}{" "}
+        <code>{"{host}"}</code>, <code>{"{path}"}</code>, <code>{"{pathEncoded}"}</code>,{" "}
+        <code>{"{owner}"}</code>, <code>{"{name}"}</code>, and <code>{"{branch}"}</code>.{" "}
+        {t.rich("gitHosting.templatesTrail", { code: (chunks) => <code>{chunks}</code> })}
       </p>
 
       <DocsHeading level={3} id="shortcuts-bindings">
