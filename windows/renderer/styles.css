@@ -576,7 +576,7 @@ body.reduce-motion *::after {
   background: transparent;
   padding: 0;
   text-align: left;
-  cursor: pointer;
+  cursor: grab;
 }
 
 .workspace-row:hover,
@@ -684,6 +684,8 @@ body.reduce-motion *::after {
 
 .workspace-row.is-workspace-dragging {
   opacity: .58;
+  cursor: grabbing;
+  transform: none;
 }
 
 .workspace-row.is-workspace-drop-before,
@@ -697,9 +699,10 @@ body.reduce-motion *::after {
   position: absolute;
   left: var(--space-2);
   right: var(--space-2);
-  height: 2px;
-  border-radius: 2px;
+  height: 3px;
+  border-radius: 999px;
   background: var(--color-accent);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-accent) 20%, transparent);
 }
 
 .workspace-row.is-workspace-drop-before::before {
@@ -1815,8 +1818,9 @@ body.reduce-motion *::after {
   position: absolute;
   z-index: 8;
   pointer-events: none;
-  border: 1px solid var(--color-line-strong);
-  background: color-mix(in oklch, var(--color-text) 10%, transparent);
+  border: 1px solid var(--color-accent);
+  background: color-mix(in oklch, var(--color-accent) 13%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 18%, transparent);
 }
 
 .pane.is-drop-target[data-drop-position="left"]::after {
@@ -1842,7 +1846,7 @@ body.reduce-motion *::after {
 .pane.is-drop-target[data-drop-position="center"]::after {
   inset: calc(var(--pane-drop-top, 31px) + 8px) 8px 8px 8px;
   border-style: dashed;
-  background: color-mix(in oklch, var(--color-text) 6%, transparent);
+  background: color-mix(in oklch, var(--color-accent) 8%, transparent);
 }
 
 .pane-type {
