@@ -501,7 +501,7 @@ const state = {
   browserSettingsPreviewFrame: 0,
   settingsFilterFrame: 0,
   settingsSearchIndex: [],
-  settingsSearchFocusFrame: 0,
+  settingsSearchFocusPending: false,
   renderStats: {
     count: 0,
     lastMs: 0,
@@ -7981,13 +7981,17 @@ function unmountSettingsChrome() {
 
 function renderSettingsChrome(host) {
   const reactSettings = window.CmuxSettingsUi;
+  const focusSearchOnMount = state.settingsSearchFocusPending;
+  state.settingsSearchFocusPending = false;
   if (!reactSettings?.renderSettingsShell) {
     host.replaceChildren(settingsSearch(), settingsCategoryNav());
+    if (focusSearchOnMount) restoreSettingsSearchFocus();
     return;
   }
   reactSettings.renderSettingsShell(host, {
     activeCategory: state.settingsCategory,
     categories: settingsCategories,
+    focusSearchOnMount,
     query: state.settingsQuery,
     subtitle: elements.inspectorSubtitle.textContent,
     labels: {
@@ -8009,8 +8013,8 @@ function renderSettingsChrome(host) {
       const isSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
       if (isSearching) queueSettingsSearchAutoScroll();
       if (wasSearching !== isSearching) {
+        state.settingsSearchFocusPending = true;
         renderSettingsInspector({ resetScroll: true });
-        scheduleSettingsSearchFocus();
       } else {
         renderSettingsChrome(host);
         scheduleSettingsFilter();
@@ -8018,8 +8022,8 @@ function renderSettingsChrome(host) {
     },
     onClear: () => {
       state.settingsQuery = "";
+      state.settingsSearchFocusPending = true;
       renderSettingsInspector({ resetScroll: true });
-      scheduleSettingsSearchFocus();
     }
   });
 }
@@ -8068,21 +8072,6 @@ function restoreSettingsSearchFocus() {
   if (!input) return;
   input.focus({ preventScroll: true });
   input.setSelectionRange(input.value.length, input.value.length);
-}
-
-function cancelSettingsSearchFocus() {
-  if (!state.settingsSearchFocusFrame) return;
-  cancelAnimationFrame(state.settingsSearchFocusFrame);
-  state.settingsSearchFocusFrame = 0;
-}
-
-function scheduleSettingsSearchFocus() {
-  cancelSettingsSearchFocus();
-  state.settingsSearchFocusFrame = requestAnimationFrame(() => {
-    state.settingsSearchFocusFrame = 0;
-    if (state.inspectorMode !== "settings") return;
-    restoreSettingsSearchFocus();
-  });
 }
 
 function settingsCategoryNav() {
@@ -14147,7 +14136,7 @@ function toggleSidebar() {
 
 function openInspector(mode) {
   state.inspectorMode = state.inspectorMode === mode ? null : mode;
-  if (state.inspectorMode !== "settings") cancelSettingsSearchFocus();
+  if (state.inspectorMode !== "settings") state.settingsSearchFocusPending = false;
   updateRailButtons();
   render();
 }
@@ -14955,13 +14944,13 @@ document.getElementById("sessionsRailButton").onclick = () => openInspector("ses
 document.getElementById("settingsRailButton").onclick = () => openInspector("settings");
 document.getElementById("workspacesRailButton").onclick = () => {
   state.inspectorMode = null;
-  cancelSettingsSearchFocus();
+  state.settingsSearchFocusPending = false;
   updateRailButtons();
   render();
 };
 document.getElementById("closeInspectorButton").onclick = () => {
   state.inspectorMode = null;
-  cancelSettingsSearchFocus();
+  state.settingsSearchFocusPending = false;
   updateRailButtons();
   render();
 };

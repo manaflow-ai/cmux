@@ -1,17 +1,19 @@
 import React, { useEffect, useRef } from "react";
+import { formatMessage, t } from "../../i18n.js";
 
-const defaultLabels = {
-  searchPlaceholder: "Search settings",
-  clearSearch: "Clear search",
-  pageLabel: "Page",
-  pageAriaLabel: "Settings page",
-  pagesAriaLabel: "Settings pages",
-  tabTitle: "{label} settings"
-};
+const defaultLabels = () => ({
+  searchPlaceholder: t("settings.searchPlaceholder"),
+  clearSearch: t("settings.clearSearch"),
+  pageLabel: t("settings.pageLabel"),
+  pageAriaLabel: t("settings.pageAriaLabel"),
+  pagesAriaLabel: t("settings.pagesAriaLabel"),
+  tabTitle: formatMessage("settings.tabTitle", { label: "{label}" })
+});
 
 export function SettingsShell({
   activeCategory,
   categories,
+  focusSearchOnMount = false,
   query,
   subtitle,
   onCategory,
@@ -19,16 +21,21 @@ export function SettingsShell({
   onClear,
   labels = {}
 }) {
+  const localizedDefaults = defaultLabels();
   const safeLabels = {
-    searchPlaceholder: labels.searchPlaceholder || defaultLabels.searchPlaceholder,
-    clearSearch: labels.clearSearch || defaultLabels.clearSearch,
-    pageLabel: labels.pageLabel || defaultLabels.pageLabel,
-    pageAriaLabel: labels.pageAriaLabel || defaultLabels.pageAriaLabel,
-    pagesAriaLabel: labels.pagesAriaLabel || defaultLabels.pagesAriaLabel,
-    tabTitle: labels.tabTitle || defaultLabels.tabTitle
+    searchPlaceholder: labels.searchPlaceholder || localizedDefaults.searchPlaceholder,
+    clearSearch: labels.clearSearch || localizedDefaults.clearSearch,
+    pageLabel: labels.pageLabel || localizedDefaults.pageLabel,
+    pageAriaLabel: labels.pageAriaLabel || localizedDefaults.pageAriaLabel,
+    pagesAriaLabel: labels.pagesAriaLabel || localizedDefaults.pagesAriaLabel,
+    tabTitle: labels.tabTitle || localizedDefaults.tabTitle
   };
   const searchInputRef = useRef(null);
   const tabsRef = useRef(null);
+
+  useEffect(() => {
+    if (focusSearchOnMount) searchInputRef.current?.focus({ preventScroll: true });
+  }, [focusSearchOnMount]);
 
   useEffect(() => {
     tabsRef.current
@@ -43,11 +50,8 @@ export function SettingsShell({
   };
   const clearSearch = () => {
     onClear();
-    requestAnimationFrame(() => {
-      searchInputRef.current?.focus({ preventScroll: true });
-    });
   };
-  const tabTitleTemplate = safeLabels.tabTitle || defaultLabels.tabTitle;
+  const tabTitleTemplate = safeLabels.tabTitle || localizedDefaults.tabTitle;
 
   return (
     <div className="settings-react-shell" data-react-settings="true">
