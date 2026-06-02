@@ -5027,6 +5027,14 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   gap: var(--space-1);
 }
 
+.workspace-name-control {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(68px, auto) minmax(92px, auto);
+  align-items: center;
+  gap: var(--space-1);
+}
+
 .active-pane-background {
   min-width: 0;
   display: grid;
@@ -5167,6 +5175,10 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   }
 
   .active-pane-title-control {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-name-control {
     grid-template-columns: 1fr;
   }
 
