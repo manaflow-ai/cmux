@@ -567,8 +567,8 @@ body.reduce-motion *::after {
   width: 100%;
   min-height: 80px;
   display: grid;
-  grid-template-columns: 4px minmax(0, 1fr);
-  gap: var(--space-2);
+  grid-template-columns: 4px 12px minmax(0, 1fr);
+  column-gap: var(--space-2);
   align-items: stretch;
   margin-bottom: var(--space-1);
   border: 1px solid transparent;
@@ -673,6 +673,25 @@ body.reduce-motion *::after {
   background: transparent;
 }
 
+.workspace-grip {
+  width: 12px;
+  align-self: stretch;
+  border-radius: var(--radius-1);
+  opacity: .42;
+  background-image: radial-gradient(circle, var(--color-faint) 1px, transparent 1.5px);
+  background-size: 4px 6px;
+  background-position: center;
+  background-repeat: repeat-y;
+  cursor: grab;
+}
+
+.workspace-row:hover .workspace-grip,
+.workspace-row:focus-visible .workspace-grip,
+.workspace-row.is-active .workspace-grip,
+.workspace-row.is-workspace-dragging .workspace-grip {
+  opacity: .85;
+}
+
 .workspace-row.has-attention .workspace-attention {
   background: var(--color-accent-hover);
 }
@@ -686,6 +705,10 @@ body.reduce-motion *::after {
   opacity: .58;
   cursor: grabbing;
   transform: none;
+}
+
+.workspace-row.is-workspace-dragging .workspace-grip {
+  cursor: grabbing;
 }
 
 .workspace-row.is-workspace-drop-before,

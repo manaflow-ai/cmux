@@ -3489,6 +3489,7 @@ function createWorkspaceRow() {
   button.draggable = true;
   button.innerHTML = `
     <span class="workspace-attention"></span>
+    <span class="workspace-grip" aria-hidden="true"></span>
     <span class="workspace-card">
       <span class="workspace-name-line">
         <span class="workspace-color"></span>
@@ -3529,6 +3530,7 @@ function createWorkspaceRow() {
   button.addEventListener("dragover", (event) => {
     if (!state.dragPanelId && !state.dragWorkspaceId) return;
     event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
     clearWorkspaceListDropTarget();
     if (state.dragPanelId) {
       button.classList.add("is-drop-target");
@@ -3624,9 +3626,11 @@ function updateWorkspaceRow(button, workspace, index, activeId) {
   const paneSummary = `${workspace.terminalCount || 0} terminal${workspace.terminalCount === 1 ? "" : "s"} / ${workspace.browserCount || 0} browser${workspace.browserCount === 1 ? "" : "s"}`;
   const parts = workspaceRowParts(button);
   setDatasetIfChanged(button, "workspaceId", workspace.id);
-  setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}${branch ? " has-branch" : ""}`);
+  setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}${branch ? " has-branch" : ""}${state.dragWorkspaceId === workspace.id ? " is-workspace-dragging" : ""}`);
   setStylePropertyIfChanged(button, "--workspace-color", workspace.color || state.data.palette?.[0] || "");
-  setTitleIfChanged(button, `${title} - ${cwd}${branch ? ` - ${branch}` : ""} - ${paneSummary} - double-click to rename`);
+  const rowHelp = `${title} - ${cwd}${branch ? ` - ${branch}` : ""} - ${paneSummary} - drag to reorder, double-click to rename, right-click for workspace options`;
+  setTitleIfChanged(button, rowHelp);
+  if (button.getAttribute("aria-label") !== rowHelp) button.setAttribute("aria-label", rowHelp);
   setTextIfChanged(parts.name, title);
   setTextIfChanged(parts.badge, hasAttention ? String(attentionTotal) : "");
   setTextIfChanged(parts.meta, workspace.latestNotification || "");
