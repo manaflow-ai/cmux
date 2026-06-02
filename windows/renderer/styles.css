@@ -4874,7 +4874,6 @@ body.reduce-motion *::after {
 
 .active-pane-background-actions {
   grid-column: 1 / -1;
-  grid-template-columns: repeat(auto-fit, minmax(min(68px, 100%), 1fr));
 }
 
 .active-pane-text-control {
@@ -4915,7 +4914,7 @@ body.reduce-motion *::after {
   }
 
   .active-pane-background-actions {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 
   .active-pane-text-control {
@@ -7749,7 +7748,8 @@ body.reduce-motion *::after {
   font: 10px/1.2 var(--font-mono);
 }
 
-.active-background-actions {
+.active-background-actions,
+.background-action-groups {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: 1fr;
@@ -7757,7 +7757,8 @@ body.reduce-motion *::after {
 }
 
 @container (max-width: 330px) {
-  .active-background-actions {
+  .active-background-actions,
+  .background-action-groups {
     gap: var(--space-1);
   }
 }
@@ -7765,7 +7766,7 @@ body.reduce-motion *::after {
 .background-action-group {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(76px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(92px, 100%), 1fr));
   gap: var(--space-1);
   align-items: center;
   padding: var(--space-1);
@@ -7795,7 +7796,8 @@ body.reduce-motion *::after {
 }
 
 @container (min-width: 470px) {
-  .active-background-actions {
+  .active-background-actions,
+  .background-action-groups {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

@@ -8784,18 +8784,18 @@ function activeBackgroundPanel(options = {}) {
   open.disabled = !canOpenBackgroundImageSource(state.settings.backgroundImage);
   const imageGroup = document.createElement("span");
   imageGroup.className = "background-action-group background-action-group-image";
-  imageGroup.innerHTML = `<span class="background-action-title">Image</span>`;
+  imageGroup.innerHTML = `<span class="background-action-title">Image source</span>`;
   imageGroup.append(choose, paste, save, open);
 
   const pane = settingsActionButton("Pane", () => applyPanelBackgroundImage(state.settings.backgroundImage), "", "active background apply to active terminal pane");
   pane.dataset.backgroundAction = "pane";
   pane.title = "Apply current background to the active terminal";
   pane.disabled = !hasBackground || !resolveTerminalPanel(focusedPanel());
-  const allPanes = settingsActionButton("All", () => applyWorkspaceBackgroundImageToTerminals(state.settings.backgroundImage), "", "active background apply to all terminal panes workspace");
+  const allPanes = settingsActionButton("All terminals", () => applyWorkspaceBackgroundImageToTerminals(state.settings.backgroundImage), "", "active background apply to all terminal panes workspace");
   allPanes.dataset.backgroundAction = "all-panes";
   allPanes.title = "Apply current background to all terminals";
   allPanes.disabled = !hasBackground || !hasTerminalPanes;
-  const clearPanes = settingsActionButton("Clear panes", () => applyWorkspaceBackgroundImageToTerminals(""), "danger", "active background clear all terminal pane images workspace");
+  const clearPanes = settingsActionButton("Clear terminals", () => applyWorkspaceBackgroundImageToTerminals(""), "danger", "active background clear all terminal pane images workspace");
   clearPanes.dataset.backgroundAction = "clear-panes";
   clearPanes.title = "Clear backgrounds from all terminals";
   clearPanes.disabled = !hasPaneBackgrounds;
@@ -8822,6 +8822,17 @@ function activeBackgroundPanel(options = {}) {
     panel.append(backgroundTuningPanel(refreshBackgroundSummary));
   }
   return panel;
+}
+
+function backgroundActionGroup(title, searchTerms, buttons = []) {
+  const group = document.createElement("span");
+  group.className = "background-action-group";
+  group.dataset.settingsSearch = normalizeSettingsQuery(`${title} ${searchTerms}`);
+  const label = document.createElement("span");
+  label.className = "background-action-title";
+  label.textContent = title;
+  group.append(label, ...buttons.filter(Boolean));
+  return group;
 }
 
 function activeBackgroundViewModel(settings = state.settings) {
@@ -9326,7 +9337,7 @@ function paneBackgroundControlPanel(panel) {
   });
 
   const actions = document.createElement("span");
-  actions.className = "settings-actions active-pane-background-actions";
+  actions.className = "background-action-groups active-pane-background-actions";
   const apply = settingsActionButton("Apply", () => applyInput(true), "primary", "active pane terminal background apply url path image");
   const paste = settingsActionButton("Paste", () => pastePanelBackgroundImageFromClipboard(panel, input), "", "active pane terminal background paste clipboard image url local path");
   const choose = settingsActionButton("Choose", () => choosePanelBackgroundImage(panel), "", "active pane terminal background choose local image");
@@ -9338,7 +9349,10 @@ function paneBackgroundControlPanel(panel) {
   open.disabled = !canOpenBackgroundImageSource(background);
   const clear = settingsActionButton("Clear", () => applyPanelBackgroundImage("", panel), "danger", "active pane terminal background clear remove");
   clear.disabled = !hasBackground;
-  actions.append(apply, paste, choose, useApp, save, open, clear);
+  actions.append(
+    backgroundActionGroup("Image source", "active pane terminal background image choose paste apply", [apply, paste, choose]),
+    backgroundActionGroup("Pane image", "active pane terminal background use app save open clear", [useApp, save, open, clear])
+  );
 
   control.append(preview, copy, input, actions);
   installBackgroundDropTarget(control, { input, panel });
