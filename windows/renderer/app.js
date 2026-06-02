@@ -9621,6 +9621,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     density: "compact",
     toolbarMode: "minimal",
     paneActionMode: "essential",
+    paneColorMarkers: false,
     showStatusbar: false,
     terminalPadding: Math.min(state.settings.terminalPadding, 4),
     terminalScrollback: Math.min(state.settings.terminalScrollback, 6000),
