@@ -2967,6 +2967,7 @@ const commands = [
   { id: "notifications.open", label: "Show Notifications", shortcut: "Ctrl+I", run: () => openInspector("notifications") },
   { id: "session.tools", label: "Show Session Tools", shortcut: "", run: () => openInspector("session") },
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
+  { id: "settings.pane", label: "Open Active Pane Settings", shortcut: "", run: () => openPaneSettings() },
   { id: "settings.resetAppearance", label: "Reset Look Settings", shortcut: "", run: () => resetAppearanceSettings() },
   { id: "settings.performance", label: "Open Performance Settings", shortcut: "", run: () => openSettingsCategory("performance") },
   { id: "settings.tunePerformance", label: "Tune Performance Now", shortcut: "", run: () => tunePerformanceNow() },
@@ -16805,7 +16806,9 @@ function openSettingsCategory(category = "quick", options = {}) {
   state.inspectorMode = "settings";
   state.settingsCategory = settingsCategories.some(([id]) => id === category) ? category : "quick";
   state.settingsQuery = String(options.query || "").trim();
-  state.settingsSearchFocusPending = Boolean(options.focusSearch || state.settingsQuery);
+  state.settingsSearchFocusPending = options.focusSearch === undefined
+    ? Boolean(state.settingsQuery)
+    : Boolean(options.focusSearch);
   if (normalizeSettingsQuery(state.settingsQuery)) queueSettingsSearchAutoScroll();
   state.settingsScrollResetPending = true;
   updateRailButtons();
@@ -16814,7 +16817,7 @@ function openSettingsCategory(category = "quick", options = {}) {
 
 function openPaneSettings(panel = focusedPanel()) {
   if (panel?.id) focusPanel(panel.id);
-  openSettingsCategory("workspace");
+  openSettingsCategory("workspace", { query: "active pane", focusSearch: false });
 }
 
 function updateRailButtons() {
