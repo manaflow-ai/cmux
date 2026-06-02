@@ -74,6 +74,7 @@ import {
   paneTreeRatio,
   paneTreeSplit,
   paneTreeSplitForPanel,
+  paneTreeSignature,
   replacePaneTreePanelId,
   removePanelFromPaneTree,
   savePaneTreeLayouts,
@@ -3564,28 +3565,24 @@ function clearSurfaceTabs() {
 
 function surfaceTabsSignature(workspace) {
   const zoomedPanelId = zoomedPanelIdForWorkspace(workspace) || "";
-  return stableJson([
-    workspace.id,
-    workspace.activePanelId || "",
-    workspace.color || "",
-    state.settings.titleDetailMode,
-    paneCreationButtonsDisabled(),
-    workspace.panels.map((panel) => {
-      const pending = isPendingPanel(panel);
-      const minimized = isPanelMinimized(panel);
-      return [
-        panel.id,
-        surfaceTabLabel(workspace, panel),
-        panelDisplayTitle(panel, false),
-        panel.color || workspace.color || "var(--color-accent)",
-        panel.id === workspace.activePanelId,
-        panel.id === zoomedPanelId,
-        minimized,
-        pending,
-        Boolean(panel.needsAttention)
-      ];
-    })
-  ]);
+  const parts = [];
+  appendSignatureValue(parts, workspace.id);
+  appendSignatureValue(parts, workspace.activePanelId || "");
+  appendSignatureValue(parts, workspace.color || "");
+  appendSignatureValue(parts, state.settings.titleDetailMode);
+  appendSignatureValue(parts, paneCreationButtonsDisabled());
+  appendSignatureArray(parts, workspace.panels, (nextParts, panel) => {
+    appendSignatureValue(nextParts, panel.id);
+    appendSignatureValue(nextParts, surfaceTabLabel(workspace, panel));
+    appendSignatureValue(nextParts, panelDisplayTitle(panel, false));
+    appendSignatureValue(nextParts, panel.color || workspace.color || "var(--color-accent)");
+    appendSignatureValue(nextParts, panel.id === workspace.activePanelId);
+    appendSignatureValue(nextParts, panel.id === zoomedPanelId);
+    appendSignatureValue(nextParts, isPanelMinimized(panel));
+    appendSignatureValue(nextParts, isPendingPanel(panel));
+    appendSignatureValue(nextParts, Boolean(panel.needsAttention));
+  });
+  return parts.join("");
 }
 
 function scheduleActiveSurfaceTabIntoView(panelId) {
@@ -3991,50 +3988,50 @@ function scheduleVisibleTerminalFits(visiblePanels) {
 }
 
 function paneRenderSignature(workspace, visiblePanels, tree) {
-  return stableJson([
-    workspace.id,
-    workspace.activePanelId || "",
-    workspace.color || "",
-    Boolean(zoomedPanelIdForWorkspace(workspace)),
-    state.settings.titleDetailMode,
-    state.settings.browserSuspendInactive,
-    state.settings.browserHomeUrl,
-    state.settings.terminalProfile,
-    tree,
-    visiblePanels.map((panel) => ([
-      panel.id,
-      panel.type,
-      panelDisplayTitle(panel, false),
-      panel.title || "",
-      panel.titleLocked || false,
-      panel.color || "",
-      panel.cwd || "",
-      panel.cwdShort || "",
-      panel.url || "",
-      panel.shellProfile || "",
-      panel.shellPath || "",
-      terminalFontSizeForPanel(panel),
-      Boolean(panel.needsAttention),
-      isPanelMinimized(panel),
-      isPendingPanel(panel),
-      state.terminals.has(panel.id),
-      state.browserViews.has(panel.id)
-    ]))
-  ]);
+  const parts = [];
+  appendSignatureValue(parts, workspace.id);
+  appendSignatureValue(parts, workspace.activePanelId || "");
+  appendSignatureValue(parts, workspace.color || "");
+  appendSignatureValue(parts, Boolean(zoomedPanelIdForWorkspace(workspace)));
+  appendSignatureValue(parts, state.settings.titleDetailMode);
+  appendSignatureValue(parts, state.settings.browserSuspendInactive);
+  appendSignatureValue(parts, state.settings.browserHomeUrl);
+  appendSignatureValue(parts, state.settings.terminalProfile);
+  appendSignatureValue(parts, paneTreeSignature(tree));
+  appendSignatureArray(parts, visiblePanels, (nextParts, panel) => {
+    appendSignatureValue(nextParts, panel.id);
+    appendSignatureValue(nextParts, panel.type);
+    appendSignatureValue(nextParts, panelDisplayTitle(panel, false));
+    appendSignatureValue(nextParts, panel.title || "");
+    appendSignatureValue(nextParts, panel.titleLocked || false);
+    appendSignatureValue(nextParts, panel.color || "");
+    appendSignatureValue(nextParts, panel.cwd || "");
+    appendSignatureValue(nextParts, panel.cwdShort || "");
+    appendSignatureValue(nextParts, panel.url || "");
+    appendSignatureValue(nextParts, panel.shellProfile || "");
+    appendSignatureValue(nextParts, panel.shellPath || "");
+    appendSignatureValue(nextParts, terminalFontSizeForPanel(panel));
+    appendSignatureValue(nextParts, Boolean(panel.needsAttention));
+    appendSignatureValue(nextParts, isPanelMinimized(panel));
+    appendSignatureValue(nextParts, isPendingPanel(panel));
+    appendSignatureValue(nextParts, state.terminals.has(panel.id));
+    appendSignatureValue(nextParts, state.browserViews.has(panel.id));
+  });
+  return parts.join("");
 }
 
 function paneFitSignature(workspace, visiblePanels, tree) {
-  return stableJson([
-    workspace.id,
-    zoomedPanelIdForWorkspace(workspace) || "",
-    tree,
-    visiblePanels.map((panel) => ([
-      panel.id,
-      panel.type,
-      isPanelMinimized(panel),
-      panel.type === "terminal" ? terminalFontSizeForPanel(panel) : 0
-    ]))
-  ]);
+  const parts = [];
+  appendSignatureValue(parts, workspace.id);
+  appendSignatureValue(parts, zoomedPanelIdForWorkspace(workspace) || "");
+  appendSignatureValue(parts, paneTreeSignature(tree));
+  appendSignatureArray(parts, visiblePanels, (nextParts, panel) => {
+    appendSignatureValue(nextParts, panel.id);
+    appendSignatureValue(nextParts, panel.type);
+    appendSignatureValue(nextParts, isPanelMinimized(panel));
+    appendSignatureValue(nextParts, panel.type === "terminal" ? terminalFontSizeForPanel(panel) : 0);
+  });
+  return parts.join("");
 }
 
 function renderPaneTreeNode(node, workspace, panelById, visibleCount) {

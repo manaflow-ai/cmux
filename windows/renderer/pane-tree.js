@@ -47,6 +47,39 @@ export function paneTreeEqual(first, second) {
     && paneTreeEqual(first.second, second.second);
 }
 
+function appendPaneTreeSignatureValue(parts, value) {
+  const text = String(value ?? "");
+  parts.push(String(text.length), ":", text, ";");
+}
+
+function appendPaneTreeSignature(parts, node) {
+  if (!node || typeof node !== "object") {
+    parts.push("n;");
+    return;
+  }
+  if (node.type === "pane") {
+    parts.push("p:");
+    appendPaneTreeSignatureValue(parts, node.panelId);
+    return;
+  }
+  if (node.type !== "split") {
+    parts.push("x;");
+    return;
+  }
+  parts.push("s:");
+  appendPaneTreeSignatureValue(parts, node.id);
+  appendPaneTreeSignatureValue(parts, paneTreeDirection(node.direction));
+  appendPaneTreeSignatureValue(parts, paneTreeRatio(node.ratio));
+  appendPaneTreeSignature(parts, node.first);
+  appendPaneTreeSignature(parts, node.second);
+}
+
+export function paneTreeSignature(node) {
+  const parts = [];
+  appendPaneTreeSignature(parts, node);
+  return parts.join("");
+}
+
 export function clonePaneTree(node) {
   if (!node || typeof node !== "object") return null;
   if (node.type === "pane") return paneTreeLeaf(node.panelId);
