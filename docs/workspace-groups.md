@@ -70,6 +70,8 @@ cmux workspace-group set-color <group-id> [--hex #RRGGBB]
 cmux workspace-group set-icon <group-id> [--symbol <sf-symbol>]
 ```
 
+Omitting `--hex` or `--symbol` clears the custom color or icon and reverts to the default.
+
 `create` returns a group handle (`workspace_group:N` by default). Pass `--json` for the full structured payload.
 
 ### Examples

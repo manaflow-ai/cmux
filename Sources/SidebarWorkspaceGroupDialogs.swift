@@ -75,7 +75,12 @@ func presentSidebarWorkspaceGroupIconPrompt(
             defaultValue: "folder.fill"
         )
         alert.accessoryView = input
-        alert.window.initialFirstResponder = input
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
 
         let response = alert.runModal()
         switch response {
