@@ -6618,10 +6618,30 @@ extension BrowserPanel {
 
     func noteDeveloperToolsHostAttached() {
         cancelPendingDeveloperToolsVisibilityLossCheck()
-        developerToolsLastAttachedHostAt = Date()
+        // `developerToolsLastAttachedHostAt` anchors the manual-close detection
+        // grace (see `consumeAttachedDeveloperToolsManualCloseIfNeeded`). Refresh it
+        // only when this attach reflects genuine inspector churn: the inspector is
+        // currently visible, a forced refresh is pending, or a restore retry is in
+        // flight. While DevTools intent is set the browser stays in local-inline
+        // hosting, so `BrowserPanelView` re-runs this on every `updateNSView`. A
+        // plain re-render (e.g. navigating to another page) is not a reattach;
+        // resetting the grace there would defer a user's manual inspector close
+        // indefinitely and let `restoreDeveloperToolsAfterAttachIfNeeded` reopen it.
+        if developerToolsLastAttachedHostAt == nil || hasActiveDeveloperToolsReattachReason {
+            developerToolsLastAttachedHostAt = Date()
+        }
         if isDeveloperToolsVisible() {
             developerToolsLastKnownVisibleAt = Date()
         }
+    }
+
+    /// Whether a host attach should count as genuine inspector churn that resets
+    /// the manual-close grace window, rather than a steady-state re-render while
+    /// the inspector is already closed.
+    private var hasActiveDeveloperToolsReattachReason: Bool {
+        isDeveloperToolsVisible()
+            || forceDeveloperToolsRefreshOnNextAttach
+            || developerToolsRestoreRetryWorkItem != nil
     }
 
     func scheduleDeveloperToolsVisibilityLossCheck() {
