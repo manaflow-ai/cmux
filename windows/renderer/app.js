@@ -279,6 +279,7 @@ const settingsInspectorSettingKeys = {
     "adaptivePerformance",
     "reduceMotion",
     "terminalPauseInactiveOutput",
+    "terminalSmoothResumedOutput",
     "terminalScrollback",
     "backgroundOpacity",
     "backgroundEffects",
@@ -785,6 +786,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.adaptivePerformance = next.adaptivePerformance !== false;
   next.reduceMotion = Boolean(next.reduceMotion);
   next.terminalPauseInactiveOutput = next.terminalPauseInactiveOutput !== false;
+  next.terminalSmoothResumedOutput = next.terminalSmoothResumedOutput !== false;
   next.terminalCursorBlink = next.terminalCursorBlink !== false;
   next.terminalBackground = normalizeTerminalColor(next.terminalBackground);
   next.terminalForeground = normalizeTerminalColor(next.terminalForeground);
@@ -1785,6 +1787,7 @@ function settingsProfileSummary(settings) {
     `${backgroundEffects.toLowerCase()} background`,
     normalized.performanceMode ? "performance" : normalized.reduceMotion ? "reduced motion" : "balanced",
     normalized.terminalPauseInactiveOutput ? "paused output" : "live output",
+    normalized.terminalSmoothResumedOutput ? "smooth resume" : "fast resume",
     `${normalized.terminalFontSize}px`
   ].join(" / ");
 }
@@ -2682,6 +2685,9 @@ function updateSettings(updates, options = {}) {
   }
   if (changedKeys.includes("terminalPauseInactiveOutput") || changedKeys.includes("performanceMode")) {
     resumeTerminalOutputAfterActivityChange();
+  }
+  if (changedKeys.includes("terminalSmoothResumedOutput") && !state.settings.terminalSmoothResumedOutput) {
+    for (const session of state.terminals.values()) session.resumeThrottleFrames = 0;
   }
   if (changedKeys.includes("browserSuspendInactive")) {
     scheduleRender();
@@ -6823,7 +6829,12 @@ function resumeTerminalOutputAfterActivityChange(visiblePanelIds = visiblePanePa
   for (const session of state.terminals.values()) {
     if (session.disposed || !session.queue) continue;
     const visible = visiblePanelIds.has(session.panelId);
-    if (pauseInactive && visible && session.queue.length >= terminalResumeThrottleThreshold) {
+    if (
+      state.settings.terminalSmoothResumedOutput
+      && pauseInactive
+      && visible
+      && session.queue.length >= terminalResumeThrottleThreshold
+    ) {
       session.resumeThrottleFrames = Math.max(session.resumeThrottleFrames || 0, terminalResumeThrottleFrames);
     }
     if (!pauseInactive || visible) scheduleTerminalOutputFlush(session);
@@ -8849,6 +8860,7 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(settingRow("Adaptive guard", toggleInput(state.settings.adaptivePerformance, (checked) => updateSettings({ adaptivePerformance: checked })), false, "adaptive automatic performance guard lag slow output tune"));
     performanceSection.append(settingRow("Reduce motion", toggleInput(state.settings.reduceMotion, (checked) => updateSettings({ reduceMotion: checked })), false, "motion animation transition smooth reduce accessibility"));
     performanceSection.append(settingRow("Pause inactive output", toggleInput(state.settings.terminalPauseInactiveOutput, (checked) => updateSettings({ terminalPauseInactiveOutput: checked })), false, "terminal output pause inactive hidden background lag smooth performance"));
+    performanceSection.append(settingRow("Smooth resumed output", toggleInput(state.settings.terminalSmoothResumedOutput, (checked) => updateSettings({ terminalSmoothResumedOutput: checked })), false, "terminal output resume hidden backlog smooth workspace switching lag performance"));
     const scrollbackRange = document.createElement("input");
     scrollbackRange.className = "setting-control";
     scrollbackRange.type = "range";
