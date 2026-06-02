@@ -3106,10 +3106,16 @@ final class WindowBrowserPortal: NSObject {
         entry.containerView?.setOmnibarSuggestions(configuration)
     }
 
-    func triggerFocusFlash(forWebViewId webViewId: ObjectIdentifier) {
+    /// Fires the focus flash for the slot hosting `webViewId`. Returns `false` when
+    /// there is no live entry/slot to flash (e.g. a detached or pruned entry), so the
+    /// caller can fall back to locating the slot another way.
+    @discardableResult
+    func triggerFocusFlash(forWebViewId webViewId: ObjectIdentifier) -> Bool {
         // Transient one-shot, unlike the persistent search/omnibar overlay configs:
         // no Entry state to carry across slot recreation, just fire the animation.
-        entriesByWebViewId[webViewId]?.containerView?.triggerFocusFlash()
+        guard let slot = entriesByWebViewId[webViewId]?.containerView else { return false }
+        slot.triggerFocusFlash()
+        return true
     }
 
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
@@ -4218,14 +4224,14 @@ enum BrowserWindowPortalRegistry {
     static func triggerFocusFlash(for webView: WKWebView) {
         let webViewId = ObjectIdentifier(webView)
         if let windowId = webViewToWindowId[webViewId],
-           let portal = portalsByWindowId[windowId] {
-            portal.triggerFocusFlash(forWebViewId: webViewId)
+           let portal = portalsByWindowId[windowId],
+           portal.triggerFocusFlash(forWebViewId: webViewId) {
             return
         }
-        // Inline DevTools hosting takes the live WKWebView out of the window portal
-        // and into a local WindowBrowserSlotView that is not tracked in the registry
-        // (the entry is discarded). Walk up to that slot so the attention flash still
-        // fires for browser panes with attached inline DevTools.
+        // No live window-portal slot fired the flash. This covers inline DevTools
+        // hosting (the live WKWebView is moved into a local WindowBrowserSlotView and
+        // its registry entry is discarded) and stale/detached registry mappings. Walk
+        // up to the hosting slot so the attention flash still fires.
         var ancestor: NSView? = webView.superview
         while let view = ancestor {
             if let slot = view as? WindowBrowserSlotView {
