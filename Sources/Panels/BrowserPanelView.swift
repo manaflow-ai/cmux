@@ -725,8 +725,10 @@ struct BrowserPanelView: View {
         let format = String(localized: "browser.focusMode.helpWithShortcut.format", defaultValue: "%@ (%@)")
         if panel.isBrowserFocusModeActive {
             let title = String(localized: "browser.focusMode.exit.help", defaultValue: "Exit browser focus mode")
-            // Active: show the double-Escape exit hint.
-            return String(format: format, title, browserFocusModeShortcutHint)
+            // Active: show the configured exit shortcut, if one is bound.
+            let exitHint = browserFocusModeShortcutHint
+            guard !exitHint.isEmpty else { return title }
+            return String(format: format, title, exitHint)
         }
         let title = String(localized: "browser.focusMode.enter.help", defaultValue: "Enter browser focus mode")
         // Inactive: show the configured enter shortcut, if one is bound.
@@ -736,12 +738,10 @@ struct BrowserPanelView: View {
 
     private var browserFocusModeShortcutHint: String {
         // Reflect the configured exit binding (default: the ⎋ ⎋ chord) so the hint
-        // stays correct when the user rebinds Exit Browser Focus Mode.
+        // stays correct when the user rebinds Exit Browser Focus Mode. Empty when
+        // unbound (no keyboard exit), so callers omit the hint instead of lying.
         let exit = KeyboardShortcutSettings.shortcut(for: .exitBrowserFocusMode)
-        if !exit.isUnbound {
-            return exit.displayString
-        }
-        return String(localized: "browser.focusMode.shortcutHint", defaultValue: "Esc Esc")
+        return exit.isUnbound ? "" : exit.displayString
     }
 
     private var browserFocusModeEnterShortcutHint: String? {
@@ -764,6 +764,7 @@ struct BrowserPanelView: View {
     private var shouldShowBrowserFocusModeShortcutHint: Bool {
         panel.isBrowserFocusModeActive &&
             panel.canToggleBrowserFocusMode &&
+            !browserFocusModeShortcutHint.isEmpty &&
             (ShortcutHintDebugSettings.alwaysShowHints() || focusModeShortcutHintMonitor.isModifierPressed)
     }
 

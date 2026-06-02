@@ -1067,8 +1067,9 @@ final class CmuxSettingsFileStore {
         }
         // Mirror StoredShortcut.parseConfig(strokes:allowBareFirstStroke:): a
         // bare first stroke is only valid for actions that opt into it, or for
-        // the space key.
-        guard action.allowsBareFirstStroke || !first.modifierFlags.isEmpty || first.key == "space" else {
+        // the space and escape keys (both meaningful as a bare stroke, e.g. the
+        // default Escape exit chord for browser focus mode).
+        guard action.allowsBareFirstStroke || !first.modifierFlags.isEmpty || first.key == "space" || first.key == "escape" else {
             return nil
         }
         let second: ShortcutStroke?

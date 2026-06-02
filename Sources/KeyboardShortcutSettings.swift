@@ -2347,6 +2347,8 @@ extension ShortcutStroke {
             return "\r"
         case "space", "spacebar", "<space>":
             return "space"
+        case "escape", "esc", "⎋":
+            return "escape"
         case "comma":
             return ","
         case "period", "dot":
