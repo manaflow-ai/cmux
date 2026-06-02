@@ -938,6 +938,7 @@
       "tabsAndLogs": "タブとログ",
       "targetingSurface": "ブラウザサーフェスの指定",
       "targetingDesc": "ほとんどのサブコマンドにはターゲットサーフェスが必要です。位置引数または--surfaceで指定できます。",
+      "mcpRegisterComment": "# cmuxブラウザMCPツールを一度だけ登録",
       "navigation": "ナビゲーション",
       "waitingSection": "待機",
       "waitingDesc": "waitを使用して、セレクタ、テキスト、URLフラグメント、ロード状態、またはJavaScript条件が満たされるまでブロックします。",

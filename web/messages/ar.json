@@ -870,6 +870,7 @@
       "tabsAndLogs": "علامات التبويب والسجلات",
       "targetingSurface": "استهداف سطح متصفح",
       "targetingDesc": "معظم الأوامر الفرعية تتطلب سطحاً مستهدفاً. يمكنك تمريره موضعياً أو بـ --surface.",
+      "mcpRegisterComment": "# سجّل أدوات MCP لمتصفح cmux مرة واحدة",
       "navigation": "التنقل",
       "waitingSection": "الانتظار",
       "waitingDesc": "استخدم wait للانتظار حتى تتحقق محددات أو نص أو أجزاء URL أو حالة التحميل أو شرط JavaScript.",

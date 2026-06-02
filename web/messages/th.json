@@ -870,6 +870,7 @@
       "tabsAndLogs": "แท็บและ log",
       "targetingSurface": "การ target browser surface",
       "targetingDesc": "คำสั่งย่อยส่วนใหญ่ต้องการ target surface คุณสามารถส่งแบบ positional หรือด้วย --surface",
+      "mcpRegisterComment": "# ลงทะเบียนเครื่องมือ MCP ของเบราว์เซอร์ cmux เพียงครั้งเดียว",
       "navigation": "Navigation",
       "waitingSection": "Waiting",
       "waitingDesc": "ใช้ wait เพื่อบล็อกจนกว่า selector, ข้อความ, URL fragment, load state หรือเงื่อนไข JavaScript จะเป็นจริง",

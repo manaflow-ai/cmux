@@ -870,6 +870,7 @@
       "tabsAndLogs": "Faner og logger",
       "targetingSurface": "Målrette en nettleseroverflate",
       "targetingDesc": "De fleste underkommandoer krever en måloverflate. Du kan sende den posisjonelt eller med --surface.",
+      "mcpRegisterComment": "# Registrer MCP-verktøyene for cmux-nettleseren én gang",
       "navigation": "Navigasjon",
       "waitingSection": "Venting",
       "waitingDesc": "Bruk wait for å blokkere til selektorer, tekst, URL-fragmenter, lastetilstand eller en JavaScript-betingelse er oppfylt.",

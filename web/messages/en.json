@@ -980,6 +980,7 @@
       "tabsAndLogs": "Tabs and logs",
       "targetingSurface": "Targeting a browser surface",
       "targetingDesc": "Most subcommands require a target surface. You can pass it positionally or with --surface.",
+      "mcpRegisterComment": "# Register cmux browser MCP tools once",
       "navigation": "Navigation",
       "waitingSection": "Waiting",
       "waitingDesc": "Use wait to block until selectors, text, URL fragments, load state, or a JavaScript condition is satisfied.",

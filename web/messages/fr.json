@@ -870,6 +870,7 @@
       "tabsAndLogs": "Onglets et journaux",
       "targetingSurface": "Cibler une surface navigateur",
       "targetingDesc": "La plupart des sous-commandes nécessitent une surface cible. Vous pouvez la passer en position ou avec --surface.",
+      "mcpRegisterComment": "# Enregistrer une seule fois les outils MCP du navigateur cmux",
       "navigation": "Navigation",
       "waitingSection": "Attente",
       "waitingDesc": "Utilisez wait pour bloquer jusqu'à ce que des sélecteurs, du texte, des fragments d'URL, l'état de chargement ou une condition JavaScript soient satisfaits.",

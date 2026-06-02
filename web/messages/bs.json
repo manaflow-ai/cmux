@@ -870,6 +870,7 @@
       "tabsAndLogs": "Tabovi i dnevnici",
       "targetingSurface": "Ciljanje browser površine",
       "targetingDesc": "Većina podkomandi zahtijeva ciljnu površinu. Možete je proslijediti poziciono ili sa --surface.",
+      "mcpRegisterComment": "# Registruj cmux browser MCP alate jednom",
       "navigation": "Navigacija",
       "waitingSection": "Čekanje",
       "waitingDesc": "Koristite wait za blokiranje dok selektori, tekst, fragmenti URL-a, stanje učitavanja ili JavaScript uslov ne budu zadovoljeni.",

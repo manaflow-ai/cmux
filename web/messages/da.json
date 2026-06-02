@@ -870,6 +870,7 @@
       "tabsAndLogs": "Faner og logfiler",
       "targetingSurface": "Målretning af en browser-surface",
       "targetingDesc": "De fleste underkommandoer kræver en mål-surface. Du kan sende den positionelt eller med --surface.",
+      "mcpRegisterComment": "# Registrer cmux-browserens MCP-værktøjer én gang",
       "navigation": "Navigation",
       "waitingSection": "Ventetilstand",
       "waitingDesc": "Brug wait til at blokere indtil selektorer, tekst, URL-fragmenter, indlæsningstilstand eller en JavaScript-betingelse er opfyldt.",

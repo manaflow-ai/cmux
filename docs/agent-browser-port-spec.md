@@ -266,6 +266,7 @@ cmux browser identify --surface <surface-id>   # wrapper over system.identify + 
 ```
 
 Agent MCP transport:
+
 ```bash
 codex mcp add cmux-browser -- cmux browser mcp-server
 claude mcp add cmux-browser -- cmux browser mcp-server

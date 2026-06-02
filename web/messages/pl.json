@@ -870,6 +870,7 @@
       "tabsAndLogs": "Karty i logi",
       "targetingSurface": "Celowanie w surface przeglądarki",
       "targetingDesc": "Większość podpoleceń wymaga surface'a docelowego. Możesz go podać pozycyjnie lub z --surface.",
+      "mcpRegisterComment": "# Zarejestruj narzędzia MCP przeglądarki cmux jednorazowo",
       "navigation": "Nawigacja",
       "waitingSection": "Oczekiwanie",
       "waitingDesc": "Użyj wait aby blokować do momentu spełnienia selektorów, tekstu, fragmentów URL, stanu ładowania lub warunku JavaScript.",

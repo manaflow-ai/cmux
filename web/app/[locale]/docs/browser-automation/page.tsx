@@ -104,7 +104,7 @@ cmux browser identify --surface surface:2
 cmux browser surface:2 url
 cmux browser --surface surface:2 url`}</CodeBlock>
 
-      <CodeBlock lang="bash">{`# Register cmux browser MCP tools once
+      <CodeBlock lang="bash">{`${t("mcpRegisterComment")}
 codex mcp add cmux-browser -- cmux browser mcp-server
 claude mcp add cmux-browser -- cmux browser mcp-server`}</CodeBlock>
 

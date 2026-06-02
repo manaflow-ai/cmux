@@ -870,6 +870,7 @@
       "tabsAndLogs": "分頁和日誌",
       "targetingSurface": "指定瀏覽器 surface",
       "targetingDesc": "大多數子指令需要指定目標 surface。你可以用位置參數或 --surface 來傳遞。",
+      "mcpRegisterComment": "# 只需註冊一次 cmux 瀏覽器 MCP 工具",
       "navigation": "導覽",
       "waitingSection": "等待",
       "waitingDesc": "使用 wait 來阻塞直到選擇器、文字、URL 片段、載入狀態或 JavaScript 條件滿足。",

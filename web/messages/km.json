@@ -870,6 +870,7 @@
       "tabsAndLogs": "ផ្ទាំងនិងកំណត់ត្រា",
       "targetingSurface": "ការកំណត់គោលដៅ surface កម្មវិធីរុករក",
       "targetingDesc": "ពាក្យបញ្ជារងភាគច្រើនត្រូវការ surface គោលដៅ។ អ្នកអាចបញ្ជូនវាតាមទីតាំង ឬជាមួយ --surface។",
+      "mcpRegisterComment": "# ចុះឈ្មោះឧបករណ៍ MCP របស់កម្មវិធីរុករក cmux ម្តង",
       "navigation": "ការរុករក",
       "waitingSection": "ការរង់ចាំ",
       "waitingDesc": "ប្រើ wait ដើម្បីរង់ចាំរហូតដល់ selectors, អត្ថបទ, ផ្នែក URL, ស្ថានភាពផ្ទុក, ឬលក្ខខណ្ឌ JavaScript ត្រូវបានបំពេញ។",

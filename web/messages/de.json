@@ -870,6 +870,7 @@
       "tabsAndLogs": "Tabs und Logs",
       "targetingSurface": "Eine Browser-Oberfläche ansprechen",
       "targetingDesc": "Die meisten Unterbefehle erfordern eine Ziel-Oberfläche. Sie können sie positionell oder mit --surface übergeben.",
+      "mcpRegisterComment": "# cmux-Browser-MCP-Tools einmalig registrieren",
       "navigation": "Navigation",
       "waitingSection": "Warten",
       "waitingDesc": "Verwenden Sie wait, um zu blockieren, bis Selektoren, Text, URL-Fragmente, Ladezustand oder eine JavaScript-Bedingung erfüllt ist.",
