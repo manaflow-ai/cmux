@@ -3869,6 +3869,7 @@ function updateSurfaceTab(button, workspace, panel) {
   setStylePropertyIfChanged(button, "--tab-color", panel.color || workspace.color || "var(--color-accent)");
   setDatasetIfChanged(parts.dot, "tabIndex", String(ordinal));
   setTextIfChanged(parts.label, label);
+  setTitleIfChanged(parts.close, pending ? "Cancel pane" : "Close pane");
 }
 
 function surfaceTabDropPlacement(event, button) {
