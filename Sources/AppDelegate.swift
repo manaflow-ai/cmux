@@ -15521,7 +15521,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func browserFocusModePanelForShortcutEvent(_ event: NSEvent) -> BrowserPanel? {
         guard let panel = focusedBrowserPanelForShortcutEvent(event),
-              panel.isBrowserFocusModeActive else {
+              panel.isBrowserFocusModeActive,
+              // Only bypass cmux shortcut handling while the focus-mode web view
+              // actually owns the responder chain. If keyboard focus moved away
+              // (e.g. to the right sidebar) without changing the selected pane,
+              // cmux shortcuts must keep working, and the web-view double-Escape
+              // exit path can't run anyway since the page no longer has focus.
+              isWebViewFocused(panel) else {
             return nil
         }
         return panel
