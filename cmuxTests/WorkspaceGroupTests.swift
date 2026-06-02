@@ -684,9 +684,11 @@ struct WorkspaceGroupTests {
         #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: nil, configured: nil) == "folder.fill")
         #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: "   ", configured: "leaf.fill") == "leaf.fill")
         #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: "not.an.sf.symbol", configured: nil) == "folder.fill")
+        #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: " 🚀 ", configured: nil) == "🚀")
+        #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: "not.an.sf.symbol", configured: "🔥") == "🔥")
     }
 
-    @Test func setWorkspaceGroupIconDropsInvalidSymbols() {
+    @Test func setWorkspaceGroupIconDropsInvalidSymbolsAndStoresEmoji() {
         let manager = makeTabManager()
         let groupId = manager.createWorkspaceGroup(
             name: "G",
@@ -700,6 +702,14 @@ struct WorkspaceGroupTests {
         let validStoredIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "  leaf.fill  ")
         #expect(validStoredIcon == "leaf.fill")
         #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == "leaf.fill")
+
+        let emojiIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "  🚀  ")
+        #expect(emojiIcon == "🚀")
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == "🚀")
+
+        let multipleEmojiIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "🚀🔥")
+        #expect(multipleEmojiIcon == nil)
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == nil)
 
         let clearedIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "   ")
         #expect(clearedIcon == nil)
