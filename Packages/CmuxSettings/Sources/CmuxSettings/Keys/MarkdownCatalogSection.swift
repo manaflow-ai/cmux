@@ -18,5 +18,6 @@ public struct MarkdownCatalogSection: SettingCatalogSection {
         userDefaultsKey: "markdown.fontSize"
     )
 
+    /// Creates the markdown settings section with its default keys.
     public init() {}
 }

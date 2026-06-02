@@ -51,7 +51,18 @@ extension KeyboardShortcutSettings.Action {
             if self == .application || other == .application {
                 return true
             }
-            return self == other
+            if self == other {
+                return true
+            }
+            // A focused markdown viewer also satisfies `.nonBrowserPanel`, so the
+            // two contexts can be active at the same time. Treat them as
+            // overlapping so shortcut conflict detection rejects a chord bound to
+            // both a markdown-zoom action and a non-browser action.
+            if (self == .markdownPanel && other == .nonBrowserPanel) ||
+                (self == .nonBrowserPanel && other == .markdownPanel) {
+                return true
+            }
+            return false
         }
     }
 
@@ -117,6 +128,8 @@ extension AppDelegate {
     }
 
     private func shortcutFocusedMarkdownPanel(in window: NSWindow?) -> MarkdownPanel? {
+        // `focusedMarkdownPanel` is already gated to preview mode, where the
+        // rendered viewer responds to zoom (the raw text editor does not).
         if let window {
             guard let context = mainWindowContexts[ObjectIdentifier(window)] ??
                 mainWindowContexts.values.first(where: { $0.window === window }) else {

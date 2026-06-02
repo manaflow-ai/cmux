@@ -84,6 +84,19 @@ final class MarkdownPanelTests: XCTestCase {
         try "# hello".write(to: fileURL, atomically: true, encoding: .utf8)
         defer { try? fileManager.removeItem(at: directoryURL) }
 
+        // Pin the persisted default to a non-boundary value so the reset
+        // assertions below don't depend on (or mutate) the developer's settings.
+        let defaultsKey = MarkdownFontSizeSettings.key
+        let savedDefault = UserDefaults.standard.object(forKey: defaultsKey)
+        UserDefaults.standard.set(20, forKey: defaultsKey)
+        defer {
+            if let savedDefault {
+                UserDefaults.standard.set(savedDefault, forKey: defaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: defaultsKey)
+            }
+        }
+
         let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path, fontSize: 15)
         defer { panel.close() }
 
@@ -101,10 +114,10 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(panel.fontSize, MarkdownFontSizeSettings.minimumPointSize)
         XCTAssertFalse(panel.zoomOut())
 
-        // Reset returns to the configured default and reports the change.
-        let expectedDefault = MarkdownFontSizeSettings.resolvedDefault()
+        // Reset returns to the configured default (seeded to 20 above) and
+        // reports the change.
         XCTAssertTrue(panel.resetZoom())
-        XCTAssertEqual(panel.fontSize, expectedDefault)
+        XCTAssertEqual(panel.fontSize, 20)
         XCTAssertFalse(panel.resetZoom())
     }
 

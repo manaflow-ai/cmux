@@ -155,11 +155,19 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertFalse(markdown.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: false))
         XCTAssertFalse(markdown.isAvailable(focusedBrowserPanel: true, focusedMarkdownPanel: false, rightSidebarFocused: false))
 
-        // Markdown zoom and browser zoom share Cmd-=/-/0 but live in different
-        // contexts, so they must not be treated as conflicting bindings.
+        // Markdown zoom and browser zoom share Cmd-=/-/0 but are mutually
+        // exclusive (a panel can't be both), so they must NOT be treated as
+        // conflicting bindings.
         let browser = KeyboardShortcutSettings.Action.browserZoomIn.shortcutContext
         XCTAssertFalse(markdown.overlaps(browser))
         XCTAssertTrue(markdown.overlaps(markdown))
+
+        // A focused markdown viewer is also a non-browser panel, so those two
+        // contexts CAN be active together and must be treated as overlapping.
+        let nonBrowser = KeyboardShortcutSettings.Action.renameTab.shortcutContext
+        XCTAssertEqual(nonBrowser, .nonBrowserPanel)
+        XCTAssertTrue(markdown.overlaps(nonBrowser))
+        XCTAssertTrue(nonBrowser.overlaps(markdown))
     }
 
     func testFocusHistoryMenuShortcutsSuppressDuplicateBrowserHistoryKeys() throws {

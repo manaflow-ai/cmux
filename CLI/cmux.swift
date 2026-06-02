@@ -4575,13 +4575,13 @@ struct CMUXCLI {
         }
     }
 
-    /// Validates a `cmux markdown open --font-size <points>` value, mirroring
-    /// the diff viewer's `--font-size` validation: a positive number no larger
-    /// than 96 points.
+    /// Validates a `cmux markdown open --font-size <points>` value. The viewer
+    /// clamps the rendered size to 8...96 points, so reject anything outside
+    /// that range here instead of silently clamping the user's input.
     private func parseMarkdownViewerFontSize(_ rawValue: String) throws -> Double {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let size = Double(trimmed), size > 0, size <= 96 else {
-            throw CLIError(message: "--font-size must be a positive number no larger than 96")
+        guard let size = Double(trimmed), size >= 8, size <= 96 else {
+            throw CLIError(message: "--font-size must be a number between 8 and 96")
         }
         return (size * 100).rounded() / 100
     }
