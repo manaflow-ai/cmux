@@ -195,6 +195,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         #if DEBUG
         originalRuntimeSurfaceCreationSuppression = TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting
         TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = true
+        drainRuntimeSurfacesForShortcutRoutingTests()
         KeyboardShortcutRecorderActivity.resetForTesting()
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
         #endif
@@ -253,10 +254,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         Self.retainedTextBoxRenderScrollViews.removeAll()
         Self.retainedTextBoxRestoreViews.removeAll()
         #if DEBUG
+        drainRuntimeSurfacesForShortcutRoutingTests()
         TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = originalRuntimeSurfaceCreationSuppression
         #endif
         super.tearDown()
     }
+
+#if DEBUG
+    private func drainRuntimeSurfacesForShortcutRoutingTests() {
+        TerminalSurfaceRegistry.shared.debugReleaseRuntimeSurfacesForTesting()
+        waitUntil(timeout: 1.0) {
+            TerminalSurfaceRegistry.shared.debugRuntimeSurfaceCountForTesting() == 0
+        }
+    }
+#endif
 
     func testShortcutMonitorIgnoresSystemDefinedEvents() {
         guard let appDelegate = AppDelegate.shared else {

@@ -5231,6 +5231,22 @@ final class TerminalSurfaceRegistry {
             lhs.id.uuidString < rhs.id.uuidString
         }
     }
+
+#if DEBUG
+    @MainActor
+    func debugRuntimeSurfaceCountForTesting() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return runtimeSurfaceOwners.count
+    }
+
+    @MainActor
+    func debugReleaseRuntimeSurfacesForTesting() {
+        for surface in allSurfaces() where surface.debugHasRuntimeSurfaceForTesting() {
+            surface.releaseSurfaceForTesting()
+        }
+    }
+#endif
 }
 
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
@@ -7378,6 +7394,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
 #if DEBUG
+    @MainActor
+    func debugHasRuntimeSurfaceForTesting() -> Bool {
+        surface != nil
+    }
+
     @MainActor
     func setNeedsConfirmCloseOverrideForTesting(_ value: Bool?) {
         needsConfirmCloseOverrideForTesting = value
