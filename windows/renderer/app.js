@@ -17652,7 +17652,7 @@ function handleWindowWheelZoom(event) {
   const targetsTerminalViewport = eventTargetsTerminalViewport(event);
   const panel = panelFromEvent(event) || panelFromPoint(event.clientX, event.clientY);
   if (panel?.type === "browser" && applyBrowserWheelZoomGuard(event, panel)) return;
-  if (scrollCtrlWheelChrome(event)) return;
+  if (consumeCtrlWheelChrome(event)) return;
   if (targetsTerminalViewport) {
     event.preventDefault();
     event.stopPropagation();
@@ -17664,7 +17664,7 @@ function handleWindowWheelZoom(event) {
   }
 }
 
-function scrollCtrlWheelChrome(event) {
+function consumeCtrlWheelChrome(event) {
   const target = closestElementFromEvent(
     event,
     "#inspectorBody, #workspaceList, #surfaceTabs, #paletteList, .command-strip"
@@ -17676,19 +17676,6 @@ function scrollCtrlWheelChrome(event) {
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation?.();
-  const deltaY = normalizedWheelZoomDelta(event);
-  const deltaX = normalizedWheelDeltaX(event);
-  const preferHorizontal = canScrollX && (
-    !canScrollY
-    || target.id === "surfaceTabs"
-    || target.classList.contains("command-strip")
-    || Math.abs(deltaX) > Math.abs(deltaY)
-  );
-  if (preferHorizontal) {
-    target.scrollLeft += deltaX || deltaY;
-  } else {
-    target.scrollTop += deltaY;
-  }
   return true;
 }
 
