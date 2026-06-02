@@ -268,6 +268,7 @@ extension Workspace {
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
 #endif
         restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
+        forkedAgentFallbackSnapshotsByPanelId.removeAll(keepingCapacity: false)
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
@@ -10514,6 +10515,7 @@ final class Workspace: Identifiable, ObservableObject {
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
+    var forkedAgentFallbackSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable
@@ -12662,6 +12664,9 @@ final class Workspace: Identifiable, ObservableObject {
             refreshTrackedAgentPorts()
         }
         restoredAgentSnapshotsByPanelId = restoredAgentSnapshotsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        forkedAgentFallbackSnapshotsByPanelId = forkedAgentFallbackSnapshotsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
@@ -17577,11 +17582,12 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
-    struct AgentConversationForkWorkspaceLaunch: Equatable {
+    struct AgentConversationForkWorkspaceLaunch {
         var workingDirectory: String?
         var terminalWorkingDirectory: String?
         var initialTerminalCommand: String?
         var initialTerminalInput: String
+        var forkedAgentSnapshot: SessionRestorableAgentSnapshot
         var remoteConfiguration: WorkspaceRemoteConfiguration?
         var autoConnectRemoteConfiguration: Bool
     }
@@ -17612,6 +17618,7 @@ final class Workspace: Identifiable, ObservableObject {
             terminalWorkingDirectory: isRemoteFork ? nil : workingDirectory,
             initialTerminalCommand: remoteConfiguration?.terminalStartupCommand ?? remoteStartupCommand,
             initialTerminalInput: startupInput,
+            forkedAgentSnapshot: launchSnapshot,
             remoteConfiguration: remoteConfiguration,
             autoConnectRemoteConfiguration: remoteConfiguration != nil
         )
@@ -17655,6 +17662,9 @@ final class Workspace: Identifiable, ObservableObject {
            remoteStartupCommand != nil,
            let workingDirectory {
             updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
+        }
+        if let forkedPanel {
+            recordForkedAgentFallbackSnapshot(launchSnapshot, panelId: forkedPanel.id)
         }
         if forkedPanel == nil, let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
@@ -17705,7 +17715,15 @@ final class Workspace: Identifiable, ObservableObject {
         if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
             return snapshot
         }
-        return SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId)
+        if let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId) {
+            return snapshot
+        }
+        return forkedAgentFallbackSnapshotsByPanelId[panelId]
+    }
+
+    func recordForkedAgentFallbackSnapshot(_ snapshot: SessionRestorableAgentSnapshot, panelId: UUID) {
+        guard panels[panelId] is TerminalPanel else { return }
+        forkedAgentFallbackSnapshotsByPanelId[panelId] = snapshot
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
@@ -17751,6 +17769,7 @@ final class Workspace: Identifiable, ObservableObject {
             if remoteStartupCommand != nil, let workingDirectory {
                 updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
             }
+            recordForkedAgentFallbackSnapshot(launchSnapshot, panelId: forkedPanel.id)
         } else if let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
         }
@@ -19243,6 +19262,12 @@ extension Workspace: BonsplitDelegate {
            launch.terminalWorkingDirectory == nil,
            let forkPanelId = forkWorkspace.focusedPanelId {
             forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
+        }
+        if let forkPanelId = forkWorkspace.focusedPanelId {
+            forkWorkspace.recordForkedAgentFallbackSnapshot(
+                launch.forkedAgentSnapshot,
+                panelId: forkPanelId
+            )
         }
         return true
     }

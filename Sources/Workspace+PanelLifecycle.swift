@@ -341,6 +341,7 @@ extension Workspace {
 #endif
         discardAgentRuntimeState(closedAgentRuntimeState)
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+        forkedAgentFallbackSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
