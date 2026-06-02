@@ -78,17 +78,26 @@ struct SidebarProviderMenuRegressionTests {
         }
     }
 
-    /// Selecting a built-in view resolves that view as the active descriptor,
-    /// which is exactly what the context menu uses to place its checkmark.
+    /// Persisting a built-in view as the selection drives the menu's active-view
+    /// checkmark to that view. This exercises the same path `showMenu` uses to
+    /// decide which item is checked — read the persisted id from `UserDefaults`,
+    /// resolve it through `effectiveProviderId`, then look up the descriptor —
+    /// rather than asserting on the id in isolation.
     @Test
-    func selectedBuiltInViewResolvesToItselfForCheckmark() {
+    func persistedBuiltInSelectionDrivesMenuCheckmark() {
         withExtensionsBeta(false) {
             for builtInID in Self.builtInViewIDs {
                 withSelectedProvider(builtInID) {
-                    let active = CmuxExtensionSidebarSelection.descriptor(for: builtInID)
+                    let persisted = UserDefaults.standard.string(forKey: CmuxExtensionSidebarSelection.defaultsKey)
+                        ?? CmuxExtensionSidebarSelection.defaultProviderId
+                    let effective = CmuxExtensionSidebarSelection.effectiveProviderId(
+                        persisted,
+                        extensionsEnabled: CmuxExtensionSidebarSelection.isEnabled
+                    )
+                    let checkedID = CmuxExtensionSidebarSelection.descriptor(for: effective).id
                     #expect(
-                        active.id == builtInID,
-                        "Selecting \(builtInID) did not resolve to itself (menu checkmark would be wrong)"
+                        checkedID == builtInID,
+                        "Persisted selection \(builtInID) did not drive the menu checkmark (got \(checkedID))"
                     )
                 }
             }
