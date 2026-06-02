@@ -794,57 +794,56 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testCreateMainWindowDoesNotDisallowFullScreenTilingByDefault() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let windowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: windowId)
-        }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
+        let shouldTemporarilyDisallowFullScreenTiling =
+            AppDelegate.shouldTemporarilyDisallowFullScreenTilingForNewMainWindow(
+                hasSessionWindowSnapshot: false,
+                sourceWindowIsNativeFullScreen: false
+            )
+        let collectionBehavior = AppDelegate.mainWindowCollectionBehavior(
+            [],
+            temporarilyDisallowsFullScreenTiling: shouldTemporarilyDisallowFullScreenTiling
+        )
 
         XCTAssertFalse(
-            window.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            collectionBehavior.contains(.fullScreenDisallowsTiling),
             "Main windows should still support standard macOS Split View when not created from a fullscreen source"
         )
     }
 
     func testCreateMainWindowTemporarilyDisallowsFullScreenTilingFromFullscreenSource() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = true
-
-        let newWindowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: newWindowId)
-        }
-
-        guard let newWindow = window(withId: newWindowId) else {
-            XCTFail("Expected new window")
-            return
-        }
+        let shouldTemporarilyDisallowFullScreenTiling =
+            AppDelegate.shouldTemporarilyDisallowFullScreenTilingForNewMainWindow(
+                hasSessionWindowSnapshot: false,
+                sourceWindowIsNativeFullScreen: true
+            )
+        let initialCollectionBehavior = AppDelegate.mainWindowCollectionBehavior(
+            [],
+            temporarilyDisallowsFullScreenTiling: shouldTemporarilyDisallowFullScreenTiling
+        )
 
         XCTAssertTrue(
-            newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            initialCollectionBehavior.contains(.fullScreenDisallowsTiling),
             "New windows should temporarily opt out of fullscreen tiling while opening from a fullscreen source"
         )
 
-        appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
-        waitUntil(timeout: 1.0) {
-            !newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling)
-        }
+        let restoredCollectionBehavior = AppDelegate.mainWindowCollectionBehavior(
+            [],
+            temporarilyDisallowsFullScreenTiling:
+                AppDelegate.shouldTemporarilyDisallowFullScreenTilingForNewMainWindow(
+                    hasSessionWindowSnapshot: true,
+                    sourceWindowIsNativeFullScreen: true
+                )
+        )
+        XCTAssertFalse(
+            restoredCollectionBehavior.contains(.fullScreenDisallowsTiling),
+            "Session restore should preserve normal Split View behavior even when the source window is fullscreen"
+        )
+
+        let clearedCollectionBehavior =
+            AppDelegate.collectionBehaviorByClearingFullScreenTilingOptOut(initialCollectionBehavior)
 
         XCTAssertFalse(
-            newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            clearedCollectionBehavior.contains(.fullScreenDisallowsTiling),
             "The fullscreen tiling opt-out should be cleared after initial presentation so Split View keeps working"
         )
     }

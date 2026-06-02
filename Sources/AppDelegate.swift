@@ -843,6 +843,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    static func shouldTemporarilyDisallowFullScreenTilingForNewMainWindow(
+        hasSessionWindowSnapshot: Bool,
+        sourceWindowIsNativeFullScreen: Bool
+    ) -> Bool {
+        !hasSessionWindowSnapshot && sourceWindowIsNativeFullScreen
+    }
+
+    static func mainWindowCollectionBehavior(
+        _ collectionBehavior: NSWindow.CollectionBehavior,
+        temporarilyDisallowsFullScreenTiling: Bool
+    ) -> NSWindow.CollectionBehavior {
+        var collectionBehavior = collectionBehavior
+        if temporarilyDisallowsFullScreenTiling {
+            collectionBehavior.insert(.fullScreenDisallowsTiling)
+        }
+        return collectionBehavior
+    }
+
+    static func collectionBehaviorByClearingFullScreenTilingOptOut(
+        _ collectionBehavior: NSWindow.CollectionBehavior
+    ) -> NSWindow.CollectionBehavior {
+        var collectionBehavior = collectionBehavior
+        collectionBehavior.remove(.fullScreenDisallowsTiling)
+        return collectionBehavior
+    }
+
     @MainActor
     private final class NewWorkspaceContextMenuActionBox: NSObject {
         let windowId: UUID
@@ -8310,7 +8336,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return sourceWindow?.styleMask.contains(.fullScreen) == true
         }()
         let shouldTemporarilyDisallowFullScreenTiling =
-            sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
+            Self.shouldTemporarilyDisallowFullScreenTilingForNewMainWindow(
+                hasSessionWindowSnapshot: sessionWindowSnapshot != nil,
+                sourceWindowIsNativeFullScreen: sourceWindowIsNativeFullScreen
+            )
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
         let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
             ? resolvedPersistedWindowGeometryFrame()
@@ -8333,9 +8362,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // When creating a new window from an existing native fullscreen window,
         // temporarily opt out of fullscreen tiling so AppKit doesn't place the
         // new window into the active fullscreen Space.
-        if shouldTemporarilyDisallowFullScreenTiling {
-            window.collectionBehavior.insert(.fullScreenDisallowsTiling)
-        }
+        window.collectionBehavior = Self.mainWindowCollectionBehavior(
+            window.collectionBehavior,
+            temporarilyDisallowsFullScreenTiling: shouldTemporarilyDisallowFullScreenTiling
+        )
         window.title = ""
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -8408,11 +8438,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if shouldTemporarilyDisallowFullScreenTiling {
             let clearFullScreenTilingOptOut: () -> Void = { [weak window] in
                 guard let window else { return }
-                window.collectionBehavior.remove(.fullScreenDisallowsTiling)
+                window.collectionBehavior = Self.collectionBehaviorByClearingFullScreenTilingOptOut(
+                    window.collectionBehavior
+                )
                 if window.collectionBehavior.contains(.fullScreenDisallowsTiling) {
-                    var behavior = window.collectionBehavior
-                    behavior.remove(.fullScreenDisallowsTiling)
-                    window.collectionBehavior = behavior
+                    window.collectionBehavior = Self.collectionBehaviorByClearingFullScreenTilingOptOut(
+                        window.collectionBehavior
+                    )
                 }
             }
             RunLoop.main.perform {
