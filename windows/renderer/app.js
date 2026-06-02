@@ -299,11 +299,19 @@ const embeddedGoogleHomeUrl = "https://www.google.com/webhp?igu=1";
 // Google can cover embedded Chromium with a Chrome install sheet; keep the home pane usable.
 const embeddedGooglePromoDismissScript = `(() => {
   const observerKey = "__cmuxGooglePromoObserver";
+  const doneKey = "__cmuxGooglePromoDone";
+  if (window[doneKey]) return window[doneKey];
   const textOf = (node) => (node?.innerText || node?.textContent || "").replace(/\\s+/g, " ").trim();
   const cleanup = () => {
     window[observerKey]?.disconnect?.();
     window[observerKey] = null;
   };
+  const finish = (result) => {
+    cleanup();
+    window[doneKey] = result || "done";
+    return window[doneKey];
+  };
+  if (window[observerKey]) return "watching";
   const dismissPromo = () => {
     const elements = Array.from(document.querySelectorAll("*"));
     const dismiss = elements.find((node) => {
@@ -331,18 +339,21 @@ const embeddedGooglePromoDismissScript = `(() => {
   };
   const immediateResult = dismissPromo();
   if (immediateResult) {
-    cleanup();
-    return immediateResult;
+    return finish(immediateResult);
   }
   const root = document.documentElement || document.body;
   if (!root || typeof MutationObserver !== "function") return "";
-  if (!window[observerKey]) {
-    window[observerKey] = new MutationObserver(() => {
-      if (!dismissPromo()) return;
-      cleanup();
+  let pending = false;
+  window[observerKey] = new MutationObserver(() => {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => {
+      pending = false;
+      const result = dismissPromo();
+      if (result) finish(result);
     });
-    window[observerKey].observe(root, { childList: true, subtree: true });
-  }
+  });
+  window[observerKey].observe(root, { childList: true, subtree: true });
   return "watching";
 })()`;
 const paneResizeFitThrottleMs = 90;
