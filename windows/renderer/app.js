@@ -6761,6 +6761,10 @@ function inspectorContentSignature() {
 }
 
 function renderSettingsInspector(options = {}) {
+  if (state.inspectorMode !== "settings") {
+    state.settingsInspectorSignature = "";
+    return;
+  }
   elements.inspectorTitle.textContent = "Settings";
   elements.inspectorSubtitle.textContent = `${settingsCategoryLabel(state.settingsCategory)} page`;
   const resetScroll = Boolean(options.resetScroll || state.settingsScrollResetPending);
