@@ -3285,6 +3285,7 @@ function createWorkspaceRow() {
       <span class="workspace-branch"></span>
     </span>
   `;
+  button._workspaceParts = workspaceRowParts(button);
   button.addEventListener("click", () => focusWorkspace(button.dataset.workspaceId));
   button.addEventListener("dblclick", (event) => {
     event.preventDefault();
@@ -3336,6 +3337,17 @@ function createWorkspaceRow() {
   return button;
 }
 
+function workspaceRowParts(button) {
+  button._workspaceParts ||= {
+    name: button.querySelector(".workspace-name"),
+    badge: button.querySelector(".workspace-badge"),
+    meta: button.querySelector(".workspace-meta"),
+    path: button.querySelector(".workspace-path"),
+    branch: button.querySelector(".workspace-branch")
+  };
+  return button._workspaceParts;
+}
+
 function workspaceDropPlacement(event, row) {
   const rect = row.getBoundingClientRect();
   const y = rect.height ? (event.clientY - rect.top) / rect.height : 0.5;
@@ -3354,16 +3366,17 @@ function updateWorkspaceRow(button, workspace, index, activeId) {
   const cwd = isAppHomeWorkspace(workspace) ? "home" : workspace.cwdShort || "~";
   const branch = workspaceRowBranch(workspace);
   const paneSummary = `${workspace.terminalCount || 0} terminal${workspace.terminalCount === 1 ? "" : "s"} / ${workspace.browserCount || 0} browser${workspace.browserCount === 1 ? "" : "s"}`;
+  const parts = workspaceRowParts(button);
   setDatasetIfChanged(button, "workspaceId", workspace.id);
   setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}`);
   setStylePropertyIfChanged(button, "--workspace-color", workspace.color || state.data.palette?.[0] || "");
   setTitleIfChanged(button, `${title} - ${cwd}${branch ? ` - ${branch}` : ""} - ${paneSummary} - double-click to rename`);
-  setTextIfChanged(button.querySelector(".workspace-name"), title);
-  setTextIfChanged(button.querySelector(".workspace-badge"), hasAttention ? String(attentionTotal) : "");
-  setTextIfChanged(button.querySelector(".workspace-meta"), workspace.latestNotification || "");
-  setTextIfChanged(button.querySelector(".workspace-path"), cwd);
-  setTextIfChanged(button.querySelector(".workspace-branch"), branch ? `git ${branch}` : "");
-  button.querySelector(".workspace-branch").hidden = !branch;
+  setTextIfChanged(parts.name, title);
+  setTextIfChanged(parts.badge, hasAttention ? String(attentionTotal) : "");
+  setTextIfChanged(parts.meta, workspace.latestNotification || "");
+  setTextIfChanged(parts.path, cwd);
+  setTextIfChanged(parts.branch, branch ? `git ${branch}` : "");
+  setHiddenIfChanged(parts.branch, !branch);
 }
 
 function renderSurfaceTabs(workspace) {
@@ -3581,6 +3594,7 @@ function createSurfaceTab() {
     <span class="surface-label"></span>
     <span class="surface-close" title="Close">×</span>
   `;
+  button._surfaceParts = surfaceTabParts(button);
   button.addEventListener("click", () => {
     const panelId = button.dataset.panelId;
     if (state.minimizedPanelIds.has(panelId)) restorePane(panelId);
@@ -3631,11 +3645,20 @@ function createSurfaceTab() {
     state.dragPanelId = null;
     clearAllDropTargets();
   });
-  button.querySelector(".surface-close").addEventListener("click", (event) => {
+  button._surfaceParts.close.addEventListener("click", (event) => {
     event.stopPropagation();
     closePanel(button.dataset.panelId);
   });
   return button;
+}
+
+function surfaceTabParts(button) {
+  button._surfaceParts ||= {
+    dot: button.querySelector(".surface-dot"),
+    label: button.querySelector(".surface-label"),
+    close: button.querySelector(".surface-close")
+  };
+  return button._surfaceParts;
 }
 
 function updateSurfaceTab(button, workspace, panel) {
@@ -3644,12 +3667,13 @@ function updateSurfaceTab(button, workspace, panel) {
   const minimized = isPanelMinimized(panel);
   const pending = isPendingPanel(panel);
   const ordinal = Math.max(1, (workspace?.panels || []).findIndex((candidate) => candidate.id === panel.id) + 1);
+  const parts = surfaceTabParts(button);
   setDatasetIfChanged(button, "panelId", panel.id);
   setClassNameIfChanged(button, `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${isPanelZoomed(panel, workspace) ? " is-zoomed" : ""}${minimized ? " is-minimized" : ""}${pending ? " is-pending" : ""}${panel.needsAttention ? " has-attention" : ""}`);
   setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""}${pending ? " - starting" : ""}${minimized ? " - minimized, click to restore" : ""} - middle-click to ${pending ? "cancel" : "close"}, double-click to rename, right-click for pane options`);
   setStylePropertyIfChanged(button, "--tab-color", panel.color || workspace.color || "var(--color-accent)");
-  setDatasetIfChanged(button.querySelector(".surface-dot"), "tabIndex", String(ordinal));
-  setTextIfChanged(button.querySelector(".surface-label"), label);
+  setDatasetIfChanged(parts.dot, "tabIndex", String(ordinal));
+  setTextIfChanged(parts.label, label);
 }
 
 function getNewSurfaceTab(workspace) {
@@ -5826,6 +5850,7 @@ function createBrowserTabButton(session) {
   const close = document.createElement("span");
   close.className = "browser-tab-close";
   close.textContent = "×";
+  button._browserTabParts = { label, close };
   close.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -5887,13 +5912,18 @@ function updateBrowserTabButton(session, button, tab) {
   const fullTitle = tab.title || browserTabTitle(tab.url);
   const ordinal = Math.max(1, (session?.tabs || []).findIndex((candidate) => candidate.id === tab.id) + 1);
   const closeLabel = session.tabs.length <= 1 ? t("browser.resetTab") : t("browser.closeTab");
+  button._browserTabParts ||= {
+    label: button.querySelector(".browser-tab-label"),
+    close: button.querySelector(".browser-tab-close")
+  };
+  const parts = button._browserTabParts;
   setClassNameIfChanged(button, `browser-tab${tab.id === session.activeTabId ? " is-active" : ""}`);
   setDatasetIfChanged(button, "browserTabId", tab.id);
   setDatasetIfChanged(button, "tabIndex", String(ordinal));
   setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""} - ${tab.url}`);
   button.setAttribute("aria-label", `${label}. ${tab.url}. ${closeLabel} with Delete.`);
-  setTextIfChanged(button.querySelector(".browser-tab-label"), label);
-  setTitleIfChanged(button.querySelector(".browser-tab-close"), closeLabel);
+  setTextIfChanged(parts.label, label);
+  setTitleIfChanged(parts.close, closeLabel);
 }
 
 function browserTabLabel(session, tab) {
