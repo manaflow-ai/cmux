@@ -533,8 +533,17 @@
           "byCwd": {
             "newWorkspacePlacement": "Переопределение для cwd, задающее, куда Cmd-N внутри группы, кнопка + в заголовке группы и настроенные действия группы помещают новый workspace: `afterCurrent` (после активного workspace в группе, с откатом к top), `top` (вторая позиция сразу после якоря) или `end` (после последнего участника). Если не указано, используется глобальное значение по умолчанию."
           }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "Пользовательские команды",

@@ -163,6 +163,9 @@ extension CmuxSettingsFileStore {
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
         "markdown.fontSize",
+        "markdown.fontFamily",
+        "markdown.maxWidth",
+        "fileEditor.wordWrap",
         "shortcuts.bindings",
     ]
 }

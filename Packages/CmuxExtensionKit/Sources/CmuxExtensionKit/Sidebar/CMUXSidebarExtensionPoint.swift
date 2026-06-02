@@ -1,7 +1,8 @@
 import Foundation
 
 /// Public identifiers for the CMUX sidebar ExtensionKit surface.
-public enum CMUXSidebarExtensionPoint {
+@_spi(CmuxHostTransport)
+public enum CmuxSidebarExtensionPoint {
     /// Base extension point identifier third-party sidebar extensions register against.
     ///
     /// Production builds use this value verbatim. Dev/dogfood builds may scope the point
@@ -16,7 +17,7 @@ public enum CMUXSidebarExtensionPoint {
     /// Populated at build time from the `CMUX_SIDEBAR_EXTENSION_POINT_ID` build setting
     /// (via Info.plist variable substitution), so the resolved id lives only in the built
     /// bundle, never in tracked source. Absent or empty means "use ``baseIdentifier``".
-    public static let identifierInfoPlistKey = "CMUXSidebarExtensionPointIdentifier"
+    public static let identifierInfoPlistKey = "CmuxSidebarExtensionPointIdentifier"
 
     /// Resolves the extension point identifier for a bundle.
     ///
