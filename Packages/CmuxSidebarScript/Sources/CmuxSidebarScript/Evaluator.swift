@@ -12,7 +12,10 @@ public final class Evaluator {
     public let stepLimit: Int
     public let depthLimit: Int
 
-    public init(stepLimit: Int = 2_000_000, depthLimit: Int = 512) {
+    // A sidebar row never legitimately recurses deep; this bound trips a runaway
+    // script well before its Swift call stack (which uses several frames per Lisp
+    // level) can overflow a small worker-thread stack.
+    public init(stepLimit: Int = 2_000_000, depthLimit: Int = 64) {
         self.stepLimit = stepLimit
         self.depthLimit = depthLimit
     }

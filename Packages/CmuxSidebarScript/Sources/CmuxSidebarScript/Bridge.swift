@@ -31,6 +31,17 @@ enum Bridge {
         for d in ["monospaced", "rounded", "serif"] {
             env.define(d, .keyword(d))
         }
+        // Truncation modes for :truncation, and extra 2D alignments.
+        for t in ["head", "middle", "tail"] {
+            env.define(t, .keyword(t))
+        }
+        for a in ["top-leading", "top-trailing", "bottom-leading", "bottom-trailing"] {
+            env.define(a, .keyword(a))
+        }
+        // Gradient directions.
+        for g in ["vertical", "horizontal", "diagonal"] {
+            env.define(g, .keyword(g))
+        }
         env.define("infinity", .double(.infinity))
     }
 
