@@ -984,16 +984,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
 #if DEBUG
         let previousTabManager = appDelegate.tabManager
-        let staleContext = makeRegisteredLightweightMainWindowContext(
-            appDelegate: appDelegate,
-            createInitialWorkspace: true
-        )
-        let eventContext = makeRegisteredLightweightMainWindowContext(
-            appDelegate: appDelegate,
-            createInitialWorkspace: true
-        )
+        let staleContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let eventContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        var createdContextWindowIds: [UUID] = []
+        let createdWorkspaceId = UUID()
+        appDelegate.debugAddWorkspaceInPreferredMainWindowCreationOverride = { context, _ in
+            createdContextWindowIds.append(context.windowId)
+            return createdWorkspaceId
+        }
         defer {
             appDelegate.tabManager = previousTabManager
+            appDelegate.debugAddWorkspaceInPreferredMainWindowCreationOverride = nil
             appDelegate.unregisterMainWindowContextForTesting(windowId: staleContext.windowId, notifyObservers: false)
             appDelegate.unregisterMainWindowContextForTesting(windowId: eventContext.windowId, notifyObservers: false)
             closeTestWindow(staleContext.window)
@@ -1029,16 +1030,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             "Cmd+N should not route to another window when object-key lookup misses"
         )
 
-        let staleCount = staleContext.tabManager.tabs.count
-        let eventCount = eventContext.tabManager.tabs.count
-        if routedContext?.windowId == eventContext.windowId {
-            eventContext.tabManager.addWorkspace()
-        } else if routedContext?.windowId == staleContext.windowId {
-            staleContext.tabManager.addWorkspace()
-        }
-
-        XCTAssertEqual(staleContext.tabManager.tabs.count, staleCount, "Cmd+N should not add workspace to stale active window")
-        XCTAssertEqual(eventContext.tabManager.tabs.count, eventCount + 1, "Cmd+N should add workspace to the event's window")
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertEqual(
+            createdContextWindowIds,
+            [eventContext.windowId],
+            "Cmd+N should create through the event window context when object-key lookup misses"
+        )
+        XCTAssertEqual(staleContext.tabManager.tabs.count, 0, "Cmd+N override should not create a workspace in stale active window")
+        XCTAssertEqual(eventContext.tabManager.tabs.count, 0, "Cmd+N override should avoid launching a real terminal surface")
 #else
         XCTFail("debugInjectWindowContextKeyMismatch is only available in DEBUG")
 #endif
