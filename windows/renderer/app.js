@@ -569,11 +569,14 @@ const state = {
   performanceMetricsRefreshTimer: 0,
   performanceMetricsRefreshAt: 0,
   settingsSearchIndex: [],
+  settingsSearchIndexVersion: 0,
   settingsSearchEmpty: null,
   settingsSearchClear: null,
   settingsSearchFeedback: null,
   settingsSearchResultText: "",
   settingsSearchFocusPending: false,
+  settingsSearchLastFilterSignature: "",
+  settingsSearchDisclosuresOpenVersion: 0,
   renderStats: {
     count: 0,
     lastMs: 0,
@@ -10476,6 +10479,9 @@ function buildSettingsSearchIndex() {
 
 function rebuildSettingsSearchIndex() {
   state.settingsSearchIndex = buildSettingsSearchIndex();
+  state.settingsSearchIndexVersion += 1;
+  state.settingsSearchLastFilterSignature = "";
+  state.settingsSearchDisclosuresOpenVersion = 0;
   state.settingsSearchEmpty = elements.inspectorBody.querySelector(".settings-empty");
   return state.settingsSearchIndex;
 }
@@ -10531,20 +10537,29 @@ function scrollSettingsSearchTargetIntoView(target) {
 }
 
 function syncSettingsDisclosuresForSearch(query) {
-  if (!query) return;
+  if (!query) {
+    state.settingsSearchDisclosuresOpenVersion = 0;
+    return;
+  }
+  if (state.settingsSearchDisclosuresOpenVersion === state.settingsSearchIndexVersion) return;
   for (const disclosure of elements.inspectorBody.querySelectorAll(".settings-disclosure")) {
-    disclosure.open = true;
+    if (!disclosure.open) disclosure.open = true;
     ensureSettingsDisclosureContent(disclosure);
   }
+  state.settingsSearchDisclosuresOpenVersion = state.settingsSearchIndexVersion;
 }
 
 function applySettingsFilter() {
   const query = normalizeSettingsQuery(state.settingsQuery);
   const tokens = settingsSearchTokens(query);
+  const sections = state.settingsSearchIndex.length ? state.settingsSearchIndex : rebuildSettingsSearchIndex();
+  const pendingAutoScroll = query && state.settingsSearchAutoScrollQuery === query;
+  const filterSignature = `${query}\u001e${state.settingsSearchIndexVersion}\u001e${pendingAutoScroll ? "scroll" : ""}`;
+  if (filterSignature === state.settingsSearchLastFilterSignature) return;
+  state.settingsSearchLastFilterSignature = filterSignature;
   let visibleSections = 0;
   let matchingItems = 0;
   let bestTarget = null;
-  const sections = state.settingsSearchIndex.length ? state.settingsSearchIndex : rebuildSettingsSearchIndex();
   for (const sectionRecord of sections) {
     const { section, sectionSearch, sectionTitle, items, groups } = sectionRecord;
     const sectionMatches = settingsSearchMatchesNormalized(sectionSearch, tokens);
@@ -11471,6 +11486,7 @@ function settingsDisclosurePanel({ className, content, searchTerms, title, body,
   if (shouldMount) ensureSettingsDisclosureContent(details);
   details.addEventListener("toggle", () => {
     if (details.open) ensureSettingsDisclosureContent(details);
+    else if (normalizeSettingsQuery(state.settingsQuery)) state.settingsSearchDisclosuresOpenVersion = 0;
   });
   return details;
 }
