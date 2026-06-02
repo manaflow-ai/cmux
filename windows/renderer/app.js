@@ -292,6 +292,7 @@ const terminalWheelZoomIdleResetMs = 450;
 const terminalWheelZoomMaxSteps = 3;
 const deferredTerminalInitIdleTimeoutMs = 140;
 const browserLoadTimeoutMs = 15000;
+const browserSuspendStopDelayMs = 1200;
 const browserPausedStatusText = "Paused while inactive";
 const embeddedGoogleHomeUrl = "https://www.google.com/webhp?igu=1";
 // Google can cover embedded Chromium with a Chrome install sheet; keep the home pane usable.
@@ -5070,6 +5071,7 @@ function cleanupPanel(panelId) {
   }
   const browserSession = state.browserViews.get(panelId);
   if (browserSession?.initialLoadFrame) cancelAnimationFrame(browserSession.initialLoadFrame);
+  clearBrowserSuspendStop(browserSession);
   if (browserSession?.tabRenderFrame) cancelAnimationFrame(browserSession.tabRenderFrame);
   if (browserSession?.tabScrollFrame) cancelAnimationFrame(browserSession.tabScrollFrame);
   if (browserSession?.tabOverflowFrame) cancelAnimationFrame(browserSession.tabOverflowFrame);
@@ -5698,6 +5700,21 @@ function stopBrowserLoading(view) {
   }
 }
 
+function clearBrowserSuspendStop(session) {
+  if (!session?.suspendStopTimer) return;
+  clearTimeout(session.suspendStopTimer);
+  session.suspendStopTimer = 0;
+}
+
+function scheduleBrowserSuspendStop(session) {
+  if (!session || session.suspendStopTimer) return;
+  session.suspendStopTimer = setTimeout(() => {
+    session.suspendStopTimer = 0;
+    if (!session.suspended) return;
+    stopBrowserLoading(session.view);
+  }, browserSuspendStopDelayMs);
+}
+
 function lockBrowserViewZoom(view) {
   if (!view || typeof view.setZoomFactor !== "function") return;
   try {
@@ -5865,11 +5882,14 @@ function updateBrowserPaneActivity(visiblePanelIds = new Set()) {
     session.shell?.classList.toggle("is-browser-suspended", suspended);
     if (suspended) {
       session.setStatus?.(browserPausedStatusText);
+      scheduleBrowserSuspendStop(session);
     } else if (session.statusText === browserPausedStatusText) {
       session.setStatus?.("");
+      clearBrowserSuspendStop(session);
+    } else {
+      clearBrowserSuspendStop(session);
     }
     setBrowserAudioMuted(session.view, suspended);
-    if (suspended) stopBrowserLoading(session.view);
   }
 }
 
@@ -6823,7 +6843,8 @@ function ensureBrowser(panel, body) {
     suspended: false,
     suspendInactive: state.settings.browserSuspendInactive,
     loadDeferred: false,
-    initialLoadFrame: 0
+    initialLoadFrame: 0,
+    suspendStopTimer: 0
   };
   session.detachTabWheelScroll = attachHorizontalWheelScroll(tabList);
   tabList.addEventListener("scroll", () => updateBrowserTabOverflow(session), { passive: true });
