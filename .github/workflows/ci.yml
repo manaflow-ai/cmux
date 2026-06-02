@@ -69,6 +69,9 @@ jobs:
       - name: Validate bash shell integration job control
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
+      - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
+        run: python3 tests/test_issue_5164_starship_prompt_composition.py
+
       # Paused: stale-base merge races (two PRs each fitting the budget can
       # overshoot when merged back-to-back without rebasing). CodeRabbit and
       # Greptile already flag large-file growth on PRs. Re-enable by uncommenting
