@@ -47,6 +47,7 @@ import {
 import { createAppearancePreview } from "./appearance-preview.js";
 import {
   replaceChildrenIfChanged,
+  setAttributeIfChanged,
   setClassNameIfChanged,
   setDatasetIfChanged,
   setHiddenIfChanged,
@@ -4897,6 +4898,9 @@ function getPaneSplitter(workspace, splitNode) {
     splitter.dataset.splitId = splitNode.id;
     splitter.tabIndex = 0;
     splitter.setAttribute("role", "separator");
+    splitter.setAttribute("aria-label", "Resize pane split");
+    splitter.setAttribute("aria-valuemin", String(paneLayoutPercentMin));
+    splitter.setAttribute("aria-valuemax", String(paneLayoutPercentMax));
     splitter.addEventListener("pointerdown", (event) => startPaneResize(event, splitter));
     splitter.addEventListener("dblclick", (event) => {
       event.preventDefault();
@@ -4922,12 +4926,9 @@ function setSplitterResizePercent(splitter, percent, direction = splitter?.datas
     : `Left ${nextPercent}% / right ${100 - nextPercent}%`;
   setDatasetIfChanged(splitter, "resizePercent", String(nextPercent));
   setDatasetIfChanged(splitter, "resizeLabel", label);
-  splitter.setAttribute("aria-label", "Resize pane split");
-  splitter.setAttribute("aria-valuemin", String(paneLayoutPercentMin));
-  splitter.setAttribute("aria-valuemax", String(paneLayoutPercentMax));
-  splitter.setAttribute("aria-valuenow", String(nextPercent));
-  splitter.setAttribute("aria-valuetext", label);
-  splitter.setAttribute("aria-orientation", direction === "down" ? "horizontal" : "vertical");
+  setAttributeIfChanged(splitter, "aria-valuenow", String(nextPercent));
+  setAttributeIfChanged(splitter, "aria-valuetext", label);
+  setAttributeIfChanged(splitter, "aria-orientation", direction === "down" ? "horizontal" : "vertical");
   return nextPercent;
 }
 
@@ -5124,6 +5125,8 @@ function startPaneResize(event, splitter) {
     nextSize,
     frame: 0,
     lastFitAt: 0,
+    appliedPreviousSize: Math.round(previousSize),
+    appliedNextSize: Math.round(nextSize),
     panelIds: [
       ...new Set([
         ...paneElementPanelIds(previousPane),
@@ -5163,8 +5166,16 @@ function applyPaneResize(resize = state.resizing) {
   );
   const nextPrevious = Math.min(pairTotal - minSize, Math.max(minSize, previousSize + delta));
   const nextNext = pairTotal - nextPrevious;
-  previousPane.style.flex = `0 0 ${nextPrevious}px`;
-  nextPane.style.flex = `0 0 ${nextNext}px`;
+  const nextPreviousSize = Math.round(nextPrevious);
+  const nextNextSize = Math.round(nextNext);
+  if (resize.appliedPreviousSize !== nextPreviousSize) {
+    previousPane.style.flex = `0 0 ${nextPreviousSize}px`;
+    resize.appliedPreviousSize = nextPreviousSize;
+  }
+  if (resize.appliedNextSize !== nextNextSize) {
+    nextPane.style.flex = `0 0 ${nextNextSize}px`;
+    resize.appliedNextSize = nextNextSize;
+  }
   setSplitterResizePercent(resize.splitter, Math.round((nextPrevious / pairTotal) * 100), vertical ? "down" : "right");
   // Terminal hosts fit through ResizeObserver during live drag; keep this as a fallback only.
   if (typeof ResizeObserver === "function") return;
@@ -10663,7 +10674,10 @@ function paneShapePanel(workspace = activeWorkspace()) {
       </span>
     </div>
     <span class="pane-shape-quick" role="group" aria-label="Quick pane sizes"></span>
-    <span class="pane-shape-actions"></span>
+    <span class="pane-shape-actions">
+      <span class="pane-shape-action-group pane-shape-action-group-size" role="group" aria-label="Pane size actions"></span>
+      <span class="pane-shape-action-group pane-shape-action-group-layout" role="group" aria-label="Pane layout actions"></span>
+    </span>
   `;
   const titleNode = wrapper.querySelector(".pane-shape-title");
   const valueNode = wrapper.querySelector(".pane-shape-slider-value");
@@ -10781,12 +10795,15 @@ function paneShapePanel(workspace = activeWorkspace()) {
   });
   quick.append(...quickButtons);
   const actions = wrapper.querySelector(".pane-shape-actions");
+  const sizeActions = actions.querySelector(".pane-shape-action-group-size");
+  const layoutActions = actions.querySelector(".pane-shape-action-group-layout");
   smaller = settingsActionButton(t("paneShape.smaller"), () => adjustActivePaneLayoutPercent(-5), "", "pane shape smaller reduce active pane size");
   bigger = settingsActionButton(t("paneShape.bigger"), () => adjustActivePaneLayoutPercent(5), "", "pane shape bigger increase active pane size");
   equal = settingsActionButton(t("paneShape.equal"), resetActivePaneLayout, "", "pane shape equalize reset split layout");
   side = settingsActionButton(t("paneShape.columns"), () => applyPaneLayoutPreset("sideBySide"), "", "pane shape side by side columns");
   stack = settingsActionButton(t("paneShape.rows"), () => applyPaneLayoutPreset("stacked"), "", "pane shape stacked rows");
-  actions.append(smaller, bigger, equal, side, stack);
+  sizeActions.append(smaller, bigger);
+  layoutActions.append(equal, side, stack);
   syncPercentInputs(percent);
   return wrapper;
 }
@@ -10802,8 +10819,17 @@ function paneLayoutPresetGrid() {
     button.className = "pane-layout-preset";
     button.type = "button";
     button.disabled = disabled;
+    button.dataset.presetId = preset.id;
     button.dataset.settingsSearch = normalizeSettingsQuery(`split layout pane preset ${preset.label} ${preset.body}`);
-    button.innerHTML = `<span class="pane-layout-preset-title"></span><span class="pane-layout-preset-body"></span>`;
+    button.innerHTML = `
+      <span class="pane-layout-preset-icon" aria-hidden="true">
+        <span></span><span></span><span></span><span></span>
+      </span>
+      <span class="pane-layout-preset-copy">
+        <span class="pane-layout-preset-title"></span>
+        <span class="pane-layout-preset-body"></span>
+      </span>
+    `;
     button.querySelector(".pane-layout-preset-title").textContent = preset.label;
     button.querySelector(".pane-layout-preset-body").textContent = preset.body;
     button.onclick = () => applyPaneLayoutPreset(preset.id);

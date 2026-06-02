@@ -52,6 +52,14 @@ export function setDatasetIfChanged(node, key, value) {
   return true;
 }
 
+export function setAttributeIfChanged(node, name, value) {
+  if (!node) return false;
+  const next = String(value ?? "");
+  if (node.getAttribute(name) === next) return false;
+  node.setAttribute(name, next);
+  return true;
+}
+
 export function setStylePropertyIfChanged(node, name, value) {
   if (!node) return false;
   const next = String(value ?? "");

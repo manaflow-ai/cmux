@@ -1997,7 +1997,7 @@ body.reduce-motion *::after {
 }
 
 .pane-splitter {
-  flex: 0 0 14px;
+  flex: 0 0 12px;
   position: relative;
   z-index: 4;
   background: transparent;
@@ -2009,7 +2009,7 @@ body.reduce-motion *::after {
 .pane-splitter:hover,
 .pane-splitter:focus-visible,
 .pane-splitter.is-dragging {
-  background: color-mix(in oklch, var(--color-terminal-gutter) 34%, transparent);
+  background: color-mix(in oklch, var(--color-terminal-gutter) 24%, transparent);
 }
 
 .pane-splitter[data-orientation="right"] {
@@ -2031,7 +2031,7 @@ body.reduce-motion *::after {
 .pane-splitter::before {
   content: "";
   position: absolute;
-  inset: 18% calc(50% - 2px);
+  inset: 18% calc(50% - 1px);
   border-radius: 999px;
   background: color-mix(in oklch, var(--color-line-strong) 76%, transparent);
   opacity: .72;
@@ -2043,7 +2043,7 @@ body.reduce-motion *::after {
 
 .pane-split.direction-down > .pane-splitter::before,
 .pane-grid.direction-down > .pane-splitter::before {
-  inset: calc(50% - 2px) 18%;
+  inset: calc(50% - 1px) 18%;
 }
 
 .pane-splitter:hover::before,
@@ -2051,7 +2051,7 @@ body.reduce-motion *::after {
 .pane-splitter.is-dragging::before {
   background: var(--color-accent);
   opacity: 1;
-  box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-accent) 28%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-accent) 22%, transparent);
 }
 
 .pane-splitter:focus-visible {
@@ -4952,8 +4952,8 @@ body.reduce-motion *::after {
 .pane-shape-panel {
   min-width: 0;
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  align-items: center;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: start;
   gap: var(--space-2);
   padding: var(--space-2);
   border: 1px solid var(--color-line);
@@ -4963,8 +4963,8 @@ body.reduce-motion *::after {
 
 .pane-shape-meter {
   position: relative;
-  width: 72px;
-  height: 50px;
+  width: 76px;
+  height: 54px;
   overflow: hidden;
   border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-1);
@@ -5039,7 +5039,7 @@ body.reduce-motion *::after {
   grid-column: 1 / -1;
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(34px, auto) minmax(64px, auto);
+  grid-template-columns: auto minmax(0, 1fr) minmax(36px, auto) minmax(68px, auto);
   align-items: center;
   gap: var(--space-2);
 }
@@ -5084,17 +5084,19 @@ body.reduce-motion *::after {
 .pane-shape-quick {
   grid-column: 1 / -1;
   min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(42px, 1fr));
+  display: flex;
   gap: 1px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
   background: var(--color-line);
+  scrollbar-width: thin;
 }
 
 .pane-shape-quick-button {
   min-width: 0;
+  flex: 0 0 44px;
   height: 28px;
   padding: 0 4px;
   border: 0;
@@ -5124,8 +5126,37 @@ body.reduce-motion *::after {
 .pane-shape-actions {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, .84fr) minmax(0, 1.16fr);
   gap: var(--space-1);
+}
+
+.pane-shape-action-group {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.pane-shape-action-group-size {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pane-shape-action-group-layout {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@container (max-width: 330px) {
+  .pane-shape-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .pane-shape-meter {
+    width: 100%;
+  }
+
+  .pane-shape-slider,
+  .pane-shape-actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 .appearance-preview {
@@ -7302,16 +7333,87 @@ body.reduce-motion *::after {
 
 .pane-layout-preset {
   min-width: 0;
-  min-height: 58px;
+  min-height: 66px;
   display: grid;
-  gap: 3px;
-  align-content: center;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
   padding: var(--space-2);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
   background: var(--color-pane);
   color: var(--color-text);
   text-align: left;
+}
+
+.pane-layout-preset-icon {
+  min-width: 0;
+  width: 44px;
+  height: 38px;
+  display: grid;
+  gap: 3px;
+  padding: 4px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-canvas) 78%, var(--color-pane) 22%);
+}
+
+.pane-layout-preset-icon span {
+  min-width: 0;
+  min-height: 0;
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--color-text) 12%, transparent);
+}
+
+.pane-layout-preset[data-preset-id="equal"] .pane-layout-preset-icon,
+.pane-layout-preset[data-preset-id="sideBySide"] .pane-layout-preset-icon {
+  grid-template-columns: 1fr 1fr;
+}
+
+.pane-layout-preset[data-preset-id="equal"] .pane-layout-preset-icon span:nth-child(n + 3),
+.pane-layout-preset[data-preset-id="sideBySide"] .pane-layout-preset-icon span:nth-child(n + 3) {
+  display: none;
+}
+
+.pane-layout-preset[data-preset-id="stacked"] .pane-layout-preset-icon {
+  grid-template-rows: 1fr 1fr;
+}
+
+.pane-layout-preset[data-preset-id="stacked"] .pane-layout-preset-icon span:nth-child(n + 3) {
+  display: none;
+}
+
+.pane-layout-preset[data-preset-id="grid"] .pane-layout-preset-icon {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.pane-layout-preset[data-preset-id="activeWide"] .pane-layout-preset-icon {
+  grid-template-columns: 1.65fr 1fr;
+}
+
+.pane-layout-preset[data-preset-id="activeWide"] .pane-layout-preset-icon span:nth-child(n + 3) {
+  display: none;
+}
+
+.pane-layout-preset[data-preset-id="activeTall"] .pane-layout-preset-icon {
+  grid-template-rows: 1.65fr 1fr;
+}
+
+.pane-layout-preset[data-preset-id="activeTall"] .pane-layout-preset-icon span:nth-child(n + 3) {
+  display: none;
+}
+
+.pane-layout-preset[data-preset-id="activeWide"] .pane-layout-preset-icon span:first-child,
+.pane-layout-preset[data-preset-id="activeTall"] .pane-layout-preset-icon span:first-child {
+  background: color-mix(in oklch, var(--color-accent) 34%, var(--color-pane) 66%);
+}
+
+.pane-layout-preset-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
 }
 
 .pane-layout-preset:hover:not(:disabled) {
@@ -7346,6 +7448,12 @@ body.reduce-motion *::after {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow-wrap: anywhere;
+}
+
+@container (max-width: 330px) {
+  .pane-layout-preset-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .swatch-grid {
