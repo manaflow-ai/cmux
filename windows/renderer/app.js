@@ -2225,6 +2225,20 @@ function backgroundApplyTargetClearLabel(target = state.backgroundApplyTarget) {
   return "Clear app";
 }
 
+function selectBackgroundApplyTarget(target = state.backgroundApplyTarget) {
+  const nextTarget = normalizeBackgroundApplyTarget(target);
+  const option = backgroundApplyTargetOption(nextTarget);
+  if (!activeBackgroundTargetStatus(nextTarget).canTarget) {
+    toast(formatMessage("quickGuide.backgroundTargetUnavailable", { label: option.label }));
+    return false;
+  }
+  if (state.backgroundApplyTarget === nextTarget) return false;
+  state.backgroundApplyTarget = nextTarget;
+  refreshBackgroundPreviewNodes();
+  refreshBackgroundLibraryPanels();
+  return true;
+}
+
 function updateBackgroundCustomActionLabels(root = elements.inspectorBody, workspace = activeWorkspace()) {
   if (!root) return;
   const groups = root.matches?.("[data-background-custom-actions]")
@@ -9735,11 +9749,7 @@ function activeBackgroundTargetControl() {
       </span>
     `;
     button.onclick = () => {
-      const nextTarget = normalizeBackgroundApplyTarget(button.dataset.backgroundTarget);
-      if (state.backgroundApplyTarget === nextTarget) return;
-      state.backgroundApplyTarget = nextTarget;
-      refreshBackgroundPreviewNodes();
-      refreshBackgroundLibraryPanels();
+      selectBackgroundApplyTarget(button.dataset.backgroundTarget);
     };
     options.append(button);
   }
@@ -9848,9 +9858,9 @@ function activeBackgroundPanel(options = {}) {
       <span class="active-background-title"></span>
       <span class="active-background-source"></span>
       <span class="active-background-scope" aria-label="Background scope">
-        <span class="active-background-scope-chip" data-background-scope="app">None</span>
-        <span class="active-background-scope-chip" data-background-scope="pane">No terminal</span>
-        <span class="active-background-scope-chip" data-background-scope="all">No terminals</span>
+        <button class="active-background-scope-chip" type="button" data-background-scope="app">None</button>
+        <button class="active-background-scope-chip" type="button" data-background-scope="pane">No terminal</button>
+        <button class="active-background-scope-chip" type="button" data-background-scope="all">No terminals</button>
       </span>
     </span>
     <span class="active-background-actions"></span>
@@ -9986,14 +9996,37 @@ function updateActiveBackgroundScopeChips(panel, scope = activeBackgroundScopeMo
     pane: panel.querySelector('[data-background-scope="pane"]'),
     all: panel.querySelector('[data-background-scope="all"]')
   };
-  setTextIfChanged(chips.app, scope.app);
-  setTextIfChanged(chips.pane, scope.pane);
-  setTextIfChanged(chips.all, scope.all);
-  toggleClassIfChanged(chips.app, "is-active", scope.hasBackground);
-  toggleClassIfChanged(chips.pane, "is-active", scope.activePaneMatches);
-  toggleClassIfChanged(chips.pane, "is-muted", !scope.hasTerminal);
-  toggleClassIfChanged(chips.all, "is-active", scope.allPanesMatch);
-  toggleClassIfChanged(chips.all, "is-muted", scope.paneCount === 0);
+  const labels = {
+    app: scope.app,
+    pane: scope.pane,
+    all: scope.all
+  };
+  const activeStates = {
+    app: scope.hasBackground,
+    pane: scope.activePaneMatches,
+    all: scope.allPanesMatch
+  };
+  const mutedStates = {
+    app: false,
+    pane: !scope.hasTerminal,
+    all: scope.paneCount === 0
+  };
+  const activeTarget = normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
+  const targetOptions = new Map(backgroundApplyTargetOptions().map((option) => [option.id, option]));
+  for (const [id, chip] of Object.entries(chips)) {
+    if (!chip) continue;
+    const option = targetOptions.get(id) || backgroundApplyTargetOption(id);
+    const selected = id === activeTarget;
+    setTextIfChanged(chip, labels[id]);
+    toggleClassIfChanged(chip, "is-active", activeStates[id]);
+    toggleClassIfChanged(chip, "is-muted", mutedStates[id]);
+    toggleClassIfChanged(chip, "is-selected", selected);
+    setDisabledIfChanged(chip, option.disabled);
+    setAttributeIfChanged(chip, "aria-pressed", selected ? "true" : "false");
+    setAttributeIfChanged(chip, "aria-label", `${option.label}. ${labels[id]}. ${option.meta}.`);
+    setTitleIfChanged(chip, `${option.label}: ${option.meta}`);
+    chip.onclick = () => selectBackgroundApplyTarget(id);
+  }
 }
 
 function refreshAppearancePreviewOpacity(value = state.settings.backgroundOpacity) {

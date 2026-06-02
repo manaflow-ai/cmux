@@ -664,6 +664,7 @@ body.reduce-motion *::after {
 .saved-color-swatch,
 .saved-background-preview,
 .active-background-preview,
+.active-background-scope-chip,
 .workspace-starter,
 .empty-workspace-starter,
 .empty-workspace-launcher,
@@ -781,6 +782,7 @@ body.reduce-motion *::after {
 .saved-color-swatch:focus-visible,
 .saved-background-preview:focus-visible,
 .active-background-preview:focus-visible,
+.active-background-scope-chip:focus-visible,
 .workspace-starter:focus-visible,
 .empty-workspace-starter:focus-visible,
 .empty-workspace-launcher:focus-visible,
@@ -9057,6 +9059,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   max-width: 100%;
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   height: 20px;
   padding: 0 6px;
   overflow: hidden;
@@ -9064,10 +9067,17 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   border-radius: var(--radius-1);
   background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
   color: var(--color-muted);
-  font-size: 10px;
-  font-weight: 680;
+  font: 680 10px/1 var(--font-ui);
+  cursor: pointer;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.active-background-scope-chip:hover:not(:disabled) {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+  color: var(--color-text);
 }
 
 .active-background-scope-chip::before {
@@ -9090,8 +9100,24 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   background: var(--color-accent);
 }
 
+.active-background-scope-chip.is-selected {
+  border-color: color-mix(in oklch, var(--color-accent) 64%, var(--color-line) 36%);
+  background: color-mix(in oklch, var(--color-accent) 16%, var(--color-pane) 84%);
+  color: var(--color-text);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 26%, transparent);
+}
+
 .active-background-scope-chip.is-muted {
   color: var(--color-faint);
+}
+
+.active-background-scope-chip:disabled {
+  cursor: default;
+}
+
+.active-background-scope-chip.is-muted:hover:disabled {
+  border-color: var(--color-line);
+  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
 }
 
 .background-target-control {
