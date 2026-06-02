@@ -4922,8 +4922,8 @@ function paneDropPosition(event, pane) {
   const rect = pane.getBoundingClientRect();
   const x = rect.width ? (event.clientX - rect.left) / rect.width : 0.5;
   const y = rect.height ? (event.clientY - rect.top) / rect.height : 0.5;
-  const horizontalEdge = Math.min(0.5, Math.max(80 / Math.max(1, rect.width), 0.25));
-  const verticalEdge = Math.min(0.5, Math.max(80 / Math.max(1, rect.height), 0.25));
+  const horizontalEdge = Math.min(0.34, Math.max(56 / Math.max(1, rect.width), 0.18));
+  const verticalEdge = Math.min(0.34, Math.max(56 / Math.max(1, rect.height), 0.18));
   if (x < horizontalEdge) return "left";
   if (x > 1 - horizontalEdge) return "right";
   if (y < verticalEdge) return "top";
