@@ -328,7 +328,14 @@ public struct KeyboardShortcutsSection: View {
             let override = bindings[other.rawValue]
             let effective = override ?? other.defaultStroke.map { StoredShortcut(first: $0) }
             guard let effective, !effective.isUnbound else { continue }
-            if stroke.first == effective.first { return other }
+            if numberedAwareStrokesConflict(
+                stroke.first,
+                numbered: action.usesNumberedDigitMatching,
+                effective.first,
+                numbered: other.usesNumberedDigitMatching
+            ) {
+                return other
+            }
         }
         return nil
     }
