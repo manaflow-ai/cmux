@@ -16219,7 +16219,39 @@ final class Workspace: Identifiable, ObservableObject {
         let bounds: CGRect
     }
 
-    private func spatialAdjacentPane(to sourcePaneId: PaneID, direction: NavigationDirection) -> PaneID? {
+    private struct SpatialPaneRank: Comparable {
+        let noPerpendicularOverlap: Int
+        let axisDistance: Int
+        let perpendicularCenterDistance: Int
+        let negativePerpendicularOverlap: Int
+        let minY: Int
+        let minX: Int
+        let paneUUID: String
+
+        static func < (lhs: SpatialPaneRank, rhs: SpatialPaneRank) -> Bool {
+            if lhs.noPerpendicularOverlap != rhs.noPerpendicularOverlap {
+                return lhs.noPerpendicularOverlap < rhs.noPerpendicularOverlap
+            }
+            if lhs.axisDistance != rhs.axisDistance {
+                return lhs.axisDistance < rhs.axisDistance
+            }
+            if lhs.perpendicularCenterDistance != rhs.perpendicularCenterDistance {
+                return lhs.perpendicularCenterDistance < rhs.perpendicularCenterDistance
+            }
+            if lhs.negativePerpendicularOverlap != rhs.negativePerpendicularOverlap {
+                return lhs.negativePerpendicularOverlap < rhs.negativePerpendicularOverlap
+            }
+            if lhs.minY != rhs.minY {
+                return lhs.minY < rhs.minY
+            }
+            if lhs.minX != rhs.minX {
+                return lhs.minX < rhs.minX
+            }
+            return lhs.paneUUID < rhs.paneUUID
+        }
+    }
+
+    func spatialAdjacentPane(to sourcePaneId: PaneID, direction: NavigationDirection) -> PaneID? {
         let paneById = Dictionary(uniqueKeysWithValues: bonsplitController.allPaneIds.map { ($0.id.uuidString, $0) })
         var boundsByPaneId: [String: CGRect] = [:]
         browserCollectNormalizedPaneBounds(
@@ -16241,31 +16273,35 @@ final class Workspace: Identifiable, ObservableObject {
             return SpatialPaneCandidate(paneId: pane, bounds: bounds)
         }
 
-        return candidates.sorted { lhs, rhs in
-            let lhsOverlap = spatialPerpendicularOverlap(lhs.bounds, sourceBounds, direction: direction)
-            let rhsOverlap = spatialPerpendicularOverlap(rhs.bounds, sourceBounds, direction: direction)
-            let lhsHasOverlap = lhsOverlap > epsilon
-            let rhsHasOverlap = rhsOverlap > epsilon
-            if lhsHasOverlap != rhsHasOverlap { return lhsHasOverlap }
+        return candidates.min { lhs, rhs in
+            spatialRank(lhs, relativeTo: sourceBounds, direction: direction, epsilon: epsilon) <
+                spatialRank(rhs, relativeTo: sourceBounds, direction: direction, epsilon: epsilon)
+        }?.paneId
+    }
 
-            let lhsCenterDistance = spatialPerpendicularCenterDistance(lhs.bounds, sourceBounds, direction: direction)
-            let rhsCenterDistance = spatialPerpendicularCenterDistance(rhs.bounds, sourceBounds, direction: direction)
-            if abs(lhsCenterDistance - rhsCenterDistance) > epsilon {
-                return lhsCenterDistance < rhsCenterDistance
-            }
+    private func spatialRank(
+        _ candidate: SpatialPaneCandidate,
+        relativeTo sourceBounds: CGRect,
+        direction: NavigationDirection,
+        epsilon: CGFloat
+    ) -> SpatialPaneRank {
+        let overlap = spatialPerpendicularOverlap(candidate.bounds, sourceBounds, direction: direction)
+        return SpatialPaneRank(
+            noPerpendicularOverlap: overlap > epsilon ? 0 : 1,
+            axisDistance: spatialBucket(spatialAxisDistance(candidate.bounds, sourceBounds, direction: direction), epsilon: epsilon),
+            perpendicularCenterDistance: spatialBucket(
+                spatialPerpendicularCenterDistance(candidate.bounds, sourceBounds, direction: direction),
+                epsilon: epsilon
+            ),
+            negativePerpendicularOverlap: -spatialBucket(overlap, epsilon: epsilon),
+            minY: spatialBucket(candidate.bounds.minY, epsilon: epsilon),
+            minX: spatialBucket(candidate.bounds.minX, epsilon: epsilon),
+            paneUUID: candidate.paneId.id.uuidString
+        )
+    }
 
-            let lhsAxisDistance = spatialAxisDistance(lhs.bounds, sourceBounds, direction: direction)
-            let rhsAxisDistance = spatialAxisDistance(rhs.bounds, sourceBounds, direction: direction)
-            if abs(lhsAxisDistance - rhsAxisDistance) > epsilon {
-                return lhsAxisDistance < rhsAxisDistance
-            }
-
-            if abs(lhsOverlap - rhsOverlap) > epsilon {
-                return lhsOverlap > rhsOverlap
-            }
-
-            return lhs.paneId.id.uuidString < rhs.paneId.id.uuidString
-        }.first?.paneId
+    private func spatialBucket(_ value: CGFloat, epsilon: CGFloat) -> Int {
+        Int((value / epsilon).rounded(.toNearestOrAwayFromZero))
     }
 
     private func spatialPane(
