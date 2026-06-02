@@ -1022,7 +1022,22 @@
           "minimum": 8,
           "maximum": 96,
           "default": 15,
-          "description": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0."
+          "description": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "descriptionKey": "schemaDescriptions.markdown.fontSize"
+        },
+        "fontFamily": {
+          "type": "string",
+          "default": "",
+          "description": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "descriptionKey": "schemaDescriptions.markdown.fontFamily"
+        },
+        "maxWidth": {
+          "type": "integer",
+          "minimum": 320,
+          "maximum": 2400,
+          "default": 980,
+          "description": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers.",
+          "descriptionKey": "schemaDescriptions.markdown.maxWidth"
         }
       }
     },

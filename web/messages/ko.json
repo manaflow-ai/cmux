@@ -533,8 +533,17 @@
           "byCwd": {
             "newWorkspacePlacement": "그룹 안에서 Cmd-N, 그룹 헤더의 + 버튼, 구성된 그룹 액션이 새 workspace를 배치할 위치의 cwd별 재정의입니다: `afterCurrent` (활성 그룹 내 workspace 바로 뒤, 없으면 top), `top` (앵커 바로 뒤의 두 번째 위치), `end` (마지막 멤버 뒤). 생략하면 전역 기본값을 사용합니다."
           }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "사용자 정의 명령어",

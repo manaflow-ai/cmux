@@ -2,6 +2,8 @@ import AppKit
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSocketControl
+import CmuxUpdater
+import CmuxUpdaterUI
 import SwiftUI
 import Bonsplit
 import CMUXWorkstream
@@ -863,8 +865,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
     private var browserWebViewFirstResponderObserver: NSObjectProtocol?
-    private let updateController = UpdateController()
-    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
+    let updateLog = UpdateLogStore()
+    let focusLog = FocusLogStore()
+    private lazy var updateController = UpdateController(log: updateLog)
+    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
@@ -1075,8 +1079,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private static let commandPalettePendingOpenMaxAge: TimeInterval = 8.0
     private static let sessionAutosaveTypingQuietPeriod: TimeInterval = 0.65
 
-    var updateViewModel: UpdateViewModel {
-        updateController.viewModel
+    var updateViewModel: UpdateStateModel {
+        updateController.model
     }
 
 #if DEBUG
@@ -1120,7 +1124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let mainWindowNumber = NSApp.mainWindow?.windowNumber ?? -1
         let ws = workspaceId.map { String($0.uuidString.prefix(8)) } ?? "nil"
         let wd = workingDirectory.map { String($0.prefix(120)) } ?? "-"
-        FocusLogStore.shared.append(
+        focusLog.append(
             "cmdn.route phase=\(phase) src=\(source) reason=\(reason) eventWin=\(eventWindowNumber) eventNum=\(eventNumber) keyCode=\(eventKeyCode) chars=\(eventChars) keyWin=\(keyWindowNumber) mainWin=\(mainWindowNumber) activeTM=\(pointerString(tabManager)) chosen={\(summarizeContextForWorkspaceRouting(chosenContext))} ws=\(ws) wd=\(wd) contexts=[\(summarizeAllContextsForWorkspaceRouting())]"
         )
     }
@@ -1354,6 +1358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             configureUserNotifications()
             installMenuBarVisibilityObserver()
             syncApplicationPresentationPreferences()
+            updateController.actionDelegate = self
             updateController.startUpdaterIfNeeded()
         }
         titlebarAccessoryController.start()
@@ -1376,19 +1381,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
         StartupBreadcrumbLog.append("appDelegate.didFinish.complete")
 #if DEBUG
-        UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
+        UpdateTestSupport(model: updateController.model, log: updateLog).applyIfNeeded()
         if env["CMUX_UI_TEST_MODE"] == "1" {
             let trigger = env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] ?? "<nil>"
             let feed = env["CMUX_UI_TEST_FEED_URL"] ?? "<nil>"
-            UpdateLogStore.shared.append("ui test env: trigger=\(trigger) feed=\(feed)")
+            updateLog.append("ui test env: trigger=\(trigger) feed=\(feed)")
         }
         if env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" {
-            UpdateLogStore.shared.append("ui test trigger update check detected")
+            updateLog.append("ui test trigger update check detected")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 guard let self else { return }
                 let windowIds = NSApp.windows.map { $0.identifier?.rawValue ?? "<nil>" }
-                UpdateLogStore.shared.append("ui test windows: count=\(NSApp.windows.count) ids=\(windowIds.joined(separator: ","))")
-                if UpdateTestSupport.performMockFeedCheckIfNeeded(on: self.updateController.viewModel) {
+                updateLog.append("ui test windows: count=\(NSApp.windows.count) ids=\(windowIds.joined(separator: ","))")
+                if UpdateTestSupport(model: self.updateController.model, log: updateLog).performMockFeedCheckIfNeeded() {
                     return
                 }
                 self.checkForUpdates(nil)
@@ -2429,59 +2434,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     payload["lastCommandSucceeded"] = "1"
                 } else {
                     payload["lastCommandError"] = "Selection or hover suppression failed"
-                }
-
-            case "context_menu_token":
-                guard let hitPoint = commandPoint(
-                    from: command,
-                    defaultPayloadKey: "tokenHitPointInTerminal",
-                    in: terminalPanel
-                ) else {
-                    payload["lastCommandError"] = "Missing command point"
-                    break
-                }
-
-                let result = terminalPanel.hostedView.debugContextMenuDetails(at: hitPoint)
-                payload["lastCommandResult"] = result
-                payload["lastCommandMenuTitles"] = result["menuTitles"]
-                if result["hasLookUp"] as? String == "1",
-                   result["hasPaste"] as? String == "1",
-                   result["hasSplitHorizontally"] as? String == "1",
-                   result["hasResetTerminal"] as? String == "1",
-                   result["hasCopy"] as? String != "1" {
-                    payload["lastCommandSucceeded"] = "1"
-                } else if let error = result["error"] as? String {
-                    payload["lastCommandError"] = error
-                } else {
-                    payload["lastCommandError"] = "Unselected token context menu did not include expected text and pane actions"
-                }
-
-            case "context_menu_selected_token":
-                guard let selectionStart = pointFromPayload("tokenSelectionStartInTerminal", in: terminalPanel),
-                      let selectionEnd = pointFromPayload("tokenSelectionEndInTerminal", in: terminalPanel) else {
-                    payload["lastCommandError"] = "Missing token selection points"
-                    break
-                }
-
-                let selectionActive = terminalPanel.hostedView.debugSimulateSelection(
-                    from: selectionStart,
-                    to: selectionEnd
-                )
-                let result = terminalPanel.hostedView.debugContextMenuDetails(at: selectionEnd)
-                payload["lastCommandSelectionActive"] = selectionActive ? "1" : "0"
-                payload["lastCommandResult"] = result
-                payload["lastCommandMenuTitles"] = result["menuTitles"]
-                if selectionActive,
-                   result["hasCopy"] as? String == "1",
-                   result["hasLookUp"] as? String == "1",
-                   result["hasPaste"] as? String == "1",
-                   result["hasSplitHorizontally"] as? String == "1",
-                   result["hasResetTerminal"] as? String == "1" {
-                    payload["lastCommandSucceeded"] = "1"
-                } else if let error = result["error"] as? String {
-                    payload["lastCommandError"] = error
-                } else {
-                    payload["lastCommandError"] = "Selected token context menu did not include expected text and pane actions"
                 }
 
             case "capture_window":
@@ -7866,7 +7818,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func synchronizeShortcutRoutingContext(event: NSEvent) -> Bool {
         guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
 #if DEBUG
-            FocusLogStore.shared.append(
+            focusLog.append(
                 "shortcut.route reason=no_context_no_fallback eventWin=\(event.windowNumber) keyCode=\(event.keyCode)"
             )
 #endif
@@ -7890,7 +7842,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
 #if DEBUG
-        FocusLogStore.shared.append(
+        focusLog.append(
             "shortcut.route reason=sync activeTM=\(pointerString(tabManager)) chosen={\(summarizeContextForWorkspaceRouting(context))}"
         )
 #endif
@@ -8166,12 +8118,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func checkForUpdates(_ sender: Any?) {
-        updateViewModel.overrideState = nil
+        updateController.model.setOverrideState(nil)
         updateController.checkForUpdates()
     }
 
     func checkForUpdatesInCustomUI() {
-        updateViewModel.overrideState = nil
+        updateController.model.setOverrideState(nil)
         updateController.checkForUpdatesInCustomUI()
     }
 
@@ -8196,12 +8148,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func applyUpdateIfAvailable(_ sender: Any?) {
-        updateViewModel.overrideState = nil
+        updateController.model.setOverrideState(nil)
         updateController.installUpdate()
     }
 
     @objc func attemptUpdate(_ sender: Any?) {
-        updateViewModel.overrideState = nil
+        updateController.model.setOverrideState(nil)
         updateController.attemptUpdate()
     }
 
@@ -8602,49 +8554,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     #if DEBUG
     @objc func showUpdatePill(_ sender: Any?) {
         updateViewModel.debugOverrideText = nil
-        updateViewModel.overrideState = .installing(.init(isAutoUpdate: true, retryTerminatingApplication: {}, dismiss: {}))
+        updateController.model.setOverrideState(.installing(.init(isAutoUpdate: true, retryTerminatingApplication: {}, dismiss: {})))
     }
 
     @objc func showUpdatePillLongNightly(_ sender: Any?) {
         updateViewModel.debugOverrideText = "Update Available: 0.32.0-nightly+20260216.abc1234"
-        updateViewModel.overrideState = .notFound(.init(acknowledgement: {}))
+        updateController.model.setOverrideState(.notFound(.init(acknowledgement: {})))
     }
 
     @objc func showUpdatePillLoading(_ sender: Any?) {
         updateViewModel.debugOverrideText = nil
-        updateViewModel.overrideState = .checking(.init(cancel: {}))
+        updateController.model.setOverrideState(.checking(.init(cancel: {})))
     }
 
     @objc func hideUpdatePill(_ sender: Any?) {
         updateViewModel.debugOverrideText = nil
-        updateViewModel.overrideState = .idle
+        updateController.model.setOverrideState(.idle)
     }
 
     @objc func clearUpdatePillOverride(_ sender: Any?) {
         updateViewModel.debugOverrideText = nil
-        updateViewModel.overrideState = nil
+        updateController.model.setOverrideState(nil)
     }
 #endif
 
     @objc func copyUpdateLogs(_ sender: Any?) {
-        let logText = UpdateLogStore.shared.snapshot()
+        let logText = updateLog.snapshot()
         let payload: String
         if logText.isEmpty {
-            payload = "No update logs captured.\nLog file: \(UpdateLogStore.shared.logPath())"
+            payload = "No update logs captured.\nLog file: \(updateLog.logPath())"
         } else {
-            payload = logText + "\nLog file: \(UpdateLogStore.shared.logPath())"
+            payload = logText + "\nLog file: \(updateLog.logPath())"
         }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(payload, forType: .string)
     }
     @objc func copyFocusLogs(_ sender: Any?) {
-        let logText = FocusLogStore.shared.snapshot()
+        let logText = focusLog.snapshot()
         let payload: String
         if logText.isEmpty {
-            payload = "No focus logs captured.\nLog file: \(FocusLogStore.shared.logPath())"
+            payload = "No focus logs captured.\nLog file: \(focusLog.logPath())"
         } else {
-            payload = logText + "\nLog file: \(FocusLogStore.shared.logPath())"
+            payload = logText + "\nLog file: \(focusLog.logPath())"
         }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
@@ -15169,7 +15121,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        updateController.validateMenuItem(item)
+        // User-initiated update checks are always allowed; other items are unconditionally valid
+        // (this preserves the prior UpdateController.validateMenuItem behavior).
+        true
     }
 
 
@@ -17552,4 +17506,33 @@ private extension NSWindow {
         return hitWebView === webView
     }
 
+}
+
+// MARK: - CmuxUpdater seams
+
+/// Conforms the composition root to the updater package's inversion seams: the host actions the
+/// updater triggers (``UpdateActionsHost``) and the retry/relaunch hooks it calls back into
+/// (``UpdateActionDelegate``). `checkForUpdatesInCustomUI()` is satisfied by the method on the
+/// main `AppDelegate` declaration.
+extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
+    func updaterRequestsRetryCheckForUpdates() {
+        checkForUpdates(nil)
+    }
+
+    func updaterWillRelaunchApplication() {
+        persistSessionForUpdateRelaunch()
+        TerminalController.shared.stop()
+        NSApp.invalidateRestorableState()
+        for window in NSApp.windows {
+            window.invalidateRestorableState()
+        }
+    }
+
+    func attemptUpdate() {
+        attemptUpdate(nil)
+    }
+
+    var updateLogPath: String {
+        updateLog.logPath()
+    }
 }
