@@ -1241,6 +1241,7 @@ async function loadBrowserProfiles(options = {}) {
   } finally {
     state.browserProfilesLoading = false;
   }
+  refreshBrowserExternalProfileButtons();
   if (options.render && state.inspectorMode === "settings" && state.settingsCategory === "browser") {
     renderSettingsInspector();
   }
@@ -1256,6 +1257,22 @@ function browserProfileOptions() {
 
 function browserProfileLabel(profileId = state.settings.externalBrowserProfileId) {
   return normalizeBrowserProfiles(state.browserProfiles).find((profile) => profile.id === profileId)?.label || t("browser.systemDefault");
+}
+
+function browserExternalProfileTitle(profileId = state.settings.externalBrowserProfileId) {
+  const label = browserProfileLabel(profileId);
+  return profileId === "system" ? "Open in system browser" : `Open in ${label}`;
+}
+
+function refreshBrowserExternalProfileButtons() {
+  for (const session of state.browserViews.values()) {
+    if (!session?.external) continue;
+    const title = browserExternalProfileTitle();
+    setTitleIfChanged(session.external, title);
+    if (session.external.getAttribute("aria-label") !== title) {
+      session.external.setAttribute("aria-label", title);
+    }
+  }
 }
 
 async function refreshBrowserProfiles(options = {}) {
@@ -2018,6 +2035,9 @@ function updateSettings(updates, options = {}) {
   }
   if (changedKeys.some((key) => browserSettingsPreviewKeys.has(key))) {
     scheduleBrowserSettingsPreviewRefresh();
+  }
+  if (changedKeys.includes("externalBrowserProfileId")) {
+    refreshBrowserExternalProfileButtons();
   }
   if (changedKeys.some((key) => surfaceTabLayoutKeys.has(key))) {
     scheduleSurfaceTabsOverflowRefresh({ ensureActive: true });
@@ -6491,7 +6511,9 @@ function ensureBrowser(panel, body) {
   const external = document.createElement("button");
   external.className = "browser-go browser-go-external";
   external.type = "button";
-  external.title = "Open in system browser";
+  const externalTitle = browserExternalProfileTitle();
+  external.title = externalTitle;
+  external.setAttribute("aria-label", externalTitle);
   external.textContent = "↗";
   const status = document.createElement("div");
   status.className = "browser-status";
