@@ -38,6 +38,16 @@ import Foundation
         #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
     }
 
+    @Test func templateExpansionDoesNotReexpandInjectedTokens() throws {
+        // A branch value that contains a literal "{host}" must survive intact: expansion
+        // is single-pass, so it is never re-expanded into the API host regardless of the
+        // template-values dictionary iteration order.
+        let plan = GitHostingRequestPlan(spec: GitHostingPreset.github.spec, apiHost: "github.com", token: nil)
+        let ref = try reference("git@github.com:manaflow-ai/cmux.git")
+        let request = try #require(plan.branchRequest(for: ref, branch: "x{host}y"))
+        #expect(queryPairs(of: request).contains("head=manaflow-ai:x{host}y"))
+    }
+
     @Test func githubEnterpriseTargetsApiV3OnTheHost() throws {
         var spec = GitHostingPreset.github.spec
         spec.apiBaseURL = "https://{host}/api/v3/"

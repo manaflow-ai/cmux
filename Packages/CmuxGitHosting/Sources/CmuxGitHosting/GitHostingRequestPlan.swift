@@ -196,11 +196,30 @@ public struct GitHostingRequestPlan: Sendable {
 }
 
 /// Replaces every `{key}` token in `template` with its value, leaving unknown tokens intact.
+///
+/// Scans the template once, so a substituted value that itself contains a `{token}` is
+/// emitted verbatim and never re-expanded, and the result never depends on `values`
+/// iteration order.
 private func expandTemplate(_ template: String, _ values: [String: String]) -> String {
-    var result = template
-    for (key, value) in values {
-        result = result.replacingOccurrences(of: "{\(key)}", with: value)
+    var result = ""
+    var index = template.startIndex
+    while let open = template[index...].firstIndex(of: "{") {
+        result += template[index..<open]
+        guard let close = template[template.index(after: open)...].firstIndex(of: "}") else {
+            // No closing brace: the remainder is literal.
+            index = open
+            break
+        }
+        let key = String(template[template.index(after: open)..<close])
+        if let value = values[key] {
+            result += value
+        } else {
+            // Unknown token: keep `{key}` intact.
+            result += template[open...close]
+        }
+        index = template.index(after: close)
     }
+    result += template[index...]
     return result
 }
 

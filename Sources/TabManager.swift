@@ -4829,9 +4829,10 @@ class TabManager: ObservableObject {
         session: URLSession
     ) async -> WorkspacePullRequestBranchFetchResult {
         guard let request = plan.branchRequest(for: reference, branch: branch) else {
-            // The provider has no source-branch filter; the repo-page scan is the
-            // authority, so a missing branch here is "not found", not an error.
-            return .notFound
+            // The caller guarantees plan.supportsBranchFilter, so a nil request means
+            // URL construction failed — a transient condition to retry, not a confirmed
+            // "not found" (which would cache the branch as known-absent and stop polling).
+            return .transientFailure
         }
 
         guard let response = await performWorkspacePullRequestRequest(session: session, request: request) else {
