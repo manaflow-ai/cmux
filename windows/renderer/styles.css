@@ -473,7 +473,12 @@ body.reduce-motion *::after {
 
 .shell.focus-mode .command-strip .tool-button {
   width: 30px;
+  min-width: 30px;
   padding: 0;
+}
+
+.shell.focus-mode .tool-add-mark {
+  display: none;
 }
 
 .shell.hide-tabs .surface-tabs {
@@ -1263,32 +1268,34 @@ body.reduce-motion *::after {
 
 .tool-button.add-tool {
   position: relative;
-  gap: 5px;
-  padding-right: 7px;
+  gap: 7px;
+  min-width: 104px;
+  padding: 0 9px;
   font-weight: 720;
+  border-color: color-mix(in oklch, var(--color-accent) 36%, var(--color-line) 64%);
+  background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane) 90%);
 }
 
 .tool-add-mark {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   display: inline-grid;
   place-items: center;
-  border: 1px solid color-mix(in oklch, currentColor 45%, transparent);
-  border-radius: var(--radius-1);
-  background: color-mix(in oklch, currentColor 14%, transparent);
-  font: 800 12px/1 var(--font-ui);
-}
-
-#newBrowserButton {
-  border-color: color-mix(in oklch, var(--color-success) 44%, var(--color-line) 56%);
-  background: color-mix(in oklch, var(--color-success) 13%, var(--color-pane) 87%);
-  color: color-mix(in oklch, var(--color-success) 76%, var(--color-text) 24%);
-}
-
-#newBrowserButton:hover {
-  border-color: color-mix(in oklch, var(--color-success) 58%, var(--color-line-strong) 42%);
-  background: color-mix(in oklch, var(--color-success) 18%, var(--color-pane-active) 82%);
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in oklch, var(--color-accent) 44%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--color-accent) 24%, var(--color-pane) 76%);
   color: var(--color-text);
+  font: 850 11px/1 var(--font-ui);
+}
+
+.tool-button.add-tool:hover {
+  border-color: color-mix(in oklch, var(--color-accent) 52%, var(--color-line-strong) 48%);
+  background: color-mix(in oklch, var(--color-accent) 15%, var(--color-pane-active) 85%);
+}
+
+.tool-button.add-tool:active .tool-add-mark {
+  transform: scale(.94);
 }
 
 .command-strip .advanced-tool {
@@ -1299,7 +1306,7 @@ body.reduce-motion *::after {
   display: inline-flex;
 }
 
-.shell.toolbar-minimal .command-strip .tool-button:not(#newTerminalButton):not(#splitRightButton):not(#newBrowserButton):not(#toolsMenuButton):not(#settingsButton) {
+.shell.toolbar-minimal .command-strip .tool-button:not(#newTerminalButton):not(#newBrowserButton):not(#toolsMenuButton):not(#settingsButton) {
   display: none;
 }
 
@@ -1328,6 +1335,10 @@ body.reduce-motion *::after {
   gap: 0;
 }
 
+.shell.toolbar-compact .tool-button.add-tool {
+  min-width: 32px;
+}
+
 .shell.toolbar-minimal .tool-button .tool-label,
 .shell.toolbar-compact .tool-button .tool-label {
   position: absolute;
@@ -1345,9 +1356,9 @@ body.reduce-motion *::after {
 .shell.toolbar-minimal #newTerminalButton,
 .shell.toolbar-minimal #newBrowserButton {
   width: auto;
-  min-width: 92px;
+  min-width: 104px;
   padding: 0 9px;
-  gap: 5px;
+  gap: 7px;
 }
 
 .shell.toolbar-minimal #newTerminalButton .tool-label,
@@ -9840,6 +9851,12 @@ textarea.dialog-input {
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  .tool-button.add-tool,
+  .shell.toolbar-minimal #newTerminalButton,
+  .shell.toolbar-minimal #newBrowserButton {
+    min-width: 96px;
+  }
 }
 
 @media (max-width: 620px) {
@@ -9897,6 +9914,32 @@ textarea.dialog-input {
 
   .palette-quick-action {
     min-height: 48px;
+  }
+
+  .shell.toolbar-minimal #newTerminalButton,
+  .shell.toolbar-minimal #newBrowserButton {
+    width: 34px;
+    min-width: 34px;
+    padding: 0;
+  }
+
+  .shell.toolbar-minimal #newTerminalButton .tool-label,
+  .shell.toolbar-minimal #newBrowserButton .tool-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    white-space: nowrap;
+    clip-path: inset(50%);
+  }
+
+  .shell.toolbar-minimal .tool-add-mark {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 11px;
+    height: 11px;
+    font-size: 8px;
   }
 
   .browser-home-preset-grid,

@@ -246,7 +246,7 @@ export const terminalFontOptions = [
 ];
 
 export const toolbarModeOptions = [
-  ["minimal", label("toolbar.minimal", "Minimal"), label("toolbar.minimal.body", "Only terminal, tools, and settings stay on the top bar.")],
+  ["minimal", label("toolbar.minimal", "Minimal"), label("toolbar.minimal.body", "Only terminal, browser, tools, and settings stay on the top bar.")],
   ["compact", label("toolbar.compact", "Compact"), label("toolbar.compact.body", "Icon-only main actions for a small top bar.")],
   ["standard", label("toolbar.standard", "Standard"), label("toolbar.standard.body", "Named main actions with advanced tools tucked away.")],
   ["expanded", label("toolbar.expanded", "Expanded"), label("toolbar.expanded.body", "Show every toolbar shortcut on the top bar.")]

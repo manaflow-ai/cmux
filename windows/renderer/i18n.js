@@ -209,7 +209,7 @@ const windowsMessages = {
     "config.terminalFont.fira": "Fira Code",
     "config.terminalFont.systemMono": "System monospace",
     "config.toolbar.minimal": "Minimal",
-    "config.toolbar.minimal.body": "Only terminal, tools, and settings stay on the top bar.",
+    "config.toolbar.minimal.body": "Only terminal, browser, tools, and settings stay on the top bar.",
     "config.toolbar.compact": "Compact",
     "config.toolbar.compact.body": "Icon-only main actions for the cleanest top bar.",
     "config.toolbar.standard": "Standard",
