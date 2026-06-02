@@ -285,7 +285,7 @@ const terminalFontSizeMax = 22;
 const terminalWheelZoomThreshold = 120;
 const terminalWheelZoomIdleResetMs = 450;
 const terminalWheelZoomMaxSteps = 3;
-const deferredTerminalInitIdleTimeoutMs = 700;
+const deferredTerminalInitIdleTimeoutMs = 280;
 const browserLoadTimeoutMs = 15000;
 const browserPausedStatusText = "Paused while inactive";
 const embeddedGoogleHomeUrl = "https://www.google.com/webhp?igu=1";
@@ -5161,7 +5161,7 @@ function scheduleDeferredTerminalInit() {
   };
   state.deferredTerminalInitTimer = typeof requestIdleCallback === "function"
     ? requestIdleCallback(run, { timeout: deferredTerminalInitIdleTimeoutMs })
-    : setTimeout(run, Math.min(160, deferredTerminalInitIdleTimeoutMs));
+    : setTimeout(run, Math.min(96, deferredTerminalInitIdleTimeoutMs));
 }
 
 function deferredTerminalInitQueueOrder(activeWorkspaceId) {
