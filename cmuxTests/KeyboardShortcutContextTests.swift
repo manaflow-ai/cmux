@@ -147,12 +147,13 @@ final class KeyboardShortcutContextTests: XCTestCase {
         // Scoped to browser panels so it only claims the key when a browser is focused.
         XCTAssertEqual(focusMode.shortcutContext, .browserPanel)
 
-        // Default is Ctrl+Cmd+Return: a modifier tier web pages don't bind, distinct
-        // from the other Return-based shortcut (Cmd+Shift+Return = toggle split zoom).
+        // Default is Option+Cmd+Return: a modifier tier web pages rarely bind,
+        // distinct from the other Return-based shortcut (Cmd+Shift+Return = toggle
+        // split zoom), and clear of the Ctrl+Cmd+Return some screen recorders use.
         let focusModeShortcut = focusMode.defaultShortcut
         XCTAssertEqual(
             focusModeShortcut,
-            StoredShortcut(key: "\r", command: true, shift: false, option: false, control: true)
+            StoredShortcut(key: "\r", command: true, shift: false, option: true, control: false)
         )
         XCTAssertNotEqual(
             focusModeShortcut,

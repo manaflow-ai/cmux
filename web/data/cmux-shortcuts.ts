@@ -207,7 +207,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "showBrowserJavaScriptConsole", combos: [["⌥", "⌘", "C"]], description: { en: "Show browser JavaScript console", ja: "ブラウザJavaScriptコンソールを表示" } },
       {
         id: "toggleBrowserFocusMode",
-        combos: [["⌃", "⌘", "↩"]],
+        combos: [["⌥", "⌘", "↩"]],
         description: { en: "Enter browser focus mode", ja: "ブラウザフォーカスモードに入る" },
         note: { en: "Gives the focused web page first claim on shortcuts. Press Esc twice to exit.", ja: "フォーカス中のWebページにショートカットの優先権を渡します。Escを2回押すと終了します。" },
       },

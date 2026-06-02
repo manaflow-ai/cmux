@@ -453,11 +453,12 @@ enum KeyboardShortcutSettings {
                 // Safari default: Show JavaScript Console.
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
             case .toggleBrowserFocusMode:
-                // Ctrl+Cmd+Return: "enter" focus mode mnemonic. Ctrl+Cmd is a
-                // modifier tier web pages essentially never bind, so this stays
-                // out of the page's way while focus mode is off and cmux owns
-                // the shortcut. Exit stays double-Escape.
-                return StoredShortcut(key: "\r", command: true, shift: false, option: false, control: true)
+                // Option+Cmd+Return: "enter" focus mode mnemonic. Option+Cmd is a
+                // modifier tier web pages rarely bind, so it stays out of the page's
+                // way while focus mode is off and cmux owns the shortcut, and it
+                // avoids the Ctrl+Cmd+Return global hotkey some screen recorders use.
+                // Exit stays double-Escape; rebind in Settings or cmux.json.
+                return StoredShortcut(key: "\r", command: true, shift: false, option: true, control: false)
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .diffViewerScrollDown:
