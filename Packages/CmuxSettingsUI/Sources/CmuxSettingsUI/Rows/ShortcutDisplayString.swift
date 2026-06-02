@@ -21,16 +21,25 @@ func shortcutDisplayString(_ shortcut: StoredShortcut, numbered: Bool) -> String
     }
     if numbered {
         // The digit is a placeholder for the whole 1…9 range, so show the
-        // range hint after the modifiers instead of the literal key. A
-        // chorded numbered binding keeps its first stroke verbatim and
-        // applies the range to the (modifiers-only) second stroke.
+        // range hint after the modifiers instead of the literal key — but
+        // ONLY when the recorded key is actually a 1…9 digit. A numbered
+        // action whose binding holds a non-digit key (e.g. an externally
+        // edited cmux.json, or a stray recording the app-target parser will
+        // reject) is not an active range, so it must render its literal key
+        // rather than falsely claim ⌃1…9. A chorded numbered binding keeps
+        // its first stroke verbatim and applies the range to the
+        // (modifiers-only) second stroke.
         if let chord = shortcut.second {
-            return shortcutStrokeDisplayString(shortcut.first)
-                + " "
-                + shortcutModifierDisplayString(chord)
-                + numberedDigitRangeHint
+            if isNumberedDigitKey(chord.key) {
+                return shortcutStrokeDisplayString(shortcut.first)
+                    + " "
+                    + shortcutModifierDisplayString(chord)
+                    + numberedDigitRangeHint
+            }
+        } else if isNumberedDigitKey(shortcut.first.key) {
+            return shortcutModifierDisplayString(shortcut.first) + numberedDigitRangeHint
         }
-        return shortcutModifierDisplayString(shortcut.first) + numberedDigitRangeHint
+        // Fall through to the literal rendering below for invalid digits.
     }
     if let chord = shortcut.second {
         return shortcutStrokeDisplayString(shortcut.first)
@@ -44,6 +53,15 @@ func shortcutDisplayString(_ shortcut: StoredShortcut, numbered: Bool) -> String
 /// language-neutral numeric range, so it is not localized — matching the
 /// `"1…9"` literal baked into the numbered actions' display names.
 let numberedDigitRangeHint = "1…9"
+
+/// Whether `key` is a single digit in `1…9`, i.e. a valid placeholder for a
+/// numbered-digit binding (see ``ShortcutAction/usesNumberedDigitMatching``).
+/// Anything else (a letter, `0`, a named key) is not an active numbered
+/// shortcut and must not be rendered as the `1…9` range.
+func isNumberedDigitKey(_ key: String) -> Bool {
+    guard let digit = Int(key) else { return false }
+    return (1...9).contains(digit)
+}
 
 /// Formats a single ``ShortcutStroke`` with the legacy symbol order
 /// (modifier symbols `⌃⌥⇧⌘` followed by ``shortcutKeyDisplayString(_:)``).

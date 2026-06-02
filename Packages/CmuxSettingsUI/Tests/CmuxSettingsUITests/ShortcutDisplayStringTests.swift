@@ -50,6 +50,17 @@ struct ShortcutDisplayStringTests {
         #expect(shortcutDisplayString(closeTab, numbered: false) == "⌘W")
     }
 
+    @Test func numberedNonDigitKeyFallsBackToLiteral() {
+        // A numbered action whose binding holds a non-1…9 key is not an active
+        // range (the app-target parser rejects it), so the row must show the
+        // literal key, never a false ⌃1…9 range. Verified by Codex review.
+        #expect(shortcutDisplayString(shortcut(key: "a", control: true), numbered: true) == "⌃A")
+    }
+
+    @Test func numberedZeroAndOutOfRangeDigitsFallBackToLiteral() {
+        #expect(shortcutDisplayString(shortcut(key: "0", command: true), numbered: true) == "⌘0")
+    }
+
     @Test func unboundRendersAsNone() {
         #expect(shortcutDisplayString(.unbound, numbered: true) == "None")
         #expect(shortcutDisplayString(.unbound, numbered: false) == "None")

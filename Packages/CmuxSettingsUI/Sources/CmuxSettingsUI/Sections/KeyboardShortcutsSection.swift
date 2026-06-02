@@ -17,6 +17,11 @@ public struct KeyboardShortcutsSection: View {
     @State private var chordModeActions: Set<String> = []
     @State private var restoreShortcuts: [String: StoredShortcut] = [:]
     @State private var bareKeyRejections: Set<String> = []
+    /// Per-action set marking a recording rejected because a numbered
+    /// action (``ShortcutAction/usesNumberedDigitMatching``) was given a
+    /// non-`1…9` key. Mirrors legacy `.numberedShortcutRequiresDigit`: the
+    /// binding is never written and a banner prompts for a digit.
+    @State private var numberedDigitRejections: Set<String> = []
     /// Per-action "rejected attempt" snapshot used to drive the red
     /// validation banner. Legacy `ShortcutRecorderSettingsControl`
     /// stores `rejectedAttempt` and never writes the conflicting
@@ -138,6 +143,7 @@ public struct KeyboardShortcutsSection: View {
         let isUnbound = effective?.isUnbound ?? true
         let canRestore = isUnbound && restoreShortcuts[action.rawValue] != nil
         let bareKeyRejected = bareKeyRejections.contains(action.rawValue)
+        let numberedDigitRejected = numberedDigitRejections.contains(action.rawValue)
         // Drive the validation banner off the explicit rejection state,
         // not off live bindings. Legacy never persists a conflicting
         // shortcut: `ShortcutRecorderSettingsControl` captures the
@@ -145,6 +151,12 @@ public struct KeyboardShortcutsSection: View {
         // the bad value, so Undo simply clears `rejectedAttempt`.
         let conflict = conflictRejections[action.rawValue]
         let validationMessage: String? = {
+            if numberedDigitRejected {
+                return String(
+                    localized: "shortcut.recorder.error.numberedShortcutRequiresDigit",
+                    defaultValue: "Use a digit from 1 through 9."
+                )
+            }
             if bareKeyRejected {
                 return String(
                     localized: "shortcut.recorder.error.bareKeyNotAllowed",
@@ -190,7 +202,7 @@ public struct KeyboardShortcutsSection: View {
                         numbered: action.usesNumberedDigitMatching
                     ),
                     chordsEnabled: chordModeActions.contains(action.rawValue),
-                    hasPendingRejection: bareKeyRejected,
+                    hasPendingRejection: bareKeyRejected || numberedDigitRejected,
                     onStroke: { stroke in Task { await assign(stroke: stroke, to: action) } },
                     onChord: { chord in Task { await assignChord(chord, to: action) } },
                     onBareKeyRejected: { bareKeyRejections.insert(action.rawValue) }
@@ -199,6 +211,7 @@ public struct KeyboardShortcutsSection: View {
 
                 Button {
                     bareKeyRejections.remove(action.rawValue)
+                    numberedDigitRejections.remove(action.rawValue)
                     conflictRejections.removeValue(forKey: action.rawValue)
                     if canRestore, let restore = restoreShortcuts[action.rawValue] {
                         Task { await restoreBinding(restore, for: action) }
@@ -244,6 +257,7 @@ public struct KeyboardShortcutsSection: View {
                     // having to record a different shortcut.
                     Button(String(localized: "shortcut.recorder.undo", defaultValue: "Undo")) {
                         bareKeyRejections.remove(action.rawValue)
+                        numberedDigitRejections.remove(action.rawValue)
                         conflictRejections.removeValue(forKey: action.rawValue)
                     }
                     .buttonStyle(.link)
@@ -385,6 +399,28 @@ public struct KeyboardShortcutsSection: View {
     }
 
     private func assign(stroke: ShortcutStroke, to action: ShortcutAction) async {
+        var stroke = stroke
+        if action.usesNumberedDigitMatching {
+            // Numbered actions stand in for the whole 1…9 family. Mirror
+            // legacy `resolvedNumberedDigitShortcut`: require a 1…9 digit and
+            // normalize it to the "1" placeholder, so we never write a binding
+            // the app-target parser rejects (which would also make the Settings
+            // row falsely render an active ⌃1…9 range).
+            guard isNumberedDigitKey(stroke.key) else {
+                numberedDigitRejections.insert(action.rawValue)
+                bareKeyRejections.remove(action.rawValue)
+                conflictRejections.removeValue(forKey: action.rawValue)
+                return
+            }
+            stroke = ShortcutStroke(
+                key: "1",
+                command: stroke.command,
+                shift: stroke.shift,
+                option: stroke.option,
+                control: stroke.control,
+                keyCode: stroke.keyCode
+            )
+        }
         let proposed = StoredShortcut(first: stroke)
         if let conflict = detectConflict(for: action, stroke: proposed) {
             // Mirror legacy `KeyboardShortcutSettings.Action.normalizedRecordedShortcutResult`:
@@ -393,12 +429,14 @@ public struct KeyboardShortcutsSection: View {
             // can drive the user back to a usable state.
             conflictRejections[action.rawValue] = conflict
             bareKeyRejections.remove(action.rawValue)
+            numberedDigitRejections.remove(action.rawValue)
             return
         }
         var updated = bindings
         updated[action.rawValue] = proposed
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
+        numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         await write(updated)
     }
@@ -408,6 +446,7 @@ public struct KeyboardShortcutsSection: View {
             conflictRejections[action.rawValue] = conflict
             chordModeActions.remove(action.rawValue)
             bareKeyRejections.remove(action.rawValue)
+            numberedDigitRejections.remove(action.rawValue)
             return
         }
         var updated = bindings
@@ -415,6 +454,7 @@ public struct KeyboardShortcutsSection: View {
         chordModeActions.remove(action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
+        numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         await write(updated)
     }
@@ -429,6 +469,8 @@ public struct KeyboardShortcutsSection: View {
         var updated = bindings
         updated[action.rawValue] = shortcut
         restoreShortcuts.removeValue(forKey: action.rawValue)
+        bareKeyRejections.remove(action.rawValue)
+        numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         await write(updated)
     }
@@ -437,6 +479,8 @@ public struct KeyboardShortcutsSection: View {
         var updated = bindings
         updated.removeValue(forKey: action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
+        bareKeyRejections.remove(action.rawValue)
+        numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         await write(updated)
     }
@@ -444,6 +488,7 @@ public struct KeyboardShortcutsSection: View {
     private func resetAll() async {
         restoreShortcuts.removeAll()
         bareKeyRejections.removeAll()
+        numberedDigitRejections.removeAll()
         conflictRejections.removeAll()
         await write([:])
     }
