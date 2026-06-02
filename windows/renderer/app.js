@@ -4140,7 +4140,7 @@ function renderPaneNode(panel, workspace, visibleCount) {
   const title = panelDisplayTitle(panel, false);
   setTextIfChanged(parts.title, title);
   setTitleIfChanged(parts.title, title);
-  setTitleIfChanged(parts.header, `${title} - double-click to rename`);
+  setTitleIfChanged(parts.header, `${title} - drag header to move, double-click to rename`);
   setTextIfChanged(parts.zoom, zoomed ? "↙" : "□");
   setTitleIfChanged(parts.zoom, zoomed ? "Show all panes" : "Focus pane");
   setTextIfChanged(parts.minimize, isPanelMinimized(panel) ? "+" : "-");
@@ -4826,7 +4826,7 @@ function createPane(panel) {
   pane.dataset.panelId = panel.id;
   pane.innerHTML = `
     <div class="pane-header">
-      <div class="pane-grip" title="Drag pane">::</div>
+      <div class="pane-grip" title="Drag pane from the header" aria-hidden="true"></div>
       <div class="pane-type"></div>
       <div class="pane-title"></div>
       <div class="pane-toolbar">

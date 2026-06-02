@@ -1817,14 +1817,33 @@ body.reduce-motion *::after {
 .pane-grip {
   flex: 0 0 auto;
   width: 14px;
+  height: 14px;
+  position: relative;
   color: var(--color-faint);
-  font: 11px/1 var(--font-mono);
-  text-align: center;
+  opacity: .72;
+}
+
+.pane-grip::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 2px;
+  width: 2px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow:
+    0 5px 0 currentColor,
+    0 10px 0 currentColor,
+    5px 0 0 currentColor,
+    5px 5px 0 currentColor,
+    5px 10px 0 currentColor;
 }
 
 .pane-header:hover .pane-grip,
 .pane.is-active .pane-grip {
   color: var(--color-muted);
+  opacity: 1;
 }
 
 .pane.is-dragging {
@@ -1989,9 +2008,14 @@ body.reduce-motion *::after {
 
 .shell.pane-header-compact .pane-grip {
   width: 10px;
+  height: 12px;
   opacity: .2;
-  font-size: 9px;
   transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.shell.pane-header-compact .pane-grip::before {
+  left: 1px;
+  top: 1px;
 }
 
 .shell.pane-header-compact .pane:hover .pane-grip,
