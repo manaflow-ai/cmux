@@ -3938,10 +3938,10 @@ final class BrowserPanel: Panel, ObservableObject {
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
         configuration.websiteDataStore = websiteDataStore
-        if PrivacyMode.isEnabled,
-           configuration.responds(to: Selector(("setProtocolClasses:"))) {
-            configuration.setValue([PrivacyModeURLProtocol.self], forKey: "protocolClasses")
-        }
+        // Panecho: do NOT route the user's WKWebView through the egress guard.
+        // Per the fork's documented design, browser page loads are normal outbound
+        // network; only the app's own URLSession traffic is fail-closed (registered
+        // globally in PrivacyEgressGuard.installIfNeeded). See README/skill.
         if configuration.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme) == nil {
             configuration.setURLSchemeHandler(
                 CmuxDiffViewerURLSchemeHandler.shared,
@@ -8416,15 +8416,9 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         )
 #endif
 
-        if let url = navigationAction.request.url,
-           navigationAction.targetFrame?.isMainFrame != false,
-           !PrivacyEgressGuard.isAllowedURL(url) {
-#if DEBUG
-            cmuxDebugLog("browser.nav.decidePolicy.action kind=blockedPrivacy url=\(url.absoluteString)")
-#endif
-            decisionHandler(.cancel)
-            return
-        }
+        // Panecho: user-initiated browser navigation is intentionally NOT subject to
+        // the egress guard (only the app's own URLSession traffic is). Do not cancel
+        // main-frame loads to external sites — see the fork's README/skill.
 
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
@@ -9192,13 +9186,13 @@ enum InstalledBrowserDetector {
         applicationSearchDirectories: [URL]? = nil,
         fileManager: FileManager = .default
     ) -> [InstalledBrowserCandidate] {
-        // Panecho privacy mode: never enumerate other browsers' data
-        // (~/Library/Application Support/<Browser>, ~/Library/Cookies, ...). That
-        // read is what triggers the macOS "access data from other apps" prompt on
-        // every launch (confirmed: all browser data dirs are atime-touched at
-        // launch via the empty-state import overlay). A privacy fork must not
-        // scan other apps' data; browser-profile import is disabled here.
-        guard !PrivacyMode.isEnabled else { return [] }
+        // Panecho: browser-profile import is a USER-INITIATED action. We do NOT
+        // auto-scan other browsers' data at launch — that automatic scan (the
+        // empty-state import overlay) stays gated in refreshEmptyStateImportBrowsers()
+        // (privacy mode -> empty), which was the real every-launch prompt source.
+        // Detection here runs only when the user explicitly opens the import dialog
+        // or settings import section, where a one-time macOS "access data from
+        // other apps" prompt is expected and acceptable.
         let lookup = bundleLookup ?? { bundleIdentifier in
             NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
         }
