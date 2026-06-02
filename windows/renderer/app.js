@@ -359,7 +359,8 @@ const deferredTerminalInitIdleTimeoutMs = 140;
 const browserLoadTimeoutMs = 15000;
 const browserSuspendStopDelayMs = 1200;
 const embeddedGooglePolishMinIntervalMs = 750;
-const browserPausedStatusText = "Paused while inactive";
+const browserLoadingStatusText = t("browser.loadingStatus");
+const browserPausedStatusText = t("browser.pausedStatus");
 const paneResizeFitThrottleMs = 90;
 const panePointerDragThreshold = 6;
 const closedPanelLimit = 12;
@@ -6868,7 +6869,7 @@ function reloadBrowserPanel(panel = focusedPanel()) {
   }
   const url = browserPanelUrl(browserPanel);
   session.setLoading?.(true);
-  session.setStatus?.("Loading");
+  session.setStatus?.(browserLoadingStatusText);
   if (typeof session.view?.reload === "function" && !session.reload?.disabled) {
     session.view.reload();
   } else {
@@ -7042,7 +7043,7 @@ function loadDeferredBrowserSession(session) {
   if (session.view.src !== sourceUrl) {
     session.content?.classList?.remove("has-loaded");
     session.setLoading?.(true);
-    session.setStatus?.("Loading");
+    session.setStatus?.(browserLoadingStatusText);
     session.view.src = sourceUrl;
   }
   session.updateNavState?.();
@@ -7081,15 +7082,17 @@ function renderDeferredBrowserShell(panel, body) {
     deferred = document.createElement("button");
     deferred.className = "browser-deferred browser-deferred-standalone";
     deferred.type = "button";
-    deferred.setAttribute("aria-label", "Browser paused. Click pane to load.");
+    deferred.setAttribute("aria-label", t("browser.pausedAria"));
     deferred.innerHTML = `
-      <span class="browser-deferred-title">Browser paused</span>
+      <span class="browser-deferred-title"></span>
       <span class="browser-deferred-url"></span>
-      <span class="browser-deferred-action">Click pane to load</span>
+      <span class="browser-deferred-action"></span>
     `;
     deferred.onclick = () => focusPanel(panel.id);
     body.replaceChildren(deferred);
   }
+  setTextIfChanged(deferred.querySelector(".browser-deferred-title"), t("browser.pausedTitle"));
+  setTextIfChanged(deferred.querySelector(".browser-deferred-action"), t("browser.pausedAction"));
   const url = deferred.querySelector(".browser-deferred-url");
   setTextIfChanged(url, targetUrl);
   setTitleIfChanged(url, targetUrl);
@@ -7546,7 +7549,7 @@ function activateBrowserTab(session, tabId) {
     session.content?.classList?.remove("has-loaded");
     session.view.src = sourceUrl;
     session.setLoading?.(true);
-    session.setStatus?.("Loading");
+    session.setStatus?.(browserLoadingStatusText);
   }
   queueBrowserUrlSync(session.panelId, tab.url);
   saveBrowserSessionTabsNow(session);
@@ -7628,26 +7631,26 @@ function ensureBrowser(panel, body) {
   const back = document.createElement("button");
   back.className = "browser-nav browser-back";
   back.type = "button";
-  back.title = "Back";
-  back.setAttribute("aria-label", "Back");
+  back.title = t("browser.back");
+  back.setAttribute("aria-label", t("browser.back"));
   back.innerHTML = controlIconMarkup("back");
   const forward = document.createElement("button");
   forward.className = "browser-nav browser-forward";
   forward.type = "button";
-  forward.title = "Forward";
-  forward.setAttribute("aria-label", "Forward");
+  forward.title = t("browser.forward");
+  forward.setAttribute("aria-label", t("browser.forward"));
   forward.innerHTML = controlIconMarkup("forward");
   const reload = document.createElement("button");
   reload.className = "browser-nav browser-reload";
   reload.type = "button";
-  reload.title = "Reload";
-  reload.setAttribute("aria-label", "Reload");
+  reload.title = t("browser.reload");
+  reload.setAttribute("aria-label", t("browser.reload"));
   reload.innerHTML = controlIconMarkup("reload");
   const home = document.createElement("button");
   home.className = "browser-nav browser-home";
   home.type = "button";
-  home.title = "Home";
-  home.setAttribute("aria-label", "Home");
+  home.title = t("browser.home");
+  home.setAttribute("aria-label", t("browser.home"));
   home.innerHTML = controlIconMarkup("home");
   const address = document.createElement("input");
   address.className = "browser-address";
@@ -7657,8 +7660,8 @@ function ensureBrowser(panel, body) {
   const go = document.createElement("button");
   go.className = "browser-go browser-go-submit";
   go.type = "button";
-  go.title = "Go";
-  go.setAttribute("aria-label", "Go");
+  go.title = t("browser.go");
+  go.setAttribute("aria-label", t("browser.go"));
   go.innerHTML = controlIconMarkup("arrowRight");
   const external = document.createElement("button");
   external.className = "browser-go browser-go-external";
@@ -7669,7 +7672,7 @@ function ensureBrowser(panel, body) {
   external.innerHTML = controlIconMarkup("external");
   const status = document.createElement("div");
   status.className = "browser-status";
-  status.textContent = "Loading";
+  status.textContent = browserLoadingStatusText;
   bar.append(back, forward, reload, home, address, go, external);
 
   const content = document.createElement("div");
@@ -7692,10 +7695,10 @@ function ensureBrowser(panel, body) {
       <span class="browser-error-body"></span>
       <span class="browser-error-url"></span>
       <span class="browser-error-actions">
-        <button class="browser-error-action browser-error-retry" type="button">Retry</button>
-        <button class="browser-error-action browser-error-open" type="button">Open</button>
-        <button class="browser-error-action browser-error-home" type="button">Home</button>
-        <button class="browser-error-action browser-error-settings" type="button">Settings</button>
+        <button class="browser-error-action browser-error-retry" type="button"></button>
+        <button class="browser-error-action browser-error-open" type="button"></button>
+        <button class="browser-error-action browser-error-home" type="button"></button>
+        <button class="browser-error-action browser-error-settings" type="button"></button>
       </span>
     </div>
   `;
@@ -7710,12 +7713,12 @@ function ensureBrowser(panel, body) {
   const deferredPane = document.createElement("button");
   deferredPane.className = "browser-deferred";
   deferredPane.type = "button";
-  deferredPane.setAttribute("aria-label", "Browser paused. Click pane to load.");
+  deferredPane.setAttribute("aria-label", t("browser.pausedAria"));
   deferredPane.hidden = true;
   deferredPane.innerHTML = `
-    <span class="browser-deferred-title">Browser paused</span>
+    <span class="browser-deferred-title"></span>
     <span class="browser-deferred-url"></span>
-    <span class="browser-deferred-action">Click pane to load</span>
+    <span class="browser-deferred-action"></span>
   `;
   const errorTitle = errorPane.querySelector(".browser-error-title");
   const errorBody = errorPane.querySelector(".browser-error-body");
@@ -7726,7 +7729,15 @@ function ensureBrowser(panel, body) {
   const errorSettings = errorPane.querySelector(".browser-error-settings");
   const loadingTitle = loadingPane.querySelector(".browser-loading-title");
   const loadingUrl = loadingPane.querySelector(".browser-loading-url");
+  const deferredTitle = deferredPane.querySelector(".browser-deferred-title");
   const deferredUrl = deferredPane.querySelector(".browser-deferred-url");
+  const deferredAction = deferredPane.querySelector(".browser-deferred-action");
+  setTextIfChanged(errorRetry, t("browser.retry"));
+  setTextIfChanged(errorOpen, t("browser.open"));
+  setTextIfChanged(errorHome, t("browser.home"));
+  setTextIfChanged(errorSettings, t("browser.settingsShort"));
+  setTextIfChanged(deferredTitle, t("browser.pausedTitle"));
+  setTextIfChanged(deferredAction, t("browser.pausedAction"));
   content.append(view, errorPane, loadingPane, deferredPane);
   const isWebview = view.tagName.toLowerCase() === "webview";
   let webviewReady = !isWebview;
@@ -7752,14 +7763,16 @@ function ensureBrowser(panel, body) {
     setHiddenIfChanged(loadingPane, !visible);
     toggleClassIfChanged(content, "is-loading", visible);
     if (!visible) return;
-    setTextIfChanged(loadingTitle, `Loading ${hostnameOf(targetUrl) || "page"}`);
+    setTextIfChanged(loadingTitle, formatMessage("browser.loadingPage", {
+      title: hostnameOf(targetUrl) || t("browser.pageFallback")
+    }));
     setTextIfChanged(loadingUrl, targetUrl);
     setTitleIfChanged(loadingUrl, targetUrl);
     browserLoadTimer = setTimeout(() => {
       browserLoadTimer = 0;
       if (!content.classList.contains("is-loading") || browserLoadFailed || deferredPane.hidden === false) return;
       browserLoadFailed = true;
-      showBrowserError("The page is taking too long to respond. Try again, open it externally, or return home.", targetUrl);
+      showBrowserError(t("browser.errorTimeout"), targetUrl);
       updateNavState();
     }, browserLoadTimeoutMs);
   };
@@ -7774,10 +7787,10 @@ function ensureBrowser(panel, body) {
     setTextIfChanged(status, message);
     toggleClassIfChanged(status, "is-visible", Boolean(message));
     toggleClassIfChanged(shell, "has-browser-status", Boolean(message));
-    if (message === "Loading") {
+    if (message === browserLoadingStatusText) {
       loadingStatusTimer = setTimeout(() => {
         loadingStatusTimer = 0;
-        if (status.textContent === "Loading") setStatus("");
+        if (status.textContent === browserLoadingStatusText) setStatus("");
       }, 4500);
     }
   };
@@ -7787,11 +7800,11 @@ function ensureBrowser(panel, body) {
   const markBrowserContentLoaded = () => {
     content.classList.add("has-loaded");
   };
-  const showBrowserError = (message = "This page could not be shown inside cmux.", detail = address.value) => {
+  const showBrowserError = (message = t("browser.errorDefault"), detail = address.value) => {
     const targetUrl = normalizeUrl(detail || address.value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
     clearBrowserLoadTimer();
     setLoading(false);
-    setTextIfChanged(errorTitle, "Page did not load");
+    setTextIfChanged(errorTitle, t("browser.errorTitle"));
     setTextIfChanged(errorBody, message);
     setTextIfChanged(errorUrl, targetUrl);
     setTitleIfChanged(errorUrl, targetUrl);
@@ -7816,7 +7829,7 @@ function ensureBrowser(panel, body) {
       browserLoadFailed = false;
       hideBrowserError();
       setLoading(true);
-      setStatus("Loading");
+      setStatus(browserLoadingStatusText);
       const sourceUrl = browserViewSourceUrl(targetUrl, state.settings.browserHomeUrl);
       if (view.src !== sourceUrl) view.src = sourceUrl;
       updateNavState();
@@ -7844,7 +7857,7 @@ function ensureBrowser(panel, body) {
     if (!/^https?:\/\//i.test(popupUrl)) return;
     event.preventDefault?.();
     openExternalBrowser(popupUrl);
-    setStatus("Opened externally");
+    setStatus(t("browser.openedExternallyStatus"));
   };
 
   const navigate = () => {
@@ -7858,7 +7871,7 @@ function ensureBrowser(panel, body) {
     browserLoadFailed = false;
     hideBrowserError();
     setLoading(true);
-    setStatus("Loading");
+    setStatus(browserLoadingStatusText);
     updateActiveBrowserTabUrl(session, next);
     queueBrowserUrlSync(panel.id, next);
   };
@@ -7925,7 +7938,7 @@ function ensureBrowser(panel, body) {
   reload.onclick = () => {
     if (reload.disabled) return;
     setLoading(true);
-    setStatus("Loading");
+    setStatus(browserLoadingStatusText);
     if (typeof view.reload === "function") {
       view.reload();
     } else {
@@ -7976,7 +7989,7 @@ function ensureBrowser(panel, body) {
     browserLoadFailed = false;
     hideBrowserError();
     setLoading(true);
-    setStatus("Loading");
+    setStatus(browserLoadingStatusText);
     updateNavState();
   });
   view.addEventListener("did-stop-loading", () => {
@@ -8006,8 +8019,8 @@ function ensureBrowser(panel, body) {
     browserLoadFailed = true;
     const failure = String(event.errorDescription || "").replace(/^ERR_/i, "").replace(/_/g, " ").toLowerCase();
     const message = failure
-      ? `The page reported ${failure}. Try again, open it externally, or return home.`
-      : "Try again, open it externally, or return home.";
+      ? formatMessage("browser.errorReported", { failure })
+      : t("browser.errorFallback");
     showBrowserError(message, event.validatedURL || address.value);
     updateNavState();
   });
@@ -8019,7 +8032,7 @@ function ensureBrowser(panel, body) {
   });
   view.addEventListener("error", () => {
     browserLoadFailed = true;
-    showBrowserError("Try again, open it externally, or return home.");
+    showBrowserError(t("browser.errorFallback"));
   });
 
   shell.append(tabStrip, bar, status, content);
@@ -8074,7 +8087,7 @@ function ensureBrowser(panel, body) {
     showDeferredBrowser();
   } else {
     setLoading(true);
-    setStatus("Loading");
+    setStatus(browserLoadingStatusText);
     scheduleInitialBrowserLoad();
   }
   updateNavState();
@@ -10402,7 +10415,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
           session.content?.classList?.remove("has-loaded");
           session.setLoading?.(true);
           session.view.src = sourceUrl;
-          session.setStatus?.("Loading");
+          session.setStatus?.(browserLoadingStatusText);
         }
       }
       updatePanel(panel.id, { url: nextUrl });
