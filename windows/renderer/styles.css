@@ -4187,6 +4187,77 @@ body.reduce-motion *::after {
   grid-template-columns: repeat(auto-fit, minmax(min(112px, 100%), 1fr));
 }
 
+.active-pane-background {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.active-pane-background-preview {
+  position: relative;
+  width: 52px;
+  height: 42px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background:
+    linear-gradient(135deg, color-mix(in oklch, var(--color-pane) 82%, var(--color-rail) 18%), var(--color-pane-warm));
+}
+
+.active-pane-background.has-image .active-pane-background-preview {
+  background-image: var(--active-pane-background-image);
+  background-size: var(--active-pane-background-size, cover);
+  background-repeat: var(--active-pane-background-repeat, no-repeat);
+  background-position: var(--active-pane-background-position, center);
+}
+
+.active-pane-background-preview::after {
+  content: "Pane";
+  position: absolute;
+  inset: auto 5px 5px;
+  display: grid;
+  place-items: center;
+  height: 15px;
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-canvas) 72%, transparent);
+  color: var(--color-muted);
+  font: 9px/1 var(--font-ui);
+  font-weight: 760;
+  letter-spacing: 0;
+}
+
+.active-pane-background-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.active-pane-background-title,
+.active-pane-background-source {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.active-pane-background-title {
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.active-pane-background-source {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.active-pane-background-actions {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(min(86px, 100%), 1fr));
+}
+
 .active-pane-text-control {
   min-width: 0;
   display: grid;
@@ -4216,6 +4287,18 @@ body.reduce-motion *::after {
 }
 
 @container (max-width: 330px) {
+  .active-pane-background {
+    grid-template-columns: 1fr;
+  }
+
+  .active-pane-background-preview {
+    width: 100%;
+  }
+
+  .active-pane-background-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .active-pane-text-control {
     grid-template-columns: 1fr;
   }

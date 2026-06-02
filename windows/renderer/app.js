@@ -8915,6 +8915,56 @@ function workspaceSettingsPreviewPanel(workspace) {
   return preview;
 }
 
+function paneBackgroundControlPanel(panel) {
+  const background = normalizeBackgroundValue(panel?.backgroundImage);
+  const hasBackground = Boolean(background);
+  const source = !hasBackground
+    ? "Uses terminal color"
+    : backgroundPresetMap.has(background)
+      ? "Built-in preset"
+      : backgroundFilePath(background) || background;
+  const control = document.createElement("div");
+  control.className = `active-pane-background${hasBackground ? " has-image" : ""}`;
+  control.dataset.settingsSearch = normalizeSettingsQuery("active pane terminal background image wallpaper choose use app clear open source");
+  control.style.setProperty("--active-pane-background-image", backgroundCss(background));
+  control.style.setProperty("--active-pane-background-repeat", backgroundRepeatCss(background));
+  control.style.setProperty("--active-pane-background-size", backgroundSizeCss(state.settings.backgroundFit));
+  control.style.setProperty("--active-pane-background-position", backgroundPositionCss(state.settings.backgroundPosition));
+
+  const preview = document.createElement("button");
+  preview.className = "active-pane-background-preview";
+  preview.type = "button";
+  preview.title = "Choose pane background";
+  preview.setAttribute("aria-label", "Choose pane background");
+  preview.onclick = () => choosePanelBackgroundImage(panel);
+
+  const copy = document.createElement("span");
+  copy.className = "active-pane-background-copy";
+  const title = document.createElement("span");
+  title.className = "active-pane-background-title";
+  title.textContent = hasBackground ? appearanceBackgroundLabel(background) : "No pane background";
+  title.title = title.textContent;
+  const meta = document.createElement("span");
+  meta.className = "active-pane-background-source";
+  meta.textContent = source;
+  meta.title = source;
+  copy.append(title, meta);
+
+  const actions = document.createElement("span");
+  actions.className = "settings-actions active-pane-background-actions";
+  const choose = settingsActionButton("Choose", () => choosePanelBackgroundImage(panel), "primary", "active pane terminal background choose local image");
+  const useApp = settingsActionButton("Use app", () => applyPanelBackgroundImage(state.settings.backgroundImage, panel), "", "active pane terminal background use app global image");
+  useApp.disabled = !state.settings.backgroundImage;
+  const open = settingsActionButton("Open", () => openBackgroundImageSource(background), "", "active pane terminal background open source file url");
+  open.disabled = !canOpenBackgroundImageSource(background);
+  const clear = settingsActionButton("Clear", () => applyPanelBackgroundImage("", panel), "danger", "active pane terminal background clear remove");
+  clear.disabled = !hasBackground;
+  actions.append(choose, useApp, open, clear);
+
+  control.append(preview, copy, actions);
+  return control;
+}
+
 function activePaneSettingsPanel(workspace = activeWorkspace()) {
   const panel = workspace?.panels.find((candidate) => candidate.id === workspace.activePanelId)
     || focusedPanel()
@@ -8985,6 +9035,13 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
   ));
 
   if (panel.type === "terminal") {
+    wrapper.append(settingRow(
+      "Pane background",
+      paneBackgroundControlPanel(panel),
+      true,
+      "active pane terminal background image wallpaper choose use app clear open source"
+    ));
+
     const paneFontSize = terminalFontSizeForPanel(panel);
     const updatePaneTextLabel = (row, size) => {
       setTextIfChanged(row.querySelector(".setting-label"), `Pane text ${size || terminalFontSizeForPanel(panel)}px`);
