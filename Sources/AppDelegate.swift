@@ -7137,16 +7137,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func openDirectoryInInlineVSCode(
+    func openDirectoryInInlineWebMode(
         _ directoryURL: URL,
+        mode: TerminalDirectoryInlineWebMode,
         tabManager preferredTabManager: TabManager? = nil
     ) -> Bool {
-        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
-            return false
-        }
-
         let targetTabManager = preferredTabManager
-            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "inlineVSCode.open.target")?.tabManager
+            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "inlineWeb.\(mode.id).open.target")?.tabManager
         guard let targetTabManager else {
             return false
         }
@@ -7156,11 +7153,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? targetTabManager.addWorkspace(select: true).id
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
-        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
-            guard let serveWebURL,
-                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
-                      baseWebUIURL: serveWebURL,
-                      directoryPath: normalizedDirectoryURL.path
+        mode.ensureServerURL(normalizedDirectoryURL) { serverURL in
+            guard let serverURL,
+                  let openFolderURL = mode.openURL(
+                      serverURL: serverURL,
+                      directoryURL: normalizedDirectoryURL
                   ) else {
                 NSSound.beep()
                 return
@@ -7179,14 +7176,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
-        guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
+    @discardableResult
+    func openDirectoryInInlineVSCode(
+        _ directoryURL: URL,
+        tabManager preferredTabManager: TabManager? = nil
+    ) -> Bool {
+        openDirectoryInInlineWebMode(
+            directoryURL,
+            mode: .vscode,
+            tabManager: preferredTabManager
+        )
+    }
+
+    func showOpenFolderInInlineWebModePanel(
+        mode: TerminalDirectoryInlineWebMode,
+        tabManager preferredTabManager: TabManager? = nil
+    ) {
+        guard mode.isAvailable() else {
             NSSound.beep()
             return
         }
 
         let targetTabManager = preferredTabManager
-            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "inlineVSCode.panel.target")?.tabManager
+            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "inlineWeb.\(mode.id).panel.target")?.tabManager
         guard let targetTabManager else {
             NSSound.beep()
             return
@@ -7196,14 +7208,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.title = String(
-            localized: "menu.file.openFolderInVSCodeInline.panelTitle",
-            defaultValue: "Open Folder in VS Code (Inline)"
-        )
-        panel.prompt = String(
-            localized: "menu.file.openFolderInVSCodeInline.panelPrompt",
-            defaultValue: "Open in VS Code"
-        )
+        panel.title = mode.panelTitle()
+        panel.prompt = mode.panelPrompt()
         if let cwd = targetTabManager.selectedWorkspace?.currentDirectory,
            !cwd.isEmpty {
             panel.directoryURL = URL(fileURLWithPath: cwd)
@@ -7211,9 +7217,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if panel.runModal() == .OK,
            let url = panel.url,
-           !openDirectoryInInlineVSCode(url, tabManager: targetTabManager) {
+           !openDirectoryInInlineWebMode(url, mode: mode, tabManager: targetTabManager) {
             NSSound.beep()
         }
+    }
+
+    func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
+        showOpenFolderInInlineWebModePanel(mode: .vscode, tabManager: preferredTabManager)
     }
 
     @objc func openWindow(

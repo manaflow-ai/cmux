@@ -2084,6 +2084,7 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
     ) -> TerminalDirectoryOpenTarget.DetectionEnvironment {
         TerminalDirectoryOpenTarget.DetectionEnvironment(
             homeDirectoryPath: homeDirectoryPath,
+            environmentVariables: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin"],
             fileExistsAtPath: { existingPaths.contains($0) },
             isExecutableFileAtPath: { existingPaths.contains($0) },
             applicationPathForName: { applicationPathsByName[$0] }
@@ -2155,7 +2156,8 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
 
         let availableTargets = TerminalDirectoryOpenTarget.availableTargets(in: env)
         XCTAssertTrue(availableTargets.contains(.vscode))
-        XCTAssertTrue(availableTargets.contains(.vscodeInline))
+        XCTAssertFalse(availableTargets.contains(.vscodeInline))
+        XCTAssertTrue(TerminalDirectoryInlineWebMode.vscode.isAvailable(in: env))
     }
 
     func testTowerDetectedViaApplicationLookupOutsideApplications() {
@@ -2174,6 +2176,22 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         let targets = TerminalDirectoryOpenTarget.commandPaletteShortcutTargets
         XCTAssertFalse(targets.contains(where: { $0.commandPaletteTitle == "Open Current Directory in IDE" }))
         XCTAssertFalse(targets.contains(where: { $0.commandPaletteCommandId == "palette.terminalOpenDirectory" }))
+        XCTAssertFalse(targets.contains(.vscodeInline))
+    }
+
+    func testJupyterInlineRequiresJupyterExecutable() {
+        let missing = environment(existingPaths: [])
+        XCTAssertFalse(TerminalDirectoryInlineWebMode.jupyter.isAvailable(in: missing))
+
+        let present = environment(existingPaths: ["/opt/homebrew/bin/jupyter"])
+        XCTAssertTrue(TerminalDirectoryInlineWebMode.jupyter.isAvailable(in: present))
+    }
+
+    func testDefaultInlineWebModesIncludeVSCodeAndJupyter() {
+        XCTAssertEqual(
+            TerminalDirectoryInlineWebModeRegistry.modes.map(\.id),
+            ["vscode", "jupyter"]
+        )
     }
 }
 
