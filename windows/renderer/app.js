@@ -14594,8 +14594,8 @@ function showPanelContextMenu(event, panel) {
   const isBrowser = panel.type === "browser";
   const generalActions = contextMenuActionGroup(
     contextMenuButton("Rename", () => renamePanel(panel)),
-    contextMenuButton("Default name", () => updatePanel(panel.id, { title: "" }), !panel.titleLocked),
-    contextMenuButton("Pane settings", () => openPaneSettings(panel)),
+    contextMenuButton("Use default name", () => updatePanel(panel.id, { title: "" }), !panel.titleLocked),
+    contextMenuButton("Customize tab", () => openPaneSettings(panel)),
     contextMenuButton("Duplicate", () => duplicatePanel(panel)),
     isTerminal
       ? contextMenuButton("New terminal tab", () => createTerminalPanel("right", { anchorPanelId: panel.id }))
@@ -14651,7 +14651,7 @@ function showPanelContextMenu(event, panel) {
   );
   const colorTitle = document.createElement("div");
   colorTitle.className = "context-section-title";
-  colorTitle.textContent = "Tab color";
+  colorTitle.textContent = "Tab appearance";
   const colors = document.createElement("div");
   colors.className = "context-colors";
   for (const [colorIndex, color] of workspaceColorPalette().entries()) {
@@ -14669,6 +14669,7 @@ function showPanelContextMenu(event, panel) {
     };
     colors.append(button);
   }
+  const appearanceSettings = contextMenuButton("Appearance settings", () => openPaneAppearanceSettings(panel));
   const clear = contextMenuButton("Clear color", () => updatePanel(panel.id, { color: "" }), !panel.color);
   const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(panel.color), !normalizeCustomPaletteColor(panel.color));
   const customColor = contextColorPicker(panel.color, (color) => {
@@ -14683,7 +14684,7 @@ function showPanelContextMenu(event, panel) {
     colorTitle,
     colors,
     customColor,
-    contextMenuActionGroup(saveColor, clear)
+    contextMenuActionGroup(appearanceSettings, saveColor, clear)
   ];
   if (surfaceActions.length) {
     nodes.push(contextMenuSectionTitle(isTerminal ? "Terminal" : "Browser"), contextMenuActionGroup(...surfaceActions));
@@ -17477,6 +17478,11 @@ function openSettingsCategory(category = "quick", options = {}) {
 function openPaneSettings(panel = focusedPanel()) {
   if (panel?.id) focusPanel(panel.id);
   openSettingsCategory("workspace", { query: "active pane", focusSearch: false });
+}
+
+function openPaneAppearanceSettings(panel = focusedPanel()) {
+  if (panel?.id) focusPanel(panel.id);
+  openSettingsCategory("workspace", { query: "active pane color background", focusSearch: false });
 }
 
 function updateRailButtons() {
