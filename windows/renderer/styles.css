@@ -2636,17 +2636,22 @@ body.reduce-motion *::after {
 }
 
 .browser-tab-new {
-  flex: 0 0 24px;
-  width: 24px;
-  height: 24px;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 26px;
   display: grid;
   place-items: center;
-  margin-bottom: 2px;
+  margin-bottom: 0;
+  border: 1px solid color-mix(in oklch, var(--color-line) 54%, transparent);
+  border-bottom: 0;
+  border-radius: var(--radius-1) var(--radius-1) 0 0;
   color: var(--color-muted);
-  background: transparent;
+  background: color-mix(in oklch, var(--color-pane) 42%, transparent);
+  font: 700 16px/1 var(--font-mono);
 }
 
 .browser-tab-new:hover {
+  border-color: var(--color-line);
   color: var(--color-text);
   background: var(--color-pane);
 }
@@ -2677,6 +2682,7 @@ body.reduce-motion *::after {
   .browser-tab-new {
     flex-basis: 24px;
     width: 24px;
+    height: 24px;
   }
 
   .browser-tab::before {
