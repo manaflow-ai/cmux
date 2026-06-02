@@ -131,6 +131,7 @@
 		E30750000000000000000006 /* CmuxConfigNamedColorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000005 /* CmuxConfigNamedColorTests.swift */; };
 		C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */; };
 		C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A10000000000000002 /* CmuxConfigUI.swift */; };
+		DD1100010000000000000001 /* CMUXDeepLinks in Frameworks */ = {isa = PBXBuildFile; productRef = DD1100030000000000000001 /* CMUXDeepLinks */; };
 		D1320AA0D1320AA0D1320AA2 /* CmuxDockTilePlugin.plugin in Copy Dock Tile Plugin */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E7E000000000000000000005 /* CmuxEventBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000006 /* CmuxEventBus.swift */; };
 		E7E000000000000000000003 /* CmuxEventBusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000004 /* CmuxEventBusTests.swift */; };
@@ -1199,6 +1200,7 @@
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
+				DD1100010000000000000001 /* CMUXDeepLinks in Frameworks */,
 				C0DE46000000000000000001 /* CMUXExtensionClient in Frameworks */,
 				C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */,
 				CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */,
@@ -1916,6 +1918,7 @@
 				A5C0DE0000000000000000A2 /* CMUXProjectModel */,
 				F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
+				DD1100030000000000000001 /* CMUXDeepLinks */,
 				A5354305A5354305A5354305 /* CmuxSocketControl */,
 				C8000302C8000302C8000302 /* CmuxProcess */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
@@ -2056,6 +2059,7 @@
 				A5C0DE0000000000000000A1 /* XCLocalSwiftPackageReference "CMUXProjectModel" */,
 				F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentVault" */,
 				A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */,
+				DD1100020000000000000001 /* XCLocalSwiftPackageReference "CMUXDeepLinks" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
 				A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CmuxSocketControl" */,
 				C8000301C8000301C8000301 /* XCLocalSwiftPackageReference "CmuxProcess" */,
@@ -3191,6 +3195,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXAgentLaunch;
 		};
+		DD1100020000000000000001 /* XCLocalSwiftPackageReference "CMUXDeepLinks" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CMUXDeepLinks;
+		};
 		A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXDebugLog;
@@ -3296,6 +3304,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */;
 			productName = CMUXAgentLaunch;
+		};
+		DD1100030000000000000001 /* CMUXDeepLinks */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DD1100020000000000000001 /* XCLocalSwiftPackageReference "CMUXDeepLinks" */;
+			productName = CMUXDeepLinks;
 		};
 		A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */ = {
 			isa = XCSwiftPackageProductDependency;
