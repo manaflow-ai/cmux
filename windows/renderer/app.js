@@ -2094,11 +2094,37 @@ function backgroundApplyTargetActionLabel(target = state.backgroundApplyTarget) 
   return option ? `${option.label} - ${option.meta}` : "App - whole window";
 }
 
+function backgroundApplyTargetOption(target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
+  return backgroundApplyTargetOptions(workspace).find((candidate) => candidate.id === normalizeBackgroundApplyTarget(target))
+    || backgroundApplyTargetOptions(workspace)[0];
+}
+
+function backgroundApplyTargetPrimaryLabel(target = state.backgroundApplyTarget) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  if (scope === "pane") return "Apply to pane";
+  if (scope === "all") return "Apply to all";
+  return "Apply";
+}
+
 async function applyBackgroundValueToTarget(value, target = state.backgroundApplyTarget, options = {}) {
   const scope = normalizeBackgroundApplyTarget(target);
   if (scope === "pane") return applyPanelBackgroundImage(value, activeTerminalPanelForSettings(), options);
   if (scope === "all") return applyWorkspaceBackgroundImageToTerminals(value, activeWorkspace(), options);
   return applyCustomBackgroundImage(value, options);
+}
+
+async function applyBackgroundPresetToTarget(preset, target = state.backgroundApplyTarget) {
+  if (!preset) return false;
+  const scope = normalizeBackgroundApplyTarget(target);
+  if (scope === "app") return applyBackgroundPreset(preset, { toast: true });
+  return applyBackgroundValueToTarget(preset.value, scope, { toast: true });
+}
+
+async function applySavedBackgroundImageToTarget(backgroundId, target = state.backgroundApplyTarget) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  if (scope === "app") return applySavedBackgroundImage(backgroundId);
+  if (scope === "pane") return applySavedBackgroundImageToPanel(backgroundId);
+  return applySavedBackgroundImageToWorkspaceTerminals(backgroundId);
 }
 
 async function applyCurrentBackgroundToTarget() {
@@ -12632,11 +12658,15 @@ function backgroundPresetGrid() {
   grid.className = "background-preset-grid";
   const workspace = activeWorkspace();
   const activeTerminal = activeTerminalPanelForSettings();
-  const hasTerminalPanes = workspaceTerminalPanels(workspace).length > 0;
+  const terminalPanels = workspaceTerminalPanels(workspace);
+  const hasTerminalPanes = terminalPanels.length > 0;
+  const target = normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
+  const targetOption = backgroundApplyTargetOption(target, workspace);
   for (const preset of backgroundPresets) {
     const activeApp = preset.value === state.settings.backgroundImage;
     const activePane = Boolean(activeTerminal && panelBackgroundMatches(activeTerminal, preset.value));
     const activeAll = terminalBackgroundsMatch(workspace, preset.value);
+    const activeTarget = target === "pane" ? activePane : target === "all" ? activeAll : activeApp;
     const card = document.createElement("div");
     card.className = [
       "background-preset-card",
@@ -12647,14 +12677,16 @@ function backgroundPresetGrid() {
     card.dataset.settingsSearch = normalizeSettingsQuery(`background image wallpaper template ${preset.label}`);
 
     const button = document.createElement("button");
-    button.className = `background-preset${activeApp ? " is-active" : ""}`;
+    button.className = `background-preset${activeTarget ? " is-active" : ""}`;
     button.type = "button";
-    button.title = `Apply ${preset.label} to app background`;
-    button.setAttribute("aria-label", `Apply ${preset.label} to app background`);
+    button.disabled = Boolean(targetOption.disabled);
+    button.title = `Apply ${preset.label} to ${targetOption.label.toLowerCase()}`;
+    button.setAttribute("aria-label", `Apply ${preset.label} to ${targetOption.label}.`);
+    button.setAttribute("aria-pressed", activeTarget ? "true" : "false");
     button.style.setProperty("--preset-background", preset.preview);
     button.innerHTML = `<span class="background-preset-preview"></span><span class="background-preset-label"></span>`;
     button.querySelector(".background-preset-label").textContent = preset.label;
-    button.onclick = () => applyBackgroundPreset(preset, { toast: true });
+    button.onclick = () => applyBackgroundPresetToTarget(preset, target);
 
     const scope = document.createElement("div");
     scope.className = "background-preset-scope";
@@ -12675,17 +12707,40 @@ function backgroundPresetGrid() {
 
     const actions = document.createElement("div");
     actions.className = "background-preset-actions";
-    const appAction = settingsActionButton("App", () => applyBackgroundPreset(preset, { toast: true }), "primary", `background template app whole window ${preset.label}`);
-    const paneAction = settingsActionButton("Pane", () => applyPanelBackgroundImage(preset.value, activeTerminalPanelForSettings()), "", `background template active terminal pane ${preset.label}`);
-    paneAction.disabled = !activeTerminal;
-    const allAction = settingsActionButton("All terminals", () => applyWorkspaceBackgroundImageToTerminals(preset.value), "", `background template all terminal panes ${preset.label}`);
-    allAction.disabled = !hasTerminalPanes;
-    actions.append(appAction, paneAction, allAction);
+    const applyAction = settingsActionButton(backgroundApplyTargetPrimaryLabel(target), () => applyBackgroundPresetToTarget(preset, target), "primary", `background template apply selected target ${targetOption.label} ${preset.label}`);
+    applyAction.disabled = Boolean(targetOption.disabled);
+    const moreAction = settingsActionButton("More", (event) => showBackgroundPresetMenu(event, preset), "", `background template more scopes app pane all terminals ${preset.label}`);
+    actions.append(applyAction, moreAction);
 
     card.append(button, scope, actions);
     grid.append(card);
   }
   return grid;
+}
+
+function showBackgroundPresetMenu(event, preset) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  if (!preset) return;
+  const workspace = activeWorkspace();
+  const activeTerminal = activeTerminalPanelForSettings();
+  const hasTerminalPanes = workspaceTerminalPanels(workspace).length > 0;
+  const menu = ensureContextMenu();
+  menu.className = "context-menu";
+  const title = document.createElement("div");
+  title.className = "context-title";
+  title.textContent = preset.label || "Background";
+  const meta = document.createElement("div");
+  meta.className = "context-meta";
+  meta.textContent = "Choose where to apply this background.";
+  const actions = contextMenuActionGroup(
+    contextMenuButton("Apply to app", () => applyBackgroundPreset(preset, { toast: true })),
+    contextMenuButton("Apply to active terminal", () => applyBackgroundPresetToTarget(preset, "pane"), !activeTerminal),
+    contextMenuButton("Apply to all terminals", () => applyBackgroundPresetToTarget(preset, "all"), !hasTerminalPanes)
+  );
+  menu.replaceChildren(title, meta, contextMenuSectionTitle("Apply"), actions);
+  const rect = event?.currentTarget?.getBoundingClientRect?.();
+  showContextMenuAt(menu, rect ? rect.left : window.innerWidth / 2, rect ? rect.bottom + 6 : window.innerHeight / 2);
 }
 
 function applyBackgroundPreset(preset, options = {}) {
@@ -12759,10 +12814,13 @@ function savedBackgroundImagesPanel() {
   const activeTerminal = activeTerminalPanelForSettings();
   const terminalPanels = workspaceTerminalPanels(workspace);
   const hasTerminalPanes = terminalPanels.length > 0;
+  const target = normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
+  const targetOption = backgroundApplyTargetOption(target, workspace);
   for (const background of state.savedBackgroundImages) {
     const activeApp = normalizeBackgroundValue(state.settings.backgroundImage) === normalizeBackgroundValue(background.url);
     const activePane = Boolean(activeTerminal && panelBackgroundMatches(activeTerminal, background.url));
     const activeAll = hasTerminalPanes && terminalPanels.every((panel) => panelBackgroundMatches(panel, background.url));
+    const activeTarget = target === "pane" ? activePane : target === "all" ? activeAll : activeApp;
     const card = document.createElement("div");
     card.className = [
       "saved-background-card",
@@ -12774,12 +12832,13 @@ function savedBackgroundImagesPanel() {
     const preview = document.createElement("button");
     preview.className = "saved-background-preview";
     preview.type = "button";
-    preview.title = `Apply ${background.label} as app background`;
-    preview.setAttribute("aria-label", `Apply ${background.label} as app background`);
-    preview.setAttribute("aria-pressed", activeApp ? "true" : "false");
+    preview.disabled = Boolean(targetOption.disabled);
+    preview.title = `Apply ${background.label} to ${targetOption.label.toLowerCase()}`;
+    preview.setAttribute("aria-label", `Apply ${background.label} to ${targetOption.label}.`);
+    preview.setAttribute("aria-pressed", activeTarget ? "true" : "false");
     preview.style.setProperty("--saved-background-image", backgroundCss(background.url));
     preview.style.setProperty("--saved-background-repeat", backgroundRepeatCss(background.url));
-    preview.onclick = () => applySavedBackgroundImage(background.id);
+    preview.onclick = () => applySavedBackgroundImageToTarget(background.id, target);
     const text = document.createElement("div");
     text.className = "saved-background-text";
     const label = document.createElement("div");
@@ -12811,17 +12870,10 @@ function savedBackgroundImagesPanel() {
 
     const cardActions = document.createElement("div");
     cardActions.className = "saved-background-card-actions";
-    const pane = settingsActionButton("Pane", () => applySavedBackgroundImageToPanel(background.id), "", `apply saved background to active terminal pane ${background.label}`);
-    pane.disabled = !activeTerminal;
-    const allPanes = settingsActionButton("All terminals", () => applySavedBackgroundImageToWorkspaceTerminals(background.id), "", `apply saved background to all terminal panes workspace ${background.label}`);
-    allPanes.disabled = !hasTerminalPanes;
+    const apply = settingsActionButton(backgroundApplyTargetPrimaryLabel(target), () => applySavedBackgroundImageToTarget(background.id, target), "primary", `apply saved background selected target ${targetOption.label} ${background.label}`);
+    apply.disabled = Boolean(targetOption.disabled);
     const more = settingsActionButton("More", (event) => showSavedBackgroundImageMenu(event, background), "", `saved background more actions open rename delete copy ${background.label}`);
-    cardActions.append(
-      settingsActionButton("App", () => applySavedBackgroundImage(background.id), "primary", `apply saved background app whole window ${background.label}`),
-      pane,
-      allPanes,
-      more
-    );
+    cardActions.append(apply, more);
     card.append(preview, text, scope, cardActions);
     list.append(card);
   }
@@ -12841,13 +12893,28 @@ function showSavedBackgroundImageMenu(event, background) {
   const meta = document.createElement("div");
   meta.className = "context-meta";
   meta.textContent = background.url || "";
-  const actions = contextMenuActionGroup(
+  const workspace = activeWorkspace();
+  const activeTerminal = activeTerminalPanelForSettings();
+  const hasTerminalPanes = workspaceTerminalPanels(workspace).length > 0;
+  const applyActions = contextMenuActionGroup(
+    contextMenuButton("Apply to app", () => applySavedBackgroundImage(background.id)),
+    contextMenuButton("Apply to active terminal", () => applySavedBackgroundImageToPanel(background.id), !activeTerminal),
+    contextMenuButton("Apply to all terminals", () => applySavedBackgroundImageToWorkspaceTerminals(background.id), !hasTerminalPanes)
+  );
+  const manageActions = contextMenuActionGroup(
     contextMenuButton("Open source", () => openBackgroundImageSource(background.url), !canOpenBackgroundImageSource(background.url)),
     contextMenuButton("Copy source", () => copySavedBackgroundImageSource(background)),
     contextMenuButton("Rename", () => renameSavedBackgroundImage(background.id)),
     contextMenuButton("Delete", () => deleteSavedBackgroundImage(background.id), false, "danger")
   );
-  menu.replaceChildren(title, meta, contextMenuSectionTitle("Background"), actions);
+  menu.replaceChildren(
+    title,
+    meta,
+    contextMenuSectionTitle("Apply"),
+    applyActions,
+    contextMenuSectionTitle("Manage"),
+    manageActions
+  );
   const rect = event?.currentTarget?.getBoundingClientRect?.();
   showContextMenuAt(menu, rect ? rect.left : window.innerWidth / 2, rect ? rect.bottom + 6 : window.innerHeight / 2);
 }

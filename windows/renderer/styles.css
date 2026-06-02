@@ -8900,7 +8900,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .background-preset-actions {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, .85fr) minmax(0, .85fr) minmax(0, 1.3fr);
+  grid-template-columns: minmax(0, 1fr) 58px;
   gap: var(--space-1);
 }
 
@@ -8962,8 +8962,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 @container (max-width: 380px) {
   .background-preset-grid,
-  .background-preset-scope,
-  .background-preset-actions {
+  .background-preset-scope {
     grid-template-columns: 1fr;
   }
 }
@@ -9094,7 +9093,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .saved-background-card-actions {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.25fr) 58px;
+  grid-template-columns: minmax(0, 1fr) 58px;
   gap: var(--space-1);
 }
 
@@ -9102,12 +9101,6 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   height: 28px;
   padding-inline: var(--space-1);
   font-size: 11px;
-}
-
-@container (max-width: 330px) {
-  .saved-background-card-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 .terminal-color-preset-grid {
