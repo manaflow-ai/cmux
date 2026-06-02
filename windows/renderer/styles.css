@@ -3211,6 +3211,15 @@ body.reduce-motion *::after {
     linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 76%, transparent), var(--color-canvas));
 }
 
+.shell.has-background .empty-workspace {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--color-pane) 72%, transparent),
+      color-mix(in oklch, var(--color-canvas) 82%, transparent)
+    );
+}
+
 .empty-workspace-inner {
   width: min(620px, 100%);
   display: grid;

@@ -4136,7 +4136,19 @@ function createEmptyWorkspaceLogo() {
   logo.className = "empty-workspace-logo";
   logo.setAttribute("role", "img");
   logo.setAttribute("aria-label", "cmux Windows");
-  logo.innerHTML = `<img src="./assets/cmux-empty.svg" alt="">`;
+  logo.innerHTML = `
+    <svg viewBox="0 0 180 180" aria-hidden="true" focusable="false">
+      <rect class="empty-logo-shell" width="180" height="180" rx="28"></rect>
+      <rect class="empty-logo-window" x="34" y="38" width="112" height="88" rx="10"></rect>
+      <rect class="empty-logo-accent" x="46" y="54" width="54" height="8" rx="4"></rect>
+      <rect class="empty-logo-line strong" x="46" y="74" width="86" height="8" rx="4"></rect>
+      <rect class="empty-logo-line" x="46" y="94" width="66" height="8" rx="4"></rect>
+      <path class="empty-logo-stand" d="M64 142h52"></path>
+      <path class="empty-logo-stand" d="M90 126v18"></path>
+      <circle class="empty-logo-dot" cx="129" cy="54" r="5"></circle>
+      <path class="empty-logo-check" d="M57 119 72 134l34-42"></path>
+    </svg>
+  `;
   return logo;
 }
 
