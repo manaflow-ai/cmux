@@ -15,7 +15,9 @@ npm start
 
 ## CLI
 
-With the app running:
+With the app running, run these commands from a cmux terminal pane so the
+panel-scoped authentication environment is already present. For automation
+outside a pane, provide the app launch token through `CMUX_WINDOWS_TOKEN`.
 
 ```powershell
 npm run cli -- ping

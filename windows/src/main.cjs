@@ -287,7 +287,12 @@ async function openUrlInBrowserProfile(url, profileId = "system") {
 
 function spawnRuntimeProcess() {
   return new Promise((resolve, reject) => {
-    const startupTimeoutMs = Math.max(1000, Number(process.env.CMUX_RUNTIME_STARTUP_TIMEOUT || 15000));
+    const configuredStartupTimeoutMs = process.env.CMUX_RUNTIME_STARTUP_TIMEOUT
+      ? Number(process.env.CMUX_RUNTIME_STARTUP_TIMEOUT)
+      : NaN;
+    const startupTimeoutMs = Number.isFinite(configuredStartupTimeoutMs)
+      ? Math.max(1000, configuredStartupTimeoutMs)
+      : 15000;
     const nodeExe = process.env.CMUX_WINDOWS_NODE || "node";
     const child = spawn(nodeExe, [serverProcessPath], {
       cwd: appRoot,

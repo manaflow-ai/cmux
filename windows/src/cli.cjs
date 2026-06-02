@@ -29,7 +29,7 @@ const panelToken = process.env.CMUX_WINDOWS_PANEL_TOKEN || "";
 const panelId = process.env.CMUX_PANEL_ID || "";
 
 if (!launchToken && (!panelToken || !panelId)) {
-  process.stderr.write("cmuxw: missing CMUX_WINDOWS_TOKEN or panel-scoped cmux environment\n");
+  process.stderr.write("cmuxw: authentication required\n");
   process.exit(1);
 }
 
@@ -51,7 +51,7 @@ socket.on("data", (chunk) => {
   }
 });
 
-socket.on("error", (error) => {
-  process.stderr.write(`cmuxw: connection_failed ${pipeName}\n`);
+socket.on("error", () => {
+  process.stderr.write("cmuxw: unable to connect to a running cmux Windows app\n");
   process.exitCode = 1;
 });

@@ -1,5 +1,14 @@
 import React, { useEffect, useRef } from "react";
 
+const defaultLabels = {
+  searchPlaceholder: "Search settings",
+  clearSearch: "Clear search",
+  pageLabel: "Page",
+  pageAriaLabel: "Settings page",
+  pagesAriaLabel: "Settings pages",
+  tabTitle: "{label} settings"
+};
+
 export function SettingsShell({
   activeCategory,
   categories,
@@ -10,6 +19,15 @@ export function SettingsShell({
   onClear,
   labels = {}
 }) {
+  const safeLabels = {
+    searchPlaceholder: labels.searchPlaceholder || defaultLabels.searchPlaceholder,
+    clearSearch: labels.clearSearch || defaultLabels.clearSearch,
+    pageLabel: labels.pageLabel || defaultLabels.pageLabel,
+    pageAriaLabel: labels.pageAriaLabel || defaultLabels.pageAriaLabel,
+    pagesAriaLabel: labels.pagesAriaLabel || defaultLabels.pagesAriaLabel,
+    tabTitle: labels.tabTitle || defaultLabels.tabTitle
+  };
+  const searchInputRef = useRef(null);
   const tabsRef = useRef(null);
 
   useEffect(() => {
@@ -23,35 +41,42 @@ export function SettingsShell({
     event.currentTarget.scrollLeft += event.deltaY;
     event.preventDefault();
   };
-  const tabTitleTemplate = labels.tabTitle || "{label}";
+  const clearSearch = () => {
+    onClear();
+    requestAnimationFrame(() => {
+      searchInputRef.current?.focus({ preventScroll: true });
+    });
+  };
+  const tabTitleTemplate = safeLabels.tabTitle || defaultLabels.tabTitle;
 
   return (
     <div className="settings-react-shell" data-react-settings="true">
       <div className={`settings-search${query ? " has-query" : ""}`}>
         <input
-          aria-label={labels.searchPlaceholder}
+          aria-label={safeLabels.searchPlaceholder}
           className="setting-control settings-search-input"
           type="search"
-          placeholder={labels.searchPlaceholder}
+          placeholder={safeLabels.searchPlaceholder}
+          ref={searchInputRef}
           value={query}
           onChange={(event) => onQuery(event.target.value)}
         />
         <button
-          aria-label={labels.clearSearch}
+          aria-label={safeLabels.clearSearch}
           className="settings-search-clear"
           type="button"
           disabled={!query}
-          title={labels.clearSearch}
-          onClick={onClear}
+          title={safeLabels.clearSearch}
+          onClick={clearSearch}
         >
           <span aria-hidden="true">×</span>
         </button>
       </div>
       <div className="settings-page-switcher">
         <div className="settings-page-head">
-          <span className="settings-page-label">{labels.pageLabel}</span>
+          <span className="settings-page-label">{safeLabels.pageLabel}</span>
           <select
-            aria-label={subtitle || labels.pageAriaLabel}
+            aria-label={subtitle || safeLabels.pageAriaLabel}
             className="setting-select settings-page-select"
             value={activeCategory}
             onChange={(event) => onCategory(event.target.value)}
@@ -64,7 +89,7 @@ export function SettingsShell({
           </select>
         </div>
         <div
-          aria-label={labels.pagesAriaLabel}
+          aria-label={safeLabels.pagesAriaLabel}
           className="settings-page-tabs"
           onWheel={onTabsWheel}
           ref={tabsRef}
