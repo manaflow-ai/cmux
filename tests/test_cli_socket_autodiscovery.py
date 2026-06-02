@@ -634,6 +634,202 @@ def test_base_debug_cli_discovers_cmux_tag(cli_path: str) -> bool:
     return True
 
 
+def test_dead_environment_socket_path_falls_back_to_tagged_socket(cli_path: str) -> bool:
+    tag = f"cli-dead-env-{os.getpid()}"
+    live_socket = f"/tmp/cmux-debug-{tag}.sock"
+    dead_socket = f"/tmp/cmux-dead-env-{tag}.sock"
+    server = PingServer(live_socket)
+    server.start()
+
+    if not server.wait_ready(2.0):
+        print("FAIL: fallback socket server did not become ready")
+        return False
+
+    if server.error is not None:
+        print(f"FAIL: fallback socket server failed to start: {server.error}")
+        return False
+
+    try:
+        with temporary_socket_home("cmux-cli-dead-env-") as home, \
+                tempfile.TemporaryDirectory(prefix="cmux-cli-dead-env-app-") as apps:
+            debug_cli = bundled_cli_for_variant(
+                cli_path,
+                apps,
+                "cmux DEV issue4357",
+                "com.cmuxterm.app.debug",
+            )
+            proc = run_ping(
+                debug_cli,
+                home,
+                extra_env={
+                    "CMUX_SOCKET_PATH": dead_socket,
+                    "CMUX_TAG": tag,
+                },
+            )
+    except Exception as exc:
+        print(f"FAIL: invoking cmux ping with dead CMUX_SOCKET_PATH failed: {exc}")
+        return False
+    finally:
+        server.join(timeout=2.0)
+        for path in (live_socket, dead_socket):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    if server.error is not None:
+        print(f"FAIL: fallback socket server error: {server.error}")
+        return False
+
+    if proc.returncode != 0:
+        print("FAIL: cmux ping with dead CMUX_SOCKET_PATH returned non-zero status")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    if proc.stdout.strip() != "PONG":
+        print("FAIL: cmux ping did not fall back from dead CMUX_SOCKET_PATH")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    if dead_socket not in proc.stderr or live_socket not in proc.stderr:
+        print("FAIL: cmux ping fallback warning did not name dead and live sockets")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    return True
+
+
+def test_reachable_environment_socket_path_remains_authoritative(cli_path: str) -> bool:
+    tag = f"cli-live-env-{os.getpid()}"
+    env_socket = f"/tmp/cmux-live-env-{tag}.sock"
+    server = PingServer(env_socket)
+    server.start()
+
+    if not server.wait_ready(2.0):
+        print("FAIL: environment socket server did not become ready")
+        return False
+
+    if server.error is not None:
+        print(f"FAIL: environment socket server failed to start: {server.error}")
+        return False
+
+    try:
+        with temporary_socket_home("cmux-cli-live-env-") as home, \
+                tempfile.TemporaryDirectory(prefix="cmux-cli-live-env-app-") as apps:
+            debug_cli = bundled_cli_for_variant(
+                cli_path,
+                apps,
+                "cmux DEV issue4357 live",
+                "com.cmuxterm.app.debug",
+            )
+            proc = run_ping(
+                debug_cli,
+                home,
+                extra_env={
+                    "CMUX_SOCKET_PATH": env_socket,
+                    "CMUX_TAG": tag,
+                },
+            )
+    except Exception as exc:
+        print(f"FAIL: invoking cmux ping with live CMUX_SOCKET_PATH failed: {exc}")
+        return False
+    finally:
+        server.join(timeout=2.0)
+        try:
+            os.remove(env_socket)
+        except OSError:
+            pass
+
+    if server.error is not None:
+        print(f"FAIL: environment socket server error: {server.error}")
+        return False
+
+    if proc.returncode != 0:
+        print("FAIL: cmux ping with live CMUX_SOCKET_PATH returned non-zero status")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    if proc.stdout.strip() != "PONG":
+        print("FAIL: cmux ping did not use live CMUX_SOCKET_PATH")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    if "CMUX_SOCKET_PATH" in proc.stderr:
+        print("FAIL: cmux ping warned even though CMUX_SOCKET_PATH was live")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    return True
+
+
+def test_dead_environment_socket_path_without_candidate_reports_no_fallback(cli_path: str) -> bool:
+    slug = f"cli-no-fallback-{os.getpid()}"
+    dead_socket = f"/tmp/cmux-dead-env-{slug}.sock"
+    default_socket = f"/tmp/cmux-nightly-{slug}.sock"
+    tmp_marker = f"/tmp/cmux-nightly-{slug}-last-socket-path"
+
+    for path in (dead_socket, default_socket, tmp_marker):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    try:
+        with temporary_socket_home("cmux-cli-no-fallback-") as home, \
+                tempfile.TemporaryDirectory(prefix="cmux-cli-no-fallback-app-") as apps:
+            nightly_cli = bundled_cli_for_variant(
+                cli_path,
+                apps,
+                "cmux NIGHTLY issue4357 no fallback",
+                f"com.cmuxterm.app.nightly.{slug}",
+            )
+            proc = run_ping(
+                nightly_cli,
+                home,
+                extra_env={
+                    "CMUX_SOCKET_PATH": dead_socket,
+                    "LANG": "en_US_POSIX",
+                    "LC_ALL": "en_US_POSIX",
+                },
+            )
+    except Exception as exc:
+        print(f"FAIL: invoking cmux ping with no fallback socket failed: {exc}")
+        return False
+    finally:
+        for path in (dead_socket, default_socket, tmp_marker):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    if proc.returncode == 0:
+        print("FAIL: cmux ping with no fallback socket unexpectedly succeeded")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    if dead_socket not in proc.stderr:
+        print("FAIL: no-fallback warning did not name the dead CMUX_SOCKET_PATH")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    if f"using {dead_socket}" in proc.stderr:
+        print("FAIL: no-fallback warning claimed it was using the same dead socket")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    if "no fallback socket found" not in proc.stderr:
+        print("FAIL: no-fallback warning did not report that no fallback was found")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    return True
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -642,6 +838,15 @@ def main() -> int:
         return 1
 
     if not test_base_debug_cli_discovers_cmux_tag(cli_path):
+        return 1
+
+    if not test_dead_environment_socket_path_falls_back_to_tagged_socket(cli_path):
+        return 1
+
+    if not test_reachable_environment_socket_path_remains_authoritative(cli_path):
+        return 1
+
+    if not test_dead_environment_socket_path_without_candidate_reports_no_fallback(cli_path):
         return 1
 
     if not test_variant_last_socket_markers(cli_path):

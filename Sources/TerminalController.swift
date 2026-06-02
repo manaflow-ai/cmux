@@ -106,6 +106,15 @@ class TerminalController {
         }
     }
 
+    struct SocketListenerReadiness: Sendable {
+        let health: SocketListenerHealth
+        let pingResponse: String?
+
+        var isReady: Bool {
+            health.isHealthy && pingResponse == "PONG"
+        }
+    }
+
     static let shared = TerminalController()
 
     private nonisolated(unsafe) var socketPath = SocketControlSettings.stableDefaultSocketPath
@@ -143,6 +152,8 @@ class TerminalController {
     private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
     private nonisolated static let socketProbePollAttempts = 3
     private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
+    private nonisolated static let socketRestartBindRetryAttempts = 3
+    private nonisolated static let socketRestartBindRetryBackoffMs = 50
     private nonisolated static let socketPathLockSuffix = ".lock"
     private nonisolated static let socketPathLockReusableMarker = "cmux-socket-lock-v1\n"
     private nonisolated static let socketClientReadTimeout: TimeInterval = 30
@@ -1045,6 +1056,14 @@ class TerminalController {
         return currentIdentity == boundIdentity
     }
 
+    private nonisolated static func unlinkSocketPath(_ path: String, ifIdentityMatches expected: SocketPathIdentity?) {
+        guard let expected,
+              socketPathIdentity(at: path) == expected else {
+            return
+        }
+        unlink(path)
+    }
+
     private nonisolated static func unixSocketAddress(path: String) -> sockaddr_un? {
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -1381,6 +1400,84 @@ class TerminalController {
         )
     }
 
+    private nonisolated func bindListenerSocketOnListenerQueue(
+        _ socket: Int32,
+        path: String,
+        canReplaceRefusedSocket: Bool
+    ) -> SocketBindAttemptResult {
+        socketListenerQueue.sync {
+            Self.bindListenerSocket(
+                socket,
+                path: path,
+                canReplaceRefusedSocket: canReplaceRefusedSocket
+            )
+        }
+    }
+
+    private nonisolated func bindListenerSocketOnListenerQueueWithRetry(
+        _ socket: Int32,
+        path: String,
+        canReplaceRefusedSocket: Bool
+    ) async -> SocketBindAttemptResult {
+        var attempt = 1
+        while true {
+            let result = bindListenerSocketOnListenerQueue(
+                socket,
+                path: path,
+                canReplaceRefusedSocket: canReplaceRefusedSocket
+            )
+            guard case .failure(_, let stage, let errnoCode) = result,
+                  stage == "bind",
+                  Self.shouldRetrySocketBindFailure(errnoCode: errnoCode) else {
+                return result
+            }
+            guard attempt < Self.socketRestartBindRetryAttempts else { return result }
+            attempt += 1
+            await Self.socketRestartBindRetryDelay()
+        }
+    }
+
+    private nonisolated static func shouldRetrySocketBindFailure(
+        errnoCode: Int32
+    ) -> Bool {
+        switch errnoCode {
+        case EADDRINUSE, EAGAIN, EINTR:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private nonisolated static func socketRestartBindRetryDelay() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .utility).asyncAfter(
+                deadline: .now() + .milliseconds(socketRestartBindRetryBackoffMs)
+            ) {
+                continuation.resume()
+            }
+        }
+    }
+
+    private nonisolated static func temporaryReplacementSocketPath(for socketPath: String) -> String? {
+        let socketURL = URL(fileURLWithPath: socketPath)
+        let fileName = ".\(socketURL.lastPathComponent).replacement.\(getpid()).\(UUID().uuidString.prefix(8)).sock"
+        let path = socketURL.deletingLastPathComponent()
+            .appendingPathComponent(fileName, isDirectory: false)
+            .path
+        return path.utf8.count <= unixSocketPathMaxLength ? path : nil
+    }
+
+    private nonisolated static func promoteReplacementSocketPath(
+        _ replacementPath: String,
+        to targetPath: String,
+        expectedPreviousIdentity: SocketPathIdentity?
+    ) -> Int32? {
+        guard socketPathIdentity(at: targetPath) == expectedPreviousIdentity else {
+            return EBUSY
+        }
+        return rename(replacementPath, targetPath) == 0 ? nil : errno
+    }
+
     nonisolated static func prepareSocketPathForBind(
         _ path: String,
         canReplaceRefusedSocket: Bool = false
@@ -1447,20 +1544,6 @@ class TerminalController {
             return socketPathLockHasReusableMarker(fd)
         }
         return true
-    }
-
-    private nonisolated func bindListenerSocketOnListenerQueue(
-        _ socket: Int32,
-        path: String,
-        canReplaceRefusedSocket: Bool
-    ) -> SocketBindAttemptResult {
-        socketListenerQueue.sync {
-            Self.bindListenerSocket(
-                socket,
-                path: path,
-                canReplaceRefusedSocket: canReplaceRefusedSocket
-            )
-        }
     }
 
     private enum SocketPathProbeResult {
@@ -1833,6 +1916,305 @@ class TerminalController {
         startAcceptSource(listenerSocket: listenerSocket, generation: generation)
     }
 
+    @discardableResult
+    func restartIfUnhealthy(
+        tabManager: TabManager,
+        socketPath requestedSocketPath: String,
+        accessMode restartAccessMode: SocketControlMode,
+        source: String,
+        preflightReadiness: SocketListenerReadiness? = nil
+    ) async -> Bool {
+        self.tabManager = tabManager
+        self.accessMode = restartAccessMode
+
+        let readiness: SocketListenerReadiness
+        if let preflightReadiness {
+            readiness = preflightReadiness
+        } else {
+            readiness = await socketListenerReadiness(expectedSocketPath: requestedSocketPath, timeout: 1.0)
+        }
+        let health = readiness.health
+        let pingResponse = readiness.pingResponse
+        if readiness.isReady {
+            applySocketPermissions(to: requestedSocketPath, accessMode: restartAccessMode)
+            sentryBreadcrumb("socket.listener.restart.skipped", category: "socket", data: [
+                "path": requestedSocketPath,
+                "source": source,
+                "reason": "healthy"
+            ])
+            return false
+        }
+
+        let previousSnapshot = listenerStateSnapshot()
+        let previousPathIdentity = previousSnapshot.boundSocketPathIdentity
+        var activeSocketPath = requestedSocketPath
+        var restartSocketPathLockFD: Int32 = -1
+        var restartSocketPathLockTransferred = false
+        var restartSocketPathCanReplaceRefusedSocket = false
+        defer {
+            if !restartSocketPathLockTransferred {
+                Self.releaseSocketPathLock(restartSocketPathLockFD)
+            }
+        }
+
+        func acquireRestartSocketPathLock(for path: String) -> SocketBindAttemptResult? {
+            if previousSnapshot.socketPath == path && previousSnapshot.socketPathLockHeld {
+                restartSocketPathCanReplaceRefusedSocket = false
+                return nil
+            }
+            if restartSocketPathLockFD >= 0 {
+                Self.releaseSocketPathLock(restartSocketPathLockFD)
+                restartSocketPathLockFD = -1
+            }
+
+            let lock = Self.acquireSocketPathLock(for: path)
+            if let fd = lock.fd {
+                restartSocketPathLockFD = fd
+                restartSocketPathCanReplaceRefusedSocket = lock.canReplaceRefusedSocket
+                return nil
+            }
+            let failure = lock.failure ?? (stage: "lock", errnoCode: EIO)
+            return .failure(path: path, stage: failure.stage, errnoCode: failure.errnoCode)
+        }
+
+        sentryBreadcrumb("socket.listener.restart.atomic", category: "socket", data: [
+            "path": requestedSocketPath,
+            "source": source,
+            "failureSignals": health.failureSignals.joined(separator: ","),
+            "pingResponse": pingResponse ?? ""
+        ])
+
+        let newServerSocket = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard newServerSocket >= 0 else {
+            let errnoCode = errno
+            reportSocketListenerFailure(
+                message: "socket.listener.restart.failed",
+                stage: "create_socket",
+                errnoCode: errnoCode
+            )
+            return false
+        }
+
+        var shouldCloseNewSocket = true
+        defer {
+            if shouldCloseNewSocket {
+                close(newServerSocket)
+            }
+        }
+
+        let targetPathIdentity = Self.socketPathIdentity(at: activeSocketPath)
+        let replacementSocketPath = targetPathIdentity == nil
+            ? nil
+            : Self.temporaryReplacementSocketPath(for: activeSocketPath)
+        if targetPathIdentity != nil, replacementSocketPath == nil {
+            reportSocketListenerFailure(
+                message: "socket.listener.restart.failed",
+                stage: "replacement_path_too_long",
+                errnoCode: ENAMETOOLONG,
+                extra: [
+                    "path": activeSocketPath,
+                    "pathLength": activeSocketPath.utf8.count,
+                    "maxPathLength": Self.unixSocketPathMaxLength
+                ]
+            )
+            return false
+        }
+
+        let initialBindPath = replacementSocketPath ?? activeSocketPath
+        var boundReplacementSocketPath: String?
+        var bindUsesReplacementPath = replacementSocketPath != nil
+        var newBoundSocketPathIdentity: SocketPathIdentity?
+        var bindAttempt = await bindListenerSocketOnListenerQueueWithRetry(
+            newServerSocket,
+            path: initialBindPath,
+            canReplaceRefusedSocket: false
+        )
+        if case .failure(let failedPath, let failedStage, let failedErrnoCode) = bindAttempt,
+           let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
+               requestedPath: activeSocketPath,
+               stage: failedStage,
+               errnoCode: failedErrnoCode
+           ),
+           fallbackPath != activeSocketPath {
+            sentryBreadcrumb(
+                "socket.listener.restart.path.fallback",
+                category: "socket",
+                data: [
+                    "requestedPath": activeSocketPath,
+                    "failedBindPath": failedPath,
+                    "fallbackPath": fallbackPath,
+                    "stage": failedStage,
+                    "errno": Int(failedErrnoCode)
+                ]
+            )
+            activeSocketPath = fallbackPath
+            bindUsesReplacementPath = false
+            if let lockFailure = acquireRestartSocketPathLock(for: activeSocketPath) {
+                bindAttempt = lockFailure
+            } else {
+                bindAttempt = await bindListenerSocketOnListenerQueueWithRetry(
+                    newServerSocket,
+                    path: activeSocketPath,
+                    canReplaceRefusedSocket: restartSocketPathCanReplaceRefusedSocket
+                )
+            }
+        }
+
+        switch bindAttempt {
+        case .success(let boundPath, let identity):
+            newBoundSocketPathIdentity = identity
+            if bindUsesReplacementPath {
+                boundReplacementSocketPath = boundPath
+            } else {
+                activeSocketPath = boundPath
+            }
+        case .pathTooLong(let failedPath):
+            reportSocketListenerFailure(
+                message: "socket.listener.restart.failed",
+                stage: "bind_path_too_long",
+                errnoCode: ENAMETOOLONG,
+                extra: [
+                    "path": failedPath,
+                    "pathLength": failedPath.utf8.count,
+                    "maxPathLength": Self.unixSocketPathMaxLength
+                ]
+            )
+            return false
+        case .failure(let failedPath, let failedStage, let failedErrnoCode):
+            reportSocketListenerFailure(
+                message: "socket.listener.restart.failed",
+                stage: failedStage,
+                errnoCode: failedErrnoCode,
+                extra: ["path": failedPath]
+            )
+            return false
+        }
+
+        let boundSocketPath = boundReplacementSocketPath ?? activeSocketPath
+        applySocketPermissions(to: boundSocketPath, accessMode: restartAccessMode)
+
+        if let errnoCode = Self.configureNonBlocking(newServerSocket) {
+            let newPathIdentity = Self.socketPathIdentity(at: boundSocketPath)
+            Self.unlinkSocketPath(boundSocketPath, ifIdentityMatches: newPathIdentity)
+            reportSocketListenerFailure(
+                message: "socket.listener.restart.failed",
+                stage: "configure_nonblocking",
+                errnoCode: errnoCode
+            )
+            return false
+        }
+
+        guard listen(newServerSocket, Self.socketListenBacklog) >= 0 else {
+            let errnoCode = errno
+            let newPathIdentity = Self.socketPathIdentity(at: boundSocketPath)
+            Self.unlinkSocketPath(boundSocketPath, ifIdentityMatches: newPathIdentity)
+            reportSocketListenerFailure(
+                message: "socket.listener.restart.failed",
+                stage: "listen",
+                errnoCode: errnoCode
+            )
+            return false
+        }
+
+        if let boundReplacementSocketPath {
+            let replacementPathIdentity = Self.socketPathIdentity(at: boundReplacementSocketPath)
+            if let errnoCode = Self.promoteReplacementSocketPath(
+                boundReplacementSocketPath,
+                to: activeSocketPath,
+                expectedPreviousIdentity: targetPathIdentity
+            ) {
+                Self.unlinkSocketPath(boundReplacementSocketPath, ifIdentityMatches: replacementPathIdentity)
+                reportSocketListenerFailure(
+                    message: "socket.listener.restart.failed",
+                    stage: "promote_replacement",
+                    errnoCode: errnoCode,
+                    extra: [
+                        "path": activeSocketPath,
+                        "replacementPath": boundReplacementSocketPath
+                    ]
+                )
+                return false
+            }
+        }
+
+        SocketControlSettings.recordLastSocketPath(activeSocketPath)
+        Self.markSocketPathLockReusable(restartSocketPathLockFD)
+
+        let transfer = withListenerState {
+            let previousSource = listenerReadSource
+            let previousSourceWasSuspended = listenerReadSourceSuspended
+            let previousSocket = serverSocket
+            let previousSocketPathLockFD = socketPathLockFD
+
+            isRunning = true
+            acceptLoopAlive = false
+            pendingAcceptLoopRearmGeneration = nil
+            acceptSourceConsecutiveFailures = 0
+            nextAcceptLoopGeneration &+= 1
+            let generation = nextAcceptLoopGeneration
+            activeAcceptLoopGeneration = generation
+            serverSocket = newServerSocket
+            socketPath = activeSocketPath
+            boundSocketPathIdentity = newBoundSocketPathIdentity
+            listenerStartInProgress = false
+            listenerReadSource = nil
+            listenerReadSourceSuspended = false
+            if restartSocketPathLockFD >= 0 {
+                socketPathLockFD = restartSocketPathLockFD
+            }
+
+            return (
+                generation: generation,
+                previousSource: previousSource,
+                previousSourceWasSuspended: previousSourceWasSuspended,
+                previousSocket: previousSocket,
+                previousSocketPathLockFD: previousSocketPathLockFD
+            )
+        }
+        if restartSocketPathLockFD >= 0 {
+            restartSocketPathLockTransferred = true
+            if transfer.previousSocketPathLockFD >= 0,
+               transfer.previousSocketPathLockFD != restartSocketPathLockFD {
+                Self.releaseSocketPathLock(transfer.previousSocketPathLockFD)
+            }
+            restartSocketPathLockFD = -1
+        }
+        shouldCloseNewSocket = false
+
+        sentryBreadcrumb(
+            "socket.listener.restarted",
+            category: "socket",
+            data: [
+                "path": activeSocketPath,
+                "mode": restartAccessMode.rawValue,
+                "generation": transfer.generation,
+                "source": source,
+                "backlog": Self.socketListenBacklog
+            ]
+        )
+        NotificationCenter.default.post(
+            name: .socketListenerDidStart,
+            object: self,
+            userInfo: ["path": activeSocketPath]
+        )
+
+        startSocketPathMonitor(path: activeSocketPath, generation: transfer.generation)
+        startAcceptSource(listenerSocket: newServerSocket, generation: transfer.generation)
+        cancelPreviousListener(
+            source: transfer.previousSource,
+            sourceWasSuspended: transfer.previousSourceWasSuspended,
+            socket: transfer.previousSocket
+        )
+        if previousSnapshot.socketPath != activeSocketPath {
+            Self.unlinkSocketPath(previousSnapshot.socketPath, ifIdentityMatches: previousPathIdentity)
+        }
+        return true
+    }
+
+    func refreshSocketListenerPermissions(socketPath: String, accessMode: SocketControlMode) {
+        applySocketPermissions(to: socketPath, accessMode: accessMode)
+    }
+
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
         let snapshot = listenerStateSnapshot()
         let pathMatches = snapshot.socketPath == expectedSocketPath
@@ -1849,6 +2231,20 @@ class TerminalController {
             socketPathExists: pathExists,
             socketPathOwnedByListener: pathOwnedByListener
         )
+    }
+
+    nonisolated func socketListenerReadiness(
+        expectedSocketPath: String,
+        timeout: TimeInterval
+    ) async -> SocketListenerReadiness {
+        let health = socketListenerHealth(expectedSocketPath: expectedSocketPath)
+        let pingResponse: String?
+        if health.isHealthy {
+            pingResponse = await Self.probeSocketCommandAsync("ping", at: expectedSocketPath, timeout: timeout)
+        } else {
+            pingResponse = nil
+        }
+        return SocketListenerReadiness(health: health, pingResponse: pingResponse)
     }
 
     nonisolated static func socketPathExists(
@@ -1933,11 +2329,11 @@ class TerminalController {
         )
 
         Task { @MainActor [weak self] in
-            self?.restartSocketListenerIfPathMissing(path: path, generation: generation)
+            await self?.restartSocketListenerIfPathMissing(path: path, generation: generation)
         }
     }
 
-    private func restartSocketListenerIfPathMissing(path: String, generation: UInt64) {
+    private func restartSocketListenerIfPathMissing(path: String, generation: UInt64) async {
         guard let tabManager else { return }
         let restartMode = accessMode
         let shouldRestart = withListenerState {
@@ -1958,8 +2354,50 @@ class TerminalController {
                 "generation": generation
             ]
         )
-        stop()
-        start(tabManager: tabManager, socketPath: path, accessMode: restartMode)
+        await restartIfUnhealthy(
+            tabManager: tabManager,
+            socketPath: path,
+            accessMode: restartMode,
+            source: "path_monitor"
+        )
+    }
+
+    private nonisolated static func unixSocketConnectErrno(
+        at socketPath: String,
+        timeout: TimeInterval
+    ) -> Int32? {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return errno }
+        defer { close(fd) }
+        Self.configureSocketTimeouts(fd, timeout: timeout)
+
+        var addr = sockaddr_un()
+        memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
+        addr.sun_family = sa_family_t(AF_UNIX)
+
+        let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+        let pathBytes = Array(socketPath.utf8CString)
+        guard pathBytes.count <= maxLen else { return ENAMETOOLONG }
+        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+            let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
+            memset(raw, 0, maxLen)
+            for index in 0..<pathBytes.count {
+                raw[index] = pathBytes[index]
+            }
+        }
+
+        let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+        let addrLen = socklen_t(pathOffset + pathBytes.count)
+#if os(macOS)
+        addr.sun_len = UInt8(min(Int(addrLen), 255))
+#endif
+
+        let connectResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                connect(fd, sockaddrPtr, addrLen)
+            }
+        }
+        return connectResult == 0 ? nil : errno
     }
 
     nonisolated static func probeSocketCommand(
@@ -2043,6 +2481,34 @@ class TerminalController {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    nonisolated static func probeSocketCommandAsync(
+        _ command: String,
+        at socketPath: String,
+        timeout: TimeInterval
+    ) async -> String? {
+        await Task.detached(priority: .utility) {
+            Self.probeSocketCommand(command, at: socketPath, timeout: timeout)
+        }.value
+    }
+
+    private nonisolated func cancelPreviousListener(
+        source: DispatchSourceRead?,
+        sourceWasSuspended: Bool,
+        socket: Int32
+    ) {
+        if socket >= 0 {
+            shutdown(socket, SHUT_RDWR)
+        }
+        if sourceWasSuspended {
+            source?.resume()
+        }
+        if let source {
+            source.cancel()
+        } else if socket >= 0 {
+            close(socket)
+        }
+    }
+
     nonisolated func stop() {
         let (
             sourceToCancel,
@@ -2120,12 +2586,15 @@ class TerminalController {
     }
 
     private func applySocketPermissions() {
+        applySocketPermissions(to: withListenerState { socketPath }, accessMode: accessMode)
+    }
+
+    private func applySocketPermissions(to path: String, accessMode: SocketControlMode) {
         let permissions = mode_t(accessMode.socketFilePermissions)
-        let currentSocketPath = withListenerState { socketPath }
-        if chmod(currentSocketPath, permissions) != 0 {
+        if chmod(path, permissions) != 0 {
             let errnoCode = errno
             print(
-                "TerminalController: Failed to set socket permissions to \(String(permissions, radix: 8)) for \(currentSocketPath)"
+                "TerminalController: Failed to set socket permissions to \(String(permissions, radix: 8)) for \(path)"
             )
             sentryBreadcrumb(
                 "socket.listener.permissions.failed",
@@ -2133,7 +2602,10 @@ class TerminalController {
                 data: socketListenerEventData(
                     stage: "chmod",
                     errnoCode: errnoCode,
-                    extra: ["permissions": String(permissions, radix: 8)]
+                    extra: [
+                        "permissions": String(permissions, radix: 8),
+                        "path": path
+                    ]
                 )
             )
         }
