@@ -6828,6 +6828,87 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   color: var(--color-faint);
 }
 
+.quick-preset-rail {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.quick-preset-rail-item {
+  min-width: 0;
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 88%, var(--color-rail) 12%);
+  color: var(--color-text);
+  text-align: left;
+}
+
+.quick-preset-rail-item:hover,
+.quick-preset-rail-item:focus-visible {
+  border-color: color-mix(in oklch, var(--color-accent) 42%, var(--color-line-strong) 58%);
+  background: var(--color-pane-warm);
+}
+
+.quick-preset-rail-item.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 54%, var(--color-line) 46%);
+  background: color-mix(in oklch, var(--color-accent) 12%, var(--color-pane) 88%);
+}
+
+.quick-preset-rail-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-muted);
+}
+
+.quick-preset-rail-item.is-active .quick-preset-rail-icon,
+.quick-preset-rail-item:hover .quick-preset-rail-icon,
+.quick-preset-rail-item:focus-visible .quick-preset-rail-icon {
+  border-color: color-mix(in oklch, var(--color-accent) 54%, var(--color-line) 46%);
+  background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane) 86%);
+  color: var(--color-text);
+}
+
+.quick-preset-rail-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.quick-preset-rail-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.quick-preset-rail-label,
+.quick-preset-rail-body {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.quick-preset-rail-label {
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.quick-preset-rail-body {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
 .quick-setup-guide {
   min-width: 0;
   display: grid;
@@ -7193,6 +7274,10 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 @container (max-width: 380px) {
   .quick-settings-shortcut-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .quick-preset-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .quick-guide-heading {

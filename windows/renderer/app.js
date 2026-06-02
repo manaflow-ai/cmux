@@ -8387,6 +8387,7 @@ function renderSettingsInspector(options = {}) {
   if (shouldBuildSection("quick")) {
     const quickSection = settingsSection("Quick setup");
     quickSection.append(quickSetupOverviewPanel());
+    quickSection.append(quickSetupPresetRailPanel());
     quickSection.append(quickSetupGuidePanel());
     quickSection.append(quickActionDisclosurePanel());
     quickSection.append(paneShapePanel(workspace));
@@ -11344,6 +11345,43 @@ function quickSetupOverviewPanel() {
     active: scope.allPanesMatch,
     muted: scope.paneCount === 0
   });
+  return panel;
+}
+
+const quickSetupPresetRailItems = [
+  { id: "simple", label: "Clean", body: "Quiet chrome", icon: "clean", search: "clean simple minimal ui quiet chrome" },
+  { id: "performance", label: "Fast", body: "Reduce lag", icon: "speed", search: "fast performance speed lag smooth" },
+  { id: "focus", label: "Focus", body: "Hide extras", icon: "focus", search: "focus mode hide chrome workspace" },
+  { id: "balanced", label: "Balanced", body: "Restore default", icon: "quick", search: "balanced restore default settings" }
+];
+
+function quickSetupPresetRailPanel() {
+  const panel = document.createElement("div");
+  panel.className = "quick-preset-rail";
+  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup clean fast focus balanced preset simple performance restore default");
+  for (const item of quickSetupPresetRailItems) {
+    const preset = settingsPresetById(item.id);
+    if (!preset) continue;
+    const active = isActiveSettingsPreset(preset);
+    const button = document.createElement("button");
+    button.className = `quick-preset-rail-item${active ? " is-active" : ""}`;
+    button.type = "button";
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.title = `${item.label}: ${preset.body}`;
+    button.dataset.settingsSearch = normalizeSettingsQuery(`quick setup preset ${item.label} ${item.body} ${preset.body} ${item.search}`);
+    button.innerHTML = `
+      <span class="quick-preset-rail-icon" aria-hidden="true"></span>
+      <span class="quick-preset-rail-copy">
+        <span class="quick-preset-rail-label"></span>
+        <span class="quick-preset-rail-body"></span>
+      </span>
+    `;
+    button.querySelector(".quick-preset-rail-icon").innerHTML = quickActionIconMarkup(item.icon);
+    button.querySelector(".quick-preset-rail-label").textContent = item.label;
+    button.querySelector(".quick-preset-rail-body").textContent = item.body;
+    button.onclick = () => applySettingsPreset(preset);
+    panel.append(button);
+  }
   return panel;
 }
 
