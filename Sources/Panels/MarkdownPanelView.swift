@@ -432,7 +432,7 @@ private struct MarkdownTypographyControl: View {
                 Button(String(localized: "markdown.typography.resetBuiltIn", defaultValue: "Reset to built-in defaults")) {
                     panel.resetTypographyToBuiltInDefaults()
                 }
-                Button(String(localized: "markdown.fontSize.setDefault", defaultValue: "Set as Default")) {
+                Button(String(localized: "markdown.fontSize.setDefault", defaultValue: "Set as default for new viewers")) {
                     MarkdownTypographyDefaults.setDefault(
                         fontSize: panel.fontSize,
                         fontFamily: panel.fontFamily,

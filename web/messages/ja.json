@@ -593,8 +593,17 @@
           "byCwd": {
             "newWorkspacePlacement": "グループ内で Cmd-N、グループヘッダーの + ボタン、設定済みグループアクションが新しいワークスペースを配置する場所の cwd 別上書きです: `afterCurrent` (アクティブなグループ内ワークスペースの直後。ない場合は top)、`top` (アンカー直後の2番目の位置)、`end` (最後のメンバーの後)。省略時はグローバル既定値に戻ります。"
           }
+        },
+        "markdown": {
+          "fontSize": "新しく開く Markdown ビューアの本文フォントサイズの既定値（ポイント単位）です。Cmd-+ / Cmd-- / Cmd-0 でその場で拡大・縮小できます。",
+          "fontFamily": "新しく開く Markdown ビューアの本文フォントファミリーの既定値です。空のままにするとシステムの Markdown フォントスタックを使います。",
+          "maxWidth": "新しく開く Markdown ビューアの読み取りカラム最大幅の既定値（CSS ピクセル単位）です。"
         }
-      }
+      },
+      "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",
+      "exampleMarkdownFontSizeZoom": "Cmd-+ / Cmd-- / Cmd-0 でその場で拡大・縮小できます。",
+      "exampleMarkdownFontFamily": "本文フォントファミリーの既定値です。空のままにするとシステムの Markdown フォントスタックを使います。",
+      "exampleMarkdownMaxWidth": "読み取りカラム最大幅の既定値（CSS ピクセル単位）です。"
     },
     "customCommands": {
       "title": "カスタムコマンド",

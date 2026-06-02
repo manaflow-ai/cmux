@@ -533,8 +533,17 @@
           "byCwd": {
             "newWorkspacePlacement": "Nadpisanie dla cwd określające, gdzie Cmd-N w grupie, przycisk + w nagłówku grupy i skonfigurowane akcje grupy umieszczają nowy workspace: `afterCurrent` (po aktywnym workspace w grupie, z fallbackiem do top), `top` (druga pozycja, tuż za kotwicą) albo `end` (po ostatnim członku). Jeśli pominięte, używana jest globalna wartość domyślna."
           }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "Niestandardowe polecenia",
