@@ -847,7 +847,7 @@ async function applyCustomBackgroundImage(value, options = {}) {
   }
   const validated = await validateBackgroundImageValue(raw);
   if (!validated.ok) {
-    toast("Background image could not be loaded.");
+    if (options.toast) toast("Background image could not be loaded.");
     if (options.resetInput) options.resetInput.value = isBackgroundPreset(state.settings.backgroundImage) ? "" : state.settings.backgroundImage;
     return null;
   }
