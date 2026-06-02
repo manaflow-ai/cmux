@@ -7434,6 +7434,7 @@ function renderSettingsInspector(options = {}) {
     terminalSection.append(scrollbackRow);
     const cursorSelect = document.createElement("select");
     cursorSelect.className = "setting-select";
+    cursorSelect.dataset.settingControl = "terminalCursorStyle";
     for (const [value, label] of terminalCursorStyles) {
       const option = document.createElement("option");
       option.value = value;
@@ -9891,6 +9892,10 @@ function scheduleTerminalSettingsPreviewRefresh() {
 function refreshTerminalSettingsPreview() {
   const preview = elements.inspectorBody.querySelector(".terminal-settings-preview");
   if (preview) preview.replaceWith(terminalSettingsPreviewPanel());
+  const cursorSelect = elements.inspectorBody.querySelector('[data-setting-control="terminalCursorStyle"]');
+  if (cursorSelect && cursorSelect.value !== state.settings.terminalCursorStyle) {
+    cursorSelect.value = state.settings.terminalCursorStyle;
+  }
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
 
