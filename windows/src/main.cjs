@@ -76,6 +76,35 @@ function hardenWebContents(contents) {
   }
 }
 
+function hardenWebviewPreferences(webPreferences = {}) {
+  delete webPreferences.preload;
+  delete webPreferences.preloadURL;
+  webPreferences.nodeIntegration = false;
+  webPreferences.nodeIntegrationInSubFrames = false;
+  webPreferences.contextIsolation = true;
+  webPreferences.sandbox = true;
+  webPreferences.webSecurity = true;
+  webPreferences.allowRunningInsecureContent = false;
+}
+
+function isAllowedWebviewInitialUrl(url) {
+  if (!url) return true;
+  return /^https?:\/\//i.test(url) || url === "about:blank";
+}
+
+function attachWebviewHardening(contents) {
+  contents.on("will-attach-webview", (event, webPreferences, params = {}) => {
+    hardenWebviewPreferences(webPreferences);
+    if (!isAllowedWebviewInitialUrl(params.src || "")) {
+      event.preventDefault();
+      log(`blocked webview attach url=${params.src || ""}`);
+    }
+  });
+  contents.on("did-attach-webview", (_event, webContents) => {
+    hardenWebContents(webContents);
+  });
+}
+
 function isTrustedIpcEvent(event) {
   if (!event || !mainWindow || event.sender !== mainWindow.webContents || !trustedRendererOrigin) return false;
   const frameUrl = event.senderFrame?.url || event.sender.getURL?.() || "";
@@ -406,9 +435,7 @@ async function createWindow() {
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
     log(`did-fail-load code=${errorCode} description=${errorDescription} url=${validatedURL}`);
   });
-  mainWindow.webContents.on("did-attach-webview", (_event, webContents) => {
-    hardenWebContents(webContents);
-  });
+  attachWebviewHardening(mainWindow.webContents);
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     log(`render-process-gone ${JSON.stringify(details)}`);
   });
