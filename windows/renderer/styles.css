@@ -1199,14 +1199,14 @@ body.reduce-motion *::after {
   flex-basis: min(var(--surface-tab-basis, 160px), 118px);
   min-width: min(var(--surface-tab-min, 104px), 82px);
   max-width: min(var(--surface-tab-max, 220px), 142px);
-  grid-template-columns: 16px minmax(0, 1fr);
-  gap: 4px;
-  padding: 0 5px 0 5px;
+  grid-template-columns: 16px minmax(0, 1fr) 20px;
+  gap: 3px;
+  padding: 0 3px 0 5px;
 }
 
 .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab):hover,
 .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab).is-active {
-  padding: 0 5px 0 5px;
+  padding: 0 3px 0 5px;
 }
 
 @container (max-width: 520px) {
@@ -1339,13 +1339,11 @@ body.reduce-motion *::after {
 }
 
 .surface-tabs.is-crowded .surface-close {
-  position: absolute;
-  right: 3px;
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
+  transform: none;
   width: 20px;
   height: 20px;
-  background: color-mix(in oklch, var(--color-pane) 82%, transparent);
+  background: transparent;
 }
 
 .surface-tabs.is-crowded .surface-tab:hover .surface-close,
@@ -1428,7 +1426,7 @@ body.reduce-motion *::after {
 .surface-tabs.is-crowded .surface-tab:hover .surface-label,
 .surface-tabs.is-crowded .surface-tab:focus-within .surface-label,
 .surface-tabs.is-crowded .surface-tab.is-active .surface-label {
-  padding-right: 20px;
+  padding-right: 0;
 }
 
 .surface-close:hover {
@@ -2612,9 +2610,9 @@ body.reduce-motion *::after {
   min-width: 54px;
   max-width: 116px;
   flex-basis: 92px;
-  grid-template-columns: 14px minmax(0, 1fr);
-  gap: 4px;
-  padding: 0 5px 0 5px;
+  grid-template-columns: 14px minmax(0, 1fr) 17px;
+  gap: 3px;
+  padding: 0 3px 0 5px;
 }
 
 .browser-tab-list.is-crowded .browser-tab::before {
@@ -2693,14 +2691,12 @@ body.reduce-motion *::after {
 }
 
 .browser-tab-list.is-crowded .browser-tab-close {
-  position: absolute;
-  right: 2px;
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
+  transform: none;
   width: 17px;
   height: 17px;
-  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-canvas) 16%);
-  box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-line) 70%, transparent);
+  background: transparent;
+  box-shadow: none;
 }
 
 .browser-tab:hover .browser-tab-close,
@@ -2718,7 +2714,7 @@ body.reduce-motion *::after {
 .browser-tab-list.is-crowded .browser-tab:hover .browser-tab-label,
 .browser-tab-list.is-crowded .browser-tab:focus-within .browser-tab-label,
 .browser-tab-list.is-crowded .browser-tab.is-active .browser-tab-label {
-  padding-right: 18px;
+  padding-right: 0;
 }
 
 .browser-tab-close:hover {
