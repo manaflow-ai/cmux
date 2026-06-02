@@ -241,6 +241,8 @@ const windowsMessages = {
     "config.addTabStyle.labeled": "Labeled",
     "config.addTabStyle.compact": "Compact",
     "config.addTabStyle.hidden": "Hidden",
+    "config.terminalStartup.fast": "Fast",
+    "config.terminalStartup.balanced": "Balanced",
     "config.titleDetail.smart": "Smart",
     "config.titleDetail.compact": "Name only",
     "config.titleDetail.folder": "Folder only",

@@ -28,6 +28,7 @@ export function createPerformanceOverviewPanel({
       <span><b>Output</b><em data-performance-overview-value="output"></em></span>
       <span><b>Shell</b><em data-performance-overview-value="shell"></em></span>
       <span><b>Pane add</b><em data-performance-overview-value="paneAdd"></em></span>
+      <span><b>Startup</b><em data-performance-overview-value="startup"></em></span>
       <span><b>Paused</b><em data-performance-overview-value="paused"></em></span>
     </div>
     <div class="settings-actions performance-overview-actions"></div>
@@ -46,7 +47,7 @@ export function refreshPerformanceOverviewPanel(panel, model, options = {}) {
   toggleClassIfChanged(panel, "is-warning", model.status === "warning");
   toggleClassIfChanged(panel, "is-watching", model.status === "watching");
   toggleClassIfChanged(panel, "is-steady", model.status === "steady");
-  const search = normalizeSettingsQuery(`performance overview speed lag guard ${model.status} ${model.title} ${model.reason} ${model.guard} ${model.render} ${model.output}`);
+  const search = normalizeSettingsQuery(`performance overview speed lag guard startup ${model.status} ${model.title} ${model.reason} ${model.guard} ${model.render} ${model.output} ${model.startup}`);
   let changed = false;
   if (panel.dataset.settingsSearch !== search) {
     panel.dataset.settingsSearch = search;

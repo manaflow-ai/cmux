@@ -21,6 +21,7 @@ import {
   terminalCursorStyles,
   terminalFontOptions,
   terminalProfiles,
+  terminalStartupOptions,
   tabSizeOptions,
   themePreviewOptions,
   titleDetailOptions,
@@ -196,6 +197,7 @@ const terminalSettingsPreviewKeys = new Set([
   "terminalLineHeight",
   "terminalPadding",
   "terminalScrollback",
+  "terminalStartupMode",
   "terminalPauseInactiveOutput",
   "terminalCursorStyle",
   "terminalCursorBlink",
@@ -281,6 +283,7 @@ const settingsInspectorSettingKeys = {
     "terminalPauseInactiveOutput",
     "terminalSmoothResumedOutput",
     "terminalScrollback",
+    "terminalStartupMode",
     "backgroundOpacity",
     "backgroundEffects",
     "density",
@@ -297,6 +300,7 @@ const settingsInspectorSettingKeys = {
     "terminalLineHeight",
     "terminalPadding",
     "terminalScrollback",
+    "terminalStartupMode",
     "terminalCursorStyle",
     "terminalCursorBlink",
     "terminalBackground",
@@ -771,6 +775,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!terminalCursorStyles.some(([id]) => id === next.terminalCursorStyle)) next.terminalCursorStyle = defaultSettings.terminalCursorStyle;
   if (!terminalFontOptions.some(([id]) => id === next.terminalFontFamily)) next.terminalFontFamily = defaultSettings.terminalFontFamily;
   if (!terminalProfiles.some(([id]) => id === next.terminalProfile)) next.terminalProfile = defaultSettings.terminalProfile;
+  if (!terminalStartupOptions.some(([id]) => id === next.terminalStartupMode)) next.terminalStartupMode = defaultSettings.terminalStartupMode;
   next.backgroundImage = normalizeBackgroundValue(next.backgroundImage);
   next.browserHomeUrl = normalizeUrl(next.browserHomeUrl || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl);
   if (!browserLaunchModeOptions.some(([id]) => id === next.browserLaunchMode)) next.browserLaunchMode = defaultSettings.browserLaunchMode;
@@ -1777,6 +1782,7 @@ function settingsProfileSummary(settings) {
   const addTabs = optionLabel(addTabStyleOptions, normalized.addTabStyle, normalized.addTabStyle);
   const actions = paneActionOptions.find(([id]) => id === normalized.paneActionMode)?.[1] || normalized.paneActionMode;
   const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, "Flat");
+  const startup = optionLabel(terminalStartupOptions, normalized.terminalStartupMode, "Fast");
   return [
     theme,
     normalized.density,
@@ -1786,6 +1792,7 @@ function settingsProfileSummary(settings) {
     normalized.paneColorMarkers ? "colored pane markers" : "quiet pane markers",
     `${backgroundEffects.toLowerCase()} background`,
     normalized.performanceMode ? "performance" : normalized.reduceMotion ? "reduced motion" : "balanced",
+    `${startup.toLowerCase()} startup`,
     normalized.terminalPauseInactiveOutput ? "paused output" : "live output",
     normalized.terminalSmoothResumedOutput ? "smooth resume" : "fast resume",
     `${normalized.terminalFontSize}px`
@@ -2688,6 +2695,9 @@ function updateSettings(updates, options = {}) {
   }
   if (changedKeys.includes("terminalSmoothResumedOutput") && !state.settings.terminalSmoothResumedOutput) {
     for (const session of state.terminals.values()) session.resumeThrottleFrames = 0;
+  }
+  if (changedKeys.includes("terminalStartupMode") && shouldStartColdTerminalsFast()) {
+    startVisibleColdTerminalsImmediately();
   }
   if (changedKeys.includes("browserSuspendInactive")) {
     scheduleRender();
@@ -6291,6 +6301,7 @@ function markTerminalOutputReady(session) {
 }
 
 function shouldDeferInitialTerminalLoad(panel, workspace, visibleCount = 1) {
+  if (shouldStartColdTerminalsFast()) return false;
   return shouldDeferTerminalInitUntilPaint(panel, workspace)
     || shouldKeepTerminalInitDeferred(panel)
     || (visibleCount > 1
@@ -6303,6 +6314,7 @@ function shouldDeferInitialTerminalLoad(panel, workspace, visibleCount = 1) {
 
 function shouldDeferTerminalInitUntilPaint(panel, workspace) {
   return panel?.type === "terminal"
+    && !shouldStartColdTerminalsFast()
     && panel.id === workspace?.activePanelId
     && state.paintDeferredTerminalInitPanelIds.has(panel.id)
     && !state.terminals.has(panel.id)
@@ -6312,10 +6324,30 @@ function shouldDeferTerminalInitUntilPaint(panel, workspace) {
 
 function shouldKeepTerminalInitDeferred(panel) {
   return panel?.type === "terminal"
+    && !shouldStartColdTerminalsFast()
     && state.deferredTerminalInitQueue.has(panel.id)
     && !state.terminals.has(panel.id)
     && !isPanelMinimized(panel)
     && !isPendingPanel(panel);
+}
+
+function shouldStartColdTerminalsFast() {
+  return state.settings.terminalStartupMode === "fast";
+}
+
+function startVisibleColdTerminalsImmediately() {
+  const workspace = activeWorkspace();
+  if (!workspace?.panels?.length) return false;
+  const visiblePanelIds = visiblePanePanelIds();
+  let requested = false;
+  for (const panel of workspace.panels) {
+    if (panel.type !== "terminal" || !visiblePanelIds.has(panel.id)) continue;
+    requested = requestImmediateTerminalInit(panel.id) || requested;
+  }
+  if (!requested) return false;
+  state.paneRenderSignature = "";
+  scheduleRender();
+  return true;
 }
 
 function requestImmediateTerminalInit(panelId) {
@@ -8850,6 +8882,18 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked })), false, "speed smooth lag effects reduce animation"));
     performanceSection.append(settingRow("Adaptive guard", toggleInput(state.settings.adaptivePerformance, (checked) => updateSettings({ adaptivePerformance: checked })), false, "adaptive automatic performance guard lag slow output tune"));
     performanceSection.append(settingRow("Reduce motion", toggleInput(state.settings.reduceMotion, (checked) => updateSettings({ reduceMotion: checked })), false, "motion animation transition smooth reduce accessibility"));
+    const startupSelect = document.createElement("select");
+    startupSelect.className = "setting-select";
+    startupSelect.dataset.settingControl = "terminalStartupMode";
+    for (const [value, label] of terminalStartupOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      startupSelect.append(option);
+    }
+    startupSelect.value = state.settings.terminalStartupMode;
+    startupSelect.onchange = () => updateSettings({ terminalStartupMode: startupSelect.value });
+    performanceSection.append(settingRow("Terminal startup", startupSelect, false, "terminal startup new pane load fast balanced workspace switching lag"));
     performanceSection.append(settingRow("Pause inactive output", toggleInput(state.settings.terminalPauseInactiveOutput, (checked) => updateSettings({ terminalPauseInactiveOutput: checked })), false, "terminal output pause inactive hidden background lag smooth performance"));
     performanceSection.append(settingRow("Smooth resumed output", toggleInput(state.settings.terminalSmoothResumedOutput, (checked) => updateSettings({ terminalSmoothResumedOutput: checked })), false, "terminal output resume hidden backlog smooth workspace switching lag performance"));
     const scrollbackRange = document.createElement("input");
@@ -10982,6 +11026,7 @@ function performanceMetrics() {
     ["Trim events", String(state.terminalOutputStats.trimmedEvents || 0)],
     ["Fit defers", String(state.terminalFitStats.deferred || 0)],
     ["Fit flushes", String(state.terminalFitStats.flushed || 0)],
+    ["Startup", optionLabel(terminalStartupOptions, state.settings.terminalStartupMode, "Fast")],
     ["Last pane add", durationMetric(state.paneCreateStats)],
     ["Avg pane add", durationMetric(state.paneCreateStats, "avgMs")],
     ["Max pane add", durationMetric(state.paneCreateStats, "maxMs")],
@@ -11248,6 +11293,7 @@ function performanceDiagnosticsPayload() {
       adaptivePerformance: state.settings.adaptivePerformance,
       reduceMotion: state.settings.reduceMotion,
       terminalPauseInactiveOutput: state.settings.terminalPauseInactiveOutput,
+      terminalStartupMode: state.settings.terminalStartupMode,
       background: state.settings.backgroundImage
         ? isBackgroundPreset(state.settings.backgroundImage) ? state.settings.backgroundImage : "custom-image"
         : "none",
@@ -12284,6 +12330,7 @@ function performanceOverviewModel() {
     output: queuedBytes ? `${formatBytes(queuedBytes)} queued` : "Clean",
     shell: durationMetric(state.terminalConnectStats),
     paneAdd: durationMetric(state.paneCreateStats),
+    startup: optionLabel(terminalStartupOptions, state.settings.terminalStartupMode, "Fast"),
     paused: pausedOutput ? `${pausedOutput} paused` : "None",
     pending: pendingPanes ? `${pendingPanes} pending` : "None"
   };
@@ -12624,6 +12671,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     showStatusbar: false,
     terminalPadding: Math.min(state.settings.terminalPadding, 4),
     terminalScrollback: Math.min(state.settings.terminalScrollback, 6000),
+    terminalStartupMode: "balanced",
     terminalPauseInactiveOutput: true,
     browserSuspendInactive: true
   });
@@ -17195,6 +17243,7 @@ async function focusWorkspace(workspaceId) {
   const shouldDeferColdTerminalForWorkspaceSwitch = Boolean(
     switchingWorkspace
     && focusablePanel?.type === "terminal"
+    && !shouldStartColdTerminalsFast()
     && !state.terminals.has(focusablePanel.id)
     && !isPanelMinimized(focusablePanel)
     && !isPendingPanel(focusablePanel)
