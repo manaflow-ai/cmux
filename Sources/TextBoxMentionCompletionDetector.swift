@@ -1,6 +1,6 @@
 import Foundation
 
-enum TextBoxMentionCompletionDetector {
+struct TextBoxMentionCompletionDetector {
     static func query(in text: String, selectedRange: NSRange) -> TextBoxMentionQuery? {
         guard selectedRange.length == 0,
               selectedRange.location != NSNotFound else {

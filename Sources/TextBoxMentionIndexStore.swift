@@ -90,7 +90,7 @@ actor TextBoxMentionIndexStore {
             }
 
             refreshFileIndexInBackground(rootDirectory: rootDirectory, now: now)
-            return Self.scanRootFileSystemCandidates(rootURL: URL(
+            return await Self.scanRootFileSystemCandidates(rootURL: URL(
                 fileURLWithPath: rootDirectory,
                 isDirectory: true
             ))
@@ -368,7 +368,7 @@ actor TextBoxMentionIndexStore {
         return sortedFileSystemCandidates(directoryCandidates + fileCandidates)
     }
 
-    private static func scanRootFileSystemCandidates(rootURL: URL) -> [TextBoxMentionCandidate] {
+    private static func scanRootFileSystemCandidates(rootURL: URL) async -> [TextBoxMentionCandidate] {
         let fileManager = FileManager.default
         guard let children = try? fileManager.contentsOfDirectory(
             at: rootURL,
@@ -391,8 +391,8 @@ actor TextBoxMentionIndexStore {
         let relativePaths = candidateURLs.map {
             Self.relativePath(for: $0.path, rootPath: rootPath)
         }
-        let ignoredRelativePaths = isGitWorkTree(rootURL: rootURL)
-            ? gitIgnoredRelativePaths(rootURL: rootURL, relativePaths: relativePaths)
+        let ignoredRelativePaths = await isGitWorkTree(rootURL: rootURL)
+            ? await gitIgnoredRelativePaths(rootURL: rootURL, relativePaths: relativePaths)
             : []
 
         var candidates: [TextBoxMentionCandidate] = []
@@ -463,7 +463,7 @@ actor TextBoxMentionIndexStore {
             return nil
         }
 
-        let directorySeed = scanDirectoryCandidateSeed(rootURL: rootURL)
+        let directorySeed = await scanDirectoryCandidateSeed(rootURL: rootURL)
         var directoryCandidates = directorySeed.candidates
         var fileCandidates: [TextBoxMentionCandidate] = []
         var seenDirectoryRelativePaths = directorySeed.seenRelativePaths
@@ -551,10 +551,10 @@ actor TextBoxMentionIndexStore {
 
     private static func scanDirectoryCandidateSeed(
         rootURL: URL
-    ) -> (candidates: [TextBoxMentionCandidate], seenRelativePaths: Set<String>) {
+    ) async -> (candidates: [TextBoxMentionCandidate], seenRelativePaths: Set<String>) {
         let fileManager = FileManager.default
         let rootPath = rootURL.standardizedFileURL.path
-        let checksGitIgnore = isGitWorkTree(rootURL: rootURL)
+        let checksGitIgnore = await isGitWorkTree(rootURL: rootURL)
         var candidates: [TextBoxMentionCandidate] = []
         var seenRelativePaths = Set<String>()
         candidates.reserveCapacity(min(maxIndexedDirectories, 256))
@@ -571,7 +571,7 @@ actor TextBoxMentionIndexStore {
                 Self.relativePath(for: $0.path, rootPath: rootPath)
             }
             let ignoredRelativePaths = checksGitIgnore
-                ? gitIgnoredRelativePaths(rootURL: rootURL, relativePaths: relativePaths)
+                ? await gitIgnoredRelativePaths(rootURL: rootURL, relativePaths: relativePaths)
                 : []
 
             for standardizedURL in directoryBatch {
@@ -619,7 +619,7 @@ actor TextBoxMentionIndexStore {
             }
     }
 
-    private static func isGitWorkTree(rootURL: URL) -> Bool {
+    private static func isGitWorkTree(rootURL: URL) async -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [
@@ -630,17 +630,23 @@ actor TextBoxMentionIndexStore {
         ]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+        let terminationStatus = TextBoxProcessTerminationStatus()
+        process.terminationHandler = { process in
+            let status = process.terminationStatus
+            Task {
+                await terminationStatus.finish(status: status)
+            }
+        }
 
         do {
             try process.run()
         } catch {
             return false
         }
-        process.waitUntilExit()
-        return process.terminationStatus == 0
+        return await terminationStatus.wait() == 0
     }
 
-    private static func gitIgnoredRelativePaths(rootURL: URL, relativePaths: [String]) -> Set<String> {
+    private static func gitIgnoredRelativePaths(rootURL: URL, relativePaths: [String]) async -> Set<String> {
         guard !relativePaths.isEmpty else { return [] }
 
         let process = Process()
@@ -657,11 +663,29 @@ actor TextBoxMentionIndexStore {
         process.standardInput = stdin
         process.standardOutput = stdout
         process.standardError = FileHandle.nullDevice
+        let terminationStatus = TextBoxProcessTerminationStatus()
+        process.terminationHandler = { process in
+            let status = process.terminationStatus
+            Task {
+                await terminationStatus.finish(status: status)
+            }
+        }
 
         do {
             try process.run()
         } catch {
             return []
+        }
+        let outputTask = Task<Data, Never> {
+            var output = Data()
+            do {
+                for try await byte in stdout.fileHandleForReading.bytes {
+                    output.append(byte)
+                }
+            } catch {
+                return Data()
+            }
+            return output
         }
 
         let probePaths = relativePaths + relativePaths.map { "\($0)/" }
@@ -671,9 +695,9 @@ actor TextBoxMentionIndexStore {
         }
         stdin.fileHandleForWriting.closeFile()
 
-        let output = stdout.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 || process.terminationStatus == 1,
+        let output = await outputTask.value
+        let status = await terminationStatus.wait()
+        guard status == 0 || status == 1,
               let outputText = String(data: output, encoding: .utf8) else {
             return []
         }

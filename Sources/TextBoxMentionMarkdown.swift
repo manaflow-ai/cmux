@@ -1,6 +1,6 @@
 import Foundation
 
-enum TextBoxMentionMarkdown {
+struct TextBoxMentionMarkdown {
     static func link(label: String, path: String) -> String {
         let escapedLabel = label
             .replacingOccurrences(of: "\\", with: "\\\\")

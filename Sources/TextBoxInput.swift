@@ -4219,17 +4219,24 @@ final class TextBoxInputTextView: NSTextView {
 
         if flags.contains(.control) {
             guard let key = mentionCompletionControlNavigationKey(for: event) else { return false }
-            // Only claim the navigation keys once there are rows to move through;
-            // otherwise (active query still loading or zero hits) let them fall
-            // through to normal text editing instead of being silently swallowed.
-            guard mentionCompletionController.hasCurrentSuggestions else { return false }
             switch key {
             case "p", "k":
-                if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+                if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                    dismissMentionCompletions()
+                    return false
+                }
+                // Only claim the navigation keys once there are rows to move through;
+                // otherwise (active query still loading or zero hits) let them fall
+                // through to normal text editing instead of being silently swallowed.
+                guard mentionCompletionController.hasCurrentSuggestions else { return false }
                 mentionCompletionController.moveSelection(delta: -1)
                 return true
             case "n", "j":
-                if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+                if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                    dismissMentionCompletions()
+                    return false
+                }
+                guard mentionCompletionController.hasCurrentSuggestions else { return false }
                 mentionCompletionController.moveSelection(delta: 1)
                 return true
             default:
@@ -4239,25 +4246,43 @@ final class TextBoxInputTextView: NSTextView {
 
         switch Int(event.keyCode) {
         case kVK_UpArrow:
-            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
             guard mentionCompletionController.hasCurrentSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: -1)
             return true
         case kVK_DownArrow:
-            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
             guard mentionCompletionController.hasCurrentSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: 1)
             return true
         case kVK_Return, kVK_ANSI_KeypadEnter:
             guard !flags.contains(.shift) else { return false }
-            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
-            if shouldBypassMentionCompletionReturnAcceptance() { return false }
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
+            if shouldBypassMentionCompletionReturnAcceptance() {
+                dismissMentionCompletions()
+                return false
+            }
             return acceptMentionCompletion()
         case kVK_Tab:
-            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
             return acceptMentionCompletion()
         case kVK_Escape:
-            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
             guard mentionCompletionController.shouldShowPopover else { return false }
             dismissMentionCompletions()
             return true
@@ -4271,24 +4296,42 @@ final class TextBoxInputTextView: NSTextView {
 
         switch commandSelector {
         case #selector(NSResponder.moveUp(_:)):
-            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
             guard mentionCompletionController.hasCurrentSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: -1)
             return true
         case #selector(NSResponder.moveDown(_:)):
-            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
             guard mentionCompletionController.hasCurrentSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: 1)
             return true
         case #selector(NSResponder.insertNewline(_:)):
-            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
-            if shouldBypassMentionCompletionReturnAcceptance() { return false }
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
+            if shouldBypassMentionCompletionReturnAcceptance() {
+                dismissMentionCompletions()
+                return false
+            }
             return acceptMentionCompletion()
         case #selector(NSResponder.insertTab(_:)):
-            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
             return acceptMentionCompletion()
         case #selector(NSResponder.cancelOperation(_:)):
-            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
             guard mentionCompletionController.shouldShowPopover else { return false }
             dismissMentionCompletions()
             return true
@@ -4303,7 +4346,6 @@ final class TextBoxInputTextView: NSTextView {
               window.isKeyWindow,
               window.firstResponder === self,
               mentionCompletionPanel?.isVisible == true else {
-            dismissMentionCompletions()
             return true
         }
         return false
@@ -4315,7 +4357,6 @@ final class TextBoxInputTextView: NSTextView {
               query.query.isEmpty else {
             return false
         }
-        dismissMentionCompletions()
         return true
     }
 
@@ -5590,7 +5631,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func mentionCompletionControlNavigationKey(for event: NSEvent) -> String? {
-        let normalizedKey = KeyboardLayout.normalizedCharacters(for: event)
+        let normalizedKey = KeyboardLayout.normalizedCharacters(for: event).lowercased()
         if normalizedKey.count == 1, normalizedKey.allSatisfy(\.isASCII) {
             return normalizedKey
         }

@@ -80,7 +80,7 @@ struct TextBoxMentionCompletionTests {
     func testTextBoxControlForwardingKeepsPhysicalControlKeyRouting() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         guard let event = makeKeyDownEvent(
-            key: "n",
+            key: "N",
             modifiers: [.control],
             keyCode: UInt16(kVK_ANSI_G),
             windowNumber: 0

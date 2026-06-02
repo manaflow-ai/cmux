@@ -41,10 +41,6 @@ final class TextBoxMentionCompletionController {
             suggestionsRootDirectory == activeRootDirectory
     }
 
-    var hasStaleSuggestions: Bool {
-        hasSuggestions && !hasCurrentSuggestions
-    }
-
     var selectedSuggestion: TextBoxMentionSuggestion? {
         guard hasCurrentSuggestions else { return nil }
         guard suggestions.indices.contains(selectionIndex) else { return nil }
