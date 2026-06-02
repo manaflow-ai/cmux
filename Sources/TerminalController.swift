@@ -12277,12 +12277,19 @@ class TerminalController {
             let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
             let insertFirst = (direction == .left || direction == .up)
 
+            if params["font_size"] != nil, v2Double(params, "font_size") == nil {
+                result = .err(code: "invalid_params", message: "Invalid 'font_size' (expected a number)", data: nil)
+                return
+            }
+            let fontSize = v2Double(params, "font_size").map { MarkdownFontSizeSettings.clamp($0) }
+
             let createdPanel = ws.newMarkdownSplit(
                 from: sourceSurfaceId,
                 orientation: orientation,
                 insertFirst: insertFirst,
                 filePath: filePath,
-                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false),
+                fontSize: fontSize
             )
 
             guard let markdownPanelId = createdPanel?.id else {
