@@ -21,6 +21,7 @@ const defaultPipeName = process.platform === "win32"
   : path.join(os.tmpdir(), "cmux-windows.sock");
 const defaultBrowserHomeUrl = "https://www.google.com";
 const terminalMetadataBroadcastDelayMs = 160;
+const focusPersistDelayMs = 180;
 const gitBranchCacheTtlMs = 5000;
 const apiRequestBodyLimitBytes = 1024 * 1024;
 const pipeReadBufferLimitBytes = 1024 * 1024;
@@ -680,6 +681,7 @@ class CmuxWindowsRuntime {
     this.pendingTerminalPrewarms = new Map();
     this.terminalMetadataTimer = null;
     this.persistBroadcastTimer = null;
+    this.persistSessionTimer = null;
     this.launchToken = String(options.launchToken || crypto.randomBytes(32).toString("base64url"));
     this.closed = false;
     this.sessionRepaired = false;
@@ -1122,19 +1124,26 @@ class CmuxWindowsRuntime {
 
   focusWorkspace(workspaceId) {
     if (!this.state.workspaces.some((workspace) => workspace.id === workspaceId)) return false;
+    if (this.state.activeWorkspaceId === workspaceId) return true;
     this.state.activeWorkspaceId = workspaceId;
-    this.persistAndBroadcast();
+    this.broadcastState();
+    this.schedulePersistSession();
     return true;
   }
 
   focusPanel(panelId) {
     const found = this.findPanel(panelId);
     if (!found) return false;
+    const alreadyFocused = this.state.activeWorkspaceId === found.workspace.id
+      && found.workspace.activePanelId === panelId;
+    const hadAttention = Boolean(found.panel.needsAttention || found.panel.notificationText);
     this.state.activeWorkspaceId = found.workspace.id;
     found.workspace.activePanelId = panelId;
     found.panel.needsAttention = false;
     found.panel.notificationText = "";
-    this.persistAndBroadcast();
+    if (alreadyFocused && !hadAttention) return true;
+    this.broadcastState();
+    this.schedulePersistSession();
     return true;
   }
 
@@ -1164,6 +1173,10 @@ class CmuxWindowsRuntime {
       clearTimeout(this.persistBroadcastTimer);
       this.persistBroadcastTimer = null;
     }
+    if (this.persistSessionTimer) {
+      clearTimeout(this.persistSessionTimer);
+      this.persistSessionTimer = null;
+    }
     if (this.terminalMetadataTimer) {
       clearTimeout(this.terminalMetadataTimer);
       this.terminalMetadataTimer = null;
@@ -1178,6 +1191,14 @@ class CmuxWindowsRuntime {
       this.persistBroadcastTimer = null;
       this.persistAndBroadcast();
     }, 0);
+  }
+
+  schedulePersistSession(delayMs = focusPersistDelayMs) {
+    if (this.persistSessionTimer) return;
+    this.persistSessionTimer = setTimeout(() => {
+      this.persistSessionTimer = null;
+      this.persistSession();
+    }, delayMs);
   }
 
   scheduleTerminalMetadataBroadcast() {
@@ -1660,6 +1681,11 @@ class CmuxWindowsRuntime {
     if (this.persistBroadcastTimer) {
       clearTimeout(this.persistBroadcastTimer);
       this.persistBroadcastTimer = null;
+    }
+    if (this.persistSessionTimer) {
+      clearTimeout(this.persistSessionTimer);
+      this.persistSessionTimer = null;
+      this.persistSession();
     }
     for (const pending of this.pendingTerminalPrewarms.values()) {
       pending.canceled = true;
