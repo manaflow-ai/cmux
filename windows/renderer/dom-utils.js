@@ -44,6 +44,14 @@ export function setHiddenIfChanged(node, hidden) {
   return true;
 }
 
+export function setDisabledIfChanged(node, disabled) {
+  if (!node) return false;
+  const next = Boolean(disabled);
+  if (node.disabled === next) return false;
+  node.disabled = next;
+  return true;
+}
+
 export function setDatasetIfChanged(node, key, value) {
   if (!node) return false;
   const next = String(value ?? "");

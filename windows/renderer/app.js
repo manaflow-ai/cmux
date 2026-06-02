@@ -50,6 +50,7 @@ import {
   setAttributeIfChanged,
   setClassNameIfChanged,
   setDatasetIfChanged,
+  setDisabledIfChanged,
   setHiddenIfChanged,
   setStylePropertyIfChanged,
   setTextIfChanged,
@@ -6476,7 +6477,7 @@ function reloadBrowserPanel(panel = focusedPanel()) {
   if (typeof session.view?.reload === "function" && !session.reload?.disabled) {
     session.view.reload();
   } else {
-    session.address.value = url;
+    if (session.address.value !== url) session.address.value = url;
     session.view.src = browserViewSourceUrl(url, state.settings.browserHomeUrl);
   }
   return true;
@@ -6656,8 +6657,8 @@ function loadDeferredBrowserSession(session) {
 function clearDeferredBrowserSession(session) {
   if (!session) return;
   session.loadDeferred = false;
-  if (session.deferredPane) session.deferredPane.hidden = true;
-  session.shell?.classList.remove("is-browser-deferred");
+  if (session.deferredPane) setHiddenIfChanged(session.deferredPane, true);
+  toggleClassIfChanged(session.shell, "is-browser-deferred", false);
 }
 
 function shouldDeferInitialBrowserLoad(panel) {
@@ -6694,8 +6695,9 @@ function renderDeferredBrowserShell(panel, body) {
     deferred.onclick = () => focusPanel(panel.id);
     body.replaceChildren(deferred);
   }
-  deferred.querySelector(".browser-deferred-url").textContent = targetUrl;
-  deferred.querySelector(".browser-deferred-url").title = targetUrl;
+  const url = deferred.querySelector(".browser-deferred-url");
+  setTextIfChanged(url, targetUrl);
+  setTitleIfChanged(url, targetUrl);
 }
 
 function saveBrowserSessionTabs(session) {
@@ -6777,10 +6779,8 @@ function updateBrowserTabNewButton(session) {
     ? browserTabLimitMessage()
     : `${t("browser.newTab")} (${tabCount}/${browserTabLimit})`;
   toggleClassIfChanged(session.tabNew, "is-disabled", atLimit);
-  session.tabNew.setAttribute("aria-disabled", String(atLimit));
-  if (session.tabNew.getAttribute("aria-label") !== label) {
-    session.tabNew.setAttribute("aria-label", label);
-  }
+  setAttributeIfChanged(session.tabNew, "aria-disabled", String(atLimit));
+  setAttributeIfChanged(session.tabNew, "aria-label", label);
   setTitleIfChanged(session.tabNew, label);
 }
 
@@ -6856,18 +6856,22 @@ function createBrowserTabButton(session) {
   button.type = "button";
   button.draggable = true;
   button.className = "browser-tab";
+  const icon = document.createElement("span");
+  icon.className = "browser-tab-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = controlIconMarkup("browser");
   const label = document.createElement("span");
   label.className = "browser-tab-label";
   const close = document.createElement("span");
   close.className = "browser-tab-close";
   close.innerHTML = controlIconMarkup("close");
-  button._browserTabParts = { label, close };
+  button._browserTabParts = { icon, label, close };
   close.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     closeBrowserTab(session, button.dataset.browserTabId);
   });
-  button.append(label, close);
+  button.append(icon, label, close);
   button.addEventListener("click", () => activateBrowserTab(session, button.dataset.browserTabId));
   button.addEventListener("mousedown", (event) => {
     if (event.button === 1) event.preventDefault();
@@ -6923,6 +6927,7 @@ function updateBrowserTabButton(session, button, tab, label = browserTabLabel(se
   const ordinal = Math.max(1, (session?.tabs || []).findIndex((candidate) => candidate.id === tab.id) + 1);
   const closeLabel = session.tabs.length <= 1 ? t("browser.resetTab") : t("browser.closeTab");
   button._browserTabParts ||= {
+    icon: button.querySelector(".browser-tab-icon"),
     label: button.querySelector(".browser-tab-label"),
     close: button.querySelector(".browser-tab-close")
   };
@@ -6932,7 +6937,7 @@ function updateBrowserTabButton(session, button, tab, label = browserTabLabel(se
   setDatasetIfChanged(button, "tabIndex", String(ordinal));
   setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""} - ${tab.url}`);
   const ariaLabel = `${label}. ${tab.url}. ${closeLabel} with Delete.`;
-  if (button.getAttribute("aria-label") !== ariaLabel) button.setAttribute("aria-label", ariaLabel);
+  setAttributeIfChanged(button, "aria-label", ariaLabel);
   setTextIfChanged(parts.label, label);
   setTitleIfChanged(parts.close, closeLabel);
 }
@@ -7090,6 +7095,7 @@ function updateActiveBrowserTabUrl(session, value) {
   if (!tab) return;
   const url = normalizeBrowserPageUrl(value || state.settings.browserHomeUrl);
   if (!url) return;
+  if (tab.url === url) return;
   tab.url = url;
   tab.title = browserTabTitle(url);
   saveBrowserSessionTabs(session);
@@ -7111,7 +7117,7 @@ function activateBrowserTab(session, tabId) {
   const tab = session.tabs.find((candidate) => candidate.id === tabId);
   if (!tab) return false;
   session.activeTabId = tab.id;
-  session.address.value = tab.url;
+  if (session.address.value !== tab.url) session.address.value = tab.url;
   clearDeferredBrowserSession(session);
   const sourceUrl = browserViewSourceUrl(tab.url, state.settings.browserHomeUrl);
   if (session.view.src !== sourceUrl) {
@@ -7286,6 +7292,16 @@ function ensureBrowser(panel, body) {
     <span class="browser-deferred-url"></span>
     <span class="browser-deferred-action">Click pane to load</span>
   `;
+  const errorTitle = errorPane.querySelector(".browser-error-title");
+  const errorBody = errorPane.querySelector(".browser-error-body");
+  const errorUrl = errorPane.querySelector(".browser-error-url");
+  const errorRetry = errorPane.querySelector(".browser-error-retry");
+  const errorOpen = errorPane.querySelector(".browser-error-open");
+  const errorHome = errorPane.querySelector(".browser-error-home");
+  const errorSettings = errorPane.querySelector(".browser-error-settings");
+  const loadingTitle = loadingPane.querySelector(".browser-loading-title");
+  const loadingUrl = loadingPane.querySelector(".browser-loading-url");
+  const deferredUrl = deferredPane.querySelector(".browser-deferred-url");
   content.append(view, errorPane, loadingPane, deferredPane);
   const isWebview = view.tagName.toLowerCase() === "webview";
   let webviewReady = !isWebview;
@@ -7293,6 +7309,10 @@ function ensureBrowser(panel, body) {
   let browserLoadTimer = 0;
   let browserLoadFailed = false;
   let session = null;
+  const setAddressValue = (value) => {
+    const next = String(value ?? "");
+    if (address.value !== next) address.value = next;
+  };
 
   const clearBrowserLoadTimer = () => {
     if (!browserLoadTimer) return;
@@ -7304,12 +7324,12 @@ function ensureBrowser(panel, body) {
     const visible = Boolean(loading);
     const targetUrl = normalizeUrl(address.value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
     clearBrowserLoadTimer();
-    loadingPane.hidden = !visible;
-    content.classList.toggle("is-loading", visible);
+    setHiddenIfChanged(loadingPane, !visible);
+    toggleClassIfChanged(content, "is-loading", visible);
     if (!visible) return;
-    loadingPane.querySelector(".browser-loading-title").textContent = `Loading ${hostnameOf(targetUrl)}`;
-    loadingPane.querySelector(".browser-loading-url").textContent = targetUrl;
-    loadingPane.querySelector(".browser-loading-url").title = targetUrl;
+    setTextIfChanged(loadingTitle, `Loading ${hostnameOf(targetUrl) || "page"}`);
+    setTextIfChanged(loadingUrl, targetUrl);
+    setTitleIfChanged(loadingUrl, targetUrl);
     browserLoadTimer = setTimeout(() => {
       browserLoadTimer = 0;
       if (!content.classList.contains("is-loading") || browserLoadFailed || deferredPane.hidden === false) return;
@@ -7326,9 +7346,9 @@ function ensureBrowser(panel, body) {
       loadingStatusTimer = 0;
     }
     if (session) session.statusText = message;
-    status.textContent = message;
-    status.classList.toggle("is-visible", Boolean(message));
-    shell.classList.toggle("has-browser-status", Boolean(message));
+    setTextIfChanged(status, message);
+    toggleClassIfChanged(status, "is-visible", Boolean(message));
+    toggleClassIfChanged(shell, "has-browser-status", Boolean(message));
     if (message === "Loading") {
       loadingStatusTimer = setTimeout(() => {
         loadingStatusTimer = 0;
@@ -7337,7 +7357,7 @@ function ensureBrowser(panel, body) {
     }
   };
   const hideBrowserError = () => {
-    errorPane.hidden = true;
+    setHiddenIfChanged(errorPane, true);
   };
   const markBrowserContentLoaded = () => {
     content.classList.add("has-loaded");
@@ -7346,21 +7366,21 @@ function ensureBrowser(panel, body) {
     const targetUrl = normalizeUrl(detail || address.value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
     clearBrowserLoadTimer();
     setLoading(false);
-    errorPane.querySelector(".browser-error-title").textContent = "Page did not load";
-    errorPane.querySelector(".browser-error-body").textContent = message;
-    errorPane.querySelector(".browser-error-url").textContent = targetUrl;
-    errorPane.querySelector(".browser-error-url").title = targetUrl;
-    errorPane.hidden = false;
+    setTextIfChanged(errorTitle, "Page did not load");
+    setTextIfChanged(errorBody, message);
+    setTextIfChanged(errorUrl, targetUrl);
+    setTitleIfChanged(errorUrl, targetUrl);
+    setHiddenIfChanged(errorPane, false);
     setStatus("");
   };
   const showDeferredBrowser = () => {
     const targetUrl = normalizeUrl(address.value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
     setLoading(false);
     hideBrowserError();
-    deferredPane.querySelector(".browser-deferred-url").textContent = targetUrl;
-    deferredPane.querySelector(".browser-deferred-url").title = targetUrl;
-    deferredPane.hidden = false;
-    shell.classList.add("is-browser-deferred");
+    setTextIfChanged(deferredUrl, targetUrl);
+    setTitleIfChanged(deferredUrl, targetUrl);
+    setHiddenIfChanged(deferredPane, false);
+    toggleClassIfChanged(shell, "is-browser-deferred", true);
     setStatus("");
   };
   const scheduleInitialBrowserLoad = () => {
@@ -7384,13 +7404,13 @@ function ensureBrowser(panel, body) {
 
   const updateNavState = () => {
     try {
-      back.disabled = !(isWebview && webviewReady && typeof view.canGoBack === "function" && view.canGoBack());
-      forward.disabled = !(isWebview && webviewReady && typeof view.canGoForward === "function" && view.canGoForward());
-      reload.disabled = isWebview && !webviewReady;
+      setDisabledIfChanged(back, !(isWebview && webviewReady && typeof view.canGoBack === "function" && view.canGoBack()));
+      setDisabledIfChanged(forward, !(isWebview && webviewReady && typeof view.canGoForward === "function" && view.canGoForward()));
+      setDisabledIfChanged(reload, isWebview && !webviewReady);
     } catch {
-      back.disabled = true;
-      forward.disabled = true;
-      reload.disabled = true;
+      setDisabledIfChanged(back, true);
+      setDisabledIfChanged(forward, true);
+      setDisabledIfChanged(reload, true);
     }
   };
 
@@ -7405,7 +7425,7 @@ function ensureBrowser(panel, body) {
   const navigate = () => {
     if (!findPanelState(panel.id)) return;
     const next = normalizeUrl(address.value, state.settings.browserHomeUrl);
-    address.value = next;
+    setAddressValue(next);
     clearDeferredBrowserSession(session);
     const sourceUrl = browserViewSourceUrl(next, state.settings.browserHomeUrl);
     if (view.src !== sourceUrl) content.classList.remove("has-loaded");
@@ -7450,16 +7470,16 @@ function ensureBrowser(panel, body) {
     tabNew.classList.remove("is-drop-before");
     if (session?.dragBrowserTabId) moveBrowserTabToEnd(session, session.dragBrowserTabId);
   });
-  errorPane.querySelector(".browser-error-retry").onclick = () => {
+  errorRetry.onclick = () => {
     hideBrowserError();
     reloadBrowserPanel(panel);
   };
-  errorPane.querySelector(".browser-error-open").onclick = () => openBrowserPanelExternally(panel);
-  errorPane.querySelector(".browser-error-home").onclick = () => {
-    address.value = state.settings.browserHomeUrl;
+  errorOpen.onclick = () => openBrowserPanelExternally(panel);
+  errorHome.onclick = () => {
+    setAddressValue(state.settings.browserHomeUrl);
     navigate();
   };
-  errorPane.querySelector(".browser-error-settings").onclick = () => openSettingsCategory("browser");
+  errorSettings.onclick = () => openSettingsCategory("browser");
   shell.addEventListener("wheel", handleBrowserWheel, { passive: false, capture: true });
   view.addEventListener("wheel", handleBrowserWheel, { passive: false, capture: true });
   address.addEventListener("focus", () => markInteractedPanel(panel.id));
@@ -7488,13 +7508,13 @@ function ensureBrowser(panel, body) {
     }
   };
   home.onclick = () => {
-    address.value = state.settings.browserHomeUrl;
+    setAddressValue(state.settings.browserHomeUrl);
     navigate();
   };
   view.addEventListener("did-navigate", (event) => {
     if (event.url) {
       const nextUrl = browserDisplayUrl(event.url, state.settings.browserHomeUrl);
-      address.value = nextUrl;
+      setAddressValue(nextUrl);
       updateActiveBrowserTabUrl(session, nextUrl);
       queueBrowserUrlSync(panel.id, nextUrl);
       scheduleEmbeddedGoogleHomePolish(view, event.url);
@@ -7520,7 +7540,7 @@ function ensureBrowser(panel, body) {
   view.addEventListener("did-navigate-in-page", (event) => {
     if (event.url) {
       const nextUrl = browserDisplayUrl(event.url, state.settings.browserHomeUrl);
-      address.value = nextUrl;
+      setAddressValue(nextUrl);
       updateActiveBrowserTabUrl(session, nextUrl);
       queueBrowserUrlSync(panel.id, nextUrl);
       scheduleEmbeddedGoogleHomePolish(view, event.url);
@@ -9604,7 +9624,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
       urlInput.value = nextUrl;
       const session = state.browserViews.get(panel.id);
       if (session) {
-        session.address.value = nextUrl;
+        if (session.address.value !== nextUrl) session.address.value = nextUrl;
         updateActiveBrowserTabUrl(session, nextUrl);
         const sourceUrl = browserViewSourceUrl(nextUrl, state.settings.browserHomeUrl);
         if (session.view.src !== sourceUrl) {

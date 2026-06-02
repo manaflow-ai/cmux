@@ -3220,20 +3220,24 @@ body.reduce-motion *::after {
 .browser-tab {
   position: relative;
   min-width: 72px;
-  max-width: 176px;
-  flex: 0 1 132px;
+  max-width: 188px;
+  flex: 0 1 146px;
   height: 26px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 18px;
+  grid-template-columns: 16px minmax(0, 1fr) 18px;
   align-items: center;
-  gap: 2px;
-  padding: 0 4px 0 var(--space-2);
+  gap: 4px;
+  padding: 0 4px 0 6px;
   border: 1px solid transparent;
   border-bottom: 0;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
   background: color-mix(in oklch, var(--color-pane) 68%, var(--color-chrome) 32%);
   color: var(--color-muted);
   font-size: 11px;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .browser-tab-list.is-crowded .browser-tab {
@@ -3266,11 +3270,36 @@ body.reduce-motion *::after {
   border-color: var(--color-line);
   background: var(--color-pane-warm);
   color: var(--color-text);
+  box-shadow:
+    inset 0 -2px 0 var(--color-accent),
+    inset 0 1px 0 color-mix(in oklch, var(--color-text) 6%, transparent);
 }
 
 .browser-tab-list.is-crowded .browser-tab.is-active::before {
   background: var(--color-accent);
   color: var(--color-accent-ink);
+}
+
+.browser-tab-icon {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--color-faint);
+}
+
+.browser-tab-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.browser-tab:hover .browser-tab-icon,
+.browser-tab.is-active .browser-tab-icon {
+  color: var(--color-text);
+}
+
+.browser-tab-list.is-crowded .browser-tab-icon {
+  display: none;
 }
 
 .browser-tab.is-dragging {
@@ -3472,6 +3501,10 @@ body.reduce-motion *::after {
   }
 
   .browser-tab-label {
+    display: none;
+  }
+
+  .browser-tab-icon {
     display: none;
   }
 
