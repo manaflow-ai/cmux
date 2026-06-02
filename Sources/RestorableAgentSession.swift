@@ -411,11 +411,11 @@ enum AgentResumeCommandBuilder {
         let candidates = [workingDirectory, launchCommand?.workingDirectory]
         for candidate in candidates {
             guard let cwd = normalized(candidate) else { continue }
-            if encodeClaudeProjectDir(cwd) == projectDirName {
+            if RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd) == projectDirName {
                 return cwd
             }
             let expanded = (cwd as NSString).expandingTildeInPath
-            if expanded != cwd, encodeClaudeProjectDir(expanded) == projectDirName {
+            if expanded != cwd, RestorableAgentSessionIndex.encodeClaudeProjectDir(expanded) == projectDirName {
                 return expanded
             }
         }
@@ -442,10 +442,6 @@ enum AgentResumeCommandBuilder {
         }
         let name = projectDirectory.lastPathComponent
         return name.isEmpty ? nil : name
-    }
-
-    private static func encodeClaudeProjectDir(_ path: String) -> String {
-        path.replacingOccurrences(of: "/", with: "-")
     }
 
     static func openCodeVersionProbe(

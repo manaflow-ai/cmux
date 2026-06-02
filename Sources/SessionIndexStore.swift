@@ -872,13 +872,6 @@ final class SessionIndexStore: ObservableObject {
             ?? url.deletingLastPathComponent().lastPathComponent
     }
 
-    /// Inverse of `decodeClaudeProjectDir`. Used as a fast path: when filtering
-    /// by cwd we can skip enumerating other project dirs entirely.
-    nonisolated private static func encodeClaudeProjectDir(_ path: String) -> String {
-        // "/Users/x/y" -> "-Users-x-y"
-        return path.replacingOccurrences(of: "/", with: "-")
-    }
-
     nonisolated private static func enumerateClaudeJSONLCandidates(
         root: ClaudeSessionRoot,
         cwdFilter: String?,
@@ -907,7 +900,7 @@ final class SessionIndexStore: ObservableObject {
         }
 
         if let cwdFilter {
-            let dirName = encodeClaudeProjectDir(cwdFilter)
+            let dirName = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwdFilter)
             let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
