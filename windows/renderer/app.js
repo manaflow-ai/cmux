@@ -56,6 +56,10 @@ import {
   toggleClassIfChanged
 } from "./dom-utils.js";
 import {
+  createEmptyWorkspaceView,
+  updateEmptyWorkspaceView
+} from "./empty-workspace-view.js";
+import {
   clampPaneLayoutPercent,
   paneLayoutPercentMax,
   paneLayoutPercentMin,
@@ -4730,47 +4734,8 @@ function browserUrlChangeNeedsRender(panel, nextUrl) {
     || panelDisplayTitle(panel, false) !== panelDisplayTitle(nextPanel, false);
 }
 
-function createEmptyWorkspaceLogo() {
-  const logo = document.createElement("div");
-  logo.className = "empty-workspace-logo";
-  logo.setAttribute("role", "img");
-  logo.setAttribute("aria-label", "cmux Windows");
-  logo.innerHTML = `
-    <svg viewBox="0 0 180 180" aria-hidden="true" focusable="false">
-      <rect class="empty-logo-shell" width="180" height="180" rx="28"></rect>
-      <rect class="empty-logo-window" x="34" y="38" width="112" height="88" rx="10"></rect>
-      <rect class="empty-logo-accent" x="46" y="54" width="54" height="8" rx="4"></rect>
-      <rect class="empty-logo-line strong" x="46" y="74" width="86" height="8" rx="4"></rect>
-      <rect class="empty-logo-line" x="46" y="94" width="66" height="8" rx="4"></rect>
-      <path class="empty-logo-stand" d="M64 142h52"></path>
-      <path class="empty-logo-stand" d="M90 126v18"></path>
-      <circle class="empty-logo-dot" cx="129" cy="54" r="5"></circle>
-      <path class="empty-logo-check" d="M57 119 72 134l34-42"></path>
-    </svg>
-  `;
-  return logo;
-}
-
-function ensureEmptyWorkspaceLogo(node) {
-  const inner = node?.querySelector(".empty-workspace-inner");
-  if (!inner || inner.querySelector(".empty-workspace-logo")) return;
-  inner.prepend(createEmptyWorkspaceLogo());
-}
-
 function createEmptyWorkspace(workspace) {
-  const node = document.createElement("div");
-  node.className = "empty-workspace";
-  node.innerHTML = `
-    <div class="empty-workspace-inner">
-      <div class="empty-workspace-title"></div>
-      <div class="empty-workspace-body">Start with a shell, browser, or ready layout.</div>
-      <div class="empty-workspace-launchers"></div>
-    </div>
-  `;
-  ensureEmptyWorkspaceLogo(node);
-  node.querySelector(".empty-workspace-title").textContent = "cmux";
-  updateEmptyWorkspaceActions(node, workspace);
-  return node;
+  return createEmptyWorkspaceView(emptyWorkspaceViewModel(workspace));
 }
 
 function renderEmptyWorkspace(workspace) {
@@ -4778,8 +4743,6 @@ function renderEmptyWorkspace(workspace) {
   if (!node) {
     node = createEmptyWorkspace(workspace);
   } else {
-    ensureEmptyWorkspaceLogo(node);
-    node.querySelector(".empty-workspace-title").textContent = "cmux";
     updateEmptyWorkspaceActions(node, workspace);
   }
   replaceChildrenIfChanged(elements.paneGrid, [node]);
@@ -4793,11 +4756,20 @@ function updateVisibleEmptyWorkspaceControls() {
 
 function updateEmptyWorkspaceActions(node, workspace) {
   const canReopen = state.closedPanels.length > 0;
-  setTextIfChanged(
-    node.querySelector(".empty-workspace-body"),
-    canReopen ? "Reopen the last pane or start fresh." : "Start with a shell or browser. Layouts stay in Settings."
-  );
-  renderEmptyWorkspaceLaunchers(node, workspace);
+  updateEmptyWorkspaceView(node, emptyWorkspaceViewModel(workspace, canReopen));
+}
+
+function emptyWorkspaceViewModel(workspace, canReopen = state.closedPanels.length > 0) {
+  const busy = paneCreationButtonsDisabled();
+  return {
+    title: "cmux",
+    bodyText: canReopen ? "Reopen the last pane or start fresh." : "Start with a terminal or browser.",
+    launchers: emptyWorkspaceLaunchers(),
+    busy,
+    busyLabel: paneCreationLimitLabel(),
+    iconMarkup: controlIconMarkup,
+    onRun: (launcher) => runEmptyWorkspaceLauncher(launcher, workspace)
+  };
 }
 
 async function workspaceForEmptyAction(workspace) {
@@ -4872,37 +4844,6 @@ async function runEmptyWorkspaceLauncher(launcher, workspace) {
     openSettingsCategory("blueprints");
     return;
   }
-}
-
-function renderEmptyWorkspaceLaunchers(node, workspace) {
-  const host = node.querySelector(".empty-workspace-launchers");
-  if (!host) return;
-  const busy = paneCreationButtonsDisabled();
-  const cards = emptyWorkspaceLaunchers().map((launcher) => {
-    const button = document.createElement("button");
-    button.className = `empty-workspace-launcher${launcher.primary ? " is-primary" : ""}`;
-    toggleClassIfChanged(button, "is-add", launcher.addAction);
-    button.type = "button";
-    button.dataset.emptyLauncher = launcher.id;
-    button.disabled = busy;
-    const launcherLabel = `${launcher.label}: ${launcher.meta}`;
-    const busyLabel = paneCreationLimitLabel();
-    button.title = busy ? busyLabel : launcherLabel;
-    button.setAttribute("aria-label", busy ? `${launcherLabel}. ${busyLabel}.` : launcherLabel);
-    button.innerHTML = `
-      <span class="empty-workspace-launcher-icon"></span>
-      <span class="empty-workspace-launcher-text">
-        <span class="empty-workspace-launcher-label"></span>
-        <span class="empty-workspace-launcher-meta"></span>
-      </span>
-    `;
-    button.querySelector(".empty-workspace-launcher-icon").innerHTML = controlIconMarkup(launcher.icon);
-    button.querySelector(".empty-workspace-launcher-label").textContent = launcher.label;
-    button.querySelector(".empty-workspace-launcher-meta").textContent = launcher.meta;
-    button.onclick = () => runEmptyWorkspaceLauncher(launcher, workspace);
-    return button;
-  });
-  replaceChildrenIfChanged(host, cards);
 }
 
 function getPaneSplitter(workspace, splitNode) {

@@ -4008,9 +4008,9 @@ body.reduce-motion *::after {
   height: 100%;
   display: grid;
   place-items: center;
-  padding: var(--space-5);
+  padding: clamp(var(--space-4), 6vw, var(--space-6));
   background:
-    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 76%, transparent), var(--color-canvas));
+    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 68%, transparent), var(--color-canvas));
 }
 
 .shell.has-background .empty-workspace {
@@ -4023,16 +4023,16 @@ body.reduce-motion *::after {
 }
 
 .empty-workspace-inner {
-  width: min(620px, 100%);
+  width: min(560px, 100%);
   display: grid;
   justify-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   text-align: center;
 }
 
 .empty-workspace-logo {
-  width: 92px;
-  height: 92px;
+  width: 78px;
+  height: 78px;
   display: block;
   filter: drop-shadow(0 14px 28px color-mix(in oklch, var(--color-canvas) 50%, transparent));
 }
@@ -4089,69 +4089,85 @@ body.reduce-motion *::after {
 .empty-workspace-title {
   color: var(--color-text);
   font-weight: 780;
-  font-size: 26px;
+  font-size: 24px;
   letter-spacing: 0;
 }
 
 .empty-workspace-body {
-  max-width: 360px;
+  max-width: 340px;
   color: var(--color-muted);
   font-size: 13px;
   line-height: 1.45;
 }
 
 .empty-workspace-launchers {
-  width: min(520px, 100%);
+  width: min(440px, 100%);
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: var(--space-2);
   margin-top: var(--space-2);
 }
 
 .empty-workspace-launcher {
+  position: relative;
   min-width: 0;
-  min-height: 44px;
+  min-height: 46px;
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
+  grid-template-columns: 28px minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
-  padding: 7px 9px;
+  padding: 8px 10px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane-warm) 50%, transparent);
+  background: color-mix(in oklch, var(--color-pane-warm) 66%, transparent);
   color: var(--color-text);
   text-align: left;
   cursor: pointer;
 }
 
+.empty-workspace-launcher.has-plus {
+  grid-template-columns: 28px minmax(0, 1fr) 22px;
+}
+
 .empty-workspace-launcher.is-add {
-  border-color: color-mix(in oklch, var(--color-accent) 34%, var(--color-line));
-  background: color-mix(in oklch, var(--color-pane-warm) 78%, var(--color-accent) 8%);
+  border-color: var(--color-line);
+  background: color-mix(in oklch, var(--color-pane-warm) 78%, var(--color-accent) 4%);
 }
 
 .empty-workspace-launcher:hover {
   border-color: var(--color-line-strong);
   background: var(--color-pane-warm);
+  transform: translateY(-1px);
+}
+
+.empty-workspace-launcher:active {
+  transform: translateY(0);
 }
 
 .empty-workspace-launcher.is-add:hover {
-  border-color: color-mix(in oklch, var(--color-accent) 64%, var(--color-line-strong));
-  background: color-mix(in oklch, var(--color-pane-warm) 72%, var(--color-accent) 14%);
+  border-color: color-mix(in oklch, var(--color-accent) 28%, var(--color-line-strong));
+  background: color-mix(in oklch, var(--color-pane-warm) 76%, var(--color-accent) 8%);
 }
 
 .empty-workspace-launcher.is-primary {
-  border-color: color-mix(in oklch, var(--color-accent) 54%, var(--color-line));
-  background: color-mix(in oklch, var(--color-accent) 18%, var(--color-pane-warm));
+  border-color: color-mix(in oklch, var(--color-accent) 36%, var(--color-line));
+  background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane-warm));
 }
 
 .empty-workspace-launcher:disabled {
   cursor: progress;
   opacity: .58;
+  transform: none;
+}
+
+.empty-workspace-launcher:disabled:hover {
+  border-color: var(--color-line);
+  background: color-mix(in oklch, var(--color-pane-warm) 66%, transparent);
 }
 
 .empty-workspace-launcher-icon {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -4171,9 +4187,30 @@ body.reduce-motion *::after {
 }
 
 .empty-workspace-launcher.is-add .empty-workspace-launcher-icon {
-  border-color: color-mix(in oklch, var(--color-accent) 46%, var(--color-line));
-  background: color-mix(in oklch, var(--color-accent) 24%, var(--color-pane));
+  border-color: color-mix(in oklch, var(--color-accent) 28%, var(--color-line));
+  background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane));
   color: var(--color-text);
+}
+
+.empty-workspace-launcher-plus {
+  display: none;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid color-mix(in oklch, var(--color-accent) 36%, var(--color-line));
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--color-accent) 18%, var(--color-pane));
+  color: var(--color-text);
+}
+
+.empty-workspace-launcher-plus.is-visible {
+  display: grid;
+}
+
+.empty-workspace-launcher-plus svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.4;
 }
 
 .empty-workspace-launcher-text {
