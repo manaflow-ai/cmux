@@ -6945,8 +6945,9 @@ body.reduce-motion *::after {
 .settings-preset {
   min-width: 0;
   display: grid;
-  gap: 3px;
-  min-height: 62px;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: var(--space-2);
+  min-height: 82px;
   padding: var(--space-2);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
@@ -6966,15 +6967,88 @@ body.reduce-motion *::after {
   box-shadow: inset 0 0 0 1px var(--color-accent);
 }
 
+.settings-preset-preview {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  grid-template-columns: 13px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 8px;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--preset-line, var(--color-line));
+  border-radius: var(--radius-1);
+  background: var(--preset-canvas, var(--color-canvas));
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 7%, transparent);
+}
+
+.settings-preset-preview-rail {
+  grid-row: 1 / span 2;
+  border-radius: 3px;
+  background: var(--preset-rail, var(--color-rail));
+}
+
+.settings-preset-preview-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.settings-preset-preview-main span {
+  border-radius: 3px;
+  background: var(--preset-pane, var(--color-pane));
+}
+
+.settings-preset-preview-main span:first-child {
+  box-shadow: inset 0 -2px 0 var(--preset-accent, var(--color-accent));
+}
+
+.settings-preset-preview-accent {
+  min-width: 0;
+  border-radius: 999px;
+  background: var(--preset-accent, var(--color-accent));
+}
+
+.settings-preset-copy {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
 .settings-preset-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 12px;
   font-weight: 760;
 }
 
 .settings-preset-body {
+  min-width: 0;
   color: var(--color-muted);
   font-size: 11px;
   line-height: 1.25;
+}
+
+.settings-preset-tags {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.settings-preset-tags span {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 3px 5px;
+  border: 1px solid color-mix(in oklch, var(--color-line) 72%, transparent);
+  border-radius: var(--radius-1);
+  color: var(--color-faint);
+  background: color-mix(in oklch, var(--color-pane-warm) 66%, transparent);
+  font: 10px/1 var(--font-mono);
 }
 
 .pane-layout-preset-grid {
@@ -8285,6 +8359,10 @@ textarea.dialog-input {
   }
 
   .empty-workspace-launchers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-preset-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
