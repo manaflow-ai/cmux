@@ -193,7 +193,7 @@ extension CmuxSettingsFileStore {
             [
                 "markdown": [
                     "fontSize": Int(MarkdownFontSizeSettings.defaultPointSize),
-                    "fontFamily": MarkdownFontFamily.systemDefault,
+                    "fontFamily": "",
                     "maxWidth": Int(MarkdownMaxWidthSettings.defaultCSSPixels),
                 ],
             ],

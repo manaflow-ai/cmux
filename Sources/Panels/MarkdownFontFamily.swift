@@ -1,4 +1,3 @@
-import CoreText
 import Foundation
 
 /// Body prose font for the markdown viewer, chosen from the user's installed
@@ -63,23 +62,5 @@ enum MarkdownFontFamily {
         await familyCache.families()
     }
 
-    private static let familyCache = FamilyCache()
-
-    /// `CTFontManagerCopyAvailableFontFamilyNames` is thread-safe, unlike the
-    /// AppKit `NSFontManager` accessor.
-    private actor FamilyCache {
-        private var cached: [String]?
-
-        func families() async -> [String] {
-            if let cached { return cached }
-            let names = await Task.detached(priority: .userInitiated) { () -> [String] in
-                let raw = (CTFontManagerCopyAvailableFontFamilyNames() as? [String]) ?? []
-                return raw
-                    .filter { !$0.hasPrefix(".") }
-                    .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-            }.value
-            cached = names
-            return names
-        }
-    }
+    private static let familyCache = MarkdownFontFamilyCache()
 }
