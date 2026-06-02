@@ -1029,7 +1029,34 @@ body.reduce-motion *::after {
   border-color: var(--color-line);
   background: var(--color-pane);
   color: var(--color-text);
-  font-family: var(--font-mono);
+}
+
+.rail-button svg,
+.icon-button svg,
+.tool-icon svg,
+.pane-tool svg,
+.surface-close svg,
+.terminal-search-button svg,
+.window-control svg,
+.quick-action-icon svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rail-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.window-control svg {
+  width: 12px;
+  height: 12px;
 }
 
 .icon-button:hover {
@@ -1132,11 +1159,9 @@ body.reduce-motion *::after {
 }
 
 .tool-icon {
-  min-width: 14px;
+  min-width: 16px;
   display: inline-grid;
   place-items: center;
-  font-family: var(--font-mono);
-  font-weight: 760;
   line-height: 1;
 }
 
@@ -5648,6 +5673,16 @@ body.reduce-motion *::after {
   background: var(--color-pane-warm);
 }
 
+.quick-settings-shortcut:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.quick-settings-shortcut:disabled:hover {
+  border-color: var(--color-line);
+  background: var(--color-pane);
+}
+
 .quick-action {
   min-height: 92px;
   grid-template-columns: 34px minmax(0, 1fr);
@@ -5676,9 +5711,11 @@ body.reduce-motion *::after {
   border-radius: var(--radius-1);
   background: color-mix(in oklch, var(--color-pane-warm) 84%, var(--color-rail) 16%);
   color: var(--color-muted);
-  font: 10px/1 var(--font-mono);
-  font-weight: 760;
-  letter-spacing: 0;
+}
+
+.quick-action-icon svg {
+  width: 17px;
+  height: 17px;
 }
 
 .quick-action-copy {

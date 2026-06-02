@@ -19,10 +19,10 @@
           </div>
         </div>
         <div class="sidebar-tools">
-          <button type="button" class="rail-button is-active" id="workspacesRailButton" title="Workspaces" aria-label="Workspaces">▦</button>
-          <button type="button" class="rail-button" id="notificationsRailButton" title="Notifications" aria-label="Notifications">◦</button>
-          <button type="button" class="rail-button" id="sessionsRailButton" title="Session tools" aria-label="Session tools">›</button>
-          <button type="button" class="rail-button" id="settingsRailButton" title="Settings" aria-label="Settings">⚙</button>
+          <button type="button" class="rail-button is-active" id="workspacesRailButton" title="Workspaces" aria-label="Workspaces"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="6" height="6" rx="1"></rect><rect x="14" y="5" width="6" height="6" rx="1"></rect><rect x="4" y="15" width="6" height="4" rx="1"></rect><rect x="14" y="15" width="6" height="4" rx="1"></rect></svg></button>
+          <button type="button" class="rail-button" id="notificationsRailButton" title="Notifications" aria-label="Notifications"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 10a6 6 0 1 0-12 0c0 7-2 7-2 7h16s-2 0-2-7"></path><path d="M10 21h4"></path></svg></button>
+          <button type="button" class="rail-button" id="sessionsRailButton" title="Session tools" aria-label="Session tools"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="m8 10 3 3-3 3"></path><path d="M13 16h4"></path></svg></button>
+          <button type="button" class="rail-button" id="settingsRailButton" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"></path></svg></button>
         </div>
         <div class="workspace-list" id="workspaceList"></div>
         <div class="sidebar-footer">
@@ -34,8 +34,8 @@
       <main class="main">
         <header class="topbar">
           <div class="window-actions">
-            <button type="button" class="icon-button" id="toggleSidebarButton" title="Toggle sidebar">▦</button>
-            <button type="button" class="icon-button" id="paletteButton" title="Command palette">⌕</button>
+            <button type="button" class="icon-button" id="toggleSidebarButton" title="Toggle sidebar" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M9 5v14"></path></svg></button>
+            <button type="button" class="icon-button" id="paletteButton" title="Command palette" aria-label="Command palette"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6"></circle><path d="m16 16 4 4"></path></svg></button>
           </div>
           <div class="workspace-title-block">
             <div class="workspace-heading" id="workspaceHeading">Workspace</div>
@@ -43,19 +43,19 @@
           </div>
           <div class="topbar-spacer"></div>
           <div class="command-strip">
-            <button type="button" class="tool-button primary" id="newTerminalButton" title="New terminal" aria-label="New terminal"><span class="tool-icon" aria-hidden="true">+T</span><span class="tool-label">Terminal</span></button>
-            <button type="button" class="tool-button" id="splitRightButton" title="Split terminal" aria-label="Split terminal"><span class="tool-icon" aria-hidden="true">◫</span><span class="tool-label">Split</span></button>
-            <button type="button" class="tool-button" id="newBrowserButton" title="New browser. Right-click for profiles." aria-label="New browser"><span class="tool-icon" aria-hidden="true">+W</span><span class="tool-label">Browser</span></button>
-            <button type="button" class="tool-button" id="toolsMenuButton" title="Workspace tools" aria-label="Workspace tools"><span class="tool-icon" aria-hidden="true">⋯</span><span class="tool-label">Tools</span></button>
-            <button type="button" class="tool-button" id="settingsButton" title="Settings" aria-label="Settings"><span class="tool-icon" aria-hidden="true">⚙</span><span class="tool-label">Settings</span></button>
-            <button type="button" class="tool-button advanced-tool" id="splitDownButton" title="Split down" aria-label="Split down"><span class="tool-icon" aria-hidden="true">⇣</span><span class="tool-label">Down</span></button>
-            <button type="button" class="tool-button advanced-tool" id="renameWorkspaceButton" title="Rename workspace" aria-label="Rename workspace"><span class="tool-icon" aria-hidden="true">T</span><span class="tool-label">Name</span></button>
-            <button type="button" class="tool-button advanced-tool" id="colorWorkspaceButton" title="Change workspace color" aria-label="Change workspace color"><span class="tool-icon" aria-hidden="true">◆</span><span class="tool-label">Color</span></button>
+            <button type="button" class="tool-button primary" id="newTerminalButton" title="New terminal" aria-label="New terminal"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m6 8 4 4-4 4"></path><path d="M11 17h4"></path><path d="M18 6v6M15 9h6"></path></svg></span><span class="tool-label">Terminal</span></button>
+            <button type="button" class="tool-button" id="splitRightButton" title="Split terminal" aria-label="Split terminal"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14"></path></svg></span><span class="tool-label">Split</span></button>
+            <button type="button" class="tool-button" id="newBrowserButton" title="New browser. Right-click for profiles." aria-label="New browser"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="11" cy="12" r="7"></circle><path d="M4 12h14M11 5c2 2 2 12 0 14M11 5c-2 2-2 12 0 14M19 7v6M16 10h6"></path></svg></span><span class="tool-label">Browser</span></button>
+            <button type="button" class="tool-button" id="toolsMenuButton" title="Workspace tools" aria-label="Workspace tools"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="6" cy="12" r="1.5"></circle><circle cx="12" cy="12" r="1.5"></circle><circle cx="18" cy="12" r="1.5"></circle></svg></span><span class="tool-label">Tools</span></button>
+            <button type="button" class="tool-button" id="settingsButton" title="Settings" aria-label="Settings"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"></path></svg></span><span class="tool-label">Settings</span></button>
+            <button type="button" class="tool-button advanced-tool" id="splitDownButton" title="Split down" aria-label="Split down"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M4 12h16"></path></svg></span><span class="tool-label">Down</span></button>
+            <button type="button" class="tool-button advanced-tool" id="renameWorkspaceButton" title="Rename workspace" aria-label="Rename workspace"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M6 5h12M12 5v14M9 19h6"></path></svg></span><span class="tool-label">Name</span></button>
+            <button type="button" class="tool-button advanced-tool" id="colorWorkspaceButton" title="Change workspace color" aria-label="Change workspace color"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 4c4 0 8 3 8 7 0 3-2 5-5 5h-1.5a1.5 1.5 0 0 0 0 3H12a8 8 0 1 1 0-16Z"></path><circle cx="8.5" cy="10" r="1"></circle><circle cx="12" cy="8" r="1"></circle><circle cx="15.5" cy="10" r="1"></circle></svg></span><span class="tool-label">Color</span></button>
           </div>
           <div class="native-window-controls" id="nativeWindowControls">
-            <button type="button" class="window-control" id="minimizeWindowButton" title="Minimize" aria-label="Minimize window">─</button>
-            <button type="button" class="window-control" id="maximizeWindowButton" title="Maximize" aria-label="Maximize window">□</button>
-            <button type="button" class="window-control close" id="closeWindowButton" title="Close" aria-label="Close window">×</button>
+            <button type="button" class="window-control" id="minimizeWindowButton" title="Minimize" aria-label="Minimize window"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 12h10"></path></svg></button>
+            <button type="button" class="window-control" id="maximizeWindowButton" title="Maximize" aria-label="Maximize window" data-window-icon="maximize"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="7" y="7" width="10" height="10" rx="1"></rect></svg></button>
+            <button type="button" class="window-control close" id="closeWindowButton" title="Close" aria-label="Close window"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 7 10 10M17 7 7 17"></path></svg></button>
           </div>
         </header>
 
@@ -83,7 +83,7 @@
             <div class="inspector-title" id="inspectorTitle">Notifications</div>
             <div class="inspector-subtitle" id="inspectorSubtitle">Attention across workspaces</div>
           </div>
-          <button type="button" class="icon-button" id="closeInspectorButton" title="Close">×</button>
+          <button type="button" class="icon-button" id="closeInspectorButton" title="Close" aria-label="Close inspector"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 7 10 10M17 7 7 17"></path></svg></button>
         </div>
         <div class="inspector-body" id="inspectorBody"></div>
       </aside>

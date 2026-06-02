@@ -3989,7 +3989,7 @@ function createSurfaceTab() {
   button.innerHTML = `
     <span class="surface-dot"></span>
     <span class="surface-label"></span>
-    <span class="surface-close" title="Close">×</span>
+    <span class="surface-close" title="Close"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 7 10 10M17 7 7 17"></path></svg></span>
   `;
   button._surfaceParts = surfaceTabParts(button);
   button.addEventListener("click", () => {
@@ -5159,14 +5159,14 @@ function createPane(panel) {
       <div class="pane-type"></div>
       <div class="pane-title"></div>
       <div class="pane-toolbar">
-        <button class="pane-tool split-right" type="button" title="Split right" aria-label="Split right">◫</button>
-        <button class="pane-tool split-down" type="button" title="Split down" aria-label="Split down">⇣</button>
-        <button class="pane-tool minimize" type="button" title="Minimize pane" aria-label="Minimize pane">-</button>
-        <button class="pane-tool zoom" type="button" title="Focus pane" aria-label="Focus pane">□</button>
-        <button class="pane-tool font-down" type="button" title="Smaller terminal text" aria-label="Smaller terminal text">A-</button>
-        <button class="pane-tool font-up" type="button" title="Larger terminal text" aria-label="Larger terminal text">A+</button>
-        <button class="pane-tool restart" type="button" title="Restart terminal" aria-label="Restart terminal">↻</button>
-        <button class="pane-tool close" type="button" title="Close" aria-label="Close pane">×</button>
+        <button class="pane-tool split-right" type="button" title="Split right" aria-label="Split right"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14"></path></svg></button>
+        <button class="pane-tool split-down" type="button" title="Split down" aria-label="Split down"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M4 12h16"></path></svg></button>
+        <button class="pane-tool minimize" type="button" title="Minimize pane" aria-label="Minimize pane"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 12h10"></path></svg></button>
+        <button class="pane-tool zoom" type="button" title="Focus pane" aria-label="Focus pane"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4H5a1 1 0 0 0-1 1v3M16 4h3a1 1 0 0 1 1 1v3M8 20H5a1 1 0 0 1-1-1v-3M16 20h3a1 1 0 0 0 1-1v-3"></path></svg></button>
+        <button class="pane-tool font-down" type="button" title="Smaller terminal text" aria-label="Smaller terminal text"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 7h10M10 7v12M7 19h6M17 16h4"></path></svg></button>
+        <button class="pane-tool font-up" type="button" title="Larger terminal text" aria-label="Larger terminal text"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 7h10M10 7v12M7 19h6M18 15v6M15 18h6"></path></svg></button>
+        <button class="pane-tool restart" type="button" title="Restart terminal" aria-label="Restart terminal"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 8a7 7 0 1 1-1 8"></path><path d="M7 4v4h4"></path></svg></button>
+        <button class="pane-tool close" type="button" title="Close" aria-label="Close pane"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 7 10 10M17 7 7 17"></path></svg></button>
       </div>
     </div>
     <div class="pane-body"></div>
@@ -5810,7 +5810,7 @@ function createTerminalSearchOverlay(panel, session) {
     <button class="terminal-search-button terminal-search-prev" type="button" title="Previous match">↑</button>
     <button class="terminal-search-button terminal-search-next" type="button" title="Next match">↓</button>
     <button class="terminal-search-button terminal-search-case" type="button" title="Match case">Aa</button>
-    <button class="terminal-search-button terminal-search-close" type="button" title="Close search">×</button>
+    <button class="terminal-search-button terminal-search-close" type="button" title="Close search" aria-label="Close search"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 7 10 10M17 7 7 17"></path></svg></button>
   `;
   const input = overlay.querySelector(".terminal-search-input");
   const previous = overlay.querySelector(".terminal-search-prev");
@@ -9815,11 +9815,33 @@ const quickSettingsShortcuts = [
   ["data", "Data", "Import, export, cleanup.", () => `${state.recentFolders.length + state.recentCommands.length + state.recentBrowserPages.length} recent`]
 ];
 
+const quickActionIconSvg = {
+  rename: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5h12M12 5v14M9 19h6"></path></svg>`,
+  clean: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M8 9h8M8 13h5"></path></svg>`,
+  speed: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 16a7 7 0 0 1 14 0"></path><path d="m12 16 4-5"></path><path d="M8 20h8"></path></svg>`,
+  focus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4H5a1 1 0 0 0-1 1v3M16 4h3a1 1 0 0 1 1 1v3M8 20H5a1 1 0 0 1-1-1v-3M16 20h3a1 1 0 0 0 1-1v-3"></path><circle cx="12" cy="12" r="2.5"></circle></svg>`,
+  background: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><circle cx="9" cy="10" r="1.5"></circle><path d="m7 17 4-4 3 3 2-2 2 3"></path></svg>`,
+  paneBackground: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14M7 15l2-2 2 2"></path><circle cx="8" cy="9" r="1.2"></circle></svg>`,
+  paneShape: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14M4 12h16"></path></svg>`,
+  saveLayout: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 4h10l2 2v14H6z"></path><path d="M8 4v6h8M9 17h6"></path></svg>`
+};
+
+function quickActionIconMarkup(icon) {
+  return quickActionIconSvg[icon] || quickActionIconSvg.clean;
+}
+
+function activeTerminalPaneBackgroundLabel() {
+  const panel = resolveTerminalPanel(focusedPanel());
+  if (!panel) return "Select terminal";
+  const background = normalizeBackgroundValue(panel.backgroundImage);
+  return background ? appearanceBackgroundLabel(background) : "Default";
+}
+
 function quickSetupActionGrid() {
   const actions = [
     {
       id: "rename",
-      icon: "Aa",
+      icon: "rename",
       label: "Rename",
       body: "Name the active workspace without opening more chrome.",
       meta: () => activeWorkspace()?.title || "Workspace",
@@ -9829,7 +9851,7 @@ function quickSetupActionGrid() {
     },
     {
       id: "clean-ui",
-      icon: "UI",
+      icon: "clean",
       label: "Clean UI",
       body: "Apply a minimal toolbar and quieter pane controls.",
       meta: activeSettingsPresetLabel,
@@ -9839,7 +9861,7 @@ function quickSetupActionGrid() {
     },
     {
       id: "tune-speed",
-      icon: "Hz",
+      icon: "speed",
       label: "Tune speed",
       body: "Reduce effects, pause hidden output, and lighten history.",
       meta: performanceModeLabel,
@@ -9852,7 +9874,7 @@ function quickSetupActionGrid() {
     },
     {
       id: "focus-mode",
-      icon: "Fx",
+      icon: "focus",
       label: state.settings.focusMode ? "Leave focus" : "Focus mode",
       body: "Hide extra chrome when you want only the workspace.",
       meta: () => state.settings.focusMode ? "On" : "Off",
@@ -9865,7 +9887,7 @@ function quickSetupActionGrid() {
     },
     {
       id: "background",
-      icon: "Bg",
+      icon: "background",
       label: "Background",
       body: "Choose a local image for the workspace backdrop.",
       meta: () => appearanceBackgroundLabel(state.settings.backgroundImage),
@@ -9874,8 +9896,19 @@ function quickSetupActionGrid() {
       run: () => chooseBackgroundImage()
     },
     {
+      id: "pane-background",
+      icon: "paneBackground",
+      label: "Pane image",
+      body: "Set an image on only the active terminal pane.",
+      meta: activeTerminalPaneBackgroundLabel,
+      cta: "Choose",
+      search: "active pane terminal background image specific terminal wallpaper",
+      disabled: () => !resolveTerminalPanel(focusedPanel()),
+      run: () => choosePanelBackgroundImage()
+    },
+    {
       id: "pane-shape",
-      icon: "%%",
+      icon: "paneShape",
       label: "Pane shape",
       body: "Resize the active pane or switch rows and columns.",
       meta: () => {
@@ -9888,7 +9921,7 @@ function quickSetupActionGrid() {
     },
     {
       id: "save-layout",
-      icon: "Sv",
+      icon: "saveLayout",
       label: "Save layout",
       body: "Store this pane shape as a reusable workspace blueprint.",
       meta: () => `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit}`,
@@ -9904,6 +9937,8 @@ function quickSetupActionGrid() {
     const button = document.createElement("button");
     button.className = "quick-settings-shortcut quick-action";
     button.type = "button";
+    button.disabled = Boolean(action.disabled?.());
+    button.title = `${action.label}: ${action.body}`;
     button.dataset.quickAction = action.id;
     button.dataset.settingsSearch = normalizeSettingsQuery(`quick action ${action.label} ${action.body} ${action.search}`);
     button.setAttribute("aria-label", `${action.label}. ${action.body} Current: ${action.meta()}.`);
@@ -9918,12 +9953,15 @@ function quickSetupActionGrid() {
         <span class="quick-action-cta"></span>
       </span>
     `;
-    button.querySelector(".quick-action-icon").textContent = action.icon;
+    button.querySelector(".quick-action-icon").innerHTML = quickActionIconMarkup(action.icon);
     button.querySelector(".quick-settings-shortcut-title").textContent = action.label;
     button.querySelector(".quick-settings-shortcut-body").textContent = action.body;
     button.querySelector(".quick-settings-shortcut-meta").textContent = action.meta();
     button.querySelector(".quick-action-cta").textContent = action.cta;
-    button.onclick = action.run;
+    button.onclick = () => {
+      if (button.disabled) return;
+      action.run();
+    };
     grid.append(button);
   }
   return grid;
@@ -15583,6 +15621,17 @@ async function toggleWindowMaximize() {
   }
 }
 
+const windowControlIcons = {
+  maximize: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="7" y="7" width="10" height="10" rx="1"></rect></svg>`,
+  restore: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 8h9v9H8z"></path><path d="M6 15V6h9"></path></svg>`
+};
+
+function setWindowControlIcon(button, icon) {
+  if (!button || button.dataset.windowIcon === icon) return;
+  button.innerHTML = windowControlIcons[icon] || windowControlIcons.maximize;
+  button.dataset.windowIcon = icon;
+}
+
 function updateMaximizeButton(maximized) {
   if (!elements.maximizeWindowButton) return;
   const nextMaximized = Boolean(maximized);
@@ -15593,7 +15642,7 @@ function updateMaximizeButton(maximized) {
     elements.shell.classList.remove("window-resizing", state.windowResizing.cursorClass);
     state.windowResizing = null;
   }
-  elements.maximizeWindowButton.textContent = nextMaximized ? "❐" : "□";
+  setWindowControlIcon(elements.maximizeWindowButton, nextMaximized ? "restore" : "maximize");
   elements.maximizeWindowButton.title = nextMaximized ? "Restore" : "Maximize";
   elements.maximizeWindowButton.setAttribute("aria-label", nextMaximized ? "Restore window" : "Maximize window");
   elements.maximizeWindowButton.dataset.windowState = nextMaximized ? "maximized" : "normal";
