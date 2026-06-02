@@ -71,3 +71,26 @@
       (tree-line 1 (get ws :branch) "arrow.triangle.branch" (color :green) false))
     (map pr-leaf (get ws :pull-requests))
     (map port-leaf (get ws :ports))))
+
+(def (workspace-node ws)
+  (button
+    (render-row ws)
+    :action (select-workspace ws)
+    :max-width infinity
+    :frame-align leading))
+
+(def (render-sidebar sidebar)
+  (vstack :spacing 5 :max-width infinity :frame-align leading
+    (hstack :spacing 6
+      (image :system "folder.fill" :font (font :size 13 :weight semibold) :foreground (color :blue))
+      (text "Workspaces"
+        :font (font :size 13 :weight bold))
+      (spacer)
+      (text (str (get sidebar :workspace-count))
+        :font (font :size 10 :weight bold :monospaced-digit true)
+        :foreground (color :secondary)))
+    (map workspace-node (get sidebar :workspaces))
+    (button
+      (tree-line 0 "New Workspace" "plus" (color :blue) false)
+      :action (new-workspace :title "Scratch"))
+    :padding (edges :horizontal 8 :vertical 10)))

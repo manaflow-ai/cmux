@@ -1,10 +1,11 @@
 # CmuxSidebarScript
 
-A small Lisp for customizing the cmux sidebar. A script's `render-row` function
-receives one workspace's data and returns a view tree, which the host renders as
-SwiftUI. Anything the bridge exposes (stacks, text, images, shapes, colors,
-fonts, and the usual view modifiers) is available; adding a new view or modifier
-is one registry entry plus one render case.
+A small Lisp for customizing the cmux sidebar. A script can define
+`render-sidebar` to own the entire sidebar surface. Legacy scripts can still
+define `render-row` to customize one workspace row inside the native list.
+Anything the bridge exposes (stacks, text, images, shapes, colors, fonts, and
+the usual view modifiers) is available; adding a new view or modifier is one
+registry entry plus one render case.
 
 ## Pipeline
 
@@ -13,10 +14,10 @@ source ──Reader──▶ [LispValue] ──Evaluator + Bridge──▶ Rende
 ```
 
 `RenderNode` is a pure, `Equatable` value tree with no SwiftUI in it. That split
-is the performance contract: a sidebar row recomputes its node only when its
-input data changes, and the row stays `.equatable()` over the node so SwiftUI
-skips untouched rows at 1000-workspace scale. Evaluation is therefore fully unit
-testable without booting SwiftUI.
+is the performance contract: scripts render deterministic node trees from data,
+and evaluation is fully unit testable without booting SwiftUI. Row scripts keep
+the old per-row `.equatable()` behavior; whole-sidebar scripts trade native row
+chrome for complete layout control.
 
 ## Language
 
@@ -53,21 +54,28 @@ so a form reads like SwiftUI.
 - Style constructors: `(color :name)` `(hex "#rrggbb")` `(rgb r g b)`
   `(font :size :weight :design)` `(gradient c1 c2 :direction)` `(edges ...)`
   `(shadow ...)`.
-- Actions: `(open-url url)`, `(copy-text text)`.
+- Actions: `(open-url url)`, `(copy-text text)`, `(select-workspace ws-or-id)`,
+  `(close-workspace ws-or-id)`, `(new-workspace :title "Scratch" :directory "/path")`.
 
-A malformed script raises a localized `LispError` at compile time; a render
-fault raises one per row. The host treats both as "fall back to the native row".
-Top-level bindings are frozen after compile, so `render-row` stays deterministic
-for a given workspace. `set!` is still available for local `let` bindings inside
-one render pass.
+A malformed script raises a localized `LispError` at compile time. A whole
+sidebar render fault falls back to the native sidebar; a row render fault falls
+back to the native row. Top-level bindings are frozen after compile, so renders
+stay deterministic for a given input. `set!` is still available for local `let`
+bindings inside one render pass.
 
 ## Usage
 
 ```swift
 let script = try SidebarScript(source: lispSource)   // parse + bind once
-let node = try script.render(context)                // per row, returns RenderNode
+let node = try script.renderSidebar(sidebarContext)   // whole sidebar RenderNode
 RenderNodeView(node: node, onAction: handleAction)    // render as SwiftUI
 ```
+
+Whole-sidebar scripts receive a record with `:workspaces`, `:workspace-count`,
+`:selected-workspace-id`, `:window-id`, and `:dark-mode`. Each workspace record
+also has `:id`, `:index`, `:title`, `:detail`, `:branch`, `:directory`,
+`:directories`, `:pull-requests`, `:ports`, `:unread`, `:pinned`, `:active`,
+`:selected`, `:color`, `:message`, `:progress`, `:remote`, and `:status`.
 
 `SidebarScript.makeDefault()` compiles the bundled `DefaultSidebar.lisp`.
 
@@ -75,13 +83,12 @@ Bundled demos live in `Sources/CmuxSidebarScript/Resources/` and are exposed by
 `SidebarScriptDemo.all`:
 
 - `DefaultSidebar.lisp`: the normal rich workspace row.
-- `LiquidGlassSidebar.lisp`: translucent rounded badges and layered symbols.
-- `HighDensityIDESidebar.lisp`: compact IDE rows with dense metadata.
-- `TerminalStealthSidebar.lisp`: monospaced terminal-oriented rows.
-- `ProStudioSidebar.lisp`: chunkier pro-app cards and pill metadata.
-- `FinderSidebar.lisp`: filled icons and Finder-like hierarchy.
-- `AgentOpsSidebar.lisp`: a compact ops dashboard with PR, port, status, and
-  progress widgets.
+- `LiquidGlassSidebar.lisp`: a full-sidebar layered poster layout.
+- `HighDensityIDESidebar.lisp`: a full-sidebar dense IDE matrix.
+- `TerminalStealthSidebar.lisp`: a full-sidebar terminal transcript.
+- `ProStudioSidebar.lisp`: a full-sidebar production timeline.
+- `FinderSidebar.lisp`: a full-sidebar Finder-like hierarchy.
+- `AgentOpsSidebar.lisp`: a full-sidebar ops dashboard.
 
 The bridge intentionally does not execute arbitrary Swift. To support more of
 SwiftUI, add view constructors or modifiers to `Bridge` and `RenderNodeView`.

@@ -10344,6 +10344,7 @@ struct VerticalTabsSidebar: View {
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -10629,12 +10630,14 @@ struct VerticalTabsSidebar: View {
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
             }
-            SidebarFooter(
-                updateViewModel: updateViewModel,
-                fileExplorerState: fileExplorerState,
-                onSendFeedback: onSendFeedback
-            )
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if !usesWholeSidebarScript {
+                SidebarFooter(
+                    updateViewModel: updateViewModel,
+                    fileExplorerState: fileExplorerState,
+                    onSendFeedback: onSendFeedback
+                )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
@@ -10718,6 +10721,10 @@ struct VerticalTabsSidebar: View {
             frozenShortcutHintsTabId = nil
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var usesWholeSidebarScript: Bool {
+        sidebarScriptStore.script?.supportsSidebarRendering == true
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
@@ -10838,6 +10845,21 @@ struct VerticalTabsSidebar: View {
                     // and `+` placement reflect the previous cwd until some
                     // unrelated sidebar event fires.
                     anchorCwdRevision &+= 1
+                }
+                .onReceive(
+                    extensionSidebarImmediateObservationPublisher(renderContext: renderContext)
+                        .receive(on: RunLoop.main)
+                ) { _ in
+                    guard usesWholeSidebarScript else { return }
+                    refreshExtensionSidebarSnapshot()
+                }
+                .onReceive(
+                    extensionSidebarDebouncedObservationPublisher(renderContext: renderContext)
+                        .receive(on: RunLoop.main)
+                        .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
+                ) { _ in
+                    guard usesWholeSidebarScript else { return }
+                    refreshExtensionSidebarSnapshot()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .sidebarMultiSelectionDidHide)) { notification in
                     // Group collapse hides some workspaces without changing
@@ -11941,22 +11963,138 @@ struct VerticalTabsSidebar: View {
         renderContext: WorkspaceListRenderContext,
         minHeight: CGFloat
     ) -> some View {
-        VStack(spacing: 0) {
-            workspaceRows(renderContext: renderContext)
+        Group {
+            if usesWholeSidebarScript,
+               let scriptNode = renderedSidebarScriptNode(renderContext: renderContext) {
+                RenderNodeView(node: scriptNode, onAction: { handleSidebarScriptAction($0) })
+                    .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
+            } else {
+                VStack(spacing: 0) {
+                    workspaceRows(renderContext: renderContext)
 
-            SidebarEmptyArea(
-                rowSpacing: tabRowSpacing,
-                selection: $selection,
-                selectedTabIds: $selectedTabIds,
-                lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                dragAutoScrollController: dragAutoScrollController,
-                topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
-                tabDropDelegate: emptyAreaTabDropDelegate(),
-                bonsplitDropIndicator: dropIndicatorBinding
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    SidebarEmptyArea(
+                        rowSpacing: tabRowSpacing,
+                        selection: $selection,
+                        selectedTabIds: $selectedTabIds,
+                        lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                        dragAutoScrollController: dragAutoScrollController,
+                        topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
+                        tabDropDelegate: emptyAreaTabDropDelegate(),
+                        bonsplitDropIndicator: dropIndicatorBinding
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .frame(minHeight: minHeight, alignment: .top)
+            }
         }
-        .frame(minHeight: minHeight, alignment: .top)
+    }
+
+    private func renderedSidebarScriptNode(renderContext: WorkspaceListRenderContext) -> RenderNode? {
+        guard let script = sidebarScriptStore.script, script.supportsSidebarRendering else { return nil }
+        let _ = extensionSidebarUpdateToken
+        do {
+            return try script.renderSidebar(makeSidebarScriptSidebarContext(renderContext: renderContext))
+        } catch {
+            SidebarScriptStore.logRenderFailure(error)
+            return nil
+        }
+    }
+
+    private func makeSidebarScriptSidebarContext(
+        renderContext: WorkspaceListRenderContext
+    ) -> SidebarScriptSidebarContext {
+        SidebarScriptSidebarContext(
+            windowId: windowId.uuidString,
+            selectedWorkspaceId: tabManager.selectedTabId?.uuidString,
+            workspaceCount: renderContext.workspaceCount,
+            isDarkMode: colorScheme == .dark,
+            workspaces: renderContext.tabs.enumerated().map { index, workspace in
+                makeSidebarScriptContext(workspace: workspace, index: index)
+            }
+        )
+    }
+
+    private func makeSidebarScriptContext(workspace: Workspace, index: Int) -> SidebarScriptContext {
+        let latestNotificationText: String? = {
+            guard let notification = notificationStore.latestNotification(forTabId: workspace.id) else {
+                return nil
+            }
+            let text = notification.body.isEmpty ? notification.title : notification.body
+            return text.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        }()
+        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        return SidebarScriptContext(
+            id: workspace.id.uuidString,
+            index: index,
+            title: workspace.title,
+            detail: workspace.customDescription,
+            branch: workspace.gitBranch?.branch,
+            directory: directory,
+            directories: workspace.sidebarDirectoriesInDisplayOrder(),
+            pullRequests: workspace.sidebarPullRequestsInDisplayOrder().map {
+                SidebarScriptContext.PullRequest(
+                    number: $0.number,
+                    state: $0.status.rawValue,
+                    url: $0.url.absoluteString,
+                    title: $0.label,
+                    isDraft: false,
+                    isStale: $0.isStale
+                )
+            },
+            ports: workspace.listeningPorts,
+            unreadCount: notificationStore.unreadCount(forTabId: workspace.id),
+            isPinned: workspace.isPinned,
+            isActive: tabManager.selectedTabId == workspace.id,
+            isSelected: selectedTabIds.contains(workspace.id),
+            colorHex: workspace.customColor,
+            isDarkMode: colorScheme == .dark,
+            latestMessage: latestNotificationText ?? workspace.latestSubmittedMessage,
+            progress: workspace.progress?.value,
+            remoteTarget: workspace.remoteDisplayTarget,
+            statusEntries: workspace.sidebarStatusEntriesInDisplayOrder().map {
+                SidebarScriptContext.StatusEntry(label: $0.key, value: $0.value, colorHex: $0.color)
+            }
+        )
+    }
+
+    private func handleSidebarScriptAction(_ action: RNAction) {
+        switch action.kind {
+        case "open-url":
+            guard let raw = action.payload["url"], let url = URL(string: raw) else { return }
+            if let workspaceId = tabManager.selectedTabId,
+               tabManager.openBrowser(inWorkspace: workspaceId, url: url, insertAtEnd: true) != nil {
+                return
+            }
+            NSWorkspace.shared.open(url)
+        case "copy":
+            guard let text = action.payload["text"] else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        case "select-workspace":
+            guard let id = action.payload["id"].flatMap(UUID.init(uuidString:)),
+                  let workspace = tabManager.tabs.first(where: { $0.id == id }) else { return }
+            tabManager.selectWorkspace(workspace)
+            selection = .tabs
+            selectedTabIds = [workspace.id]
+            if let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) {
+                lastSidebarSelectionIndex = index
+            }
+        case "close-workspace":
+            guard let id = action.payload["id"].flatMap(UUID.init(uuidString:)) else { return }
+            tabManager.closeWorkspaceWithConfirmation(tabId: id)
+        case "new-workspace":
+            let directory = action.payload["directory"]?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            let title = action.payload["title"]?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            tabManager.addWorkspace(
+                title: title,
+                workingDirectory: directory,
+                inheritWorkingDirectory: directory == nil,
+                select: true,
+                eagerLoadTerminal: false
+            )
+        default:
+            break
+        }
     }
 
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {

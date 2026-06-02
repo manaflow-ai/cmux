@@ -47,3 +47,29 @@
         (progress-view :value (get ws :progress) :total 1 :tint (color :white))))
     :padding (edges :horizontal 8 :vertical 8)
     :mask (rounded-rectangle :radius 14 :fill (color :white) :height 84 :max-width infinity)))
+
+(def (poster ws)
+  (button
+    (render-row ws)
+    :action (select-workspace ws)
+    :max-width infinity
+    :frame-align leading))
+
+(def (render-sidebar sidebar)
+  (zstack :alignment top-leading :max-width infinity
+    (circle :fill (rgba 10 132 255 0.14) :width 180 :height 180 :offset (list 70 -60) :blur 8)
+    (circle :fill (rgba 175 82 222 0.12) :width 150 :height 150 :offset (list -60 160) :blur 8)
+    (vstack :spacing 10 :max-width infinity :frame-align leading
+      (text "Liquid Spaces"
+        :font (font :size 18 :weight black)
+        :foreground (color :primary))
+      (map poster (get sidebar :workspaces))
+      (button
+        (text "Create a new glass workspace"
+          :font (font :size 12 :weight semibold)
+          :foreground (color :white)
+          :padding (edges :horizontal 10 :vertical 8)
+          :background (gradient (rgba 10 132 255 0.8) (rgba 175 82 222 0.72) :direction horizontal)
+          :corner-radius 12)
+        :action (new-workspace :title "Glass Workspace"))
+      :padding (edges :horizontal 9 :vertical 11))))

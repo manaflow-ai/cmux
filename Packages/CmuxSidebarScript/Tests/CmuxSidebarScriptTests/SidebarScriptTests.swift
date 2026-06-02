@@ -78,6 +78,41 @@ import Testing
         #expect(node.containsText("HELLO"))
     }
 
+    @Test func customScriptCanRenderWholeSidebar() throws {
+        let script = try SidebarScript(source: """
+        (def (workspace-button ws)
+          (button
+            (text (get ws :title))
+            :action (select-workspace ws)))
+        (def (render-sidebar sidebar)
+          (vstack :spacing 2
+            (text (str "count=" (get sidebar :workspace-count)))
+            (map workspace-button (get sidebar :workspaces))))
+        """)
+        #expect(script.supportsSidebarRendering)
+        let node = try script.renderSidebar(SidebarScriptSidebarContext(
+            selectedWorkspaceId: "workspace-2",
+            workspaces: [
+                SidebarScriptContext(id: "workspace-1", index: 0, title: "alpha"),
+                SidebarScriptContext(id: "workspace-2", index: 1, title: "beta", isActive: true),
+            ]
+        ))
+        #expect(node.containsText("count=2"))
+        #expect(node.containsText("alpha"))
+        #expect(node.containsText("beta"))
+        #expect(node.nodes(kind: "button").count == 2)
+    }
+
+    @Test func renderRowRemainsOptionalForWholeSidebarScripts() throws {
+        let script = try SidebarScript(source: """
+        (def (render-sidebar sidebar)
+          (text (get sidebar :workspace-count)))
+        """)
+        #expect(throws: LispError.self) {
+            _ = try script.render(SidebarScriptContext(title: "x"))
+        }
+    }
+
     @Test func contextProjectsPullRequestFields() throws {
         let script = try SidebarScript(source: """
         (def (render-row ws)

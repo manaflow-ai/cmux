@@ -83,6 +83,27 @@ import Testing
         #expect(tap.first == .action(RNAction(kind: "open-url", payload: ["url": "https://example.com"])))
     }
 
+    @Test func workspaceActionsCarryIds() throws {
+        let node = try #require(try run("""
+        (button
+          (text "workspace")
+          :action (select-workspace (record :id "abc")))
+        """).asNode)
+        #expect(node.content["action"] == .action(RNAction(kind: "select-workspace", payload: ["id": "abc"])))
+    }
+
+    @Test func newWorkspaceActionCarriesOptions() throws {
+        let node = try #require(try run("""
+        (button
+          (text "new")
+          :action (new-workspace :title "Scratch" :directory "/tmp"))
+        """).asNode)
+        #expect(node.content["action"] == .action(RNAction(
+            kind: "new-workspace",
+            payload: ["title": "Scratch", "directory": "/tmp"]
+        )))
+    }
+
     @Test func gradientBackground() throws {
         let node = try #require(try run("""
         (rectangle :fill (gradient (color :red) (color :blue) :direction horizontal))

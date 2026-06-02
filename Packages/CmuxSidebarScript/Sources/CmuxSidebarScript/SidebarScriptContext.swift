@@ -36,6 +36,8 @@ public struct SidebarScriptContext: Equatable {
         }
     }
 
+    public var id: String?
+    public var index: Int?
     public var title: String
     public var detail: String?
     public var branch: String?
@@ -55,6 +57,8 @@ public struct SidebarScriptContext: Equatable {
     public var statusEntries: [StatusEntry]
 
     public init(
+        id: String? = nil,
+        index: Int? = nil,
         title: String,
         detail: String? = nil,
         branch: String? = nil,
@@ -73,6 +77,8 @@ public struct SidebarScriptContext: Equatable {
         remoteTarget: String? = nil,
         statusEntries: [StatusEntry] = []
     ) {
+        self.id = id
+        self.index = index
         self.title = title
         self.detail = detail
         self.branch = branch
@@ -95,6 +101,8 @@ public struct SidebarScriptContext: Equatable {
     /// Projects into the record passed to `render-row` as its single argument.
     public var lispValue: LispValue {
         var m = LispMap()
+        m["id"] = id.map(LispValue.string) ?? .null
+        m["index"] = index.map(LispValue.int) ?? .null
         m["title"] = .string(title)
         m["detail"] = detail.map(LispValue.string) ?? .null
         m["branch"] = branch.map(LispValue.string) ?? .null
@@ -127,6 +135,43 @@ public struct SidebarScriptContext: Equatable {
             s["color"] = entry.colorHex.map(LispValue.string) ?? .null
             return .map(s)
         })
+        return .map(m)
+    }
+}
+
+/// Whole-sidebar data for scripts that define `render-sidebar`.
+///
+/// This is deliberately just data, not live app objects. The host turns it into
+/// the same deterministic record format the row renderer uses, so a user script
+/// can own the entire sidebar without gaining arbitrary app execution.
+public struct SidebarScriptSidebarContext: Equatable {
+    public var windowId: String?
+    public var selectedWorkspaceId: String?
+    public var workspaceCount: Int
+    public var isDarkMode: Bool
+    public var workspaces: [SidebarScriptContext]
+
+    public init(
+        windowId: String? = nil,
+        selectedWorkspaceId: String? = nil,
+        workspaceCount: Int? = nil,
+        isDarkMode: Bool = true,
+        workspaces: [SidebarScriptContext]
+    ) {
+        self.windowId = windowId
+        self.selectedWorkspaceId = selectedWorkspaceId
+        self.workspaceCount = workspaceCount ?? workspaces.count
+        self.isDarkMode = isDarkMode
+        self.workspaces = workspaces
+    }
+
+    public var lispValue: LispValue {
+        var m = LispMap()
+        m["window-id"] = windowId.map(LispValue.string) ?? .null
+        m["selected-workspace-id"] = selectedWorkspaceId.map(LispValue.string) ?? .null
+        m["workspace-count"] = .int(workspaceCount)
+        m["dark-mode"] = .bool(isDarkMode)
+        m["workspaces"] = .list(workspaces.map(\.lispValue))
         return .map(m)
     }
 }

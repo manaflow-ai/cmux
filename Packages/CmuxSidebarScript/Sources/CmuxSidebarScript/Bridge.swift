@@ -84,6 +84,30 @@ enum Bridge {
         builtin("copy-text", env) { args, _ in
             .style(.action(RNAction(kind: "copy", payload: ["text": Builtins.display(args.first ?? .null)])))
         }
+        builtin("select-workspace", env) { args, _ in
+            .style(.action(RNAction(kind: "select-workspace", payload: ["id": actionTargetId(args.first ?? .null)])))
+        }
+        builtin("close-workspace", env) { args, _ in
+            .style(.action(RNAction(kind: "close-workspace", payload: ["id": actionTargetId(args.first ?? .null)])))
+        }
+        builtin("new-workspace", env) { args, _ in
+            let split = try Coercion.split(args, formName: "new-workspace")
+            var payload: [String: String] = [:]
+            if let title = split.option("title") ?? split.positional.first {
+                payload["title"] = Builtins.display(title)
+            }
+            if let directory = split.option("directory") ?? split.option("cwd") {
+                payload["directory"] = Builtins.display(directory)
+            }
+            return .style(.action(RNAction(kind: "new-workspace", payload: payload)))
+        }
+    }
+
+    private static func actionTargetId(_ value: LispValue) -> String {
+        if case .map(let map) = value, let id = map["id"] {
+            return Builtins.display(id)
+        }
+        return Builtins.display(value)
     }
 
     // MARK: - View constructors

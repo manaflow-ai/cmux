@@ -37,3 +37,23 @@
       (line "log" (get ws :message) (dim ws)))
     (when (> (get ws :unread) 0)
       (line "!" (str (get ws :unread) " unread notifications") (color :red)))))
+
+(def (workspace-block ws)
+  (button
+    (render-row ws)
+    :action (select-workspace ws)
+    :padding (edges :vertical 4)
+    :max-width infinity
+    :frame-align leading))
+
+(def (render-sidebar sidebar)
+  (vstack :spacing 4 :max-width infinity :frame-align leading
+    (line "$" "cmux sidebar --mode lisp" (color :green))
+    (line ">" (str "workspaces=" (get sidebar :workspace-count)) (color :blue))
+    (divider :opacity 0.4)
+    (map workspace-block (get sidebar :workspaces))
+    (button
+      (line "$" "cmux new-workspace Scratch" (color :green))
+      :action (new-workspace :title "Scratch"))
+    :padding (edges :horizontal 9 :vertical 10)
+    :background (rgba 0 0 0 0.82)))

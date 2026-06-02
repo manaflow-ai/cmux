@@ -54,3 +54,26 @@
       (map port-button (get ws :ports)))
     (when (get ws :progress)
       (progress-view :value (get ws :progress) :total 1 :tint (accent ws)))))
+
+(def (ops-card ws)
+  (button
+    (render-row ws)
+    :action (select-workspace ws)
+    :padding (edges :horizontal 6 :vertical 6)
+    :background (if (get ws :active) (rgba 52 199 89 0.12) (rgba 127 127 127 0.08))
+    :overlay (rounded-rectangle :radius 10 :stroke (if (get ws :active) (color :green) (rgba 127 127 127 0.18)) :stroke-width 1)
+    :corner-radius 10
+    :max-width infinity
+    :frame-align leading))
+
+(def (render-sidebar sidebar)
+  (vstack :spacing 8 :max-width infinity :frame-align leading
+    (grid :columns 3 :spacing 4
+      (tile "TOTAL" (str (get sidebar :workspace-count)) "rectangle.stack.fill" (color :blue))
+      (tile "MODE" "LISP" "curlybraces" (color :purple))
+      (tile "SCOPE" "FULL" "sidebar.left" (color :green)))
+    (map ops-card (get sidebar :workspaces))
+    (button
+      (tile "SPAWN" "NEW" "plus.circle.fill" (color :green))
+      :action (new-workspace :title "Agent Ops"))
+    :padding (edges :horizontal 8 :vertical 10)))

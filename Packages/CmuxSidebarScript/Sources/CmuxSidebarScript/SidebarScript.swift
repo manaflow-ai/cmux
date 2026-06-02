@@ -3,8 +3,9 @@ import Foundation
 /// A compiled sidebar script.
 ///
 /// `init` parses the source and evaluates its top-level forms once (which should
-/// `def` a `render-row` function and any helpers). `render(_:)` then calls
-/// `render-row` with one row's data and returns a pure `RenderNode`.
+/// `def` a `render-sidebar` or `render-row` function and any helpers).
+/// `renderSidebar(_:)` lets a script own the whole sidebar; `render(_:)` keeps
+/// legacy row scripts working by calling `render-row`.
 ///
 /// The expensive parse + top-level evaluation happens once at load. Per-row
 /// rendering is a single function application against a fresh evaluator, cheap
@@ -13,8 +14,10 @@ import Foundation
 public final class SidebarScript {
     private let baseEnv: LispEnvironment
 
-    /// The entry-point function name a script must define.
+    /// The legacy per-row entry-point function name.
     public static let entryPoint = "render-row"
+    /// The whole-sidebar entry-point function name.
+    public static let sidebarEntryPoint = "render-sidebar"
 
     public init(source: String) throws {
         let forms = try Reader().read(source)
@@ -25,13 +28,17 @@ public final class SidebarScript {
         for form in forms {
             _ = try evaluator.eval(form, in: baseEnv)
         }
-        guard baseEnv.lookup(Self.entryPoint) != nil else {
+        guard baseEnv.lookup(Self.sidebarEntryPoint) != nil || baseEnv.lookup(Self.entryPoint) != nil else {
             throw LispError.eval(String(
                 localized: "sidebarScript.error.missingEntry",
-                defaultValue: "The script must define a 'render-row' function.",
+                defaultValue: "The script must define a 'render-sidebar' or 'render-row' function.",
                 bundle: .module))
         }
         baseEnv.freeze()
+    }
+
+    public var supportsSidebarRendering: Bool {
+        baseEnv.lookup(Self.sidebarEntryPoint) != nil
     }
 
     /// Renders one row to a pure node tree. Throws a localized `LispError` if the
@@ -49,6 +56,27 @@ public final class SidebarScript {
             throw LispError.eval(String(
                 localized: "sidebarScript.error.entryReturn",
                 defaultValue: "'render-row' must return a view, but returned a \(result.typeName).",
+                bundle: .module))
+        }
+        return node
+    }
+
+    /// Renders the entire sidebar to a pure node tree. Throws a localized
+    /// `LispError` if the script lacks `render-sidebar` or faults; the caller
+    /// falls back to the native sidebar.
+    public func renderSidebar(_ context: SidebarScriptSidebarContext) throws -> RenderNode {
+        guard let fn = baseEnv.lookup(Self.sidebarEntryPoint) else {
+            throw LispError.eval(String(
+                localized: "sidebarScript.error.missingSidebarEntry",
+                defaultValue: "The script must define a 'render-sidebar' function.",
+                bundle: .module))
+        }
+        let evaluator = Evaluator()
+        let result = try evaluator.apply(fn, [context.lispValue])
+        guard case .node(let node) = result else {
+            throw LispError.eval(String(
+                localized: "sidebarScript.error.sidebarEntryReturn",
+                defaultValue: "'render-sidebar' must return a view, but returned a \(result.typeName).",
                 bundle: .module))
         }
         return node

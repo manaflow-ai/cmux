@@ -49,3 +49,36 @@
         (text (join "," (get ws :ports))
           :font (font :size 9 :weight medium :design monospaced)
           :foreground (color :blue))))))
+
+(def (workspace-cell ws)
+  (button
+    (render-row ws)
+    :action (select-workspace ws)
+    :padding (edges :horizontal 6 :vertical 5)
+    :background (rgba 127 127 127 0.08)
+    :overlay (rectangle :stroke (if (get ws :active) (color :blue) (rgba 127 127 127 0.20)) :stroke-width 1)
+    :max-width infinity
+    :frame-align leading))
+
+(def (render-sidebar sidebar)
+  (vstack :spacing 6 :max-width infinity :frame-align leading
+    (hstack :spacing 6
+      (text "CMUX::SIDEBAR"
+        :font (font :size 11 :weight black :design monospaced))
+      (spacer)
+      (text (str (get sidebar :workspace-count) " WS")
+        :font (font :size 9 :weight black :design monospaced)
+        :foreground (color :secondary)))
+    (grid :columns 1 :spacing 5
+      (map workspace-cell (get sidebar :workspaces)))
+    (button
+      (text "+ NEW"
+        :font (font :size 10 :weight black :design monospaced)
+        :foreground (color :blue)
+        :max-width infinity
+        :frame-align center
+        :padding (edges :vertical 6)
+        :border (rgba 127 127 127 0.3)
+        :border-width 1)
+      :action (new-workspace :title "Scratch"))
+    :padding (edges :horizontal 8 :vertical 10)))
