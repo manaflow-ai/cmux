@@ -482,6 +482,7 @@ const state = {
   workspaceListActiveId: "",
   paneCleanupSignature: null,
   surfaceTabsSignature: "",
+  surfaceTabOverflowSignature: "",
   paneRenderSignature: "",
   paneFitSignature: "",
   visiblePanePanelIds: new Set(),
@@ -4415,6 +4416,7 @@ function surfaceTabsCanOverflow(strip = elements.surfaceTabs) {
 }
 
 function resetSurfaceTabsOverflow(strip = elements.surfaceTabs) {
+  state.surfaceTabOverflowSignature = "";
   if (!strip) return;
   toggleClassIfChanged(strip, "has-overflow", false);
   toggleClassIfChanged(strip, "is-crowded", false);
@@ -4426,6 +4428,20 @@ function resetSurfaceTabsOverflow(strip = elements.surfaceTabs) {
 function surfaceTabsOverflowing(strip = elements.surfaceTabs) {
   if (!strip) return false;
   return strip.scrollWidth > strip.clientWidth + 1;
+}
+
+function tabOverflowStateSignature(strip, tabCount) {
+  if (!strip) return "";
+  return [
+    tabCount,
+    strip.clientWidth,
+    strip.scrollWidth,
+    Math.round(strip.scrollLeft || 0),
+    strip.classList.contains("is-crowded") ? 1 : 0,
+    strip.classList.contains("has-overflow") ? 1 : 0,
+    strip.classList.contains("can-scroll-left") ? 1 : 0,
+    strip.classList.contains("can-scroll-right") ? 1 : 0
+  ].join("|");
 }
 
 function updateSurfaceTabScrollState(strip, overflowing = surfaceTabsOverflowing()) {
@@ -4447,6 +4463,8 @@ function updateSurfaceTabsOverflow() {
     resetSurfaceTabsOverflow(strip);
     return;
   }
+  const currentSignature = tabOverflowStateSignature(strip, tabCount);
+  if (currentSignature === state.surfaceTabOverflowSignature) return;
   if (tabCount < 6 && strip.classList.contains("is-crowded")) {
     strip.classList.remove("is-crowded");
   }
@@ -4457,6 +4475,7 @@ function updateSurfaceTabsOverflow() {
   toggleClassIfChanged(strip, "has-overflow", finalOverflow);
   updateSurfaceTabScrollState(strip, finalOverflow);
   if (!finalOverflow && strip.scrollLeft) strip.scrollLeft = 0;
+  state.surfaceTabOverflowSignature = tabOverflowStateSignature(strip, tabCount);
 }
 
 function commandStripContentWidth() {
@@ -7278,6 +7297,8 @@ function updateBrowserTabOverflow(session) {
   const tabList = session?.tabList;
   if (!tabList) return;
   const tabCount = session.tabs?.length || tabList.children.length;
+  const currentSignature = tabOverflowStateSignature(tabList, tabCount);
+  if (currentSignature === session.tabOverflowSignature) return;
   if (tabCount < 5 && tabList.classList.contains("is-crowded")) {
     tabList.classList.remove("is-crowded");
   }
@@ -7290,6 +7311,7 @@ function updateBrowserTabOverflow(session) {
   toggleClassIfChanged(tabList, "can-scroll-left", overflowing && scrollLeft > 1);
   toggleClassIfChanged(tabList, "can-scroll-right", overflowing && scrollLeft < maxScrollLeft - 1);
   if (!overflowing && tabList.scrollLeft) tabList.scrollLeft = 0;
+  session.tabOverflowSignature = tabOverflowStateSignature(tabList, tabCount);
 }
 
 function scheduleActiveBrowserTabIntoView(session) {
@@ -8088,6 +8110,7 @@ function ensureBrowser(panel, body) {
     activeTabId: tabSnapshot.activeTabId,
     tabButtons: new Map(),
     tabSignature: "",
+    tabOverflowSignature: "",
     setStatus,
     setLoading,
     updateNavState,
