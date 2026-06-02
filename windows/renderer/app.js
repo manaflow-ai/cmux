@@ -7715,6 +7715,7 @@ function renderSettingsInspector(options = {}) {
         activeColor: workspace?.color,
         fallbackColor: state.settings.accent,
         onPick: (color) => setWorkspaceColor(color),
+        saveLabel: "Save",
         searchTerms: "workspace custom color hex picker"
       }),
       true,
@@ -9350,6 +9351,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
       onClear: () => updatePanel(panel.id, { color: "" }),
       clearLabel: "Default",
       clearDisabled: !panel.color,
+      saveLabel: "Save",
       searchTerms: "active pane custom color hex picker reset default clear"
     }),
     true,
@@ -11104,16 +11106,26 @@ function colorControlPanel({
   onClear,
   clearLabel = "Default",
   clearDisabled = false,
+  saveLabel = "",
   searchTerms = ""
 }) {
   const panel = document.createElement("div");
-  panel.className = `settings-color-panel${onClear ? " has-clear" : ""}`;
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`color palette swatch custom hex picker ${searchTerms}`);
+  panel.className = `settings-color-panel${onClear ? " has-clear" : ""}${saveLabel ? " has-save" : ""}`;
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`color palette swatch custom hex picker save ${searchTerms}`);
   panel.append(swatchGrid(colors, activeColor, onPick));
 
   const custom = document.createElement("div");
   custom.className = "settings-color-custom";
-  custom.append(colorPicker(activeColor, onPick, fallbackColor));
+  const picker = colorPicker(activeColor, onPick, fallbackColor);
+  custom.append(picker);
+  if (saveLabel) {
+    const save = settingsActionButton(saveLabel, () => {
+      const input = picker.querySelector(".color-picker-input");
+      upsertCustomColorPalette(input?.value || activeColor || fallbackColor);
+    }, "", `color save custom palette ${searchTerms}`);
+    save.classList.add("settings-color-save");
+    custom.append(save);
+  }
   if (onClear) {
     const clear = settingsActionButton(clearLabel, onClear, "", `color reset default clear ${searchTerms}`);
     clear.classList.add("settings-color-clear");
