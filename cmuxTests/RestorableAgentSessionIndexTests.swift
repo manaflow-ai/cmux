@@ -310,6 +310,64 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertEqual(snapshot.workingDirectory, launchCwd.path)
     }
 
+    func testClaudeWorkflowDirectorySessionUsesSiblingJsonlSessionForResume() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-workflow-directory-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        let projectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(cwd.path),
+            isDirectory: true
+        )
+        let workflowContainerSessionId = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
+        let resumableSessionId = "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb"
+        let workflowContainerURL = projectDir
+            .appendingPathComponent(workflowContainerSessionId, isDirectory: true)
+        try fm.createDirectory(
+            at: workflowContainerURL
+                .appendingPathComponent("subagents", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let siblingTranscriptURL = projectDir.appendingPathComponent("\(resumableSessionId).jsonl", isDirectory: false)
+        try writeClaudeTranscript(sessionId: resumableSessionId, transcriptURL: siblingTranscriptURL, cwd: cwd)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                workflowContainerSessionId: hookRecord(
+                    sessionId: workflowContainerSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    transcriptPath: workflowContainerURL.path,
+                    isRestorable: true,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.sessionId, resumableSessionId)
+        XCTAssertEqual(snapshot.workingDirectory, cwd.path)
+        XCTAssertTrue(
+            try XCTUnwrap(snapshot.resumeCommand).contains("'--resume' '\(resumableSessionId)'")
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(snapshot.resumeCommand).contains(workflowContainerSessionId),
+            "The Workflow container id is not accepted by claude --resume."
+        )
+    }
+
     /// Mirrors Claude's external project-directory naming rule ("/" and "." both become "-")
     /// independently of the production `encodeClaudeProjectDir`, so these regression tests fail if
     /// that helper regresses instead of masking it by sharing the same code path.
