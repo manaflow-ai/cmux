@@ -6216,6 +6216,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if debugSuppressShortcutRoutingContextForTesting {
             return nil
         }
+        if let preferredWindow = shortcutRoutingPreferredWindowOverride,
+           mainWindowId(for: preferredWindow) != nil {
+            return preferredWindow
+        }
 #endif
         if let scopedWindow = mainWindowForShortcutEvent(event) {
             return scopedWindow
