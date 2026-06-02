@@ -127,4 +127,48 @@ struct SidebarProviderMenuRegressionTests {
             CmuxExtensionSidebarSelection.effectiveProviderId(hosted, extensionsEnabled: false) == CmuxExtensionSidebarSelection.defaultProviderId
         )
     }
+
+    /// The host renders the selected view through an
+    /// `any CmuxExtensionSidebarProvider` existential
+    /// (`CmuxExtensionSidebarSelection.provider(for:)?.render(snapshot:)`).
+    /// `render(snapshot:)` must dynamic-dispatch to the concrete view; if it
+    /// instead hits the empty protocol-extension default, every built-in view
+    /// renders an empty sidebar even though the provider and workspaces are
+    /// present — the second half of #5173. Super Compact lists every workspace
+    /// in one section, so its rows must equal the workspace count.
+    @Test
+    func builtInProviderRendersRowsThroughHostExistential() {
+        let snapshot = Self.populatedSnapshot(workspaceCount: 3)
+        let provider = CmuxExtensionSidebarSelection.provider(for: "com.example.cmux.sidebar.super-compact")
+        #expect(provider != nil, "Super Compact provider should be registered")
+        let model = provider?.render(snapshot: snapshot)
+        #expect(
+            (model?.sections.flatMap(\.rows).count ?? 0) == 3,
+            "Selected view rendered no rows through the host existential (empty-sidebar regression)"
+        )
+    }
+
+    private static func populatedSnapshot(workspaceCount: Int) -> CmuxExtensionSidebarSnapshot {
+        let workspaces = (0..<workspaceCount).map { index in
+            CmuxExtensionWorkspaceSnapshot(
+                id: UUID(),
+                title: "Workspace \(index)",
+                customDescription: nil,
+                isPinned: false,
+                rootPath: "/tmp/ws\(index)",
+                projectRootPath: "/tmp/ws\(index)",
+                branchSummary: "main",
+                remoteDisplayTarget: nil,
+                remoteConnectionState: "disconnected",
+                unreadCount: 0,
+                latestNotificationText: nil,
+                listeningPorts: []
+            )
+        }
+        return CmuxExtensionSidebarSnapshot(
+            sequence: 1,
+            selectedWorkspaceId: nil,
+            workspaces: workspaces
+        )
+    }
 }
