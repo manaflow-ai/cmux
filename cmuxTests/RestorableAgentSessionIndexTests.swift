@@ -203,6 +203,10 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     // worktree); the hook-reported `cwd` drifts to the latter, but Claude keeps the transcript in
     // the start directory's project folder. Fork/resume must cd into the directory that actually
     // holds the transcript, otherwise `claude --resume` fails with "No conversation found".
+    //
+    // The launch path contains a "." so this also exercises encodeClaudeProjectDir's "." -> "-"
+    // contract, and the on-disk fixture is placed using a project-dir name computed independently of
+    // the production helper so a regression in that helper fails the test instead of being masked.
     func testClaudeForkResolvesDriftedCwdViaTranscriptPath() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -211,29 +215,21 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
         let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
         let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
-        let launchCwd = root.appendingPathComponent("repo", isDirectory: true)
+        let launchCwd = root.appendingPathComponent("repo.main", isDirectory: true)
         let driftedCwd = root.appendingPathComponent("worktree", isDirectory: true)
         try fm.createDirectory(at: launchCwd, withIntermediateDirectories: true)
         try fm.createDirectory(at: driftedCwd, withIntermediateDirectories: true)
-        try fm.createDirectory(
-            at: projectsDir.appendingPathComponent(
-                RestorableAgentSessionIndex.encodeClaudeProjectDir(launchCwd.path),
-                isDirectory: true
-            ),
-            withIntermediateDirectories: true
+        let projectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(launchCwd.path),
+            isDirectory: true
         )
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
 
         let sessionId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         let workspaceId = UUID()
         let panelId = UUID()
-        try writeClaudeTranscript(sessionId: sessionId, cwd: launchCwd, projectsDir: projectsDir)
-        let transcriptPath = projectsDir
-            .appendingPathComponent(
-                RestorableAgentSessionIndex.encodeClaudeProjectDir(launchCwd.path),
-                isDirectory: true
-            )
-            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
-            .path
+        let transcriptURL = projectDir.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+        try writeClaudeTranscript(sessionId: sessionId, transcriptURL: transcriptURL, cwd: launchCwd)
 
         try writeClaudeHookStore(
             root: root,
@@ -245,7 +241,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
                     recordedCwd: driftedCwd.path,
                     launchCwd: launchCwd.path,
                     configDir: configDir.path,
-                    transcriptPath: transcriptPath,
+                    transcriptPath: transcriptURL.path,
                     updatedAt: 10
                 ),
             ]
@@ -276,22 +272,21 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
         let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
         let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
-        let launchCwd = root.appendingPathComponent("repo", isDirectory: true)
+        let launchCwd = root.appendingPathComponent("repo.main", isDirectory: true)
         let driftedCwd = root.appendingPathComponent("worktree", isDirectory: true)
         try fm.createDirectory(at: launchCwd, withIntermediateDirectories: true)
         try fm.createDirectory(at: driftedCwd, withIntermediateDirectories: true)
-        try fm.createDirectory(
-            at: projectsDir.appendingPathComponent(
-                RestorableAgentSessionIndex.encodeClaudeProjectDir(launchCwd.path),
-                isDirectory: true
-            ),
-            withIntermediateDirectories: true
+        let projectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(launchCwd.path),
+            isDirectory: true
         )
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
 
         let sessionId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
         let workspaceId = UUID()
         let panelId = UUID()
-        try writeClaudeTranscript(sessionId: sessionId, cwd: launchCwd, projectsDir: projectsDir)
+        let transcriptURL = projectDir.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+        try writeClaudeTranscript(sessionId: sessionId, transcriptURL: transcriptURL, cwd: launchCwd)
 
         try writeClaudeHookStore(
             root: root,
@@ -313,6 +308,14 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
 
         XCTAssertEqual(snapshot.workingDirectory, launchCwd.path)
+    }
+
+    /// Mirrors Claude's external project-directory naming rule ("/" and "." both become "-")
+    /// independently of the production `encodeClaudeProjectDir`, so these regression tests fail if
+    /// that helper regresses instead of masking it by sharing the same code path.
+    private func expectedClaudeProjectDirName(_ path: String) -> String {
+        path.replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ".", with: "-")
     }
 
     private func driftedHookRecord(
