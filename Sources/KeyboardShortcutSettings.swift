@@ -517,7 +517,11 @@ enum KeyboardShortcutSettings {
                  .diffViewerScrollUp,
                  .diffViewerScrollToBottom,
                  .diffViewerScrollToTop,
-                 .diffViewerOpenFileSearch:
+                 .diffViewerOpenFileSearch,
+                 // The exit gesture is handled only by BrowserPanel while focus
+                 // mode is active, so it can be rebound to any bare key or chord
+                 // (default ⎋ ⎋); it never claims a bare key outside focus mode.
+                 .exitBrowserFocusMode:
                 return true
             default:
                 return false
@@ -2416,7 +2420,7 @@ extension StoredShortcut {
         guard parsedStrokes.count == strokes.count, let firstStroke = parsedStrokes.first else {
             return nil
         }
-        guard allowBareFirstStroke || !firstStroke.modifierFlags.isEmpty || firstStroke.key == "space" || firstStroke.key == "escape" else { return nil }
+        guard allowBareFirstStroke || !firstStroke.modifierFlags.isEmpty || firstStroke.key == "space" else { return nil }
         let secondStroke = parsedStrokes.count == 2 ? parsedStrokes[1] : nil
         return StoredShortcut(first: firstStroke, second: secondStroke)
     }
