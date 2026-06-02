@@ -14606,6 +14606,82 @@ private final class SidebarTabItemContextMenuState: ObservableObject {
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
 
+private struct SidebarWorkspaceRowChrome<Content: View>: View {
+    let content: Content
+    let latestLog: SidebarLogEntry?
+    let progress: SidebarProgressState?
+    let metadataBlockCount: Int
+    let backgroundColor: Color
+    let activeBorderColor: Color
+    let activeBorderLineWidth: CGFloat
+    let showsLeadingRail: Bool
+    let railColor: Color
+    let showsWorkspaceShortcutHint: Bool
+    let workspaceShortcutLabel: String?
+    let shortcutHintEmphasis: Double
+    let sidebarShortcutHintXOffset: Double
+    let sidebarShortcutHintYOffset: Double
+    let shortcutHintFontSize: CGFloat
+    let showCloseButton: Bool
+    let closeButtonTooltip: String
+    let closeButtonFontSize: CGFloat
+    let closeButtonForegroundColor: Color
+    let closeButtonWidth: CGFloat
+    let closeButtonHitSize: CGFloat
+    let closeWorkspace: () -> Void
+
+    var body: some View {
+        content
+            .animation(.easeInOut(duration: 0.2), value: latestLog)
+            .animation(.easeInOut(duration: 0.2), value: progress != nil)
+            .animation(.easeInOut(duration: 0.2), value: metadataBlockCount)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(backgroundColor)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
+                    }
+                    .overlay(alignment: .leading) {
+                        if showsLeadingRail {
+                            Capsule(style: .continuous)
+                                .fill(railColor)
+                                .frame(width: 3)
+                                .padding(.leading, 4)
+                                .padding(.vertical, 5)
+                                .offset(x: -1)
+                        }
+                    }
+            )
+            .sidebarShortcutHintOverlay(
+                text: showsWorkspaceShortcutHint ? workspaceShortcutLabel : nil,
+                emphasis: shortcutHintEmphasis,
+                offsetX: sidebarShortcutHintXOffset,
+                offsetY: sidebarShortcutHintYOffset,
+                fontSize: shortcutHintFontSize
+            )
+            .overlay(alignment: .topTrailing) {
+                if showsWorkspaceShortcutHint {
+                    EmptyView()
+                } else if showCloseButton {
+                    Button(action: closeWorkspace) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: closeButtonFontSize, weight: .medium))
+                            .foregroundColor(closeButtonForegroundColor)
+                    }
+                    .buttonStyle(.plain)
+                    .safeHelp(closeButtonTooltip)
+                    .frame(width: closeButtonWidth, height: closeButtonHitSize, alignment: .center)
+                    .padding(.top, 8)
+                    .padding(.trailing, 10)
+                }
+            }
+            .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
+    }
+}
+
 struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
@@ -15380,59 +15456,35 @@ struct TabItemView: View, Equatable {
             scaledUnreadBadgeSize: scaledUnreadBadgeSize,
             protectedWorkspaceTooltip: protectedWorkspaceTooltip
         ))
-        (scriptedSidebarRow ?? nativeSidebarRow)
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.metadataBlocks.count)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(backgroundColor)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
-                }
-                .overlay(alignment: .leading) {
-                    if showsLeadingRail {
-                        Capsule(style: .continuous)
-                            .fill(railColor)
-                            .frame(width: 3)
-                            .padding(.leading, 4)
-                            .padding(.vertical, 5)
-                            .offset(x: -1)
-                    }
-                }
-        )
-        .sidebarShortcutHintOverlay(
-            text: showsWorkspaceShortcutHint ? workspaceShortcutLabel : nil,
-            emphasis: shortcutHintEmphasis,
-            offsetX: sidebarShortcutHintXOffset,
-            offsetY: sidebarShortcutHintYOffset,
-            fontSize: scaledFontSize(10)
-        )
-        .overlay(alignment: .topTrailing) {
-            if showsWorkspaceShortcutHint {
-                EmptyView()
-            } else if showCloseButton {
-                Button(action: {
-                    #if DEBUG
-                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                    #endif
-                    tabManager.closeWorkspaceWithConfirmation(tab)
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: scaledFontSize(9), weight: .medium))
-                        .foregroundColor(activeSecondaryColor(0.7))
-                }
-                .buttonStyle(.plain)
-                .safeHelp(closeButtonTooltip)
-                .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
-                .padding(.top, 8)
-                .padding(.trailing, 10)
+        SidebarWorkspaceRowChrome(
+            content: scriptedSidebarRow ?? nativeSidebarRow,
+            latestLog: workspaceSnapshot.latestLog,
+            progress: workspaceSnapshot.progress,
+            metadataBlockCount: workspaceSnapshot.metadataBlocks.count,
+            backgroundColor: backgroundColor,
+            activeBorderColor: activeBorderColor,
+            activeBorderLineWidth: activeBorderLineWidth,
+            showsLeadingRail: showsLeadingRail,
+            railColor: railColor,
+            showsWorkspaceShortcutHint: showsWorkspaceShortcutHint,
+            workspaceShortcutLabel: workspaceShortcutLabel,
+            shortcutHintEmphasis: shortcutHintEmphasis,
+            sidebarShortcutHintXOffset: sidebarShortcutHintXOffset,
+            sidebarShortcutHintYOffset: sidebarShortcutHintYOffset,
+            shortcutHintFontSize: scaledFontSize(10),
+            showCloseButton: showCloseButton,
+            closeButtonTooltip: closeButtonTooltip,
+            closeButtonFontSize: scaledFontSize(9),
+            closeButtonForegroundColor: activeSecondaryColor(0.7),
+            closeButtonWidth: scaledCloseButtonWidth,
+            closeButtonHitSize: scaledCloseButtonHitSize,
+            closeWorkspace: {
+                #if DEBUG
+                cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                #endif
+                tabManager.closeWorkspaceWithConfirmation(tab)
             }
-        }
-        .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
+        )
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .contentShape(Rectangle())
