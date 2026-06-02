@@ -11274,6 +11274,30 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingPaneCloseHistoryEntries: [UUID: [ClosedPanelHistoryEntry]] = [:]
     private var pendingClosedBrowserRestoreSnapshots: [TabID: ClosedBrowserPanelRestoreSnapshot] = [:]
     private var isApplyingTabSelection = false
+    private struct PaneNavigationMemoryKey: Hashable {
+        let paneId: UUID
+        let direction: PaneNavigationMemoryDirection
+    }
+    private enum PaneNavigationMemoryDirection: Hashable {
+        case left
+        case right
+        case up
+        case down
+
+        init(_ direction: NavigationDirection) {
+            switch direction {
+            case .left:
+                self = .left
+            case .right:
+                self = .right
+            case .up:
+                self = .up
+            case .down:
+                self = .down
+            }
+        }
+    }
+    private var paneNavigationMemory: [PaneNavigationMemoryKey: UUID] = [:]
     private struct PendingTabSelectionRequest {
         let tabId: TabID
         let pane: PaneID
@@ -16194,15 +16218,17 @@ final class Workspace: Identifiable, ObservableObject {
 
     func moveFocus(direction: NavigationDirection) {
         let previousFocusedPanelId = focusedPanelId
+        let sourcePaneId = bonsplitController.focusedPaneId
 
         // Unfocus the currently-focused panel before navigating.
         if let prevPanelId = previousFocusedPanelId, let prev = panels[prevPanelId] {
             prev.unfocus()
         }
 
-        if let focusedPaneId = bonsplitController.focusedPaneId,
-           let targetPaneId = spatialAdjacentPane(to: focusedPaneId, direction: direction) {
+        if let focusedPaneId = sourcePaneId,
+           let targetPaneId = rememberedOrSpatialAdjacentPane(to: focusedPaneId, direction: direction) {
             bonsplitController.focusPane(targetPaneId)
+            rememberPaneNavigation(from: focusedPaneId, to: targetPaneId, direction: direction)
         }
 
         // Always reconcile selection/focus after navigation so AppKit first-responder and
@@ -16212,6 +16238,49 @@ final class Workspace: Identifiable, ObservableObject {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
 
+    }
+
+    private func rememberedOrSpatialAdjacentPane(to sourcePaneId: PaneID, direction: NavigationDirection) -> PaneID? {
+        if let rememberedPaneId = rememberedAdjacentPane(to: sourcePaneId, direction: direction) {
+            return rememberedPaneId
+        }
+        return spatialAdjacentPane(to: sourcePaneId, direction: direction)
+    }
+
+    private func rememberedAdjacentPane(to sourcePaneId: PaneID, direction: NavigationDirection) -> PaneID? {
+        let key = PaneNavigationMemoryKey(
+            paneId: sourcePaneId.id,
+            direction: PaneNavigationMemoryDirection(direction)
+        )
+        guard let rememberedPaneUUID = paneNavigationMemory[key],
+              let rememberedPaneId = bonsplitController.allPaneIds.first(where: { $0.id == rememberedPaneUUID }),
+              spatialPaneIdsAdjacent(sourcePaneId, rememberedPaneId, direction: direction) else {
+            paneNavigationMemory.removeValue(forKey: key)
+            return nil
+        }
+        return rememberedPaneId
+    }
+
+    private func rememberPaneNavigation(from sourcePaneId: PaneID, to targetPaneId: PaneID, direction: NavigationDirection) {
+        paneNavigationMemory[
+            PaneNavigationMemoryKey(
+                paneId: targetPaneId.id,
+                direction: PaneNavigationMemoryDirection(oppositeDirection(direction))
+            )
+        ] = sourcePaneId.id
+    }
+
+    private func oppositeDirection(_ direction: NavigationDirection) -> NavigationDirection {
+        switch direction {
+        case .left:
+            return .right
+        case .right:
+            return .left
+        case .up:
+            return .down
+        case .down:
+            return .up
+        }
     }
 
     private struct SpatialPaneCandidate {
@@ -16252,13 +16321,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func spatialAdjacentPane(to sourcePaneId: PaneID, direction: NavigationDirection) -> PaneID? {
-        let paneById = Dictionary(uniqueKeysWithValues: bonsplitController.allPaneIds.map { ($0.id.uuidString, $0) })
-        var boundsByPaneId: [String: CGRect] = [:]
-        browserCollectNormalizedPaneBounds(
-            node: bonsplitController.treeSnapshot(),
-            availableRect: CGRect(x: 0, y: 0, width: 1, height: 1),
-            into: &boundsByPaneId
-        )
+        let (paneById, boundsByPaneId) = spatialPaneBoundsById()
 
         let sourceId = sourcePaneId.id.uuidString
         guard let sourceBounds = boundsByPaneId[sourceId] else { return nil }
@@ -16277,6 +16340,31 @@ final class Workspace: Identifiable, ObservableObject {
             spatialRank(lhs, relativeTo: sourceBounds, direction: direction, epsilon: epsilon) <
                 spatialRank(rhs, relativeTo: sourceBounds, direction: direction, epsilon: epsilon)
         }?.paneId
+    }
+
+    private func spatialPaneBoundsById() -> (paneById: [String: PaneID], boundsByPaneId: [String: CGRect]) {
+        let paneById = Dictionary(uniqueKeysWithValues: bonsplitController.allPaneIds.map { ($0.id.uuidString, $0) })
+        var boundsByPaneId: [String: CGRect] = [:]
+        browserCollectNormalizedPaneBounds(
+            node: bonsplitController.treeSnapshot(),
+            availableRect: CGRect(x: 0, y: 0, width: 1, height: 1),
+            into: &boundsByPaneId
+        )
+        return (paneById, boundsByPaneId)
+    }
+
+    private func spatialPaneIdsAdjacent(_ sourcePaneId: PaneID, _ candidatePaneId: PaneID, direction: NavigationDirection) -> Bool {
+        let (_, boundsByPaneId) = spatialPaneBoundsById()
+        guard let sourceBounds = boundsByPaneId[sourcePaneId.id.uuidString],
+              let candidateBounds = boundsByPaneId[candidatePaneId.id.uuidString] else {
+            return false
+        }
+        return spatialPane(
+            candidateBounds,
+            isInDirection: direction,
+            from: sourceBounds,
+            epsilon: 0.000_1
+        )
     }
 
     private func spatialRank(
