@@ -957,7 +957,8 @@ class CmuxWindowsRuntime {
   }
 
   scheduleTerminalPrewarm(panel, response = null) {
-    if (this.closed || !panel || panel.type !== "terminal" || !this.hasRendererEventSocket()) return;
+    if (this.closed || !panel || panel.type !== "terminal") return;
+    if (!response && !this.hasRendererEventSocket()) return;
     if (this.terminals.has(panel.id) || this.pendingTerminalPrewarms.has(panel.id)) return;
     const panelId = panel.id;
     const pending = { canceled: false, handle: null, handleType: "", response: null };
