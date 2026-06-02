@@ -1057,6 +1057,7 @@ final class GhosttySpaceReleaseRegressionTests: XCTestCase {
         )
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            surface.releaseSurfaceForTesting()
             window.orderOut(nil)
         }
 
@@ -1124,6 +1125,7 @@ final class KoreanIMEReturnCommitRegressionTests: XCTestCase {
         )
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            surface.releaseSurfaceForTesting()
             window.orderOut(nil)
         }
 
@@ -1218,6 +1220,7 @@ final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
             KeyboardLayout.debugInputSourceIdOverride = nil
             cjkIMEInterpretKeyEventsHook = nil
+            surface.releaseSurfaceForTesting()
             window.orderOut(nil)
         }
 
@@ -1314,6 +1317,7 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
         )
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            surface.releaseSurfaceForTesting()
             window.orderOut(nil)
         }
 
@@ -1374,6 +1378,7 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
         )
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            surface.releaseSurfaceForTesting()
             window.orderOut(nil)
         }
 
@@ -1434,6 +1439,7 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
         )
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            surface.releaseSurfaceForTesting()
             window.orderOut(nil)
         }
 
@@ -1497,6 +1503,7 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
         )
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            surface.releaseSurfaceForTesting()
             window.orderOut(nil)
         }
 
@@ -1728,7 +1735,10 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         let hostedTerminal = try makeHostedTerminalWindow()
         let window = hostedTerminal.window
         let surfaceView = hostedTerminal.surfaceView
-        defer { window.orderOut(nil) }
+        defer {
+            hostedTerminal.surface.releaseSurfaceForTesting()
+            window.orderOut(nil)
+        }
 
         window.makeFirstResponder(surfaceView)
         XCTAssertNotNil(surfaceView.terminalSurface)
@@ -1761,7 +1771,10 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         let hostedTerminal = try makeHostedTerminalWindow()
         let window = hostedTerminal.window
         let surfaceView = hostedTerminal.surfaceView
-        defer { window.orderOut(nil) }
+        defer {
+            hostedTerminal.surface.releaseSurfaceForTesting()
+            window.orderOut(nil)
+        }
 
         window.makeFirstResponder(surfaceView)
         XCTAssertNotNil(surfaceView.terminalSurface)
@@ -1830,7 +1843,10 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             initialCommand: "/usr/bin/python3 \(shellSingleQuoted(scriptURL.path))"
         )
         let window = hostedTerminal.window
-        defer { window.orderOut(nil) }
+        defer {
+            hostedTerminal.surface.releaseSurfaceForTesting()
+            window.orderOut(nil)
+        }
 
         let readyText = try waitForTerminalText(from: hostedTerminal) {
             $0.contains(captureReadyMarker)
@@ -1889,7 +1905,10 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         let terminalSurface = hostedTerminal.surface
         let window = hostedTerminal.window
         let surfaceView = hostedTerminal.surfaceView
-        defer { window.orderOut(nil) }
+        defer {
+            terminalSurface.releaseSurfaceForTesting()
+            window.orderOut(nil)
+        }
 
         window.makeFirstResponder(surfaceView)
         XCTAssertNotNil(surfaceView.terminalSurface)
@@ -1962,7 +1981,10 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         let terminalSurface = hostedTerminal.surface
         let window = hostedTerminal.window
         let surfaceView = hostedTerminal.surfaceView
-        defer { window.orderOut(nil) }
+        defer {
+            terminalSurface.releaseSurfaceForTesting()
+            window.orderOut(nil)
+        }
 
         window.makeFirstResponder(surfaceView)
         XCTAssertNotNil(surfaceView.terminalSurface)
@@ -2049,7 +2071,10 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         let terminalSurface = hostedTerminal.surface
         let window = hostedTerminal.window
         let surfaceView = hostedTerminal.surfaceView
-        defer { window.orderOut(nil) }
+        defer {
+            terminalSurface.releaseSurfaceForTesting()
+            window.orderOut(nil)
+        }
 
         window.makeFirstResponder(surfaceView)
         XCTAssertNotNil(surfaceView.terminalSurface)
@@ -2150,6 +2175,7 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
             cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            surface.releaseSurfaceForTesting()
             window.orderOut(nil)
         }
 
@@ -2273,6 +2299,7 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
         )
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            surface.releaseSurfaceForTesting()
             window.orderOut(nil)
         }
 

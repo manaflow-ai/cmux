@@ -10,6 +10,19 @@ import Bonsplit
 
 @MainActor
 final class AppDelegateIssue2907RoutingTests: XCTestCase {
+    private var originalRuntimeSurfaceCreationSuppression = false
+
+    override func setUp() {
+        super.setUp()
+        originalRuntimeSurfaceCreationSuppression = TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = true
+    }
+
+    override func tearDown() {
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = originalRuntimeSurfaceCreationSuppression
+        super.tearDown()
+    }
+
     private func makeMainWindow(id: UUID) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),

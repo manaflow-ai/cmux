@@ -10,6 +10,19 @@ import XCTest
 
 @MainActor
 final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
+    private var originalRuntimeSurfaceCreationSuppression = false
+
+    override func setUp() {
+        super.setUp()
+        originalRuntimeSurfaceCreationSuppression = TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = true
+    }
+
+    override func tearDown() {
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = originalRuntimeSurfaceCreationSuppression
+        super.tearDown()
+    }
+
     func testCmdShiftReturnFocusedBrowserTogglesSplitZoom() {
         withTemporaryShortcut(action: .toggleSplitZoom) {
             guard let appDelegate = AppDelegate.shared else {

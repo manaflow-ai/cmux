@@ -8,6 +8,19 @@ import XCTest
 #endif
 
 final class AgentSessionAutoResumeSettingsTests: XCTestCase {
+    private var originalRuntimeSurfaceCreationSuppression = false
+
+    override func setUp() {
+        super.setUp()
+        originalRuntimeSurfaceCreationSuppression = TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = true
+    }
+
+    override func tearDown() {
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = originalRuntimeSurfaceCreationSuppression
+        super.tearDown()
+    }
+
     func testDefaultsKeyAndNotificationOnFlip() throws {
         let suiteName = "cmux-agent-session-auto-resume-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
