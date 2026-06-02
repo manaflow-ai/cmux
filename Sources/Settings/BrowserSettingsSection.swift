@@ -442,10 +442,8 @@ struct BrowserSettingsSection: View {
 
             HStack(spacing: 8) {
                 Button(String(localized: "settings.browser.import.choose", defaultValue: "Choose…")) {
-                    DispatchQueue.main.async {
-                        BrowserDataImportCoordinator.shared.presentImportDialog()
-                        refreshDetectedImportBrowsers()
-                    }
+                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                    refreshDetectedImportBrowsers()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
