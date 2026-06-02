@@ -22,6 +22,7 @@ export const defaultSettings = {
   sidebarFooterMode: "workspace",
   toolbarMode: "minimal",
   tabSize: "balanced",
+  addTabStyle: "labeled",
   titleDetailMode: "smart",
   paneColorMarkers: false,
   focusMode: false,
@@ -288,6 +289,12 @@ export const tabSizeOptions = [
   ["roomy", label("tabSize.roomy", "Roomy")]
 ];
 
+export const addTabStyleOptions = [
+  ["labeled", label("addTabStyle.labeled", "Labeled")],
+  ["compact", label("addTabStyle.compact", "Compact")],
+  ["hidden", label("addTabStyle.hidden", "Hidden")]
+];
+
 export const titleDetailOptions = [
   ["smart", label("titleDetail.smart", "Smart")],
   ["compact", label("titleDetail.compact", "Name only")],
@@ -388,6 +395,7 @@ export const settingsPresets = [
       sidebarFooterMode: "workspace",
       toolbarMode: "minimal",
       tabSize: "balanced",
+      addTabStyle: "labeled",
       titleDetailMode: "smart",
       paneColorMarkers: false,
       focusMode: false,
@@ -432,6 +440,7 @@ export const settingsPresets = [
       sidebarFooterMode: "compact",
       toolbarMode: "minimal",
       tabSize: "compact",
+      addTabStyle: "compact",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: false,
@@ -476,6 +485,7 @@ export const settingsPresets = [
       sidebarFooterMode: "workspace",
       toolbarMode: "minimal",
       tabSize: "balanced",
+      addTabStyle: "compact",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: true,
@@ -520,6 +530,7 @@ export const settingsPresets = [
       sidebarFooterMode: "workspace",
       toolbarMode: "minimal",
       tabSize: "compact",
+      addTabStyle: "hidden",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: false,
@@ -564,6 +575,7 @@ export const settingsPresets = [
       sidebarFooterMode: "compact",
       toolbarMode: "standard",
       tabSize: "roomy",
+      addTabStyle: "labeled",
       titleDetailMode: "detailed",
       paneColorMarkers: true,
       focusMode: false,

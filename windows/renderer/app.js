@@ -1,4 +1,5 @@
 import {
+  addTabStyleOptions,
   accentOptions,
   backgroundEffectsOptions,
   backgroundFitOptions,
@@ -208,6 +209,7 @@ const layoutSettingsPreviewKeys = new Set([
   "sidebarFooterMode",
   "toolbarMode",
   "tabSize",
+  "addTabStyle",
   "titleDetailMode",
   "paneColorMarkers",
   "focusMode",
@@ -219,6 +221,7 @@ const layoutSettingsPreviewKeys = new Set([
 ]);
 const surfaceTabLayoutKeys = new Set([
   "tabSize",
+  "addTabStyle",
   "paneColorMarkers",
   "focusMode",
   "showTabs"
@@ -258,6 +261,7 @@ const settingsInspectorSettingKeys = {
     "sidebarFooterMode",
     "toolbarMode",
     "tabSize",
+    "addTabStyle",
     "titleDetailMode",
     "paneColorMarkers",
     "focusMode",
@@ -758,6 +762,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
     next.toolbarMode = parsed.showAdvanced ? "expanded" : defaultSettings.toolbarMode;
   }
   if (!tabSizeOptions.some(([id]) => id === next.tabSize)) next.tabSize = defaultSettings.tabSize;
+  if (!addTabStyleOptions.some(([id]) => id === next.addTabStyle)) next.addTabStyle = defaultSettings.addTabStyle;
   if (!titleDetailOptions.some(([id]) => id === next.titleDetailMode)) next.titleDetailMode = defaultSettings.titleDetailMode;
   if (!terminalCursorStyles.some(([id]) => id === next.terminalCursorStyle)) next.terminalCursorStyle = defaultSettings.terminalCursorStyle;
   if (!terminalFontOptions.some(([id]) => id === next.terminalFontFamily)) next.terminalFontFamily = defaultSettings.terminalFontFamily;
@@ -1764,12 +1769,14 @@ function settingsProfileSummary(settings) {
   const normalized = normalizeSettings(settings);
   const theme = themeOptions.find(([id]) => id === normalized.theme)?.[1] || normalized.theme;
   const toolbar = toolbarModeOptions.find(([id]) => id === normalized.toolbarMode)?.[1] || normalized.toolbarMode;
+  const addTabs = optionLabel(addTabStyleOptions, normalized.addTabStyle, normalized.addTabStyle);
   const actions = paneActionOptions.find(([id]) => id === normalized.paneActionMode)?.[1] || normalized.paneActionMode;
   const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, "Flat");
   return [
     theme,
     normalized.density,
     toolbar,
+    `${addTabs} add tabs`,
     `${actions} pane controls`,
     normalized.paneColorMarkers ? "colored pane markers" : "quiet pane markers",
     `${backgroundEffects.toLowerCase()} background`,
@@ -2547,6 +2554,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.density,
     settings.toolbarMode,
     settings.tabSize,
+    settings.addTabStyle,
     settings.titleDetailMode,
     settings.paneColorMarkers,
     settings.focusMode,
@@ -2603,6 +2611,9 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "toolbar-compact", state.settings.toolbarMode === "compact");
   toggleClassIfChanged(elements.shell, "toolbar-standard", state.settings.toolbarMode === "standard");
   toggleClassIfChanged(elements.shell, "toolbar-expanded", state.settings.toolbarMode === "expanded");
+  toggleClassIfChanged(elements.shell, "add-tabs-labeled", state.settings.addTabStyle === "labeled");
+  toggleClassIfChanged(elements.shell, "add-tabs-compact", state.settings.addTabStyle === "compact");
+  toggleClassIfChanged(elements.shell, "add-tabs-hidden", state.settings.addTabStyle === "hidden");
   toggleClassIfChanged(elements.shell, "pane-color-markers", state.settings.paneColorMarkers);
   toggleClassIfChanged(elements.shell, "focus-mode", state.settings.focusMode);
   toggleClassIfChanged(elements.shell, "hide-tabs", !state.settings.showTabs);
@@ -8743,6 +8754,17 @@ function renderSettingsInspector(options = {}) {
     tabSizeSelect.value = state.settings.tabSize;
     tabSizeSelect.onchange = () => updateSettings({ tabSize: tabSizeSelect.value });
     layoutSection.append(settingRow("Tab width", tabSizeSelect, false, "surface tab chrome tab width compact balanced roomy"));
+    const addTabStyleSelect = document.createElement("select");
+    addTabStyleSelect.className = "setting-select";
+    for (const [value, label] of addTabStyleOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      addTabStyleSelect.append(option);
+    }
+    addTabStyleSelect.value = state.settings.addTabStyle;
+    addTabStyleSelect.onchange = () => updateSettings({ addTabStyle: addTabStyleSelect.value });
+    layoutSection.append(settingRow("Add tabs", addTabStyleSelect, false, "surface tab add terminal browser plus button labeled compact hidden simple chrome"));
     const titleDetailSelect = document.createElement("select");
     titleDetailSelect.className = "setting-select";
     for (const [value, label] of titleDetailOptions) {
@@ -10044,6 +10066,7 @@ function layoutSettingsPreviewPanel() {
     `pane-actions-${settings.paneActionMode}`,
     `toolbar-${settings.toolbarMode}`,
     `tab-size-${settings.tabSize}`,
+    `add-tabs-${settings.addTabStyle}`,
     settings.focusMode ? "focus-mode" : "",
     settings.showTabs ? "show-tabs" : "hide-tabs",
     settings.showStatusbar ? "show-statusbar" : "hide-statusbar",
@@ -10082,6 +10105,7 @@ function layoutSettingsPreviewPanel() {
       <span><b>Toolbar</b><em data-layout-preview-toolbar></em></span>
       <span><b>Mode</b><em data-layout-preview-mode></em></span>
       <span><b>Tabs</b><em data-layout-preview-tabs></em></span>
+      <span><b>Add tabs</b><em data-layout-preview-add-tabs></em></span>
       <span><b>Header</b><em data-layout-preview-header></em></span>
       <span><b>Controls</b><em data-layout-preview-actions></em></span>
       <span><b>Sidebar</b><em data-layout-preview-sidebar></em></span>
@@ -10093,6 +10117,7 @@ function layoutSettingsPreviewPanel() {
   panel.querySelector("[data-layout-preview-toolbar]").textContent = optionLabel(toolbarModeOptions, settings.toolbarMode, settings.toolbarMode);
   panel.querySelector("[data-layout-preview-mode]").textContent = settings.focusMode ? "Focus" : "Standard";
   panel.querySelector("[data-layout-preview-tabs]").textContent = settings.focusMode || !settings.showTabs ? "Hidden" : optionLabel(tabSizeOptions, settings.tabSize, settings.tabSize);
+  panel.querySelector("[data-layout-preview-add-tabs]").textContent = settings.focusMode || !settings.showTabs ? "Hidden" : optionLabel(addTabStyleOptions, settings.addTabStyle, settings.addTabStyle);
   panel.querySelector("[data-layout-preview-header]").textContent = settings.focusMode ? "Hidden" : optionLabel(paneHeaderOptions, settings.paneHeaderMode, settings.paneHeaderMode);
   panel.querySelector("[data-layout-preview-actions]").textContent = optionLabel(paneActionOptions, settings.paneActionMode, settings.paneActionMode);
   panel.querySelector("[data-layout-preview-sidebar]").textContent = settings.focusMode ? "Hidden" : `${settings.sidebarWidth}px`;
@@ -17574,6 +17599,7 @@ const workspaceChromeSettings = [
   "sidebarFooterMode",
   "toolbarMode",
   "tabSize",
+  "addTabStyle",
   "titleDetailMode",
   "paneColorMarkers",
   "focusMode",

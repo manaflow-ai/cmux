@@ -1847,6 +1847,32 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   color: color-mix(in oklch, var(--color-accent) 76%, var(--color-text));
 }
 
+.shell.add-tabs-compact .surface-tabs {
+  scroll-padding-inline: 10px 82px;
+}
+
+.shell.add-tabs-hidden .surface-tabs {
+  scroll-padding-inline: 10px;
+}
+
+.shell.add-tabs-compact .surface-new-tab {
+  flex-basis: 34px;
+  min-width: 34px;
+  max-width: 34px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  padding-inline: 6px;
+}
+
+.shell.add-tabs-compact .surface-new-terminal {
+  right: 43px;
+}
+
+.shell.add-tabs-compact .surface-new-label,
+.shell.add-tabs-hidden .surface-new-tab {
+  display: none;
+}
+
 .surface-new-tab:hover {
   border-color: color-mix(in oklch, currentcolor 38%, var(--color-line));
   background: color-mix(in oklch, currentcolor 10%, var(--color-pane));
@@ -1855,6 +1881,10 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .surface-tabs.is-crowded {
   scroll-padding-inline: 10px 82px;
+}
+
+.shell.add-tabs-hidden .surface-tabs.is-crowded {
+  scroll-padding-inline: 10px;
 }
 
 .surface-tabs.is-crowded .surface-new-tab,
@@ -1942,7 +1972,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   background: color-mix(in oklch, currentcolor 15%, var(--color-pane-active));
 }
 
-.shell.density-compact .surface-new-tab {
+.shell.density-compact:not(.add-tabs-labeled) .surface-new-tab {
   height: 27px;
   flex-basis: 34px;
   min-width: 34px;
@@ -1953,25 +1983,29 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   padding-inline: 5px;
 }
 
-.shell.density-compact .surface-tabs {
+.shell.density-compact:not(.add-tabs-labeled) .surface-tabs {
   scroll-padding-inline: 10px 82px;
 }
 
-.shell.density-compact .surface-new-terminal {
+.shell.density-compact:not(.add-tabs-labeled) .surface-new-terminal {
   right: 43px;
 }
 
-.shell.density-compact .surface-new-browser {
+.shell.density-compact:not(.add-tabs-labeled) .surface-new-browser {
   right: 6px;
 }
 
-.shell.density-compact .surface-new-label {
+.shell.density-compact:not(.add-tabs-labeled) .surface-new-label {
   display: none;
 }
 
 @container (max-width: 700px) {
   .surface-tabs {
     scroll-padding-inline: 10px 78px;
+  }
+
+  .shell.add-tabs-hidden .surface-tabs {
+    scroll-padding-inline: 10px;
   }
 
   .surface-new-tab,
@@ -6271,6 +6305,18 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .layout-settings-preview.tab-size-roomy .layout-preview-tabs {
   grid-template-columns: 1.22fr 1.22fr 26px;
+}
+
+.layout-settings-preview.add-tabs-compact .layout-preview-tabs {
+  grid-template-columns: 1fr 1fr 18px;
+}
+
+.layout-settings-preview.add-tabs-hidden .layout-preview-tabs {
+  grid-template-columns: 1fr 1fr;
+}
+
+.layout-settings-preview.add-tabs-hidden .layout-preview-tabs span.plus {
+  display: none;
 }
 
 .layout-settings-preview.hide-tabs .layout-preview-tabs {
