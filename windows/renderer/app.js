@@ -12572,7 +12572,10 @@ function showPanelContextMenu(event, panel) {
   }
   const clear = contextMenuButton("Clear color", () => updatePanel(panel.id, { color: "" }), !panel.color);
   const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(panel.color), !normalizeCustomPaletteColor(panel.color));
-  const customColor = contextColorPicker(panel.color, (color) => updatePanel(panel.id, { color }));
+  const customColor = contextColorPicker(panel.color, (color) => {
+    updatePanel(panel.id, { color });
+    upsertCustomColorPalette(color, { render: false, toast: false });
+  });
   const nodes = [
     title,
     contextMenuSectionTitle("Tab"),
@@ -12638,7 +12641,10 @@ function showWorkspaceContextMenu(event, workspace) {
     };
     colors.append(button);
   }
-  const customColor = contextColorPicker(workspace.color, (color) => setWorkspaceColor(color, workspace.id));
+  const customColor = contextColorPicker(workspace.color, (color) => {
+    setWorkspaceColor(color, workspace.id);
+    upsertCustomColorPalette(color, { render: false, toast: false });
+  });
   const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(workspace.color), !normalizeCustomPaletteColor(workspace.color));
   menu.replaceChildren(
     title,
