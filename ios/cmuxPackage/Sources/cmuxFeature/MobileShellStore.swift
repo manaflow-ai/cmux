@@ -1409,10 +1409,14 @@ public final class CMUXMobileShellStore {
         // budget before it can be judged dead.
         lastTerminalEventAt = runtime?.now() ?? Date()
         // DispatchSourceTimer is the allowed low-level primitive for periodic
-        // event delivery; the handler does no work beyond hopping to @MainActor
-        // (no DispatchQueue.main.async, no queue-as-lock). The timer fires on a
-        // background queue and the only state it touches lives on the main actor.
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        // event delivery. It fires on the MAIN queue on purpose: the handler is
+        // inferred @MainActor (it touches main-actor store state), and a timer on
+        // a background queue made that @MainActor handler run off the main
+        // executor, which Swift 6 traps as EXC_BREAKPOINT
+        // (swift_task_isCurrentExecutor -> dispatch_assert_queue_fail). Running
+        // on .main keeps isolation and executor in agreement; the work is just a
+        // timestamp comparison every few seconds, so main-queue cost is trivial.
+        let timer = DispatchSource.makeTimerSource(queue: .main)
         let interval = Self.renderGridLivenessCheckInterval
         timer.schedule(
             deadline: .now() + interval,
@@ -1420,11 +1424,9 @@ public final class CMUXMobileShellStore {
             leeway: .milliseconds(500)
         )
         timer.setEventHandler { [weak self] in
-            // The handler runs on a background queue; hop to the main actor before
-            // touching any store state. `self` is a @MainActor @Observable class
-            // (therefore Sendable) captured weakly, so this @Sendable closure is
-            // safe and no state is read off the main actor.
-            Task { @MainActor in
+            // Genuinely on the main queue (timer queue is .main), so assumeIsolated
+            // is sound and avoids an async Task hop.
+            MainActor.assumeIsolated {
                 self?.checkRenderGridLiveness(listenerID: listenerID)
             }
         }
