@@ -4604,7 +4604,36 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .empty-workspace-launcher[data-empty-launcher="terminal"],
 .empty-workspace-launcher[data-empty-launcher="browser"] {
-  min-height: 54px;
+  min-height: 62px;
+}
+
+.empty-workspace-launcher:not([data-empty-launcher="terminal"]):not([data-empty-launcher="browser"]) {
+  min-height: 38px;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 7px;
+  padding: 7px 8px;
+  border-color: color-mix(in oklch, var(--color-line) 68%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 42%, transparent);
+  color: var(--color-muted);
+}
+
+.empty-workspace-launcher:not([data-empty-launcher="terminal"]):not([data-empty-launcher="browser"]) .empty-workspace-launcher-icon {
+  width: 22px;
+  height: 22px;
+  background: color-mix(in oklch, var(--color-pane) 64%, transparent);
+}
+
+.empty-workspace-launcher:not([data-empty-launcher="terminal"]):not([data-empty-launcher="browser"]) .empty-workspace-launcher-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.empty-workspace-launcher:not([data-empty-launcher="terminal"]):not([data-empty-launcher="browser"]) .empty-workspace-launcher-label {
+  font-size: 11px;
+}
+
+.empty-workspace-launcher:not([data-empty-launcher="terminal"]):not([data-empty-launcher="browser"]) .empty-workspace-launcher-meta {
+  display: none;
 }
 
 .empty-workspace-launcher.is-primary {
