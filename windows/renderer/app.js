@@ -12706,7 +12706,11 @@ function addPendingPanel(workspace, panel, anchorPanelId, direction, options = {
   if (!workspace || !panel?.id) return false;
   state.pendingPanels.set(panel.id, panel);
   insertPanelInPaneTree(workspace.id, anchorPanelId, panel.id, direction);
-  const added = optimisticAddPanel(panel, workspace.id, { direction, focus: options.focus });
+  const added = optimisticAddPanel(panel, workspace.id, {
+    direction,
+    focus: options.focus,
+    scheduleRender: true
+  });
   ensurePendingPaneTimer();
   updateOperationChrome();
   return added;
@@ -12852,7 +12856,12 @@ async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, op
     refreshWorkspaceCounts(workspace);
     if (options.focus !== false) state.data.activeWorkspaceId = workspace.id;
     deferCreatedTerminalInitUntilPaint(nextPanel, workspace, options);
-    render();
+    if (options.scheduleRender) {
+      refreshAppStateSignature();
+      scheduleRender();
+    } else {
+      render();
+    }
     return true;
   }
   if (existingIndex >= 0) workspace.panels.splice(existingIndex, 1);
@@ -12865,7 +12874,12 @@ async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, op
   refreshWorkspaceCounts(workspace);
   if (options.focus !== false) state.data.activeWorkspaceId = workspace.id;
   deferCreatedTerminalInitUntilPaint(nextPanel, workspace, options);
-  render();
+  if (options.scheduleRender) {
+    refreshAppStateSignature();
+    scheduleRender();
+  } else {
+    render();
+  }
   return true;
 }
 
@@ -12924,7 +12938,10 @@ async function createPanel(type, direction = "right", options = {}) {
       state.browserTabSnapshots.set(createdPanel.id, normalizeBrowserTabSnapshot(options.browserTabs, createdPanel.url || url));
       saveBrowserTabSnapshots(state.browserTabSnapshots);
     }
-    if (pendingPanel) await replacePendingPanel(pendingPanel.id, createdPanel, workspace.id, options);
+    if (pendingPanel) await replacePendingPanel(pendingPanel.id, createdPanel, workspace.id, {
+      ...options,
+      scheduleRender: true
+    });
     else {
       insertPanelInPaneTree(workspace.id, anchorPanelId, createdPanel?.id, direction);
       optimisticAddPanel(createdPanel, workspace.id, { direction, focus: options.focus });
@@ -12997,7 +13014,12 @@ function optimisticAddPanel(panel, workspaceId, options = {}) {
   if (options.focus !== false) state.data.activeWorkspaceId = workspace.id;
   else state.data.activeWorkspaceId = activeWorkspaceId;
   refreshWorkspaceCounts(workspace);
-  render();
+  if (options.scheduleRender) {
+    refreshAppStateSignature();
+    scheduleRender();
+  } else {
+    render();
+  }
   return true;
 }
 
