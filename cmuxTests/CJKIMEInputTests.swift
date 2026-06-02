@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Carbon.HIToolbox
 import ObjectiveC.runtime
 
 #if canImport(cmux_DEV)
@@ -2254,7 +2255,13 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
 
 @MainActor
 final class GhosttyOptionDeleteRegressionTests: XCTestCase {
-    func testOptionDeletePreservesAltAsModifierForWordDelete() {
+    private static let rightOptionModifierFlag = NSEvent.ModifierFlags(rawValue: UInt(NX_DEVICERALTKEYMASK))
+
+    private func captureOptionDeletePressEvent(
+        modifierFlags: NSEvent.ModifierFlags,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> ghostty_input_key_s? {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -2277,8 +2284,8 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
         }
 
         guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
+            XCTFail("Expected content view", file: file, line: line)
+            return nil
         }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
@@ -2301,11 +2308,14 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
             characters: "\u{7F}",
             charactersIgnoringModifiers: "\u{7F}",
             keyCode: 51,
-            modifierFlags: [.option]
+            modifierFlags: modifierFlags
         )
-        XCTAssertTrue(sent, "Expected synthetic Option+Delete event to be dispatched")
+        XCTAssertTrue(sent, "Expected synthetic Option+Delete event to be dispatched", file: file, line: line)
+        return pressEvent
+    }
 
-        guard let pressEvent else {
+    func testOptionDeletePreservesAltAsModifierForWordDelete() {
+        guard let pressEvent = captureOptionDeletePressEvent(modifierFlags: [.option]) else {
             XCTFail("Expected to capture Option+Delete key event")
             return
         }
@@ -2323,5 +2333,31 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
             "Non-printing delete should not consume Option as text input"
         )
         XCTAssertNil(pressEvent.text, "Delete should be encoded as a key event, not forwarded as DEL text")
+    }
+
+    func testRightOptionDeleteSetsAltRightModifier() {
+        guard let pressEvent = captureOptionDeletePressEvent(
+            modifierFlags: [.option, Self.rightOptionModifierFlag]
+        ) else {
+            XCTFail("Expected to capture Right Option+Delete key event")
+            return
+        }
+
+        XCTAssertEqual(
+            pressEvent.mods.rawValue & GHOSTTY_MODS_ALT.rawValue,
+            GHOSTTY_MODS_ALT.rawValue,
+            "Right Option+Delete should include Alt"
+        )
+        XCTAssertEqual(
+            pressEvent.mods.rawValue & GHOSTTY_MODS_ALT_RIGHT.rawValue,
+            GHOSTTY_MODS_ALT_RIGHT.rawValue,
+            "Right Option+Delete should include AltRight"
+        )
+        XCTAssertEqual(
+            pressEvent.consumed_mods.rawValue,
+            GHOSTTY_MODS_NONE.rawValue,
+            "Right Option+Delete should not consume Option as text input"
+        )
+        XCTAssertNil(pressEvent.text, "Right Option+Delete should be encoded as a key event, not forwarded as DEL text")
     }
 }
