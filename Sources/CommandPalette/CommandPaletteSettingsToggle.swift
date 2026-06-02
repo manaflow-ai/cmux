@@ -218,6 +218,17 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "fileEditorWordWrap",
+                settingsKey: "fileEditor.wordWrap",
+                title: {
+                    String(localized: "settings.app.fileEditorWordWrap", defaultValue: "File Editor Word Wrap")
+                },
+                sectionTitle: app,
+                keywords: ["fileEditor.wordWrap", "file", "editor", "word", "wrap", "soft", "reflow", "lines", "preview"],
+                defaultValue: FilePreviewWordWrapSettings.defaultEnabled,
+                defaultsKey: FilePreviewWordWrapSettings.key
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "iMessageMode",
                 settingsKey: "app.iMessageMode",
                 title: {
