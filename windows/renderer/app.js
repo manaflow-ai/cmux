@@ -305,6 +305,7 @@ const settingsInspectorSettingKeys = {
   ]
 };
 const settingsPresetSettingKeys = new Set(settingsPresets.flatMap((preset) => Object.keys(preset.settings || {})));
+const profileSettingsSettingKeys = [...settingsPresetSettingKeys];
 const quickSettingsSettingKeys = [
   ...new Set([
     ...settingsPresetSettingKeys,
@@ -8651,9 +8652,10 @@ function settingsInspectorSignature() {
 }
 
 function settingsInspectorSettingsSignature(category, searching) {
-  if (searching || ["profiles", "data", "actions"].includes(category)) {
+  if (searching || ["data", "actions"].includes(category)) {
     return stableJson(state.settings);
   }
+  if (category === "profiles") return settingsKeysSignature(profileSettingsSettingKeys);
   if (category === "quick") return settingsKeysSignature(quickSettingsSettingKeys);
   const keys = settingsInspectorSettingKeys[category];
   if (!keys) return "";
