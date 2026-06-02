@@ -1476,6 +1476,7 @@ struct ContentView: View {
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
         static let panelIsBrowser = "panel.isBrowser"
+        static let panelBrowserFocusModeActive = "panel.browserFocusModeActive"
         static let panelBrowserOmnibarVisible = "panel.browser.omnibarVisible"
         static let panelIsMarkdown = "panel.isMarkdown"
         static let panelIsTerminal = "panel.isTerminal"
@@ -6548,6 +6549,9 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
+            if let browserPanel = panelContext.panel as? BrowserPanel {
+                snapshot.setBool(CommandPaletteContextKeys.panelBrowserFocusModeActive, browserPanel.isBrowserFocusModeActive)
+            }
             // Markdown zoom only affects the rendered preview, so don't surface
             // the zoom commands when the panel is in raw text-edit mode.
             snapshot.setBool(
@@ -7303,6 +7307,19 @@ struct ContentView: View {
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘L",
                 keywords: ["browser", "address", "omnibar", "url"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.browserFocusMode",
+                title: { context in
+                    context.bool(CommandPaletteContextKeys.panelBrowserFocusModeActive)
+                        ? String(localized: "command.browserFocusMode.exit.title", defaultValue: "Exit Browser Focus Mode")
+                        : String(localized: "command.browserFocusMode.enter.title", defaultValue: "Enter Browser Focus Mode")
+                },
+                subtitle: browserPanelSubtitle,
+                keywords: ["browser", "focus", "mode", "keyboard", "shortcuts", "webview"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
         )
@@ -8169,7 +8186,7 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.openDiffViewer") {
-            if !openDiffViewerFromCommandPalette() {
+            if AppDelegate.shared?.openDiffViewerForFocusedWorkspace(for: tabManager) != true {
                 NSSound.beep()
             }
         }
@@ -8190,6 +8207,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.browserFocusAddressBar") {
             if !focusFocusedBrowserAddressBar() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.browserFocusMode") {
+            if !tabManager.toggleBrowserFocusModeForFocusedBrowser(reason: "commandPalette") {
                 NSSound.beep()
             }
         }
@@ -8403,129 +8425,9 @@ struct ContentView: View {
         )
     }
 
-    @discardableResult
-    private func openDiffViewerFromCommandPalette() -> Bool {
-        guard let workspace = tabManager.selectedWorkspace,
-              let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
-              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
-            return false
-        }
-
-        let preferredSocketPath = SocketControlSettings.socketPath()
-        let activeSocketPath = TerminalController.shared.activeSocketPath(preferredPath: preferredSocketPath)
-        return CommandPaletteDiffViewerLauncher.shared.start(
-            cliURL: cliURL,
-            socketPath: activeSocketPath,
-            cwd: configuredActionBaseCwd(),
-            workspaceId: workspace.id,
-            surfaceId: workspace.focusedPanelId
-        )
-    }
-
-    @MainActor
-    private final class CommandPaletteDiffViewerLauncher {
-        static let shared = CommandPaletteDiffViewerLauncher()
-
-        private var processes: [Int32: Process] = [:]
-
-        private init() {}
-
-        @discardableResult
-        func start(
-            cliURL: URL,
-            socketPath: String,
-            cwd: String,
-            workspaceId: UUID,
-            surfaceId: UUID?
-        ) -> Bool {
-            let process = Process()
-            process.executableURL = cliURL
-            var arguments = [
-                "--socket", socketPath,
-                "diff",
-                "--unstaged",
-                "--cwd", cwd,
-                "--workspace", workspaceId.uuidString,
-                "--focus", "true",
-            ]
-            if let surfaceId {
-                arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
-            }
-            process.arguments = arguments
-            process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
-            var environment = ProcessInfo.processInfo.environment
-            environment["CMUX_SOCKET_PATH"] = socketPath
-            environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
-            environment["CMUX_WORKSPACE_ID"] = workspaceId.uuidString
-            if let surfaceId {
-                environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
-            }
-            environment.removeValue(forKey: "CMUX_SOCKET")
-            process.environment = environment
-            process.standardInput = FileHandle.nullDevice
-
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
-            let outputCollector = ProcessOutputCollector(stdout: stdoutPipe, stderr: stderrPipe)
-            outputCollector.start()
-            process.terminationHandler = { terminatedProcess in
-                let output = outputCollector.finish()
-                let processIdentifier = terminatedProcess.processIdentifier
-                let terminationStatus = terminatedProcess.terminationStatus
-                Task { @MainActor in
-                    Self.shared.processes.removeValue(forKey: processIdentifier)
-                    guard terminationStatus != 0 else { return }
-                    let detail = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let limitedDetail = detail.isEmpty
-                        ? "status=\(terminationStatus)"
-                        : String(detail.prefix(240))
-#if DEBUG
-                    cmuxDebugLog("commandPalette.openDiffViewer exited status=\(terminationStatus) detail=\(limitedDetail)")
-#endif
-                    NSSound.beep()
-                }
-            }
-
-            do {
-                try process.run()
-                let processIdentifier = process.processIdentifier
-                processes[processIdentifier] = process
-                if !process.isRunning {
-                    processes.removeValue(forKey: processIdentifier)
-                }
-#if DEBUG
-                cmuxDebugLog("commandPalette.openDiffViewer pid=\(process.processIdentifier) cwd=\(cwd)")
-#endif
-                return true
-            } catch {
-                outputCollector.cancel()
-#if DEBUG
-                cmuxDebugLog("commandPalette.openDiffViewer failed cwd=\(cwd) error=\(error.localizedDescription)")
-#endif
-                return false
-            }
-        }
-    }
-
     private func configuredActionBaseCwd() -> String {
-        guard let workspace = tabManager.selectedWorkspace else {
-            return FileManager.default.homeDirectoryForCurrentUser.path
-        }
-        let focusedPanelId = workspace.focusedPanelId
-        let candidates = [
-            focusedPanelId.flatMap { workspace.panelDirectories[$0] },
-            focusedPanelId.flatMap { workspace.terminalPanel(for: $0)?.requestedWorkingDirectory },
-            workspace.currentDirectory
-        ]
-        for candidate in candidates {
-            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !trimmed.isEmpty {
-                return trimmed
-            }
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.path
+        tabManager.selectedWorkspace?.resolvedWorkingDirectory()
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
     }
 
     var focusedPanelContext: (workspace: Workspace, panelId: UUID, panel: any Panel)? {
@@ -9071,7 +8973,11 @@ struct ContentView: View {
              "palette.forkAgentConversationTop",
              "palette.forkAgentConversationBottom",
              "palette.forkAgentConversationNewTab",
-             "palette.forkAgentConversationNewWorkspace":
+             "palette.forkAgentConversationNewWorkspace",
+             // Entering browser focus mode focuses the web view synchronously;
+             // dismiss the palette first so its makeFirstResponder(nil) doesn't
+             // clear that focus and leave focus mode active without key routing.
+             "palette.browserFocusMode":
             return true
         default:
             return false
