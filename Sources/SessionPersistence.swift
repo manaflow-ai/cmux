@@ -1503,6 +1503,15 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var omnibarVisible: Bool? = nil
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
+    /// True when the surface is a transparent internal cmux UI (e.g. the diff
+    /// viewer). Restored so the surface comes back transparent, not opaque.
+    var transparentBackground: Bool? = nil
+    /// Diff viewer token + request path, when this browser surface hosts a diff
+    /// viewer. Restored by re-registering the token with the app-owned
+    /// `CmuxDiffViewerURLSchemeHandler` and navigating via the custom scheme,
+    /// independent of the (possibly-dead) local HTTP server.
+    var diffViewerToken: String? = nil
+    var diffViewerRequestPath: String? = nil
 
     init(
         urlString: String?,
@@ -1513,7 +1522,10 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         isMuted: Bool = false,
         omnibarVisible: Bool? = nil,
         backHistoryURLStrings: [String]?,
-        forwardHistoryURLStrings: [String]?
+        forwardHistoryURLStrings: [String]?,
+        transparentBackground: Bool? = nil,
+        diffViewerToken: String? = nil,
+        diffViewerRequestPath: String? = nil
     ) {
         self.urlString = urlString
         self.profileID = profileID
@@ -1524,6 +1536,9 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         self.omnibarVisible = omnibarVisible
         self.backHistoryURLStrings = backHistoryURLStrings
         self.forwardHistoryURLStrings = forwardHistoryURLStrings
+        self.transparentBackground = transparentBackground
+        self.diffViewerToken = diffViewerToken
+        self.diffViewerRequestPath = diffViewerRequestPath
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1536,6 +1551,9 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         case omnibarVisible
         case backHistoryURLStrings
         case forwardHistoryURLStrings
+        case transparentBackground
+        case diffViewerToken
+        case diffViewerRequestPath
     }
 
     init(from decoder: Decoder) throws {
@@ -1549,6 +1567,9 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         omnibarVisible = try container.decodeIfPresent(Bool.self, forKey: .omnibarVisible)
         backHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .backHistoryURLStrings)
         forwardHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .forwardHistoryURLStrings)
+        transparentBackground = try container.decodeIfPresent(Bool.self, forKey: .transparentBackground)
+        diffViewerToken = try container.decodeIfPresent(String.self, forKey: .diffViewerToken)
+        diffViewerRequestPath = try container.decodeIfPresent(String.self, forKey: .diffViewerRequestPath)
     }
 }
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {

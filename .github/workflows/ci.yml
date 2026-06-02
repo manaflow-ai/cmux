@@ -118,6 +118,36 @@ jobs:
       - name: Web tests
         run: bun test
 
+  # Checks for in-app React UIs (currently the diff viewer; more cmux React
+  # surfaces will live alongside it). Add per-app steps here as they land.
+  react-apps-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Verify generated diff viewer assets
+        run: ./scripts/build-diff-viewer-app.sh --check
+
+      - name: Typecheck diff viewer
+        working-directory: diff-viewer
+        run: bun run typecheck
+
+      - name: Test diff viewer
+        working-directory: diff-viewer
+        run: bun run test
+
+      - name: Oxlint diff viewer
+        working-directory: diff-viewer
+        run: bun run lint:ci
+
+      - name: React Doctor
+        working-directory: diff-viewer
+        run: bun run react-doctor:ci
+
   web-db-migrations:
     runs-on: ubuntu-latest
     defaults:
