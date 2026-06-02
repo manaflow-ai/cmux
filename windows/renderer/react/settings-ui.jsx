@@ -1,5 +1,4 @@
 import React from "react";
-import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { SettingsShell } from "./settings/SettingsShell.jsx";
 
@@ -11,9 +10,7 @@ export function renderSettingsShell(container, props) {
     root = createRoot(container);
     roots.set(container, root);
   }
-  flushSync(() => {
-    root.render(<SettingsShell {...props} />);
-  });
+  root.render(<SettingsShell {...props} />);
 }
 
 export function unmountSettingsShell(container) {
