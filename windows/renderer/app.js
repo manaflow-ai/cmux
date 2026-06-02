@@ -5946,16 +5946,14 @@ function clearDeferredBrowserSession(session) {
 
 function shouldDeferInitialBrowserLoad(panel) {
   const workspace = activeWorkspace();
-  if (!state.settings.browserSuspendInactive || !workspace || panel.id === workspace.activePanelId) return false;
-  const browserPanels = workspace.panels.filter((candidate) => (
-    candidate.type === "browser" && !isPanelMinimized(candidate) && !isPendingPanel(candidate)
-  ));
-  if (browserPanels.length <= 1) return false;
-  const activeBrowserPanelId = workspace.panels.find((candidate) =>
-    candidate.id === workspace.activePanelId && candidate.type === "browser"
-  )?.id;
-  const eagerBrowserPanelId = activeBrowserPanelId || browserPanels[0]?.id;
-  return panel.id !== eagerBrowserPanelId;
+  return Boolean(
+    state.settings.browserSuspendInactive
+    && workspace
+    && workspaceHasPanelId(workspace, panel?.id)
+    && panel?.id !== workspace.activePanelId
+    && !isPanelMinimized(panel)
+    && !isPendingPanel(panel)
+  );
 }
 
 function shouldRenderDeferredBrowserShell(panel) {
