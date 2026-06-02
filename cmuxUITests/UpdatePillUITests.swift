@@ -249,7 +249,7 @@ final class UpdatePillUITests: XCTestCase {
             app.buttons["Restart Now"].waitForExistence(timeout: 8.0),
             "Expected the installing popover to offer Restart Now"
         )
-        XCTAssertTrue(app.buttons["Restart Later"].exists, "Expected a Restart Later button")
+        XCTAssertTrue(app.buttons["Restart Later"].waitForExistence(timeout: 2.0), "Expected a Restart Later button")
     }
 
     func testUpdatePillShowsErrorStateWithRetryAndDetails() {
@@ -279,7 +279,7 @@ final class UpdatePillUITests: XCTestCase {
             "Expected a Retry button in the error popover"
         )
         XCTAssertTrue(
-            app.buttons["Copy Details"].exists,
+            app.buttons["Copy Details"].waitForExistence(timeout: 2.0),
             "Expected a Copy Details button in the error popover"
         )
     }

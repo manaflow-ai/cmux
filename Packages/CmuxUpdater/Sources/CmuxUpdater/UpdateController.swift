@@ -214,6 +214,9 @@ public final class UpdateController {
     private func performCheckForUpdates() {
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
+        // Cancel any pending deferred re-check on every path so a stale one can't fire a
+        // duplicate checkForUpdates() after this new check starts.
+        recheckTask?.cancel()
         if model.state == .idle {
             updater.checkForUpdates()
             return
@@ -226,7 +229,6 @@ public final class UpdateController {
         // new one. Without this delay the re-check is coalesced/dropped by Sparkle and the pill
         // simply hides until the user checks again (a real regression caught in dogfood). This
         // is a bounded, cancellable delay via the injected clock (matches the prior 100ms).
-        recheckTask?.cancel()
         recheckTask = Task { @MainActor [weak self] in
             guard let self else { return }
             try? await self.clock.sleep(for: .milliseconds(100))
