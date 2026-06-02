@@ -1267,7 +1267,12 @@ class TabManager: ObservableObject {
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
 
-    @Published var tabs: [Workspace] = []
+    @Published var tabs: [Workspace] = [] {
+        didSet {
+            rebuildTabLookup()
+        }
+    }
+    private var tabById: [UUID: Workspace] = [:]
     /// Named groupings of workspaces shown as collapsible sections in the sidebar.
     /// Group order in this array defines section order in the sidebar.
     /// Each member workspace stores its `groupId` on the `Workspace` model.
@@ -1501,11 +1506,7 @@ class TabManager: ObservableObject {
                 guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
                 guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
                 guard let title = notification.userInfo?[GhosttyNotificationKey.title] as? String else { return }
-                enqueuePanelTitleUpdate(
-                    tabId: tabId,
-                    panelId: surfaceId,
-                    title: Self.stableTerminalPanelTitle(title)
-                )
+                enqueuePanelTitleUpdate(tabId: tabId, panelId: surfaceId, title: title)
             }
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -2545,7 +2546,7 @@ class TabManager: ObservableObject {
 
     var selectedWorkspace: Workspace? {
         guard let selectedTabId else { return nil }
-        return tabs.first(where: { $0.id == selectedTabId })
+        return tabById[selectedTabId]
     }
 
     // Keep selectedTab as convenience alias
@@ -8586,7 +8587,7 @@ class TabManager: ObservableObject {
         if pendingPanelTitleUpdates[key] == trimmed {
             return
         }
-        if let tab = tabs.first(where: { $0.id == tabId }),
+        if let tab = tabById[tabId],
            tab.alreadyReflectsPanelTitleUpdate(panelId: panelId, title: trimmed),
            selectedTabId != tabId || window?.title == windowTitle(for: tab) {
             return
@@ -8612,8 +8613,17 @@ class TabManager: ObservableObject {
         }
     }
 
+    private func rebuildTabLookup() {
+        var lookup: [UUID: Workspace] = [:]
+        lookup.reserveCapacity(tabs.count)
+        for tab in tabs {
+            lookup[tab.id] = tab
+        }
+        tabById = lookup
+    }
+
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        guard let tab = tabById[tabId] else { return }
         _ = tab.updatePanelTitle(panelId: panelId, title: title)
 
         if tab.focusedPanelId == panelId {
@@ -8624,30 +8634,8 @@ class TabManager: ObservableObject {
         }
     }
 
-    private static func stableTerminalPanelTitle(_ title: String) -> String {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let first = trimmed.first,
-              terminalTitleSpinnerCharacters.contains(first) else {
-            return title
-        }
-
-        let afterSpinner = trimmed.index(after: trimmed.startIndex)
-        guard afterSpinner < trimmed.endIndex,
-              trimmed[afterSpinner].isWhitespace else {
-            return title
-        }
-
-        let remainderStart = trimmed[afterSpinner...].firstIndex { !$0.isWhitespace }
-        guard let remainderStart else { return title }
-        return String(trimmed[remainderStart...])
-    }
-
-    private static let terminalTitleSpinnerCharacters = Set<Character>(
-        "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-    )
-
     func focusedSurfaceTitleDidChange(tabId: UUID) {
-        guard let tab = tabs.first(where: { $0.id == tabId }),
+        guard let tab = tabById[tabId],
               let focusedPanelId = tab.focusedPanelId,
               let title = tab.panelTitles[focusedPanelId] else { return }
         tab.applyProcessTitle(title)

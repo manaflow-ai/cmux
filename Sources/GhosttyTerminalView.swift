@@ -4604,21 +4604,21 @@ class GhosttyApp {
             if let tabId = surfaceView.tabId,
                let terminalSurface = surfaceView.terminalSurface {
                 let surfaceId = terminalSurface.id
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard let publishedTitle = terminalSurface.publishableTerminalTitle(title) else {
-                            return
-                        }
-                        NotificationCenter.default.post(
-                            name: .ghosttyDidSetTitle,
-                            object: surfaceView,
-                            userInfo: [
-                                GhosttyNotificationKey.tabId: tabId,
-                                GhosttyNotificationKey.surfaceId: surfaceId,
-                                GhosttyNotificationKey.title: publishedTitle,
-                            ]
-                        )
+                Task { @MainActor [weak surfaceView, weak terminalSurface] in
+                    guard let surfaceView,
+                          let terminalSurface,
+                          let publishedTitle = terminalSurface.publishableTerminalTitle(title) else {
+                        return
                     }
+                    NotificationCenter.default.post(
+                        name: .ghosttyDidSetTitle,
+                        object: surfaceView,
+                        userInfo: [
+                            GhosttyNotificationKey.tabId: tabId,
+                            GhosttyNotificationKey.surfaceId: surfaceId,
+                            GhosttyNotificationKey.title: publishedTitle,
+                        ]
+                    )
                 }
             }
             return true
@@ -5521,6 +5521,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    @MainActor
     func updateWorkspaceId(_ newTabId: UUID) {
         tabId = newTabId
         attachedView?.tabId = newTabId

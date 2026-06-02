@@ -610,7 +610,24 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertNotEqual(workspace.panelTitles[splitPanel.id], Optional(workspace.title))
     }
 
-    func testCodexSpinnerTerminalTitlesCollapseToStablePanelTitle() throws {
+    @MainActor
+    func testTerminalSurfacePublishesOnlyStableSpinnerTitles() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+
+        XCTAssertEqual(surface.publishableTerminalTitle("⠋ cmux-ctrixin"), "cmux-ctrixin")
+        XCTAssertNil(surface.publishableTerminalTitle("⠹ cmux-ctrixin"))
+        XCTAssertEqual(surface.publishableTerminalTitle("⠼ cmux-ctrixin build"), "cmux-ctrixin build")
+
+        surface.updateWorkspaceId(UUID())
+        XCTAssertEqual(surface.publishableTerminalTitle("⠙ cmux-ctrixin build"), "cmux-ctrixin build")
+    }
+
+    func testStableTerminalTitleNotificationsUpdatePanelTitle() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -621,7 +638,7 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: focusedPanelId,
-                GhosttyNotificationKey.title: "⠋ cmux-ctrixin"
+                GhosttyNotificationKey.title: "cmux-ctrixin"
             ]
         )
 
@@ -638,7 +655,7 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: focusedPanelId,
-                GhosttyNotificationKey.title: "⠹ cmux-ctrixin"
+                GhosttyNotificationKey.title: "cmux-ctrixin"
             ]
         )
 
@@ -657,7 +674,7 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: focusedPanelId,
-                GhosttyNotificationKey.title: "⠼ cmux-ctrixin"
+                GhosttyNotificationKey.title: "cmux-ctrixin"
             ]
         )
 
