@@ -5344,6 +5344,22 @@ function requestImmediateTerminalInit(panelId) {
   return true;
 }
 
+function requestTerminalInitAfterPaint(panelId) {
+  const found = findPanelState(panelId);
+  if (
+    !found
+    || found.panel.type !== "terminal"
+    || state.terminals.has(panelId)
+    || isPanelMinimized(found.panel)
+    || isPendingPanel(found.panel)
+  ) {
+    return false;
+  }
+  state.immediateTerminalInitPanelIds.delete(panelId);
+  state.paintDeferredTerminalInitPanelIds.add(panelId);
+  return true;
+}
+
 function renderDeferredTerminal(panel, body) {
   let deferred = body.querySelector(".terminal-deferred");
   if (!deferred) {
@@ -5407,6 +5423,7 @@ function flushDeferredTerminalInit() {
     ensureTerminal(found.panel, body);
     const terminal = state.terminals.get(panelId);
     if (terminal) scheduleFitTerminal(terminal, true);
+    if (found.workspace.activePanelId === panelId) focusTerminalSession(panelId);
     break;
   }
   if (state.deferredTerminalInitQueue.size > 0) scheduleDeferredTerminalInit();
@@ -13761,12 +13778,20 @@ async function focusWorkspace(workspaceId) {
   if (focusablePanel) workspace.activePanelId = focusablePanel.id;
   state.focusedPanelId = focusablePanel?.id || null;
   state.lastInteractedPanelId = focusablePanel?.id || null;
+  const shouldDeferColdTerminalForWorkspaceSwitch = Boolean(
+    switchingWorkspace
+    && focusablePanel?.type === "terminal"
+    && !state.terminals.has(focusablePanel.id)
+    && !isPanelMinimized(focusablePanel)
+    && !isPendingPanel(focusablePanel)
+  );
   if (
     focusablePanel?.type === "terminal"
     && !state.terminals.has(focusablePanel.id)
     && (switchingWorkspace || workspace.activePanelId !== previousPanelId)
   ) {
-    requestImmediateTerminalInit(focusablePanel.id);
+    if (shouldDeferColdTerminalForWorkspaceSwitch) requestTerminalInitAfterPaint(focusablePanel.id);
+    else requestImmediateTerminalInit(focusablePanel.id);
   }
   if (state.data?.activeWorkspaceId === workspaceId) {
     if (workspace.activePanelId !== previousPanelId) scheduleRender();
@@ -13776,7 +13801,9 @@ async function focusWorkspace(workspaceId) {
   optimisticFocusWorkspace(workspaceId, { schedule: true });
   if (switchingWorkspace) showWorkspaceSwitchHud(workspace);
   queueFocusSync({ type: "workspace", workspaceId });
-  focusTerminalSession(focusablePanel?.id);
+  focusTerminalSession(focusablePanel?.id, {
+    deferInitUntilPaint: shouldDeferColdTerminalForWorkspaceSwitch
+  });
 }
 
 async function focusPanel(panelId) {
@@ -13883,9 +13910,12 @@ function focusWorkspaceByOrdinal(ordinal) {
   return true;
 }
 
-function focusTerminalSession(panelId) {
+function focusTerminalSession(panelId, options = {}) {
   if (!state.terminals.has(panelId)) {
-    if (requestImmediateTerminalInit(panelId)) scheduleRender();
+    const requested = options.deferInitUntilPaint
+      ? requestTerminalInitAfterPaint(panelId)
+      : requestImmediateTerminalInit(panelId);
+    if (requested) scheduleRender();
     return;
   }
   state.terminalFocusPanelId = panelId;
