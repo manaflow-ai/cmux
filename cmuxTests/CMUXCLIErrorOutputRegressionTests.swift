@@ -15,6 +15,11 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let timedOut: Bool
     }
 
+    private struct BrowserMCPTestEnvironment {
+        let environment: [String: String]
+        let homeURL: URL
+    }
+
     func testCLIErrorPathDoesNotCrashWhenStderrIsClosed() throws {
         let cliPath = try bundledCLIPath()
         let result = runShell(
@@ -998,12 +1003,8 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testBrowserMCPServerListsToolsWithoutSocket() throws {
         let cliPath = try bundledCLIPath()
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CFFIXED_USER_HOME"] = "/tmp/cmux-mcp-nosocket-\(UUID().uuidString)"
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
 
         let input = [
             #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test","version":"1"}}}"#,
@@ -1014,7 +1015,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["browser", "mcp-server"],
-            environment: environment,
+            environment: testEnvironment.environment,
             stdinText: input,
             timeout: 5
         )
@@ -1046,6 +1047,36 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertNotNil(screenshotProperties["out"], result.stdout)
     }
 
+    func testBrowserMCPServerRejectsInvalidJSONRPCVersion() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"id":1,"method":"tools/list","params":{}}"#,
+            #"{"jsonrpc":"1.0","id":2,"method":"tools/list","params":{}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        for response in responses {
+            XCTAssertNil(response["result"], result.stdout)
+            let error = try XCTUnwrap(response["error"] as? [String: Any])
+            XCTAssertEqual(error["code"] as? Int, -32600)
+            XCTAssertTrue((error["message"] as? String)?.contains("jsonrpc") == true, result.stdout)
+        }
+    }
+
     func testBrowserMCPServerRoutesClickToolToBrowserSocketRPC() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
@@ -1053,13 +1084,8 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let response = ##"{"ok":true,"result":{"surface_id":"\##(surfaceID)","clicked":true,"post_action_snapshot":"snapshot ok"}}"##
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
-
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
 
         let input = [
             #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
@@ -1069,7 +1095,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["browser", "mcp-server"],
-            environment: environment,
+            environment: testEnvironment.environment,
             stdinText: input,
             timeout: 5
         )
@@ -1098,13 +1124,8 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let response = ##"{"ok":true,"result":{"surface_id":"\##(surfaceID)","errors":[],"cleared":true}}"##
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
-
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
 
         let input = [
             #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
@@ -1114,7 +1135,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["browser", "mcp-server"],
-            environment: environment,
+            environment: testEnvironment.environment,
             stdinText: input,
             timeout: 5
         )
@@ -1138,13 +1159,8 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     func testBrowserMCPServerRedactsSocketPathFromToolErrors() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-mcp-private-\(UUID().uuidString.prefix(8)).sock"
-
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
 
         let input = [
             #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
@@ -1154,7 +1170,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["browser", "mcp-server"],
-            environment: environment,
+            environment: testEnvironment.environment,
             stdinText: input,
             timeout: 5
         )
@@ -1192,13 +1208,8 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             .appendingPathComponent("cmux-mcp-screenshot-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("capture.png", isDirectory: false)
         defer { try? FileManager.default.removeItem(at: outputURL.deletingLastPathComponent()) }
-
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
 
         let input = [
             #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
@@ -1208,7 +1219,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["browser", "mcp-server"],
-            environment: environment,
+            environment: testEnvironment.environment,
             stdinText: input,
             timeout: 5
         )
@@ -1499,6 +1510,25 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
         let openArguments = try readFakeOpenArguments(from: openLogURL)
         XCTAssertFalse(openArguments.contains(workingDirectory.standardizedFileURL.path), openArguments.joined(separator: " "))
+    }
+
+    private func browserMCPTestEnvironment(socketPath: String? = nil) throws -> BrowserMCPTestEnvironment {
+        let homeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mcp-home-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CFFIXED_USER_HOME"] = homeURL.path
+        environment["HOME"] = homeURL.path
+        if let socketPath {
+            environment["CMUX_SOCKET_PATH"] = socketPath
+        }
+
+        return BrowserMCPTestEnvironment(environment: environment, homeURL: homeURL)
     }
 
     private func bundledCLIPath() throws -> String {

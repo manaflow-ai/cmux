@@ -48,8 +48,26 @@ final class CMUXBrowserMCPServer {
     }
 
     func handleMessage(_ message: [String: Any]) {
-        guard let method = message["method"] as? String else { return }
         let id = message["id"]
+        guard message["jsonrpc"] as? String == "2.0" else {
+            writeError(
+                id: id,
+                code: -32600,
+                message: String(
+                    localized: "cli.browserMCP.error.invalidJSONRPCVersion",
+                    defaultValue: "Invalid Request: jsonrpc must be \"2.0\""
+                )
+            )
+            return
+        }
+        guard let method = message["method"] as? String else {
+            writeError(
+                id: id,
+                code: -32600,
+                message: String(localized: "cli.browserMCP.error.invalidRequest", defaultValue: "Invalid Request")
+            )
+            return
+        }
 
         if id == nil {
             handleNotification(method: method)
