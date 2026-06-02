@@ -8200,6 +8200,7 @@ function browserSettingsPreviewPanel() {
     <div class="browser-preview-meta">
       <span><b>Home</b><em data-browser-preview-home></em></span>
       <span><b>Launch</b><em data-browser-preview-launch></em></span>
+      <span><b>Profile</b><em data-browser-preview-profile></em></span>
       <span><b>Host</b><em data-browser-preview-host-meta></em></span>
       <span><b>Recent</b><em data-browser-preview-recent></em></span>
     </div>
@@ -8209,6 +8210,7 @@ function browserSettingsPreviewPanel() {
   panel.querySelector(".browser-preview-title").textContent = home.path;
   panel.querySelector("[data-browser-preview-home]").textContent = home.url;
   panel.querySelector("[data-browser-preview-launch]").textContent = optionLabel(browserLaunchModeOptions, state.settings.browserLaunchMode, "cmux pane");
+  panel.querySelector("[data-browser-preview-profile]").textContent = browserProfileLabel();
   panel.querySelector("[data-browser-preview-host-meta]").textContent = home.host;
   panel.querySelector("[data-browser-preview-recent]").textContent = recent
     ? `${state.recentBrowserPages.length} / ${recent.host}`
@@ -8275,6 +8277,14 @@ function refreshBrowserSettingsPreview() {
   const launchModeSelect = elements.inspectorBody.querySelector('[data-setting-control="browserLaunchMode"]');
   if (launchModeSelect && launchModeSelect.value !== state.settings.browserLaunchMode) {
     launchModeSelect.value = state.settings.browserLaunchMode;
+  }
+  const profileSelect = elements.inspectorBody.querySelector('[data-setting-control="externalBrowserProfileId"]');
+  if (profileSelect) {
+    const profiles = browserProfileOptions();
+    const nextProfileId = profiles.some((profile) => profile.id === state.settings.externalBrowserProfileId)
+      ? state.settings.externalBrowserProfileId
+      : "system";
+    if (profileSelect.value !== nextProfileId) profileSelect.value = nextProfileId;
   }
   for (const button of elements.inspectorBody.querySelectorAll("[data-browser-home-preset]")) {
     const preset = browserHomePresets.find((candidate) => candidate.id === button.dataset.browserHomePreset);
