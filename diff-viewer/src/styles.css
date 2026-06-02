@@ -25,6 +25,7 @@
   --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
+
   background: transparent;
   color: var(--cmux-diff-fg);
 }
@@ -418,9 +419,6 @@ body[data-loading="false"] .diff-loading-placeholder {
 }
 body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   display: none;
-}
-body[data-loading="true"] #viewer diffs-container {
-  visibility: hidden;
 }
 #file-list file-tree-container {
   width: 100%;

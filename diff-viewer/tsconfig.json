@@ -13,7 +13,7 @@
     "strict": true,
     "target": "ES2022",
     "useDefineForClassFields": true,
-    "types": ["vite/client"]
+    "types": ["vite/client", "bun"]
   },
-  "include": ["src"]
+  "include": ["src", "test"]
 }

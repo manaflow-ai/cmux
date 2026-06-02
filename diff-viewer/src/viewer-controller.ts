@@ -132,8 +132,15 @@ type OptionsMenuSegmentItem = {
 
 type OptionsMenuItem = "separator" | OptionsMenuActionItem | OptionsMenuSegmentItem;
 
-export function startDiffViewer(config: DiffViewerConfig) {
-  const requireElement = <T extends HTMLElement>(id: string) => {
+type StatusMessageOptions = {
+  error?: boolean;
+  loading?: boolean;
+  pending?: boolean;
+  statusOnly?: boolean;
+};
+
+export function startDiffViewer(config: DiffViewerConfig): void {
+  const requireElement = <T extends HTMLElement>(id: string): T => {
     const element = document.getElementById(id);
     if (!element) {
       throw new Error(`Missing cmux diff viewer element: ${id}`);
@@ -141,7 +148,7 @@ export function startDiffViewer(config: DiffViewerConfig) {
     return element as T;
   };
   const assets = config.assets ?? {};
-  const resolveAssetURL = (value, name) => {
+  const resolveAssetURL = (value: string | undefined, name: string): string => {
     if (typeof value !== "string" || value.length === 0) {
       throw new Error(`Missing cmux diff viewer asset: ${name}`);
     }
@@ -283,7 +290,7 @@ async function renderDiff() {
   }
 }
 
-function showStatusMessage(message, options: { error?: boolean; loading?: boolean; pending?: boolean; statusOnly?: boolean } = {}) {
+function showStatusMessage(message: string, options: StatusMessageOptions = {}): void {
   if (!status.isConnected) {
     viewerElement.replaceChildren(status);
   }
@@ -294,13 +301,13 @@ function showStatusMessage(message, options: { error?: boolean; loading?: boolea
   status.textContent = message;
 }
 
-function replaceDocumentWith(text) {
+function replaceDocumentWith(text: string): void {
   document.open();
   document.write(text);
   document.close();
 }
 
-async function applyReplacementFrom(response) {
+async function applyReplacementFrom(response: Response): Promise<boolean> {
   if (!response.ok) {
     showStatusMessage(label("renderFailed"), { error: true, loading: false, statusOnly: true });
     return false;
@@ -1102,14 +1109,14 @@ function setupKeyboardShortcuts() {
         shortcut: scrollTopShortcut,
         action: () => viewerElement.scrollTo({ top: 0, behavior: "auto" }),
       };
-      chordTimeout = setTimeout(clearPendingChord, 700);
+      chordTimeout = window.setTimeout(clearPendingChord, 700);
     }
   });
 
   function clearPendingChord() {
     pendingChord = null;
     if (chordTimeout !== 0) {
-      clearTimeout(chordTimeout);
+      window.clearTimeout(chordTimeout);
       chordTimeout = 0;
     }
   }

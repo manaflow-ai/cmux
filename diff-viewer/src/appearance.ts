@@ -61,10 +61,10 @@ export function resolveDiffViewerAppearance(appearance?: DiffViewerAppearance): 
   const lightTheme = { ...defaultLightTheme, ...appearance?.themes?.light };
   const darkTheme = { ...defaultDarkTheme, ...appearance?.themes?.dark };
   return {
-    backgroundOpacity: appearance?.backgroundOpacity ?? 1,
+    backgroundOpacity: normalizedOpacity(appearance?.backgroundOpacity),
     fontFamily: appearance?.fontFamily ?? "Menlo",
-    fontSize: appearance?.fontSize ?? 10,
-    lineHeight: appearance?.lineHeight ?? 20,
+    fontSize: metric(appearance?.fontSize, 10),
+    lineHeight: metric(appearance?.lineHeight, 20),
     theme: {
       light: appearance?.theme?.light ?? lightTheme.name ?? "cmux-ghostty-light",
       dark: appearance?.theme?.dark ?? darkTheme.name ?? "cmux-ghostty-dark",
