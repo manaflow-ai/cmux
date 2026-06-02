@@ -1123,6 +1123,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupUITestSocketBridge = false
     private var uiTestSocketBridgeTimer: DispatchSourceTimer?
     private let uiTestSocketBridgeQueue = DispatchQueue(label: "cmux.ui-test.socket-bridge")
+    private var uiTestSocketBridgeDistributedObserver: NSObjectProtocol?
+    private let uiTestSocketBridgeRequestNotificationName = Notification.Name("com.cmux.ui-test.socket-bridge.request")
+    private let uiTestSocketBridgeResponseNotificationName = Notification.Name("com.cmux.ui-test.socket-bridge.response")
     private var uiTestSocketBridgeLastRequestId: String?
     private var uiTestSocketBridgeProcessingRequestIds: Set<String> = []
     private var didSetupDisplayResolutionUITestDiagnostics = false
@@ -1700,6 +1703,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let bridgePath = env["CMUX_UI_TEST_SOCKET_BRIDGE_PATH"] ?? ""
         payload["socketBridgePath"] = bridgePath
         payload["socketBridgeSetup"] = didSetupUITestSocketBridge ? "1" : "0"
+        payload["socketBridgeDistributedObserver"] = uiTestSocketBridgeDistributedObserver == nil ? "0" : "1"
         let bridgePathExists = !bridgePath.isEmpty && FileManager.default.fileExists(atPath: bridgePath)
         payload["socketBridgePathExists"] = bridgePathExists ? "1" : "0"
         if bridgePath.isEmpty {
@@ -3021,6 +3025,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             response: "READY",
             path: uiTestSocketBridgeResponsePath(for: path)
         )
+        uiTestSocketBridgeDistributedObserver = DistributedNotificationCenter.default().addObserver(
+            forName: uiTestSocketBridgeRequestNotificationName,
+            object: path,
+            queue: .main
+        ) { [weak self] notification in
+            self?.processUITestSocketBridgeDistributedRequest(notification: notification, path: path)
+        }
         let timer = DispatchSource.makeTimerSource(queue: uiTestSocketBridgeQueue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(50))
         timer.setEventHandler { [weak self] in
@@ -3037,11 +3048,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let requestId = object["id"] as? String,
               let line = object["line"] as? String,
-              !requestId.isEmpty,
-              !line.isEmpty,
               object["completed"] as? Bool != true else {
             return
         }
+
+        handleUITestSocketBridgeRequest(requestId: requestId, line: line) { response in
+            writeUITestSocketBridgeResponse(
+                requestId: requestId,
+                line: line,
+                response: response,
+                path: uiTestSocketBridgeResponsePath(for: path)
+            )
+        }
+    }
+
+    private func processUITestSocketBridgeDistributedRequest(notification: Notification, path: String) {
+        guard let userInfo = notification.userInfo,
+              let requestId = userInfo["id"] as? String,
+              let line = userInfo["line"] as? String,
+              userInfo["completed"] as? Bool != true else {
+            return
+        }
+
+        handleUITestSocketBridgeRequest(requestId: requestId, line: line) { response in
+            DistributedNotificationCenter.default().postNotificationName(
+                uiTestSocketBridgeResponseNotificationName,
+                object: path,
+                userInfo: uiTestSocketBridgeResponsePayload(
+                    requestId: requestId,
+                    line: line,
+                    response: response
+                ),
+                deliverImmediately: true
+            )
+        }
+    }
+
+    private func handleUITestSocketBridgeRequest(
+        requestId: String,
+        line: String,
+        respond: (_ response: String) -> Void
+    ) {
+        guard !requestId.isEmpty, !line.isEmpty else { return }
         guard requestId != uiTestSocketBridgeLastRequestId,
               !uiTestSocketBridgeProcessingRequestIds.contains(requestId) else {
             return
@@ -3051,12 +3099,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let response = TerminalController.shared.handleSocketLine(line)
         uiTestSocketBridgeProcessingRequestIds.remove(requestId)
         uiTestSocketBridgeLastRequestId = requestId
-        writeUITestSocketBridgeResponse(
-            requestId: requestId,
-            line: line,
-            response: response,
-            path: uiTestSocketBridgeResponsePath(for: path)
-        )
+        respond(response)
     }
 
     private func uiTestSocketBridgeRequestPath(for path: String) -> String {
@@ -3074,12 +3117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         path: String
     ) {
         let url = URL(fileURLWithPath: path)
-        let payload: [String: Any] = [
-            "id": requestId,
-            "line": line,
-            "response": response,
-            "completed": true,
-        ]
+        let payload = uiTestSocketBridgeResponsePayload(requestId: requestId, line: line, response: response)
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
             return
         }
@@ -3088,6 +3126,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             withIntermediateDirectories: true
         )
         try? data.write(to: url, options: .atomic)
+    }
+
+    private func uiTestSocketBridgeResponsePayload(
+        requestId: String,
+        line: String,
+        response: String
+    ) -> [String: Any] {
+        [
+            "id": requestId,
+            "line": line,
+            "response": response,
+            "completed": true,
+        ]
     }
 
     private func setupDisplayResolutionUITestDiagnosticsIfNeeded() {

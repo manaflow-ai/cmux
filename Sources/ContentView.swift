@@ -14087,7 +14087,13 @@ private struct SidebarHelpMenuButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
         .accessibilityIdentifier(accessibilityIdentifier)
+        .accessibilityAction {
+            isPopoverPresented = false
+            perform(action)
+        }
     }
 
     private func helpOptionShortcutHint(text: String) -> some View {

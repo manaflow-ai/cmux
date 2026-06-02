@@ -387,6 +387,9 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
 }
 
 final class CommandPaletteAllSurfacesUITests: XCTestCase {
+    private let socketBridgeRequestNotificationName = Notification.Name("com.cmux.ui-test.socket-bridge.request")
+    private let socketBridgeResponseNotificationName = Notification.Name("com.cmux.ui-test.socket-bridge.response")
+
     private var socketPath = ""
     private var socketBridgePath = ""
     private var diagnosticsPath = ""
@@ -1223,7 +1226,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             ) else {
                 return false
             }
-            return settingIsOn(identifier: identifier, element: element) == isOn
+            return settingStateMatches(identifier: identifier, element: element, isOn: isOn)
         }
     }
 
@@ -1236,6 +1239,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         timeout: TimeInterval
     ) -> Bool {
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        var actionIndex = 0
         while ProcessInfo.processInfo.systemUptime < deadline {
             if waitForSettingToggleState(
                 app: app,
@@ -1259,45 +1263,24 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
                 continue
             }
 
-            clickElement(element)
+            performSettingToggleAction(
+                index: actionIndex,
+                app: app,
+                root: root,
+                element: element,
+                title: title
+            )
+            actionIndex += 1
+
             if waitForSettingToggleState(
                 app: app,
                 root: root,
                 identifier: identifier,
                 title: title,
                 isOn: isOn,
-                timeout: 0.5
+                timeout: min(1.5, max(0.1, deadline - ProcessInfo.processInfo.systemUptime))
             ) {
                 return true
-            }
-
-            element.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.5)).click()
-            if waitForSettingToggleState(
-                app: app,
-                root: root,
-                identifier: identifier,
-                title: title,
-                isOn: isOn,
-                timeout: 0.5
-            ) {
-                return true
-            }
-
-            app.typeKey(XCUIKeyboardKey.space.rawValue, modifierFlags: [])
-            if waitForSettingToggleState(
-                app: app,
-                root: root,
-                identifier: identifier,
-                title: title,
-                isOn: isOn,
-                timeout: 0.5
-            ) {
-                return true
-            }
-
-            let label = root.staticTexts[title].firstMatch
-            if label.exists {
-                clickElement(label)
             }
         }
 
@@ -1311,11 +1294,48 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
     }
 
+    private func performSettingToggleAction(
+        index: Int,
+        app: XCUIApplication,
+        root: XCUIElement,
+        element: XCUIElement,
+        title: String
+    ) {
+        switch index % 4 {
+        case 0:
+            clickElement(element)
+        case 1:
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.5)).click()
+        case 2:
+            if element.exists {
+                clickElement(element)
+            }
+            app.typeKey(XCUIKeyboardKey.space.rawValue, modifierFlags: [])
+        default:
+            let label = root.staticTexts[title].firstMatch
+            if label.exists {
+                clickElement(label)
+            } else {
+                clickElement(element)
+            }
+        }
+    }
+
     private func settingIsOn(identifier: String, element: XCUIElement) -> Bool {
         if let storedState = storedSettingState(identifier: identifier) {
             return storedState
         }
         return toggleIsOn(element)
+    }
+
+    private func settingStateMatches(identifier: String, element: XCUIElement, isOn: Bool) -> Bool {
+        if let storedState = storedSettingState(identifier: identifier), storedState == isOn {
+            return true
+        }
+        if let state = toggleState(element), state == isOn {
+            return true
+        }
+        return false
     }
 
     private func storedSettingState(identifier: String) -> Bool? {
@@ -1370,8 +1390,18 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     private func toggleIsOn(_ element: XCUIElement) -> Bool {
+        toggleState(element) ?? false
+    }
+
+    private func toggleState(_ element: XCUIElement) -> Bool? {
         let value = String(describing: element.value ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return value == "1" || value == "true" || value == "on"
+        if value == "1" || value == "true" || value == "on" {
+            return true
+        }
+        if value == "0" || value == "false" || value == "off" {
+            return false
+        }
+        return nil
     }
 
     private func firstExistingElement(
@@ -1513,6 +1543,53 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     private func socketBridgeCommand(_ command: String, responseTimeout: TimeInterval) -> String? {
+        if let response = socketDistributedBridgeCommand(command, responseTimeout: responseTimeout) {
+            return response
+        }
+        return socketFileBridgeCommand(command, responseTimeout: responseTimeout)
+    }
+
+    private func socketDistributedBridgeCommand(_ command: String, responseTimeout: TimeInterval) -> String? {
+        guard !socketBridgePath.isEmpty else { return nil }
+        let requestId = UUID().uuidString
+        let center = DistributedNotificationCenter.default()
+        var response: String?
+        let observer = center.addObserver(
+            forName: socketBridgeResponseNotificationName,
+            object: socketBridgePath,
+            queue: .main
+        ) { notification in
+            guard let userInfo = notification.userInfo,
+                  userInfo["id"] as? String == requestId,
+                  userInfo["completed"] as? Bool == true else {
+                return
+            }
+            response = userInfo["response"] as? String
+        }
+        defer { center.removeObserver(observer) }
+
+        center.postNotificationName(
+            socketBridgeRequestNotificationName,
+            object: socketBridgePath,
+            userInfo: [
+                "id": requestId,
+                "line": command,
+                "completed": false,
+            ],
+            deliverImmediately: true
+        )
+
+        let deadline = ProcessInfo.processInfo.systemUptime + responseTimeout
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if let response {
+                return response
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return nil
+    }
+
+    private func socketFileBridgeCommand(_ command: String, responseTimeout: TimeInterval) -> String? {
         guard !socketBridgePath.isEmpty else { return nil }
         let requestId = UUID().uuidString
         let payload: [String: Any] = [
