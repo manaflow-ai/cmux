@@ -17623,6 +17623,7 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> String? {
         Self.firstNonEmptyPath([
             snapshot.workingDirectory,
+            snapshot.launchCommand?.workingDirectory,
             panelDirectories[panelId],
             terminalPanel(for: panelId)?.requestedWorkingDirectory,
             currentDirectory
