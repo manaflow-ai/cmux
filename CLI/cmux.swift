@@ -10203,6 +10203,15 @@ struct CMUXCLI {
         if lowered.contains("timed out") || lowered.contains("timeout") {
             return "remote daemon did not respond in time"
         }
+        // Surface the daemon's PTY-allocation diagnostic verbatim (it names the
+        // failing device and the devpts/ptmxmode cause) instead of collapsing it
+        // into a generic message. Key off the daemon's stable marker only, so an
+        // unrelated error that merely mentions a device path is not leaked. The
+        // peer branches in this CLI helper return plain English, so this branch
+        // does too. See issue #5185.
+        if lowered.contains("could not allocate a remote pty") {
+            return trimmed
+        }
         return "remote PTY operation failed"
     }
 
