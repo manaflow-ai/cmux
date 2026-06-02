@@ -1134,6 +1134,65 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertTrue(responses[1]["id"] is NSNull, result.stdout)
     }
 
+    func testBrowserMCPServerHandlesBatchElementsIndividually() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"[1,{"jsonrpc":"2.0","id":2,"method":"ping"},{"jsonrpc":"2.0","method":"notifications/initialized"}]"#,
+            #"[]"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 3, result.stdout)
+
+        let invalidElementError = try XCTUnwrap(responses[0]["error"] as? [String: Any])
+        XCTAssertEqual(invalidElementError["code"] as? Int, -32600)
+        XCTAssertTrue(responses[0]["id"] is NSNull, result.stdout)
+        XCTAssertEqual(responses[1]["id"] as? Int, 2)
+        XCTAssertNotNil(responses[1]["result"], result.stdout)
+        let emptyBatchError = try XCTUnwrap(responses[2]["error"] as? [String: Any])
+        XCTAssertEqual(emptyBatchError["code"] as? Int, -32600)
+        XCTAssertTrue(responses[2]["id"] is NSNull, result.stdout)
+    }
+
+    func testBrowserMCPServerReturnsInvalidParamsForMalformedToolCall() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 1, result.stdout)
+        let error = try XCTUnwrap(responses[0]["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? Int, -32602)
+        XCTAssertTrue((error["message"] as? String)?.contains("tools/call requires a tool name") == true, result.stdout)
+    }
+
     func testBrowserMCPServerRejectsExplicitEmptyBrowserHandles() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"

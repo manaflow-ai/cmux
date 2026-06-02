@@ -39,8 +39,24 @@ final class CMUXBrowserMCPServer {
             )
         }
         let object = try JSONSerialization.jsonObject(with: data, options: [])
-        if let batch = object as? [[String: Any]] {
-            for message in batch {
+        if let batch = object as? [Any] {
+            guard !batch.isEmpty else {
+                writeError(
+                    id: nil,
+                    code: -32600,
+                    message: String(localized: "cli.browserMCP.error.invalidMessage", defaultValue: "Invalid MCP message")
+                )
+                return
+            }
+            for element in batch {
+                guard let message = element as? [String: Any] else {
+                    writeError(
+                        id: nil,
+                        code: -32600,
+                        message: String(localized: "cli.browserMCP.error.invalidMessage", defaultValue: "Invalid MCP message")
+                    )
+                    continue
+                }
                 handleMessage(message)
             }
             return
@@ -95,7 +111,12 @@ final class CMUXBrowserMCPServer {
             case "tools/list":
                 result = ["tools": toolDefinitions()]
             case "tools/call":
-                result = try handleToolCall(params: message["params"] as? [String: Any])
+                do {
+                    result = try handleToolCall(params: message["params"] as? [String: Any])
+                } catch let error as CLIError {
+                    writeError(id: id, code: -32602, message: sanitizedErrorMessage(error))
+                    return
+                }
             default:
                 writeError(
                     id: id,
