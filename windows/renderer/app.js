@@ -381,7 +381,6 @@ const state = {
   paletteOpen: false,
   paletteIndex: 0,
   paletteRenderFrame: 0,
-  paletteRenderTimer: 0,
   paletteFocusFrame: 0,
   paletteListSignature: "",
   surfaceTabScrollFrame: 0,
@@ -11368,24 +11367,18 @@ function movePanelRight(workspace, index) {
 }
 
 function schedulePaletteRender() {
-  if (state.paletteRenderFrame || state.paletteRenderTimer) return;
+  if (state.paletteRenderFrame) return;
   const run = () => {
-    if (state.paletteRenderFrame) cancelAnimationFrame(state.paletteRenderFrame);
-    if (state.paletteRenderTimer) clearTimeout(state.paletteRenderTimer);
     state.paletteRenderFrame = 0;
-    state.paletteRenderTimer = 0;
     renderPalette();
   };
   state.paletteRenderFrame = requestAnimationFrame(run);
-  state.paletteRenderTimer = setTimeout(run, 50);
 }
 
 function flushPaletteRender() {
-  if (!state.paletteRenderFrame && !state.paletteRenderTimer) return;
+  if (!state.paletteRenderFrame) return;
   if (state.paletteRenderFrame) cancelAnimationFrame(state.paletteRenderFrame);
-  if (state.paletteRenderTimer) clearTimeout(state.paletteRenderTimer);
   state.paletteRenderFrame = 0;
-  state.paletteRenderTimer = 0;
   renderPalette();
 }
 
