@@ -2641,36 +2641,48 @@ body.reduce-motion *::after {
 }
 
 .pending-pane {
+  width: min(360px, calc(100% - var(--space-4)));
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  max-width: calc(100% - var(--space-4));
-  padding: 8px 10px;
+  padding: 10px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-2);
-  background: color-mix(in oklch, var(--color-pane-warm) 74%, transparent);
+  background: color-mix(in oklch, var(--color-pane-warm) 88%, var(--color-terminal-gutter) 12%);
   color: var(--color-muted);
   font: 12px/1.2 var(--font-ui);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--color-text) 5%, transparent),
+    0 12px 34px color-mix(in oklch, var(--color-terminal-gutter) 32%, transparent);
 }
 
 .pending-pane.is-slow {
   border-color: color-mix(in oklch, var(--color-warning) 54%, var(--color-line) 46%);
-  background: color-mix(in oklch, var(--color-warning) 10%, var(--color-pane-warm) 90%);
+  background: color-mix(in oklch, var(--color-warning) 11%, var(--color-pane-warm) 89%);
 }
 
-.pending-pane-pulse {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 7px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  animation: cmux-pulse 900ms ease-in-out infinite;
+.pending-pane-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in oklch, var(--color-accent) 42%, var(--color-line) 58%);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-accent) 15%, var(--color-pane) 85%);
+  color: var(--color-text);
+  animation: cmux-pulse 900ms var(--ease-in-out) infinite;
 }
 
-.pending-pane.is-slow .pending-pane-pulse {
-  background: var(--color-warning);
+.pending-pane-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.pending-pane.is-slow .pending-pane-icon {
+  border-color: color-mix(in oklch, var(--color-warning) 54%, var(--color-line) 46%);
+  background: color-mix(in oklch, var(--color-warning) 16%, var(--color-pane) 84%);
 }
 
 .pending-pane-text {
@@ -2683,7 +2695,7 @@ body.reduce-motion *::after {
 .pending-pane-copy {
   display: grid;
   min-width: 0;
-  gap: 2px;
+  gap: 4px;
 }
 
 .pending-pane-meta {
@@ -2693,6 +2705,29 @@ body.reduce-motion *::after {
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.pending-pane-progress {
+  position: relative;
+  width: min(180px, 100%);
+  height: 3px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklch, var(--color-text) 9%, transparent);
+}
+
+.pending-pane-progress span {
+  position: absolute;
+  inset-block: 0;
+  left: -42%;
+  width: 42%;
+  border-radius: inherit;
+  background: var(--color-accent);
+  animation: pending-pane-progress 1.2s var(--ease-in-out) infinite;
+}
+
+.pending-pane.is-slow .pending-pane-progress span {
+  background: var(--color-warning);
 }
 
 .pending-pane-cancel {
@@ -2714,7 +2749,13 @@ body.reduce-motion *::after {
   .pending-pane {
     justify-content: center;
     grid-template-columns: auto;
+    width: calc(100% - var(--space-2));
     max-width: 100%;
+  }
+
+  .pending-pane-icon {
+    width: 30px;
+    height: 30px;
   }
 
   .pending-pane-text {
@@ -2727,6 +2768,16 @@ body.reduce-motion *::after {
 
   .pending-pane-cancel {
     display: none;
+  }
+}
+
+@keyframes pending-pane-progress {
+  0% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(340%);
   }
 }
 

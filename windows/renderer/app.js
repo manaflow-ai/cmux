@@ -4471,10 +4471,11 @@ function renderPendingPane(panel, body) {
     pending = document.createElement("div");
     pending.className = "pending-pane";
     pending.innerHTML = `
-      <span class="pending-pane-pulse"></span>
+      <span class="pending-pane-icon" aria-hidden="true"></span>
       <span class="pending-pane-copy">
         <span class="pending-pane-text"></span>
         <span class="pending-pane-meta"></span>
+        <span class="pending-pane-progress" aria-hidden="true"><span></span></span>
       </span>
       <button class="pending-pane-cancel" type="button">Cancel</button>
     `;
@@ -4494,15 +4495,24 @@ function renderPendingPane(panel, body) {
   const elapsedSeconds = pendingPanelElapsedSeconds(panel);
   const slow = elapsedSeconds >= 8;
   toggleClassIfChanged(pending, "is-slow", slow);
+  pending.setAttribute("role", "status");
+  pending.setAttribute("aria-live", "polite");
   const baseMeta = isBrowser
     ? hostnameOf(panel.url || state.settings.browserHomeUrl)
     : `${optionLabel(terminalProfiles, panel.shellProfile || state.settings.terminalProfile, "Shell")} / ${panel.cwdShort || "~"}`;
+  const title = slow
+    ? (isBrowser ? "Browser is still opening" : "Terminal is still starting")
+    : (isBrowser ? "Opening browser" : "Starting terminal");
   const meta = `${baseMeta} / ${elapsedSeconds}s`;
+  const iconName = isBrowser ? "browserPlus" : "terminalPlus";
+  if (parts.icon.dataset.pendingIcon !== iconName) {
+    parts.icon.dataset.pendingIcon = iconName;
+    parts.icon.innerHTML = controlIconMarkup(iconName);
+  }
+  pending.setAttribute("aria-label", `${title}. ${baseMeta}. ${elapsedSeconds} seconds elapsed.`);
   setTextIfChanged(
     parts.text,
-    slow
-      ? (isBrowser ? "Browser is still opening..." : "Terminal is still starting...")
-      : (isBrowser ? "Opening browser..." : "Starting terminal...")
+    title
   );
   setTextIfChanged(parts.meta, meta);
   ensurePendingPaneTimer();
@@ -4510,6 +4520,7 @@ function renderPendingPane(panel, body) {
 
 function pendingPaneParts(pending) {
   return {
+    icon: pending.querySelector(".pending-pane-icon"),
     text: pending.querySelector(".pending-pane-text"),
     meta: pending.querySelector(".pending-pane-meta"),
     cancel: pending.querySelector(".pending-pane-cancel")
