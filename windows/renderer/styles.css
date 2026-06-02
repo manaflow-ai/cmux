@@ -8857,7 +8857,8 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .active-background-panel.is-drop-target,
-.saved-background-panel.is-drop-target {
+.saved-background-panel.is-drop-target,
+.saved-background-add-card.is-drop-target {
   outline: 1px solid var(--color-accent);
   outline-offset: 2px;
   border-color: var(--color-accent);
@@ -9378,6 +9379,74 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   gap: var(--space-2);
 }
 
+.saved-background-add-card {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 94%, var(--color-rail) 6%), var(--color-pane));
+}
+
+.saved-background-add-copy {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.saved-background-add-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-canvas) 36%, transparent);
+  color: var(--color-muted);
+}
+
+.saved-background-add-icon svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.saved-background-add-text {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.saved-background-add-title,
+.saved-background-add-body {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saved-background-add-title {
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.saved-background-add-body {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
 .saved-background-add {
   min-width: 0;
   display: grid;
@@ -9394,6 +9463,18 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .saved-background-actions,
 .saved-background-card-actions {
   min-width: 0;
+}
+
+.saved-background-actions {
+  grid-template-columns: repeat(auto-fit, minmax(min(108px, 100%), 1fr));
+  gap: var(--space-1);
+}
+
+.saved-background-actions .settings-action {
+  height: 30px;
+  min-width: 0;
+  padding-inline: var(--space-1);
+  font-size: 11px;
 }
 
 .saved-background-empty {

@@ -8581,28 +8581,16 @@ function renderSettingsInspector(options = {}) {
     imageActions.dataset.backgroundCustomActions = "true";
     const imageApply = settingsActionButton(backgroundApplyTargetPrimaryLabel(), () => applyImageInput(true), "primary", "background image url local path apply selected target wallpaper");
     imageApply.dataset.backgroundCustomAction = "apply";
-    const imageApplySave = settingsActionButton("Apply + save", async () => {
-      const saved = await applyAndSaveBackgroundImageToTarget({ url: imageInput.value }, state.backgroundApplyTarget, { resetInput: imageInput });
-      if (saved) imageInput.value = saved.url;
-    }, "", "background image url local path apply save selected target wallpaper");
-    imageApplySave.dataset.backgroundCustomAction = "apply-save";
     const imagePaste = settingsActionButton("Paste", () => pasteBackgroundImageFromClipboard({ input: imageInput, target: () => state.backgroundApplyTarget }), "", "background image paste clipboard url local path selected target wallpaper");
     imagePaste.dataset.backgroundCustomAction = "paste";
-    const imagePasteSave = settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input: imageInput, target: () => state.backgroundApplyTarget, save: true }), "", "background image paste clipboard copied image apply save selected target wallpaper");
-    imagePasteSave.dataset.backgroundCustomAction = "paste-save";
-    const imageChoose = settingsActionButton("Choose file", () => chooseBackgroundImageForTarget(), "", "background image local file selected target wallpaper");
+    const imageChoose = settingsActionButton("Choose", () => chooseBackgroundImageForTarget(), "", "background image local file selected target wallpaper");
     imageChoose.dataset.backgroundCustomAction = "choose";
-    const imageChooseSave = settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "background image local file choose apply save selected target wallpaper library");
-    imageChooseSave.dataset.backgroundCustomAction = "choose-save";
     const imageClear = settingsActionButton("Clear target", clearBackgroundApplyTarget, "danger", "background image local file wallpaper reset remove clear selected target");
     imageClear.dataset.backgroundCustomAction = "clear";
     imageActions.append(
       imageApply,
-      imageApplySave,
       imagePaste,
-      imagePasteSave,
       imageChoose,
-      imageChooseSave,
       imageClear
     );
     imageActions.dataset.settingsSearch = normalizeSettingsQuery("background image local file wallpaper apply clear paste clipboard selected target");
@@ -9672,6 +9660,7 @@ function activeBackgroundTargetControl() {
       if (state.backgroundApplyTarget === nextTarget) return;
       state.backgroundApplyTarget = nextTarget;
       refreshBackgroundPreviewNodes();
+      refreshBackgroundLibraryPanels();
     };
     options.append(button);
   }
@@ -10007,6 +9996,19 @@ function refreshBackgroundPreviewNodes() {
   }
   updateBackgroundCustomActionLabels(elements.inspectorBody, activeWorkspace());
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+}
+
+function refreshBackgroundLibraryPanels() {
+  for (const grid of elements.inspectorBody.querySelectorAll(".background-preset-grid")) {
+    grid.replaceWith(backgroundPresetGrid());
+  }
+  for (const panel of elements.inspectorBody.querySelectorAll(".saved-background-panel")) {
+    const draft = panel.querySelector(".saved-background-input")?.value || "";
+    const replacement = savedBackgroundImagesPanel();
+    const input = replacement.querySelector(".saved-background-input");
+    if (input && draft) input.value = draft;
+    panel.replaceWith(replacement);
+  }
 }
 
 function scheduleBackgroundPreviewRefresh() {
@@ -13397,45 +13399,71 @@ function savedBackgroundImagesPanel() {
   panel.className = "saved-background-panel";
   panel.dataset.settingsSearch = normalizeSettingsQuery("saved background image wallpaper library url file apply rename delete save");
 
+  panel.append(activeBackgroundTargetControl());
+
+  const targetStatus = activeBackgroundTargetStatus();
+  const addCard = document.createElement("div");
+  addCard.className = "saved-background-add-card";
+  addCard.dataset.settingsSearch = normalizeSettingsQuery("saved background add image drop paste choose local file url selected target wallpaper");
+
+  const addCopy = document.createElement("div");
+  addCopy.className = "saved-background-add-copy";
+  addCopy.innerHTML = `
+    <span class="saved-background-add-icon" aria-hidden="true">${quickActionIconMarkup("background")}</span>
+    <span class="saved-background-add-text">
+      <span class="saved-background-add-title">Add image background</span>
+      <span class="saved-background-add-body"></span>
+    </span>
+  `;
+  addCopy.querySelector(".saved-background-add-body").textContent = `Drop an image, paste from clipboard, or choose a file for ${backgroundApplyTargetActionLabel(targetStatus.scope).toLowerCase()}.`;
+
   const addRow = document.createElement("div");
   addRow.className = "saved-background-add";
   const input = document.createElement("input");
   input.className = "setting-control saved-background-input";
   input.placeholder = "URL or C:\\path\\image.png";
   input.dataset.settingsSearch = normalizeSettingsQuery("saved background image url local path file add apply save");
+  const saveTypedImage = () => withDisabledControl(input, async () => {
+    const saved = await saveCustomBackgroundImage({ url: input.value });
+    if (saved) input.value = saved.url;
+    return saved;
+  });
+  const applyAndSaveTypedImage = () => withDisabledControl(input, async () => {
+    const saved = await applyAndSaveBackgroundImageToTarget({ url: input.value }, state.backgroundApplyTarget, { resetInput: input });
+    if (saved) input.value = saved.url;
+    return saved;
+  });
   input.addEventListener("keydown", async (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      const saved = await withDisabledControl(input, () => saveCustomBackgroundImage({ url: input.value }));
-      if (saved) input.value = "";
+      await applyAndSaveTypedImage();
     }
   });
-  const saveUrl = settingsActionButton("Save image", async () => {
-    const saved = await withDisabledControl(input, () => saveCustomBackgroundImage({ url: input.value }));
-    if (saved) input.value = "";
-  }, "", "saved background image url local path file add");
+  const saveUrl = settingsActionButton("Save only", saveTypedImage, "", "saved background image url local path file add");
   addRow.append(input, saveUrl);
-  panel.append(addRow);
 
   const actions = document.createElement("div");
   actions.className = "settings-actions saved-background-actions";
   actions.dataset.settingsSearch = normalizeSettingsQuery("saved background current choose local file wallpaper apply save");
-  const applyAndSave = settingsActionButton("Apply + save", async () => {
-    const saved = await withDisabledControl(input, () => applyAndSaveBackgroundImageToTarget({ url: input.value }, state.backgroundApplyTarget));
-    if (saved) input.value = "";
-  }, "", "saved background image apply save selected target url local path file wallpaper");
+  const applyAndSave = settingsActionButton("Apply + save", applyAndSaveTypedImage, "primary", "saved background image apply save selected target url local path file wallpaper");
+  applyAndSave.disabled = !targetStatus.canTarget;
   const saveCurrent = settingsActionButton("Save selected", () => saveCustomBackgroundImage({
     url: activeBackgroundPanelViewModel().background
   }), "", "saved background image current selected target");
   saveCurrent.disabled = !isCustomBackgroundImage(activeBackgroundPanelViewModel().background);
+  const pasteSave = settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input, target: () => state.backgroundApplyTarget, save: true }), "", "saved background image paste clipboard copied image apply save selected target wallpaper");
+  pasteSave.disabled = !targetStatus.canTarget;
+  const chooseSave = settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "saved background image choose local file selected target wallpaper");
+  chooseSave.disabled = !targetStatus.canTarget;
   actions.append(
     applyAndSave,
     saveCurrent,
-    settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input, target: () => state.backgroundApplyTarget, save: true }), "", "saved background image paste clipboard copied image apply save selected target wallpaper"),
-    settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "saved background image choose local file selected target wallpaper")
+    pasteSave,
+    chooseSave
   );
-  panel.append(actions);
-  installBackgroundDropTarget(panel, { input, saveTarget: () => state.backgroundApplyTarget });
+  addCard.append(addCopy, addRow, actions);
+  panel.append(addCard);
+  installBackgroundDropTarget(addCard, { input, saveTarget: () => state.backgroundApplyTarget });
 
   if (state.savedBackgroundImages.length === 0) {
     const empty = document.createElement("div");
