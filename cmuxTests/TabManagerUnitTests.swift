@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
+import CmuxGitHosting
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -613,7 +614,11 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
 
 @MainActor
 final class TabManagerPullRequestProbeTests: XCTestCase {
-    func testGitHubRepositorySlugsPrioritizeUpstreamThenOriginAndDeduplicate() {
+    private func identities(_ references: [GitRemoteReference]) -> [String] {
+        references.map(\.identity)
+    }
+
+    func testRepositoryReferencesPrioritizeUpstreamThenOriginAndPreserveHosts() {
         let output = """
         origin https://github.com/austinwang/cmux.git (fetch)
         origin https://github.com/austinwang/cmux.git (push)
@@ -623,13 +628,15 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         mirror https://gitlab.com/manaflow-ai/cmux.git (fetch)
         """
 
+        // Non-github hosts are now preserved host-qualified (the gitlab mirror is a
+        // distinct identity), while the duplicate github backup is deduplicated.
         XCTAssertEqual(
-            TabManager.githubRepositorySlugs(fromGitRemoteVOutput: output),
-            ["manaflow-ai/cmux", "austinwang/cmux"]
+            identities(TabManager.workspaceRepositoryReferences(fromGitRemoteVOutput: output)),
+            ["github.com/manaflow-ai/cmux", "github.com/austinwang/cmux", "gitlab.com/manaflow-ai/cmux"]
         )
     }
 
-    func testGitHubRepositorySlugsFromGitConfigIgnoreInlineComments() {
+    func testRepositoryReferencesFromGitConfigIgnoreInlineComments() {
         let config = """
         [remote "origin"] ; user's main fork
             url = git@github.com:austinwang/cmux.git # main origin
@@ -640,12 +647,12 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            TabManager.githubRepositorySlugs(fromGitConfigForTesting: config),
-            ["manaflow-ai/cmux", "austinwang/cmux"]
+            identities(TabManager.workspaceRepositoryReferences(fromGitConfigForTesting: config)),
+            ["github.com/manaflow-ai/cmux", "github.com/austinwang/cmux"]
         )
     }
 
-    func testGitHubRepositorySlugsFromGitConfigUnquotesUrlValues() {
+    func testRepositoryReferencesFromGitConfigUnquotesUrlValues() {
         let config = """
         [remote "origin"] ; user's main fork
             url = "git@github.com:austinwang/cmux.git" # main origin
@@ -656,12 +663,12 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            TabManager.githubRepositorySlugs(fromGitConfigForTesting: config),
-            ["manaflow-ai/cmux", "austinwang/cmux"]
+            identities(TabManager.workspaceRepositoryReferences(fromGitConfigForTesting: config)),
+            ["github.com/manaflow-ai/cmux", "github.com/austinwang/cmux"]
         )
     }
 
-    func testGitHubRepositorySlugsFromGitConfigUsesLastRemoteURLValue() {
+    func testRepositoryReferencesFromGitConfigUsesLastRemoteURLValue() {
         let config = """
         [remote "origin"]
             url = https://github.com/old-owner/old-repo.git
@@ -669,8 +676,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            TabManager.githubRepositorySlugs(fromGitConfigForTesting: config),
-            ["manaflow-ai/cmux"]
+            identities(TabManager.workspaceRepositoryReferences(fromGitConfigForTesting: config)),
+            ["github.com/manaflow-ai/cmux"]
         )
     }
 
@@ -718,8 +725,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            TabManager.githubRepositorySlugs(directoryForTesting: repoURL.path),
-            ["manaflow-ai/cmux", "austinwang/cmux"]
+            identities(TabManager.workspaceRepositoryReferences(directoryForTesting: repoURL.path)),
+            ["github.com/manaflow-ai/cmux", "github.com/austinwang/cmux"]
         )
     }
 
@@ -759,8 +766,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            TabManager.githubRepositorySlugs(directoryForTesting: repoURL.path),
-            ["manaflow-ai/cmux"]
+            identities(TabManager.workspaceRepositoryReferences(directoryForTesting: repoURL.path)),
+            ["github.com/manaflow-ai/cmux"]
         )
     }
 
@@ -801,8 +808,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            TabManager.githubRepositorySlugs(directoryForTesting: repoURL.path),
-            ["manaflow-ai/cmux"]
+            identities(TabManager.workspaceRepositoryReferences(directoryForTesting: repoURL.path)),
+            ["github.com/manaflow-ai/cmux"]
         )
     }
 
