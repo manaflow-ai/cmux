@@ -8536,7 +8536,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) -> Bool {
         guard returnType == nil else { return false }
         guard sendType.map({ textServicePasteboardTypes.contains($0) }) ?? true else { return false }
-        guard let sendType else { return true }
+        guard let sendType else { return hasSelection }
         return textServicePasteboardTypes.contains(sendType) && hasSelection
     }
 
