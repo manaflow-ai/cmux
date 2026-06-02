@@ -22240,10 +22240,14 @@ struct CMUXCLI {
         }
         defer { try? handle.close() }
 
-        func hasCompleteLineAfterLeadingBoundary(_ text: String, readStart: UInt64) -> Bool {
+        func isASCIIWhitespace(_ byte: UInt8) -> Bool {
+            byte == 0x09 || byte == 0x0A || byte == 0x0D || byte == 0x20
+        }
+
+        func hasCompleteLineAfterLeadingBoundary(_ data: Data, readStart: UInt64) -> Bool {
             guard readStart > 0 else { return true }
-            guard let newline = text.firstIndex(of: "\n") else { return false }
-            return text[text.index(after: newline)...].contains { !$0.isWhitespace }
+            guard let newline = data.firstIndex(of: 0x0A) else { return false }
+            return data[data.index(after: newline)...].contains { !isASCIIWhitespace($0) }
         }
 
         let size: UInt64
@@ -22251,15 +22255,12 @@ struct CMUXCLI {
             size = try handle.seekToEnd()
             var readStart = size > maxBytes ? size - maxBytes : 0
             try handle.seek(toOffset: readStart)
-            guard let data = try handle.readToEnd(), !data.isEmpty else {
-                return nil
-            }
-            guard var text = String(bytes: data, encoding: .utf8) else {
+            guard var data = try handle.readToEnd(), !data.isEmpty else {
                 return nil
             }
             let maxWindowBytes = maxBytes > UInt64.max / 8 ? UInt64.max : maxBytes * 8
 
-            while !hasCompleteLineAfterLeadingBoundary(text, readStart: readStart), readStart > 0 {
+            while !hasCompleteLineAfterLeadingBoundary(data, readStart: readStart), readStart > 0 {
                 let currentWindowBytes = size - readStart
                 guard currentWindowBytes < maxWindowBytes else { break }
                 let remainingWindowBytes = maxWindowBytes - currentWindowBytes
@@ -22271,14 +22272,14 @@ struct CMUXCLI {
                 guard let expandedData = try handle.readToEnd(), !expandedData.isEmpty else {
                     return nil
                 }
-                guard let expandedText = String(bytes: expandedData, encoding: .utf8) else {
-                    return nil
-                }
-                text = expandedText
+                data = expandedData
             }
 
-            if readStart > 0, let newline = text.firstIndex(of: "\n") {
-                text.removeSubrange(...newline)
+            if readStart > 0, let newline = data.firstIndex(of: 0x0A) {
+                data.removeSubrange(data.startIndex...newline)
+            }
+            guard let text = String(data: data, encoding: .utf8) else {
+                return nil
             }
             return text.components(separatedBy: "\n")
         } catch {

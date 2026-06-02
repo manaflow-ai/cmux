@@ -1598,6 +1598,66 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Grok Stop fallback to parse the oversized final chat-history line, saw \(oversizedStopCommands)"
         )
 
+        let multibyteSessionId = "grok-multibyte-boundary"
+        let multibyteStart = runGrokHook(
+            "session-start",
+            input: #"{"sessionId":"\#(multibyteSessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
+        )
+        XCTAssertFalse(multibyteStart.timedOut, multibyteStart.stderr)
+        XCTAssertEqual(multibyteStart.status, 0, multibyteStart.stderr)
+
+        let multibytePrompt = runGrokHook(
+            "prompt-submit",
+            input: #"{"sessionId":"\#(multibyteSessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"multibyte boundary"}"#
+        )
+        XCTAssertFalse(multibytePrompt.timedOut, multibytePrompt.stderr)
+        XCTAssertEqual(multibytePrompt.status, 0, multibytePrompt.stderr)
+
+        let multibyteSessionURL = grokHome
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(grokEncodedSessionCWD(root.path), isDirectory: true)
+            .appendingPathComponent(multibyteSessionId, isDirectory: true)
+        try FileManager.default.createDirectory(at: multibyteSessionURL, withIntermediateDirectories: true)
+        let leadingPrefix = #"{"type":"assistant","content":""#
+        let leadingContent = String(repeating: "あ", count: 90_000)
+        let leadingLine = leadingPrefix + leadingContent + #""}"#
+        let leadingPrefixByteCount = Data(leadingPrefix.utf8).count
+        let leadingLineByteCount = Data(leadingLine.utf8).count
+        var multibyteAssistantMessage = "Grok final after multibyte boundary"
+        var multibyteHistoryData: Data?
+        for suffixLength in 0..<3 {
+            multibyteAssistantMessage = "Grok final after multibyte boundary" + String(repeating: "x", count: suffixLength)
+            let finalLine = #"{"type":"assistant","content":"\#(multibyteAssistantMessage)"}"#
+            let history = leadingLine + "\n" + finalLine + "\n"
+            let data = Data(history.utf8)
+            let readStart = data.count - min(data.count, 256 * 1024)
+            if readStart > leadingPrefixByteCount,
+               readStart < leadingLineByteCount,
+               (readStart - leadingPrefixByteCount) % 3 != 0 {
+                multibyteHistoryData = data
+                break
+            }
+        }
+        let historyData = try XCTUnwrap(multibyteHistoryData)
+        try historyData.write(to: multibyteSessionURL.appendingPathComponent("chat_history.jsonl", isDirectory: false))
+
+        let multibyteStopCommandStart = state.commands.count
+        let multibyteStop = runGrokHook(
+            "stop",
+            input: #"{"sessionId":"\#(multibyteSessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
+        )
+        XCTAssertFalse(multibyteStop.timedOut, multibyteStop.stderr)
+        XCTAssertEqual(multibyteStop.status, 0, multibyteStop.stderr)
+
+        let multibyteStopCommands = Array(state.commands.dropFirst(multibyteStopCommandStart))
+        XCTAssertTrue(
+            multibyteStopCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
+                    && $0.contains(multibyteAssistantMessage)
+            },
+            "Expected Grok Stop fallback to skip the partial multibyte leading line, saw \(multibyteStopCommands)"
+        )
+
         let genericCompletionCommandStart = state.commands.count
         let genericCompletion = runGrokHook(
             "notification",
