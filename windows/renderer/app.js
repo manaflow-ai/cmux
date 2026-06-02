@@ -5478,6 +5478,7 @@ function ensureTerminal(panel, body) {
     host,
     queue: "",
     scheduled: false,
+    writing: false,
     fitFrame: 0,
     resizeObserver: null,
     disposed: false,
@@ -5730,14 +5731,14 @@ function enqueueTerminalOutput(session, data) {
 }
 
 function scheduleTerminalOutputFlush(session) {
-  if (session.disposed || session.scheduled) return;
+  if (session.disposed || session.scheduled || session.writing) return;
   session.scheduled = true;
   requestAnimationFrame(() => flushTerminalOutput(session));
 }
 
 function flushTerminalOutput(session) {
   session.scheduled = false;
-  if (session.disposed || !session.queue) return;
+  if (session.disposed || session.writing || !session.queue) return;
   if (terminalOutputShouldPause(session)) {
     state.terminalOutputStats.pausedFlushes += 1;
     return;
@@ -5748,9 +5749,14 @@ function flushTerminalOutput(session) {
   state.terminalOutputStats.chunks += 1;
   state.terminalOutputStats.lastChunk = chunk.length;
   state.terminalOutputStats.writtenBytes += chunk.length;
-  session.term.write(chunk, () => clearTerminalConnectionStatus(session));
+  session.writing = true;
+  session.term.write(chunk, () => {
+    session.writing = false;
+    if (session.disposed) return;
+    clearTerminalConnectionStatus(session);
+    if (session.queue) scheduleTerminalOutputFlush(session);
+  });
   updateTerminalOutputBacklog();
-  if (session.queue) scheduleTerminalOutputFlush(session);
 }
 
 function terminalOutputChunkSizeFor(session) {
