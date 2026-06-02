@@ -21,6 +21,56 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         assertClearBackdrop(snapshot.policy(for: .rightSidebar))
     }
 
+    func testBrowserSurfaceColorClearsForTransparentGhosttyBackground() {
+        guard let backgroundColor = NSColor(hex: "#101820") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let color = GhosttyBackgroundTheme.surfaceColor(
+            backgroundColor: backgroundColor,
+            opacity: 0.5,
+            backgroundBlur: .disabled,
+            usesTransparentWindow: false
+        )
+
+        XCTAssertEqual(color.alphaComponent, 0, accuracy: 0.0001)
+    }
+
+    func testBrowserChromeStyleKeepsReadableSchemeWhenDrawingClearSurface() {
+        guard let backgroundColor = NSColor(hex: "#101820") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let style = BrowserChromeStyle.resolve(
+            for: .dark,
+            themeBackgroundColor: backgroundColor,
+            drawsSurfaceBackground: false
+        )
+
+        XCTAssertEqual(style.backgroundColor.alphaComponent, 0, accuracy: 0.0001)
+        XCTAssertEqual(style.colorScheme, .dark)
+        XCTAssertEqual(style.omnibarPillBackgroundColor.alphaComponent, 0.74, accuracy: 0.0001)
+    }
+
+    func testBrowserSurfaceColorDrawsOpaqueForOpaqueGhosttyBackground() {
+        guard let backgroundColor = NSColor(hex: "#101820") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let color = GhosttyBackgroundTheme.surfaceColor(
+            backgroundColor: backgroundColor,
+            opacity: 1,
+            backgroundBlur: .disabled,
+            usesTransparentWindow: false
+        )
+
+        XCTAssertEqual(color.alphaComponent, 1, accuracy: 0.0001)
+        XCTAssertEqual(color.hexString(), "#101820")
+    }
+
     func testSeparateSurfaceBackdropsKeepRootBackdropAndSidebarMaterialsSeparate() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: false)
 
