@@ -32,7 +32,7 @@ const windowsMessages = {
     "paneShape.titlePercent": "{title} at {percent}%",
     "paneShape.pendingTitle": "Pane is still starting",
     "paneShape.emptyTitle": "Open another pane to shape the layout",
-    "paneShape.metaReady": "{direction} / drag splitters or use these controls",
+    "paneShape.metaReady": "{direction} / drag splitters or enter 1-99%",
     "paneShape.metaPending": "Layout controls unlock when every pane is ready.",
     "paneShape.metaEmpty": "Split right or down, then tune any pane from here.",
     "paneShape.size": "Size",

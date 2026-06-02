@@ -4137,7 +4137,7 @@ body.reduce-motion *::after {
   grid-column: 1 / -1;
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(42px, 1fr));
   gap: 1px;
   overflow: hidden;
   border: 1px solid var(--color-line);

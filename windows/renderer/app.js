@@ -9592,7 +9592,7 @@ function paneShapePanel(workspace = activeWorkspace()) {
     }
   };
   const quick = wrapper.querySelector(".pane-shape-quick");
-  quickButtons = [25, 33, 50, 67, 75].map((quickPercent) => {
+  quickButtons = [10, 25, 33, 50, 67, 75, 90].map((quickPercent) => {
     const button = document.createElement("button");
     button.className = "pane-shape-quick-button";
     button.type = "button";
