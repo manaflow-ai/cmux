@@ -47,4 +47,19 @@ import Testing
     @Test func nilUserdataResolvesToNil() {
         #expect(GhosttyApp.resolveCallbackContext(from: nil) == nil)
     }
+
+    /// An address that is not (or no longer) a registered live context is not
+    /// reported live, so it is never reinterpreted as a Swift object. This is the
+    /// exact failure mode a malloc-zone heuristic missed: a freed context whose
+    /// block libmalloc still owns would pass `malloc_size` but is absent from the
+    /// lifetime-bound registry.
+    @Test func unregisteredPointerIsNotLive() {
+        #expect(!GhosttySurfaceCallbackContext.isLive(UnsafeMutableRawPointer(bitPattern: 0x1500_0000_0014)!))
+        let stack = UnsafeMutableRawPointer.allocate(byteCount: 64, alignment: 16)
+        defer { stack.deallocate() }
+        // A genuinely live malloc block that was never registered as a context
+        // must still be rejected — liveness here means "is a tracked context",
+        // not merely "points at allocated memory".
+        #expect(!GhosttySurfaceCallbackContext.isLive(stack))
+    }
 }
