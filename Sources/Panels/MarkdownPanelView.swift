@@ -315,6 +315,7 @@ private struct MarkdownTypographyControl: View {
     // Loaded lazily in the background after the popover appears so it opens
     // instantly even on machines with hundreds of fonts.
     @State private var families: [String] = []
+    private let labelColumnWidth: CGFloat = 66
 
     private var buttonLabel: String {
         String(localized: "markdown.toolbar.fontSize", defaultValue: "Font Size")
@@ -352,29 +353,13 @@ private struct MarkdownTypographyControl: View {
 
     private var popoverContent: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 14, verticalSpacing: 12) {
-                GridRow {
-                    Text(String(localized: "markdown.typography.font", defaultValue: "Font"))
-                        .foregroundStyle(.secondary)
-                        .gridColumnAlignment(.leading)
-                    // Plain system-font names: rendering each item in its own
-                    // font made the menu slow to open and gave rows uneven
-                    // heights. The chosen font still applies to the document.
-                    Picker(selection: fontBinding) {
-                        Text(String(localized: "markdown.font.system", defaultValue: "System"))
-                            .tag(MarkdownFontFamily.systemDefault)
-                        Divider()
-                        ForEach(pickerFamilies, id: \.self) { family in
-                            Text(family).tag(family)
-                        }
-                    } label: { EmptyView() }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: 150)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    fieldLabel(String(localized: "markdown.typography.font", defaultValue: "Font"))
+                    fontPicker
                 }
-                GridRow {
-                    Text(String(localized: "markdown.typography.size", defaultValue: "Size"))
-                        .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    fieldLabel(String(localized: "markdown.typography.size", defaultValue: "Size"))
                     HStack(spacing: 6) {
                         TextField(
                             String(localized: "markdown.fontSize.field", defaultValue: "Size"),
@@ -418,5 +403,28 @@ private struct MarkdownTypographyControl: View {
                 families = await MarkdownFontFamily.availableFamilies()
             }
         }
+    }
+
+    private func fieldLabel(_ title: String) -> some View {
+        Text(title)
+            .foregroundStyle(.secondary)
+            .frame(width: labelColumnWidth, alignment: .leading)
+    }
+
+    private var fontPicker: some View {
+        // Plain system-font names: rendering each item in its own font made the
+        // menu slow to open and gave rows uneven heights. The chosen font still
+        // applies to the document.
+        Picker(selection: fontBinding) {
+            Text(String(localized: "markdown.font.system", defaultValue: "System"))
+                .tag(MarkdownFontFamily.systemDefault)
+            Divider()
+            ForEach(pickerFamilies, id: \.self) { family in
+                Text(family).tag(family)
+            }
+        } label: { EmptyView() }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .frame(width: 150, alignment: .leading)
     }
 }
