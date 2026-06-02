@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -24,29 +23,25 @@ type relayAuthState struct {
 	RelayToken string `json:"relay_token"`
 }
 
-// protocolVersion indicates whether a command uses the v1 text or v2 JSON-RPC protocol.
-type protocolVersion int
-
-const (
-	protoV1 protocolVersion = iota
-	protoV2
-)
-
 // commandSpec describes a single CLI command and how to relay it.
 type commandSpec struct {
-	name     string          // CLI command name (e.g. "ping", "new-window")
-	proto    protocolVersion // v1 text or v2 JSON-RPC
-	v1Cmd    string          // v1: literal command string sent over the socket
-	v2Method string          // v2: JSON-RPC method name
+	name     string // CLI command name (e.g. "ping", "new-window")
+	v2Method string // JSON-RPC method name
 	// flagKeys lists parameter keys this command accepts.
 	// They are extracted from --key flags and added to params.
 	flagKeys []string
+	// boolFlags lists flag keys whose values should be sent as JSON booleans
+	// rather than strings. Accepted values: "true", "false", "1", "0".
+	boolFlags []string
 	// noParams means the command takes no parameters at all.
 	noParams bool
 	// paramKeyOverrides remaps specific flags for compatibility aliases.
 	paramKeyOverrides map[string]string
 	// defaultParams are applied before flags/env fallbacks.
 	defaultParams map[string]any
+	// positionalKey is the param name that receives positional arguments.
+	// All positional args are joined with a space and assigned to this key.
+	positionalKey string
 }
 
 type browserCommandSpec struct {
@@ -62,33 +57,60 @@ type browserCommandSpec struct {
 }
 
 var commands = []commandSpec{
-	// V1 text protocol commands
-	{name: "ping", proto: protoV1, v1Cmd: "ping", noParams: true},
-	{name: "new-window", proto: protoV1, v1Cmd: "new_window", noParams: true},
-	{name: "current-window", proto: protoV1, v1Cmd: "current_window", noParams: true},
-	{name: "close-window", proto: protoV1, v1Cmd: "close_window", flagKeys: []string{"window"}},
-	{name: "focus-window", proto: protoV1, v1Cmd: "focus_window", flagKeys: []string{"window"}},
-	{name: "list-windows", proto: protoV1, v1Cmd: "list_windows", noParams: true},
-
 	// V2 JSON-RPC commands
-	{name: "capabilities", proto: protoV2, v2Method: "system.capabilities", noParams: true},
-	{name: "list-workspaces", proto: protoV2, v2Method: "workspace.list", noParams: true},
-	{name: "new-workspace", proto: protoV2, v2Method: "workspace.create", flagKeys: []string{"command", "working-directory", "name"}},
-	{name: "close-workspace", proto: protoV2, v2Method: "workspace.close", flagKeys: []string{"workspace"}},
-	{name: "select-workspace", proto: protoV2, v2Method: "workspace.select", flagKeys: []string{"workspace"}},
-	{name: "current-workspace", proto: protoV2, v2Method: "workspace.current", noParams: true},
-	{name: "list-panels", proto: protoV2, v2Method: "surface.list", flagKeys: []string{"workspace"}},
-	{name: "focus-panel", proto: protoV2, v2Method: "surface.focus", flagKeys: []string{"panel", "workspace"}, paramKeyOverrides: map[string]string{"panel": "surface_id"}},
-	{name: "list-panes", proto: protoV2, v2Method: "pane.list", flagKeys: []string{"workspace"}},
-	{name: "list-pane-surfaces", proto: protoV2, v2Method: "pane.surfaces", flagKeys: []string{"pane"}},
-	{name: "new-pane", proto: protoV2, v2Method: "pane.create", flagKeys: []string{"workspace", "direction", "type", "url"}, defaultParams: map[string]any{"direction": "right"}},
-	{name: "new-surface", proto: protoV2, v2Method: "surface.create", flagKeys: []string{"workspace", "pane", "type", "url"}},
-	{name: "new-split", proto: protoV2, v2Method: "surface.split", flagKeys: []string{"surface", "direction"}},
-	{name: "close-surface", proto: protoV2, v2Method: "surface.close", flagKeys: []string{"surface"}},
-	{name: "send", proto: protoV2, v2Method: "surface.send_text", flagKeys: []string{"surface", "text"}},
-	{name: "send-key", proto: protoV2, v2Method: "surface.send_key", flagKeys: []string{"surface", "key"}},
-	{name: "notify", proto: protoV2, v2Method: "notification.create", flagKeys: []string{"title", "body", "workspace"}},
-	{name: "refresh-surfaces", proto: protoV2, v2Method: "surface.refresh", noParams: true},
+
+	// System
+	{name: "ping", v2Method: "system.ping", noParams: true},
+	{name: "capabilities", v2Method: "system.capabilities", noParams: true},
+
+	// Window management
+	{name: "list-windows", v2Method: "window.list", noParams: true},
+	{name: "current-window", v2Method: "window.current", noParams: true},
+	{name: "new-window", v2Method: "window.create", noParams: true},
+	{name: "focus-window", v2Method: "window.focus", flagKeys: []string{"window"}},
+	{name: "close-window", v2Method: "window.close", flagKeys: []string{"window"}},
+
+	// Workspace management
+	{name: "list-workspaces", v2Method: "workspace.list", noParams: true},
+	{name: "new-workspace", v2Method: "workspace.create", flagKeys: []string{"name", "cwd", "description", "focus"}, boolFlags: []string{"focus"}, paramKeyOverrides: map[string]string{"name": "title"}},
+	{name: "rename-workspace", v2Method: "workspace.rename", flagKeys: []string{"workspace", "title"}},
+	{name: "close-workspace", v2Method: "workspace.close", flagKeys: []string{"workspace"}},
+	{name: "select-workspace", v2Method: "workspace.select", flagKeys: []string{"workspace"}},
+	{name: "current-workspace", v2Method: "workspace.current", noParams: true},
+	{name: "next-workspace", v2Method: "workspace.next", noParams: true},
+	{name: "previous-workspace", v2Method: "workspace.previous", noParams: true},
+	{name: "last-workspace", v2Method: "workspace.last", noParams: true},
+	{name: "move-workspace-to-window", v2Method: "workspace.move_to_window", flagKeys: []string{"workspace", "window"}},
+	{name: "equalize-splits", v2Method: "workspace.equalize_splits", flagKeys: []string{"workspace"}},
+
+	// Pane management
+	{name: "list-panes", v2Method: "pane.list", flagKeys: []string{"workspace"}},
+	{name: "list-pane-surfaces", v2Method: "pane.surfaces", flagKeys: []string{"pane"}},
+	{name: "new-pane", v2Method: "pane.create", flagKeys: []string{"workspace", "direction", "type", "url", "focus"}, boolFlags: []string{"focus"}, defaultParams: map[string]any{"direction": "right"}},
+	{name: "last-pane", v2Method: "pane.last", flagKeys: []string{"workspace"}},
+	{name: "resize-pane", v2Method: "pane.resize", flagKeys: []string{"pane"}},
+	{name: "swap-pane", v2Method: "pane.swap", flagKeys: []string{"pane"}},
+	{name: "break-pane", v2Method: "pane.break", flagKeys: []string{"pane", "focus"}, boolFlags: []string{"focus"}},
+	{name: "join-pane", v2Method: "pane.join", flagKeys: []string{"pane", "target-pane", "focus"}, boolFlags: []string{"focus"}, paramKeyOverrides: map[string]string{"target-pane": "target_pane_id"}},
+
+	// Surface (panel) management
+	{name: "list-panels", v2Method: "surface.list", flagKeys: []string{"workspace"}},
+	{name: "focus-panel", v2Method: "surface.focus", flagKeys: []string{"panel", "workspace"}, paramKeyOverrides: map[string]string{"panel": "surface_id"}},
+	{name: "new-surface", v2Method: "surface.create", flagKeys: []string{"workspace", "pane", "type", "url", "focus"}, boolFlags: []string{"focus"}},
+	{name: "new-split", v2Method: "surface.split", flagKeys: []string{"surface", "direction", "focus"}, boolFlags: []string{"focus"}},
+	{name: "close-surface", v2Method: "surface.close", flagKeys: []string{"surface"}},
+	{name: "send", v2Method: "surface.send_text", flagKeys: []string{"surface"}, positionalKey: "text"},
+	{name: "send-key", v2Method: "surface.send_key", flagKeys: []string{"surface"}, positionalKey: "key"},
+	{name: "read-screen", v2Method: "surface.read_text", flagKeys: []string{"surface"}},
+	{name: "clear-history", v2Method: "surface.clear_history", flagKeys: []string{"surface"}},
+	{name: "refresh-surfaces", v2Method: "surface.refresh", noParams: true},
+
+	// Notifications
+	{name: "notify", v2Method: "notification.create", flagKeys: []string{"title", "body", "workspace"}},
+	{name: "dismiss-notification", v2Method: "notification.dismiss", flagKeys: []string{"id"}},
+	{name: "mark-notification-read", v2Method: "notification.mark_read", flagKeys: []string{"id"}},
+	{name: "open-notification", v2Method: "notification.open", flagKeys: []string{"id"}},
+	{name: "jump-to-unread", v2Method: "notification.jump_to_unread", noParams: true},
 }
 
 var browserCommands = map[string]browserCommandSpec{
@@ -230,44 +252,7 @@ doneFlags:
 		return 2
 	}
 
-	switch spec.proto {
-	case protoV1:
-		return execV1(socketPath, spec, cmdArgs, refreshAddr)
-	case protoV2:
-		return execV2(socketPath, spec, cmdArgs, jsonOutput, refreshAddr)
-	default:
-		fmt.Fprintf(os.Stderr, "cmux: internal error: unknown protocol for %q\n", cmdName)
-		return 1
-	}
-}
-
-// execV1 sends a v1 text command over the socket.
-func execV1(socketPath string, spec *commandSpec, args []string, refreshAddr func() string) int {
-	cmd := spec.v1Cmd
-
-	if !spec.noParams {
-		parsed, err := parseFlags(args, spec.flagKeys)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
-			return 2
-		}
-		for _, key := range spec.flagKeys {
-			if val, ok := parsed.flags[key]; ok {
-				cmd += " " + val
-			}
-		}
-	}
-
-	resp, err := socketRoundTrip(socketPath, cmd, refreshAddr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
-		return 1
-	}
-	fmt.Print(resp)
-	if !strings.HasSuffix(resp, "\n") {
-		fmt.Println()
-	}
-	return 0
+	return execV2(socketPath, spec, cmdArgs, jsonOutput, refreshAddr)
 }
 
 // execV2 sends a v2 JSON-RPC request over the socket.
@@ -283,20 +268,43 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 			fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
 			return 2
 		}
-		// Map flag keys to JSON param keys (e.g. "workspace" → "workspace_id" where appropriate)
+		// Build a set of bool flags for O(1) lookup.
+		boolFlagSet := make(map[string]struct{}, len(spec.boolFlags))
+		for _, k := range spec.boolFlags {
+			boolFlagSet[k] = struct{}{}
+		}
+
+		// Map flag keys to JSON param keys (e.g. "workspace" → "workspace_id" where appropriate).
+		// Flags listed in boolFlags are coerced to JSON booleans instead of sent as strings.
 		for _, key := range spec.flagKeys {
 			if val, ok := parsed.flags[key]; ok {
 				paramKey := flagToParamKey(key)
 				if override, ok := spec.paramKeyOverrides[key]; ok {
 					paramKey = override
 				}
-				params[paramKey] = val
+				if _, isBool := boolFlagSet[key]; isBool {
+					switch strings.ToLower(val) {
+					case "true", "1", "yes":
+						params[paramKey] = true
+					case "false", "0", "no":
+						params[paramKey] = false
+					default:
+						fmt.Fprintf(os.Stderr, "cmux: --%s must be true or false\n", key)
+						return 2
+					}
+				} else {
+					params[paramKey] = val
+				}
 			}
 		}
 
-		// First positional arg is used as initial_command if --command wasn't given
-		if _, ok := params["initial_command"]; !ok && len(parsed.positional) > 0 {
-			params["initial_command"] = parsed.positional[0]
+		if len(parsed.positional) > 0 {
+			if spec.positionalKey != "" {
+				params[spec.positionalKey] = strings.Join(parsed.positional, " ")
+			} else {
+				fmt.Fprintf(os.Stderr, "cmux: %s does not accept positional arguments\n", spec.name)
+				return 2
+			}
 		}
 
 		applyWorkspaceEnvFallback(params)
@@ -937,56 +945,6 @@ func computeRelayMAC(token []byte, relayID, nonce string, version int) []byte {
 	return mac.Sum(nil)
 }
 
-// socketRoundTrip sends a raw text line and reads a raw text response (v1).
-func socketRoundTrip(socketPath, command string, refreshAddr func() string) (string, error) {
-	conn, err := dialSocket(socketPath, refreshAddr)
-	if err != nil {
-		return "", fmt.Errorf("failed to connect to %s: %w", socketPath, err)
-	}
-	defer conn.Close()
-
-	if _, err := fmt.Fprintf(conn, "%s\n", command); err != nil {
-		return "", fmt.Errorf("failed to send command: %w", err)
-	}
-
-	// V1 handlers may return multiple lines (e.g. list_windows). Read until
-	// the stream goes idle briefly after seeing at least one newline.
-	reader := bufio.NewReader(conn)
-	var response strings.Builder
-	sawNewline := false
-
-	for {
-		readTimeout := 15 * time.Second
-		if sawNewline {
-			readTimeout = 120 * time.Millisecond
-		}
-		_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
-
-		chunk, err := reader.ReadString('\n')
-		if chunk != "" {
-			response.WriteString(chunk)
-			if strings.Contains(chunk, "\n") {
-				sawNewline = true
-			}
-		}
-
-		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				if sawNewline {
-					break
-				}
-				return "", fmt.Errorf("failed to read response: timeout waiting for response")
-			}
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return "", fmt.Errorf("failed to read response: %w", err)
-		}
-	}
-
-	return strings.TrimRight(response.String(), "\n"), nil
-}
-
 // socketRoundTripV2 sends a JSON-RPC request and returns the result JSON.
 func socketRoundTripV2(socketPath, method string, params map[string]any, refreshAddr func() string) (string, error) {
 	conn, err := dialSocket(socketPath, refreshAddr)
@@ -1059,26 +1017,33 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "Usage: cmux [--socket <path>] [--json] <command> [args...]")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Commands:")
-	fmt.Fprintln(os.Stderr, "  ping                     Check connectivity")
+	fmt.Fprintln(os.Stderr, "  ping                      Check connectivity")
 	fmt.Fprintln(os.Stderr, "  capabilities              List server capabilities")
-	fmt.Fprintln(os.Stderr, "  list-workspaces           List all workspaces")
+	fmt.Fprintln(os.Stderr, "  list-windows              List all windows")
 	fmt.Fprintln(os.Stderr, "  new-window                Create a new window")
+	fmt.Fprintln(os.Stderr, "  close-window              Close a window")
+	fmt.Fprintln(os.Stderr, "  list-workspaces           List all workspaces")
 	fmt.Fprintln(os.Stderr, "  new-workspace             Create a new workspace")
+	fmt.Fprintln(os.Stderr, "  rename-workspace          Rename a workspace")
+	fmt.Fprintln(os.Stderr, "  close-workspace           Close a workspace")
+	fmt.Fprintln(os.Stderr, "  select-workspace          Select a workspace")
+	fmt.Fprintln(os.Stderr, "  next-workspace            Switch to next workspace")
+	fmt.Fprintln(os.Stderr, "  previous-workspace        Switch to previous workspace")
+	fmt.Fprintln(os.Stderr, "  new-pane                  Create a new pane")
 	fmt.Fprintln(os.Stderr, "  new-surface               Create a new surface")
 	fmt.Fprintln(os.Stderr, "  new-split                 Split an existing surface")
 	fmt.Fprintln(os.Stderr, "  close-surface             Close a surface")
-	fmt.Fprintln(os.Stderr, "  close-workspace           Close a workspace")
-	fmt.Fprintln(os.Stderr, "  select-workspace          Select a workspace")
 	fmt.Fprintln(os.Stderr, "  send                      Send text to a surface")
 	fmt.Fprintln(os.Stderr, "  send-key                  Send a key to a surface")
+	fmt.Fprintln(os.Stderr, "  read-screen               Read terminal output from a surface")
 	fmt.Fprintln(os.Stderr, "  notify                    Create a notification")
 	fmt.Fprintln(os.Stderr, "  workspace group <sub>     Manage sidebar workspace groups (list, create, ungroup,")
 	fmt.Fprintln(os.Stderr, "                            delete, rename, collapse, expand, pin, unpin, add, remove,")
 	fmt.Fprintln(os.Stderr, "                            set-anchor, new-workspace, set-color, set-icon, move, focus)")
 	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands through the local cmux browser relay")
-	fmt.Fprintln(os.Stderr, "  claude-teams [args...]     Launch Claude Code in teammate mode")
-	fmt.Fprintln(os.Stderr, "  omo [args...]              Launch OpenCode with cmux integration")
-	fmt.Fprintln(os.Stderr, "  omx [args...]              Launch Oh My Codex with cmux integration")
-	fmt.Fprintln(os.Stderr, "  omc [args...]              Launch Oh My Claude Code with cmux integration")
+	fmt.Fprintln(os.Stderr, "  claude-teams [args...]    Launch Claude Code in teammate mode")
+	fmt.Fprintln(os.Stderr, "  omo [args...]             Launch OpenCode with cmux integration")
+	fmt.Fprintln(os.Stderr, "  omx [args...]             Launch Oh My Codex with cmux integration")
+	fmt.Fprintln(os.Stderr, "  omc [args...]             Launch Oh My Claude Code with cmux integration")
 	fmt.Fprintln(os.Stderr, "  rpc <method> [json-params] Send arbitrary JSON-RPC")
 }
