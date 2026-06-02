@@ -429,6 +429,68 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    // When there are multiple sibling .jsonl files in the project dir, the Workflow container heuristic
+    // must pick the one whose birthtime is closest to the container directory's birthtime.
+    func testClaudeWorkflowContainerPicksNearestSiblingByBirthtime() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-workflow-birthtime-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        let projectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(cwd.path),
+            isDirectory: true
+        )
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let workflowContainerId = "d1d1d1d1-d1d1-d1d1-d1d1-d1d1d1d1d1d1"
+        let nearSiblingId = "e2e2e2e2-e2e2-e2e2-e2e2-e2e2e2e2e2e2"
+        let farSiblingId = "f3f3f3f3-f3f3-f3f3-f3f3-f3f3f3f3f3f3"
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        // Workflow container directory
+        let workflowDir = projectDir.appendingPathComponent(workflowContainerId, isDirectory: true)
+        try fm.createDirectory(at: workflowDir, withIntermediateDirectories: true)
+
+        // Two sibling transcripts
+        let nearURL = projectDir.appendingPathComponent("\(nearSiblingId).jsonl")
+        let farURL = projectDir.appendingPathComponent("\(farSiblingId).jsonl")
+        try writeClaudeTranscript(sessionId: nearSiblingId, transcriptURL: nearURL, cwd: cwd)
+        try writeClaudeTranscript(sessionId: farSiblingId, transcriptURL: farURL, cwd: cwd)
+
+        // Pin birthtimes: container at T, near sibling 5 s after (delta 5), far sibling 60 s after (delta 60).
+        let baseDate = Date(timeIntervalSince1970: 1_000_000)
+        try fm.setAttributes([.creationDate: baseDate], ofItemAtPath: workflowDir.path)
+        try fm.setAttributes([.creationDate: Date(timeIntervalSince1970: 1_000_005)], ofItemAtPath: nearURL.path)
+        try fm.setAttributes([.creationDate: Date(timeIntervalSince1970: 1_000_060)], ofItemAtPath: farURL.path)
+
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                workflowContainerId: hookRecord(
+                    sessionId: workflowContainerId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertEqual(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId,
+            nearSiblingId,
+            "Workflow container: must pick the sibling transcript whose birthtime is closest to the container directory."
+        )
+    }
+
     private func expectedClaudeProjectDirName(_ path: String) -> String {
         path.replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ".", with: "-")
