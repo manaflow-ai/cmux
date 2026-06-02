@@ -121,7 +121,10 @@ export function paneTreeLeafIds(node, ids = []) {
 }
 
 export function paneTreeLeafCount(node) {
-  return paneTreeLeafIds(node).length;
+  if (!node) return 0;
+  if (node.type === "pane") return node.panelId ? 1 : 0;
+  if (node.type !== "split") return 0;
+  return paneTreeLeafCount(node.first) + paneTreeLeafCount(node.second);
 }
 
 export function appendPaneTreeLeaf(tree, panelId, direction) {
