@@ -1,7 +1,7 @@
 // Send a push to the authenticated user's registered iOS devices. Called by the
 // macOS app when it shows a terminal notification AND the user enabled phone
 // forwarding. No-ops (no APNs traffic) when the user has no registered devices.
-// Auth: Stack Bearer (the Mac's signed-in user); routing is by that user id.
+// Auth: Stack Bearer from the Mac's signed-in user; routing is by that user id.
 
 import { checkRateLimit } from "@vercel/firewall";
 import { and, eq, inArray } from "drizzle-orm";
@@ -15,6 +15,7 @@ import {
   MAX_DEVICE_TOKENS_PER_USER,
   MAX_PUSH_REQUEST_BYTES,
   parsePushPayload,
+  readBoundedJsonObject,
 } from "../../../../services/apns/routePolicy";
 import { sendApnsNotification, type ApnsConfig } from "../../../../services/apns/sender";
 
@@ -27,19 +28,6 @@ function apnsConfig(): ApnsConfig | null {
   const teamId = env.CMUX_APNS_TEAM_ID;
   if (!keyP8 || !keyId || !teamId) return null;
   return { keyP8, keyId, teamId };
-}
-
-async function readJson(request: Request): Promise<Record<string, unknown> | null> {
-  const text = await request.text();
-  if (text.length > MAX_PUSH_REQUEST_BYTES) return null;
-  if (!text) return {};
-  try {
-    const raw = JSON.parse(text) as unknown;
-    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
-    return raw as Record<string, unknown>;
-  } catch {
-    return null;
-  }
 }
 
 function rateLimitResponse(error: PushRateLimitExceededError): Response {
@@ -56,15 +44,15 @@ function rateLimitResponse(error: PushRateLimitExceededError): Response {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const user = await verifyRequest(request);
+  const user = await verifyRequest(request, { allowCookie: false });
   if (!user) return unauthorized();
 
-  const body = await readJson(request);
-  if (!body) {
-    return jsonResponse({ error: "invalid_json" }, 400);
+  const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);
+  if (!body.ok) {
+    return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
   }
 
-  const payload = parsePushPayload(body);
+  const payload = parsePushPayload(body.value);
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
 
   const db = cloudDb();

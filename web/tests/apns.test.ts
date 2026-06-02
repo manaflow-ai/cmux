@@ -10,6 +10,7 @@ import {
   MAX_PUSH_BODY_CHARS,
   normalizeApnsBundle,
   parsePushPayload,
+  readBoundedJsonObject,
 } from "../services/apns/routePolicy";
 
 describe("apns payload", () => {
@@ -122,6 +123,49 @@ describe("apns route policy", () => {
       ok: false,
       error: "body_too_long",
     });
+  });
+
+  test("reads only bounded JSON objects from requests", async () => {
+    await expect(
+      readBoundedJsonObject(
+        new Request("https://example.test", {
+          method: "POST",
+          headers: { "content-length": "9000" },
+          body: "{}",
+        }),
+        8,
+      ),
+    ).resolves.toEqual({ ok: false, error: "request_too_large" });
+
+    await expect(
+      readBoundedJsonObject(
+        new Request("https://example.test", {
+          method: "POST",
+          body: JSON.stringify({ body: "123456789" }),
+        }),
+        8,
+      ),
+    ).resolves.toEqual({ ok: false, error: "request_too_large" });
+
+    await expect(
+      readBoundedJsonObject(
+        new Request("https://example.test", {
+          method: "POST",
+          body: JSON.stringify(["not", "object"]),
+        }),
+        64,
+      ),
+    ).resolves.toEqual({ ok: false, error: "invalid_json" });
+
+    await expect(
+      readBoundedJsonObject(
+        new Request("https://example.test", {
+          method: "POST",
+          body: JSON.stringify({ title: "agent" }),
+        }),
+        64,
+      ),
+    ).resolves.toEqual({ ok: true, value: { title: "agent" } });
   });
 });
 
