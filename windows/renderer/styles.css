@@ -3174,9 +3174,9 @@ body.reduce-motion *::after {
   min-width: 54px;
   max-width: 116px;
   flex-basis: 92px;
-  grid-template-columns: 14px minmax(0, 1fr);
+  grid-template-columns: 14px minmax(0, 1fr) 17px;
   gap: 3px;
-  padding: 0 5px;
+  padding: 0 3px 0 5px;
 }
 
 .browser-tab-list.is-crowded .browser-tab::before {
@@ -3255,10 +3255,8 @@ body.reduce-motion *::after {
 }
 
 .browser-tab-list.is-crowded .browser-tab-close {
-  position: absolute;
-  right: 3px;
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
+  transform: none;
   width: 17px;
   height: 17px;
   background: color-mix(in oklch, var(--color-pane) 88%, transparent);
