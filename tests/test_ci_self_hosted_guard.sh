@@ -255,6 +255,46 @@ check_split_theme_regression_timeout() {
   echo "PASS: split-theme XCTest regression uses noninteractive xcodebuild with timeout and Cargo registry retry"
 }
 
+check_command_palette_nucleo_ffi_coverage() {
+  if ! awk '
+    /^[[:space:]]*- name: Run command palette nucleo FFI tests$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /CMUX_NUCLEO_FFI_DERIVED_DATA=.*\.ci-derived-data\/nucleo-ffi/ { saw_derived_data=1 }
+    in_step && /CMUX_NUCLEO_FFI_SOURCE_PACKAGES_DIR=.*\.ci-source-packages/ { saw_source_packages=1 }
+    in_step && /\.\/scripts\/test-command-palette-nucleo-ffi\.sh/ { saw_script=1 }
+    END { exit(saw_derived_data && saw_source_packages && saw_script ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: tests job must run the focused command palette nucleo FFI XCTest lane so FFI-backed assertions do not silently skip under the broad unit-test lane"
+    exit 1
+  fi
+
+  local script="$ROOT_DIR/scripts/test-command-palette-nucleo-ffi.sh"
+  if ! grep -Fq 'CMUX_SKIP_ZIG_BUILD=0' "$script"; then
+    echo "FAIL: test-command-palette-nucleo-ffi.sh must force the real nucleo FFI build instead of inheriting the broad unit-test CMUX_SKIP_ZIG_BUILD=1 setting"
+    exit 1
+  fi
+
+  if ! grep -Fq 'scripts/ci/xcodebuild_noninteractive.py' "$script"; then
+    echo "FAIL: test-command-palette-nucleo-ffi.sh must use the noninteractive xcodebuild wrapper when available"
+    exit 1
+  fi
+
+  for method in \
+    testNucleoResolvedSearchMatchesReturnFullFinalResultSetWhenUnbounded \
+    testNucleoEmptyResultsFallBackToSwiftSingleEditMatching \
+    testNucleoPartialResultsIncludeSwiftSingleEditFallback \
+    testNucleoFullPageResultsIncludeSwiftSingleEditFallback \
+    testNucleoExactPartialResultsDoNotRunSwiftSingleEditFallback
+  do
+    if ! grep -Fq "CommandPaletteSearchEngineTests/$method" "$script"; then
+      echo "FAIL: test-command-palette-nucleo-ffi.sh must include CommandPaletteSearchEngineTests/$method"
+      exit 1
+    fi
+  done
+
+  echo "PASS: command palette nucleo FFI assertions run in a focused CI lane"
+}
+
 check_tests_deriveddata_cache() {
   if ! awk '
     /^  tests:/ { in_job=1; next }
@@ -454,6 +494,7 @@ check_tmux_corpus_pr_jobs_do_not_report_skipped_terminal_tests
 check_activation_artifacts_are_required
 check_retryable_submodule_checkout
 check_split_theme_regression_timeout
+check_command_palette_nucleo_ffi_coverage
 check_tests_deriveddata_cache
 check_ui_regression_budget
 check_build_and_lag_budget

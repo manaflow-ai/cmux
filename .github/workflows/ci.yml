@@ -334,6 +334,13 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Run command palette nucleo FFI tests
+        run: |
+          set -euo pipefail
+          CMUX_NUCLEO_FFI_DERIVED_DATA="$PWD/.ci-derived-data/nucleo-ffi" \
+          CMUX_NUCLEO_FFI_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+          ./scripts/test-command-palette-nucleo-ffi.sh
+
       - name: Run Ghostty split-theme appearance regression
         run: |
           set -euo pipefail
