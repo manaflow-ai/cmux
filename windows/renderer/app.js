@@ -13871,22 +13871,35 @@ function normalizedWheelZoomDelta(event) {
   return event.deltaY;
 }
 
-function terminalHostFromEvent(event) {
+function closestElementFromEvent(event, selector) {
+  for (const target of event?.composedPath?.() || []) {
+    const element = target?.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
+    const match = element?.closest?.(selector);
+    if (match) return match;
+  }
   const target = event?.target?.nodeType === Node.ELEMENT_NODE ? event.target : event?.target?.parentElement;
-  return target?.closest?.(".terminal-host") || null;
+  return target?.closest?.(selector) || null;
+}
+
+function terminalHostFromEvent(event) {
+  return closestElementFromEvent(event, ".terminal-host");
 }
 
 function eventTargetsTerminalViewport(event) {
   return Boolean(terminalHostFromEvent(event));
 }
 
-function terminalPanelFromWheelEvent(event) {
+function terminalPanelFromWheelEvent(event, options = {}) {
   const terminalHost = terminalHostFromEvent(event);
-  if (!terminalHost) return null;
-  const directPanel = panelFromElement(terminalHost);
-  if (directPanel?.type === "terminal") return directPanel;
-  const pointedPanel = panelFromPoint(event?.clientX, event?.clientY);
-  return pointedPanel?.type === "terminal" ? pointedPanel : null;
+  if (terminalHost) {
+    const directPanel = panelFromElement(terminalHost);
+    if (directPanel?.type === "terminal") return directPanel;
+    const pointedPanel = panelFromPoint(event?.clientX, event?.clientY);
+    if (pointedPanel?.type === "terminal") return pointedPanel;
+  }
+  if (!options.allowPaneFallback) return null;
+  const eventPanel = panelFromEvent(event);
+  return eventPanel?.type === "terminal" ? eventPanel : null;
 }
 
 function applyTerminalWheelZoom(event, panel) {
@@ -13930,14 +13943,14 @@ function handleTerminalWheelZoom(event) {
 function handlePaneWheelZoom(event) {
   if (!event.ctrlKey) return;
   const panelId = event.currentTarget?.dataset?.panelId || "";
-  const panel = terminalPanelFromWheelEvent(event);
+  const panel = terminalPanelFromWheelEvent(event, { allowPaneFallback: true });
   if (panel?.type !== "terminal" || (panelId && panel.id !== panelId)) return;
   applyTerminalWheelZoom(event, panel);
 }
 
 function handleWindowWheelZoom(event) {
   if (!event.ctrlKey) return;
-  const terminalPanel = terminalPanelFromWheelEvent(event);
+  const terminalPanel = terminalPanelFromWheelEvent(event, { allowPaneFallback: true });
   if (terminalPanel) {
     applyTerminalWheelZoom(event, terminalPanel);
     return;
