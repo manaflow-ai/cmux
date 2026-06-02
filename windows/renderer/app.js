@@ -8862,6 +8862,11 @@ function activeBackgroundPanel(options = {}) {
       <span class="active-background-kicker">Active background</span>
       <span class="active-background-title"></span>
       <span class="active-background-source"></span>
+      <span class="active-background-scope" aria-label="Background scope">
+        <span class="active-background-scope-chip" data-background-scope="app">None</span>
+        <span class="active-background-scope-chip" data-background-scope="pane">No terminal</span>
+        <span class="active-background-scope-chip" data-background-scope="all">No terminals</span>
+      </span>
     </span>
     <span class="active-background-actions"></span>
   `;
@@ -8871,6 +8876,7 @@ function activeBackgroundPanel(options = {}) {
   panel.querySelector(".active-background-title").title = label;
   panel.querySelector(".active-background-source").textContent = source;
   panel.querySelector(".active-background-source").title = source;
+  updateActiveBackgroundScopeChips(panel, activeBackgroundScopeModel(background));
   const actions = panel.querySelector(".active-background-actions");
   const choose = settingsActionButton("Choose", () => chooseBackgroundImage(), "primary", "active background choose local file apply wallpaper");
   choose.dataset.backgroundAction = "choose";
@@ -8961,6 +8967,55 @@ function activeBackgroundViewModel(settings = state.settings) {
   };
 }
 
+function activeBackgroundScopeModel(background = state.settings.backgroundImage, workspace = activeWorkspace()) {
+  const normalized = normalizeBackgroundValue(background);
+  const terminalPanels = workspaceTerminalPanels(workspace);
+  const activeTerminal = activeTerminalPanelForSettings();
+  const hasBackground = Boolean(normalized);
+  const activePaneMatches = hasBackground && Boolean(activeTerminal && panelBackgroundMatches(activeTerminal, normalized));
+  const allPanesMatch = hasBackground
+    && terminalPanels.length > 0
+    && terminalPanels.every((panel) => panelBackgroundMatches(panel, normalized));
+  const paneCount = terminalPanels.length;
+  return {
+    app: hasBackground ? "Active" : "None",
+    pane: activeTerminal
+      ? activePaneMatches
+        ? "Matches"
+        : hasBackground
+          ? "Different"
+          : "No app image"
+      : "No terminal",
+    all: paneCount
+      ? allPanesMatch
+        ? `All ${paneCount}`
+        : `${paneCount} available`
+      : "No terminals",
+    hasBackground,
+    activePaneMatches,
+    allPanesMatch,
+    hasTerminal: Boolean(activeTerminal),
+    paneCount
+  };
+}
+
+function updateActiveBackgroundScopeChips(panel, scope = activeBackgroundScopeModel()) {
+  if (!panel) return;
+  const chips = {
+    app: panel.querySelector('[data-background-scope="app"]'),
+    pane: panel.querySelector('[data-background-scope="pane"]'),
+    all: panel.querySelector('[data-background-scope="all"]')
+  };
+  setTextIfChanged(chips.app, scope.app);
+  setTextIfChanged(chips.pane, scope.pane);
+  setTextIfChanged(chips.all, scope.all);
+  toggleClassIfChanged(chips.app, "is-active", scope.hasBackground);
+  toggleClassIfChanged(chips.pane, "is-active", scope.activePaneMatches);
+  toggleClassIfChanged(chips.pane, "is-muted", !scope.hasTerminal);
+  toggleClassIfChanged(chips.all, "is-active", scope.allPanesMatch);
+  toggleClassIfChanged(chips.all, "is-muted", scope.paneCount === 0);
+}
+
 function refreshAppearancePreviewOpacity(value = state.settings.backgroundOpacity) {
   const opacity = String(clamp(value, 0, 42) / 100);
   for (const preview of elements.inspectorBody.querySelectorAll(".appearance-preview")) {
@@ -8994,6 +9049,7 @@ function refreshBackgroundPreviewNodes() {
     const terminalPanels = workspaceTerminalPanels(workspace);
     const hasTerminalPanes = terminalPanels.length > 0;
     const hasPaneBackgrounds = terminalPanels.some((candidate) => normalizeBackgroundValue(candidate.backgroundImage));
+    updateActiveBackgroundScopeChips(panel, activeBackgroundScopeModel(model.background, workspace));
     const save = panel.querySelector('[data-background-action="save"]');
     const pane = panel.querySelector('[data-background-action="pane"]');
     const allPanes = panel.querySelector('[data-background-action="all-panes"]');

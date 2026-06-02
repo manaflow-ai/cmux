@@ -7947,6 +7947,56 @@ body.reduce-motion *::after {
   font: 10px/1.2 var(--font-mono);
 }
 
+.active-background-scope {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.active-background-scope-chip {
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.active-background-scope-chip::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--color-faint);
+}
+
+.active-background-scope-chip.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 54%, var(--color-line) 46%);
+  background: color-mix(in oklch, var(--color-accent) 12%, var(--color-pane) 88%);
+  color: var(--color-text);
+}
+
+.active-background-scope-chip.is-active::before {
+  background: var(--color-accent);
+}
+
+.active-background-scope-chip.is-muted {
+  color: var(--color-faint);
+}
+
 .active-background-actions,
 .background-action-groups {
   grid-column: 1 / -1;
