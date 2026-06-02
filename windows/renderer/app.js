@@ -305,6 +305,7 @@ const terminalWheelZoomMaxSteps = 3;
 const deferredTerminalInitIdleTimeoutMs = 140;
 const browserLoadTimeoutMs = 15000;
 const browserSuspendStopDelayMs = 1200;
+const embeddedGooglePolishMinIntervalMs = 750;
 const browserPausedStatusText = "Paused while inactive";
 const paneResizeFitThrottleMs = 90;
 const panePointerDragThreshold = 6;
@@ -316,6 +317,7 @@ const browserHomeMigrationStorageKey = "cmux.browserHomeGoogleMigration";
 const launchToken = new URLSearchParams(location.search).get("token") || "";
 const eventReconnectMinDelayMs = 250;
 const eventReconnectMaxDelayMs = 5000;
+const embeddedGooglePolishState = new WeakMap();
 
 const workspaceStarters = [
   {
@@ -6085,15 +6087,41 @@ function browserSessionTargetUrl(session) {
   );
 }
 
-function scheduleEmbeddedGoogleHomePolish(view, value) {
-  if (!isGoogleHomeUrl(value || view?.src, state.settings.browserHomeUrl)) return;
+function runEmbeddedGoogleHomePolish(view, polishState) {
+  polishState.frame = 0;
+  const value = polishState.value || view?.src || "";
+  if (!isGoogleHomeUrl(value, state.settings.browserHomeUrl)) return;
   if (!view?.isConnected) return;
   if (typeof view?.executeJavaScript !== "function") return;
+  polishState.lastAt = performance.now();
   try {
     const result = view.executeJavaScript(embeddedGooglePromoDismissScript, true);
     result?.catch?.(() => {});
   } catch {
     // Webviews can detach while panes or workspaces are being rearranged.
+  }
+}
+
+function scheduleEmbeddedGoogleHomePolish(view, value) {
+  if (!isGoogleHomeUrl(value || view?.src, state.settings.browserHomeUrl)) return;
+  if (!view?.isConnected) return;
+  if (typeof view?.executeJavaScript !== "function") return;
+  let polishState = embeddedGooglePolishState.get(view);
+  if (!polishState) {
+    polishState = { frame: 0, timer: 0, lastAt: 0, value: "" };
+    embeddedGooglePolishState.set(view, polishState);
+  }
+  polishState.value = value || view.src || "";
+  if (polishState.frame || polishState.timer) return;
+  const waitMs = Math.max(0, embeddedGooglePolishMinIntervalMs - (performance.now() - polishState.lastAt));
+  const queueFrame = () => {
+    polishState.timer = 0;
+    polishState.frame = requestAnimationFrame(() => runEmbeddedGoogleHomePolish(view, polishState));
+  };
+  if (waitMs > 0) {
+    polishState.timer = setTimeout(queueFrame, waitMs);
+  } else {
+    queueFrame();
   }
 }
 
