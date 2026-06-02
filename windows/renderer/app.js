@@ -12757,6 +12757,7 @@ function showPanelContextMenu(event, panel) {
       contextMenuButton("Restart terminal", () => restartPanel(panel.id)),
       contextMenuButton("Choose pane background", () => choosePanelBackgroundImage(panel)),
       contextMenuButton("Use app background", () => applyPanelBackgroundImage(state.settings.backgroundImage, panel), !state.settings.backgroundImage),
+      contextMenuButton("Save pane background", () => saveCustomBackgroundImage({ url: panel.backgroundImage }), !isCustomBackgroundImage(panel.backgroundImage)),
       contextMenuButton("Clear pane background", () => applyPanelBackgroundImage("", panel), !panel.backgroundImage),
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal"))
     );
