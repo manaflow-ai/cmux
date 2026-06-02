@@ -483,6 +483,19 @@ function jsonRpcErrorForException(error, id = null) {
   return jsonRpcErrorResponse(id, -32603, "Internal error");
 }
 
+function pipeErrorResponse(line, error) {
+  const trimmed = String(line || "").trim();
+  if (!trimmed.startsWith("{")) {
+    return JSON.stringify({ ok: false, error: "internal_error" });
+  }
+  try {
+    const request = JSON.parse(trimmed);
+    return jsonRpcErrorForException(error, request?.id);
+  } catch {
+    return jsonRpcErrorResponse(null, -32700, "Parse error");
+  }
+}
+
 function terminalProcessEnv(panel, panelToken, extra = {}) {
   const env = { ...process.env };
   delete env.CMUX_WINDOWS_TOKEN;
@@ -1500,7 +1513,7 @@ class CmuxWindowsRuntime {
               socket.write(reply + "\n");
             }).catch((error) => {
               console.error(error);
-              socket.write(JSON.stringify({ ok: false, error: "internal_error" }) + "\n");
+              socket.write(pipeErrorResponse(line, error) + "\n");
             });
             index = buffer.indexOf("\n");
           }

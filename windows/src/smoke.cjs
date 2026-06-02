@@ -386,6 +386,34 @@ async function waitForCondition(label, probe, timeoutMs = 3000) {
   assert(unauthenticatedPing === "ERROR unauthorized", `unauthenticated pipe command should fail: ${unauthenticatedPing}`);
   const ping = await pipeRoundTrip("ping", info.launchToken);
   assert(ping === "OK", `pipe ping failed: ${ping}`);
+  const parseError = JSON.parse(await pipeRoundTrip("{", info.launchToken));
+  assert(parseError.jsonrpc === "2.0", "pipe parse errors should use JSON-RPC envelope");
+  assert(parseError.id === null, "pipe parse errors should use null JSON-RPC id");
+  assert(parseError.error?.code === -32700, "pipe parse errors should use JSON-RPC parse error code");
+  const missingMethod = JSON.parse(await pipeRoundTrip(JSON.stringify({
+    jsonrpc: "2.0",
+    id: "missing-method",
+    method: "system.missing"
+  }), info.launchToken));
+  assert(missingMethod.jsonrpc === "2.0", "pipe missing method should use JSON-RPC envelope");
+  assert(missingMethod.id === "missing-method", "pipe missing method should preserve JSON-RPC id");
+  assert(missingMethod.error?.code === -32601, "pipe missing method should use JSON-RPC method-not-found code");
+  const originalHandlePipeLine = runtime.handlePipeLine.bind(runtime);
+  runtime.handlePipeLine = async () => {
+    throw new Error("forced smoke failure");
+  };
+  try {
+    const internalError = JSON.parse(await pipeRoundTrip(JSON.stringify({
+      jsonrpc: "2.0",
+      id: "internal-error",
+      method: "system.ping"
+    }), info.launchToken));
+    assert(internalError.jsonrpc === "2.0", "pipe fallback errors should use JSON-RPC envelope");
+    assert(internalError.id === "internal-error", "pipe fallback errors should preserve JSON-RPC id");
+    assert(internalError.error?.code === -32603, "pipe fallback errors should use JSON-RPC internal error code");
+  } finally {
+    runtime.handlePipeLine = originalHandlePipeLine;
+  }
 
   runtime.close();
   process.stdout.write("cmux Windows smoke passed\n");
