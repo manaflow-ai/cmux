@@ -26,7 +26,11 @@ import {
   themeOptions
 } from "./config.js";
 import {
+  browserDisplayUrl,
+  browserViewSourceUrl,
+  embeddedGooglePromoDismissScript,
   hostnameOf,
+  isGoogleHomeUrl,
   normalizeBrowserPageUrl,
   normalizeUrl
 } from "./browser-utils.js";
@@ -295,67 +299,6 @@ const deferredTerminalInitIdleTimeoutMs = 140;
 const browserLoadTimeoutMs = 15000;
 const browserSuspendStopDelayMs = 1200;
 const browserPausedStatusText = "Paused while inactive";
-const embeddedGoogleHomeUrl = "https://www.google.com/webhp?igu=1";
-// Google can cover embedded Chromium with a Chrome install sheet; keep the home pane usable.
-const embeddedGooglePromoDismissScript = `(() => {
-  const observerKey = "__cmuxGooglePromoObserver";
-  const doneKey = "__cmuxGooglePromoDone";
-  if (window[doneKey]) return window[doneKey];
-  const textOf = (node) => (node?.innerText || node?.textContent || "").replace(/\\s+/g, " ").trim();
-  const cleanup = () => {
-    window[observerKey]?.disconnect?.();
-    window[observerKey] = null;
-  };
-  const finish = (result) => {
-    cleanup();
-    window[doneKey] = result || "done";
-    return window[doneKey];
-  };
-  if (window[observerKey]) return "watching";
-  const dismissPromo = () => {
-    const elements = Array.from(document.querySelectorAll("*"));
-    const dismiss = elements.find((node) => {
-      const text = textOf(node);
-      if (!/^do not .*chrome$/i.test(text) && !/^no thanks$/i.test(text) && !/^not now$/i.test(text)) return false;
-      const rect = node.getBoundingClientRect();
-      return rect.width >= 80 && rect.width <= 260 && rect.height >= 24 && rect.height <= 90;
-    });
-    if (dismiss) {
-      dismiss.click();
-      return "clicked";
-    }
-    let hidden = 0;
-    for (const node of elements) {
-      if (node.tagName === "HTML" || node.tagName === "BODY") continue;
-      const text = textOf(node);
-      if (!/built by Google/i.test(text) || !/Download Chrome/i.test(text)) continue;
-      const rect = node.getBoundingClientRect();
-      if (rect.width < 250 || rect.height < 100) continue;
-      node.style.display = "none";
-      node.setAttribute("aria-hidden", "true");
-      hidden += 1;
-    }
-    return hidden ? "hidden" : "";
-  };
-  const immediateResult = dismissPromo();
-  if (immediateResult) {
-    return finish(immediateResult);
-  }
-  const root = document.documentElement || document.body;
-  if (!root || typeof MutationObserver !== "function") return "";
-  let pending = false;
-  window[observerKey] = new MutationObserver(() => {
-    if (pending) return;
-    pending = true;
-    requestAnimationFrame(() => {
-      pending = false;
-      const result = dismissPromo();
-      if (result) finish(result);
-    });
-  });
-  window[observerKey].observe(root, { childList: true, subtree: true });
-  return "watching";
-})()`;
 const paneResizeFitThrottleMs = 90;
 const panePointerDragThreshold = 6;
 const closedPanelLimit = 12;
@@ -5919,7 +5862,7 @@ function reloadBrowserPanel(panel = focusedPanel()) {
     session.view.reload();
   } else {
     session.address.value = url;
-    session.view.src = browserViewSourceUrl(url);
+    session.view.src = browserViewSourceUrl(url, state.settings.browserHomeUrl);
   }
   return true;
 }
@@ -6048,35 +5991,8 @@ function browserSessionTargetUrl(session) {
   );
 }
 
-function isGoogleHomeUrl(value) {
-  try {
-    const parsed = new URL(normalizeUrl(value, state.settings.browserHomeUrl));
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-    if (host !== "google.com") return false;
-    const path = parsed.pathname.replace(/\/+$/, "") || "/";
-    if (path !== "/" && path !== "/webhp") return false;
-    if (parsed.searchParams.has("q")) return false;
-    for (const key of parsed.searchParams.keys()) {
-      if (!["igu", "zx"].includes(key.toLowerCase())) return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function browserViewSourceUrl(value) {
-  const targetUrl = normalizeUrl(value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
-  return isGoogleHomeUrl(targetUrl) ? embeddedGoogleHomeUrl : targetUrl;
-}
-
-function browserDisplayUrl(value) {
-  const targetUrl = normalizeUrl(value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
-  return isGoogleHomeUrl(targetUrl) ? "https://www.google.com/" : targetUrl;
-}
-
 function scheduleEmbeddedGoogleHomePolish(view, value) {
-  if (!isGoogleHomeUrl(value || view?.src)) return;
+  if (!isGoogleHomeUrl(value || view?.src, state.settings.browserHomeUrl)) return;
   if (!view?.isConnected) return;
   if (typeof view?.executeJavaScript !== "function") return;
   try {
@@ -6090,7 +6006,7 @@ function scheduleEmbeddedGoogleHomePolish(view, value) {
 function loadDeferredBrowserSession(session) {
   if (!session?.loadDeferred) return false;
   const targetUrl = browserSessionTargetUrl(session);
-  const sourceUrl = browserViewSourceUrl(targetUrl);
+  const sourceUrl = browserViewSourceUrl(targetUrl, state.settings.browserHomeUrl);
   clearDeferredBrowserSession(session);
   if (session.view.src !== sourceUrl) {
     session.setLoading?.(true);
@@ -6523,7 +6439,7 @@ function activateBrowserTab(session, tabId) {
   session.activeTabId = tab.id;
   session.address.value = tab.url;
   clearDeferredBrowserSession(session);
-  const sourceUrl = browserViewSourceUrl(tab.url);
+  const sourceUrl = browserViewSourceUrl(tab.url, state.settings.browserHomeUrl);
   if (session.view.src !== sourceUrl) {
     session.view.src = sourceUrl;
     session.setLoading?.(true);
@@ -6771,7 +6687,7 @@ function ensureBrowser(panel, body) {
       hideBrowserError();
       setLoading(true);
       setStatus("Loading");
-      const sourceUrl = browserViewSourceUrl(targetUrl);
+      const sourceUrl = browserViewSourceUrl(targetUrl, state.settings.browserHomeUrl);
       if (view.src !== sourceUrl) view.src = sourceUrl;
       updateNavState();
     };
@@ -6806,7 +6722,7 @@ function ensureBrowser(panel, body) {
     const next = normalizeUrl(address.value, state.settings.browserHomeUrl);
     address.value = next;
     clearDeferredBrowserSession(session);
-    view.src = browserViewSourceUrl(next);
+    view.src = browserViewSourceUrl(next, state.settings.browserHomeUrl);
     browserLoadFailed = false;
     hideBrowserError();
     setLoading(true);
@@ -6873,7 +6789,7 @@ function ensureBrowser(panel, body) {
     if (typeof view.reload === "function") {
       view.reload();
     } else {
-      view.src = browserViewSourceUrl(address.value);
+      view.src = browserViewSourceUrl(address.value, state.settings.browserHomeUrl);
     }
   };
   home.onclick = () => {
@@ -6882,7 +6798,7 @@ function ensureBrowser(panel, body) {
   };
   view.addEventListener("did-navigate", (event) => {
     if (event.url) {
-      const nextUrl = browserDisplayUrl(event.url);
+      const nextUrl = browserDisplayUrl(event.url, state.settings.browserHomeUrl);
       address.value = nextUrl;
       updateActiveBrowserTabUrl(session, nextUrl);
       queueBrowserUrlSync(panel.id, nextUrl);
@@ -6908,7 +6824,7 @@ function ensureBrowser(panel, body) {
   });
   view.addEventListener("did-navigate-in-page", (event) => {
     if (event.url) {
-      const nextUrl = browserDisplayUrl(event.url);
+      const nextUrl = browserDisplayUrl(event.url, state.settings.browserHomeUrl);
       address.value = nextUrl;
       updateActiveBrowserTabUrl(session, nextUrl);
       queueBrowserUrlSync(panel.id, nextUrl);
@@ -8712,7 +8628,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
       if (session) {
         session.address.value = nextUrl;
         updateActiveBrowserTabUrl(session, nextUrl);
-        const sourceUrl = browserViewSourceUrl(nextUrl);
+        const sourceUrl = browserViewSourceUrl(nextUrl, state.settings.browserHomeUrl);
         if (session.view.src !== sourceUrl) {
           session.view.src = sourceUrl;
           session.setStatus?.("Loading");
