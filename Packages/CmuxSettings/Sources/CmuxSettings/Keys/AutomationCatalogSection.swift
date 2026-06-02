@@ -8,9 +8,9 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "socketControlMode"
     )
 
-    public let socketPassword = JSONKey<String>(
+    public let socketPassword = SecretFileKey(
         id: "automation.socketPassword",
-        defaultValue: ""
+        fileName: "socket-control-password"
     )
 
     public let claudeCodeIntegration = DefaultsKey<Bool>(
@@ -47,6 +47,18 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         id: "automation.geminiIntegration",
         defaultValue: false,
         userDefaultsKey: "geminiHooksEnabled"
+    )
+
+    public let kiroIntegration = DefaultsKey<Bool>(
+        id: "automation.kiroIntegration",
+        defaultValue: true,
+        userDefaultsKey: "kiroHooksEnabled"
+    )
+
+    public let kiroNotificationLevel = DefaultsKey<String>(
+        id: "automation.kiroNotificationLevel",
+        defaultValue: "standard",
+        userDefaultsKey: "kiroNotificationLevel"
     )
 
     public let portBase = DefaultsKey<Int>(

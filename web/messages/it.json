@@ -242,6 +242,22 @@
         "p3": "Così il workspace corrente va in fondo al ciclo dei non letti e puoi continuare a scorrerli senza cancellarne lo stato.",
         "p4": "Cmd+Option+U alterna lo stato letto o non letto del workspace corrente.",
         "p5": "È utile quando passi a un nuovo workspace non letto con Cmd+Shift+U ma devi cambiare contesto prima di rispondere."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Riapri terminali, browser, workspace e sessioni di agenti chiusi con Cmd+Shift+T e ripercorri il tuo focus con Cmd+[ e Cmd+].",
+        "date": "2 giugno 2026",
+        "p1": "Chiudi una scheda del terminale per fare ordine e poi ti accorgi che ti serviva. Oppure chiudi un intero workspace e perdi l’agente che era a metà di un’attività. Ora cmux tiene una cronologia di ciò che hai chiuso e messo a fuoco, così basta una scorciatoia per recuperarlo.",
+        "reopenTitle": "Riapri ciò che hai chiuso",
+        "reopenP": "Premi <code>Cmd+Shift+T</code> per riaprire l’ultima cosa che hai chiuso. Funziona con le schede del terminale, le schede del browser, i workspace e le finestre, e le ripristina una alla volta nell’ordine in cui le hai chiuse. Ogni superficie torna al suo posto, con i riquadri intatti.",
+        "agentTitle": "Tornano anche le sessioni degli agenti",
+        "agentP": "La cronologia riapre anche le sessioni degli agenti chiuse. Riapri una sessione di Claude Code, Codex o OpenCode e riprende da dove l’avevi lasciata. Esegui una volta <code>cmux hooks setup</code> così cmux può tenere traccia delle sessioni degli agenti; dopodiché si riaprono come tutto il resto.",
+        "agentP2": "Tutto questo si basa sul <link>ripristino delle sessioni</link> di cmux, che riprende gli agenti supportati tramite i loro comandi nativi di ripresa.",
+        "focusTitle": "Torna a dove eri",
+        "focusP": "I pulsanti avanti e indietro nella barra del titolo, oppure <code>Cmd+[</code> e <code>Cmd+]</code>, saltano al workspace o alla finestra precedente e successiva in cui stavi lavorando, proprio come avanti e indietro in un browser.",
+        "fullHistoryTitle": "Il pannello della cronologia completa",
+        "fullHistoryP": "Quando ti serve più dell’ultimo elemento, apri il pannello della cronologia completa: una vista cercabile e raggruppata per giorno di tutto ciò che hai chiuso e messo a fuoco, con marche temporali e un’azione Clear Closed.",
+        "docsCta": "Consulta le <link>scorciatoie da tastiera</link> per l’elenco completo, incluso come riassegnare la navigazione della cronologia."
       }
     },
     "zenOfCmux": {
@@ -367,6 +383,10 @@
         "agenti di coding IA",
         "workspace non letto"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: riapri terminali e sessioni chiusi",
+      "metaDescription": "cmux tiene una cronologia di ciò che hai chiuso e messo a fuoco. Riapri terminali, browser, workspace e sessioni di Claude Code, Codex e OpenCode chiusi con Cmd+Shift+T e sposta il focus avanti e indietro con Cmd+[ e Cmd+]."
     }
   },
   "docs": {
@@ -507,6 +527,12 @@
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
           "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
           "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "Valore predefinito globale per dove Cmd-N dentro un gruppo, il pulsante + nell’intestazione del gruppo e le azioni di gruppo configurate inseriscono il nuovo workspace: `afterCurrent` (dopo il workspace attivo nel gruppo, con fallback a top), `top` (seconda posizione, subito dopo l’ancora) o `end` (dopo l’ultimo membro).",
+          "byCwd": {
+            "newWorkspacePlacement": "Override per cwd per dove Cmd-N dentro il gruppo, il pulsante + nell’intestazione del gruppo e le azioni di gruppo configurate inseriscono il nuovo workspace: `afterCurrent` (dopo il workspace attivo nel gruppo, con fallback a top), `top` (seconda posizione, subito dopo l’ancora) o `end` (dopo l’ultimo membro). Se omesso, usa il valore predefinito globale."
+          }
         }
       }
     },
@@ -629,7 +655,8 @@
         "notifications": "Notifiche",
         "find": "Ricerca",
         "terminal": "Terminale",
-        "window": "Finestra"
+        "window": "Finestra",
+        "diffViewer": "Visualizzatore diff"
       },
       "sc": {
         "ws-new": "Nuovo workspace",

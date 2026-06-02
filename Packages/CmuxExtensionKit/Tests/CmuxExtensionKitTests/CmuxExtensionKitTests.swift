@@ -254,17 +254,34 @@ struct CMUXExtensionKitTests {
         host.refresh()
         let selectResult = await host.selectWorkspace(workspaceID)
         let closeResult = await host.closeWorkspace(workspaceID)
+        let terminalResult = await host.createTerminalSurface(in: workspaceID)
+        let browserResult = await host.createBrowserSurface(in: workspaceID, url: url)
         let openResult = await host.openURL(url)
 
         #expect(refreshCount == 1)
         #expect(selectResult.accepted)
         #expect(closeResult.accepted)
+        #expect(terminalResult.accepted)
+        #expect(browserResult.accepted)
         #expect(openResult.accepted)
         #expect(actions == [
             .selectWorkspace(workspaceID),
             .closeWorkspace(workspaceID),
+            .createTerminalSurface(workspaceID: workspaceID),
+            .createBrowserSurface(workspaceID: workspaceID, url: "https://example.com/pr/1"),
             .openURL("https://example.com/pr/1"),
         ])
+    }
+
+    @Test
+    func testURLBearingBrowserActionsRequireOpenURLScope() {
+        let workspaceID = UUID(uuidString: "77777777-7777-7777-7777-777777777777")!
+        let surfaceID = UUID(uuidString: "88888888-8888-8888-8888-888888888888")!
+
+        #expect(CMUXSidebarAction.createBrowserSurface(workspaceID: workspaceID, url: nil).requiredScopes == [.createSurface])
+        #expect(CMUXSidebarAction.createBrowserSurface(workspaceID: workspaceID, url: "https://example.com").requiredScopes == [.createSurface, .openURL])
+        #expect(CMUXSidebarAction.splitBrowser(workspaceID: workspaceID, surfaceID: surfaceID, direction: .right, url: nil).requiredScopes == [.splitSurface])
+        #expect(CMUXSidebarAction.splitBrowser(workspaceID: workspaceID, surfaceID: surfaceID, direction: .right, url: "https://example.com").requiredScopes == [.splitSurface, .openURL])
     }
 
     @Test

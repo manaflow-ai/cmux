@@ -77,6 +77,8 @@ extension ContentView {
             return .focusTextBoxInput
         case "palette.terminalAttachTextBoxFile":
             return .attachTextBoxFile
+        case "palette.terminalSendCtrlF":
+            return .sendCtrlFToTerminal
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
         case "palette.equalizeSplits":

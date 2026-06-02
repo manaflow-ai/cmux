@@ -1,4 +1,5 @@
 import XCTest
+import CmuxSocketControl
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -938,6 +939,100 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
     }
 }
 
+final class GhosttyTerminalContextMenuTests: XCTestCase {
+    func testLookUpTitleIncludesQuotedSelectionPreview() {
+        let title = GhosttyNSView.lookUpMenuTitle(for: "hello")
+
+        XCTAssertEqual(title, Self.localizedLookUpTitle(preview: "hello"))
+    }
+
+    func testLookUpTitleNormalizesWhitespaceAndTruncatesLongText() {
+        let title = GhosttyNSView.lookUpMenuTitle(
+            for: "  abc\tdef\n" + String(repeating: "x", count: 80),
+            previewLimit: 10
+        )
+
+        XCTAssertEqual(title, Self.localizedLookUpTitle(preview: "abc def xx…"))
+    }
+
+    func testTextServicesRequireSendOnlyTextAndSelection() {
+        XCTAssertTrue(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: nil,
+                returnType: nil,
+                hasSelection: true
+            )
+        )
+        XCTAssertTrue(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: .string,
+                returnType: nil,
+                hasSelection: true
+            )
+        )
+        XCTAssertTrue(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: NSPasteboard.PasteboardType("public.utf8-plain-text"),
+                returnType: nil,
+                hasSelection: true
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: nil,
+                returnType: nil,
+                hasSelection: false
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: nil,
+                returnType: .string,
+                hasSelection: true
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: .string,
+                returnType: nil,
+                hasSelection: false
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: .string,
+                returnType: .string,
+                hasSelection: true
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: .png,
+                returnType: nil,
+                hasSelection: true
+            )
+        )
+    }
+
+    func testTextServicesExposeAppKitPasteboardWriterSelector() {
+        let view = GhosttyNSView(frame: .zero)
+
+        XCTAssertTrue(
+            view.responds(to: NSSelectorFromString("writeSelectionToPasteboard:types:"))
+        )
+        XCTAssertFalse(
+            view.responds(to: NSSelectorFromString("writeSelectionTo:types:"))
+        )
+    }
+
+    private static func localizedLookUpTitle(preview: String) -> String {
+        String.localizedStringWithFormat(
+            String(localized: "terminalContextMenu.lookUpFormat", defaultValue: "Look Up \"%@\""),
+            preview
+        )
+    }
+}
+
 @MainActor
 final class TerminalOffscreenStartupTests: XCTestCase {
     func testPlainSurfaceDoesNotStartRuntimeBeforeWindowAttachmentOrInput() {
@@ -1143,6 +1238,44 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             "Socket input accepted after terminal lifecycle closure would be stranded because the surface cannot be restarted."
         )
         XCTAssertEqual(pending.bytes, 0)
+    }
+
+    func testSendNamedKeyRecognizesCtrlFForceStopChord() {
+        // Claude Code (and other raw-tty TUIs) only expose force-stop as a Ctrl-F
+        // keybinding. cmux must be able to deliver that chord to the focused terminal
+        // via a non-keyboard path, so the named-key layer has to recognize "ctrl-f".
+        // A recognized-but-undeliverable key returns `.surfaceUnavailable` on a closed
+        // surface, whereas an unrecognized key returns `.unknownKey`.
+        let panel = TerminalPanel(workspaceId: UUID())
+        panel.surface.releaseSurfaceForTesting()
+        panel.surface.beginPortalCloseLifecycle(reason: "test.closed")
+
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl-f"),
+            .surfaceUnavailable,
+            "ctrl-f must be a recognized control chord so it can be forwarded to the focused terminal."
+        )
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl+f"),
+            .surfaceUnavailable,
+            "The ctrl+f alias must resolve identically to ctrl-f."
+        )
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl-thisisnotakey"),
+            .unknownKey,
+            "An unrecognized chord must surface as .unknownKey, proving the ctrl-f result is meaningful."
+        )
+    }
+
+    func testNamedKeySendResultAcceptedReflectsDelivery() {
+        // `sendCtrlFToFocusedTerminal()` reports success from this flag, so delivery and
+        // failure cases must map correctly.
+        XCTAssertTrue(TerminalSurface.NamedKeySendResult.sent.accepted)
+        XCTAssertTrue(TerminalSurface.NamedKeySendResult.queued.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.unknownKey.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.inputQueueFull.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.surfaceUnavailable.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.processExited.accepted)
     }
 
     func testDaemonSendWorkspaceQueuesColdControlInputInsteadOfReportingDroppedOK() throws {

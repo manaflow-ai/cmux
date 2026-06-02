@@ -21,7 +21,7 @@ public struct TextBoxSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)"))
+            SettingsSectionHeader(String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)"), section: .textBox)
             SettingsCard {
                 TextBoxBetaWarningNote(
                     String(localized: "settings.textBox.betaWarning", defaultValue: "TextBox is a beta feature. Its defaults and behavior may change while it is being tested.")

@@ -35,6 +35,7 @@ public struct AppSection: View {
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
+    @State private var markdownFontSize: DefaultsValueModel<Int>
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<Bool>
     @State private var dockBadge: DefaultsValueModel<Bool>
@@ -75,6 +76,7 @@ public struct AppSection: View {
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
+        _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
         _dockBadge = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge))
@@ -109,7 +111,7 @@ public struct AppSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.app", defaultValue: "App"))
+            SettingsSectionHeader(String(localized: "settings.section.app", defaultValue: "App"), section: .app)
                 .accessibilityIdentifier("SettingsAppSection")
             mainCard
         }
@@ -146,6 +148,7 @@ public struct AppSection: View {
                 selectedMode: appearance.current,
                 onSelect: { appearance.set($0) }
             )
+            .settingsSearchAnchors(["setting:app:appearance"])
             SettingsCardDivider()
 
             // App Icon — three-up visual picker mirroring legacy
@@ -153,6 +156,7 @@ public struct AppSection: View {
                 selectedMode: appIcon.current,
                 onSelect: { appIcon.set($0) }
             )
+            .settingsSearchAnchors(["setting:app:app-icon"])
             SettingsCardDivider()
 
             // New Workspace Placement
@@ -240,6 +244,7 @@ public struct AppSection: View {
             // File Drops
             SettingsCardRow(
                 configurationReview: .settingsOnly,
+                searchAnchorID: "setting:app:file-drops",
                 String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"),
                 subtitle: fileDropSubtitle(fileDrop.current),
                 controlWidth: Self.columnWidth
@@ -283,6 +288,7 @@ public struct AppSection: View {
             // Terminal Config (host action)
             SettingsCardRow(
                 configurationReview: .action,
+                searchAnchorID: "setting:app:terminal-config",
                 String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"),
                 subtitle: String(localized: "settings.app.configWindow.subtitle", defaultValue: "Open the cmux terminal config and generated preview in one utility window."),
                 controlWidth: Self.columnWidth
@@ -304,6 +310,29 @@ public struct AppSection: View {
                 Toggle("", isOn: Binding(get: { openMarkdown.current }, set: { openMarkdown.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Markdown Viewer Font Size
+            SettingsCardRow(
+                configurationReview: .json("markdown.fontSize"),
+                String(localized: "settings.app.markdownFontSize", defaultValue: "Markdown Viewer Font Size"),
+                subtitle: String(localized: "settings.app.markdownFontSize.subtitle", defaultValue: "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0."),
+                controlWidth: Self.columnWidth
+            ) {
+                Stepper(
+                    value: Binding(get: { markdownFontSize.current }, set: { markdownFontSize.set($0) }),
+                    in: 8...96
+                ) {
+                    Text(verbatim: "\(markdownFontSize.current)")
+                        .monospacedDigit()
+                        .frame(width: 28, alignment: .trailing)
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsMarkdownFontSizeStepper")
+                .accessibilityLabel(
+                    String(localized: "settings.app.markdownFontSize", defaultValue: "Markdown Viewer Font Size")
+                )
             }
             SettingsCardDivider()
 
@@ -403,6 +432,7 @@ public struct AppSection: View {
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .action,
+                searchAnchorID: "setting:app:desktop-notifications",
                 String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"),
                 subtitle: String(localized: "settings.notifications.desktop.subtitle.notDetermined", defaultValue: "Desktop notifications are not enabled yet.")
             ) {
