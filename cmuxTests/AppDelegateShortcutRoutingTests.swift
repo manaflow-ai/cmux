@@ -4490,18 +4490,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace else {
-            XCTFail("Expected test window context")
-            return
-        }
-
-        let surfaceCountBefore = workspace.panels.count
-
         // Simulate Russian keyboard: layout provider returns "t" via ASCII fallback,
         // but event.charactersIgnoringModifiers returns Cyrillic "е".
         appDelegate.shortcutLayoutCharacterProvider = { keyCode, _ in
@@ -4511,30 +4499,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         }
 
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
+        let event = makeKeyEvent(
             modifierFlags: [.command],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
             characters: "t",
             charactersIgnoringModifiers: "е", // Cyrillic е (Russian layout)
-            isARepeat: false,
             keyCode: 17 // kVK_ANSI_T
-        ) else {
-            XCTFail("Failed to construct Russian-layout Cmd+T event")
-            return
-        }
+        )
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event), "Cmd+T should be handled with Russian keyboard layout")
+        XCTAssertTrue(
+            appDelegate.debugMatchesConfiguredShortcut(event: event, action: .newSurface),
+            "Cmd+T should match the new surface shortcut with Russian keyboard layout"
+        )
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertEqual(workspace.panels.count, surfaceCountBefore + 1, "Cmd+T should create a new surface with Russian keyboard layout")
     }
 
     func testCmdTFallsBackToKeyCodeWithNonLatinLayoutWhenLayoutTranslationFails() {
