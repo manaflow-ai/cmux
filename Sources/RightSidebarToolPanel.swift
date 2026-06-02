@@ -93,8 +93,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         }
         if workspace.isRemoteWorkspace {
             let store = fileExplorerStore
-            Task { [weak self, weak workspace, weak store] in
-                guard let self, let workspace, let store else { return }
+            Task { [weak workspace, weak store] in
+                guard let workspace, let store else { return }
                 do {
                     let localURL = try await store.materializeRemoteFileForPreview(path: filePath)
                     _ = workspace.openFileSurfaces(
