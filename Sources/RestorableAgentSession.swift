@@ -420,7 +420,7 @@ enum AgentResumeCommandBuilder {
             }
         }
 
-        return decodeClaudeProjectDir(projectDirName) ?? fallback
+        return fallback
     }
 
     private static func claudeTranscriptProjectDirName(
@@ -446,18 +446,6 @@ enum AgentResumeCommandBuilder {
 
     private static func encodeClaudeProjectDir(_ path: String) -> String {
         path.replacingOccurrences(of: "/", with: "-")
-    }
-
-    private static func decodeClaudeProjectDir(_ raw: String) -> String? {
-        guard !raw.isEmpty else { return nil }
-        let stripped = raw.hasPrefix("-") ? String(raw.dropFirst()) : raw
-        let candidate = "/" + stripped.replacingOccurrences(of: "-", with: "/")
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            return nil
-        }
-        return candidate
     }
 
     static func openCodeVersionProbe(

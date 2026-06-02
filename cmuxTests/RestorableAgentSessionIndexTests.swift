@@ -190,6 +190,53 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    func testClaudeForkCommandDoesNotLossilyDecodeHyphenatedTranscriptProjectDirectory() throws {
+        let fm = FileManager.default
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmuxclaudehyphen\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))",
+                isDirectory: true
+            )
+        defer { try? fm.removeItem(at: root) }
+
+        let projectCwd = root.appendingPathComponent("my-project", isDirectory: true)
+        let hookCwd = root.appendingPathComponent("drifted-cwd", isDirectory: true)
+        try fm.createDirectory(at: projectCwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: hookCwd, withIntermediateDirectories: true)
+
+        let sessionId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        let encodedProjectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(projectCwd.path)
+        let transcriptURL = root
+            .appendingPathComponent("claude-config", isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(encodedProjectDir, isDirectory: true)
+            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+
+        let lossyDecodedPath = "/" + String(encodedProjectDir.dropFirst())
+            .replacingOccurrences(of: "-", with: "/")
+        try fm.createDirectory(
+            at: URL(fileURLWithPath: lossyDecodedPath, isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let command = AgentResumeCommandBuilder.forkShellCommand(
+            kind: .claude,
+            sessionId: sessionId,
+            launchCommand: nil,
+            workingDirectory: hookCwd.path,
+            transcriptPath: transcriptURL.path
+        )
+
+        XCTAssertEqual(
+            command,
+            "{ cd -- '\(hookCwd.path)' 2>/dev/null || [ ! -d '\(hookCwd.path)' ]; } && 'claude' '--resume' '\(sessionId)' '--fork-session'"
+        )
+        XCTAssertFalse(
+            command?.contains("{ cd -- '\(lossyDecodedPath)'") ?? false,
+            "Claude transcript project directory names cannot be decoded by replacing every hyphen with a slash."
+        )
+    }
+
     func testPanelFallbackUsesLatestHookRecord() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -339,6 +386,10 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     }
 
     private func writeClaudeTranscript(sessionId: String, transcriptURL: URL, cwd: URL) throws {
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         try """
         {"type":"last-prompt","sessionId":"\(sessionId)"}
         {"type":"user","sessionId":"\(sessionId)","cwd":"\(cwd.path)","message":{"role":"user","content":"hello"}}
