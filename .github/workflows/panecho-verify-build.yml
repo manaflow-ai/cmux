@@ -1,0 +1,151 @@
+name: Panecho verify build (artifact only)
+
+# Builds + stages Panecho.app and uploads it as a downloadable Actions artifact.
+# Unlike panecho-nightly.yml this does NOT touch the panecho-nightly release or tag,
+# so it is safe to run on a feature branch for verification without disrupting the
+# public prerelease channel. Manual dispatch only.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: panecho-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-panecho:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      ZIG_REQUIRED: 0.15.2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
+            if [ -z "$XCODE_APP" ]; then
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+            XCODE_DIR="$XCODE_APP/Contents/Developer"
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+            echo "zig ${ZIG_REQUIRED} already installed"
+            exit 0
+          fi
+          curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+          tar xf /tmp/zig.tar.xz -C /tmp
+          sudo mkdir -p /usr/local/bin /usr/local/lib
+          sudo cp -f "/tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig" /usr/local/bin/zig
+          sudo cp -rf "/tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib" /usr/local/lib/zig
+          zig version
+
+      - name: Download sentry-free GhosttyKit.xcframework
+        run: |
+          set -euo pipefail
+          GHOSTTY_SHA="$(git -C ghostty rev-parse HEAD)"
+          GHOSTTYKIT_URL="https://github.com/xxshubhamxx/cmux-panecho/releases/download/ghosttykit-nosentry-${GHOSTTY_SHA}/GhosttyKit.xcframework.tar.gz" \
+          GHOSTTYKIT_CHECKSUMS_FILE="$GITHUB_WORKSPACE/scripts/ghosttykit-nosentry-checksums.txt" \
+            ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Cache Swift packages
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: .spm-cache
+          key: panecho-spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            panecho-spm-
+
+      - name: Setup Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: daemon/remote/go.mod
+          cache: false
+
+      - name: Build Panecho.app
+        run: |
+          set +e
+          set -uo pipefail
+          XCODEBUILD_LOG="$PWD/xcodebuild-panecho.log"
+          xcodebuild -quiet \
+            -project cmux.xcodeproj \
+            -scheme cmux \
+            -configuration Release \
+            -derivedDataPath build-panecho \
+            -destination 'generic/platform=macOS' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            -xcconfig Config/PrivacyOverrides.xcconfig \
+            ARCHS="arm64" \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tee "$XCODEBUILD_LOG"
+          XCODEBUILD_STATUS=${PIPESTATUS[0]}
+          if [ "$XCODEBUILD_STATUS" -ne 0 ]; then
+            echo "::group::Xcode build diagnostics"
+            grep -nE "error:|fatal error:|cannot find|no such module|undefined symbol|BUILD FAILED" "$XCODEBUILD_LOG" | head -60 || tail -80 "$XCODEBUILD_LOG"
+            echo "::endgroup::"
+          fi
+          exit "$XCODEBUILD_STATUS"
+
+      - name: Upload build failure log
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: panecho-verify-xcodebuild-log-${{ github.sha }}
+          path: xcodebuild-panecho.log
+          if-no-files-found: ignore
+
+      - name: Stage Panecho.app
+        run: |
+          set -euo pipefail
+          ./scripts/stage-panecho-app.sh \
+            "build-panecho/Build/Products/Release/cmux.app" \
+            "build-panecho/Build/Products/Release/Panecho.app"
+
+      - name: Verify Panecho app output + react-grab bundled
+        run: |
+          set -euo pipefail
+          APP_PATH="build-panecho/Build/Products/Release/Panecho.app"
+          test -d "$APP_PATH"
+          test -x "$APP_PATH/Contents/MacOS/cmux"
+          test -x "$APP_PATH/Contents/Resources/bin/cmux"
+          ! /usr/bin/find "$APP_PATH" \( -iname '*Sentry*' -o -iname '*PostHog*' \) -print -quit | grep -q .
+          # react-grab script must be bundled offline with the pinned hash
+          RG="$APP_PATH/Contents/Resources/react-grab-0.1.29.global.js"
+          test -f "$RG"
+          echo "react-grab sha256: $(shasum -a 256 "$RG" | awk '{print $1}')"
+          [ "$(shasum -a 256 "$RG" | awk '{print $1}')" = "4a1e71090e8ad8bb6049de80ccccdc0f5bb147b9f8fb88886d871612ac7ca04b" ]
+          echo "react-grab bundled OK"
+
+      - name: Package Panecho zip
+        run: |
+          set -euo pipefail
+          APP_PATH="build-panecho/Build/Products/Release/Panecho.app"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" panecho-macos.zip
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: panecho-verify-${{ github.sha }}
+          path: panecho-macos.zip
+          if-no-files-found: error

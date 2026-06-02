@@ -68,4 +68,16 @@ delete_plist_key "SUPublicEDKey"
 rm -rf "$DEST_APP/Contents/Frameworks/Sentry.framework"
 rm -rf "$DEST_APP/Contents/Resources/PostHog_PostHog.bundle"
 
+# Panecho: ship the react-grab inspector script offline so the in-app browser's
+# React Grab works with no CDN fetch (privacy mode loads it from the app bundle).
+# Version is coupled to ReactGrabSettings.defaultVersion / knownHashes in ReactGrab.swift.
+STAGE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REACT_GRAB_SRC="$STAGE_SCRIPT_DIR/../Resources/react-grab-0.1.29.global.js"
+if [[ -f "$REACT_GRAB_SRC" ]]; then
+  ditto "$REACT_GRAB_SRC" "$DEST_APP/Contents/Resources/react-grab-0.1.29.global.js"
+  echo "Bundled react-grab script into $DEST_APP/Contents/Resources"
+else
+  echo "warning: react-grab bundled script not found at $REACT_GRAB_SRC" >&2
+fi
+
 echo "Staged $PANECHO_PRODUCT_NAME at $DEST_APP"

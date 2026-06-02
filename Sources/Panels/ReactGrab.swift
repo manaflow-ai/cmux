@@ -22,6 +22,12 @@ enum ReactGrabSettings {
         URL(string: "https://unpkg.com/react-grab@\(version)/dist/index.global.js")!
     }
 
+    /// Panecho: the script is shipped inside the app bundle (Contents/Resources)
+    /// so React Grab works fully offline with no CDN fetch in privacy mode.
+    static func bundledScriptURL(for version: String) -> URL? {
+        Bundle.main.url(forResource: "react-grab-\(version).global", withExtension: "js")
+    }
+
     static var configuredVersion: String {
         let stored = UserDefaults.standard.string(forKey: versionKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return stored.isEmpty ? defaultVersion : stored
@@ -94,7 +100,6 @@ enum ReactGrabScriptLoader {
     private static var prefetchTask: Task<String?, Never>?
 
     static func prefetch() {
-        guard !PrivacyMode.isEnabled else { return }
         let version = ReactGrabSettings.configuredVersion
         // Invalidate cache if version changed.
         if cachedVersion != version {
@@ -111,7 +116,6 @@ enum ReactGrabScriptLoader {
     }
 
     static func fetch() async -> String? {
-        guard !PrivacyMode.isEnabled else { return nil }
         let version = ReactGrabSettings.configuredVersion
         if cachedVersion == version, let cached = cachedScript { return cached }
         prefetch()
@@ -119,28 +123,40 @@ enum ReactGrabScriptLoader {
     }
 
     private static func doFetch(version: String) async -> String? {
-        guard !PrivacyMode.isEnabled else { return nil }
-        let url = ReactGrabSettings.scriptURL(for: version)
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            if let expectedHash = ReactGrabSettings.knownHashes[version] {
-                let hash = SHA256.hash(data: data)
-                let hex = hash.compactMap { String(format: "%02x", $0) }.joined()
-                guard hex == expectedHash else {
-                    NSLog("ReactGrab: integrity mismatch for v%@ (got %@)", version, hex)
-                    return nil
-                }
+        let data: Data
+        if PrivacyMode.isEnabled {
+            // Panecho: load the offline-bundled script from the app bundle instead of
+            // fetching from the CDN. React Grab stays functional with no app-initiated
+            // outbound traffic. Integrity is still verified below.
+            guard let url = ReactGrabSettings.bundledScriptURL(for: version),
+                  let bundled = try? Data(contentsOf: url) else {
+                NSLog("ReactGrab: bundled script for v%@ not found in app bundle", version)
+                return nil
             }
-            guard let script = String(data: data, encoding: .utf8) else { return nil }
-            await MainActor.run {
-                cachedScript = script
-                cachedVersion = version
+            data = bundled
+        } else {
+            let url = ReactGrabSettings.scriptURL(for: version)
+            do {
+                let (fetched, _) = try await URLSession.shared.data(from: url)
+                data = fetched
+            } catch {
+                NSLog("ReactGrab: fetch failed for v%@: %@", version, error.localizedDescription)
+                return nil
             }
-            return script
-        } catch {
-            NSLog("ReactGrab: fetch failed for v%@: %@", version, error.localizedDescription)
-            return nil
         }
+        if let expectedHash = ReactGrabSettings.knownHashes[version] {
+            let hex = SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+            guard hex == expectedHash else {
+                NSLog("ReactGrab: integrity mismatch for v%@ (got %@)", version, hex)
+                return nil
+            }
+        }
+        guard let script = String(data: data, encoding: .utf8) else { return nil }
+        await MainActor.run {
+            cachedScript = script
+            cachedVersion = version
+        }
+        return script
     }
 }
 
