@@ -3751,7 +3751,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
 #if DEBUG
         XCTAssertTrue(
-            appDelegate.debugSetCommandPalettePendingOpenAge(window: window, age: 6.25),
+            appDelegate.debugSetCommandPalettePendingOpenAge(window: window, age: 2.25),
             "Expected to backdate pending-open age for extended stale visibility test"
         )
 #else
