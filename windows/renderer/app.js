@@ -832,13 +832,17 @@ async function applyCustomBackgroundImage(value, options = {}) {
   if (!raw) {
     const changed = updateSettings({ backgroundImage: "" }, { immediate: true });
     if (changed && options.render !== false) renderSettingsInspector();
-    if (changed && options.toast) toast("Background image cleared.");
+    if (options.toast) toast(changed ? "Background image cleared." : "Background image is already clear.");
     return changed;
   }
   const preset = isBackgroundPreset(raw) ? raw : "";
   if (preset) {
     const changed = updateSettings(backgroundImageSettings(preset), { immediate: true });
     if (changed && options.render !== false) renderSettingsInspector();
+    if (options.toast) {
+      const label = backgroundPresetMap.get(preset)?.label || "Selected";
+      toast(changed ? `${label} background applied.` : `${label} background already active.`);
+    }
     return changed;
   }
   const validated = await validateBackgroundImageValue(raw);
@@ -849,7 +853,7 @@ async function applyCustomBackgroundImage(value, options = {}) {
   }
   const changed = updateSettings(backgroundImageSettings(validated.url), { immediate: true });
   if (changed && options.render !== false) renderSettingsInspector();
-  if (changed && options.toast) toast("Background image updated.");
+  if (options.toast) toast(changed ? "Background image updated." : "Background image already active.");
   return changed;
 }
 
@@ -10458,10 +10462,9 @@ async function chooseBackgroundImage(options = {}) {
     renderSettingsInspector();
     return;
   }
-  const changed = await applyCustomBackgroundImage(url, { render: false });
+  const changed = await applyCustomBackgroundImage(url, { render: false, toast: true });
   if (changed === null) return;
   renderSettingsInspector();
-  toast("Background image updated.");
 }
 
 function settingsPresetGrid() {
