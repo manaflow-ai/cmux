@@ -5894,8 +5894,19 @@ function renderBrowserTabs(session) {
     return button;
   });
   replaceChildrenIfChanged(session.tabList, nodes);
+  updateBrowserTabNewButton(session);
   scheduleActiveBrowserTabIntoView(session);
   scheduleBrowserTabOverflowRefresh(session);
+}
+
+function updateBrowserTabNewButton(session) {
+  if (!session?.tabNew) return;
+  const atLimit = (session.tabs?.length || 0) >= browserTabLimit;
+  session.tabNew.classList.toggle("is-disabled", atLimit);
+  session.tabNew.setAttribute("aria-disabled", String(atLimit));
+  session.tabNew.title = atLimit
+    ? `Browser tab limit reached (${browserTabLimit})`
+    : t("browser.newTab");
 }
 
 function scheduleBrowserTabsRender(session) {

@@ -2459,6 +2459,7 @@ body.reduce-motion *::after {
 .browser-tabs {
   grid-row: 1;
   grid-column: 1 / -1;
+  position: relative;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -2648,6 +2649,7 @@ body.reduce-motion *::after {
   color: var(--color-muted);
   background: color-mix(in oklch, var(--color-pane) 42%, transparent);
   font: 700 16px/1 var(--font-mono);
+  z-index: 1;
 }
 
 .browser-tab-new:hover {
@@ -2660,6 +2662,18 @@ body.reduce-motion *::after {
   color: var(--color-text);
   background: var(--color-pane);
   box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.browser-tab-new.is-disabled {
+  color: var(--color-faint);
+  border-color: color-mix(in oklch, var(--color-line) 30%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 24%, transparent);
+}
+
+.browser-tab-new.is-disabled:hover {
+  color: var(--color-faint);
+  border-color: color-mix(in oklch, var(--color-line) 30%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 24%, transparent);
 }
 
 @container (max-width: 260px) {
@@ -2680,9 +2694,10 @@ body.reduce-motion *::after {
   }
 
   .browser-tab-new {
-    flex-basis: 24px;
-    width: 24px;
+    flex-basis: 22px;
+    width: 22px;
     height: 24px;
+    font-size: 14px;
   }
 
   .browser-tab::before {
@@ -2725,6 +2740,23 @@ body.reduce-motion *::after {
   .browser-tab:focus-within .browser-tab-close {
     opacity: 1;
     pointer-events: auto;
+  }
+}
+
+@container (max-width: 180px) {
+  .browser-tabs {
+    gap: 2px;
+  }
+
+  .browser-tab-list {
+    gap: 2px;
+  }
+
+  .browser-tab-new {
+    flex-basis: 20px;
+    width: 20px;
+    height: 22px;
+    font-size: 13px;
   }
 }
 
