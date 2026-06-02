@@ -42,6 +42,12 @@ public struct UpdateTestSupport {
             )))
         case "notFound":
             transition(to: .notFound(.init(acknowledgement: {})))
+        case "downloading":
+            transition(to: .downloading(.init(cancel: {}, expectedLength: 100, progress: 50)))
+        case "extracting":
+            transition(to: .extracting(.init(progress: 0.5)))
+        case "installing":
+            transition(to: .installing(.init(isAutoUpdate: false, retryTerminatingApplication: {}, dismiss: {})))
         case "error":
             let message = env["CMUX_UI_TEST_UPDATE_ERROR_MESSAGE"] ?? "Test update error"
             let error = NSError(domain: "cmux.update.uitest", code: 1, userInfo: [NSLocalizedDescriptionKey: message])

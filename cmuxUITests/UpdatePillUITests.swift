@@ -200,6 +200,58 @@ final class UpdatePillUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Check Automatically"].exists)
     }
 
+    func testUpdatePillShowsDownloadingState() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "downloading"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Downloading: 50%")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(pill.label, "Downloading: 50%")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "update-downloading")
+    }
+
+    func testUpdatePillShowsExtractingState() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "extracting"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Preparing: 50%")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(pill.label, "Preparing: 50%")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "update-extracting")
+    }
+
+    func testUpdatePillShowsInstallingStateAndRestartPopover() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "installing"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Installing…")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(pill.label, "Installing…")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "update-installing")
+
+        pill.click()
+        XCTAssertTrue(
+            app.buttons["Restart Now"].waitForExistence(timeout: 8.0),
+            "Expected the installing popover to offer Restart Now"
+        )
+        XCTAssertTrue(app.buttons["Restart Later"].exists, "Expected a Restart Later button")
+    }
+
     func testUpdatePillShowsErrorStateWithRetryAndDetails() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
