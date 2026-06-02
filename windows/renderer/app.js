@@ -175,6 +175,79 @@ const browserSettingsPreviewKeys = new Set([
   "externalBrowserProfileId",
   "browserSuspendInactive"
 ]);
+const settingsInspectorSettingKeys = {
+  appearance: [
+    "theme",
+    "accent",
+    "backgroundImage",
+    "backgroundOpacity",
+    "backgroundFit",
+    "backgroundPosition",
+    "backgroundEffects",
+    "terminalFontFamily",
+    "terminalBackground",
+    "terminalForeground",
+    "terminalCursorColor"
+  ],
+  browser: [
+    "browserHomeUrl",
+    "browserLaunchMode",
+    "externalBrowserProfileId",
+    "browserSuspendInactive"
+  ],
+  layout: [
+    "density",
+    "paneActionMode",
+    "paneHeaderMode",
+    "sidebarDetailMode",
+    "sidebarFooterMode",
+    "toolbarMode",
+    "tabSize",
+    "titleDetailMode",
+    "focusMode",
+    "showTabs",
+    "showStatusbar",
+    "sidebarWidth",
+    "inspectorWidth",
+    "performanceMode"
+  ],
+  performance: [
+    "performanceMode",
+    "adaptivePerformance",
+    "reduceMotion",
+    "terminalPauseInactiveOutput",
+    "terminalScrollback",
+    "backgroundOpacity",
+    "backgroundEffects",
+    "density",
+    "toolbarMode",
+    "paneActionMode",
+    "showStatusbar",
+    "terminalPadding",
+    "browserSuspendInactive"
+  ],
+  terminal: [
+    "accent",
+    "terminalFontFamily",
+    "terminalFontSize",
+    "terminalLineHeight",
+    "terminalPadding",
+    "terminalScrollback",
+    "terminalCursorStyle",
+    "terminalCursorBlink",
+    "terminalBackground",
+    "terminalForeground",
+    "terminalCursorColor",
+    "terminalProfile",
+    "terminalCustomShell"
+  ],
+  workspace: [
+    "accent",
+    "titleDetailMode",
+    "terminalFontSize",
+    "browserHomeUrl"
+  ]
+};
 const terminalSearchDecorations = {
   matchBackground: "#5f4b1a",
   activeMatchBackground: "#9d6b20",
@@ -7463,7 +7536,7 @@ function settingsInspectorSignature() {
   const parts = [
     category,
     state.settingsQuery,
-    stableJson(state.settings)
+    settingsInspectorSettingsSignature(category, searching)
   ];
   if (searching || ["workspace", "layout", "blueprints", "appearance", "performance", "actions"].includes(category)) {
     parts.push(activeWorkspaceSettingsSignature());
@@ -7480,6 +7553,9 @@ function settingsInspectorSignature() {
   if (searching || ["browser", "data", "actions"].includes(category)) {
     parts.push(stableJson(state.recentBrowserPages), stableJson(Object.fromEntries(state.browserTabSnapshots)));
   }
+  if (searching || category === "browser") {
+    parts.push(stableJson(state.browserProfiles), String(state.browserProfilesLoaded), String(state.browserProfilesLoading));
+  }
   if (searching || ["workspace", "data", "actions"].includes(category)) {
     parts.push(stableJson(state.recentFolders));
   }
@@ -7493,6 +7569,15 @@ function settingsInspectorSignature() {
     parts.push(stableJson(state.workspaceBlueprints));
   }
   return parts.join("\u001e");
+}
+
+function settingsInspectorSettingsSignature(category, searching) {
+  if (searching || ["quick", "profiles", "data", "actions"].includes(category)) {
+    return stableJson(state.settings);
+  }
+  const keys = settingsInspectorSettingKeys[category];
+  if (!keys) return "";
+  return stableJson(Object.fromEntries(keys.map((key) => [key, state.settings[key]])));
 }
 
 function activeWorkspaceSettingsSignature() {
