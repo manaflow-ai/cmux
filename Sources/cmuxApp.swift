@@ -41,16 +41,21 @@ struct cmuxApp: App {
         // shared static.
         let settingsCatalog = SettingCatalog()
         let configFileURL = CmuxConfigLocation().userConfigFile
-        // Secrets live in their own 0600 files under Application Support/cmux,
+        // Relocate a pre-existing socket password out of the legacy
+        // Application Support directory before any store reads it. The CLI reads
+        // this file on every agent hook, and a cross-identity reach into
+        // Application Support triggers the macOS Sequoia "access data from other
+        // apps" prompt; the password now lives in the non-protected cmux state
+        // directory (https://github.com/manaflow-ai/cmux/issues/5146). The app
+        // owns its Application Support data, so it can perform this move silently.
+        SocketControlPasswordStore.migrateLegacyApplicationSupportPasswordFileIfNeeded()
+        // Secrets live in their own 0600 files under the cmux state directory,
         // the same directory (and `socket-control-password` file) the socket
         // auth path reads via SocketControlPasswordStore, so the Settings UI
         // and the listener share one source of truth.
         let secretBaseDirectory = SocketControlPasswordStore.defaultPasswordFileURL()?
             .deletingLastPathComponent()
-            ?? FileManager.default
-                .urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-                .appendingPathComponent("cmux", isDirectory: true)
-            ?? FileManager.default.temporaryDirectory
+            ?? CmuxStateDirectory.url()
         let secretStore = SecretFileStore(baseDirectory: secretBaseDirectory)
 
         // Lift any plaintext socket-control password out of `cmux.json` into the

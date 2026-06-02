@@ -9,7 +9,9 @@ NAME_SET=0
 BUNDLE_SET=0
 DERIVED_SET=0
 TAG=""
-LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
+# Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
+# read the last-socket-path markers (https://github.com/manaflow-ai/cmux/issues/5146).
+LAST_SOCKET_PATH_DIR="$HOME/.local/state/cmux"
 
 write_last_socket_path() {
   local socket_path="$1"

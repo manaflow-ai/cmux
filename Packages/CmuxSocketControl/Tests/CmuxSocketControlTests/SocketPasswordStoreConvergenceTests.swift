@@ -17,7 +17,7 @@ import Testing
 @Suite struct SocketPasswordStoreConvergenceTests {
     private let secretKey = SettingCatalog().automation.socketPassword
 
-    /// A throwaway base directory standing in for `Application Support/cmux`.
+    /// A throwaway control directory standing in for ``CmuxStateDirectory``.
     private func tempBaseDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-convergence-\(UUID().uuidString)", isDirectory: true)
@@ -72,12 +72,12 @@ import Testing
     /// secret store's base directory is derived the way the app derives it — from
     /// the password file's parent directory. This mirrors `cmuxApp.init`, which
     /// sets `secretBaseDirectory = defaultPasswordFileURL().deletingLastPathComponent()`.
-    /// It catches drift in the `Application Support/cmux` layout between the two
-    /// stores, which a "both end in the same name" check would miss.
+    /// It catches drift in the control-directory layout between the two stores,
+    /// which a "both end in the same name" check would miss.
     @Test func bothStoresResolveIdenticalFileURL() async throws {
-        let appSupport = tempBaseDirectory()
+        let controlDirectory = tempBaseDirectory()
         let passwordURL = try #require(
-            SocketControlPasswordStore.defaultPasswordFileURL(appSupportDirectory: appSupport)
+            SocketControlPasswordStore.defaultPasswordFileURL(directory: controlDirectory)
         )
         // Exactly the derivation cmuxApp.init performs.
         let secretBase = passwordURL.deletingLastPathComponent()
