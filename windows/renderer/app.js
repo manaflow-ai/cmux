@@ -1920,15 +1920,24 @@ async function applyPanelBackgroundImage(value, panel = focusedPanel(), options 
     return null;
   }
   const raw = String(value || "").trim();
+  const current = normalizeBackgroundValue(terminalPanel.backgroundImage);
   if (!raw) {
-    const changed = Boolean(terminalPanel.backgroundImage);
+    const changed = Boolean(current);
+    if (!changed) {
+      if (options.toast !== false) toast("Pane background is already clear.");
+      return false;
+    }
     await updatePanel(terminalPanel.id, { backgroundImage: "" });
     if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
-    if (options.toast !== false) toast(changed ? "Pane background cleared." : "Pane background is already clear.");
-    return changed;
+    if (options.toast !== false) toast("Pane background cleared.");
+    return true;
   }
   const preset = isBackgroundPreset(raw) ? raw : "";
   if (preset) {
+    if (current === preset) {
+      if (options.toast !== false) toast("Pane background is already active.");
+      return false;
+    }
     await updatePanel(terminalPanel.id, { backgroundImage: preset });
     if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
     if (options.toast !== false) toast("Pane background updated.");
@@ -1938,6 +1947,10 @@ async function applyPanelBackgroundImage(value, panel = focusedPanel(), options 
   if (!validated.ok) {
     if (options.toast !== false) toast("Pane background image could not be loaded.");
     return null;
+  }
+  if (current === validated.url) {
+    if (options.toast !== false) toast("Pane background is already active.");
+    return false;
   }
   await updatePanel(terminalPanel.id, { backgroundImage: validated.url });
   if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
@@ -2165,16 +2178,16 @@ function applySettings() {
   state.appliedSettingsSignature = signature;
   document.body.classList.remove(...themeOptions.filter(([id]) => id !== "cmux").map(([id]) => `theme-${id}`));
   if (state.settings.theme !== "cmux") document.body.classList.add(`theme-${state.settings.theme}`);
-  document.documentElement.style.setProperty("--color-accent", state.settings.accent);
-  document.documentElement.style.setProperty("--color-accent-hover", state.settings.accent);
-  elements.shell.style.setProperty("--sidebar-width", `${state.settings.sidebarWidth}px`);
-  elements.shell.style.setProperty("--inspector-width", `${state.settings.inspectorWidth}px`);
-  elements.shell.style.setProperty("--terminal-font-family", terminalFontStack());
-  elements.shell.style.setProperty("--terminal-padding", `${state.settings.terminalPadding}px`);
+  setStylePropertyIfChanged(document.documentElement, "--color-accent", state.settings.accent);
+  setStylePropertyIfChanged(document.documentElement, "--color-accent-hover", state.settings.accent);
+  setStylePropertyIfChanged(elements.shell, "--sidebar-width", `${state.settings.sidebarWidth}px`);
+  setStylePropertyIfChanged(elements.shell, "--inspector-width", `${state.settings.inspectorWidth}px`);
+  setStylePropertyIfChanged(elements.shell, "--terminal-font-family", terminalFontStack());
+  setStylePropertyIfChanged(elements.shell, "--terminal-padding", `${state.settings.terminalPadding}px`);
   const tabMetrics = tabSizeMetrics.get(state.settings.tabSize) || tabSizeMetrics.get(defaultSettings.tabSize);
-  elements.shell.style.setProperty("--surface-tab-min", `${tabMetrics.min}px`);
-  elements.shell.style.setProperty("--surface-tab-basis", `${tabMetrics.basis}px`);
-  elements.shell.style.setProperty("--surface-tab-max", `${tabMetrics.max}px`);
+  setStylePropertyIfChanged(elements.shell, "--surface-tab-min", `${tabMetrics.min}px`);
+  setStylePropertyIfChanged(elements.shell, "--surface-tab-basis", `${tabMetrics.basis}px`);
+  setStylePropertyIfChanged(elements.shell, "--surface-tab-max", `${tabMetrics.max}px`);
   toggleClassIfChanged(elements.shell, "density-compact", state.settings.density === "compact");
   toggleClassIfChanged(elements.shell, "pane-header-compact", state.settings.paneHeaderMode === "compact");
   toggleClassIfChanged(elements.shell, "pane-header-full", state.settings.paneHeaderMode === "full");
@@ -2205,11 +2218,11 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "reduce-motion", reduceMotion);
   const css = backgroundCss(state.settings.backgroundImage);
   toggleClassIfChanged(elements.shell, "has-background", css !== "none");
-  elements.shell.style.setProperty("--background-image", css);
-  elements.shell.style.setProperty("--background-opacity", String(state.settings.backgroundOpacity / 100));
-  elements.shell.style.setProperty("--background-size", backgroundSizeCss(state.settings.backgroundFit));
-  elements.shell.style.setProperty("--background-repeat", backgroundRepeatCss(state.settings.backgroundImage));
-  elements.shell.style.setProperty("--background-position", backgroundPositionCss(state.settings.backgroundPosition));
+  setStylePropertyIfChanged(elements.shell, "--background-image", css);
+  setStylePropertyIfChanged(elements.shell, "--background-opacity", String(state.settings.backgroundOpacity / 100));
+  setStylePropertyIfChanged(elements.shell, "--background-size", backgroundSizeCss(state.settings.backgroundFit));
+  setStylePropertyIfChanged(elements.shell, "--background-repeat", backgroundRepeatCss(state.settings.backgroundImage));
+  setStylePropertyIfChanged(elements.shell, "--background-position", backgroundPositionCss(state.settings.backgroundPosition));
   scheduleCommandStripOverflowRefresh();
   return true;
 }
@@ -3314,7 +3327,9 @@ function applyPendingPanelsToState(nextData) {
         state.lastInteractedPanelId = resolvedPanel.id;
       }
       deferCreatedTerminalInitUntilPaint(resolvedPanel, workspace, {
-        activeWorkspaceId: nextData.activeWorkspaceId
+        activeWorkspaceId: nextData.activeWorkspaceId,
+        focus: pendingPanel.focus,
+        immediateTerminalInit: pendingPanel.immediateTerminalInit
       });
       continue;
     }
@@ -7665,10 +7680,10 @@ function renderSettingsInspector(options = {}) {
     quickSection.append(paneShapePanel(workspace));
     quickSection.append(...quickColorControlRows(workspace));
     quickSection.append(settingRow(
-      "Background preset",
+      "Background templates",
       backgroundPresetGrid(),
       true,
-      "quick setup background preset wallpaper image look customize"
+      "quick setup background preset template wallpaper image look customize"
     ));
     quickSection.append(activeBackgroundPanel());
     quickSection.append(quickSettingsShortcutGrid());
@@ -7760,7 +7775,7 @@ function renderSettingsInspector(options = {}) {
     );
     appearanceSection.append(appearanceActions);
     appearanceSection.append(activeBackgroundPanel({ tuning: true }));
-    appearanceSection.append(settingRow("Background preset", backgroundPresetGrid(), true));
+    appearanceSection.append(settingRow("Background templates", backgroundPresetGrid(), true, "background preset template wallpaper image app pane terminal"));
 
     const imageInput = document.createElement("input");
     imageInput.className = "setting-control";
@@ -11066,20 +11081,60 @@ async function clearWorkspacePaneColors(workspace = activeWorkspace()) {
   return true;
 }
 
+function workspaceTerminalPanels(workspace = activeWorkspace()) {
+  return (workspace?.panels || []).filter((panel) => panel.type === "terminal" && !isPendingPanel(panel));
+}
+
+function activeTerminalPanelForSettings() {
+  return resolveTerminalPanel(focusedPanel()) || resolveTerminalPanel(activePanel());
+}
+
+function panelBackgroundMatches(panel, value) {
+  return normalizeBackgroundValue(panel?.backgroundImage) === normalizeBackgroundValue(value);
+}
+
+function terminalBackgroundsMatch(workspace, value) {
+  const terminals = workspaceTerminalPanels(workspace);
+  return terminals.length > 0 && terminals.every((panel) => panelBackgroundMatches(panel, value));
+}
+
 function backgroundPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "background-preset-grid";
+  const workspace = activeWorkspace();
+  const activeTerminal = activeTerminalPanelForSettings();
+  const hasTerminalPanes = workspaceTerminalPanels(workspace).length > 0;
   for (const preset of backgroundPresets) {
+    const card = document.createElement("div");
+    card.className = [
+      "background-preset-card",
+      preset.value === state.settings.backgroundImage ? "is-active-app" : "",
+      activeTerminal && panelBackgroundMatches(activeTerminal, preset.value) ? "is-active-pane" : "",
+      terminalBackgroundsMatch(workspace, preset.value) ? "is-active-all" : ""
+    ].filter(Boolean).join(" ");
+    card.dataset.settingsSearch = normalizeSettingsQuery(`background image wallpaper template ${preset.label}`);
+
     const button = document.createElement("button");
     button.className = `background-preset${preset.value === state.settings.backgroundImage ? " is-active" : ""}`;
     button.type = "button";
-    button.title = preset.label;
-    button.dataset.settingsSearch = normalizeSettingsQuery(`background image wallpaper ${preset.label}`);
+    button.title = `Apply ${preset.label} to app background`;
+    button.setAttribute("aria-label", `Apply ${preset.label} to app background`);
     button.style.setProperty("--preset-background", preset.preview);
     button.innerHTML = `<span class="background-preset-preview"></span><span class="background-preset-label"></span>`;
     button.querySelector(".background-preset-label").textContent = preset.label;
-    button.onclick = () => applyBackgroundPreset(preset);
-    grid.append(button);
+    button.onclick = () => applyBackgroundPreset(preset, { toast: true });
+
+    const actions = document.createElement("div");
+    actions.className = "background-preset-actions";
+    const appAction = settingsActionButton("App", () => applyBackgroundPreset(preset, { toast: true }), "primary", `background template app whole window ${preset.label}`);
+    const paneAction = settingsActionButton("Pane", () => applyPanelBackgroundImage(preset.value, activeTerminalPanelForSettings()), "", `background template active terminal pane ${preset.label}`);
+    paneAction.disabled = !activeTerminal;
+    const allAction = settingsActionButton("All terms", () => applyWorkspaceBackgroundImageToTerminals(preset.value), "", `background template all terminal panes ${preset.label}`);
+    allAction.disabled = !hasTerminalPanes;
+    actions.append(appAction, paneAction, allAction);
+
+    card.append(button, actions);
+    grid.append(card);
   }
   return grid;
 }
@@ -13119,13 +13174,30 @@ function paletteEntries() {
     });
   }
   for (const preset of backgroundPresets) {
+    const presetId = preset.value || "none";
     entries.push({
-      id: `backgroundPreset.${preset.value || "none"}`,
-      label: `Background preset: ${preset.label}`,
+      id: `backgroundPreset.${presetId}`,
+      label: `Background template: ${preset.label}`,
       meta: preset.value ? "Built-in background" : "No background",
       shortcut: "Look",
-      search: normalizeSettingsQuery(`background preset image wallpaper look apply ${preset.label} ${preset.value}`),
+      search: normalizeSettingsQuery(`background preset template image wallpaper look apply app whole window ${preset.label} ${preset.value}`),
       run: () => applyBackgroundPreset(preset, { toast: true })
+    });
+    entries.push({
+      id: `backgroundPresetPane.${presetId}`,
+      label: `Pane background: ${preset.label}`,
+      meta: "Active terminal pane",
+      shortcut: "Look",
+      search: normalizeSettingsQuery(`background preset template image wallpaper apply active terminal pane ${preset.label} ${preset.value}`),
+      run: () => applyPanelBackgroundImage(preset.value, activeTerminalPanelForSettings())
+    });
+    entries.push({
+      id: `backgroundPresetTerminals.${presetId}`,
+      label: `Terminal backgrounds: ${preset.label}`,
+      meta: "All terminal panes in workspace",
+      shortcut: "Look",
+      search: normalizeSettingsQuery(`background preset template image wallpaper apply all terminal panes workspace ${preset.label} ${preset.value}`),
+      run: () => applyWorkspaceBackgroundImageToTerminals(preset.value)
     });
   }
   for (const preset of browserHomePresets) {
@@ -13162,8 +13234,24 @@ function paletteEntries() {
       label: `Background: ${background.label}`,
       meta: background.url,
       shortcut: "Look",
-      search: normalizeSettingsQuery(`saved background image wallpaper apply ${background.label} ${background.url}`),
+      search: normalizeSettingsQuery(`saved background image wallpaper apply app whole window ${background.label} ${background.url}`),
       run: () => applySavedBackgroundImage(background.id)
+    });
+    entries.push({
+      id: `savedBackgroundPane.${background.id}`,
+      label: `Pane background: ${background.label}`,
+      meta: "Active terminal pane",
+      shortcut: "Look",
+      search: normalizeSettingsQuery(`saved background image wallpaper apply active terminal pane ${background.label} ${background.url}`),
+      run: () => applySavedBackgroundImageToPanel(background.id)
+    });
+    entries.push({
+      id: `savedBackgroundTerminals.${background.id}`,
+      label: `Terminal backgrounds: ${background.label}`,
+      meta: "All terminal panes in workspace",
+      shortcut: "Look",
+      search: normalizeSettingsQuery(`saved background image wallpaper apply all terminal panes workspace ${background.label} ${background.url}`),
+      run: () => applySavedBackgroundImageToWorkspaceTerminals(background.id)
     });
   }
   for (const profile of state.savedSettingsProfiles) {
@@ -13446,6 +13534,8 @@ function createPendingPanel(type, workspace, options = {}) {
     shellPath: type === "terminal" ? options.shellPath || "" : "",
     terminalFontSize: type === "terminal" ? normalizeTerminalFontSize(options.terminalFontSize, 0) : 0,
     url: isBrowser ? options.url || state.settings.browserHomeUrl : "",
+    focus: options.focus,
+    immediateTerminalInit: Boolean(options.immediateTerminalInit),
     needsAttention: false,
     notificationText: "",
     pendingStartedAt: Date.now(),
@@ -13589,6 +13679,8 @@ async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, op
     const existing = findPanelState(createdPanel.id);
     if (existing) {
       cleanupPanel(pendingPanelId);
+      deferCreatedTerminalInitUntilPaint(existing.panel, existing.workspace, options);
+      if (options.scheduleRender) scheduleRender();
       return true;
     }
   }

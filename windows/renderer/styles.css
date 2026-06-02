@@ -7317,6 +7317,12 @@ body.reduce-motion *::after {
   gap: var(--space-2);
 }
 
+.background-preset-card {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
 .active-background-panel {
   min-width: 0;
   display: grid;
@@ -7437,6 +7443,7 @@ body.reduce-motion *::after {
 }
 
 .background-preset {
+  width: 100%;
   min-width: 0;
   height: 48px;
   display: grid;
@@ -7459,6 +7466,28 @@ body.reduce-motion *::after {
 .background-preset.is-active {
   border-color: var(--color-accent);
   color: var(--color-text);
+}
+
+.background-preset-card.is-active-pane .background-preset {
+  box-shadow: inset 0 -2px 0 color-mix(in oklch, var(--color-success) 82%, transparent);
+}
+
+.background-preset-card.is-active-all .background-preset {
+  box-shadow: inset 0 -2px 0 color-mix(in oklch, var(--color-accent-hover) 82%, transparent);
+}
+
+.background-preset-actions {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.background-preset-actions .settings-action {
+  height: 26px;
+  min-width: 0;
+  padding: 0 4px;
+  font-size: 11px;
 }
 
 .background-preset-preview {
