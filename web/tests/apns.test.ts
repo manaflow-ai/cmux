@@ -75,6 +75,10 @@ describe("apns host + pruning", () => {
 });
 
 describe("apns response", () => {
+  test("uses a stable summary shape when there are no devices", () => {
+    expect(summarizeApnsSendResults([])).toEqual({ sent: 0, devices: 0, pruned: 0 });
+  });
+
   test("summarizes sends without exposing provider reasons", () => {
     const summary = summarizeApnsSendResults([
       { deviceToken: "a".repeat(64), status: 200, prune: false },

@@ -69,11 +69,11 @@ async function sendPush(request: Request): Promise<Response> {
       environment: deviceTokens.environment,
     })
     .from(deviceTokens)
-    .where(eq(deviceTokens.userId, user.id))
+    .where(and(eq(deviceTokens.userId, user.id), eq(deviceTokens.platform, "ios")))
     .limit(MAX_DEVICE_TOKENS_PER_USER);
 
   if (tokens.length === 0) {
-    return jsonResponse({ sent: 0, devices: 0 });
+    return jsonResponse({ sent: 0, devices: 0, pruned: 0 });
   }
 
   const config = apnsConfig();
@@ -112,7 +112,7 @@ async function sendPush(request: Request): Promise<Response> {
   if (dead.length > 0) {
     await db
       .delete(deviceTokens)
-      .where(and(eq(deviceTokens.userId, user.id), inArray(deviceTokens.deviceToken, dead)));
+      .where(and(eq(deviceTokens.userId, user.id), eq(deviceTokens.platform, "ios"), inArray(deviceTokens.deviceToken, dead)));
   }
 
   return jsonResponse(summarizeApnsSendResults(results));
