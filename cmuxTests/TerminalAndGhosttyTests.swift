@@ -1,7 +1,6 @@
 import XCTest
 import CmuxSocketControl
 import AppKit
-import Testing
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -940,80 +939,95 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
     }
 }
 
-@MainActor
-@Suite("Ghostty terminal context menu")
-struct GhosttyTerminalContextMenuTests {
-    @Test
-    func lookUpTitleIncludesQuotedSelectionPreview() {
+final class GhosttyTerminalContextMenuTests: XCTestCase {
+    func testLookUpTitleIncludesQuotedSelectionPreview() {
         let title = GhosttyNSView.lookUpMenuTitle(for: "hello")
 
-        #expect(title == Self.localizedLookUpTitle(preview: "hello"))
+        XCTAssertEqual(title, Self.localizedLookUpTitle(preview: "hello"))
     }
 
-    @Test
-    func lookUpTitleNormalizesWhitespaceAndTruncatesLongText() {
+    func testLookUpTitleNormalizesWhitespaceAndTruncatesLongText() {
         let title = GhosttyNSView.lookUpMenuTitle(
             for: "  abc\tdef\n" + String(repeating: "x", count: 80),
             previewLimit: 10
         )
 
-        #expect(title == Self.localizedLookUpTitle(preview: "abc def xx…"))
+        XCTAssertEqual(title, Self.localizedLookUpTitle(preview: "abc def xx…"))
     }
 
-    @Test
-    func textServicesRequireSendOnlyTextAndSelection() {
-        #expect(
+    func testTextServicesRequireSendOnlyTextAndSelection() {
+        XCTAssertTrue(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: nil,
+                returnType: nil,
+                hasSelection: true
+            )
+        )
+        XCTAssertTrue(
             GhosttyNSView.supportsTextServiceRequest(
                 sendType: .string,
                 returnType: nil,
                 hasSelection: true
             )
         )
-        #expect(
+        XCTAssertTrue(
             GhosttyNSView.supportsTextServiceRequest(
                 sendType: NSPasteboard.PasteboardType("public.utf8-plain-text"),
                 returnType: nil,
                 hasSelection: true
             )
         )
-        #expect(
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: nil,
+                returnType: nil,
+                hasSelection: false
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.supportsTextServiceRequest(
+                sendType: nil,
+                returnType: .string,
+                hasSelection: true
+            )
+        )
+        XCTAssertFalse(
             GhosttyNSView.supportsTextServiceRequest(
                 sendType: .string,
                 returnType: nil,
                 hasSelection: false
-            ) == false
+            )
         )
-        #expect(
+        XCTAssertFalse(
             GhosttyNSView.supportsTextServiceRequest(
                 sendType: .string,
                 returnType: .string,
                 hasSelection: true
-            ) == false
+            )
         )
-        #expect(
+        XCTAssertFalse(
             GhosttyNSView.supportsTextServiceRequest(
                 sendType: .png,
                 returnType: nil,
                 hasSelection: true
-            ) == false
+            )
         )
     }
 
-    @Test
-    func textServicesExposeAppKitPasteboardWriterSelector() {
+    func testTextServicesExposeAppKitPasteboardWriterSelector() {
         let view = GhosttyNSView(frame: .zero)
 
-        #expect(
+        XCTAssertTrue(
             view.responds(to: NSSelectorFromString("writeSelectionToPasteboard:types:"))
         )
-        #expect(
-            view.responds(to: NSSelectorFromString("writeSelectionTo:types:")) == false
+        XCTAssertFalse(
+            view.responds(to: NSSelectorFromString("writeSelectionTo:types:"))
         )
     }
 
     private static func localizedLookUpTitle(preview: String) -> String {
         String.localizedStringWithFormat(
-            String(localized: "terminalContextMenu.lookUpFormat", defaultValue: "Look Up “%@”"),
+            String(localized: "terminalContextMenu.lookUpFormat", defaultValue: "Look Up \"%@\""),
             preview
         )
     }
