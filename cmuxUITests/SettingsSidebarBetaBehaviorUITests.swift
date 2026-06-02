@@ -1,9 +1,9 @@
 import XCTest
 
 /// Behavioral UI tests for the Settings **Sidebar** + **Beta Features**
-/// section, scoped to the three controls called out for this section:
+/// section, scoped to the controls called out for this section:
 /// the *Sidebar Branch Layout* picker (vertical vs inline), the active-tab
-/// *indicator style*, and the *beta Dock* toggle.
+/// *indicator style*, and the *beta Feed* / *beta Dock* toggles.
 ///
 /// What is actually assertable through XCUITest here, and why:
 ///
@@ -38,10 +38,12 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
     // test so the run starts from the shipped default.
     //  - sidebarBranchVerticalLayout: SidebarCatalogSection.branchVerticalLayout (default true / "Vertical")
     //  - sidebarActiveTabIndicatorStyle: indicator style key (default "leftRail")
+    //  - rightSidebar.beta.feed.enabled: BetaFeaturesCatalogSection.rightSidebarFeed (default false)
     //  - rightSidebar.beta.dock.enabled: BetaFeaturesCatalogSection.rightSidebarDock (default false)
     private let inScopeDefaultsKeys = [
         "sidebarBranchVerticalLayout",
         "sidebarActiveTabIndicatorStyle",
+        "rightSidebar.beta.feed.enabled",
         "rightSidebar.beta.dock.enabled",
     ]
 
@@ -50,8 +52,13 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
     private let branchVerticalSubtitle = "Vertical: each branch appears on its own line."
     private let branchInlineSubtitle = "Inline: all branches share one line."
 
+    // Beta Feed subtitle strings (exact defaultValue copy from
+    // BetaFeaturesSection.feedRow).
+    private let feedOffSubtitle = "Hides Feed from the right sidebar until you enable it here."
+    private let feedOnSubtitle = "Shows Feed in the right sidebar mode switcher for inline agent decisions."
+
     // Beta Dock subtitle strings (exact defaultValue copy from
-    // BetaFeaturesSettingsView.dockSubtitle).
+    // BetaFeaturesSection.dockRow).
     private let dockOffSubtitle = "Hides Dock from the right sidebar until you enable it here."
     private let dockOnSubtitle = "Shows Dock in the right sidebar mode switcher for custom terminal controls."
 
@@ -123,6 +130,49 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
             verticalSubtitle.exists,
             "Vertical subtitle should be gone once Inline is selected"
         )
+    }
+
+    // MARK: - TIER 1: Beta Feed toggle
+
+    /// Toggling the **Beta Features → Feed** switch flips the row's derived
+    /// subtitle between the "Hides Feed …" (off) and "Shows Feed …" (on)
+    /// copy. The subtitle is computed from the `rightSidebarFeed` binding,
+    /// so the label change verifies the toggle drove the live settings store
+    /// and the dependent view re-rendered.
+    func testBetaFeedToggleDrivesDerivedSubtitle() {
+        let app = makeLaunchedApp()
+        let window = openSettings(app)
+        defer { closeSettings(app, window) }
+
+        navigate(window, to: "Beta Features")
+
+        let offSubtitle = window.staticTexts[feedOffSubtitle]
+        let onSubtitle = window.staticTexts[feedOnSubtitle]
+
+        // Default is off → "Hides Feed …" present, "Shows Feed …" absent.
+        XCTAssertTrue(
+            poll(timeout: 5.0) { offSubtitle.exists },
+            "Expected the default (off) Feed subtitle"
+        )
+        XCTAssertFalse(onSubtitle.exists, "On subtitle should not be shown while Feed is disabled")
+
+        let feedToggle = toggle(window, id: "SettingsBetaFeedToggle")
+        feedToggle.click()
+
+        // Effect: subtitle flips to the "on" copy.
+        XCTAssertTrue(
+            poll(timeout: 5.0) { onSubtitle.exists },
+            "Expected the (on) Feed subtitle after enabling Feed"
+        )
+        XCTAssertFalse(offSubtitle.exists, "Off subtitle should be gone once Feed is enabled")
+
+        // Toggle back off to prove the binding is reversible (full round-trip).
+        feedToggle.click()
+        XCTAssertTrue(
+            poll(timeout: 5.0) { offSubtitle.exists },
+            "Expected the (off) Feed subtitle after disabling Feed again"
+        )
+        XCTAssertFalse(onSubtitle.exists, "On subtitle should be gone once Feed is disabled again")
     }
 
     // MARK: - TIER 1: Beta Dock toggle
