@@ -2401,6 +2401,33 @@ body.reduce-motion *::after {
   font-family: var(--terminal-font-family, var(--font-mono));
 }
 
+.pane.has-pane-background .terminal-host {
+  background: color-mix(in oklch, var(--color-pane) 88%, transparent);
+}
+
+.pane.has-pane-background .terminal-host::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image: var(--pane-background-image, none);
+  background-size: var(--pane-background-size, cover);
+  background-repeat: var(--pane-background-repeat, no-repeat);
+  background-position: var(--pane-background-position, center);
+  opacity: var(--pane-background-opacity, .18);
+  pointer-events: none;
+}
+
+.pane.has-pane-background .terminal-host .xterm {
+  position: relative;
+  z-index: 1;
+}
+
+.pane.has-pane-background .terminal-host .xterm-screen,
+.pane.has-pane-background .terminal-host .xterm-viewport {
+  background-color: transparent !important;
+}
+
 .terminal-host::after {
   content: attr(data-connection-status);
   position: absolute;

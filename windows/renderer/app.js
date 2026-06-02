@@ -1620,10 +1620,12 @@ function normalizeBlueprintPanel(panel = {}) {
   const title = String(panel.title || (type === "browser" ? "Browser" : "Terminal")).trim().slice(0, 80);
   const color = normalizeBlueprintColor(panel.color);
   const shellProfile = terminalProfiles.some(([id]) => id === panel.shellProfile) ? panel.shellProfile : defaultSettings.terminalProfile;
+  const backgroundImage = type === "terminal" ? normalizeBackgroundValue(panel.backgroundImage) : "";
   return {
     type,
     title,
     color,
+    backgroundImage,
     cwd: String(panel.cwd || "").trim().slice(0, 512),
     shellProfile,
     shellPath: String(panel.shellPath || "").trim().slice(0, 512),
@@ -1850,6 +1852,62 @@ async function applySavedBackgroundImage(backgroundId) {
   }
   renderSettingsInspector();
   toast(`${background.label} background applied.`);
+}
+
+async function applyPanelBackgroundImage(value, panel = focusedPanel(), options = {}) {
+  const terminalPanel = resolveTerminalPanel(panel);
+  if (!terminalPanel) {
+    toast("Select a terminal pane first.");
+    return null;
+  }
+  const raw = String(value || "").trim();
+  if (!raw) {
+    const changed = Boolean(terminalPanel.backgroundImage);
+    await updatePanel(terminalPanel.id, { backgroundImage: "" });
+    if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+    if (options.toast !== false) toast(changed ? "Pane background cleared." : "Pane background is already clear.");
+    return changed;
+  }
+  const preset = isBackgroundPreset(raw) ? raw : "";
+  if (preset) {
+    await updatePanel(terminalPanel.id, { backgroundImage: preset });
+    if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+    if (options.toast !== false) toast("Pane background updated.");
+    return true;
+  }
+  const validated = await validateBackgroundImageValue(raw);
+  if (!validated.ok) {
+    if (options.toast !== false) toast("Pane background image could not be loaded.");
+    return null;
+  }
+  await updatePanel(terminalPanel.id, { backgroundImage: validated.url });
+  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  if (options.toast !== false) toast("Pane background updated.");
+  return true;
+}
+
+async function applySavedBackgroundImageToPanel(backgroundId, panel = focusedPanel()) {
+  const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
+  if (!background) return null;
+  return applyPanelBackgroundImage(background.url, panel, { toast: false }).then((changed) => {
+    if (changed !== null) toast(`${background.label} applied to pane.`);
+    return changed;
+  });
+}
+
+async function choosePanelBackgroundImage(panel = focusedPanel()) {
+  const terminalPanel = resolveTerminalPanel(panel);
+  if (!terminalPanel) {
+    toast("Select a terminal pane first.");
+    return null;
+  }
+  if (!window.cmuxNative?.pickBackgroundImage) {
+    toast("Local image picker is unavailable.");
+    return null;
+  }
+  const url = await window.cmuxNative.pickBackgroundImage();
+  if (!url) return null;
+  return applyPanelBackgroundImage(url, terminalPanel);
 }
 
 async function openBackgroundImageFile(value = state.settings.backgroundImage) {
@@ -2449,9 +2507,11 @@ function persistPaneLayoutFromGrid(direction) {
   savePaneLayouts();
 }
 
-function terminalTheme() {
+function terminalTheme(panel = null) {
   const accent = getComputedStyle(document.documentElement).getPropertyValue("--color-accent").trim() || "#72a4ff";
-  const background = state.settings.terminalBackground || terminalColorDefaults.background;
+  const hasPaneBackground = Boolean(panel?.type === "terminal" && normalizeBackgroundValue(panel.backgroundImage));
+  const background = hasPaneBackground ? "transparent" : state.settings.terminalBackground || terminalColorDefaults.background;
+  const paletteBackground = state.settings.terminalBackground || terminalColorDefaults.background;
   const foreground = state.settings.terminalForeground || terminalColorDefaults.foreground;
   const cursor = state.settings.terminalCursorColor || accent;
   return {
@@ -2460,7 +2520,7 @@ function terminalTheme() {
     cursor,
     cursorAccent: "#111316",
     selectionBackground: "#315a92",
-    black: background,
+    black: paletteBackground,
     red: "#f07178",
     green: "#88c070",
     yellow: "#d9c77f",
@@ -2489,7 +2549,7 @@ function refreshTerminalAppearance() {
     session.term.options.scrollback = state.settings.terminalScrollback;
     session.term.options.cursorStyle = state.settings.terminalCursorStyle;
     session.term.options.cursorBlink = state.settings.terminalCursorBlink;
-    session.term.options.theme = terminalTheme();
+    session.term.options.theme = terminalTheme(panel);
     scheduleFitTerminal(session, true);
   }
 }
@@ -2997,6 +3057,7 @@ function appendPanelSignature(parts, panel = {}) {
   appendSignatureValue(parts, panel.title);
   appendSignatureValue(parts, Boolean(panel.titleLocked));
   appendSignatureValue(parts, panel.color || "");
+  appendSignatureValue(parts, panel.backgroundImage || "");
   appendSignatureValue(parts, panel.cwd);
   appendSignatureValue(parts, panel.cwdShort);
   appendSignatureValue(parts, panel.branch || "");
@@ -4171,6 +4232,7 @@ function paneRenderSignature(workspace, visiblePanels, tree) {
     appendSignatureValue(nextParts, panel.title || "");
     appendSignatureValue(nextParts, panel.titleLocked || false);
     appendSignatureValue(nextParts, panel.color || "");
+    appendSignatureValue(nextParts, panel.backgroundImage || "");
     appendSignatureValue(nextParts, panel.cwd || "");
     appendSignatureValue(nextParts, panel.cwdShort || "");
     appendSignatureValue(nextParts, panel.url || "");
@@ -4237,6 +4299,15 @@ function renderPaneNode(panel, workspace, visibleCount) {
   const parts = paneParts(pane);
   setDatasetIfChanged(pane, "panelId", panel.id);
   setStylePropertyIfChanged(pane, "--panel-color", panel.color || workspace.color || "var(--color-accent)");
+  const paneBackgroundImage = panel.type === "terminal" ? normalizeBackgroundValue(panel.backgroundImage) : "";
+  toggleClassIfChanged(pane, "has-pane-background", Boolean(paneBackgroundImage));
+  setStylePropertyIfChanged(pane, "--pane-background-image", backgroundCss(paneBackgroundImage));
+  setStylePropertyIfChanged(pane, "--pane-background-repeat", backgroundRepeatCss(paneBackgroundImage));
+  setStylePropertyIfChanged(pane, "--pane-background-size", backgroundSizeCss(state.settings.backgroundFit));
+  setStylePropertyIfChanged(pane, "--pane-background-position", backgroundPositionCss(state.settings.backgroundPosition));
+  setStylePropertyIfChanged(pane, "--pane-background-opacity", String(Math.max(0.12, Math.min(0.42, state.settings.backgroundOpacity / 100 || 0.18))));
+  const terminalSession = state.terminals.get(panel.id);
+  if (terminalSession && panel.type === "terminal") terminalSession.term.options.theme = terminalTheme(panel);
   toggleClassIfChanged(pane, "is-active", panel.id === workspace.activePanelId);
   const zoomed = isPanelZoomed(panel, workspace);
   toggleClassIfChanged(pane, "is-zoomed", zoomed);
@@ -5556,7 +5627,7 @@ function ensureTerminal(panel, body) {
     fontSize,
     lineHeight: state.settings.terminalLineHeight,
     scrollback: state.settings.terminalScrollback,
-    theme: terminalTheme()
+    theme: terminalTheme(panel)
   });
   const fitAddon = new FitAddonConstructor();
   const webLinksAddon = new WebLinksAddonConstructor();
@@ -8378,6 +8449,9 @@ function activeBackgroundPanel(options = {}) {
   const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }), "", "active background save current");
   save.dataset.backgroundAction = "save";
   save.disabled = !isCustomBackgroundImage(state.settings.backgroundImage);
+  const pane = settingsActionButton("Pane", () => applyPanelBackgroundImage(state.settings.backgroundImage), "", "active background apply to active terminal pane");
+  pane.dataset.backgroundAction = "pane";
+  pane.disabled = !hasBackground || !resolveTerminalPanel(focusedPanel());
   const open = settingsActionButton("Open", () => openBackgroundImageSource(), "", "active background open local file url source reveal");
   open.dataset.backgroundAction = "open";
   open.disabled = !canOpenBackgroundImageSource(state.settings.backgroundImage);
@@ -8391,6 +8465,7 @@ function activeBackgroundPanel(options = {}) {
     chooseAndSave,
     paste,
     save,
+    pane,
     open,
     clear
   );
@@ -10704,6 +10779,7 @@ function savedBackgroundImagesPanel() {
     open.disabled = !canOpenBackgroundImageSource(background.url);
     cardActions.append(
       settingsActionButton("Apply", () => applySavedBackgroundImage(background.id), "", `apply saved background ${background.label}`),
+      settingsActionButton("Pane", () => applySavedBackgroundImageToPanel(background.id), "", `apply saved background to active terminal pane ${background.label}`),
       open,
       settingsActionButton("Rename", () => renameSavedBackgroundImage(background.id), "", `rename saved background ${background.label}`),
       settingsActionButton("Delete", () => deleteSavedBackgroundImage(background.id), "danger", `delete saved background ${background.label}`)
@@ -11489,6 +11565,7 @@ function currentWorkspaceBlueprintSnapshot(label, overrides = {}) {
       type: panel.type,
       title: panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal"),
       color: panel.color || "",
+      backgroundImage: panel.backgroundImage || "",
       cwd: panel.cwd || workspace.cwd || "",
       shellProfile: panel.shellProfile || state.settings.terminalProfile,
       shellPath: panel.shellPath || "",
@@ -11586,6 +11663,7 @@ async function applyWorkspaceBlueprint(blueprintId, workspaceId = activeWorkspac
         operation: false,
         title: panel.title,
         color: panel.color,
+        backgroundImage: panel.backgroundImage,
         cwd: panel.cwd || blueprint.cwd || workspace.cwd,
         shellProfile: panel.shellProfile,
         shellPath: panel.shellPath,
@@ -11715,6 +11793,9 @@ function showPanelContextMenu(event, panel) {
       contextMenuButton("Text smaller", () => changePaneTerminalFontSize(panel.id, -1)),
       contextMenuButton("Reset text size", () => resetPaneTerminalFontSize(panel.id), !panelHasTerminalFontSize(panel)),
       contextMenuButton("Restart terminal", () => restartPanel(panel.id)),
+      contextMenuButton("Choose pane background", () => choosePanelBackgroundImage(panel)),
+      contextMenuButton("Use app background", () => applyPanelBackgroundImage(state.settings.backgroundImage, panel), !state.settings.backgroundImage),
+      contextMenuButton("Clear pane background", () => applyPanelBackgroundImage("", panel), !panel.backgroundImage),
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal"))
     );
   }
@@ -12327,7 +12408,8 @@ function duplicatePanel(panel) {
   splitPanel(panel, "right", "terminal", {
     shellProfile: panel.shellProfile || state.settings.terminalProfile,
     shellPath: panel.shellPath || state.settings.terminalCustomShell,
-    terminalFontSize: panel.terminalFontSize || 0
+    terminalFontSize: panel.terminalFontSize || 0,
+    backgroundImage: panel.backgroundImage || ""
   });
 }
 
@@ -13148,6 +13230,7 @@ async function createPanel(type, direction = "right", options = {}) {
           direction,
           title: options.title,
           color: options.color,
+          backgroundImage: options.backgroundImage,
           shellProfile: type === "terminal" ? shellProfile : undefined,
           shellPath: type === "terminal" && shellProfile === "custom" ? shellPath : undefined,
           terminalFontSize: type === "terminal" ? options.terminalFontSize : undefined,
@@ -13450,6 +13533,9 @@ function optimisticUpdatePanel(panelId, updates = {}) {
     const color = String(updates.color || "").trim();
     found.panel.color = isAllowedUiColor(color, state.data?.palette || accentOptions) ? color : "";
   }
+  if (Object.hasOwn(updates, "backgroundImage") && found.panel.type === "terminal") {
+    found.panel.backgroundImage = normalizeBackgroundValue(updates.backgroundImage);
+  }
   if (Object.hasOwn(updates, "url") && found.panel.type === "browser") {
     found.panel.url = normalizeUrl(updates.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
   }
@@ -13485,6 +13571,10 @@ function panelUpdateReconcileNeeded(panelId, updates = {}) {
     const expected = isAllowedUiColor(color, state.data?.palette || accentOptions) ? color : "";
     if ((found.panel.color || "") !== expected) return true;
   }
+  if (Object.hasOwn(updates, "backgroundImage") && found.panel.type === "terminal") {
+    const expected = normalizeBackgroundValue(updates.backgroundImage);
+    if ((found.panel.backgroundImage || "") !== expected) return true;
+  }
   if (Object.hasOwn(updates, "url") && found.panel.type === "browser") {
     const expected = normalizeUrl(updates.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
     if (found.panel.url !== expected) return true;
@@ -13511,6 +13601,7 @@ function closedPanelSnapshot(panelId) {
     title: found.panel.title || (isBrowser ? "Browser" : "Terminal"),
     titleLocked: Boolean(found.panel.titleLocked),
     color: found.panel.color || "",
+    backgroundImage: found.panel.type === "terminal" ? found.panel.backgroundImage || "" : "",
     cwd: found.panel.cwd || found.workspace.cwd || "",
     shellProfile: found.panel.shellProfile || state.settings.terminalProfile,
     shellPath: found.panel.shellPath || "",
@@ -13544,6 +13635,7 @@ async function reopenClosedPanel() {
       workspaceId: workspace.id,
       title: snapshot.title,
       color: snapshot.color,
+      backgroundImage: snapshot.backgroundImage,
       cwd: snapshot.cwd || workspace.cwd,
       shellProfile: snapshot.shellProfile,
       shellPath: snapshot.shellPath,

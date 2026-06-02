@@ -158,6 +158,23 @@ function sanitizeBrowserUrl(value, fallback = defaultBrowserHomeUrl) {
   return validBrowserUrl(value) || validBrowserUrl(fallback) || defaultBrowserHomeUrl;
 }
 
+function sanitizeBackgroundImageValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw.length > 262144) return "";
+  if (/^preset:[a-z0-9-]{1,64}$/i.test(raw)) return raw;
+  if (/^data:image\//i.test(raw)) return raw;
+  if (raw.startsWith("/") && raw.length <= 2048) return raw;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.username || parsed.password) return "";
+    if (parsed.protocol === "file:") return localImagePathFromUrl(parsed.href) ? parsed.href : "";
+    if (["http:", "https:"].includes(parsed.protocol)) return parsed.href.length <= 4096 ? parsed.href : "";
+  } catch {
+    return "";
+  }
+  return "";
+}
+
 const shellProfileIds = new Set(["auto", "pwsh", "powershell", "cmd", "wsl", "git-bash", "custom"]);
 const executableExistsCache = new Map();
 const resolvedShellCache = new Map();
@@ -714,6 +731,7 @@ class CmuxWindowsRuntime {
               ...panel,
               titleLocked: Boolean(panel.titleLocked),
               color: panel.color || "",
+              backgroundImage: panel.type === "terminal" ? sanitizeBackgroundImageValue(panel.backgroundImage) : "",
               cwd: sanitizeDirectoryPath(panel.cwd || workspace.cwd),
               shellProfile: panel.type === "terminal" ? sanitizeShellProfile(panel.shellProfile) : "",
               shellPath: panel.type === "terminal" ? sanitizeShellPath(panel.shellPath) : "",
@@ -769,6 +787,7 @@ class CmuxWindowsRuntime {
           title: panel.title,
           titleLocked: Boolean(panel.titleLocked),
           color: panel.color || "",
+          backgroundImage: panel.type === "terminal" ? sanitizeBackgroundImageValue(panel.backgroundImage) : "",
           cwd: panel.cwd,
           shellProfile: panel.type === "terminal" ? sanitizeShellProfile(panel.shellProfile) : "",
           shellPath: panel.type === "terminal" ? sanitizeShellPath(panel.shellPath) : "",
@@ -811,6 +830,7 @@ class CmuxWindowsRuntime {
       title,
       titleLocked: Boolean(explicitTitle || options.titleLocked),
       color: isSafeColorValue(options.color) ? options.color : "",
+      backgroundImage: type === "terminal" ? sanitizeBackgroundImageValue(options.backgroundImage) : "",
       cwd: sanitizeDirectoryPath(options.cwd),
       shellProfile: type === "terminal" ? sanitizeShellProfile(options.shellProfile) : "",
       shellPath: type === "terminal" ? sanitizeShellPath(options.shellPath) : "",
@@ -877,6 +897,7 @@ class CmuxWindowsRuntime {
       title: panel.title,
       titleLocked: Boolean(panel.titleLocked),
       color: panel.color || "",
+      backgroundImage: panel.type === "terminal" ? sanitizeBackgroundImageValue(panel.backgroundImage) : "",
       cwd: panel.cwd,
       cwdShort: shortPath(panel.cwd),
       shellProfile: panel.shellProfile || "",
@@ -1059,6 +1080,9 @@ class CmuxWindowsRuntime {
     if (Object.hasOwn(updates, "color")) {
       const color = String(updates.color || "").trim();
       found.panel.color = isSafeColorValue(color) ? color : "";
+    }
+    if (Object.hasOwn(updates, "backgroundImage") && found.panel.type === "terminal") {
+      found.panel.backgroundImage = sanitizeBackgroundImageValue(updates.backgroundImage);
     }
     if (updates.direction === "down" || updates.direction === "right") {
       found.workspace.splitDirection = updates.direction;
