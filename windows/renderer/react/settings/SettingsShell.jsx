@@ -19,6 +19,97 @@ function CloseIcon() {
   );
 }
 
+const categoryIconPaths = {
+    actions: (
+      <>
+        <path d="M8 7h8M8 12h5M8 17h8" />
+        <path d="M4 7h.01M4 12h.01M4 17h.01" />
+      </>
+    ),
+    appearance: (
+      <>
+        <path d="M12 4c4 0 8 3 8 7 0 3-2 5-5 5h-1.5a1.5 1.5 0 0 0 0 3H12a8 8 0 1 1 0-16Z" />
+        <circle cx="8.5" cy="10" r="1" />
+        <circle cx="12" cy="8" r="1" />
+        <circle cx="15.5" cy="10" r="1" />
+      </>
+    ),
+    blueprints: (
+      <>
+        <rect x="5" y="4" width="14" height="16" rx="2" />
+        <path d="M8 8h8M8 12h5M8 16h6" />
+      </>
+    ),
+    browser: (
+      <>
+        <circle cx="12" cy="12" r="8" />
+        <path d="M4 12h16M12 4c2.2 2.3 2.2 13.7 0 16M12 4c-2.2 2.3-2.2 13.7 0 16" />
+      </>
+    ),
+    commands: (
+      <>
+        <rect x="4" y="5" width="16" height="14" rx="2" />
+        <path d="m8 10 3 3-3 3" />
+        <path d="M13 16h3" />
+      </>
+    ),
+    data: (
+      <>
+        <ellipse cx="12" cy="6" rx="7" ry="3" />
+        <path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6" />
+        <path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" />
+      </>
+    ),
+    layout: (
+      <>
+        <rect x="4" y="5" width="16" height="14" rx="2" />
+        <path d="M12 5v14M4 12h16" />
+      </>
+    ),
+    performance: (
+      <>
+        <path d="M5 16a7 7 0 0 1 14 0" />
+        <path d="m12 16 4-5" />
+        <path d="M8 20h8" />
+      </>
+    ),
+    profiles: (
+      <>
+        <circle cx="12" cy="8" r="3" />
+        <path d="M5 20c1.2-4 12.8-4 14 0" />
+      </>
+    ),
+    quick: (
+      <>
+        <path d="M5 12h14" />
+        <path d="m13 6 6 6-6 6" />
+        <path d="M5 6h4M5 18h4" />
+      </>
+    ),
+    terminal: (
+      <>
+        <rect x="4" y="5" width="16" height="14" rx="2" />
+        <path d="m8 10 3 3-3 3" />
+        <path d="M13 16h3" />
+      </>
+    ),
+    workspace: (
+      <>
+        <rect x="4" y="5" width="6" height="6" rx="1" />
+        <rect x="14" y="5" width="6" height="6" rx="1" />
+        <rect x="4" y="15" width="16" height="4" rx="1" />
+      </>
+    )
+};
+
+function CategoryIcon({ id }) {
+  return (
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+      {categoryIconPaths[id] || categoryIconPaths.quick}
+    </svg>
+  );
+}
+
 export function SettingsShell({
   activeCategory,
   categories,
@@ -136,7 +227,10 @@ export function SettingsShell({
                 title={tabTitleTemplate.replace("{label}", label)}
                 type="button"
               >
-                {label}
+                <span className="settings-page-tab-icon" aria-hidden="true">
+                  <CategoryIcon id={id} />
+                </span>
+                <span className="settings-page-tab-label">{label}</span>
               </button>
             );
           })}

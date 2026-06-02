@@ -8630,6 +8630,27 @@ function restoreSettingsSearchFocus() {
   input.setSelectionRange(input.value.length, input.value.length);
 }
 
+function settingsCategoryIconName(id) {
+  return {
+    actions: "actions",
+    appearance: "appearance",
+    blueprints: "blueprints",
+    browser: "browser",
+    commands: "commands",
+    data: "data",
+    layout: "layout",
+    performance: "performance",
+    profiles: "profiles",
+    quick: "quick",
+    terminal: "terminal",
+    workspace: "workspace"
+  }[id] || "quick";
+}
+
+function settingsCategoryIconMarkup(id) {
+  return quickActionIconMarkup(settingsCategoryIconName(id));
+}
+
 function settingsCategoryNav() {
   const nav = document.createElement("div");
   nav.className = "settings-page-switcher";
@@ -8664,12 +8685,19 @@ function settingsCategoryNav() {
     const active = id === state.settingsCategory;
     button.className = `settings-page-tab${active ? " is-active" : ""}`;
     button.type = "button";
-    button.textContent = label;
     button.title = formatMessage("settings.tabTitle", { label });
     button.dataset.settingsCategory = id;
     button.dataset.settingsSearch = normalizeSettingsQuery(`settings page ${label} ${id} ${settingsCategorySearchAliases.get(id) || ""}`);
     button.setAttribute("role", "tab");
     button.setAttribute("aria-selected", active ? "true" : "false");
+    const icon = document.createElement("span");
+    icon.className = "settings-page-tab-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = settingsCategoryIconMarkup(id);
+    const text = document.createElement("span");
+    text.className = "settings-page-tab-label";
+    text.textContent = label;
+    button.append(icon, text);
     button.onclick = () => {
       if (state.settingsCategory === id && !state.settingsQuery) return;
       state.settingsCategory = id;
@@ -10203,6 +10231,7 @@ const quickSettingsShortcuts = [
 const quickActionIconSvg = {
   actions: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 7h8M8 12h5M8 17h8"></path><path d="M4 7h.01M4 12h.01M4 17h.01"></path></svg>`,
   appearance: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4c4 0 8 3 8 7 0 3-2 5-5 5h-1.5a1.5 1.5 0 0 0 0 3H12a8 8 0 1 1 0-16Z"></path><circle cx="8.5" cy="10" r="1"></circle><circle cx="12" cy="8" r="1"></circle><circle cx="15.5" cy="10" r="1"></circle></svg>`,
+  blueprints: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="5" y="4" width="14" height="16" rx="2"></rect><path d="M8 8h8M8 12h5M8 16h6"></path></svg>`,
   browser: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"></circle><path d="M4 12h16M12 4c2.2 2.3 2.2 13.7 0 16M12 4c-2.2 2.3-2.2 13.7 0 16"></path></svg>`,
   commands: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="m8 10 3 3-3 3"></path><path d="M13 16h3"></path></svg>`,
   data: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><ellipse cx="12" cy="6" rx="7" ry="3"></ellipse><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6"></path><path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"></path></svg>`,
@@ -10213,6 +10242,7 @@ const quickActionIconSvg = {
   rename: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5h12M12 5v14M9 19h6"></path></svg>`,
   clean: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M8 9h8M8 13h5"></path></svg>`,
   performance: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 16a7 7 0 0 1 14 0"></path><path d="m12 16 4-5"></path><path d="M8 20h8"></path></svg>`,
+  quick: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14"></path><path d="m13 6 6 6-6 6"></path><path d="M5 6h4M5 18h4"></path></svg>`,
   speed: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 16a7 7 0 0 1 14 0"></path><path d="m12 16 4-5"></path><path d="M8 20h8"></path></svg>`,
   focus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4H5a1 1 0 0 0-1 1v3M16 4h3a1 1 0 0 1 1 1v3M8 20H5a1 1 0 0 1-1-1v-3M16 20h3a1 1 0 0 0 1-1v-3"></path><circle cx="12" cy="12" r="2.5"></circle></svg>`,
   background: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><circle cx="9" cy="10" r="1.5"></circle><path d="m7 17 4-4 3 3 2-2 2 3"></path></svg>`,

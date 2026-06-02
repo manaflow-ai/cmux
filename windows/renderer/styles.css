@@ -4630,13 +4630,39 @@ body.reduce-motion *::after {
 .settings-page-tab {
   flex: 0 0 auto;
   height: 28px;
-  padding: 0 10px;
+  display: inline-grid;
+  grid-template-columns: 16px minmax(0, auto);
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 8px;
   border-color: var(--color-line);
   background: var(--color-pane);
   color: var(--color-muted);
   font-size: 11px;
   font-weight: 720;
   white-space: nowrap;
+}
+
+.settings-page-tab-icon {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  color: color-mix(in oklch, var(--color-muted) 84%, var(--color-text) 16%);
+}
+
+.settings-page-tab-icon svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.settings-page-tab-label {
+  min-width: 0;
 }
 
 .settings-page-tab:hover {
@@ -4648,6 +4674,11 @@ body.reduce-motion *::after {
 .settings-page-tab.is-active {
   border-color: color-mix(in oklch, var(--color-accent) 66%, var(--color-line) 34%);
   background: color-mix(in oklch, var(--color-accent) 22%, var(--color-pane) 78%);
+  color: var(--color-text);
+}
+
+.settings-page-tab:hover .settings-page-tab-icon,
+.settings-page-tab.is-active .settings-page-tab-icon {
   color: var(--color-text);
 }
 
