@@ -8028,6 +8028,13 @@ class TabManager: ObservableObject {
         return tab.panels[panelId] as? BrowserPanel
     }
 
+    /// Returns the focused panel if it's a MarkdownPanel, nil otherwise.
+    var focusedMarkdownPanel: MarkdownPanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? MarkdownPanel
+    }
+
     @discardableResult
     func zoomInFocusedBrowser() -> Bool {
         focusedBrowserPanel?.zoomIn() ?? false
@@ -8041,6 +8048,41 @@ class TabManager: ObservableObject {
     @discardableResult
     func resetZoomFocusedBrowser() -> Bool {
         focusedBrowserPanel?.resetZoom() ?? false
+    }
+
+    @discardableResult
+    func zoomInFocusedMarkdown() -> Bool {
+        focusedMarkdownPanel?.zoomIn() ?? false
+    }
+
+    @discardableResult
+    func zoomOutFocusedMarkdown() -> Bool {
+        focusedMarkdownPanel?.zoomOut() ?? false
+    }
+
+    @discardableResult
+    func resetZoomFocusedMarkdown() -> Bool {
+        focusedMarkdownPanel?.resetZoom() ?? false
+    }
+
+    /// Zooms the focused content surface: the markdown viewer when one is
+    /// focused, otherwise the browser. Used by the shared View-menu Zoom items.
+    @discardableResult
+    func zoomInFocusedContent() -> Bool {
+        if focusedMarkdownPanel != nil { return zoomInFocusedMarkdown() }
+        return zoomInFocusedBrowser()
+    }
+
+    @discardableResult
+    func zoomOutFocusedContent() -> Bool {
+        if focusedMarkdownPanel != nil { return zoomOutFocusedMarkdown() }
+        return zoomOutFocusedBrowser()
+    }
+
+    @discardableResult
+    func resetZoomFocusedContent() -> Bool {
+        if focusedMarkdownPanel != nil { return resetZoomFocusedMarkdown() }
+        return resetZoomFocusedBrowser()
     }
 
     @discardableResult

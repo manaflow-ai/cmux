@@ -363,6 +363,9 @@ final class CmuxSettingsFileStore {
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let markdownSection = root["markdown"] as? [String: Any] {
+            parseMarkdownSection(markdownSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
             parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -587,6 +590,23 @@ final class CmuxSettingsFileStore {
             }
         } else if section.keys.contains("textBoxMaxLines") {
             logInvalid("terminal.textBoxMaxLines", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseMarkdownSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonInt(section["fontSize"]) {
+            if Double(value) >= MarkdownFontSizeSettings.minimumPointSize,
+               Double(value) <= MarkdownFontSizeSettings.maximumPointSize {
+                snapshot.managedUserDefaults[MarkdownFontSizeSettings.key] = .int(value)
+            } else {
+                logInvalid("markdown.fontSize", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("fontSize") {
+            logInvalid("markdown.fontSize", sourcePath: sourcePath)
         }
     }
 

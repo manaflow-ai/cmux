@@ -30,6 +30,7 @@ public struct SettingCatalog: SettingCatalogSection {
     public let workspaceColors = WorkspaceColorsCatalogSection()
     public let automation = AutomationCatalogSection()
     public let browser = BrowserCatalogSection()
+    public let markdown = MarkdownCatalogSection()
     public let betaFeatures = BetaFeaturesCatalogSection()
     public let shortcuts = KeyboardShortcutsCatalogSection()
     public let integrations = IntegrationsCatalogSection()

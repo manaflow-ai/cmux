@@ -138,6 +138,9 @@ enum KeyboardShortcutSettings {
         case browserZoomIn
         case browserZoomOut
         case browserZoomReset
+        case markdownZoomIn
+        case markdownZoomOut
+        case markdownZoomReset
         case find
         case findInDirectory
         case findNext
@@ -228,6 +231,9 @@ enum KeyboardShortcutSettings {
             case .browserZoomIn: return String(localized: "menu.view.zoomIn", defaultValue: "Zoom In")
             case .browserZoomOut: return String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out")
             case .browserZoomReset: return String(localized: "menu.view.actualSize", defaultValue: "Actual Size")
+            case .markdownZoomIn: return String(localized: "shortcut.markdownZoomIn.label", defaultValue: "Markdown Viewer: Zoom In")
+            case .markdownZoomOut: return String(localized: "shortcut.markdownZoomOut.label", defaultValue: "Markdown Viewer: Zoom Out")
+            case .markdownZoomReset: return String(localized: "shortcut.markdownZoomReset.label", defaultValue: "Markdown Viewer: Actual Size")
             case .find: return String(localized: "menu.find.find", defaultValue: "Find…")
             case .findInDirectory: return String(localized: "menu.find.findInDirectory", defaultValue: "Find in Directory…")
             case .findNext: return String(localized: "menu.find.findNext", defaultValue: "Find Next")
@@ -417,6 +423,14 @@ enum KeyboardShortcutSettings {
             case .browserZoomOut:
                 return StoredShortcut(key: "-", command: true, shift: false, option: false, control: false)
             case .browserZoomReset:
+                return StoredShortcut(key: "0", command: true, shift: false, option: false, control: false)
+            case .markdownZoomIn:
+                // Same chord as browser zoom, but scoped to the markdown panel
+                // context so the two never collide.
+                return StoredShortcut(key: "=", command: true, shift: false, option: false, control: false)
+            case .markdownZoomOut:
+                return StoredShortcut(key: "-", command: true, shift: false, option: false, control: false)
+            case .markdownZoomReset:
                 return StoredShortcut(key: "0", command: true, shift: false, option: false, control: false)
             case .find:
                 return StoredShortcut(key: "f", command: true, shift: false, option: false, control: false)
