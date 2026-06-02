@@ -1,5 +1,5 @@
-import XCTest
 import AppKit
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -18,27 +18,28 @@ import AppKit
 /// `NSTextView`) was missing from that set, so arrow keys never moved the
 /// cursor. These tests pin the generalized routing decision that fixes the
 /// whole class: any standalone editable `NSTextView` owns arrow navigation.
-final class EditableTextViewArrowKeyForwardingTests: XCTestCase {
-    func testRoutesAllPlainArrowKeysWhenEditableTextViewFirstResponder() {
-        for keyCode in [123, 124, 125, 126] as [UInt16] {
-            XCTAssertTrue(
-                shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
-                    keyCode: keyCode,
-                    firstResponderIsEditableTextView: true,
-                    flags: []
-                ),
-                "Expected editable text view to own plain arrow keyCode \(keyCode)"
-            )
-        }
+@Suite("EditableTextViewArrowKeyForwarding")
+struct EditableTextViewArrowKeyForwardingTests {
+    @Test(arguments: [123, 124, 125, 126] as [UInt16])
+    func routesPlainArrowWhenEditableTextViewFirstResponder(keyCode: UInt16) {
+        #expect(
+            shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+                keyCode: keyCode,
+                firstResponderIsEditableTextView: true,
+                flags: []
+            ),
+            "Expected editable text view to own plain arrow keyCode \(keyCode)"
+        )
     }
 
-    func testRoutesSelectionWordAndLineArrows() {
+    @Test
+    func routesSelectionWordAndLineArrows() {
         let flagSets: [NSEvent.ModifierFlags] = [
             [.shift], [.option], [.option, .shift], [.command], [.command, .shift],
         ]
         for flags in flagSets {
             for keyCode in [123, 124, 125, 126] as [UInt16] {
-                XCTAssertTrue(
+                #expect(
                     shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
                         keyCode: keyCode,
                         firstResponderIsEditableTextView: true,
@@ -50,21 +51,21 @@ final class EditableTextViewArrowKeyForwardingTests: XCTestCase {
         }
     }
 
-    func testDoesNotForwardWhenResponderIsNotEditableTextView() {
-        for keyCode in [123, 124, 125, 126] as [UInt16] {
-            XCTAssertFalse(
-                shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
-                    keyCode: keyCode,
-                    firstResponderIsEditableTextView: false,
-                    flags: []
-                )
+    @Test(arguments: [123, 124, 125, 126] as [UInt16])
+    func doesNotForwardWhenResponderIsNotEditableTextView(keyCode: UInt16) {
+        #expect(
+            !shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+                keyCode: keyCode,
+                firstResponderIsEditableTextView: false,
+                flags: []
             )
-        }
+        )
     }
 
-    func testDoesNotForwardDuringMarkedTextComposition() {
-        XCTAssertFalse(
-            shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+    @Test
+    func doesNotForwardDuringMarkedTextComposition() {
+        #expect(
+            !shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
                 keyCode: 125,
                 firstResponderIsEditableTextView: true,
                 firstResponderHasMarkedText: true,
@@ -73,9 +74,10 @@ final class EditableTextViewArrowKeyForwardingTests: XCTestCase {
         )
     }
 
-    func testDoesNotForwardNonArrowKeys() {
-        XCTAssertFalse(
-            shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+    @Test
+    func doesNotForwardNonArrowKeys() {
+        #expect(
+            !shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
                 keyCode: 0,
                 firstResponderIsEditableTextView: true,
                 flags: []
@@ -83,17 +85,16 @@ final class EditableTextViewArrowKeyForwardingTests: XCTestCase {
         )
     }
 
-    func testDoesNotStealCommandOptionArrowFromPaneFocusShortcut() {
+    @Test(arguments: [123, 124, 125, 126] as [UInt16])
+    func doesNotStealCommandOptionArrowFromPaneFocusShortcut(keyCode: UInt16) {
         // Cmd+Option+Arrow is reserved for cmux pane-focus shortcuts and must
         // not be claimed by the text view.
-        for keyCode in [123, 124, 125, 126] as [UInt16] {
-            XCTAssertFalse(
-                shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
-                    keyCode: keyCode,
-                    firstResponderIsEditableTextView: true,
-                    flags: [.command, .option]
-                )
+        #expect(
+            !shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+                keyCode: keyCode,
+                firstResponderIsEditableTextView: true,
+                flags: [.command, .option]
             )
-        }
+        )
     }
 }
