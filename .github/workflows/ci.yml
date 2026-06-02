@@ -115,7 +115,9 @@ jobs:
       - name: Web tests
         run: bun test
 
-  diff-viewer-check:
+  # Checks for in-app React UIs (currently the diff viewer; more cmux React
+  # surfaces will live alongside it). Add per-app steps here as they land.
+  react-apps-check:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
