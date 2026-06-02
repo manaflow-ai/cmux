@@ -7471,7 +7471,7 @@ function updateBrowserTabNewButton(session) {
   setAttributeIfChanged(session.tabNew, "aria-disabled", String(atLimit));
   setAttributeIfChanged(session.tabNew, "aria-label", label);
   setTitleIfChanged(session.tabNew, label);
-  setTextIfChanged(session.tabNew.querySelector(".browser-tab-new-label"), "");
+  setTextIfChanged(session.tabNew.querySelector(".browser-tab-new-label"), t("browser.newTab"));
 }
 
 function browserTabAtLimit(session) {

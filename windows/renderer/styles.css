@@ -3656,18 +3656,18 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .browser-tab-new {
-  flex: 0 0 32px;
-  min-width: 32px;
-  width: 32px;
+  flex: 0 0 74px;
+  min-width: 58px;
+  width: 74px;
   height: 26px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: inline-grid;
+  grid-template-columns: 20px minmax(0, 1fr);
   align-items: center;
   justify-content: center;
-  justify-items: center;
-  gap: 0;
+  justify-items: start;
+  gap: 5px;
   margin-bottom: 0;
-  padding: 0;
+  padding: 0 7px 0 5px;
   border: 1px solid var(--color-line);
   border-bottom: 0;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
@@ -3697,7 +3697,11 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .browser-tab-new-label {
-  display: none;
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .browser-tab-new:hover {
@@ -3744,6 +3748,14 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
     flex-basis: 34px;
     min-width: 34px;
     width: 34px;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    gap: 0;
+    padding: 0;
+  }
+
+  .browser-tab-new-label {
+    display: none;
   }
 }
 
@@ -4121,8 +4133,13 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   gap: var(--space-2);
   padding: var(--space-4);
   background:
-    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 94%, transparent), var(--color-canvas));
+    linear-gradient(180deg, var(--color-pane), var(--color-canvas));
   text-align: center;
+}
+
+.browser-content:not(.has-loaded).is-loading .browser-view {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .browser-content:not(.has-loaded).is-loading .browser-loading-icon {
@@ -4256,6 +4273,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   height: 100%;
   border: 0;
   background: var(--color-pane);
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 
 .browser-error {
