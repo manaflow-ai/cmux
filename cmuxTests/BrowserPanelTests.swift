@@ -158,6 +158,46 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         assertResolvedColorMatchesTheme(for: .dark)
     }
 
+    func testChromeBackgroundPreservesGhosttyOpacity() {
+        let themeBackground = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 0.42)
+
+        guard
+            let actual = resolvedBrowserChromeBackgroundColor(
+                for: .dark,
+                themeBackgroundColor: themeBackground
+            ).usingColorSpace(.sRGB),
+            let expected = themeBackground.usingColorSpace(.sRGB)
+        else {
+            XCTFail("Expected sRGB-convertible colors")
+            return
+        }
+
+        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.001)
+        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.001)
+        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.001)
+        XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.001)
+    }
+
+    func testChromeColorSchemeUsesCompositedTransparentBackground() {
+        let transparentBlack = NSColor(srgbRed: 0.0, green: 0.0, blue: 0.0, alpha: 0.05)
+
+        XCTAssertEqual(
+            resolvedBrowserChromeColorScheme(for: .dark, themeBackgroundColor: transparentBlack),
+            .light
+        )
+    }
+
+    func testOmnibarPillBackgroundPreservesGhosttyOpacity() {
+        let themeBackground = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 0.42)
+
+        let actual = resolvedBrowserOmnibarPillBackgroundColor(
+            for: .dark,
+            themeBackgroundColor: themeBackground
+        )
+
+        XCTAssertEqual(actual.alphaComponent, 0.42, accuracy: 0.001)
+    }
+
     private func assertResolvedColorMatchesTheme(
         for colorScheme: ColorScheme,
         file: StaticString = #filePath,
