@@ -10323,32 +10323,72 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
   titleInput.className = "setting-control";
   titleInput.value = editablePaneTitle(panel);
   titleInput.placeholder = "Pane name";
+  const defaultPaneTitle = () => editablePaneTitle({ ...panel, title: "", titleLocked: false });
+  const currentPaneTitle = () => panel.titleLocked ? panel.title : defaultPaneTitle();
+  const savePaneTitleInput = async (options = {}) => {
+    const nextTitle = titleInput.value.trim();
+    if (!nextTitle) {
+      const changed = Boolean(panel.titleLocked);
+      if (changed) await updatePanel(panel.id, { title: "" });
+      titleInput.value = defaultPaneTitle();
+      if (options.toast) toast(changed ? "Pane name reset." : "Pane already uses the default name.");
+      updatePaneTitleActions();
+      return changed;
+    }
+    if (nextTitle === currentPaneTitle()) {
+      if (options.toast) toast("Pane name already current.");
+      updatePaneTitleActions();
+      return false;
+    }
+    await updatePanel(panel.id, { title: nextTitle });
+    if (options.toast) toast("Pane name saved.");
+    updatePaneTitleActions();
+    return true;
+  };
+  let titleSave = null;
+  let titleReset = null;
+  const updatePaneTitleActions = () => {
+    const nextTitle = titleInput.value.trim();
+    if (titleSave) titleSave.disabled = !nextTitle || nextTitle === currentPaneTitle();
+    if (titleReset) titleReset.disabled = !panel.titleLocked;
+  };
+  const refreshPaneTitleActionsAfterButton = () => {
+    requestAnimationFrame(() => {
+      if (titleControl.isConnected) updatePaneTitleActions();
+    });
+  };
   titleInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
+      event.preventDefault();
       titleInput.blur();
     } else if (event.key === "Escape") {
       titleInput.value = editablePaneTitle(panel);
       titleInput.blur();
     }
   });
-  titleInput.addEventListener("blur", () => {
-    const nextTitle = titleInput.value.trim();
-    if (!nextTitle) {
-      if (panel.titleLocked) updatePanel(panel.id, { title: "" });
-      titleInput.value = editablePaneTitle({ ...panel, title: "", titleLocked: false });
-      return;
-    }
-    if (nextTitle !== panel.title) updatePanel(panel.id, { title: nextTitle });
+  titleInput.addEventListener("input", updatePaneTitleActions);
+  titleInput.addEventListener("blur", (event) => {
+    if (event.relatedTarget && titleControl.contains(event.relatedTarget)) return;
+    savePaneTitleInput();
   });
-  const titleReset = settingsActionButton("Default", () => {
-    titleInput.value = editablePaneTitle({ ...panel, title: "" });
-    updatePanel(panel.id, { title: "" });
+  titleSave = settingsActionButton("Save", async () => {
+    const changed = await savePaneTitleInput({ toast: true });
+    refreshPaneTitleActionsAfterButton();
+    return changed;
+  }, "primary", "active pane rename save tab title");
+  titleReset = settingsActionButton("Default", async () => {
+    const changed = Boolean(panel.titleLocked);
+    titleInput.value = defaultPaneTitle();
+    if (changed) await updatePanel(panel.id, { title: "" });
+    else toast("Pane already uses the default name.");
+    updatePaneTitleActions();
+    refreshPaneTitleActionsAfterButton();
   }, "", "active pane rename default automatic title clear");
-  titleReset.disabled = !panel.titleLocked;
   const titleControl = document.createElement("span");
   titleControl.className = "active-pane-title-control";
-  titleControl.append(titleInput, titleReset);
-  wrapper.append(settingRow("Pane name", titleControl, false, "active pane rename tab title default automatic clear"));
+  titleControl.append(titleInput, titleSave, titleReset);
+  updatePaneTitleActions();
+  wrapper.append(settingRow("Pane name", titleControl, false, "active pane rename save tab title default automatic clear"));
 
   wrapper.append(settingRow(
     "Pane color",

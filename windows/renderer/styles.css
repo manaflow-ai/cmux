@@ -5205,9 +5205,19 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .active-pane-title-control {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(74px, auto);
+  grid-template-columns: minmax(0, 1fr) minmax(58px, auto) minmax(74px, auto);
   align-items: center;
   gap: var(--space-1);
+}
+
+.active-pane-title-control .setting-control,
+.active-pane-title-control .settings-action {
+  height: 30px;
+}
+
+.active-pane-title-control .settings-action {
+  min-width: 0;
+  padding-inline: var(--space-1);
 }
 
 .workspace-name-control {
