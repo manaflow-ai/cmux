@@ -169,6 +169,35 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         XCTAssertEqual(resultIDs.first, "workspace.iosApp")
     }
 
+    func testNucleoFFIPrefersDiacriticTitlePrefixOverHiddenKeyword() throws {
+        // Regression: the literal-title check must use the matcher's case + Smart diacritic
+        // normalization, so a localized title like "Éclair" is recognized as a prefix of "e" and
+        // still beats a row that only has a hidden exact "e" metadata token.
+        // https://github.com/manaflow-ai/cmux/pull/5148
+        let library = try NucleoLibrary()
+        let entries = [
+            FixtureEntry(
+                id: "workspace.eclair",
+                rank: 0,
+                title: "Éclair Notes",
+                searchableTexts: ["Éclair Notes", "Workspace", "workspace", "switch", "go"]
+            ),
+            FixtureEntry(
+                id: "workspace.hiddenEKeyword",
+                rank: 1,
+                title: "Some Other Workspace",
+                searchableTexts: [
+                    "Some Other Workspace", "Workspace", "workspace", "switch", "go", "branch", "e",
+                ]
+            ),
+        ]
+        let index = try NucleoIndex(library: library, entries: entries)
+
+        let resultIDs = try index.search(query: "e", limit: 5).map(\.id)
+
+        XCTAssertEqual(resultIDs.first, "workspace.eclair")
+    }
+
     func testNucleoFFIDoesNotMatchSingleTokenAcrossSearchFields() throws {
         let library = try NucleoLibrary()
         let entries = [

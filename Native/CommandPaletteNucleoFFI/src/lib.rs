@@ -4,7 +4,7 @@ use std::collections::BinaryHeap;
 use std::slice;
 use std::str;
 
-use nucleo::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
+use nucleo::pattern::{Atom, AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo::{Config, Matcher, Utf32Str};
 
 #[repr(C)]
@@ -52,6 +52,37 @@ struct SearchToken {
     initialism_query: Option<InitialismQuery>,
 }
 
+/// Whole-query literal-title matchers, built once per search. `exact`/`prefix` use the matcher's
+/// own normalization (case + Smart diacritic folding) so a localized title like "Éclair" is still
+/// recognized as a prefix of "e", matching the fuzzy matcher's notion of equality.
+struct TitleLiteralQuery {
+    exact: Atom,
+    prefix: Atom,
+    token_count: usize,
+}
+
+impl TitleLiteralQuery {
+    fn new(query: &str) -> TitleLiteralQuery {
+        TitleLiteralQuery {
+            exact: Atom::new(
+                query,
+                CaseMatching::Ignore,
+                Normalization::Smart,
+                AtomKind::Exact,
+                true,
+            ),
+            prefix: Atom::new(
+                query,
+                CaseMatching::Ignore,
+                Normalization::Smart,
+                AtomKind::Prefix,
+                true,
+            ),
+            token_count: query.split_whitespace().count().max(1),
+        }
+    }
+}
+
 struct WorstFirstScoredCandidate(ScoredCandidate);
 
 impl PartialEq for WorstFirstScoredCandidate {
@@ -83,6 +114,11 @@ impl SearchState {
     fn score_text(&mut self, pattern: &Pattern, text: &str) -> Option<u32> {
         self.utf32_buf.clear();
         pattern.score(Utf32Str::new(text, &mut self.utf32_buf), &mut self.matcher)
+    }
+
+    fn atom_score(&mut self, atom: &Atom, text: &str) -> Option<u16> {
+        self.utf32_buf.clear();
+        atom.score(Utf32Str::new(text, &mut self.utf32_buf), &mut self.matcher)
     }
 }
 
@@ -262,6 +298,7 @@ unsafe fn cmux_nucleo_index_search_impl(
     } else {
         let query_mask = ascii_mask_query(&normalized_query);
         let search_tokens = search_tokens(&normalized_query);
+        let title_literal = TitleLiteralQuery::new(&normalized_query);
         let mut best_matches = BinaryHeap::with_capacity(output_limit);
 
         SEARCH_STATE.with(|state| {
@@ -277,9 +314,13 @@ unsafe fn cmux_nucleo_index_search_impl(
                     }
                 }
 
-                let Some(score) =
-                    weighted_query_score(&mut state, &normalized_query, &search_tokens, candidate)
-                else {
+                let Some(score) = weighted_query_score(
+                    &mut state,
+                    &normalized_query,
+                    &search_tokens,
+                    &title_literal,
+                    candidate,
+                ) else {
                     continue;
                 };
                 append_scored_candidate(
@@ -374,6 +415,7 @@ fn weighted_query_score(
     state: &mut SearchState,
     query: &str,
     tokens: &[SearchToken],
+    title_literal: &TitleLiteralQuery,
     candidate: &Candidate,
 ) -> Option<f64> {
     let token_score = token_sum_score(state, query, tokens, candidate);
@@ -385,7 +427,7 @@ fn weighted_query_score(
     // jackpot in `exact_search_text_line_score`. `title_literal_score` sits above every keyword
     // tier so the visible title wins. This mirrors the Swift `CommandPaletteSearchEngine`
     // reference ordering (title prefix > exact keyword).
-    match (token_score, title_literal_score(candidate, query)) {
+    match (token_score, title_literal_score(state, title_literal, candidate)) {
         (Some(token), Some(literal)) => Some(token.max(literal)),
         (Some(token), None) => Some(token),
         (None, Some(literal)) => Some(literal),
@@ -524,37 +566,25 @@ const TITLE_EXACT_TOKEN_SCORE: f64 = KEYWORD_EXACT_CEILING + 4_000.0;
 /// "app" near 60_060). A flat title constant would lose to that sum; scaling per token keeps a
 /// visible title match dominant for any query length, not just single-token queries.
 ///
-/// Prefix matches of the same length share one score on purpose: a per-character-length penalty
-/// would invent a "shortest title wins" rule that mis-ranks when one title is a character-prefix
-/// of another (e.g. query "workspace 1901" preferring "Workspace 19010" over "Workspace 1901
-/// ..."). Equal scores defer to `scored_candidate_order`'s `(rank, index)` tiebreak, which keeps
-/// the switcher's natural order. Diacritic-only differences fall through to `None` and are handled
-/// by the fuzzy matcher (`Normalization::Smart`).
-fn title_literal_score(candidate: &Candidate, query: &str) -> Option<f64> {
-    let query = query.trim();
-    if query.is_empty() {
-        return None;
+/// Prefix matches share one score on purpose: a per-character-length penalty would invent a
+/// "shortest title wins" rule that mis-ranks when one title is a character-prefix of another
+/// (e.g. query "workspace 1901" preferring "Workspace 19010" over "Workspace 1901 ..."). Equal
+/// scores defer to `scored_candidate_order`'s `(rank, index)` tiebreak, which keeps the switcher's
+/// natural order. The match itself uses `TitleLiteralQuery`'s `Atom`s, so case and Smart diacritic
+/// normalization are consistent with the fuzzy matcher (e.g. "e" prefix-matches "Éclair").
+fn title_literal_score(
+    state: &mut SearchState,
+    query: &TitleLiteralQuery,
+    candidate: &Candidate,
+) -> Option<f64> {
+    let token_count = query.token_count as f64;
+    if state.atom_score(&query.exact, &candidate.title).is_some() {
+        return Some(TITLE_EXACT_TOKEN_SCORE * token_count);
     }
-    let title = candidate.title.trim();
-
-    let mut title_chars = title.chars();
-    for query_char in query.chars() {
-        match title_chars.next() {
-            Some(title_char) if chars_equal_ignoring_case(title_char, query_char) => {}
-            _ => return None,
-        }
+    if state.atom_score(&query.prefix, &candidate.title).is_some() {
+        return Some(TITLE_PREFIX_TOKEN_SCORE * token_count);
     }
-
-    let token_count = query.split_whitespace().count().max(1) as f64;
-    if title_chars.next().is_none() {
-        Some(TITLE_EXACT_TOKEN_SCORE * token_count)
-    } else {
-        Some(TITLE_PREFIX_TOKEN_SCORE * token_count)
-    }
-}
-
-fn chars_equal_ignoring_case(lhs: char, rhs: char) -> bool {
-    lhs == rhs || lhs.to_ascii_lowercase() == rhs.to_ascii_lowercase()
+    None
 }
 
 fn initialism_query(query: &str) -> Option<InitialismQuery> {
