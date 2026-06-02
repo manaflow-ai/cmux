@@ -177,6 +177,27 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         XCTAssertEqual(actual.alphaComponent, 0.42, accuracy: 0.001)
     }
 
+    func testTransparentGhosttyBackgroundUsesClearBrowserSurfaceFill() {
+        let actual = GhosttyBackgroundTheme.surfaceFillColor(
+            backgroundColor: NSColor.black,
+            opacity: 0.42
+        )
+
+        XCTAssertEqual(actual.alphaComponent, 0, accuracy: 0.001)
+    }
+
+    func testOpaqueGhosttyBackgroundUsesThemeBrowserSurfaceFill() {
+        let actual = GhosttyBackgroundTheme.surfaceFillColor(
+            backgroundColor: NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 1),
+            opacity: 1
+        )
+
+        XCTAssertEqual(actual.alphaComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(actual.redComponent, 0.13, accuracy: 0.001)
+        XCTAssertEqual(actual.greenComponent, 0.29, accuracy: 0.001)
+        XCTAssertEqual(actual.blueComponent, 0.47, accuracy: 0.001)
+    }
+
     private func assertResolvedColorMatchesTheme(
         for colorScheme: ColorScheme,
         file: StaticString = #filePath,
