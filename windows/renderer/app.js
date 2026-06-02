@@ -7611,10 +7611,7 @@ function createBrowserTabButton(session) {
     closeBrowserTab(session, button.dataset.browserTabId);
   });
   button.addEventListener("keydown", (event) => {
-    if (event.key !== "Delete") return;
-    event.preventDefault();
-    event.stopPropagation();
-    closeBrowserTab(session, button.dataset.browserTabId);
+    handleBrowserTabKeydown(session, event, button.dataset.browserTabId);
   });
   button.addEventListener("contextmenu", (event) => showBrowserTabContextMenu(event, session, button.dataset.browserTabId));
   button.addEventListener("dragstart", (event) => {
@@ -7650,6 +7647,47 @@ function createBrowserTabButton(session) {
   return button;
 }
 
+function focusBrowserTabButton(session, tabId) {
+  if (!session || !tabId) return;
+  requestAnimationFrame(() => {
+    const button = session.tabButtons?.get(tabId);
+    button?.focus?.({ preventScroll: true });
+  });
+}
+
+function browserTabKeyboardTargetId(session, currentTabId, key) {
+  const tabs = session?.tabs || [];
+  if (tabs.length === 0) return "";
+  const currentIndex = Math.max(0, tabs.findIndex((tab) => tab.id === currentTabId));
+  if (key === "Home") return tabs[0]?.id || "";
+  if (key === "End") return tabs.at(-1)?.id || "";
+  if (key === "ArrowLeft") return tabs[Math.max(0, currentIndex - 1)]?.id || "";
+  if (key === "ArrowRight") return tabs[Math.min(tabs.length - 1, currentIndex + 1)]?.id || "";
+  return "";
+}
+
+function handleBrowserTabKeydown(session, event, tabId) {
+  if (!session || !tabId) return;
+  if (event.ctrlKey && event.key.toLowerCase() === "t") {
+    event.preventDefault();
+    event.stopPropagation();
+    createBrowserTab(session, state.settings.browserHomeUrl, { focusTab: true });
+    return;
+  }
+  if (event.key === "Delete") {
+    event.preventDefault();
+    event.stopPropagation();
+    closeBrowserTab(session, tabId);
+    return;
+  }
+  const nextTabId = browserTabKeyboardTargetId(session, tabId, event.key);
+  if (!nextTabId) return;
+  event.preventDefault();
+  event.stopPropagation();
+  activateBrowserTab(session, nextTabId);
+  focusBrowserTabButton(session, nextTabId);
+}
+
 function updateBrowserTabButton(session, button, tab, label = browserTabLabel(session, tab)) {
   const fullTitle = browserTabBaseLabel(tab);
   const ordinal = Math.max(1, (session?.tabs || []).findIndex((candidate) => candidate.id === tab.id) + 1);
@@ -7660,9 +7698,13 @@ function updateBrowserTabButton(session, button, tab, label = browserTabLabel(se
     close: button.querySelector(".browser-tab-close")
   };
   const parts = button._browserTabParts;
-  setClassNameIfChanged(button, `browser-tab${tab.id === session.activeTabId ? " is-active" : ""}`);
+  const active = tab.id === session.activeTabId;
+  setClassNameIfChanged(button, `browser-tab${active ? " is-active" : ""}`);
   setDatasetIfChanged(button, "browserTabId", tab.id);
   setDatasetIfChanged(button, "tabIndex", String(ordinal));
+  setAttributeIfChanged(button, "role", "tab");
+  setAttributeIfChanged(button, "aria-selected", active ? "true" : "false");
+  if (button.tabIndex !== (active ? 0 : -1)) button.tabIndex = active ? 0 : -1;
   setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""} - ${tab.url}`);
   const ariaLabel = `${label}. ${tab.url}. ${closeLabel} with Delete.`;
   setAttributeIfChanged(button, "aria-label", ariaLabel);
@@ -7900,6 +7942,7 @@ function createBrowserTab(session, value = state.settings.browserHomeUrl, option
   if (!tab) return false;
   session.tabs.push(tab);
   activateBrowserTab(session, tab.id);
+  if (options.focusTab) focusBrowserTabButton(session, tab.id);
   if (options.focusAddress) focusBrowserAddressSession(session);
   return true;
 }
@@ -7948,6 +7991,9 @@ function ensureBrowser(panel, body) {
   tabStrip.className = "browser-tabs";
   const tabList = document.createElement("div");
   tabList.className = "browser-tab-list";
+  tabList.setAttribute("role", "tablist");
+  tabList.setAttribute("aria-label", t("browser.tabs"));
+  tabList.setAttribute("aria-orientation", "horizontal");
   const tabNew = document.createElement("button");
   tabNew.className = "browser-tab-new";
   tabNew.type = "button";

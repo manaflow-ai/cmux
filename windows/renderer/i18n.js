@@ -29,6 +29,7 @@ const windowsMessages = {
     "commands.snippets.body": "Run saved and built-in terminal command shortcuts.",
     "commands.snippetCount": "{count}/{limit} saved",
     "browser.fallbackTitle": "Browser",
+    "browser.tabs": "Browser tabs",
     "browser.newTab": "New tab",
     "browser.closeTab": "Close tab",
     "browser.resetTab": "Reset tab",
