@@ -65,6 +65,10 @@ body {
   height: 100vh;
   min-height: 0;
   display: grid;
+  /* Constrain the single column to the viewport. Without an explicit column
+     the implicit `auto` track sizes to content max-width, letting #content
+     (and its files sidebar) overflow the window and clip on the right. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   overscroll-behavior: contain;
