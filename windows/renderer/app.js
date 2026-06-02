@@ -2734,8 +2734,7 @@ const commands = [
   { id: "settings.backgrounds", label: "Open Background Settings", shortcut: "", run: () => openSettingsCategory("appearance") },
   { id: "settings.saveBackground", label: "Save Current Background", shortcut: "", run: () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }) },
   { id: "session.reset", label: "Reset Session", shortcut: "", run: () => resetSession() },
-  { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() },
-  { id: "attention.fake", label: "Simulate Notification", shortcut: "", run: () => simulateNotification() }
+  { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() }
 ];
 
 function activeWorkspace() {
@@ -14543,14 +14542,6 @@ async function resetSession() {
   toast("Session reset.");
 }
 
-async function simulateNotification() {
-  await api("/api/notify", {
-    method: "POST",
-    body: JSON.stringify({ message: "Agent turn complete. Review output when ready." })
-  });
-  openInspector("notifications");
-}
-
 function resolveTerminalPanel(panel = focusedPanel()) {
   const found = panel?.id ? findPanelState(panel.id) : null;
   const candidate = found?.panel || panel;
@@ -15311,7 +15302,6 @@ document.getElementById("toolsMenuButton").onclick = showToolbarMenu;
 document.getElementById("settingsButton").onclick = () => openInspector("settings");
 document.getElementById("renameWorkspaceButton").onclick = () => renameActiveWorkspace();
 document.getElementById("colorWorkspaceButton").onclick = () => cycleWorkspaceColor();
-document.getElementById("notifyButton").onclick = () => simulateNotification();
 document.getElementById("toggleSidebarButton").onclick = () => toggleSidebar();
 attachHorizontalWheelScroll(elements.commandStrip);
 observeCommandStripOverflow();
