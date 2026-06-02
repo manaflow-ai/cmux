@@ -2732,12 +2732,23 @@ function panelFromElement(target) {
   return panelId ? findPanelState(panelId)?.panel || null : null;
 }
 
+function panelFromPoint(clientX, clientY) {
+  if (!Number.isFinite(clientX) || !Number.isFinite(clientY) || typeof document.elementsFromPoint !== "function") {
+    return null;
+  }
+  for (const element of document.elementsFromPoint(clientX, clientY)) {
+    const panel = panelFromElement(element);
+    if (panel) return panel;
+  }
+  return null;
+}
+
 function panelFromEvent(event) {
   for (const target of event?.composedPath?.() || []) {
     const panel = panelFromElement(target);
     if (panel) return panel;
   }
-  return panelFromElement(event?.target);
+  return panelFromElement(event?.target) || panelFromPoint(event?.clientX, event?.clientY);
 }
 
 function panelFromActiveElement() {
@@ -13319,7 +13330,7 @@ function handlePaneWheelZoom(event) {
 
 function handleWindowWheelZoom(event) {
   if (!event.ctrlKey) return;
-  const panel = panelFromEvent(event);
+  const panel = panelFromEvent(event) || panelFromPoint(event.clientX, event.clientY);
   if (panel?.type === "terminal") {
     applyTerminalWheelZoom(event, panel);
     return;
@@ -14427,6 +14438,8 @@ function updateMaximizeButton(maximized) {
   if (!elements.maximizeWindowButton) return;
   elements.maximizeWindowButton.textContent = maximized ? "❐" : "□";
   elements.maximizeWindowButton.title = maximized ? "Restore" : "Maximize";
+  elements.maximizeWindowButton.setAttribute("aria-label", maximized ? "Restore window" : "Maximize window");
+  elements.maximizeWindowButton.dataset.windowState = maximized ? "maximized" : "normal";
 }
 
 if (window.cmuxNative?.isWindowMaximized) {

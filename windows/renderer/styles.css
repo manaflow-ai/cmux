@@ -1082,6 +1082,9 @@ body.reduce-motion *::after {
   color: var(--color-muted);
   font-family: var(--font-ui);
   font-size: 14px;
+  line-height: 1;
+  user-select: none;
+  touch-action: manipulation;
 }
 
 .window-control:hover {
