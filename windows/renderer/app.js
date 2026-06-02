@@ -2897,6 +2897,33 @@ function appendSignatureArray(parts, values, appendItem) {
   items.forEach((item, index) => appendItem(parts, item, index));
 }
 
+function appendSignatureData(parts, value) {
+  if (value instanceof Map) {
+    parts.push("m", String(value.size), "{");
+    for (const [key, item] of value.entries()) {
+      appendSignatureValue(parts, key);
+      appendSignatureData(parts, item);
+    }
+    parts.push("}");
+    return;
+  }
+  if (Array.isArray(value)) {
+    appendSignatureArray(parts, value, (nextParts, item) => appendSignatureData(nextParts, item));
+    return;
+  }
+  if (value && typeof value === "object") {
+    const keys = Object.keys(value);
+    parts.push("o", String(keys.length), "{");
+    for (const key of keys) {
+      appendSignatureValue(parts, key);
+      appendSignatureData(parts, value[key]);
+    }
+    parts.push("}");
+    return;
+  }
+  appendSignatureValue(parts, value);
+}
+
 function appendPanelSignature(parts, panel = {}) {
   appendSignatureValue(parts, panel.id);
   appendSignatureValue(parts, panel.workspaceId);
@@ -7532,7 +7559,7 @@ function settingsInspectorSignature() {
     parts.push(activeWorkspaceSettingsSignature());
   }
   if (searching || ["layout", "data", "actions"].includes(category)) {
-    parts.push(stableJson(Object.fromEntries(state.paneLayouts)), stableJson(Object.fromEntries(state.paneTrees)));
+    parts.push(stableJson(state.paneLayouts), stableJson(state.paneTrees));
   }
   if (searching || category === "quick") {
     parts.push(quickSettingsSignature());
@@ -7541,7 +7568,7 @@ function settingsInspectorSignature() {
     parts.push(stableJson(state.customColorPalette), stableJson(state.savedBackgroundImages));
   }
   if (searching || ["browser", "data", "actions"].includes(category)) {
-    parts.push(stableJson(state.recentBrowserPages), stableJson(Object.fromEntries(state.browserTabSnapshots)));
+    parts.push(stableJson(state.recentBrowserPages), stableJson(state.browserTabSnapshots));
   }
   if (searching || category === "browser") {
     parts.push(stableJson(state.browserProfiles), String(state.browserProfilesLoaded), String(state.browserProfilesLoading));
@@ -7567,62 +7594,72 @@ function settingsInspectorSettingsSignature(category, searching) {
   }
   const keys = settingsInspectorSettingKeys[category];
   if (!keys) return "";
-  return stableJson(Object.fromEntries(keys.map((key) => [key, state.settings[key]])));
+  const parts = [];
+  appendSignatureArray(parts, keys, (nextParts, key) => {
+    appendSignatureValue(nextParts, key);
+    appendSignatureData(nextParts, state.settings[key]);
+  });
+  return parts.join("");
 }
 
 function activeWorkspaceSettingsSignature() {
   const workspace = activeWorkspace();
   if (!workspace) return "";
-  return stableJson({
-    id: workspace.id,
-    title: workspace.title,
-    color: workspace.color,
-    cwd: workspace.cwd,
-    cwdShort: workspace.cwdShort,
-    activePanelId: workspace.activePanelId,
-    splitDirection: workspace.splitDirection,
-    terminalCount: workspace.terminalCount,
-    browserCount: workspace.browserCount,
-    paneTree: state.paneTrees.get(workspace.id) || null,
-    paneLayouts: workspace.panels.map((panel) => [panel.id, state.paneLayouts.get(panel.id) || null]),
-    panels: workspace.panels.map((panel) => ({
-      id: panel.id,
-      type: panel.type,
-      title: panel.title,
-      titleLocked: Boolean(panel.titleLocked),
-      color: panel.color,
-      cwd: panel.cwd,
-      cwdShort: panel.cwdShort,
-      shellProfile: panel.shellProfile,
-      shellPath: panel.shellPath,
-      terminalFontSize: panel.terminalFontSize || 0,
-      url: panel.url
-    }))
+  const parts = [];
+  appendSignatureValue(parts, workspace.id);
+  appendSignatureValue(parts, workspace.title);
+  appendSignatureValue(parts, workspace.color);
+  appendSignatureValue(parts, workspace.cwd);
+  appendSignatureValue(parts, workspace.cwdShort);
+  appendSignatureValue(parts, workspace.activePanelId);
+  appendSignatureValue(parts, workspace.splitDirection);
+  appendSignatureValue(parts, workspace.terminalCount);
+  appendSignatureValue(parts, workspace.browserCount);
+  appendSignatureData(parts, state.paneTrees.get(workspace.id) || null);
+  appendSignatureArray(parts, workspace.panels, (nextParts, panel) => {
+    appendSignatureValue(nextParts, panel.id);
+    appendSignatureData(nextParts, state.paneLayouts.get(panel.id) || null);
   });
+  appendSignatureArray(parts, workspace.panels, (nextParts, panel) => {
+    appendSignatureValue(nextParts, panel.id);
+    appendSignatureValue(nextParts, panel.type);
+    appendSignatureValue(nextParts, panel.title);
+    appendSignatureValue(nextParts, Boolean(panel.titleLocked));
+    appendSignatureValue(nextParts, panel.color);
+    appendSignatureValue(nextParts, panel.cwd);
+    appendSignatureValue(nextParts, panel.cwdShort);
+    appendSignatureValue(nextParts, panel.shellProfile);
+    appendSignatureValue(nextParts, panel.shellPath);
+    appendSignatureValue(nextParts, panel.terminalFontSize || 0);
+    appendSignatureValue(nextParts, panel.url);
+  });
+  return parts.join("");
 }
 
 function quickSettingsSignature() {
   const panels = allPanels();
-  return stableJson({
-    workspace: activeWorkspaceSettingsSignature(),
-    workspaces: state.data?.workspaces?.length || 0,
-    panes: panels.length,
-    recentFolders: state.recentFolders.length,
-    recentCommands: state.recentCommands.length,
-    recentBrowserPages: state.recentBrowserPages.length,
-    browserTabs: browserTabSnapshotCount(),
-    commandSnippets: state.customCommandSnippets.length,
-    profiles: state.savedSettingsProfiles.length,
-    blueprints: state.workspaceBlueprints.length,
-    colors: state.customColorPalette.length,
-    backgrounds: state.savedBackgroundImages.length,
-    performanceGuardTriggered: state.performanceGuardTriggered
-  });
+  const parts = [];
+  appendSignatureValue(parts, activeWorkspaceSettingsSignature());
+  appendSignatureValue(parts, state.data?.workspaces?.length || 0);
+  appendSignatureValue(parts, panels.length);
+  appendSignatureValue(parts, state.recentFolders.length);
+  appendSignatureValue(parts, state.recentCommands.length);
+  appendSignatureValue(parts, state.recentBrowserPages.length);
+  appendSignatureValue(parts, browserTabSnapshotCount());
+  appendSignatureValue(parts, state.customCommandSnippets.length);
+  appendSignatureValue(parts, state.savedSettingsProfiles.length);
+  appendSignatureValue(parts, state.workspaceBlueprints.length);
+  appendSignatureValue(parts, state.customColorPalette.length);
+  appendSignatureValue(parts, state.savedBackgroundImages.length);
+  appendSignatureValue(parts, state.performanceGuardTriggered);
+  return parts.join("");
 }
 
 function stableJson(value) {
   try {
-    return JSON.stringify(value ?? null);
+    const parts = [];
+    appendSignatureData(parts, value ?? null);
+    return parts.join("");
   } catch {
     return "";
   }
@@ -11786,15 +11823,15 @@ function renderPalette() {
 }
 
 function paletteListSignature(query, entries) {
-  return stableJson({
-    query,
-    entries: entries.map((entry) => [
-      entry.id,
-      entry.label,
-      entry.meta,
-      entry.shortcut
-    ])
+  const parts = [];
+  appendSignatureValue(parts, query);
+  appendSignatureArray(parts, entries, (nextParts, entry) => {
+    appendSignatureValue(nextParts, entry.id);
+    appendSignatureValue(nextParts, entry.label);
+    appendSignatureValue(nextParts, entry.meta);
+    appendSignatureValue(nextParts, entry.shortcut);
   });
+  return parts.join("");
 }
 
 function updatePaletteSelection() {
