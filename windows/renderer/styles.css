@@ -5445,6 +5445,13 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   background: color-mix(in oklch, var(--color-pane) 88%, var(--color-rail) 12%);
 }
 
+.pane-shape-panel.is-embedded {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
 .pane-shape-meter {
   position: relative;
   width: 76px;

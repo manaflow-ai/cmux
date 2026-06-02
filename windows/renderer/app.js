@@ -9276,6 +9276,7 @@ function shouldRefreshLayoutSettings() {
   return state.inspectorMode === "settings"
     && (
       state.settingsCategory === "layout"
+      || state.settingsCategory === "workspace"
       || state.settingsCategory === "quick"
       || Boolean(normalizeSettingsQuery(state.settingsQuery))
     );
@@ -10537,6 +10538,15 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
   titleControl.append(titleInput, titleSave, titleReset);
   updatePaneTitleActions();
   wrapper.append(settingRow("Pane name", titleControl, false, "active pane rename save tab title default automatic clear"));
+
+  const paneSizeControl = paneShapePanel(workspace);
+  paneSizeControl.classList.add("is-embedded");
+  wrapper.append(settingRow(
+    "Pane size",
+    paneSizeControl,
+    true,
+    "active pane size shape split resize percent exact slider 1 99 layout rows columns"
+  ));
 
   wrapper.append(settingRow(
     "Pane color",
