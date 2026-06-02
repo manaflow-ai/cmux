@@ -14743,7 +14743,8 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool = false,
         filePath: String,
-        focus: Bool = true
+        focus: Bool = true,
+        fontSize: Double? = nil
     ) -> MarkdownPanel? {
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -14757,7 +14758,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let paneId = sourcePaneId else { return nil }
 
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
+        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath, fontSize: fontSize)
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 
@@ -18095,11 +18096,17 @@ extension Workspace: BonsplitDelegate {
         gitBranch = panelGitBranches[panelId]
         pullRequest = panelPullRequests[panelId]
 
-        // Post notification
-        NotificationCenter.default.post(
-            name: .ghosttyDidFocusSurface,
-            object: nil,
-            userInfo: [GhosttyNotificationKey.tabId: self.id, GhosttyNotificationKey.surfaceId: panelId, GhosttyNotificationKey.explicitFocusIntent: explicitFocusIntent]
+        // Broadcast the focus change. This is deferred + coalesced (not posted
+        // synchronously) so the `@Published` mutations above settle before any
+        // observer runs, and so a notification-driven focus cycle (command-palette
+        // restore + cross-workspace handoff) cannot synchronously re-enter
+        // applyTabSelectionNow and hang the main thread. See issue #5100.
+        FocusSurfaceBroadcaster.shared.emit(
+            FocusSurfaceBroadcaster.FocusSurfacePayload(
+                workspaceId: self.id,
+                panelId: panelId,
+                explicitFocusIntent: explicitFocusIntent
+            )
         )
         publishCmuxFocusedSelection(paneId: focusedPane, surfaceId: panelId, origin: "bonsplit_selection")
 #if DEBUG
