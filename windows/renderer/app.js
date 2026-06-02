@@ -459,6 +459,8 @@ const state = {
   workspaceRows: new Map(),
   surfaceTabButtons: new Map(),
   workspaceListSignature: "",
+  workspaceListContentSignature: "",
+  workspaceListActiveId: "",
   surfaceTabsSignature: "",
   paneRenderSignature: "",
   paneFitSignature: "",
@@ -3406,15 +3408,21 @@ async function withUiOperation(key, kind, label, task) {
 }
 
 function renderWorkspaces() {
-  const signature = workspaceListSignature();
+  const activeId = state.data.activeWorkspaceId;
+  const contentSignature = workspaceListContentSignature();
   if (
-    signature === state.workspaceListSignature
+    contentSignature === state.workspaceListContentSignature
     && state.workspaceRows.size === state.data.workspaces.length
     && elements.workspaceList.childNodes.length === state.data.workspaces.length
   ) {
+    if (activeId !== state.workspaceListActiveId) {
+      updateWorkspaceRowById(state.workspaceListActiveId, activeId);
+      updateWorkspaceRowById(activeId, activeId);
+      state.workspaceListActiveId = activeId;
+      state.workspaceListSignature = workspaceListSignature(contentSignature, activeId);
+    }
     return;
   }
-  const activeId = state.data.activeWorkspaceId;
   const validIds = new Set(state.data.workspaces.map((workspace) => workspace.id));
   for (const [workspaceId, row] of [...state.workspaceRows]) {
     if (!validIds.has(workspaceId)) {
@@ -3432,14 +3440,21 @@ function renderWorkspaces() {
     return button;
   });
   replaceChildrenIfChanged(elements.workspaceList, nodes);
-  state.workspaceListSignature = signature;
+  state.workspaceListSignature = workspaceListSignature(contentSignature, activeId);
+  state.workspaceListContentSignature = contentSignature;
+  state.workspaceListActiveId = activeId;
 }
 
-function workspaceListSignature() {
-  const activeId = state.data?.activeWorkspaceId || "";
-  const paletteColor = state.data?.palette?.[0] || "";
+function workspaceListSignature(contentSignature = workspaceListContentSignature(), activeId = state.data?.activeWorkspaceId || "") {
   const parts = [];
   appendSignatureValue(parts, activeId);
+  appendSignatureValue(parts, contentSignature);
+  return parts.join("");
+}
+
+function workspaceListContentSignature() {
+  const paletteColor = state.data?.palette?.[0] || "";
+  const parts = [];
   appendSignatureValue(parts, paletteColor);
   appendSignatureValue(parts, state.settings.sidebarDetailMode);
   appendSignatureArray(parts, state.data?.workspaces || [], (nextParts, workspace, index) => {
@@ -3455,6 +3470,15 @@ function workspaceListSignature() {
     appendSignatureValue(nextParts, attentionTotal);
   });
   return parts.join("");
+}
+
+function updateWorkspaceRowById(workspaceId, activeId) {
+  if (!workspaceId) return;
+  const index = state.data?.workspaces.findIndex((workspace) => workspace.id === workspaceId) ?? -1;
+  if (index < 0) return;
+  const row = state.workspaceRows.get(workspaceId);
+  if (!row) return;
+  updateWorkspaceRow(row, state.data.workspaces[index], index, activeId);
 }
 
 function createWorkspaceRow() {
