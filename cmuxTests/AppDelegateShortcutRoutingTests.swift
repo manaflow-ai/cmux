@@ -132,6 +132,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
     private var mainWindowIdsAtTestStart: Set<UUID> = []
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
+#if DEBUG
+    private var originalRuntimeSurfaceCreationSuppression = false
+#endif
 
     private func makeKeyEvent(
         modifierFlags: NSEvent.ModifierFlags,
@@ -190,6 +193,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // Prevent a single hanging test from consuming the entire CI timeout budget.
         executionTimeAllowance = 30
         #if DEBUG
+        originalRuntimeSurfaceCreationSuppression = TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = true
         KeyboardShortcutRecorderActivity.resetForTesting()
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
         #endif
@@ -247,6 +252,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         Self.retainedTextBoxUndoWindows.removeAll()
         Self.retainedTextBoxRenderScrollViews.removeAll()
         Self.retainedTextBoxRestoreViews.removeAll()
+        #if DEBUG
+        TerminalSurface.debugSuppressRuntimeSurfaceCreationForTesting = originalRuntimeSurfaceCreationSuppression
+        #endif
         super.tearDown()
     }
 

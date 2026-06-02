@@ -5253,6 +5253,10 @@ private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUI
 }
 
 final class TerminalSurface: Identifiable, ObservableObject {
+#if DEBUG
+    static var debugSuppressRuntimeSurfaceCreationForTesting = false
+#endif
+
     final class SearchState: ObservableObject {
         @Published var needle: String
         @Published var selected: UInt?
@@ -5935,6 +5939,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func allowsRuntimeSurfaceCreation() -> Bool {
+#if DEBUG
+        if Self.debugSuppressRuntimeSurfaceCreationForTesting {
+            return false
+        }
+#endif
         portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
     }
 
