@@ -6517,7 +6517,7 @@ function ensureTerminal(panel, body) {
   }
   const host = document.createElement("div");
   host.className = "terminal-host is-connecting";
-  host.dataset.connectionStatus = "Connecting shell";
+  host.dataset.connectionStatus = t("terminal.connectingShell");
   host.addEventListener("wheel", handleTerminalWheelZoom, { passive: false, capture: true });
   body.appendChild(host);
 
@@ -6597,14 +6597,14 @@ function ensureTerminal(panel, body) {
 
   socket.addEventListener("open", () => {
     recordTerminalConnectDuration(performance.now() - session.createdAt);
-    if (!session.hasOutput) setTerminalConnectionStatus(session, "connecting", "Starting shell");
+    if (!session.hasOutput) setTerminalConnectionStatus(session, "ready", t("terminal.shellConnected"), 1200);
     scheduleFitTerminal(session, true);
   });
   socket.addEventListener("error", () => {
-    if (!session.disposed) setTerminalConnectionStatus(session, "error", "Shell connection failed");
+    if (!session.disposed) setTerminalConnectionStatus(session, "error", t("terminal.shellConnectionFailed"));
   });
   socket.addEventListener("close", () => {
-    if (!session.disposed) setTerminalConnectionStatus(session, "disconnected", "Shell disconnected");
+    if (!session.disposed) setTerminalConnectionStatus(session, "disconnected", t("terminal.shellDisconnected"));
   });
   socket.addEventListener("message", (event) => {
     if (session.disposed) return;
