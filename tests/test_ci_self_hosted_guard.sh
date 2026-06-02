@@ -152,6 +152,24 @@ check_tmux_corpus_pr_jobs_do_not_report_skipped_terminal_tests() {
   echo "PASS: tmux-corpus PR workflow does not report skipped terminal-nightly checks"
 }
 
+check_activation_artifacts_are_required() {
+  if ! awk '
+    /^[[:space:]]*- name: Write benchmark summary$/ { in_summary=1; next }
+    in_summary && /^[[:space:]]*- name:/ { in_summary=0 }
+    in_summary && /No benchmark results were written/ { saw_missing_message=1 }
+    in_summary && /^[[:space:]]*exit 1$/ { saw_missing_failure=1 }
+    /^[[:space:]]*- name: Upload benchmark results$/ { in_upload=1; next }
+    in_upload && /^[[:space:]]*- name:/ { in_upload=0 }
+    in_upload && /if-no-files-found:[[:space:]]*error/ { saw_upload_error=1 }
+    END { exit(saw_missing_message && saw_missing_failure && saw_upload_error ? 0 : 1) }
+  ' "$PERF_FILE"; then
+    echo "FAIL: perf-activation.yml must fail when benchmark result files are missing instead of uploading an empty or ignored artifact"
+    exit 1
+  fi
+
+  echo "PASS: activation benchmark artifacts are required"
+}
+
 check_release_build_signal() {
   if ! grep -Fq 'lipo "$APP_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
     echo "FAIL: release-build must verify the Release app binary stays universal"
@@ -395,6 +413,7 @@ check_workflow_yaml_parse
 check_release_build_signal
 check_no_xctest_quarantines
 check_tmux_corpus_pr_jobs_do_not_report_skipped_terminal_tests
+check_activation_artifacts_are_required
 check_retryable_submodule_checkout
 check_split_theme_regression_timeout
 check_tests_deriveddata_cache

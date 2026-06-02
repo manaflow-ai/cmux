@@ -194,7 +194,7 @@ jobs:
           set -euo pipefail
           if [ ! -f perf-results/activation-session.json ]; then
             echo "No benchmark results were written." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            exit 1
           fi
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
@@ -244,7 +244,7 @@ jobs:
         with:
           name: activation-session-performance
           path: perf-results/
-          if-no-files-found: ignore
+          if-no-files-found: error
 
       - name: Cleanup tagged app
         if: always()
