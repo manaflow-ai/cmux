@@ -12234,15 +12234,28 @@ function savedBackgroundImagesPanel() {
 
   const list = document.createElement("div");
   list.className = "saved-background-list";
+  const workspace = activeWorkspace();
+  const activeTerminal = activeTerminalPanelForSettings();
+  const terminalPanels = workspaceTerminalPanels(workspace);
+  const hasTerminalPanes = terminalPanels.length > 0;
   for (const background of state.savedBackgroundImages) {
+    const activeApp = normalizeBackgroundValue(state.settings.backgroundImage) === normalizeBackgroundValue(background.url);
+    const activePane = Boolean(activeTerminal && panelBackgroundMatches(activeTerminal, background.url));
+    const activeAll = hasTerminalPanes && terminalPanels.every((panel) => panelBackgroundMatches(panel, background.url));
     const card = document.createElement("div");
-    card.className = `saved-background-card${state.settings.backgroundImage === background.url ? " is-active" : ""}`;
-    card.dataset.settingsSearch = normalizeSettingsQuery(`saved background image wallpaper ${background.label} ${background.url}`);
+    card.className = [
+      "saved-background-card",
+      activeApp ? "is-active is-active-app" : "",
+      activePane ? "is-active-pane" : "",
+      activeAll ? "is-active-all" : ""
+    ].filter(Boolean).join(" ");
+    card.dataset.settingsSearch = normalizeSettingsQuery(`saved background image wallpaper scope app pane all terminals ${background.label} ${background.url}`);
     const preview = document.createElement("button");
     preview.className = "saved-background-preview";
     preview.type = "button";
     preview.title = `Apply ${background.label} as app background`;
     preview.setAttribute("aria-label", `Apply ${background.label} as app background`);
+    preview.setAttribute("aria-pressed", activeApp ? "true" : "false");
     preview.style.setProperty("--saved-background-image", backgroundCss(background.url));
     preview.style.setProperty("--saved-background-repeat", backgroundRepeatCss(background.url));
     preview.onclick = () => applySavedBackgroundImage(background.id);
@@ -12257,18 +12270,38 @@ function savedBackgroundImagesPanel() {
     url.textContent = background.url;
     url.title = background.url;
     text.append(label, url);
+
+    const scope = document.createElement("div");
+    scope.className = "background-preset-scope saved-background-scope";
+    scope.dataset.settingsSearch = normalizeSettingsQuery(`saved background scope app pane all terminals ${background.label}`);
+    const addScopeChip = (labelText, active, muted = false) => {
+      const chip = document.createElement("span");
+      chip.className = [
+        "background-preset-scope-chip",
+        active ? "is-active" : "",
+        muted ? "is-muted" : ""
+      ].filter(Boolean).join(" ");
+      chip.textContent = active ? `${labelText} active` : labelText;
+      scope.append(chip);
+    };
+    addScopeChip("App", activeApp);
+    addScopeChip("Pane", activePane, !activeTerminal);
+    addScopeChip(hasTerminalPanes ? `All ${terminalPanels.length}` : "All", activeAll, !hasTerminalPanes);
+
     const cardActions = document.createElement("div");
     cardActions.className = "saved-background-card-actions";
+    const pane = settingsActionButton("Pane", () => applySavedBackgroundImageToPanel(background.id), "", `apply saved background to active terminal pane ${background.label}`);
+    pane.disabled = !activeTerminal;
     const allPanes = settingsActionButton("All terminals", () => applySavedBackgroundImageToWorkspaceTerminals(background.id), "", `apply saved background to all terminal panes workspace ${background.label}`);
-    allPanes.disabled = !(activeWorkspace()?.panels || []).some((candidate) => candidate.type === "terminal");
+    allPanes.disabled = !hasTerminalPanes;
     const more = settingsActionButton("More", (event) => showSavedBackgroundImageMenu(event, background), "", `saved background more actions open rename delete copy ${background.label}`);
     cardActions.append(
       settingsActionButton("App", () => applySavedBackgroundImage(background.id), "primary", `apply saved background app whole window ${background.label}`),
-      settingsActionButton("Pane", () => applySavedBackgroundImageToPanel(background.id), "", `apply saved background to active terminal pane ${background.label}`),
+      pane,
       allPanes,
       more
     );
-    card.append(preview, text, cardActions);
+    card.append(preview, text, scope, cardActions);
     list.append(card);
   }
   panel.append(list);

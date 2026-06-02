@@ -8706,6 +8706,11 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 68%, transparent);
 }
 
+.saved-background-card.is-active-pane:not(.is-active),
+.saved-background-card.is-active-all:not(.is-active) {
+  border-color: color-mix(in oklch, var(--color-accent) 40%, var(--color-line) 60%);
+}
+
 .saved-background-preview {
   width: 54px;
   height: 38px;
@@ -8745,6 +8750,10 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .saved-background-url {
   color: var(--color-faint);
   font: 10px/1 var(--font-mono);
+}
+
+.saved-background-scope {
+  grid-column: 1 / -1;
 }
 
 .saved-background-card-actions {
