@@ -164,6 +164,11 @@ const layoutSettingsPreviewKeys = new Set([
   "inspectorWidth",
   "performanceMode"
 ]);
+const surfaceTabLayoutKeys = new Set([
+  "tabSize",
+  "focusMode",
+  "showTabs"
+]);
 const browserSettingsPreviewKeys = new Set([
   "browserHomeUrl",
   "browserLaunchMode",
@@ -1931,6 +1936,9 @@ function updateSettings(updates, options = {}) {
   if (changedKeys.some((key) => browserSettingsPreviewKeys.has(key))) {
     scheduleBrowserSettingsPreviewRefresh();
   }
+  if (changedKeys.some((key) => surfaceTabLayoutKeys.has(key))) {
+    scheduleSurfaceTabsOverflowRefresh({ ensureActive: true });
+  }
   if (changedKeys.includes("terminalPauseInactiveOutput") || changedKeys.includes("performanceMode")) {
     resumeTerminalOutputAfterActivityChange();
   }
@@ -3466,7 +3474,6 @@ function renderSurfaceTabs(workspace) {
     && state.surfaceTabButtons.size === workspace.panels.length
     && elements.surfaceTabs.childNodes.length === workspace.panels.length + 1
   ) {
-    scheduleSurfaceTabsOverflowRefresh();
     return;
   }
   const validIds = new Set(workspace.panels.map((panel) => panel.id));
@@ -3497,10 +3504,7 @@ function clearSurfaceTabs() {
   state.surfaceTabsSignature = "";
   state.surfaceTabEnsureActive = false;
   replaceChildrenIfChanged(elements.surfaceTabs, []);
-  toggleClassIfChanged(elements.surfaceTabs, "has-overflow", false);
-  toggleClassIfChanged(elements.surfaceTabs, "is-crowded", false);
-  toggleClassIfChanged(elements.surfaceTabs, "can-scroll-left", false);
-  toggleClassIfChanged(elements.surfaceTabs, "can-scroll-right", false);
+  resetSurfaceTabsOverflow();
 }
 
 function surfaceTabsSignature(workspace) {
@@ -3547,6 +3551,11 @@ function scheduleActiveSurfaceTabIntoView(panelId) {
 
 function scheduleSurfaceTabsOverflowRefresh(options = {}) {
   if (options.ensureActive) state.surfaceTabEnsureActive = true;
+  if (!surfaceTabsCanOverflow()) {
+    state.surfaceTabEnsureActive = false;
+    resetSurfaceTabsOverflow();
+    return;
+  }
   if (state.surfaceTabOverflowFrame) return;
   state.surfaceTabOverflowFrame = requestAnimationFrame(() => {
     state.surfaceTabOverflowFrame = 0;
@@ -3557,8 +3566,27 @@ function scheduleSurfaceTabsOverflowRefresh(options = {}) {
   });
 }
 
-function surfaceTabsOverflowing() {
-  return elements.surfaceTabs.scrollWidth > elements.surfaceTabs.clientWidth + 1;
+function surfaceTabsCanOverflow(strip = elements.surfaceTabs) {
+  return Boolean(
+    strip
+    && state.settings.showTabs
+    && !state.settings.focusMode
+    && strip.childElementCount > 0
+  );
+}
+
+function resetSurfaceTabsOverflow(strip = elements.surfaceTabs) {
+  if (!strip) return;
+  toggleClassIfChanged(strip, "has-overflow", false);
+  toggleClassIfChanged(strip, "is-crowded", false);
+  toggleClassIfChanged(strip, "can-scroll-left", false);
+  toggleClassIfChanged(strip, "can-scroll-right", false);
+  if (strip.scrollLeft) strip.scrollLeft = 0;
+}
+
+function surfaceTabsOverflowing(strip = elements.surfaceTabs) {
+  if (!strip) return false;
+  return strip.scrollWidth > strip.clientWidth + 1;
 }
 
 function updateSurfaceTabScrollState(strip, overflowing = surfaceTabsOverflowing()) {
@@ -3570,9 +3598,16 @@ function updateSurfaceTabScrollState(strip, overflowing = surfaceTabsOverflowing
 }
 
 function updateSurfaceTabsOverflow() {
-  if (!elements.surfaceTabs) return;
   const strip = elements.surfaceTabs;
-  const tabCount = Math.max(0, elements.surfaceTabs.querySelectorAll(".surface-tab:not(.surface-new-tab)").length);
+  if (!surfaceTabsCanOverflow(strip)) {
+    resetSurfaceTabsOverflow(strip);
+    return;
+  }
+  const tabCount = Math.max(0, strip.querySelectorAll(".surface-tab:not(.surface-new-tab)").length);
+  if (tabCount === 0 || strip.clientWidth <= 0) {
+    resetSurfaceTabsOverflow(strip);
+    return;
+  }
   if (tabCount < 6 && strip.classList.contains("is-crowded")) {
     strip.classList.remove("is-crowded");
   }
