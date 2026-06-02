@@ -1,10 +1,10 @@
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 @testable import CmuxExtensionSidebarExamples
 import XCTest
 
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/5173.
 ///
-/// The host renders sidebar views through an `any CmuxExtensionSidebarProvider`
+/// The host renders sidebar views through an `any CmuxSidebarProvider`
 /// existential (`CmuxExtensionSidebarSelection.provider(for:)?.render(snapshot:)`).
 /// `render(snapshot:)` must therefore be a protocol *requirement* so the call
 /// dynamic-dispatches to the concrete view. When #4994 demoted it to a
@@ -17,7 +17,7 @@ final class SidebarProviderExistentialDispatchTests: XCTestCase {
     func testSuperCompactRendersIdenticallyThroughExistential() {
         let snapshot = Self.snapshot(workspaceCount: 3)
         let concrete = SuperCompactSidebar()
-        let existential: any CmuxExtensionSidebarProvider = concrete
+        let existential: any CmuxSidebarProvider = concrete
 
         let concreteModel = concrete.render(snapshot: snapshot)
         let existentialModel = existential.render(snapshot: snapshot)
@@ -52,9 +52,9 @@ final class SidebarProviderExistentialDispatchTests: XCTestCase {
         }
     }
 
-    private static func snapshot(workspaceCount: Int) -> CmuxExtensionSidebarSnapshot {
+    private static func snapshot(workspaceCount: Int) -> CmuxSidebarProviderSnapshot {
         let workspaces = (0..<workspaceCount).map { index in
-            CmuxExtensionWorkspaceSnapshot(
+            CmuxSidebarProviderWorkspace(
                 id: UUID(),
                 title: "Workspace \(index)",
                 customDescription: nil,
@@ -71,7 +71,7 @@ final class SidebarProviderExistentialDispatchTests: XCTestCase {
                 listeningPorts: []
             )
         }
-        return CmuxExtensionSidebarSnapshot(
+        return CmuxSidebarProviderSnapshot(
             sequence: 1,
             selectedWorkspaceId: nil,
             workspaces: workspaces

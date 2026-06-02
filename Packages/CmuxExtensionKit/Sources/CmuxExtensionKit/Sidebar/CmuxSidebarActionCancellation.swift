@@ -1,6 +1,7 @@
 import Foundation
 
-/// Cancellation handle for a host action sent from a sidebar extension.
+/// Cancellation handle for the CMUX host transport.
+@_spi(CmuxHostTransport)
 public struct CmuxSidebarActionCancellation: Sendable {
     private let cancelAction: @Sendable () -> Void
 

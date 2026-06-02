@@ -69,6 +69,7 @@ extension ShortcutAction {
         case .focusTextBoxInput: return ShortcutStroke(key: "a", command: true, shift: true)
         case .attachTextBoxFile: return ShortcutStroke(key: "a", command: true, shift: true, option: true)
         case .toggleRightSidebar: return ShortcutStroke(key: "b", command: true, option: true)
+        case .openDiffViewer: return ShortcutStroke(key: "d", command: true, shift: true, control: true)
         case .saveFilePreview: return ShortcutStroke(key: "s", command: true)
         case .openBrowser: return ShortcutStroke(key: "l", command: true, shift: true)
         case .focusBrowserAddressBar: return ShortcutStroke(key: "l", command: true)
@@ -89,6 +90,7 @@ extension ShortcutAction {
         case .useSelectionForFind: return ShortcutStroke(key: "e", command: true)
         case .toggleBrowserDeveloperTools: return ShortcutStroke(key: "i", command: true, option: true)
         case .showBrowserJavaScriptConsole: return ShortcutStroke(key: "c", command: true, option: true)
+        case .toggleBrowserFocusMode: return ShortcutStroke(key: "\r", command: true, option: true)
         case .toggleReactGrab: return ShortcutStroke(key: "g", command: true, shift: true)
         }
     }

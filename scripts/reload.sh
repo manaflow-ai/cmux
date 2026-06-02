@@ -610,11 +610,10 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 # Scope the sidebar ExtensionKit point per build tag so concurrent dev builds (and
-# their tagged sample extensions) don't share one point. Baked at build time via the
-# CMUX_SIDEBAR_EXTENSION_POINT_ID build setting so Xcode emits a coherent, normally
-# signed, pkd-ingestible bundle (the host's .appextensionpoint file + Info.plist key
-# are both stamped from this value). The committed default is the base id; the tagged
-# id never touches tracked source.
+# their tagged sample extensions) don't share one point. Baked at build time via
+# the CMUX_SIDEBAR_EXTENSION_POINT_ID build setting so the bundle declaration and
+# matching Info.plist key stay coherent. The committed default is the base id;
+# tagged builds stamp the generated .appextensionpoint bundle artifact.
 if [[ -n "$TAG" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SIDEBAR_EXTENSION_POINT_ID="com.manaflow.cmux.sidebar.${TAG_ID}")
 fi

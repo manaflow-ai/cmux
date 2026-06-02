@@ -610,6 +610,23 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("fontSize") {
             logInvalid("markdown.fontSize", sourcePath: sourcePath)
         }
+
+        if let value = jsonString(section["fontFamily"]) {
+            snapshot.managedUserDefaults[MarkdownFontFamily.key] = .string(MarkdownFontFamily.normalized(value))
+        } else if section.keys.contains("fontFamily") {
+            logInvalid("markdown.fontFamily", sourcePath: sourcePath)
+        }
+
+        if let value = jsonDouble(section["maxWidth"]) {
+            if value >= MarkdownMaxWidthSettings.minimumCSSPixels,
+               value <= MarkdownMaxWidthSettings.maximumCSSPixels {
+                snapshot.managedUserDefaults[MarkdownMaxWidthSettings.key] = .int(Int(value.rounded()))
+            } else {
+                logInvalid("markdown.maxWidth", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("maxWidth") {
+            logInvalid("markdown.maxWidth", sourcePath: sourcePath)
+        }
     }
 
     private func parseSidebarSection(

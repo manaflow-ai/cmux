@@ -200,6 +200,90 @@ final class UpdatePillUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Check Automatically"].exists)
     }
 
+    func testUpdatePillShowsDownloadingState() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "downloading"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Downloading: 50%")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(pill.label, "Downloading: 50%")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "update-downloading")
+    }
+
+    func testUpdatePillShowsExtractingState() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "extracting"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Preparing: 50%")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(pill.label, "Preparing: 50%")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "update-extracting")
+    }
+
+    func testUpdatePillShowsInstallingStateAndRestartPopover() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "installing"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Installing…")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(pill.label, "Installing…")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "update-installing")
+
+        pill.click()
+        XCTAssertTrue(
+            app.buttons["Restart Now"].waitForExistence(timeout: 8.0),
+            "Expected the installing popover to offer Restart Now"
+        )
+        XCTAssertTrue(app.buttons["Restart Later"].waitForExistence(timeout: 2.0), "Expected a Restart Later button")
+    }
+
+    func testUpdatePillShowsErrorStateWithRetryAndDetails() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "error"
+        launchAndActivate(app)
+
+        // A generic update error surfaces the "Update Failed" pill title.
+        let pill = pillButton(app: app, expectedLabel: "Update Failed")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(pill.label, "Update Failed")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "update-error")
+        attachElementDebug(name: "update-error-pill", element: pill)
+
+        pill.click()
+
+        XCTAssertTrue(
+            app.staticTexts["Update Failed"].waitForExistence(timeout: 8.0),
+            "Expected the error popover title to appear"
+        )
+        XCTAssertTrue(
+            app.buttons["Retry"].waitForExistence(timeout: 2.0),
+            "Expected a Retry button in the error popover"
+        )
+        XCTAssertTrue(
+            app.buttons["Copy Details"].waitForExistence(timeout: 2.0),
+            "Expected a Copy Details button in the error popover"
+        )
+    }
+
     private func pillButton(app: XCUIApplication, expectedLabel: String) -> XCUIElement {
         // On macOS, SwiftUI accessibility identifiers are not always reliably surfaced for titlebar-style
         // UI across OS/Xcode versions. Prefer the pill's accessibility label, but keep an identifier

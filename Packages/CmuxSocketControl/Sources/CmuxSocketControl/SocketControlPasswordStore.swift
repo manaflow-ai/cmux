@@ -364,4 +364,3 @@ public enum SocketControlPasswordStoreError: Error, Equatable, Sendable {
     /// The password file path could not be resolved (Application Support was unavailable).
     case unresolvedPasswordFilePath
 }
-
