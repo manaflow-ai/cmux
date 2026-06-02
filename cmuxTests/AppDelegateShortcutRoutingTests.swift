@@ -4815,6 +4815,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         appDelegate.debugShortcutEventFocusContextOverride = ShortcutEventFocusContext(
             browserPanel: nil,
+            markdownPanel: nil,
             rightSidebarFocused: false
         )
 

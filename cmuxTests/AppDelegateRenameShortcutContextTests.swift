@@ -385,6 +385,7 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
         let appDelegate = AppDelegate()
         appDelegate.debugShortcutEventFocusContextOverride = ShortcutEventFocusContext(
             browserPanel: browserPanel,
+            markdownPanel: nil,
             rightSidebarFocused: false
         )
         defer {
