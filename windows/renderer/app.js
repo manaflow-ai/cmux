@@ -96,6 +96,10 @@ import {
   scrollChildIntoView
 } from "./scroll-utils.js";
 import {
+  createPerformanceOverviewPanel,
+  refreshPerformanceOverviewPanel as refreshPerformanceOverviewPanelView
+} from "./performance-overview.js";
+import {
   normalizeSettingsQuery,
   settingsCategorySearchAliases,
   settingsSearchMatches,
@@ -10495,55 +10499,19 @@ function performanceOverviewModel() {
 }
 
 function performanceOverviewPanel() {
-  const panel = document.createElement("div");
-  panel.className = "performance-overview";
-  panel.dataset.performanceOverview = "true";
-  panel.innerHTML = `
-    <div class="performance-overview-head">
-      <span class="performance-overview-status" aria-hidden="true"></span>
-      <span class="performance-overview-copy">
-        <span class="performance-overview-title"></span>
-        <span class="performance-overview-subtitle"></span>
-      </span>
-    </div>
-    <div class="performance-overview-grid">
-      <span><b>Guard</b><em data-performance-overview-value="guard"></em></span>
-      <span><b>Render</b><em data-performance-overview-value="render"></em></span>
-      <span><b>Output</b><em data-performance-overview-value="output"></em></span>
-      <span><b>Shell</b><em data-performance-overview-value="shell"></em></span>
-      <span><b>Pane add</b><em data-performance-overview-value="paneAdd"></em></span>
-      <span><b>Paused</b><em data-performance-overview-value="paused"></em></span>
-    </div>
-    <div class="settings-actions performance-overview-actions"></div>
-  `;
-  panel.querySelector(".performance-overview-actions").append(
-    settingsActionButton("Tune now", () => tunePerformanceNow(), "primary", "performance tune optimize lag speed"),
-    settingsActionButton("Balanced", () => applySettingsPresetById("balanced"), "", "balanced preset restore performance normal")
-  );
-  refreshPerformanceOverviewPanel(panel);
-  return panel;
+  return createPerformanceOverviewPanel({
+    createActionButton: settingsActionButton,
+    model: performanceOverviewModel(),
+    onBalanced: () => applySettingsPresetById("balanced"),
+    onSearchChange: updateSettingsSearchIndexItemSearch,
+    onTune: () => tunePerformanceNow()
+  });
 }
 
 function refreshPerformanceOverviewPanel(panel = elements.inspectorBody.querySelector("[data-performance-overview]")) {
-  if (!panel) return false;
-  const model = performanceOverviewModel();
-  panel.classList.toggle("is-tuned", model.status === "tuned");
-  panel.classList.toggle("is-warning", model.status === "warning");
-  panel.classList.toggle("is-watching", model.status === "watching");
-  panel.classList.toggle("is-steady", model.status === "steady");
-  const search = normalizeSettingsQuery(`performance overview speed lag guard ${model.status} ${model.title} ${model.reason} ${model.guard} ${model.render} ${model.output}`);
-  if (panel.dataset.settingsSearch !== search) {
-    panel.dataset.settingsSearch = search;
-    updateSettingsSearchIndexItemSearch(panel, search);
-  }
-  let changed = false;
-  changed = setTextIfChanged(panel.querySelector(".performance-overview-title"), model.title) || changed;
-  changed = setTextIfChanged(panel.querySelector(".performance-overview-subtitle"), model.reason) || changed;
-  for (const [key, value] of Object.entries(model)) {
-    const node = panel.querySelector(`[data-performance-overview-value="${key}"]`);
-    if (node) changed = setTextIfChanged(node, value) || changed;
-  }
-  return changed;
+  return refreshPerformanceOverviewPanelView(panel, performanceOverviewModel(), {
+    onSearchChange: updateSettingsSearchIndexItemSearch
+  });
 }
 
 function performanceMetricsShouldRefresh() {
