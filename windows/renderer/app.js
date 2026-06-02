@@ -17011,6 +17011,7 @@ function optimisticUpdateWorkspace(workspaceId, updates = {}) {
     if (cwd && workspace.cwd !== cwd) {
       workspace.cwd = cwd;
       workspace.cwdShort = shortFolderPath(cwd);
+      workspace.branch = "";
       changed = true;
     }
   }
@@ -17045,7 +17046,7 @@ function workspaceUpdateReconcileNeeded(workspaceId, updates = {}) {
   }
   if (Object.hasOwn(updates, "cwd")) {
     const cwd = String(updates.cwd || "").trim();
-    if (cwd && workspace.cwd !== cwd) return true;
+    if (cwd) return true;
   }
   return false;
 }
