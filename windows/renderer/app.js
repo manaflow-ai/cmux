@@ -6896,6 +6896,8 @@ function ensureBrowser(panel, body) {
     session.loadDeferred = true;
     showDeferredBrowser();
   } else {
+    setLoading(true);
+    setStatus("Loading");
     scheduleInitialBrowserLoad();
   }
   updateNavState();

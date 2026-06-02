@@ -3196,7 +3196,11 @@ body.reduce-motion *::after {
   width: 100%;
   height: 100%;
   border: 0;
-  background: var(--color-terminal-gutter);
+  background: var(--color-pane);
+}
+
+.browser-content.is-loading:not(.has-loaded) .browser-view {
+  opacity: 0;
 }
 
 .browser-error {
