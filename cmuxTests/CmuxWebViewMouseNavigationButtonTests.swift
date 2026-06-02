@@ -77,10 +77,23 @@ struct CmuxWebViewMouseNavigationButtonTests {
             forwardHistoryURLStrings: [],
             currentURLString: "https://example.com/c"
         )
+        let recorder = BrowserClickNotificationRecorder()
+        NotificationCenter.default.addObserver(
+            recorder,
+            selector: #selector(BrowserClickNotificationRecorder.record(_:)),
+            name: .webViewDidReceiveClick,
+            object: nil
+        )
+        defer {
+            NotificationCenter.default.removeObserver(recorder)
+        }
 
         panel.webView.otherMouseDown(with: try makeOtherMouseEvent(type: .otherMouseDown, buttonNumber: 3))
+        panel.webView.otherMouseUp(with: try makeOtherMouseEvent(type: .otherMouseUp, buttonNumber: 3))
 
         let snapshot = panel.sessionNavigationHistorySnapshot()
+        #expect(recorder.postedObject === panel.webView)
+        #expect(recorder.postCount == 1)
         #expect(snapshot.backHistoryURLStrings == ["https://example.com/a"])
         #expect(snapshot.forwardHistoryURLStrings == ["https://example.com/c"])
     }
@@ -101,8 +114,10 @@ struct CmuxWebViewMouseNavigationButtonTests {
         }
 
         panel.webView.otherMouseDown(with: try makeOtherMouseEvent(type: .otherMouseDown, buttonNumber: 3))
+        panel.webView.otherMouseUp(with: try makeOtherMouseEvent(type: .otherMouseUp, buttonNumber: 3))
 
         #expect(recorder.postedObject === panel.webView)
+        #expect(recorder.postCount == 1)
     }
 
     private func makeOtherMouseEvent(type: NSEvent.EventType, buttonNumber: Int) throws -> NSEvent {
@@ -133,8 +148,10 @@ struct CmuxWebViewMouseNavigationButtonTests {
 
 private final class BrowserClickNotificationRecorder: NSObject {
     var postedObject: AnyObject?
+    var postCount = 0
 
     @objc func record(_ notification: Notification) {
+        postCount += 1
         postedObject = notification.object as AnyObject?
     }
 }
