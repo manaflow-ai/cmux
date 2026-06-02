@@ -125,6 +125,8 @@ const controlIconSvg = {
   home: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m4 11 8-7 8 7"></path><path d="M6 10v10h12V10"></path></svg>`,
   plus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"></path></svg>`,
   reload: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 1 1-2.34-5.66"></path><path d="M20 4v6h-6"></path></svg>`,
+  browserPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10" cy="12" r="6"></circle><path d="M4 12h12M10 6c1.7 1.9 1.7 10.1 0 12M10 6c-1.7 1.9-1.7 10.1 0 12"></path><path d="M18 14v6M15 17h6"></path></svg>`,
+  terminalPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="14" height="14" rx="2"></rect><path d="m7 10 3 3-3 3"></path><path d="M12 16h4"></path><path d="M18 13v6M15 16h6"></path></svg>`,
   up: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"></path></svg>`
 };
 
@@ -2678,7 +2680,7 @@ const commands = [
   { id: "settings.blueprints", label: "Open Workspace Blueprints", shortcut: "", run: () => openSettingsCategory("blueprints") },
   { id: "workspace.closeEmpty", label: "Close Empty Workspaces", shortcut: "", run: () => closeEmptyWorkspaces() },
   { id: "workspace.close", label: "Close Workspace", shortcut: "", run: () => closeActiveWorkspace() },
-  { id: "terminal.new", label: "New Terminal", shortcut: "Ctrl+T", run: () => createPanel("terminal", "right") },
+  { id: "terminal.new", label: "New Terminal", shortcut: "Ctrl+T", run: () => createTerminalPanel("right") },
   { id: "terminal.splitRight", label: "Split Terminal Right", shortcut: "", run: () => splitActivePanel("right") },
   { id: "terminal.splitDown", label: "Split Terminal Down", shortcut: "", run: () => splitActivePanel("down") },
   { id: "terminal.duplicate", label: "Duplicate Active Pane", shortcut: "", run: () => duplicateActivePanel() },
@@ -4109,12 +4111,12 @@ function clearSurfaceTabDropTargets() {
 const surfaceAddTabConfigs = {
   terminal: {
     className: "surface-new-terminal",
-    kindLabel: "T",
+    icon: "terminalPlus",
     title: "New terminal pane"
   },
   browser: {
     className: "surface-new-browser",
-    kindLabel: "W",
+    icon: "browserPlus",
     title: "New browser pane"
   }
 };
@@ -4134,8 +4136,7 @@ function getNewSurfaceTab(kind, workspace) {
     button.className = `surface-tab surface-new-tab ${config.className}`;
     button.type = "button";
     button.innerHTML = `
-      <span class="surface-new-plus" aria-hidden="true">+</span>
-      <span class="surface-new-kind" aria-hidden="true">${config.kindLabel}</span>
+      <span class="surface-new-icon">${controlIconMarkup(config.icon)}</span>
     `;
     button.onclick = (event) => {
       event.preventDefault();
@@ -4169,13 +4170,17 @@ function surfaceAddButtonWorkspace(button) {
   return state.data?.workspaces.find((candidate) => candidate.id === workspaceId) || activeWorkspace();
 }
 
+function createTerminalPanel(direction = "right", options = {}) {
+  return createPanel("terminal", direction, { immediateTerminalInit: true, ...options });
+}
+
 function createSurfaceAddPane(kind, workspace) {
   if (!workspace || paneCreationButtonsDisabled()) return;
   if (kind === "browser") {
     openBrowserHome(workspace.id, { mode: "pane" });
     return;
   }
-  createPanel("terminal", "right", { workspaceId: workspace.id });
+  createTerminalPanel("right", { workspaceId: workspace.id });
 }
 
 function showNewSurfaceTabMenu(event, workspace = activeWorkspace()) {
@@ -4188,7 +4193,7 @@ function showNewSurfaceTabMenu(event, workspace = activeWorkspace()) {
   title.className = "context-title";
   title.textContent = "Add pane";
   const actions = contextMenuActionGroup(
-    contextMenuButton("New terminal", () => createPanel("terminal", "right", { workspaceId: workspace.id }), paneCreationButtonsDisabled()),
+    contextMenuButton("New terminal", () => createTerminalPanel("right", { workspaceId: workspace.id }), paneCreationButtonsDisabled()),
     contextMenuButton("New browser pane", () => openBrowserHome(workspace.id, { mode: "pane" }), paneCreationButtonsDisabled()),
     contextMenuButton("Reopen closed pane", reopenClosedPanel, state.closedPanels.length === 0 || paneCreationButtonsDisabled())
   );
@@ -9848,21 +9853,31 @@ function quickSetupOverviewPanel() {
 }
 
 const quickSettingsShortcuts = [
-  ["workspace", "Workspace", "Rename, folders, colors.", workspaceCountLabel],
-  ["appearance", "Look", "Themes, colors, backgrounds.", () => appearanceBackgroundLabel(state.settings.backgroundImage)],
-  ["layout", "Layout", "Tabs, panes, chrome.", () => optionLabel(toolbarModeOptions, state.settings.toolbarMode, "Minimal")],
-  ["terminal", "Terminal", "Font, cursor, shell.", () => optionLabel(terminalProfiles, state.settings.terminalProfile, "Auto")],
-  ["browser", "Browser", "Home page and history.", () => hostnameOf(state.settings.browserHomeUrl)],
-  ["performance", "Performance", "Lag tuning and diagnostics.", performanceModeLabel],
-  ["actions", "Actions", "Shortcuts and runnable actions.", () => `${commands.length} actions`],
-  ["commands", "Commands", "Saved shell and GitHub CLI snippets.", () => `${state.customCommandSnippets.length}/${customCommandSnippetsLimit}`],
-  ["profiles", "Profiles", "Save and reuse setups.", () => `${state.savedSettingsProfiles.length}/${savedSettingsProfilesLimit}`],
-  ["data", "Data", "Import, export, cleanup.", () => `${state.recentFolders.length + state.recentCommands.length + state.recentBrowserPages.length} recent`]
+  ["workspace", "Workspace", "Rename, folders, colors.", workspaceCountLabel, "workspace"],
+  ["appearance", "Look", "Themes, colors, backgrounds.", () => appearanceBackgroundLabel(state.settings.backgroundImage), "appearance"],
+  ["layout", "Layout", "Tabs, panes, chrome.", () => optionLabel(toolbarModeOptions, state.settings.toolbarMode, "Minimal"), "layout"],
+  ["terminal", "Terminal", "Font, cursor, shell.", () => optionLabel(terminalProfiles, state.settings.terminalProfile, "Auto"), "terminal"],
+  ["browser", "Browser", "Home page and history.", () => hostnameOf(state.settings.browserHomeUrl), "browser"],
+  ["performance", "Performance", "Lag tuning and diagnostics.", performanceModeLabel, "performance"],
+  ["actions", "Actions", "Shortcuts and runnable actions.", () => `${commands.length} actions`, "actions"],
+  ["commands", "Commands", "Saved shell and GitHub CLI snippets.", () => `${state.customCommandSnippets.length}/${customCommandSnippetsLimit}`, "commands"],
+  ["profiles", "Profiles", "Save and reuse setups.", () => `${state.savedSettingsProfiles.length}/${savedSettingsProfilesLimit}`, "profiles"],
+  ["data", "Data", "Import, export, cleanup.", () => `${state.recentFolders.length + state.recentCommands.length + state.recentBrowserPages.length} recent`, "data"]
 ];
 
 const quickActionIconSvg = {
+  actions: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 7h8M8 12h5M8 17h8"></path><path d="M4 7h.01M4 12h.01M4 17h.01"></path></svg>`,
+  appearance: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4c4 0 8 3 8 7 0 3-2 5-5 5h-1.5a1.5 1.5 0 0 0 0 3H12a8 8 0 1 1 0-16Z"></path><circle cx="8.5" cy="10" r="1"></circle><circle cx="12" cy="8" r="1"></circle><circle cx="15.5" cy="10" r="1"></circle></svg>`,
+  browser: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"></circle><path d="M4 12h16M12 4c2.2 2.3 2.2 13.7 0 16M12 4c-2.2 2.3-2.2 13.7 0 16"></path></svg>`,
+  commands: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="m8 10 3 3-3 3"></path><path d="M13 16h3"></path></svg>`,
+  data: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><ellipse cx="12" cy="6" rx="7" ry="3"></ellipse><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6"></path><path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"></path></svg>`,
+  layout: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14M4 12h16"></path></svg>`,
+  profiles: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3"></circle><path d="M5 20c1.2-4 12.8-4 14 0"></path></svg>`,
+  terminal: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="m8 10 3 3-3 3"></path><path d="M13 16h3"></path></svg>`,
+  workspace: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="6" height="6" rx="1"></rect><rect x="14" y="5" width="6" height="6" rx="1"></rect><rect x="4" y="15" width="16" height="4" rx="1"></rect></svg>`,
   rename: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5h12M12 5v14M9 19h6"></path></svg>`,
   clean: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M8 9h8M8 13h5"></path></svg>`,
+  performance: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 16a7 7 0 0 1 14 0"></path><path d="m12 16 4-5"></path><path d="M8 20h8"></path></svg>`,
   speed: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 16a7 7 0 0 1 14 0"></path><path d="m12 16 4-5"></path><path d="M8 20h8"></path></svg>`,
   focus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4H5a1 1 0 0 0-1 1v3M16 4h3a1 1 0 0 1 1 1v3M8 20H5a1 1 0 0 1-1-1v-3M16 20h3a1 1 0 0 0 1-1v-3"></path><circle cx="12" cy="12" r="2.5"></circle></svg>`,
   background: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><circle cx="9" cy="10" r="1.5"></circle><path d="m7 17 4-4 3 3 2-2 2 3"></path></svg>`,
@@ -10054,16 +10069,20 @@ function quickSettingsShortcutGrid() {
   const grid = document.createElement("div");
   grid.className = "quick-settings-shortcut-grid";
   grid.dataset.settingsSearch = normalizeSettingsQuery("quick setup shortcuts customize workspace appearance look layout terminal browser performance profiles data");
-  for (const [category, label, body, meta] of quickSettingsShortcuts) {
+  for (const [category, label, body, meta, icon] of quickSettingsShortcuts) {
     const button = document.createElement("button");
-    button.className = "quick-settings-shortcut";
+    button.className = "quick-settings-shortcut quick-category";
     button.type = "button";
     button.dataset.settingsSearch = normalizeSettingsQuery(`quick setup shortcut ${label} ${body} ${category}`);
     button.innerHTML = `
-      <span class="quick-settings-shortcut-title"></span>
-      <span class="quick-settings-shortcut-body"></span>
+      <span class="quick-category-icon" aria-hidden="true"></span>
+      <span class="quick-category-copy">
+        <span class="quick-settings-shortcut-title"></span>
+        <span class="quick-settings-shortcut-body"></span>
+      </span>
       <span class="quick-settings-shortcut-meta"></span>
     `;
+    button.querySelector(".quick-category-icon").innerHTML = quickActionIconMarkup(icon);
     button.querySelector(".quick-settings-shortcut-title").textContent = label;
     button.querySelector(".quick-settings-shortcut-body").textContent = body;
     button.querySelector(".quick-settings-shortcut-meta").textContent = meta();
@@ -12037,7 +12056,7 @@ function showPanelContextMenu(event, panel) {
     contextMenuButton("Rename", () => renamePanel(panel)),
     contextMenuButton("Duplicate", () => duplicatePanel(panel)),
     isTerminal
-      ? contextMenuButton("New terminal tab", () => createPanel("terminal", "right", { anchorPanelId: panel.id }))
+      ? contextMenuButton("New terminal tab", () => createTerminalPanel("right", { anchorPanelId: panel.id }))
       : contextMenuButton("New browser tab", () => newBrowserTabFromPanel(panel)),
     contextMenuButton("Split right", () => splitPanel(panel, "right")),
     contextMenuButton("Split down", () => splitPanel(panel, "down")),
@@ -12151,7 +12170,7 @@ function showWorkspaceContextMenu(event, workspace) {
     contextMenuButton("Rename", () => renameWorkspaceById(workspace.id, workspace.title)),
     contextMenuButton("Change folder", () => chooseWorkspaceFolder(workspace), !workspace.id),
     contextMenuButton("Open folder", () => openWorkspaceFolder(workspace), !workspace.cwd),
-    contextMenuButton("New terminal here", () => createPanel("terminal", "right", { workspaceId: workspace.id })),
+    contextMenuButton("New terminal here", () => createTerminalPanel("right", { workspaceId: workspace.id })),
     contextMenuButton("Open browser here", () => openBrowserPrompt(workspace.id)),
     contextMenuButton("New workspace", () => createWorkspace()),
     contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
@@ -12640,8 +12659,11 @@ async function renamePanel(panel) {
 function splitPanel(panel, direction, type = "terminal", options = {}) {
   const found = findPanelState(panel?.id);
   if (!found) return null;
+  const createOptions = type === "terminal"
+    ? { immediateTerminalInit: true, ...options }
+    : options;
   return createPanel(type, direction, {
-    ...options,
+    ...createOptions,
     workspaceId: found.workspace.id,
     anchorPanelId: panel.id
   });
@@ -12650,6 +12672,7 @@ function splitPanel(panel, direction, type = "terminal", options = {}) {
 function splitActivePanel(direction, type = "terminal", options = {}) {
   const panel = focusedPanel();
   if (panel) return splitPanel(panel, direction, type, options);
+  if (type === "terminal") return createTerminalPanel(direction, options);
   return createPanel(type, direction, options);
 }
 
@@ -15418,7 +15441,7 @@ function announceNewAttention(previous, next) {
 
 document.getElementById("newWorkspaceButton").onclick = () => createWorkspace();
 document.getElementById("resetSessionButton").onclick = () => resetSession();
-document.getElementById("newTerminalButton").onclick = () => createPanel("terminal", "right");
+document.getElementById("newTerminalButton").onclick = () => createTerminalPanel("right");
 document.getElementById("splitRightButton").onclick = () => splitActivePanel("right");
 document.getElementById("splitDownButton").onclick = () => splitActivePanel("down");
 const newBrowserButton = document.getElementById("newBrowserButton");
@@ -15542,7 +15565,7 @@ window.addEventListener("keydown", (event) => {
     reopenClosedPanel();
   } else if (event.ctrlKey && key === "t") {
     consumeGlobalShortcut(event);
-    createPanel("terminal", "right");
+    createTerminalPanel("right");
   } else if (event.ctrlKey && event.shiftKey && key === "l") {
     consumeGlobalShortcut(event);
     openBrowserHome();
