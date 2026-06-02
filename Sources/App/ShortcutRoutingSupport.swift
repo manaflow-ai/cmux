@@ -191,6 +191,22 @@ func shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
     }
 }
 
+func shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsEditableTextView: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    // Intentionally unimplemented in this commit so the regression test in
+    // `EditableTextViewArrowKeyForwardingTests` fails (red). The real predicate
+    // and the `cmux_performKeyEquivalent` wiring land in the follow-up commit.
+    _ = keyCode
+    _ = firstResponderIsEditableTextView
+    _ = firstResponderHasMarkedText
+    _ = flags
+    return false
+}
+
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
     chars: String,
