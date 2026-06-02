@@ -9,11 +9,20 @@ export function clampPaneLayoutPercent(value) {
 export function paneLayoutWeightsByActivePercent(panels, activePanelId, percent, scale) {
   if (!Array.isArray(panels) || panels.length <= 1 || !activePanelId) return new Map();
   if (!panels.some((panel) => panel.id === activePanelId)) return new Map();
-  const layoutScale = Math.max(panels.length, Math.round(Number(scale) || panels.length));
   const otherPanels = panels.filter((panel) => panel.id !== activePanelId);
+  const requestedPercent = clampPaneLayoutPercent(percent);
+  const requestedRatio = requestedPercent / 100;
+  const minimumScaleForActive = Math.ceil(1 / requestedRatio);
+  const minimumScaleForOthers = Math.ceil(otherPanels.length / (1 - requestedRatio));
+  const layoutScale = Math.max(
+    panels.length,
+    Math.round(Number(scale) || panels.length),
+    minimumScaleForActive,
+    minimumScaleForOthers
+  );
   const activeWeight = Math.min(
     layoutScale - otherPanels.length,
-    Math.max(1, Math.round((clampPaneLayoutPercent(percent) / 100) * layoutScale))
+    Math.max(1, Math.round(requestedRatio * layoutScale))
   );
   const remaining = layoutScale - activeWeight;
   const otherWeight = Math.max(1, Math.floor(remaining / Math.max(1, otherPanels.length)));
