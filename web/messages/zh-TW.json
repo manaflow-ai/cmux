@@ -242,6 +242,22 @@
         "p3": "這會把目前工作區送到未讀循環的最後面，讓你可以繼續查看未讀工作而不清除狀態。",
         "p4": "Cmd+Option+U 會切換目前工作區的已讀或未讀狀態。",
         "p5": "當你用 Cmd+Shift+U 跳到新的未讀工作區，但想在回覆前先切換情境時很有用。"
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "用 Cmd+Shift+T 重新開啟已關閉的終端機、瀏覽器、工作區和 agent 工作階段，並用 Cmd+[ 和 Cmd+] 回溯你的聚焦。",
+        "date": "2026年6月2日",
+        "p1": "你為了整理而關掉一個終端機分頁，隨後卻發現還需要它。或者你關掉了整個工作區，失去了正在工作的 agent。cmux 現在會記錄你關閉和聚焦過的內容，一個快捷鍵就能找回來。",
+        "reopenTitle": "重新開啟你關閉的內容",
+        "reopenP": "按 <code>Cmd+Shift+T</code> 即可重新開啟你最後關閉的內容。它適用於終端機分頁、瀏覽器分頁、工作區和視窗，並依你關閉的順序逐一還原。每個介面都會回到原本的位置，窗格配置也維持不變。",
+        "agentTitle": "agent 工作階段也會回來",
+        "agentP": "歷史記錄也會重新開啟已關閉的 agent 工作階段。重新開啟一個 Claude Code、Codex 或 OpenCode 工作階段，它會從中斷處繼續。執行一次 <code>cmux hooks setup</code>，讓 cmux 能夠追蹤 agent 工作階段，之後它們就能像其他內容一樣被重新開啟。",
+        "agentP2": "這建立在 cmux <link>工作階段還原</link>之上，它透過受支援 agent 各自的原生還原指令來還原工作階段。",
+        "focusTitle": "回到你剛才所在的位置",
+        "focusP": "標題列中的前進和後退按鈕，或 <code>Cmd+[</code> 和 <code>Cmd+]</code>，可以跳到你之前和之後所在的工作區或視窗，就像瀏覽器中的前進和後退一樣。",
+        "fullHistoryTitle": "完整的歷史記錄面板",
+        "fullHistoryP": "當你需要的不只最後一項時，開啟完整的歷史記錄面板：它依日期分組、可搜尋，列出你關閉和聚焦過的所有內容，附有時間戳記，還有 Clear Closed 操作。",
+        "docsCta": "查看<link>鍵盤快捷鍵</link>了解完整清單，包括如何重新綁定歷史記錄導覽。"
       }
     },
     "zenOfCmux": {
@@ -367,6 +383,10 @@
         "AI 編程代理",
         "工作區未讀"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history：重新開啟已關閉的終端機和工作階段",
+      "metaDescription": "cmux 會記錄你關閉和聚焦過的內容。用 Cmd+Shift+T 重新開啟已關閉的終端機、瀏覽器、工作區，以及 Claude Code、Codex 和 OpenCode 工作階段，並用 Cmd+[ 和 Cmd+] 在聚焦之間前後切換。"
     }
   },
   "docs": {
