@@ -279,10 +279,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         testOwnedTabManagers.append(manager)
         return manager
 #else
-        return TabManager(
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
-            debugCreateInitialWorkspace: createInitialWorkspace
-        )
+        return TabManager(autoWelcomeIfNeeded: autoWelcomeIfNeeded)
 #endif
     }
 

@@ -1575,16 +1575,53 @@ class TabManager: ObservableObject {
     // tests can supply a fake without spawning a real process.
     private let commandRunner: any CommandRunning
 
-    init(
+    convenience init(
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
-        debugCreateInitialWorkspace: Bool = true,
         commandRunner: any CommandRunning = CommandRunner()
     ) {
+        self.init(
+            initialWorkspaceTitle: initialWorkspaceTitle,
+            initialWorkingDirectory: initialWorkingDirectory,
+            initialTerminalInput: initialTerminalInput,
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+            createInitialWorkspace: true,
+            commandRunner: commandRunner
+        )
+    }
+
+#if DEBUG
+    convenience init(
+        initialWorkspaceTitle: String? = nil,
+        initialWorkingDirectory: String? = nil,
+        initialTerminalInput: String? = nil,
+        autoWelcomeIfNeeded: Bool = true,
+        debugCreateInitialWorkspace: Bool,
+        commandRunner: any CommandRunning = CommandRunner()
+    ) {
+        self.init(
+            initialWorkspaceTitle: initialWorkspaceTitle,
+            initialWorkingDirectory: initialWorkingDirectory,
+            initialTerminalInput: initialTerminalInput,
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+            createInitialWorkspace: debugCreateInitialWorkspace,
+            commandRunner: commandRunner
+        )
+    }
+#endif
+
+    private init(
+        initialWorkspaceTitle: String?,
+        initialWorkingDirectory: String?,
+        initialTerminalInput: String?,
+        autoWelcomeIfNeeded: Bool,
+        createInitialWorkspace: Bool,
+        commandRunner: any CommandRunning
+    ) {
         self.commandRunner = commandRunner
-        if debugCreateInitialWorkspace {
+        if createInitialWorkspace {
             addWorkspace(
                 title: initialWorkspaceTitle,
                 workingDirectory: initialWorkingDirectory,
