@@ -1020,6 +1020,11 @@ function installBackgroundDropTarget(target, options = {}) {
     }
     const background = payload.label ? { url: payload.url, label: payload.label } : { url: payload.url };
     if (options.input && payload.inputValue) options.input.value = payload.inputValue;
+    if (options.panel) {
+      const changed = await applyPanelBackgroundImage(payload.url, options.panel, { toast: true });
+      if (changed !== null && options.input && !payload.inputValue) options.input.value = "";
+      return;
+    }
     if (options.save) {
       const saved = await applyAndSaveCustomBackgroundImage(background);
       if (saved && options.input && !payload.inputValue) options.input.value = "";
@@ -1983,6 +1988,41 @@ async function choosePanelBackgroundImage(panel = focusedPanel()) {
   const url = await window.cmuxNative.pickBackgroundImage();
   if (!url) return null;
   return applyPanelBackgroundImage(url, terminalPanel);
+}
+
+async function pastePanelBackgroundImageFromClipboard(panel = focusedPanel(), input = null) {
+  if (!window.cmuxNative?.readClipboard) {
+    toast("Clipboard is unavailable.");
+    return null;
+  }
+  const terminalPanel = resolveTerminalPanel(panel);
+  if (!terminalPanel) {
+    toast("Select a terminal pane first.");
+    return null;
+  }
+  const textValue = String(await window.cmuxNative.readClipboard() || "").trim();
+  let value = textValue;
+  let pastedImage = false;
+  let imageError = "";
+  if (!value && window.cmuxNative?.readClipboardImage) {
+    const image = await window.cmuxNative.readClipboardImage();
+    if (image?.ok && image.dataUrl) {
+      value = image.dataUrl;
+      pastedImage = true;
+    } else {
+      imageError = image?.error || "";
+    }
+  }
+  if (!value) {
+    toast(imageError === "too_large"
+      ? "Clipboard image is too large for a pane background."
+      : "Clipboard does not contain an image URL, path, or copied image.");
+    return null;
+  }
+  if (input) input.value = pastedImage ? "Copied image" : value;
+  const changed = await applyPanelBackgroundImage(value, terminalPanel);
+  if (changed !== null && pastedImage && input?.isConnected) input.value = "";
+  return changed;
 }
 
 async function openBackgroundImageFile(value = state.settings.backgroundImage) {
@@ -9124,18 +9164,44 @@ function paneBackgroundControlPanel(panel) {
   meta.title = source;
   copy.append(title, meta);
 
+  const input = document.createElement("input");
+  input.className = "setting-control active-pane-background-input";
+  input.value = isBackgroundPreset(background) ? "" : background;
+  input.placeholder = "URL or C:\\path\\image.png";
+  input.dataset.settingsSearch = normalizeSettingsQuery("active pane terminal background url local path file image wallpaper input");
+  const applyInput = (showToast = false) => withDisabledControl(input, async () => {
+    const next = input.value.trim();
+    if (!next && isBackgroundPreset(background)) return null;
+    const changed = await applyPanelBackgroundImage(next, panel, { toast: showToast });
+    if (changed === null) input.value = isBackgroundPreset(background) ? "" : background;
+    return changed;
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      applyInput(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      input.value = isBackgroundPreset(background) ? "" : background;
+      input.blur();
+    }
+  });
+
   const actions = document.createElement("span");
   actions.className = "settings-actions active-pane-background-actions";
-  const choose = settingsActionButton("Choose", () => choosePanelBackgroundImage(panel), "primary", "active pane terminal background choose local image");
+  const apply = settingsActionButton("Apply", () => applyInput(true), "primary", "active pane terminal background apply url path image");
+  const paste = settingsActionButton("Paste", () => pastePanelBackgroundImageFromClipboard(panel, input), "", "active pane terminal background paste clipboard image url local path");
+  const choose = settingsActionButton("Choose", () => choosePanelBackgroundImage(panel), "", "active pane terminal background choose local image");
   const useApp = settingsActionButton("Use app", () => applyPanelBackgroundImage(state.settings.backgroundImage, panel), "", "active pane terminal background use app global image");
   useApp.disabled = !state.settings.backgroundImage;
   const open = settingsActionButton("Open", () => openBackgroundImageSource(background), "", "active pane terminal background open source file url");
   open.disabled = !canOpenBackgroundImageSource(background);
   const clear = settingsActionButton("Clear", () => applyPanelBackgroundImage("", panel), "danger", "active pane terminal background clear remove");
   clear.disabled = !hasBackground;
-  actions.append(choose, useApp, open, clear);
+  actions.append(apply, paste, choose, useApp, open, clear);
 
-  control.append(preview, copy, actions);
+  control.append(preview, copy, input, actions);
+  installBackgroundDropTarget(control, { input, panel });
   return control;
 }
 

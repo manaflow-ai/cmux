@@ -4357,6 +4357,13 @@ body.reduce-motion *::after {
   background: color-mix(in oklch, var(--color-accent) 10%, transparent);
 }
 
+.active-pane-background.is-drop-target {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-accent) 9%, transparent);
+}
+
 .setting-label {
   min-width: 0;
   color: var(--color-muted);
@@ -4495,6 +4502,30 @@ body.reduce-motion *::after {
   background-position: var(--active-pane-background-position, center);
 }
 
+.active-pane-background-preview::before {
+  content: "";
+  position: absolute;
+  inset: 6px 7px 20px;
+  border-radius: var(--radius-1);
+  background:
+    linear-gradient(90deg, color-mix(in oklch, var(--color-text) 24%, transparent) 0 48%, transparent 48% 100%),
+    linear-gradient(90deg, color-mix(in oklch, var(--color-accent) 42%, transparent) 0 64%, transparent 64% 100%),
+    linear-gradient(90deg, color-mix(in oklch, var(--color-text) 18%, transparent) 0 36%, transparent 36% 100%);
+  background-position: 0 0, 0 8px, 0 16px;
+  background-size: 100% 2px;
+  background-repeat: no-repeat;
+  opacity: .8;
+}
+
+.active-pane-background.has-image .active-pane-background-preview::before {
+  background:
+    linear-gradient(90deg, color-mix(in oklch, var(--color-text) 34%, transparent) 0 56%, transparent 56% 100%),
+    linear-gradient(90deg, color-mix(in oklch, var(--color-accent) 56%, transparent) 0 68%, transparent 68% 100%);
+  background-position: 0 0, 0 9px;
+  background-size: 100% 2px;
+  background-repeat: no-repeat;
+}
+
 .active-pane-background-preview::after {
   content: "Pane";
   position: absolute;
@@ -4508,6 +4539,10 @@ body.reduce-motion *::after {
   font: 9px/1 var(--font-ui);
   font-weight: 760;
   letter-spacing: 0;
+}
+
+.active-pane-background-input {
+  grid-column: 1 / -1;
 }
 
 .active-pane-background-copy {
@@ -4537,7 +4572,7 @@ body.reduce-motion *::after {
 
 .active-pane-background-actions {
   grid-column: 1 / -1;
-  grid-template-columns: repeat(auto-fit, minmax(min(86px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(76px, 100%), 1fr));
 }
 
 .active-pane-text-control {
