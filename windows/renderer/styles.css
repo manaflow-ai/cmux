@@ -1394,7 +1394,7 @@ body.reduce-motion *::after {
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-padding-inline: 10px 190px;
+  scroll-padding-inline: 10px 204px;
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
   background: color-mix(in oklch, var(--color-terminal-gutter) 88%, var(--color-canvas) 12%);
@@ -1743,24 +1743,25 @@ body.reduce-motion *::after {
   align-self: center;
   position: sticky;
   z-index: 3;
-  height: 25px;
-  flex: 0 0 88px;
-  min-width: 88px;
-  max-width: 88px;
-  grid-template-columns: 16px minmax(0, auto);
+  height: 27px;
+  flex: 0 0 94px;
+  min-width: 94px;
+  max-width: 94px;
+  grid-template-columns: 20px minmax(0, auto);
   justify-items: center;
   justify-content: center;
   gap: 6px;
   padding: 0 8px;
   border-color: color-mix(in oklch, var(--color-line) 64%, transparent);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane) 58%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 74%, var(--color-terminal-gutter) 26%);
   color: var(--color-muted);
   font: inherit;
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 4%, transparent);
 }
 
 .surface-new-terminal {
-  right: 100px;
+  right: 106px;
 }
 
 .surface-new-browser {
@@ -1768,14 +1769,14 @@ body.reduce-motion *::after {
 }
 
 .surface-tabs.is-crowded {
-  scroll-padding-inline: 10px 80px;
+  scroll-padding-inline: 10px 84px;
 }
 
 .surface-tabs.is-crowded .surface-new-tab,
 .shell.density-compact .surface-tabs.is-crowded .surface-new-tab {
-  flex-basis: 32px;
-  min-width: 32px;
-  max-width: 32px;
+  flex-basis: 34px;
+  min-width: 34px;
+  max-width: 34px;
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
   padding-inline: 6px;
@@ -1783,7 +1784,7 @@ body.reduce-motion *::after {
 
 .surface-tabs.is-crowded .surface-new-terminal,
 .shell.density-compact .surface-tabs.is-crowded .surface-new-terminal {
-  right: 43px;
+  right: 45px;
 }
 
 .surface-tabs.is-crowded .surface-new-browser {
@@ -1798,33 +1799,17 @@ body.reduce-motion *::after {
   position: relative;
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border: 1px solid color-mix(in oklch, currentColor 72%, transparent);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, currentColor 8%, transparent);
-}
-
-.surface-new-icon::after {
-  content: "+";
-  position: absolute;
-  right: -5px;
-  bottom: -5px;
-  width: 11px;
-  height: 11px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--color-pane);
-  border-radius: 999px;
-  background: currentColor;
-  color: var(--color-canvas);
-  font: 800 9px/1 var(--font-ui);
+  background: color-mix(in oklch, currentColor 10%, transparent);
 }
 
 .surface-new-tab svg {
   display: block;
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
   stroke-width: 2;
 }
 
@@ -1855,20 +1840,20 @@ body.reduce-motion *::after {
 
 .surface-new-tab:hover {
   border-color: var(--color-line-strong);
-  background: var(--color-pane-active);
+  background: color-mix(in oklch, var(--color-pane-active) 82%, currentColor 18%);
   color: var(--color-text);
 }
 
 .shell.density-compact .surface-new-tab {
   height: 27px;
-  flex-basis: 78px;
-  min-width: 78px;
-  max-width: 78px;
+  flex-basis: 84px;
+  min-width: 84px;
+  max-width: 84px;
   padding-inline: 6px;
 }
 
 .shell.density-compact .surface-new-terminal {
-  right: 90px;
+  right: 96px;
 }
 
 @container (max-width: 560px) {

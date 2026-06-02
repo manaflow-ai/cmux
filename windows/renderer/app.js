@@ -4281,13 +4281,13 @@ function clearSurfaceTabDropTargets() {
 const surfaceAddTabConfigs = {
   terminal: {
     className: "surface-new-terminal",
-    icon: "terminal",
+    icon: "terminalPlus",
     title: "New terminal pane",
     label: "Terminal"
   },
   browser: {
     className: "surface-new-browser",
-    icon: "browser",
+    icon: "browserPlus",
     title: "New browser pane",
     label: "Browser"
   }
@@ -4316,7 +4316,7 @@ function getNewSurfaceTab(kind, workspace) {
       event.stopPropagation();
       createSurfaceAddPane(kind, surfaceAddButtonWorkspace(button));
     };
-    button.addEventListener("contextmenu", (event) => showNewSurfaceTabMenu(event, surfaceAddButtonWorkspace(button)));
+    button.addEventListener("contextmenu", (event) => showNewSurfaceTabMenu(event, surfaceAddButtonWorkspace(button), kind));
     button.addEventListener("dragover", (event) => {
       if (!state.dragPanelId) return;
       event.preventDefault();
@@ -4330,13 +4330,22 @@ function getNewSurfaceTab(kind, workspace) {
     });
     state.newSurfaceAddButtons[kind] = button;
   }
-  setTextIfChanged(button.querySelector(".surface-new-label"), config.label);
+  const parts = surfaceAddTabParts(button);
+  setTextIfChanged(parts.label, config.label);
   setDatasetIfChanged(button, "workspaceId", workspace.id);
-  button.disabled = paneCreationButtonsDisabled();
-  const title = button.disabled ? paneCreationLimitLabel() : `${config.title}. Right-click for more add options`;
+  setDatasetIfChanged(button, "addKind", kind);
+  setDisabledIfChanged(button, paneCreationButtonsDisabled());
+  const title = button.disabled ? paneCreationLimitLabel() : `${config.title}. Right-click to choose right or below.`;
   setTitleIfChanged(button, title);
   if (button.getAttribute("aria-label") !== title) button.setAttribute("aria-label", title);
   return button;
+}
+
+function surfaceAddTabParts(button) {
+  button._surfaceAddParts ||= {
+    label: button.querySelector(".surface-new-label")
+  };
+  return button._surfaceAddParts;
 }
 
 function surfaceAddButtonWorkspace(button) {
@@ -4348,30 +4357,48 @@ function createTerminalPanel(direction = "right", options = {}) {
   return createPanel("terminal", direction, { immediateTerminalInit: true, ...options });
 }
 
-function createSurfaceAddPane(kind, workspace) {
+function createSurfaceAddPane(kind, workspace, direction = "right") {
   if (!workspace || paneCreationButtonsDisabled()) return;
   if (kind === "browser") {
-    openBrowserHome(workspace.id, { mode: "pane" });
+    openBrowserHome(workspace.id, { mode: "pane", direction });
     return;
   }
-  createTerminalPanel("right", { workspaceId: workspace.id });
+  createTerminalPanel(direction, { workspaceId: workspace.id });
 }
 
-function showNewSurfaceTabMenu(event, workspace = activeWorkspace()) {
+function surfaceAddContextActions(kind, workspace) {
+  const disabled = paneCreationButtonsDisabled();
+  const label = kind === "browser" ? "Browser" : "Terminal";
+  const create = (direction) => createSurfaceAddPane(kind, workspace, direction);
+  return contextMenuActionGroup(
+    contextMenuButton(`${label} right`, () => create("right"), disabled),
+    contextMenuButton(`${label} below`, () => create("down"), disabled)
+  );
+}
+
+function showNewSurfaceTabMenu(event, workspace = activeWorkspace(), preferredKind = "terminal") {
   event.preventDefault();
   event.stopPropagation();
   if (!workspace) return;
+  const primaryKind = preferredKind === "browser" ? "browser" : "terminal";
+  const secondaryKind = primaryKind === "browser" ? "terminal" : "browser";
   const menu = ensureContextMenu();
   menu.className = "context-menu";
   const title = document.createElement("div");
   title.className = "context-title";
   title.textContent = "Add pane";
-  const actions = contextMenuActionGroup(
-    contextMenuButton("New terminal", () => createTerminalPanel("right", { workspaceId: workspace.id }), paneCreationButtonsDisabled()),
-    contextMenuButton("New browser pane", () => openBrowserHome(workspace.id, { mode: "pane" }), paneCreationButtonsDisabled()),
+  const utilityActions = contextMenuActionGroup(
     contextMenuButton("Reopen closed pane", reopenClosedPanel, state.closedPanels.length === 0 || paneCreationButtonsDisabled())
   );
-  menu.replaceChildren(title, actions);
+  menu.replaceChildren(
+    title,
+    contextMenuSectionTitle(primaryKind === "browser" ? "Browser" : "Terminal"),
+    surfaceAddContextActions(primaryKind, workspace),
+    contextMenuSectionTitle(secondaryKind === "browser" ? "Browser" : "Terminal"),
+    surfaceAddContextActions(secondaryKind, workspace),
+    contextMenuSectionTitle("Recent"),
+    utilityActions
+  );
   if (event.type === "contextmenu") {
     showContextMenuAt(menu, event.clientX, event.clientY);
   } else {
@@ -14532,7 +14559,7 @@ function openBrowserHome(workspaceId = activeWorkspace()?.id, options = {}) {
   if (launchMode === "external") {
     return openExternalBrowser(state.settings.browserHomeUrl);
   }
-  return createPanel("browser", "right", { url: state.settings.browserHomeUrl, workspaceId });
+  return createPanel("browser", options.direction || "right", { url: state.settings.browserHomeUrl, workspaceId });
 }
 
 function refreshWorkspaceCounts(workspace) {
