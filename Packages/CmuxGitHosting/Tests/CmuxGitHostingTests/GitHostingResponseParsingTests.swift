@@ -47,6 +47,24 @@ import Foundation
         #expect(prs[0].headRefName == "feat")
     }
 
+    @Test func mapsGitLabMergeTimestampForStaleFiltering() throws {
+        // A merged GitLab MR carries a `merged_at` timestamp. It must populate
+        // `mergedAt` so the sidebar can age out stale merged badges; before the GitLab
+        // preset pointed `mergedWhenPresent` at `merged_at`, this was dropped and old
+        // merged MRs stayed pinned forever.
+        let json = """
+        [
+          {"iid":10,"state":"merged","web_url":"https://gitlab.com/g/a/-/merge_requests/10",
+           "updated_at":"2024-05-01T00:00:00Z","merged_at":"2024-05-01T02:30:00Z",
+           "source_branch":"shipped","target_branch":"main"}
+        ]
+        """
+        let prs = try parse(.gitlab, json)
+        #expect(prs.count == 1)
+        #expect(prs[0].state == .merged)
+        #expect(prs[0].mergedAt == "2024-05-01T02:30:00Z")
+    }
+
     @Test func parsesBitbucketNestedFieldsAndStates() throws {
         let json = """
         {"values":[

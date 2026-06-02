@@ -57,7 +57,11 @@ public struct GitHostingResolver: Sendable {
     ///   - port: An explicit HTTPS API port pinned by the remote, if any.
     public func resolvePlan(forHost host: String, port: Int? = nil) async -> GitHostingRequestPlan? {
         let normalizedHost = host.lowercased()
-        let apiHost = port.map { "\(normalizedHost):\($0)" } ?? normalizedHost
+        // Drop default HTTP(S) ports so `host` and `host:443` resolve to one API host
+        // (matching ``GitRemoteReference`` identity normalization) and never emit a
+        // redundant `:443` into `{host}`-templated URLs.
+        let effectivePort = (port == 443 || port == 80) ? nil : port
+        let apiHost = effectivePort.map { "\(normalizedHost):\($0)" } ?? normalizedHost
 
         if let rule = config.rule(matchingHost: normalizedHost), let spec = rule.resolvedSpec() {
             return await makePlan(spec: spec, host: normalizedHost, apiHost: apiHost)

@@ -106,4 +106,25 @@ import Foundation
         #expect(url.host == "git.corp.example")
         #expect(url.path == "/api/v3/repos/team/app/pulls")
     }
+
+    @Test func resolvePlanDropsDefaultHttpsPortButKeepsCustomPort() async throws {
+        let config = GitHostingConfig(rules: [
+            GitHostingProviderRule(
+                host: "ghe.example.com",
+                preset: "github",
+                apiBaseURL: "https://{host}/api/v3/",
+                token: GitHostingTokenSource(environment: ["ENT_TOKEN"])
+            ),
+        ])
+        let r = resolver(config: config, environment: ["ENT_TOKEN": "t"])
+
+        // :443 is the HTTPS default; it must not leak into the API host (it would
+        // create a duplicate `host:443` identity and emit redundant `{host}` URLs).
+        let plan443 = try #require(await r.resolvePlan(forHost: "ghe.example.com", port: 443))
+        #expect(plan443.apiHost == "ghe.example.com")
+
+        // A non-default port stays pinned so on-prem instances on custom ports work.
+        let planCustom = try #require(await r.resolvePlan(forHost: "ghe.example.com", port: 8443))
+        #expect(planCustom.apiHost == "ghe.example.com:8443")
+    }
 }

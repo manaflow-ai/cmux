@@ -89,6 +89,14 @@ public struct GitHostingProviderSpec: Sendable, Codable, Equatable {
         case pageSize, pageLimit, branchFilter, accept, userAgent, auth, response
     }
 
+    /// Decodes a provider spec, applying per-field defaults for keys omitted from JSON.
+    ///
+    /// ``apiBaseURL`` and ``pullRequestsPath`` are required. An absent `pageParam` /
+    /// `perPageParam` defaults to `page` / `per_page`, but an explicit JSON `null` is
+    /// preserved as `nil` so a custom provider can describe an unpaginated endpoint.
+    ///
+    /// - Parameter decoder: The decoder to read the spec from.
+    /// - Throws: A `DecodingError` if a required key is missing or a value has the wrong type.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         apiBaseURL = try container.decode(String.self, forKey: .apiBaseURL)

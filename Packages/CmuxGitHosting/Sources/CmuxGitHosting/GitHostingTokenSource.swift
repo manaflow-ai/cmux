@@ -33,6 +33,11 @@ public struct GitHostingTokenSource: Sendable, Codable, Equatable {
         case environment, command
     }
 
+    /// Decodes a token source, defaulting ``environment`` to an empty list when the
+    /// key is omitted so a command-only source decodes correctly.
+    ///
+    /// - Parameter decoder: The decoder to read the source from.
+    /// - Throws: A `DecodingError` if a present value has the wrong type.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         environment = try container.decodeIfPresent([String].self, forKey: .environment) ?? []

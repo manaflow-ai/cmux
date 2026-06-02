@@ -41,6 +41,15 @@ public struct GitHostingAuthSpec: Sendable, Codable, Equatable {
         case header, scheme, token, allowsAnonymous
     }
 
+    /// Decodes an auth spec, applying per-field defaults for keys omitted from JSON.
+    ///
+    /// An absent `scheme` defaults to `Bearer`, but an explicit JSON `null` is
+    /// preserved as `nil` so a custom provider can send the raw token with no scheme
+    /// prefix. `header` defaults to `Authorization`, `token` to
+    /// ``GitHostingTokenSource/none``, and `allowsAnonymous` to `false`.
+    ///
+    /// - Parameter decoder: The decoder to read the spec from.
+    /// - Throws: A `DecodingError` if a present value has the wrong type.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         header = try container.decodeIfPresent(String.self, forKey: .header) ?? "Authorization"

@@ -23,8 +23,10 @@ public struct GitHostingResponseSpec: Sendable, Codable, Equatable {
     ///
     /// GitHub reports `state: "closed"` for merged PRs and distinguishes them only by
     /// a non-null `merged_at`; setting this to `merged_at` makes such PRs map to
-    /// ``HostedPullRequestState/merged``. Providers that report a `merged` state
-    /// directly (GitLab, Bitbucket) leave this `nil`.
+    /// ``HostedPullRequestState/merged``. GitLab also points this at `merged_at` so the
+    /// merge timestamp populates ``HostedPullRequest/mergedAt`` (used to age out stale
+    /// merged badges), even though its `state` already reports `merged`. Bitbucket Cloud
+    /// exposes no merge timestamp in its list response, so it leaves this `nil`.
     public var mergedWhenPresent: String?
 
     /// Path to the last-updated timestamp (`updated_at`, `updated_on`).

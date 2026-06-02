@@ -66,6 +66,7 @@ public enum GitHostingPreset: String, Sendable, CaseIterable {
                     number: "iid",
                     url: "web_url",
                     state: "state",
+                    mergedWhenPresent: "merged_at",
                     updatedAt: "updated_at",
                     headRef: "source_branch",
                     baseRef: "target_branch",
