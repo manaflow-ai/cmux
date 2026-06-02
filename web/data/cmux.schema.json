@@ -875,7 +875,7 @@
           "type": "boolean",
           "default": true,
           "descriptionKey": "schemaDescriptions.automation.ampIntegration",
-          "description": "Enable cmux integration hooks for Amp."
+          "description": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed."
         },
         "cursorIntegration": {
           "type": "boolean",
