@@ -871,6 +871,7 @@
       "targetingSurface": "Eine Browser-Oberfläche ansprechen",
       "targetingDesc": "Die meisten Unterbefehle erfordern eine Ziel-Oberfläche. Sie können sie positionell oder mit --surface übergeben.",
       "mcpRegisterComment": "# cmux-Browser-MCP-Tools einmalig registrieren",
+      "mcpPrereq": "Echte Browser-MCP-Toolaufrufe funktionieren nur aus einer Codex- oder Claude-Sitzung innerhalb von cmux, wo CMUX_SOCKET_PATH injiziert wird.",
       "navigation": "Navigation",
       "waitingSection": "Warten",
       "waitingDesc": "Verwenden Sie wait, um zu blockieren, bis Selektoren, Text, URL-Fragmente, Ladezustand oder eine JavaScript-Bedingung erfüllt ist.",

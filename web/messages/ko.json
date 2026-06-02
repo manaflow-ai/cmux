@@ -871,6 +871,7 @@
       "targetingSurface": "브라우저 서피스 대상 지정",
       "targetingDesc": "대부분의 하위 명령에는 대상 서피스가 필요합니다. 위치 인수 또는 --surface로 전달할 수 있습니다.",
       "mcpRegisterComment": "# cmux 브라우저 MCP 도구를 한 번만 등록",
+      "mcpPrereq": "실제 브라우저 MCP 도구 호출은 CMUX_SOCKET_PATH가 주입된 cmux 내부에서 실행 중인 Codex 또는 Claude 세션에서만 작동합니다.",
       "navigation": "내비게이션",
       "waitingSection": "대기",
       "waitingDesc": "셀렉터, 텍스트, URL 프래그먼트, 로드 상태 또는 JavaScript 조건이 충족될 때까지 차단하려면 wait를 사용하세요.",

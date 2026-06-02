@@ -871,6 +871,7 @@
       "targetingSurface": "ការកំណត់គោលដៅ surface កម្មវិធីរុករក",
       "targetingDesc": "ពាក្យបញ្ជារងភាគច្រើនត្រូវការ surface គោលដៅ។ អ្នកអាចបញ្ជូនវាតាមទីតាំង ឬជាមួយ --surface។",
       "mcpRegisterComment": "# ចុះឈ្មោះឧបករណ៍ MCP របស់កម្មវិធីរុករក cmux ម្តង",
+      "mcpPrereq": "ការហៅឧបករណ៍ MCP របស់កម្មវិធីរុករកពិតៗដំណើរការបានតែពីសម័យ Codex ឬ Claude ដែលកំពុងរត់ក្នុង cmux ដែលមានការបញ្ចូល CMUX_SOCKET_PATH ប៉ុណ្ណោះ។",
       "navigation": "ការរុករក",
       "waitingSection": "ការរង់ចាំ",
       "waitingDesc": "ប្រើ wait ដើម្បីរង់ចាំរហូតដល់ selectors, អត្ថបទ, ផ្នែក URL, ស្ថានភាពផ្ទុក, ឬលក្ខខណ្ឌ JavaScript ត្រូវបានបំពេញ។",

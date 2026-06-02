@@ -871,6 +871,7 @@
       "targetingSurface": "استهداف سطح متصفح",
       "targetingDesc": "معظم الأوامر الفرعية تتطلب سطحاً مستهدفاً. يمكنك تمريره موضعياً أو بـ --surface.",
       "mcpRegisterComment": "# سجّل أدوات MCP لمتصفح cmux مرة واحدة",
+      "mcpPrereq": "تعمل استدعاءات أدوات MCP الفعلية للمتصفح فقط من جلسة Codex أو Claude تعمل داخل cmux، حيث يتم حقن CMUX_SOCKET_PATH.",
       "navigation": "التنقل",
       "waitingSection": "الانتظار",
       "waitingDesc": "استخدم wait للانتظار حتى تتحقق محددات أو نص أو أجزاء URL أو حالة التحميل أو شرط JavaScript.",

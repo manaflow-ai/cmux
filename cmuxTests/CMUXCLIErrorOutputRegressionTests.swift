@@ -1077,6 +1077,79 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         }
     }
 
+    func testBrowserMCPServerReturnsErrorsForInvalidTopLevelMessages() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"#,
+            #"[1]"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let parseError = try XCTUnwrap(responses[0]["error"] as? [String: Any])
+        XCTAssertEqual(parseError["code"] as? Int, -32700)
+        XCTAssertTrue(responses[0]["id"] is NSNull, result.stdout)
+        let invalidRequestError = try XCTUnwrap(responses[1]["error"] as? [String: Any])
+        XCTAssertEqual(invalidRequestError["code"] as? Int, -32600)
+        XCTAssertTrue(responses[1]["id"] is NSNull, result.stdout)
+    }
+
+    func testBrowserMCPServerRejectsExplicitEmptyBrowserHandles() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: #"{"ok":true,"result":{}}"#)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_identify","arguments":{"surface":""}}}"#,
+            #"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cmux_browser_open","arguments":{"workspace":""}}}"#,
+            #"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"cmux_browser_open","arguments":{"window":""}}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 4, result.stdout)
+        XCTAssertNil(responses[0]["error"], result.stdout)
+
+        let expectedMessages = [
+            "Invalid browser surface handle",
+            "Invalid workspace handle",
+            "Invalid window handle",
+        ]
+        for (index, expectedMessage) in expectedMessages.enumerated() {
+            let callResult = try XCTUnwrap(responses[index + 1]["result"] as? [String: Any])
+            XCTAssertEqual(callResult["isError"] as? Bool, true, result.stdout)
+            let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+            XCTAssertTrue((content.first?["text"] as? String)?.contains(expectedMessage) == true, result.stdout)
+        }
+        XCTAssertEqual(responder.receivedRequests, [])
+    }
+
     func testBrowserMCPServerRoutesClickToolToBrowserSocketRPC() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
@@ -1752,7 +1825,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         try output
             .split(separator: "\n")
             .map(String.init)
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .filter { $0.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") }
             .map(jsonObject(fromLine:))
     }
 

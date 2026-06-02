@@ -107,6 +107,7 @@ cmux browser --surface surface:2 url`}</CodeBlock>
       <CodeBlock lang="bash">{`${t("mcpRegisterComment")}
 codex mcp add cmux-browser -- cmux browser mcp-server
 claude mcp add cmux-browser -- cmux browser mcp-server`}</CodeBlock>
+      <p>{t("mcpPrereq")}</p>
 
       <DocsHeading level={2} id="navigation">{t("navigation")}</DocsHeading>
       <CodeBlock lang="bash">{`cmux browser open https://example.com

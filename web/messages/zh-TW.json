@@ -871,6 +871,7 @@
       "targetingSurface": "指定瀏覽器 surface",
       "targetingDesc": "大多數子指令需要指定目標 surface。你可以用位置參數或 --surface 來傳遞。",
       "mcpRegisterComment": "# 只需註冊一次 cmux 瀏覽器 MCP 工具",
+      "mcpPrereq": "實際的瀏覽器 MCP 工具呼叫只能在 cmux 內執行的 Codex 或 Claude 工作階段中運作，因為其中會注入 CMUX_SOCKET_PATH。",
       "navigation": "導覽",
       "waitingSection": "等待",
       "waitingDesc": "使用 wait 來阻塞直到選擇器、文字、URL 片段、載入狀態或 JavaScript 條件滿足。",

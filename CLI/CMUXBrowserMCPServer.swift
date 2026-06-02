@@ -21,9 +21,15 @@ final class CMUXBrowserMCPServer {
             do {
                 try handleMessageLine(trimmed)
             } catch {
-                logDiagnostic("cmux browser MCP failed to process a message: \(sanitizedErrorMessage(error))")
+                let message = sanitizedErrorMessage(error)
+                logDiagnostic("cmux browser MCP failed to process a message: \(message)")
+                writeError(id: nil, code: jsonRPCErrorCode(for: error), message: message)
             }
         }
+    }
+
+    func jsonRPCErrorCode(for error: Error) -> Int {
+        error is CLIError ? -32600 : -32700
     }
 
     func handleMessageLine(_ line: String) throws {

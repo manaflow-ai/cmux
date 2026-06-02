@@ -39,9 +39,23 @@ extension CMUXBrowserMCPServer {
     func callIdentify(_ arguments: [String: Any]) throws -> [String: Any] {
         try withClient { client in
             let surfaceRaw = stringArgument(arguments, keys: ["surface", "surface_id"])
+            let requestedSurface: String?
+            if let surfaceRaw {
+                guard let surface = try cli.normalizeSurfaceHandle(surfaceRaw, client: client) else {
+                    throw CLIError(
+                        message: String(
+                            localized: "cli.browserMCP.error.invalidSurfaceHandle",
+                            defaultValue: "Invalid browser surface handle"
+                        )
+                    )
+                }
+                requestedSurface = surface
+            } else {
+                requestedSurface = nil
+            }
+
             var payload = try client.sendV2(method: "system.identify")
-            if let surfaceRaw,
-               let surface = try cli.normalizeSurfaceHandle(surfaceRaw, client: client) {
+            if let surface = requestedSurface {
                 let urlPayload = try client.sendV2(method: "browser.url.get", params: ["surface_id": surface])
                 let titlePayload = try client.sendV2(method: "browser.get.title", params: ["surface_id": surface])
                 payload["browser"] = [
@@ -61,13 +75,32 @@ extension CMUXBrowserMCPServer {
             if let url = stringArgument(arguments, keys: ["url"]) {
                 params["url"] = url
             }
-            if let workspaceRaw = stringArgument(arguments, keys: ["workspace", "workspace_id"]) ??
-                (stringArgument(arguments, keys: ["window", "window_id"]) == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil),
-               let workspace = try cli.normalizeWorkspaceHandle(workspaceRaw, client: client) {
+            let workspaceRaw = stringArgument(arguments, keys: ["workspace", "workspace_id"])
+            let windowRaw = stringArgument(arguments, keys: ["window", "window_id"])
+            if let workspaceRaw {
+                guard let workspace = try cli.normalizeWorkspaceHandle(workspaceRaw, client: client) else {
+                    throw CLIError(
+                        message: String(
+                            localized: "cli.browserMCP.error.invalidWorkspaceHandle",
+                            defaultValue: "Invalid workspace handle"
+                        )
+                    )
+                }
+                params["workspace_id"] = workspace
+            } else if windowRaw == nil,
+                      let environmentWorkspaceRaw = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
+                      let workspace = try? cli.normalizeWorkspaceHandle(environmentWorkspaceRaw, client: client) {
                 params["workspace_id"] = workspace
             }
-            if let windowRaw = stringArgument(arguments, keys: ["window", "window_id"]),
-               let window = try cli.normalizeWindowHandle(windowRaw, client: client) {
+            if let windowRaw {
+                guard let window = try cli.normalizeWindowHandle(windowRaw, client: client) else {
+                    throw CLIError(
+                        message: String(
+                            localized: "cli.browserMCP.error.invalidWindowHandle",
+                            defaultValue: "Invalid window handle"
+                        )
+                    )
+                }
                 params["window_id"] = window
             }
             if let focus = boolArgument(arguments, key: "focus") {
