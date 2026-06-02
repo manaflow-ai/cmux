@@ -2821,6 +2821,7 @@ function markInteractedPanel(panelId) {
   const zoomChanged = clearDifferentZoomedPanelOnFocus(found.workspace, panelId);
   if (!wasActive) {
     found.workspace.activePanelId = panelId;
+    refreshAppStateSignature();
     queueFocusSync({ type: "panel", panelId });
     updateBrowserPaneActivity(visiblePanePanelIds());
     scheduleRender();
@@ -3138,6 +3139,10 @@ function setAppState(nextData, { previousState = state.data, schedule = false } 
   if (schedule) scheduleRender(previousState);
   else render(previousState);
   return true;
+}
+
+function refreshAppStateSignature() {
+  state.dataSignature = appStateSignature(state.data);
 }
 
 function scheduleRender(previousState = null) {
@@ -12940,8 +12945,10 @@ function optimisticFocusWorkspace(workspaceId, options = {}) {
   };
   if (state.data.activeWorkspaceId !== workspaceId) {
     state.data.activeWorkspaceId = workspaceId;
+    refreshAppStateSignature();
     renderFocusChange();
   } else if (workspace.activePanelId !== previousPanelId) {
+    refreshAppStateSignature();
     renderFocusChange();
   }
   return true;
@@ -12965,6 +12972,7 @@ function optimisticFocusPanel(panelId, options = {}) {
     || previousLastInteractedPanelId !== panelId
     || zoomChanged;
   if (changed) {
+    refreshAppStateSignature();
     if (options.schedule) scheduleRender();
     else render();
   }
