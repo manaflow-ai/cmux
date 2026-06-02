@@ -6742,13 +6742,14 @@ function renderBrowserTabs(session) {
     button.remove();
     session.tabButtons.delete(tabId);
   }
+  const tabLabels = browserTabLabels(session);
   const nodes = session.tabs.map((tab) => {
     let button = session.tabButtons.get(tab.id);
     if (!button) {
       button = createBrowserTabButton(session);
       session.tabButtons.set(tab.id, button);
     }
-    updateBrowserTabButton(session, button, tab);
+    updateBrowserTabButton(session, button, tab, tabLabels.get(tab.id));
     return button;
   });
   replaceChildrenIfChanged(session.tabList, nodes);
@@ -6906,9 +6907,8 @@ function createBrowserTabButton(session) {
   return button;
 }
 
-function updateBrowserTabButton(session, button, tab) {
-  const label = browserTabLabel(session, tab);
-  const fullTitle = tab.title || browserTabTitle(tab.url);
+function updateBrowserTabButton(session, button, tab, label = browserTabLabel(session, tab)) {
+  const fullTitle = browserTabBaseLabel(tab);
   const ordinal = Math.max(1, (session?.tabs || []).findIndex((candidate) => candidate.id === tab.id) + 1);
   const closeLabel = session.tabs.length <= 1 ? t("browser.resetTab") : t("browser.closeTab");
   button._browserTabParts ||= {
@@ -6920,15 +6920,40 @@ function updateBrowserTabButton(session, button, tab) {
   setDatasetIfChanged(button, "browserTabId", tab.id);
   setDatasetIfChanged(button, "tabIndex", String(ordinal));
   setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""} - ${tab.url}`);
-  button.setAttribute("aria-label", `${label}. ${tab.url}. ${closeLabel} with Delete.`);
+  const ariaLabel = `${label}. ${tab.url}. ${closeLabel} with Delete.`;
+  if (button.getAttribute("aria-label") !== ariaLabel) button.setAttribute("aria-label", ariaLabel);
   setTextIfChanged(parts.label, label);
   setTitleIfChanged(parts.close, closeLabel);
 }
 
+function browserTabBaseLabel(tab) {
+  return tab?.title || browserTabTitle(tab?.url);
+}
+
+function browserTabLabels(session) {
+  const tabs = session?.tabs || [];
+  const baseLabels = new Map();
+  const counts = new Map();
+  for (const tab of tabs) {
+    const label = browserTabBaseLabel(tab);
+    baseLabels.set(tab.id, label);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  const seen = new Map();
+  const labels = new Map();
+  for (const tab of tabs) {
+    const base = baseLabels.get(tab.id) || "";
+    const index = (seen.get(base) || 0) + 1;
+    seen.set(base, index);
+    labels.set(tab.id, (counts.get(base) || 0) > 1 ? `${base} ${index}` : base);
+  }
+  return labels;
+}
+
 function browserTabLabel(session, tab) {
-  const label = tab.title || browserTabTitle(tab.url);
+  const label = browserTabBaseLabel(tab);
   const duplicates = (session?.tabs || [])
-    .filter((candidate) => (candidate.title || browserTabTitle(candidate.url)) === label);
+    .filter((candidate) => browserTabBaseLabel(candidate) === label);
   if (duplicates.length <= 1) return label;
   const duplicateIndex = duplicates.findIndex((candidate) => candidate.id === tab.id);
   return duplicateIndex >= 0 ? `${label} ${duplicateIndex + 1}` : label;
