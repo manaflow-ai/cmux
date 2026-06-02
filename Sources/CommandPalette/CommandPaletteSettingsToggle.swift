@@ -662,6 +662,17 @@ enum CommandPaletteSettingsToggleCommands {
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "rightSidebarFeed",
+                settingsKey: "betaFeatures.feed",
+                title: {
+                    String(localized: "settings.betaFeatures.feed", defaultValue: "Feed")
+                },
+                sectionTitle: beta,
+                keywords: ["betaFeatures.feed", "feed", "right", "sidebar", "beta", "agent", "decisions", "permissions"],
+                defaultValue: RightSidebarBetaFeatureSettings.defaultFeedEnabled,
+                defaultsKey: RightSidebarBetaFeatureSettings.feedEnabledKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "rightSidebarDock",
                 settingsKey: "betaFeatures.dock",
                 title: {

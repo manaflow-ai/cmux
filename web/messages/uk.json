@@ -258,6 +258,22 @@
         "p3": "Це відправляє поточний workspace у кінець циклу непрочитаних, щоб ви могли продовжувати перегляд без очищення статусу.",
         "p4": "Cmd+Option+U перемикає поточний workspace між прочитаним і непрочитаним.",
         "p5": "Це корисно, коли ви переходите до нового непрочитаного workspace через Cmd+Shift+U, але хочете змінити контекст перед відповіддю."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Знову відкривайте закриті термінали, браузери, робочі простори й сесії агентів за допомогою Cmd+Shift+T та повертайтеся за своїм фокусом за допомогою Cmd+[ і Cmd+].",
+        "date": "2 червня 2026 р.",
+        "p1": "Ви закриваєте вкладку термінала, щоб навести лад, а потім розумієте, що вона була потрібна. Або закриваєте цілий робочий простір і втрачаєте агента посеред задачі. Тепер cmux веде історію того, що ви закрили та на чому фокусувалися, тож повернути це можна одним сполученням клавіш.",
+        "reopenTitle": "Знову відкрийте те, що закрили",
+        "reopenP": "Натисніть <code>Cmd+Shift+T</code>, щоб знову відкрити останнє закрите. Це працює для вкладок термінала, вкладок браузера, робочих просторів і вікон та відновлює їх по одному в тому порядку, в якому ви їх закривали. Кожна поверхня повертається на своє місце з незмінними панелями.",
+        "agentTitle": "Сесії агентів теж повертаються",
+        "agentP": "Історія також знову відкриває закриті сесії агентів. Знову відкрийте сесію Claude Code, Codex або OpenCode, і вона продовжиться з того місця, де зупинилася. Один раз виконайте <code>cmux hooks setup</code>, щоб cmux міг відстежувати сесії агентів; після цього вони відкриваються знову, як і все інше.",
+        "agentP2": "Це побудовано на <link>відновленні сесій</link> cmux, яке відновлює підтримувані агенти через їхні власні нативні команди відновлення.",
+        "focusTitle": "Поверніться туди, де ви були",
+        "focusP": "Кнопки «назад» і «вперед» у рядку заголовка або <code>Cmd+[</code> і <code>Cmd+]</code> переходять до попереднього й наступного робочого простору чи вікна, де ви працювали, так само як «назад» і «вперед» у браузері.",
+        "fullHistoryTitle": "Повна панель історії",
+        "fullHistoryP": "Коли вам потрібно більше за останній елемент, відкрийте повну панель історії: придатний для пошуку, згрупований за днями огляд усього, що ви закрили та на чому фокусувалися, із позначками часу й дією Clear Closed.",
+        "docsCta": "Перегляньте <link>клавіатурні скорочення</link>, щоб побачити повний список, зокрема як перепризначити навігацію історією."
       }
     },
     "passkeyAuth": {
@@ -367,6 +383,10 @@
         "AI-агенти для кодування",
         "workspace непрочитаний"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: повторне відкриття закритих терміналів і сесій",
+      "metaDescription": "cmux веде історію того, що ви закрили та на чому фокусувалися. Знову відкривайте закриті термінали, браузери, робочі простори й сесії Claude Code, Codex та OpenCode за допомогою Cmd+Shift+T, а фокус переміщуйте назад і вперед за допомогою Cmd+[ і Cmd+]."
     }
   },
   "docs": {
@@ -513,8 +533,17 @@
           "byCwd": {
             "newWorkspacePlacement": "Перевизначення для cwd, яке задає, куди Cmd-N у групі, кнопка + у заголовку групи та налаштовані дії групи розміщують новий workspace: `afterCurrent` (після активного workspace у групі, з fallback до top), `top` (друга позиція одразу після якоря) або `end` (після останнього учасника). Якщо пропущено, використовується глобальне значення за замовчуванням."
           }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "Користувацькі команди",

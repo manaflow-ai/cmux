@@ -27,6 +27,25 @@ fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     return result
 }
 
+private struct BrowserFocusModePlainEscapeEventFingerprint: Equatable {
+    let type: NSEvent.EventType
+    let timestamp: TimeInterval
+    let windowNumber: Int
+    let keyCode: UInt16
+    let modifierFlags: NSEvent.ModifierFlags.RawValue
+
+    init(_ event: NSEvent) {
+        self.type = event.type
+        self.timestamp = event.timestamp
+        self.windowNumber = event.windowNumber
+        self.keyCode = event.keyCode
+        self.modifierFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+            .rawValue
+    }
+}
+
 struct BrowserProxyEndpoint: Equatable {
     let host: String
     let port: Int
@@ -2629,6 +2648,101 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         )
     }
 
+    /// Re-registers a diff viewer token from its on-disk manifest so the surface
+    /// can be served again after an app restart (the in-memory registry is lost,
+    /// but the manifest + files persist in the trusted diff viewer directory).
+    /// Returns `true` when the token is registered and ready to serve.
+    func registerFromManifest(token: String, now: Date = Date()) -> Bool {
+        guard let files = localManifestFiles(token: token) else { return false }
+        do {
+            try register(token: token, files: files, now: now)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Loads the registered files for a token's on-disk manifest, or `nil` when
+    /// the manifest is missing, empty, or references remote patch entries
+    /// (`remote_url` / empty `file_path`) that the local-file scheme handler
+    /// cannot serve. Streamed remote PR diffs fall into the latter case.
+    private func localManifestFiles(token: String) -> [RegisteredFile]? {
+        guard Self.isValidToken(token) else { return nil }
+        let manifestURL = trustedRootURL.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+        guard let data = try? Data(contentsOf: manifestURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let fileObjects = object["files"] as? [[String: Any]],
+              !fileObjects.isEmpty else {
+            return nil
+        }
+        var files: [RegisteredFile] = []
+        for fileObject in fileObjects {
+            let filePath = fileObject["file_path"] as? String ?? ""
+            if fileObject["remote_url"] is String || filePath.isEmpty {
+                return nil
+            }
+            guard let file = Self.registeredFile(from: fileObject) else { return nil }
+            files.append(file)
+        }
+        return files
+    }
+
+    /// Whether a diff viewer surface can be restored through the custom scheme.
+    /// Requires a local-only manifest and an entry page that is neither a
+    /// pending placeholder nor a redirect stub. Pending pages poll a
+    /// deferred-load wait endpoint, and redirect pages bounce to the original
+    /// `http://127.0.0.1:<port>` URL; both only work against the local HTTP
+    /// server, which is gone after restart, so they would fail under the
+    /// custom scheme.
+    func diffViewerRestorable(token: String, requestPath: String) -> Bool {
+        guard let files = localManifestFiles(token: token),
+              let entry = files.first(where: { $0.requestPath == requestPath }),
+              let handle = try? FileHandle(forReadingFrom: entry.fileURL) else {
+            return false
+        }
+        defer { try? handle.close() }
+        let head = (try? handle.read(upToCount: 1024)) ?? Data()
+        if let text = String(data: head, encoding: .utf8),
+           text.contains("data-cmux-diff-pending=\"true\"") || text.contains("data-cmux-diff-redirect") {
+            return false
+        }
+        return true
+    }
+
+    /// Extracts the diff viewer `(token, requestPath)` from a live diff viewer
+    /// URL, accepting both the custom scheme (`cmux-diff-viewer://<token>/<path>`)
+    /// and the local HTTP server form (`http://127.0.0.1:<port>/<token>/<path>#cmux-diff-viewer`).
+    static func diffViewerComponents(from url: URL?) -> (token: String, requestPath: String)? {
+        guard let url else { return nil }
+        if url.scheme == scheme, let token = url.host, isValidToken(token) {
+            guard let requestPath = requestPath(for: url) else { return nil }
+            return (token, requestPath)
+        }
+        if (url.scheme == "http" || url.scheme == "https"),
+           url.host == "127.0.0.1",
+           url.fragment == Self.scheme {
+            let rawPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
+            let parts = rawPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+            guard parts.count >= 2, isValidToken(parts[0]) else { return nil }
+            let requestPath = "/" + parts.dropFirst().joined(separator: "/")
+            guard isValidRequestPath(requestPath) else { return nil }
+            return (parts[0], requestPath)
+        }
+        return nil
+    }
+
+    /// Builds the app-owned custom-scheme URL used to restore a diff viewer
+    /// surface, decoupled from the local HTTP server. No fragment, so
+    /// `registeredFile(for:)` serves it.
+    static func diffViewerURL(token: String, requestPath: String) -> URL? {
+        guard isValidToken(token), isValidRequestPath(requestPath) else { return nil }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = token
+        components.percentEncodedPath = requestPath
+        return components.url
+    }
+
     static func isValidToken(_ token: String) -> Bool {
         guard (16...80).contains(token.count) else { return false }
         return token.unicodeScalars.allSatisfy { scalar in
@@ -3317,6 +3431,16 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Increment to request a UI-only flash highlight (e.g. from a keyboard shortcut).
     @Published private(set) var focusFlashToken: Int = 0
 
+    /// Browser focus mode gives the focused WKWebView first ownership of page/app shortcuts.
+    @Published private(set) var isBrowserFocusModeActive: Bool = false
+
+    /// A first plain Escape in browser focus mode is forwarded to the page and arms exit.
+    @Published private(set) var isBrowserFocusModeExitArmed: Bool = false
+
+    private static let browserFocusModeEscapeSequenceInterval: TimeInterval = 1.6
+    private var browserFocusModeExitArmedAt: TimeInterval?
+    private var lastBrowserFocusModePlainEscapeEventFingerprint: BrowserFocusModePlainEscapeEventFingerprint?
+
     /// Sticky omnibar-focus intent. This survives view mount timing races and is
     /// cleared only after BrowserPanelView acknowledges handling it.
     @Published private(set) var pendingAddressBarFocusRequestId: UUID?
@@ -3336,6 +3460,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published var searchState: BrowserSearchState? = nil {
         didSet {
             if let searchState {
+                clearBrowserFocusMode(reason: "searchStateCreated")
                 preferredFocusIntent = .findField
 #if DEBUG
                 cmuxDebugLog("browser.find.state.created panel=\(id.uuidString.prefix(5))")
@@ -3441,6 +3566,11 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
     private let bypassesRemoteWorkspaceProxy: Bool
+    /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
+    /// or other custom UI) rather than a normal web page. When set, the webview
+    /// is made fully clear over a transparent Ghostty theme so the page's own
+    /// CSS owns the background. See `applyWebViewBackground(color:)`.
+    private let usesTransparentBackground: Bool
     private let developerToolsDetachedOpenGracePeriod: TimeInterval = 0.35
     private var developerToolsDetachedOpenGraceDeadline: Date?
     private var developerToolsTransitionTargetVisible: Bool?
@@ -3641,6 +3771,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let historyCurrentURL = preferredURLStringForOmnibar() ?? restoreURL?.absoluteString
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
 
+        clearBrowserFocusMode(reason: "webViewDiscard")
         invalidateSearchFocusRequests(reason: "webViewDiscard")
         searchState = nil
         loadingEndWorkItem?.cancel()
@@ -3995,6 +4126,12 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
+        webView.onMouseBackButton = { [weak self] in
+            self?.goBack()
+        }
+        webView.onMouseForwardButton = { [weak self] in
+            self?.goForward()
+        }
         webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
             if downloading {
                 self?.beginDownloadActivity()
@@ -4091,6 +4228,7 @@ final class BrowserPanel: Panel, ObservableObject {
         preloadInitialNavigationInBackground: Bool = false,
         bypassInsecureHTTPHostOnce: String? = nil,
         omnibarVisible: Bool = true,
+        transparentBackground: Bool = false,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
@@ -4111,6 +4249,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.isOmnibarVisible = omnibarVisible
+        self.usesTransparentBackground = transparentBackground
         self.websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
@@ -4734,6 +4873,31 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
+        // Diff viewer surfaces re-register their token from the on-disk manifest
+        // and navigate via the app-owned custom scheme, so they restore even
+        // though the local HTTP server that originally served them is gone.
+        if let token = snapshot.diffViewerToken,
+           let requestPath = snapshot.diffViewerRequestPath,
+           CmuxDiffViewerURLSchemeHandler.shared.registerFromManifest(token: token),
+           let diffURL = CmuxDiffViewerURLSchemeHandler.diffViewerURL(token: token, requestPath: requestPath) {
+            hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
+            setMuted(snapshot.isMuted)
+            setOmnibarVisible(snapshot.omnibarVisible ?? false)
+            currentURL = diffURL
+            let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
+            shouldRenderWebView = shouldRenderRestoredWebView
+            guard shouldRenderRestoredWebView else {
+                refreshNavigationAvailability()
+                return
+            }
+            navigateWithoutInsecureHTTPPrompt(
+                to: diffURL,
+                recordTypedNavigation: false,
+                preserveRestoredSessionHistory: false
+            )
+            return
+        }
+
         let restoredURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
         let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
@@ -4762,17 +4926,45 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func shouldRenderWebViewForSessionSnapshot() -> Bool {
-        guard preferredURLStringForSessionSnapshot() != nil else { return false }
+        // Diff viewer URLs are "temporary" so `preferredURLStringForSessionSnapshot()`
+        // is nil, but they are restorable via their token, so honor their render
+        // intent too (otherwise a restored diff surface never navigates).
+        guard preferredURLStringForSessionSnapshot() != nil || diffViewerSessionComponents() != nil else {
+            return false
+        }
         return hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView ?? shouldRenderWebView
     }
 
     func shouldPersistSessionSnapshot() -> Bool {
+        // Diff viewer surfaces are otherwise treated as temporary. Persist them
+        // only when they can actually be restored via the custom scheme (a
+        // local-only, non-pending manifest); otherwise persisting would leave a
+        // blank panel on restart with no URL to fall back to.
+        if let components = diffViewerSessionComponents() {
+            return CmuxDiffViewerURLSchemeHandler.shared.diffViewerRestorable(
+                token: components.token,
+                requestPath: components.requestPath
+            )
+        }
         guard !Self.isTemporarySessionHistoryURL(webView.url),
               !Self.isTemporarySessionHistoryURL(currentURL),
               !Self.isTemporarySessionHistoryURL(restoredHistoryCurrentURL) else {
             return false
         }
         return true
+    }
+
+    /// Whether this surface is transparent internal cmux UI, for the session
+    /// snapshot (so it restores transparent rather than opaque).
+    var sessionSnapshotTransparentBackground: Bool {
+        usesTransparentBackground
+    }
+
+    /// The diff viewer `(token, requestPath)` for the live URL, if this surface
+    /// is currently showing a diff viewer; used to persist + restore it.
+    func diffViewerSessionComponents() -> (token: String, requestPath: String)? {
+        CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: webView.url)
+            ?? CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: currentURL)
     }
 
     func preferredURLStringForSessionSnapshot() -> String? {
@@ -4905,9 +5097,59 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
-                self.webView.underPageBackgroundColor = GhosttyBackgroundTheme.color(from: notification)
+                self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
             }
             .store(in: &webViewCancellables)
+
+        // Apply the configured background for the freshly bound webview (covers
+        // the initial bind and every post-crash replacement).
+        applyConfiguredWebViewBackground()
+    }
+
+    /// Configures the live webview's background for the current Ghostty theme.
+    private func applyConfiguredWebViewBackground() {
+        applyWebViewBackground(color: GhosttyBackgroundTheme.currentColor())
+    }
+
+    /// Applies the webview background for a given composited terminal color.
+    ///
+    /// Normal browser surfaces always paint the solid composited color so pages
+    /// never flash the desktop while loading. Transparent internal-UI surfaces
+    /// (``usesTransparentBackground``) instead let the page's own CSS own the
+    /// background: when the terminal theme is transparent (alpha < 1) the
+    /// webview is made fully clear so the page composites against the window
+    /// exactly once, with no extra native fill. When the theme is opaque the
+    /// solid fill is kept even for transparent surfaces to avoid a load flash.
+    private func applyWebViewBackground(color: NSColor) {
+        if usesTransparentBackground, Self.shouldClearTransparentSurfaceBackground() {
+            webView.wantsLayer = true
+            webView.setValue(false, forKey: "drawsBackground")
+            webView.underPageBackgroundColor = .clear
+            webView.layer?.isOpaque = false
+            webView.layer?.backgroundColor = NSColor.clear.cgColor
+            return
+        }
+        if usesTransparentBackground {
+            // Restore opaque drawing in case a transparent theme previously made
+            // this webview clear before the user switched to an opaque theme.
+            webView.setValue(true, forKey: "drawsBackground")
+            webView.layer?.isOpaque = true
+            webView.layer?.backgroundColor = nil
+        }
+        webView.underPageBackgroundColor = color
+    }
+
+    /// Whether a transparent internal-UI surface should drop its webview fill so
+    /// the window backdrop shows through. Mirrors the terminal/markdown panels'
+    /// ``PanelAppearance/usesClearContentBackground`` decision using the live
+    /// Ghostty appearance: the composited terminal color is always opaque, so we
+    /// gate on the runtime opacity/blur/transparent-window state instead.
+    private static func shouldClearTransparentSurfaceBackground() -> Bool {
+        PanelAppearance.shouldUseClearContentBackground(
+            opacity: GhosttyApp.shared.defaultBackgroundOpacity,
+            usesGhosttyGlassStyle: GhosttyApp.shared.defaultBackgroundBlur.isMacOSGlassStyle,
+            usesTransparentWindow: cmuxShouldUseTransparentBackgroundWindow()
+        )
     }
 
     private func replaceWebViewAfterContentProcessTermination(for terminatedWebView: WKWebView) {
@@ -5074,6 +5316,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func unfocus() {
+        clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
         if Self.responderChainContains(window.firstResponder, target: webView) {
@@ -5824,6 +6067,8 @@ extension BrowserPanel {
         !pageTitle.isEmpty ||
         faviconPNGData != nil ||
         searchState != nil ||
+        isBrowserFocusModeActive ||
+        isBrowserFocusModeExitArmed ||
         nativeCanGoBack ||
         nativeCanGoForward ||
         restoredHistoryCurrentURL != nil ||
@@ -5858,6 +6103,7 @@ extension BrowserPanel {
 #endif
 
         _ = hideDeveloperTools()
+        clearBrowserFocusMode(reason: "contextReset")
         cancelDeveloperToolsRestoreRetry()
         setPreferredDeveloperToolsVisible(false)
         preferredDeveloperToolsPresentation = .unknown
@@ -6618,10 +6864,30 @@ extension BrowserPanel {
 
     func noteDeveloperToolsHostAttached() {
         cancelPendingDeveloperToolsVisibilityLossCheck()
-        developerToolsLastAttachedHostAt = Date()
+        // `developerToolsLastAttachedHostAt` anchors the manual-close detection
+        // grace (see `consumeAttachedDeveloperToolsManualCloseIfNeeded`). Refresh it
+        // only when this attach reflects genuine inspector churn: the inspector is
+        // currently visible, a forced refresh is pending, or a restore retry is in
+        // flight. While DevTools intent is set the browser stays in local-inline
+        // hosting, so `BrowserPanelView` re-runs this on every `updateNSView`. A
+        // plain re-render (e.g. navigating to another page) is not a reattach;
+        // resetting the grace there would defer a user's manual inspector close
+        // indefinitely and let `restoreDeveloperToolsAfterAttachIfNeeded` reopen it.
+        if developerToolsLastAttachedHostAt == nil || hasActiveDeveloperToolsReattachReason {
+            developerToolsLastAttachedHostAt = Date()
+        }
         if isDeveloperToolsVisible() {
             developerToolsLastKnownVisibleAt = Date()
         }
+    }
+
+    /// Whether a host attach should count as genuine inspector churn that resets
+    /// the manual-close grace window, rather than a steady-state re-render while
+    /// the inspector is already closed.
+    private var hasActiveDeveloperToolsReattachReason: Bool {
+        isDeveloperToolsVisible()
+            || forceDeveloperToolsRefreshOnNextAttach
+            || developerToolsRestoreRetryWorkItem != nil
     }
 
     func scheduleDeveloperToolsVisibilityLossCheck() {
@@ -6860,6 +7126,7 @@ extension BrowserPanel {
     // MARK: - Find in Page
 
     func startFind() {
+        clearBrowserFocusMode(reason: "startFind")
         preferredFocusIntent = .findField
         let created = searchState == nil
         let recoveredNeedle = created ? lastSearchNeedle : ""
@@ -6921,6 +7188,166 @@ extension BrowserPanel {
         invalidateSearchFocusRequests(reason: "hideFind")
         searchState = nil
         if shouldRestoreWebViewFocus { focus() }
+    }
+
+    var canEnterBrowserFocusMode: Bool {
+        shouldRenderWebView &&
+            browserInteractiveModalHostWindow(for: webView) != nil &&
+            !webView.isHiddenOrHasHiddenAncestor &&
+            searchState == nil
+    }
+
+    var canToggleBrowserFocusMode: Bool {
+        isBrowserFocusModeActive || canEnterBrowserFocusMode
+    }
+
+    @discardableResult
+    func toggleBrowserFocusMode(reason: String, focusWebView: Bool = true) -> Bool {
+        setBrowserFocusModeActive(
+            !isBrowserFocusModeActive,
+            reason: reason,
+            focusWebView: focusWebView
+        )
+    }
+
+    @discardableResult
+    func setBrowserFocusModeActive(
+        _ active: Bool,
+        reason: String,
+        focusWebView: Bool = true
+    ) -> Bool {
+        if !active {
+            clearBrowserFocusMode(reason: reason)
+            return true
+        }
+
+        guard canEnterBrowserFocusMode else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.focusMode.activate.reject panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) render=\(shouldRenderWebView ? 1 : 0) " +
+                "window=\(webView.window == nil ? 0 : 1) hidden=\(webView.isHiddenOrHasHiddenAncestor ? 1 : 0) " +
+                "find=\(searchState == nil ? 0 : 1)"
+            )
+#endif
+            return false
+        }
+
+        pendingAddressBarFocusRequestId = nil
+        isBrowserFocusModeActive = true
+        clearBrowserFocusModeEscapeArms(reason: "\(reason).activate")
+        preferredFocusIntent = .webView
+        invalidateSearchFocusRequests(reason: "browserFocusModeActivate")
+
+        let didFocus = focusWebView ? requestExplicitWebViewFocus() : true
+        guard didFocus else {
+            clearBrowserFocusMode(reason: "\(reason).focusFailed")
+            return false
+        }
+
+#if DEBUG
+        cmuxDebugLog("browser.focusMode.activate panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+        NotificationCenter.default.post(name: .browserFocusModeStateDidChange, object: id)
+        return true
+    }
+
+    func clearBrowserFocusMode(reason: String) {
+        let shouldNotify = isBrowserFocusModeActive || isBrowserFocusModeExitArmed
+        guard isBrowserFocusModeActive ||
+            isBrowserFocusModeExitArmed ||
+            browserFocusModeExitArmedAt != nil ||
+            lastBrowserFocusModePlainEscapeEventFingerprint != nil
+        else { return }
+        browserFocusModeExitArmedAt = nil
+        lastBrowserFocusModePlainEscapeEventFingerprint = nil
+        isBrowserFocusModeExitArmed = false
+        isBrowserFocusModeActive = false
+#if DEBUG
+        cmuxDebugLog("browser.focusMode.clear panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+        if shouldNotify {
+            NotificationCenter.default.post(name: .browserFocusModeStateDidChange, object: id)
+        }
+    }
+
+    func clearBrowserFocusModeEscapeArms(reason: String) {
+        clearBrowserFocusModeExitArm(reason: reason)
+        lastBrowserFocusModePlainEscapeEventFingerprint = nil
+    }
+
+    func clearBrowserFocusModeExitArm(reason: String) {
+        guard isBrowserFocusModeExitArmed || browserFocusModeExitArmedAt != nil else { return }
+        browserFocusModeExitArmedAt = nil
+        isBrowserFocusModeExitArmed = false
+#if DEBUG
+        cmuxDebugLog("browser.focusMode.escape.disarm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+    }
+
+    private func browserFocusModeEscapeArmIsFresh(for event: NSEvent) -> Bool {
+        guard let startedAt = browserFocusModeExitArmedAt else { return false }
+        guard startedAt > 0, event.timestamp > 0 else { return true }
+        return max(0, event.timestamp - startedAt) <= Self.browserFocusModeEscapeSequenceInterval
+    }
+
+    func handleBrowserFocusModeKeyEvent(_ event: NSEvent, reason: String) -> BrowserFocusModeKeyDecision {
+        guard canEnterBrowserFocusMode else {
+            clearBrowserFocusMode(reason: "\(reason).ineligible")
+            return .inactive
+        }
+
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        let isPlainEscape = flags.isEmpty && event.keyCode == 53
+        guard isPlainEscape else {
+            lastBrowserFocusModePlainEscapeEventFingerprint = nil
+            clearBrowserFocusModeEscapeArms(reason: "\(reason).nonEscape")
+            return isBrowserFocusModeActive ? .forwardToWebView : .inactive
+        }
+
+        guard isBrowserFocusModeActive else {
+            lastBrowserFocusModePlainEscapeEventFingerprint = nil
+            clearBrowserFocusModeEscapeArms(reason: "\(reason).inactiveEscape")
+            return .inactive
+        }
+
+        guard !event.isARepeat else {
+#if DEBUG
+            cmuxDebugLog("browser.focusMode.escape.repeat panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+            return .consume
+        }
+
+        let eventFingerprint = BrowserFocusModePlainEscapeEventFingerprint(event)
+        if lastBrowserFocusModePlainEscapeEventFingerprint == eventFingerprint {
+#if DEBUG
+            cmuxDebugLog("browser.focusMode.escape.duplicate panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+            return .consume
+        }
+        lastBrowserFocusModePlainEscapeEventFingerprint = eventFingerprint
+
+        if isBrowserFocusModeExitArmed {
+            if browserFocusModeEscapeArmIsFresh(for: event) {
+                clearBrowserFocusMode(reason: "\(reason).escapeExit")
+                return .consume
+            }
+
+            browserFocusModeExitArmedAt = event.timestamp
+#if DEBUG
+            cmuxDebugLog("browser.focusMode.escape.rearm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+            return .forwardToWebView
+        }
+
+        isBrowserFocusModeExitArmed = true
+        browserFocusModeExitArmedAt = event.timestamp
+#if DEBUG
+        cmuxDebugLog("browser.focusMode.escape.arm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+        return .forwardToWebView
     }
 
     private func restoreFindStateAfterNavigation(replaySearch: Bool) {
@@ -6985,7 +7412,7 @@ extension BrowserPanel {
     }
 
     func refreshAppearanceDrivenColors() {
-        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
+        applyConfiguredWebViewBackground()
     }
 
     func suppressOmnibarAutofocus(for seconds: TimeInterval) {
@@ -7060,6 +7487,7 @@ extension BrowserPanel {
 
     @discardableResult
     func requestAddressBarFocus() -> UUID {
+        clearBrowserFocusMode(reason: "requestAddressBarFocus")
         setOmnibarVisible(true)
         preferredFocusIntent = .addressBar
         invalidateSearchFocusRequests(reason: "requestAddressBarFocus")
@@ -7114,12 +7542,14 @@ extension BrowserPanel {
     }
 
     func noteAddressBarFocused() {
+        clearBrowserFocusMode(reason: "addressBarFocused")
         guard preferredFocusIntent != .addressBar else { return }
         preferredFocusIntent = .addressBar
         invalidateSearchFocusRequests(reason: "addressBarFocused")
     }
 
     func noteFindFieldFocused() {
+        clearBrowserFocusMode(reason: "findFieldFocused")
         guard preferredFocusIntent != .findField else { return }
         preferredFocusIntent = .findField
     }
@@ -7167,10 +7597,12 @@ extension BrowserPanel {
             invalidateSearchFocusRequests(reason: "prepareWebView")
             endSuppressWebViewFocusForAddressBar()
         case .addressBar:
+            clearBrowserFocusMode(reason: "prepareAddressBar")
             preferredFocusIntent = .addressBar
             invalidateSearchFocusRequests(reason: "prepareAddressBar")
             beginSuppressWebViewFocusForAddressBar()
         case .findField:
+            clearBrowserFocusMode(reason: "prepareFindField")
             preferredFocusIntent = .findField
         }
 #if DEBUG

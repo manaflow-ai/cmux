@@ -945,6 +945,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         method_exchangeImplementations(originalMethod, swizzledMethod)
     }()
 
+    /// Live `cmux diff` viewer subprocesses, keyed by pid, retained until they exit.
+    /// Declared outside `#if DEBUG` because process retention is production behavior.
+    private var diffViewerProcesses: [Int32: Process] = [:]
+
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
     private var jumpUnreadFocusExpectation: (tabId: UUID, surfaceId: UUID)?
@@ -975,6 +979,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isFirstResponder: Bool
     }
     var debugCloseMainWindowConfirmationHandler: ((NSWindow) -> Bool)?
+    /// Test seam: when set, ``openDiffViewerForFocusedWorkspace(for:)`` invokes this
+    /// instead of spawning the bundled `cmux diff` CLI, so shortcut-dispatch tests can
+    /// assert routing without launching a subprocess.
+    var debugOpenDiffViewerHandler: (() -> Void)?
     var debugCreateMainWindowSourceIsNativeFullScreenOverride: Bool?
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
@@ -4876,6 +4884,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         markPending: Bool
     ) {
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if let targetWindow,
+           let context = contextForMainWindow(targetWindow) {
+            _ = context.tabManager.setFocusedBrowserFocusModeActive(false, reason: "commandPaletteRequest.\(source)")
+        }
         if markPending {
             markCommandPaletteOpenRequested(for: targetWindow)
         }
@@ -5058,6 +5070,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func setCommandPaletteVisible(_ visible: Bool, for window: NSWindow) {
         guard let windowId = mainWindowId(for: window) else { return }
+        if visible, let context = contextForMainWindow(window) {
+            _ = context.tabManager.setFocusedBrowserFocusModeActive(false, reason: "commandPaletteVisible")
+        }
         let wasVisible = commandPaletteVisibilityByWindowId.updateValue(visible, forKey: windowId) ?? false
         postCommandPaletteVisibilityDidChangeIfNeeded(wasVisible: wasVisible, visible: visible, window: window, windowId: windowId)
         // Opening (false -> true) always resolves pending-open.
@@ -5867,6 +5882,114 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return mainWindowContexts.values.first { context in
             resolvedWindow(for: context) != nil
         }?.tabManager
+    }
+
+    /// Opens the diff viewer for the focused workspace of `tabManager` by spawning the
+    /// bundled `cmux diff` CLI. This is the single shared diff-open path: both the
+    /// command-palette entry and the Open Diff Viewer keyboard shortcut funnel through
+    /// here so neither duplicates diff-open logic. Returns `false` (caller beeps) when
+    /// there is no focused workspace or the bundled CLI is missing.
+    @discardableResult
+    func openDiffViewerForFocusedWorkspace(for tabManager: TabManager?) -> Bool {
+#if DEBUG
+        if let debugOpenDiffViewerHandler {
+            debugOpenDiffViewerHandler()
+            return true
+        }
+#endif
+        guard let workspace = tabManager?.selectedWorkspace,
+              let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            return false
+        }
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        let cwd = workspace.resolvedWorkingDirectory()
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        return launchDiffViewerProcess(
+            cliURL: cliURL,
+            socketPath: socketPath,
+            cwd: cwd,
+            workspaceId: workspace.id,
+            surfaceId: workspace.focusedPanelId
+        )
+    }
+
+    @discardableResult
+    private func launchDiffViewerProcess(
+        cliURL: URL,
+        socketPath: String,
+        cwd: String,
+        workspaceId: UUID,
+        surfaceId: UUID?
+    ) -> Bool {
+        let process = Process()
+        process.executableURL = cliURL
+        var arguments = [
+            "--socket", socketPath,
+            "diff",
+            "--unstaged",
+            "--cwd", cwd,
+            "--workspace", workspaceId.uuidString,
+            "--focus", "true",
+        ]
+        if let surfaceId {
+            arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
+        }
+        process.arguments = arguments
+        process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+        environment["CMUX_WORKSPACE_ID"] = workspaceId.uuidString
+        if let surfaceId {
+            environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
+        }
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        let outputCollector = ProcessOutputCollector(stdout: stdoutPipe, stderr: stderrPipe)
+        outputCollector.start()
+        process.terminationHandler = { terminatedProcess in
+            let output = outputCollector.finish()
+            let processIdentifier = terminatedProcess.processIdentifier
+            let terminationStatus = terminatedProcess.terminationStatus
+            Task { @MainActor in
+                AppDelegate.shared?.diffViewerProcesses.removeValue(forKey: processIdentifier)
+                guard terminationStatus != 0 else { return }
+#if DEBUG
+                // Log only non-sensitive metadata: the child's stdout/stderr can echo
+                // repo paths and file contents, so report a byte count, not the text.
+                cmuxDebugLog("openDiffViewer exited status=\(terminationStatus) outputBytes=\(output.utf8.count)")
+#endif
+                NSSound.beep()
+            }
+        }
+
+        do {
+            try process.run()
+            let processIdentifier = process.processIdentifier
+            diffViewerProcesses[processIdentifier] = process
+            if !process.isRunning {
+                diffViewerProcesses.removeValue(forKey: processIdentifier)
+            }
+#if DEBUG
+            cmuxDebugLog("openDiffViewer pid=\(process.processIdentifier)")
+#endif
+            return true
+        } catch {
+            outputCollector.cancel()
+#if DEBUG
+            cmuxDebugLog("openDiffViewer failed errorType=\(type(of: error))")
+#endif
+            return false
+        }
     }
 
     func allMainWindowTabManagersForDebug() -> [TabManager] {
@@ -10099,13 +10222,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updates["browserPageTitle"] = browserPanel.webView.title?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         updates["browserPageURL"] = browserPanel.preferredURLStringForOmnibar() ?? ""
+        updates["browserFocusModeActive"] = browserPanel.isBrowserFocusModeActive ? "true" : "false"
+        updates["browserFocusModeExitArmed"] = browserPanel.isBrowserFocusModeExitArmed ? "true" : "false"
         writeGotoSplitTestData(updates)
-    }
-
-    private func isWebViewFocused(_ panel: BrowserPanel) -> Bool {
-        guard let window = panel.webView.window else { return false }
-        guard let fr = window.firstResponder as? NSView else { return false }
-        return fr.isDescendant(of: panel.webView)
     }
 
     private func paneIdsForGotoSplitUITest(tab: Workspace, browserPanelId: UUID) -> (browser: PaneID, terminal: PaneID)? {
@@ -12244,6 +12363,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        if browserFocusModePanelForShortcutEvent(event) != nil {
+#if DEBUG
+            cmuxDebugLog("browser.focusMode.shortcutMonitor.bypass \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            return false
+        }
+
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
         let isPlainEscape = normalizedFlags.isEmpty && event.keyCode == 53
@@ -12724,6 +12850,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .openDiffViewer) {
+            // Shares the command palette's diff-open path; targets the event window's
+            // focused workspace and beeps if it can't be opened (matching the palette).
+            let manager = activeTabManagerForCommands(preferredWindow: mainWindowForShortcutEvent(event))
+            if !openDiffViewerForFocusedWorkspace(for: manager) {
+                NSSound.beep()
+            }
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .toggleRightSidebar) {
             // Escape AppKit's performKeyEquivalent animation context. Without
             // deferring the toggle, NSAnimationContext implicitly animates the
@@ -13171,6 +13307,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .toggleBrowserFocusMode) {
+            // Reached only when focus mode is off (the active-focus-mode bypass
+            // returns earlier), so this enters focus mode for the focused browser.
+            // Exit stays double-Escape, which is forwarded to the page first.
+            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event),
+                  focusedBrowserPanel.canToggleBrowserFocusMode else {
+                return false
+            }
+            _ = focusedBrowserPanel.toggleBrowserFocusMode(reason: "configuredShortcut", focusWebView: true)
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .browserBack) {
             guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
@@ -13244,6 +13392,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
             return shortcutEventBrowserPanel(event)?.resetZoom() ?? false
+        }
+
+        if matchConfiguredShortcut(event: event, action: .markdownZoomIn) {
+            return shortcutEventMarkdownPanel(event)?.zoomIn() ?? false
+        }
+
+        if matchConfiguredShortcut(event: event, action: .markdownZoomOut) {
+            return shortcutEventMarkdownPanel(event)?.zoomOut() ?? false
+        }
+
+        if matchConfiguredShortcut(event: event, action: .markdownZoomReset) {
+            return shortcutEventMarkdownPanel(event)?.resetZoom() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .findInDirectory) {
@@ -15428,6 +15588,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         browserPanelOwning(webView)?.searchState != nil
     }
 
+    func isBrowserFocusModeActive(for webView: CmuxWebView) -> Bool {
+        browserPanelOwning(webView)?.isBrowserFocusModeActive == true
+    }
+
+    private func isWebViewFocused(_ panel: BrowserPanel) -> Bool {
+        guard let window = panel.webView.window else { return false }
+        guard let fr = window.firstResponder as? NSView else { return false }
+        return fr.isDescendant(of: panel.webView)
+    }
+
+    private func browserFocusModePanelForShortcutEvent(_ event: NSEvent) -> BrowserPanel? {
+        // Resolve the panel from the web view that owns the responder chain (the
+        // same resolver every other browser shortcut uses), not the selected pane:
+        // context-menu / web-view-focus entrypoints can focus a WKWebView without
+        // updating focusedPanelId. Then confirm that web view actually holds focus,
+        // so the bypass stops once focus moves to the sidebar/terminal (where the
+        // page can't run the double-Escape exit anyway and cmux shortcuts must work).
+        guard let panel = shortcutEventBrowserPanel(event),
+              panel.isBrowserFocusModeActive,
+              isWebViewFocused(panel) else {
+            return nil
+        }
+        return panel
+    }
+
+    func handleBrowserFocusModeKeyEvent(
+        _ event: NSEvent,
+        webView: CmuxWebView,
+        source: String
+    ) -> BrowserFocusModeKeyDecision {
+        browserPanelOwning(webView)?.handleBrowserFocusModeKeyEvent(event, reason: source) ?? .inactive
+    }
+
+    func browserFocusModeContextMenuState(for webView: CmuxWebView) -> (isActive: Bool, canToggle: Bool) {
+        guard let panel = browserPanelOwning(webView) else {
+            return (isActive: false, canToggle: false)
+        }
+        return (isActive: panel.isBrowserFocusModeActive, canToggle: panel.canToggleBrowserFocusMode)
+    }
+
+    @discardableResult
+    func toggleBrowserFocusModeFromContextMenu(for webView: CmuxWebView) -> Bool {
+        guard let panel = browserPanelOwning(webView) else { return false }
+        return panel.toggleBrowserFocusMode(reason: "contextMenu", focusWebView: true)
+    }
+
     private func shouldLetFocusedBrowserOwnFindShortcut(_ event: NSEvent) -> Bool {
         let shortcutWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
         let shortcutResponder = shortcutWindow?.firstResponder
@@ -16899,6 +17105,15 @@ private extension NSWindow {
 #endif
             self.firstResponder?.keyDown(with: event)
             return true
+        }
+
+        if let firstResponderWebView,
+           AppDelegate.shared?.isBrowserFocusModeActive(for: firstResponderWebView) == true {
+            let handled = firstResponderWebView.performKeyEquivalent(with: event)
+#if DEBUG
+            cmuxDebugLog("  → browser focus mode routed before cmux/menu fallback handled=\(handled ? 1 : 0)")
+#endif
+            return handled
         }
 
         if let firstResponderWebView,

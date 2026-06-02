@@ -208,6 +208,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             let source = Workspace()
             let remoteCommand = "ssh cmux-macmini"
+            let expectedRestoredRemoteCommand = "ssh -tt cmux-macmini"
             source.configureRemoteConnection(
                 WorkspaceRemoteConfiguration(
                     destination: "cmux-macmini",
@@ -239,8 +240,8 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
             let restoredRemoteCommand = try XCTUnwrap(restored.remoteConfiguration?.terminalStartupCommand)
 
-            XCTAssertEqual(restoredRemoteCommand, remoteCommand)
-            XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), remoteCommand)
+            XCTAssertEqual(restoredRemoteCommand, expectedRestoredRemoteCommand)
+            XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), expectedRestoredRemoteCommand)
             XCTAssertTrue(restoredInput.hasInitialInput)
             XCTAssertGreaterThan(restoredInput.byteCount, 0)
             let input = try XCTUnwrap(restoredPanel.surface.initialInput)

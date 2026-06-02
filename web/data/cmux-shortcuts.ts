@@ -185,8 +185,32 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "browserZoomIn", combos: [["⌘", "="]], description: { en: "Zoom in", ja: "拡大" } },
       { id: "browserZoomOut", combos: [["⌘", "-"]], description: { en: "Zoom out", ja: "縮小" } },
       { id: "browserZoomReset", combos: [["⌘", "0"]], description: { en: "Actual size", ja: "実寸表示" } },
+      {
+        id: "markdownZoomIn",
+        combos: [["⌘", "="]],
+        description: { en: "Markdown viewer: zoom in", ja: "Markdownビューア: 拡大" },
+        note: { en: "focused markdown viewer", ja: "フォーカス中のMarkdownビューア" },
+      },
+      {
+        id: "markdownZoomOut",
+        combos: [["⌘", "-"]],
+        description: { en: "Markdown viewer: zoom out", ja: "Markdownビューア: 縮小" },
+        note: { en: "focused markdown viewer", ja: "フォーカス中のMarkdownビューア" },
+      },
+      {
+        id: "markdownZoomReset",
+        combos: [["⌘", "0"]],
+        description: { en: "Markdown viewer: actual size", ja: "Markdownビューア: 実寸表示" },
+        note: { en: "focused markdown viewer", ja: "フォーカス中のMarkdownビューア" },
+      },
       { id: "toggleBrowserDeveloperTools", combos: [["⌥", "⌘", "I"]], description: { en: "Toggle browser developer tools", ja: "ブラウザ開発者ツールを切り替え" } },
       { id: "showBrowserJavaScriptConsole", combos: [["⌥", "⌘", "C"]], description: { en: "Show browser JavaScript console", ja: "ブラウザJavaScriptコンソールを表示" } },
+      {
+        id: "toggleBrowserFocusMode",
+        combos: [["⌥", "⌘", "↩"]],
+        description: { en: "Enter browser focus mode", ja: "ブラウザフォーカスモードに入る" },
+        note: { en: "Gives the focused web page first claim on shortcuts. Press Esc twice to exit.", ja: "フォーカス中のWebページにショートカットの優先権を渡します。Escを2回押すと終了します。" },
+      },
       {
         id: "toggleReactGrab",
         combos: [["⌘", "⇧", "G"]],
@@ -202,6 +226,11 @@ export const shortcutCategories: ShortcutCategory[] = [
     id: "diff-viewer",
     titleKey: "diffViewer",
     shortcuts: [
+      {
+        id: "openDiffViewer",
+        combos: [["⌃", "⌘", "⇧", "D"]],
+        description: { en: "Open diff viewer", ja: "差分ビューアを開く" },
+      },
       {
         id: "diffViewerScrollDown",
         combos: [["J"]],

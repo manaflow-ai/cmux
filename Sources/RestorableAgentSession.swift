@@ -1134,7 +1134,12 @@ struct RestorableAgentSessionIndex: Sendable {
                 let snapshot = SessionRestorableAgentSnapshot(
                     kind: kind,
                     sessionId: normalizedSessionId,
-                    workingDirectory: normalizedWorkingDirectory(record.cwd),
+                    workingDirectory: restorableWorkingDirectory(
+                        for: record,
+                        kind: kind,
+                        fileManager: fileManager,
+                        lookup: claudeTranscriptLookup
+                    ),
                     launchCommand: record.launchCommand,
                     registration: registration
                 )
@@ -1271,6 +1276,64 @@ struct RestorableAgentSessionIndex: Sendable {
         return false
     }
 
+    /// The directory cmux must `cd` into to resume or fork this session.
+    ///
+    /// Claude stores a transcript under the project directory derived from the cwd the session
+    /// was *created* in, and `claude --resume` / `--fork-session` only locate it from that same
+    /// directory. The hook-reported `cwd` drifts when the agent `cd`s elsewhere mid-session
+    /// (e.g. starting in a repo root, then moving into a worktree for the rest of the session),
+    /// so trusting it makes fork/resume fail with "No conversation found". For Claude, prefer the
+    /// candidate directory whose project folder actually holds the transcript: the launch cwd or
+    /// the recorded cwd, matched first against the transcript's known storage path, then against
+    /// the config directory on disk. Falls back to the recorded cwd when neither can be verified.
+    private static func restorableWorkingDirectory(
+        for record: RestorableAgentHookSessionRecord,
+        kind: RestorableAgentKind,
+        fileManager: FileManager,
+        lookup: ClaudeTranscriptLookupCache
+    ) -> String? {
+        let recordedCwd = normalizedWorkingDirectory(record.cwd)
+        guard kind == .claude else { return recordedCwd }
+
+        let launchCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
+        guard let sessionId = normalizedNonEmptyValue(record.sessionId),
+              claudeSessionIdIsSafeFilename(sessionId) else {
+            return recordedCwd ?? launchCwd
+        }
+        let candidates = [launchCwd, recordedCwd].compactMap { $0 }
+
+        // The transcript's own storage path names the project directory Claude will look in,
+        // so the candidate whose encoding matches it is the one Claude can resume from.
+        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
+            let expandedTranscriptPath = (transcriptPath as NSString).expandingTildeInPath
+            let projectDir = (expandedTranscriptPath as NSString).deletingLastPathComponent
+            let expectedProjectDirName = (projectDir as NSString).lastPathComponent
+            if !expectedProjectDirName.isEmpty,
+               let matched = candidates.first(where: {
+                   encodeClaudeProjectDir($0) == expectedProjectDirName
+               }) {
+                return matched
+            }
+        }
+
+        // No transcript path on record: probe the config directory for the candidate that holds it.
+        let roots = lookup.configRoots(for: record)
+        if !roots.isEmpty {
+            for candidate in candidates {
+                let projectDirName = encodeClaudeProjectDir(candidate)
+                for root in roots where claudeTranscriptFileExists(
+                    configRoot: root,
+                    projectDirName: projectDirName,
+                    sessionId: sessionId,
+                    fileManager: fileManager
+                ) {
+                    return candidate
+                }
+            }
+        }
+        return recordedCwd ?? launchCwd
+    }
+
     private static func claudeSessionIdIsSafeFilename(_ sessionId: String) -> Bool {
         sessionId.range(of: #"[\\/]"#, options: .regularExpression) == nil
             && !sessionId.isEmpty
@@ -1279,7 +1342,11 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     static func encodeClaudeProjectDir(_ path: String) -> String {
+        // Claude derives a project directory name by replacing both "/" and "." with "-"
+        // (e.g. "/Users/x/repo/.claude" -> "-Users-x-repo--claude"). Missing the "." case
+        // sent dotted paths to the wrong project directory.
         path.replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ".", with: "-")
     }
 
     private static func claudeTranscriptFileExists(

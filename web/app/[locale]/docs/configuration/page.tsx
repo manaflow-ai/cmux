@@ -48,10 +48,14 @@ const sectionOrder = [
   "ui",
   "commands",
   "browser",
+  "markdown",
   "shortcuts",
 ] as const;
 
-const settingsFileExample = `{
+type ConfigurationTranslation = ReturnType<typeof useTranslations>;
+
+function buildSettingsFileExample(t: ConfigurationTranslation) {
+  return `{
   "$schema": "${schemaUrl}",
   "schemaVersion": 1,
 
@@ -88,6 +92,16 @@ const settingsFileExample = `{
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
   // },
 
+  // "markdown": {
+  //   // ${t("exampleMarkdownFontSize")}
+  //   // ${t("exampleMarkdownFontSizeZoom")}
+  //   "fontSize": 15,
+  //   // ${t("exampleMarkdownFontFamily")}
+  //   "fontFamily": "",
+  //   // ${t("exampleMarkdownMaxWidth")}
+  //   "maxWidth": 980
+  // },
+
   // "automation": {
   //   "suppressSubagentNotifications": true
   // },
@@ -113,6 +127,7 @@ const settingsFileExample = `{
   //   }
   // },
 }`;
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -332,7 +347,7 @@ working-directory = ~/code`}</CodeBlock>
         <a href={schemaSourceUrl}>{schemaSourceUrl}</a>.
       </p>
       <CodeBlock title="~/.config/cmux/cmux.json" lang="json">
-        {settingsFileExample}
+        {buildSettingsFileExample(t)}
       </CodeBlock>
 
       <DocsHeading level={2} id="schema-reference">Schema reference</DocsHeading>
