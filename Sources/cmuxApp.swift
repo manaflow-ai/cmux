@@ -5112,8 +5112,18 @@ enum TelemetrySettings {
         return defaults.bool(forKey: sendAnonymousTelemetryKey)
     }
 
+    static func isEnabledForLaunch(
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        guard !CmuxXCTestLaunchEnvironment.isRunningUnderXCTest(environment) else {
+            return false
+        }
+        return isEnabled(defaults: defaults)
+    }
+
     // Freeze telemetry enablement once per launch. Settings changes apply on next restart.
-    static let enabledForCurrentLaunch = isEnabled()
+    static let enabledForCurrentLaunch = isEnabledForLaunch()
 }
 
 enum CmdClickMarkdownRouteSettings {

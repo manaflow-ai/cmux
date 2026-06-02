@@ -3451,6 +3451,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private let developerToolsAttachedManualCloseDetectionDelay: TimeInterval = 0.35
     private var developerToolsLastAttachedHostAt: Date?
     private var developerToolsLastKnownVisibleAt: Date?
+#if DEBUG
+    private var debugDeveloperToolsHostAttachedOverride: Bool?
+#endif
     private var detachedDeveloperToolsWindowCloseObserver: NSObjectProtocol?
     private var preferredAttachedDeveloperToolsWidth: CGFloat?
     private var preferredAttachedDeveloperToolsWidthFraction: CGFloat?
@@ -4248,6 +4251,7 @@ final class BrowserPanel: Panel, ObservableObject {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = initialRequest.url
             shouldRenderWebView = renderInitialNavigation
+            refreshWebViewLifecycleState()
             guard renderInitialNavigation else { return }
             if let url = initialRequest.url,
                insecureHTTPBypassHostOnce == nil,
@@ -4267,6 +4271,7 @@ final class BrowserPanel: Panel, ObservableObject {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = url
             shouldRenderWebView = renderInitialNavigation
+            refreshWebViewLifecycleState()
             guard renderInitialNavigation else { return }
             navigate(to: url)
         }
@@ -4902,12 +4907,24 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         webViewObservers.append(microphoneCaptureObserver)
 
-        NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
-            .sink { [weak self] notification in
-                guard let self else { return }
-                self.webView.underPageBackgroundColor = GhosttyBackgroundTheme.color(from: notification)
+        let backgroundObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                self?.applyGhosttyDefaultBackground(from: notification)
             }
-            .store(in: &webViewCancellables)
+        }
+        webViewCancellables.insert(
+            AnyCancellable {
+                NotificationCenter.default.removeObserver(backgroundObserver)
+            }
+        )
+    }
+
+    private func applyGhosttyDefaultBackground(from notification: Notification?) {
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.color(from: notification)
     }
 
     private func replaceWebViewAfterContentProcessTermination(for terminatedWebView: WKWebView) {
@@ -6225,6 +6242,15 @@ extension BrowserPanel {
         preferredDeveloperToolsVisible = next
     }
 
+    private func isDeveloperToolsHostAttached() -> Bool {
+#if DEBUG
+        if let debugDeveloperToolsHostAttachedOverride {
+            return debugDeveloperToolsHostAttachedOverride
+        }
+#endif
+        return webView.superview != nil && webView.window != nil
+    }
+
     private func reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden() {
         guard !preferredDeveloperToolsVisible, !isDeveloperToolsVisible() else { return }
         reevaluateHiddenWebViewDiscardScheduling(reason: "developer_tools_visibility_changed")
@@ -6238,6 +6264,16 @@ extension BrowserPanel {
             setPreferredDeveloperToolsPresentation(.detached)
         }
     }
+
+#if DEBUG
+    func debugSetAttachedDeveloperToolsPresentationForTesting() {
+        setPreferredDeveloperToolsPresentation(.attached)
+    }
+
+    func debugSetDeveloperToolsHostAttachedForTesting(_ attached: Bool?) {
+        debugDeveloperToolsHostAttachedOverride = attached
+    }
+#endif
 
     private func installDetachedDeveloperToolsWindowCloseObserver() {
         guard detachedDeveloperToolsWindowCloseObserver == nil else { return }
@@ -6303,11 +6339,11 @@ extension BrowserPanel {
     }
 
     private func detachedDeveloperToolsWindowBelongsToPanel(_ window: NSWindow) -> Bool {
-        guard let frontendWebView = webView.cmuxInspectorFrontendWebView(),
+        guard let frontendView = webView.cmuxInspectorFrontendView(),
               let contentView = window.contentView else {
             return false
         }
-        return frontendWebView === contentView || frontendWebView.isDescendant(of: contentView)
+        return frontendView === contentView || frontendView.isDescendant(of: contentView)
     }
 
     private func shouldDismissDetachedDeveloperToolsWindows() -> Bool {
@@ -6341,7 +6377,7 @@ extension BrowserPanel {
     private func prepareDeveloperToolsForRevealIfNeeded(_ inspector: NSObject) {
         if preferredDeveloperToolsPresentation != .unknown {
             guard preferredDeveloperToolsPresentation == .attached else { return }
-            guard webView.superview != nil, webView.window != nil else { return }
+            guard isDeveloperToolsHostAttached() else { return }
             guard inspector.cmuxCallBool(selector: NSSelectorFromString("isAttached")) == false else { return }
         }
         let attachSelector = NSSelectorFromString("attach")
@@ -6430,6 +6466,23 @@ extension BrowserPanel {
         guard pendingTargetVisible != isDeveloperToolsVisible() else { return }
         _ = performDeveloperToolsVisibilityTransition(to: pendingTargetVisible, source: "\(source).queued")
     }
+
+#if DEBUG
+    func debugSettleDeveloperToolsTransitionForTesting(source: String = "unit-test") {
+        var remainingPasses = 4
+        repeat {
+            developerToolsTransitionSettleWorkItem?.cancel()
+            developerToolsTransitionSettleWorkItem = nil
+            finishDeveloperToolsTransition(source: source)
+            remainingPasses -= 1
+        } while remainingPasses > 0 &&
+            (
+                developerToolsTransitionSettleWorkItem != nil ||
+                developerToolsTransitionTargetVisible != nil ||
+                pendingDeveloperToolsTransitionTargetVisible != nil
+            )
+    }
+#endif
 
     @discardableResult
     private func enqueueDeveloperToolsVisibilityTransition(
@@ -6673,7 +6726,7 @@ extension BrowserPanel {
         guard preferredDeveloperToolsVisible else { return false }
         guard preferredDeveloperToolsPresentation != .detached else { return false }
         guard !isDeveloperToolsTransitionInFlight else { return false }
-        guard webView.superview != nil, webView.window != nil else { return false }
+        guard isDeveloperToolsHostAttached() else { return false }
         guard let developerToolsLastAttachedHostAt else { return false }
         guard Date().timeIntervalSince(developerToolsLastAttachedHostAt) >= developerToolsAttachedManualCloseDetectionDelay else {
             return false
@@ -6708,13 +6761,19 @@ extension BrowserPanel {
             forceDeveloperToolsRefreshOnNextAttach = false
             return
         }
-        guard !isDeveloperToolsTransitionInFlight else { return }
+        let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
+        if isDeveloperToolsTransitionInFlight {
+            guard shouldForceRefresh else { return }
+            developerToolsTransitionSettleWorkItem?.cancel()
+            developerToolsTransitionSettleWorkItem = nil
+            developerToolsTransitionTargetVisible = nil
+            pendingDeveloperToolsTransitionTargetVisible = nil
+        }
         guard let inspector = webView.cmuxInspectorObject() else {
             scheduleDeveloperToolsRestoreRetry()
             return
         }
 
-        let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
         forceDeveloperToolsRefreshOnNextAttach = false
 
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
@@ -7770,14 +7829,18 @@ extension WKWebView {
         return inspector
     }
 
-    func cmuxInspectorFrontendWebView() -> WKWebView? {
+    func cmuxInspectorFrontendView() -> NSView? {
         guard let inspector = cmuxInspectorObject() else { return nil }
         let selector = NSSelectorFromString("inspectorWebView")
         guard inspector.responds(to: selector),
-              let inspectorWebView = inspector.perform(selector)?.takeUnretainedValue() as? WKWebView else {
+              let inspectorView = inspector.perform(selector)?.takeUnretainedValue() as? NSView else {
             return nil
         }
-        return inspectorWebView
+        return inspectorView
+    }
+
+    func cmuxInspectorFrontendWebView() -> WKWebView? {
+        cmuxInspectorFrontendView() as? WKWebView
     }
 }
 

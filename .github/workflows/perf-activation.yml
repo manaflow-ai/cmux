@@ -44,11 +44,24 @@ jobs:
     env:
       PERF_TAG: perfci
     steps:
+      - name: Prepare self-hosted workspace
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE"
+          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo -n chown -R "$(id -un):$(id -gn)" "$GITHUB_WORKSPACE"
+          fi
+          chmod -R u+rwX "$GITHUB_WORKSPACE" || true
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ inputs.ref || github.ref }}
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
 
       - name: Select Xcode
         run: |
@@ -128,19 +141,38 @@ jobs:
       - name: Run activation session benchmark
         run: |
           set -euo pipefail
+          WORKSPACE_COUNT="${{ inputs.workspace_count || '12' }}"
+          HEAVY_SCROLLBACK_LINES="${{ inputs.heavy_scrollback_lines || '2400' }}"
+          OTHER_SCROLLBACK_LINES="${{ inputs.other_scrollback_lines || '1400' }}"
+
+          CONSOLE_USER="$(stat -f %Su /dev/console)"
+          CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+          sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
+            env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" \
+            PERF_TAG="$PERF_TAG" GITHUB_WORKSPACE="$PWD" \
+            WORKSPACE_COUNT="$WORKSPACE_COUNT" \
+            HEAVY_SCROLLBACK_LINES="$HEAVY_SCROLLBACK_LINES" \
+            OTHER_SCROLLBACK_LINES="$OTHER_SCROLLBACK_LINES" \
+            bash -s <<'BENCH_SCRIPT'
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           mkdir -p perf-results
           python3 scripts/perf-activation-session.py \
             --tag "$PERF_TAG" \
-            --workspace-count "${{ inputs.workspace_count || '12' }}" \
-            --heavy-scrollback-lines "${{ inputs.heavy_scrollback_lines || '2400' }}" \
-            --other-scrollback-lines "${{ inputs.other_scrollback_lines || '1400' }}" \
+            --workspace-count "$WORKSPACE_COUNT" \
+            --heavy-scrollback-lines "$HEAVY_SCROLLBACK_LINES" \
+            --other-scrollback-lines "$OTHER_SCROLLBACK_LINES" \
             --synthetic-scrollback-fallback \
             --output perf-results/activation-session.json \
             --junit perf-results/activation-session.junit.xml
+          BENCH_SCRIPT
+          sudo -n chown -R "$(id -un):$(id -gn)" perf-results
 
       - name: Run Cmd-Tab activation benchmark
         run: |
           set -euo pipefail
+          mkdir -p perf-results
+          sudo -n chown -R "$(id -un):$(id -gn)" perf-results
           APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
           # The GitHub Actions runner process runs in launchd's system
           # bootstrap, not the console user's Aqua session, so windows

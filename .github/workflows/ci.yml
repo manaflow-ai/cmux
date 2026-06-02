@@ -30,6 +30,12 @@ jobs:
       - name: Validate create-dmg version pinning
         run: ./tests/test_ci_create_dmg_pinned.sh
 
+      - name: Validate setup-bun version pinning
+        run: ./tests/test_ci_setup_bun_pinned.sh
+
+      - name: Validate Ghostty helper zig environment
+        run: ./tests/test_build_ghostty_cli_helper_env.sh
+
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
 
@@ -108,6 +114,8 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -143,6 +151,8 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -164,10 +174,7 @@ jobs:
           CMUX_DB_TEST: "1"
           DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: |
-          bun test tests/db-schema.test.ts
-          bun test tests/drizzle-effect.test.ts
-          bun test tests/vm-db-read-model.test.ts
+        run: bun run test:db:behavior
 
   tests:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
@@ -179,10 +186,23 @@ jobs:
       # and cheap so xcodebuild can restart/finish the suite.
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
     steps:
+      - name: Prepare self-hosted workspace
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE"
+          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo -n chown -R "$(id -un):$(id -gn)" "$GITHUB_WORKSPACE"
+          fi
+          chmod -R u+rwX "$GITHUB_WORKSPACE" || true
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
 
       - name: Select Xcode
         run: |
@@ -211,6 +231,11 @@ jobs:
         id: ghostty-revision
         run: |
           echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Compute DerivedData cache fingerprint
+        id: deriveddata-fingerprint
+        run: |
+          echo "hash=$(./scripts/ci/deriveddata-cache-fingerprint.sh tests)" >> "$GITHUB_OUTPUT"
 
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit
@@ -242,8 +267,10 @@ jobs:
       - name: Cache DerivedData
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/Library/Developer/Xcode/DerivedData/cmux-*
-          key: deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
+          path: .ci-derived-data/tests
+          key: deriveddata-tests-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}
+          restore-keys: |
+            deriveddata-tests-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}-
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -276,21 +303,67 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredDarkModeWhenAppAppearanceIsStaleLight \
-            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredLightModeWhenAppAppearanceIsStaleDark \
-            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemLightWhenAppAppearanceIsStaleDark \
-            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight \
-            test
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/tests"
+          run_split_theme_tests() {
+            # A merged main branch can force this narrow XCTest step to do the
+            # full Debug compile before the four regression tests run. Keep it
+            # bounded without using the shorter warm-build unit-test budget.
+            scripts/ci/xcodebuild_noninteractive.py \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -derivedDataPath "$DERIVED_DATA_PATH" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredDarkModeWhenAppAppearanceIsStaleLight \
+              -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredLightModeWhenAppAppearanceIsStaleDark \
+              -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemLightWhenAppAppearanceIsStaleDark \
+              -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight \
+              test 2>&1 &
+            local xcodebuild_pid=$!
+            local timeout_seconds="${CMUX_SPLIT_THEME_TEST_TIMEOUT_SECONDS:-2700}"
+            local deadline=$((SECONDS + timeout_seconds))
+            while kill -0 "$xcodebuild_pid" 2>/dev/null; do
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "xcodebuild split-theme regression timeout after ${timeout_seconds}s; terminating"
+                kill -TERM "$xcodebuild_pid" 2>/dev/null || true
+                sleep 5
+                kill -KILL "$xcodebuild_pid" 2>/dev/null || true
+                wait "$xcodebuild_pid" 2>/dev/null || true
+                return 124
+              fi
+              sleep 5
+            done
+            wait "$xcodebuild_pid"
+          }
+
+          split_theme_output="/tmp/split-theme-output.txt"
+          set +e
+          run_split_theme_tests | tee "$split_theme_output"
+          EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 124 ] &&
+             grep -Eq 'Could not resolve host: static\.crates\.io|failed to download from `https://static\.crates\.io|spurious network error.*static\.crates\.io' "$split_theme_output"; then
+            echo "Cargo registry download failed during split-theme build, retrying once"
+            set +e
+            run_split_theme_tests | tee "$split_theme_output"
+            EXIT_CODE=${PIPESTATUS[0]}
+            set -e
+          fi
+
+          if [ "$EXIT_CODE" -eq 124 ]; then
+            echo "xcodebuild split-theme regression timed out"
+            exit 1
+          fi
+
+          exit "$EXIT_CODE"
 
       - name: Run unit tests
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/tests"
           run_unit_tests() {
             # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
             # intermittently crash inside XCTest's post-test memory checker or
@@ -301,10 +374,10 @@ jobs:
             scripts/ci/xcodebuild_noninteractive.py \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -derivedDataPath "$DERIVED_DATA_PATH" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
-              -skip-testing:cmuxTests/FileExplorerStoreTests/testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath \
               test 2>&1 &
             local xcodebuild_pid=$!
             local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
@@ -338,12 +411,17 @@ jobs:
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
-            rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+            rm -rf "$DERIVED_DATA_PATH"
             set +e
             run_unit_tests | tee /tmp/test-output.txt
             EXIT_CODE=${PIPESTATUS[0]}
             OUTPUT=$(cat /tmp/test-output.txt)
             set -e
+          fi
+
+          if [ "$EXIT_CODE" -eq 124 ]; then
+            echo "xcodebuild unit tests timed out"
+            exit 1
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
@@ -378,33 +456,24 @@ jobs:
             CmuxSettingsUI
             CmuxSocketControl
           )
-          # Pre-existing failure unrelated to package correctness: the catalog
-          # intentionally reuses some UserDefaults keys across sections (e.g. a
-          # toggle surfaced under both automation.* and integrations.*), which
-          # userDefaultsStorageKeysAreUnique flags. Skip just that assertion so
-          # the package suites still gate CI. Remove the skip if the catalog is
-          # de-duplicated.
           for pkg in "${PACKAGES[@]}"; do
             echo "::group::swift test Packages/$pkg"
-            swift test --package-path "Packages/$pkg" \
-              --skip userDefaultsStorageKeysAreUnique
+            swift test --package-path "Packages/$pkg"
             echo "::endgroup::"
           done
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
 
       - name: Run CLI no-socket regressions
         run: |
           set -euo pipefail
 
-          CLI_BIN="$(
-            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux" -exec stat -f '%m %N' {} \; \
-              | sort -nr \
-              | head -1 \
-              | cut -d' ' -f2-
-          )"
-          if [ -z "${CLI_BIN:-}" ] || [ ! -x "$CLI_BIN" ]; then
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/tests"
+          CLI_BIN="$DERIVED_DATA_PATH/Build/Products/Debug/cmux"
+          if [ ! -x "$CLI_BIN" ]; then
             echo "cmux CLI binary not found in DerivedData" >&2
             exit 1
           fi
@@ -428,17 +497,31 @@ jobs:
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    # A cold DerivedData cache (any project.pbxproj or Package.resolved change
-    # mints a new cache key with no restore-keys fallback) forces a full
-    # cmux build whose Swift codegen alone can run 20+ min. Project/package
-    # changes from the sidebar extension kit pushed this full build plus the
-    # CA and lag regressions beyond 35 min before the cache could repopulate.
-    timeout-minutes: 55
+    # A merged main branch can invalidate the exact DerivedData key and force a
+    # full cmux build before the warning, startup, and lag regressions can run.
+    # Extension project and package graph changes have also spent more than 35
+    # minutes in the build step before the lag regression starts.
+    # Keep this budget aligned with the full tests job so a cold build can still
+    # finish and populate the next cache.
+    timeout-minutes: 75
     steps:
+      - name: Prepare self-hosted workspace
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE"
+          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo -n chown -R "$(id -un):$(id -gn)" "$GITHUB_WORKSPACE"
+          fi
+          chmod -R u+rwX "$GITHUB_WORKSPACE" || true
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
 
       - name: Select Xcode
         run: |
@@ -467,6 +550,11 @@ jobs:
         id: ghostty-revision
         run: |
           echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Compute DerivedData cache fingerprint
+        id: deriveddata-fingerprint
+        run: |
+          echo "hash=$(./scripts/ci/deriveddata-cache-fingerprint.sh app)" >> "$GITHUB_OUTPUT"
 
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit-lag
@@ -498,8 +586,10 @@ jobs:
       - name: Cache DerivedData
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/Library/Developer/Xcode/DerivedData/cmux-*
-          key: deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
+          path: .ci-derived-data/build
+          key: deriveddata-build-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}
+          restore-keys: |
+            deriveddata-build-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}-
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -532,8 +622,10 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/build"
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" build 2>&1 | tee /tmp/cmux-build-output.txt
 
@@ -543,12 +635,8 @@ jobs:
       - name: Run CoreAnimation main-thread startup regression
         run: |
           set -euo pipefail
-          APP="$(
-            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -exec stat -f '%m %N' {} \; \
-              | sort -nr \
-              | head -1 \
-              | cut -d' ' -f2-
-          )"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/build"
+          APP="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
           if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
             echo "cmux DEV.app not found in DerivedData" >&2
             exit 1
@@ -574,7 +662,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          APP="$(find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -print -quit)"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/build"
+          APP="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
           if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
             echo "cmux DEV.app not found in DerivedData" >&2
             exit 1
@@ -625,10 +714,23 @@ jobs:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 20
     steps:
+      - name: Prepare self-hosted workspace
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE"
+          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo -n chown -R "$(id -un):$(id -gn)" "$GITHUB_WORKSPACE"
+          fi
+          chmod -R u+rwX "$GITHUB_WORKSPACE" || true
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -664,10 +766,23 @@ jobs:
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
     timeout-minutes: 20
     steps:
+      - name: Prepare self-hosted workspace
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE"
+          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo -n chown -R "$(id -un):$(id -gn)" "$GITHUB_WORKSPACE"
+          fi
+          chmod -R u+rwX "$GITHUB_WORKSPACE" || true
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
 
       - name: Select Xcode
         run: |
@@ -698,6 +813,11 @@ jobs:
         run: |
           echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Compute DerivedData cache fingerprint
+        id: deriveddata-fingerprint
+        run: |
+          echo "hash=$(./scripts/ci/deriveddata-cache-fingerprint.sh app)" >> "$GITHUB_OUTPUT"
+
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit-release
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -718,7 +838,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: build-universal
-          key: deriveddata-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
+          key: deriveddata-release-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -771,14 +891,27 @@ jobs:
 
   ui-regressions:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    # Cold builds after project/package changes can spend more than 25 minutes
-    # in build-for-testing before the UI regression script starts.
-    timeout-minutes: 45
+    # Cold builds after project/package changes have spent more than 40 minutes
+    # in build-for-testing before the UI regression scripts start.
+    timeout-minutes: 75
     steps:
+      - name: Prepare self-hosted workspace
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE"
+          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo -n chown -R "$(id -un):$(id -gn)" "$GITHUB_WORKSPACE"
+          fi
+          chmod -R u+rwX "$GITHUB_WORKSPACE" || true
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
 
       - name: Select Xcode
         run: |
@@ -807,6 +940,16 @@ jobs:
       - name: Download pre-built GhosttyKit.xcframework
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
+      - name: Capture Ghostty revision
+        id: ghostty-revision
+        run: |
+          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Compute DerivedData cache fingerprint
+        id: deriveddata-fingerprint
+        run: |
+          echo "hash=$(./scripts/ci/deriveddata-cache-fingerprint.sh app)" >> "$GITHUB_OUTPUT"
+
       - name: Install zig
         run: |
           ./scripts/install-zig-ci.sh
@@ -821,6 +964,13 @@ jobs:
           path: ~/.cache/zig
           key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
           restore-keys: zig-packages-
+
+      - name: Cache DerivedData
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-derived-data/ui-regressions
+          key: deriveddata-ui-regressions-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}
+          restore-keys: deriveddata-ui-regressions-${{ steps.deriveddata-fingerprint.outputs.hash }}-${{ steps.ghostty-revision.outputs.sha }}-
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -853,46 +1003,19 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/ui-regressions"
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             build-for-testing
-
-      - name: Create persistent virtual display
-        run: |
-          set -euo pipefail
-          HELPER_PATH="/tmp/create-virtual-display"
-          clang -framework Foundation -framework CoreGraphics \
-            -o "$HELPER_PATH" scripts/create-virtual-display.m
-
-          VDISPLAY_READY="/tmp/cmux-vdisplay-persistent.ready"
-          VDISPLAY_ID_PATH="/tmp/cmux-vdisplay-persistent.id"
-          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH"
-
-          "$HELPER_PATH" \
-            --modes "1920x1080" \
-            --ready-path "$VDISPLAY_READY" \
-            --display-id-path "$VDISPLAY_ID_PATH" \
-            > /tmp/cmux-vdisplay-persistent.log 2>&1 &
-          echo "VDISPLAY_PERSISTENT_PID=$!" >> "$GITHUB_ENV"
-
-          echo "Waiting for persistent virtual display..."
-          for _ in $(seq 1 24); do
-            if [ -f "$VDISPLAY_READY" ]; then break; fi
-            sleep 0.5
-          done
-          if [ ! -f "$VDISPLAY_READY" ]; then
-            echo "ERROR: Persistent virtual display not ready after 12s" >&2
-            cat /tmp/cmux-vdisplay-persistent.log 2>/dev/null || true
-            exit 1
-          fi
-          echo "Persistent virtual display ready: ID=$(cat "$VDISPLAY_ID_PATH")"
 
       - name: Run display resolution churn UI regression
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/ui-regressions"
           HELPER_PATH="/tmp/create-virtual-display"
           TOKEN="$(uuidgen)"
           DIAG_PATH="/tmp/cmux-ui-test-display-churn-${TOKEN}.json"
@@ -914,8 +1037,8 @@ jobs:
             -o "$HELPER_PATH" scripts/create-virtual-display.m
 
           # Find the app binary
-          APP_BINARY=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV" -print -quit 2>/dev/null || true)
-          if [ -z "$APP_BINARY" ]; then
+          APP_BINARY="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
+          if [ ! -x "$APP_BINARY" ]; then
             echo "ERROR: App binary not found in DerivedData" >&2
             exit 1
           fi
@@ -924,20 +1047,21 @@ jobs:
           for attempt in 1 2; do
             cleanup 2>/dev/null || true
 
-            # Launch display helper from shell (non-sandboxed).
-            # Use --start-delay-ms instead of --start-path because the XCTest
-            # runner is sandboxed and can't write to /tmp/ for the start signal.
-            # 10s delay gives the test time to capture baseline render stats.
+            # Launch display helper from shell (non-sandboxed). This waits on
+            # DISPLAY_START, which the shell writes when xcodebuild reports the
+            # display regression test has started. The XCTest runner is sandboxed
+            # and cannot create marker files outside its container.
             "$HELPER_PATH" \
               --modes "1920x1080,1728x1117,1600x900,1440x810" \
               --ready-path "$DISPLAY_READY" \
               --display-id-path "$DISPLAY_ID_PATH" \
+              --start-path "$DISPLAY_START" \
               --done-path "$DISPLAY_DONE" \
               --iterations 40 \
               --interval-ms 40 \
-              --start-delay-ms 10000 \
               > "$HELPER_LOG" 2>&1 &
             HELPER_PID=$!
+            echo "VDISPLAY_PERSISTENT_PID=$HELPER_PID" >> "$GITHUB_ENV"
 
             # Wait for display ready
             echo "Waiting for virtual display..."
@@ -948,6 +1072,12 @@ jobs:
             if [ ! -f "$DISPLAY_READY" ]; then
               echo "ERROR: Virtual display not ready after 12s" >&2
               cat "$HELPER_LOG" 2>/dev/null || true
+              kill "$HELPER_PID" 2>/dev/null || true
+              if [ "$attempt" -eq 2 ]; then
+                echo "Display resolution UI regression failed to create a virtual display after 2 attempts" >&2
+                exit 1
+              fi
+              sleep 3
               continue
             fi
             DISPLAY_ID=$(cat "$DISPLAY_ID_PATH")
@@ -1020,6 +1150,46 @@ jobs:
               cat /tmp/cmux-ui-test-app.log 2>/dev/null | tail -30 || true
             fi
 
+            echo "Waiting for app window on virtual display..."
+            WINDOW_READY=false
+            for i in $(seq 1 50); do
+              if python3 - "$DIAG_PATH" "$DISPLAY_ID" <<'PY' 2>/dev/null
+          import json
+          import sys
+
+          path, display_id = sys.argv[1], sys.argv[2]
+          with open(path) as fh:
+              diagnostics = json.load(fh)
+
+          assert diagnostics.get("targetDisplayPresent") == "1", diagnostics
+          assert diagnostics.get("targetDisplayMoveSucceeded") == "1", diagnostics
+          assert display_id in (diagnostics.get("windowScreenDisplayIDs") or ""), diagnostics
+          PY
+              then
+                WINDOW_READY=true
+                echo "App window reached virtual display after $((i / 2))s"
+                break
+              fi
+              sleep 0.5
+            done
+            if [ "$WINDOW_READY" != "true" ]; then
+              echo "Attempt $attempt: App window did not reach display $DISPLAY_ID"
+              echo "--- Diagnostics ---"
+              cat "$DIAG_PATH" 2>/dev/null || true
+              echo "--- App log ---"
+              cat /tmp/cmux-ui-test-app.log 2>/dev/null | tail -50 || true
+              echo "--- Helper log ---"
+              cat "$HELPER_LOG" 2>/dev/null | tail -30 || true
+              pkill -x "cmux DEV" 2>/dev/null || true
+              kill "$HELPER_PID" 2>/dev/null || true
+              if [ "$attempt" -eq 2 ]; then
+                echo "Display resolution UI regression failed after 2 attempts" >&2
+                exit 1
+              fi
+              sleep 3
+              continue
+            fi
+
             # Write manifests so test can find the pre-launched state
             MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
             cat >"$MANIFEST_PATH" <<MANIFEST_EOF
@@ -1031,13 +1201,26 @@ jobs:
           {"diagnosticsPath":"$DIAG_PATH"}
           PRELAUNCH_EOF
 
-            # Run test — app is already launched from shell
-            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            # Run test — app is already launched from shell. Start display churn
+            # when the test case begins, without requiring the sandboxed XCTest
+            # process to write outside its container.
+            set +e
+            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -derivedDataPath "$DERIVED_DATA_PATH" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
-              test-without-building; then
+              test-without-building 2>&1 | while IFS= read -r line; do
+                printf '%s\n' "$line"
+                if [[ "$line" == *"Test Case '-[cmuxUITests.DisplayResolutionRegressionUITests testRapidDisplayResolutionChangesKeepTerminalResponsive]' started."* ]] && [ ! -f "$DISPLAY_START" ]; then
+                  printf 'start\n' > "$DISPLAY_START"
+                  echo "Display churn start signal written"
+                fi
+              done
+            xcode_status=${PIPESTATUS[0]}
+            set -e
+            if [ "$xcode_status" -eq 0 ]; then
               exit 0
             fi
 
@@ -1056,8 +1239,10 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/ui-regressions"
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance 180 \

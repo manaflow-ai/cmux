@@ -8,6 +8,7 @@ LOG_PATH="${CMUX_CA_ASSERT_LOG:-/tmp/cmux-ca-main-thread-${TAG}.log}"
 HOLD_SECONDS="${CMUX_CA_ASSERT_HOLD_SECONDS:-8}"
 READY_TIMEOUT_SECONDS="${CMUX_CA_ASSERT_READY_TIMEOUT_SECONDS:-60}"
 APP_PID_FILE="${CMUX_CA_ASSERT_PID_FILE:-/tmp/cmux-ca-main-thread-${TAG}.pid}"
+DIAGNOSTICS_PATH="${CMUX_CA_ASSERT_DIAGNOSTICS:-/tmp/cmux-ca-main-thread-${TAG}.diagnostics.json}"
 
 if [ -z "$APP_PATH" ]; then
   echo "usage: CMUX_APP_PATH=/path/to/cmux.app $0" >&2
@@ -27,6 +28,14 @@ if [ "$APP_BASENAME" = "cmux DEV.app" ] && [ "${CMUX_ALLOW_UNTAGGED_CA_REGRESSIO
   exit 2
 fi
 
+BUNDLE_ID="$(
+  plutil -extract CFBundleIdentifier raw -o - "$APP_PATH/Contents/Info.plist" 2>/dev/null || true
+)"
+startup_log_component() {
+  printf '%s' "${BUNDLE_ID:-unknown}" | sed -E 's/[^A-Za-z0-9._-]/-/g' | cut -c 1-160
+}
+STARTUP_LOG_PATH="${CMUX_CA_ASSERT_STARTUP_LOG:-$HOME/Library/Logs/cmux/startup-$(startup_log_component).log}"
+
 BINARY="$APP_PATH/Contents/MacOS/cmux DEV"
 if [ ! -x "$BINARY" ]; then
   BINARY="$APP_PATH/Contents/MacOS/cmux"
@@ -38,6 +47,68 @@ if [ ! -x "$BINARY" ]; then
 fi
 
 APP_PID=""
+
+is_truthy() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+kill_stale_ci_apps() {
+  local should_kill="${CMUX_CA_ASSERT_KILL_STALE_APPS:-${GITHUB_ACTIONS:-0}}"
+  is_truthy "$should_kill" || return 0
+
+  local pids
+  pids="$(pgrep -x "cmux DEV" 2>/dev/null || true)"
+  [ -n "$pids" ] || return 0
+
+  local pid args
+  for pid in $pids; do
+    args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+    case "$args" in
+      *"/Contents/MacOS/cmux DEV"*)
+        kill "$pid" >/dev/null 2>&1 || true
+        ;;
+    esac
+  done
+
+  local deadline=$((SECONDS + 5))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    local any_alive=0
+    for pid in $pids; do
+      if kill -0 "$pid" >/dev/null 2>&1; then
+        any_alive=1
+      fi
+    done
+    [ "$any_alive" -eq 0 ] && return
+    sleep 0.25
+  done
+
+  for pid in $pids; do
+    args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+    case "$args" in
+      *"/Contents/MacOS/cmux DEV"*)
+        kill -KILL "$pid" >/dev/null 2>&1 || true
+        ;;
+    esac
+  done
+}
+
+dump_diagnostics() {
+  echo "--- app log tail ($LOG_PATH) ---" >&2
+  tail -80 "$LOG_PATH" >&2 2>/dev/null || true
+  if [ -f "$STARTUP_LOG_PATH" ]; then
+    echo "--- startup breadcrumbs ($STARTUP_LOG_PATH) ---" >&2
+    tail -80 "$STARTUP_LOG_PATH" >&2 2>/dev/null || true
+  fi
+  if [ -f "$DIAGNOSTICS_PATH" ]; then
+    echo "--- ui test diagnostics ($DIAGNOSTICS_PATH) ---" >&2
+    cat "$DIAGNOSTICS_PATH" >&2 2>/dev/null || true
+  fi
+  echo "--- matching cmux processes ---" >&2
+  ps -ax -o pid=,stat=,command= | grep "/Contents/MacOS/cmux DEV" | grep -v grep >&2 || true
+}
 
 kill_recorded_app() {
   if [ ! -f "$APP_PID_FILE" ]; then
@@ -66,16 +137,20 @@ cleanup() {
     kill "$APP_PID" >/dev/null 2>&1 || true
     wait "$APP_PID" >/dev/null 2>&1 || true
   fi
-  rm -f "$SOCKET_PATH" "$APP_PID_FILE"
+  rm -f "$SOCKET_PATH" "$APP_PID_FILE" "$DIAGNOSTICS_PATH"
 }
 trap cleanup EXIT
 
 kill_recorded_app
-rm -f "$SOCKET_PATH" "$LOG_PATH"
+kill_stale_ci_apps
+rm -f "$SOCKET_PATH" "$LOG_PATH" "$STARTUP_LOG_PATH" "$DIAGNOSTICS_PATH"
 
 CA_ASSERT_MAIN_THREAD_TRANSACTIONS=1 \
 CA_DEBUG_TRANSACTIONS=1 \
+CMUX_STARTUP_BREADCRUMBS=1 \
 CMUX_UI_TEST_MODE=1 \
+CMUX_UI_TEST_SOCKET_SANITY=1 \
+CMUX_UI_TEST_DIAGNOSTICS_PATH="$DIAGNOSTICS_PATH" \
 CMUX_DISABLE_SESSION_RESTORE=1 \
 CMUX_SOCKET_ENABLE=1 \
 CMUX_SOCKET_MODE=automation \
@@ -90,8 +165,7 @@ wait_for_app_alive() {
   if ! kill -0 "$APP_PID" >/dev/null 2>&1; then
     wait "$APP_PID" >/dev/null 2>&1 || true
     echo "FAIL: cmux exited while CA_ASSERT_MAIN_THREAD_TRANSACTIONS=1 was active" >&2
-    echo "--- app log tail ($LOG_PATH) ---" >&2
-    tail -80 "$LOG_PATH" >&2 2>/dev/null || true
+    dump_diagnostics
     exit 1
   fi
 }
@@ -109,8 +183,7 @@ done
 
 if [ "$socket_ready" -ne 1 ]; then
   echo "FAIL: cmux stayed alive but did not create its socket at $SOCKET_PATH" >&2
-  echo "--- app log tail ($LOG_PATH) ---" >&2
-  tail -80 "$LOG_PATH" >&2 2>/dev/null || true
+  dump_diagnostics
   exit 1
 fi
 
@@ -122,8 +195,7 @@ done
 
 if grep -E "uncommitted CATransaction|implicit transaction wasn't created|CoreAnimation.*thread|CATransaction.*thread" "$LOG_PATH" >/dev/null 2>&1; then
   echo "FAIL: CoreAnimation reported a worker-thread transaction" >&2
-  echo "--- app log tail ($LOG_PATH) ---" >&2
-  tail -80 "$LOG_PATH" >&2 2>/dev/null || true
+  dump_diagnostics
   exit 1
 fi
 

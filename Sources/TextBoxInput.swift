@@ -305,11 +305,21 @@ private enum TextBoxDraftAttachmentStorage {
     )
 
     static func snapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
-        guard let localURL = attachment.localURL,
-              GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+        guard let localURL = attachment.localURL else {
             return fallbackSnapshot(for: attachment)
         }
         let standardizedLocalURL = localURL.standardizedFileURL
+        if let durableURL = copiedDraftURL(forOriginalURL: standardizedLocalURL) {
+            return copiedSnapshot(
+                for: attachment,
+                originalLocalURL: standardizedLocalURL,
+                durableURL: durableURL
+            )
+        }
+
+        guard GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+            return fallbackSnapshot(for: attachment)
+        }
         guard FileManager.default.fileExists(atPath: standardizedLocalURL.path) else {
             return fallbackSnapshot(for: attachment)
         }
@@ -321,9 +331,21 @@ private enum TextBoxDraftAttachmentStorage {
         guard let durableURL = copiedDraftURL(forOriginalURL: standardizedLocalURL) else {
             return fallbackSnapshot(for: attachment)
         }
-        let submissionFields = copiedSubmissionFields(
+        return copiedSnapshot(
             for: attachment,
             originalLocalURL: standardizedLocalURL,
+            durableURL: durableURL
+        )
+    }
+
+    private static func copiedSnapshot(
+        for attachment: TextBoxAttachment,
+        originalLocalURL: URL,
+        durableURL: URL
+    ) -> SessionTextBoxInputAttachmentSnapshot {
+        let submissionFields = copiedSubmissionFields(
+            for: attachment,
+            originalLocalURL: originalLocalURL,
             durableURL: durableURL
         )
         return SessionTextBoxInputAttachmentSnapshot(
@@ -1566,7 +1588,7 @@ private enum TextBoxMentionMarkdown {
     }
 }
 
-private struct TextBoxMentionCandidate: Sendable {
+struct TextBoxMentionCandidate: Sendable {
     let title: String
     let subtitle: String
     let insertionText: String
@@ -1592,7 +1614,7 @@ private struct TextBoxMentionCandidate: Sendable {
     }
 }
 
-private struct TextBoxMentionCandidateIndex: Sendable {
+struct TextBoxMentionCandidateIndex: Sendable {
     private let corpus: [CommandPaletteSearchCorpusEntry<TextBoxMentionCandidate>]
     private let nucleoIndex: CommandPaletteNucleoSearchIndex<TextBoxMentionCandidate>?
 
@@ -1632,15 +1654,60 @@ private struct TextBoxMentionCandidateIndex: Sendable {
     }
 }
 
-actor TextBoxMentionIndexStore {
-    static let shared = TextBoxMentionIndexStore()
-
+struct TextBoxMentionFileIndexCache {
     private struct CachedIndex {
         let index: TextBoxMentionCandidateIndex
         let createdAt: Date
     }
 
     private static let fileIndexTTL: TimeInterval = 2
+    private static let suggestionLimit = 8
+
+    private var indexesByRoot: [String: CachedIndex] = [:]
+
+    mutating func suggestions(
+        for query: TextBoxMentionQuery,
+        rootDirectory: String,
+        now: Date = Date(),
+        scanFiles: (URL) -> [TextBoxMentionCandidate]
+    ) -> [TextBoxMentionSuggestion] {
+        let index = fileIndex(rootDirectory: rootDirectory, now: now, scanFiles: scanFiles)
+        var matches = index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
+        if matches.isEmpty, !query.query.isEmpty {
+            let refreshed = refreshFileIndex(rootDirectory: rootDirectory, now: now, scanFiles: scanFiles)
+            matches = refreshed.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
+        }
+        return matches
+            .map { $0.suggestion(trigger: query.trigger) }
+    }
+
+    private mutating func fileIndex(
+        rootDirectory: String,
+        now: Date,
+        scanFiles: (URL) -> [TextBoxMentionCandidate]
+    ) -> TextBoxMentionCandidateIndex {
+        if let cached = indexesByRoot[rootDirectory],
+           now.timeIntervalSince(cached.createdAt) < Self.fileIndexTTL {
+            return cached.index
+        }
+        return refreshFileIndex(rootDirectory: rootDirectory, now: now, scanFiles: scanFiles)
+    }
+
+    private mutating func refreshFileIndex(
+        rootDirectory: String,
+        now: Date,
+        scanFiles: (URL) -> [TextBoxMentionCandidate]
+    ) -> TextBoxMentionCandidateIndex {
+        let rootURL = URL(fileURLWithPath: rootDirectory, isDirectory: true)
+        let index = TextBoxMentionCandidateIndex(candidates: scanFiles(rootURL))
+        indexesByRoot[rootDirectory] = CachedIndex(index: index, createdAt: now)
+        return index
+    }
+}
+
+actor TextBoxMentionIndexStore {
+    static let shared = TextBoxMentionIndexStore()
+
     private static let maxIndexedFiles = 6000
     private static let maxIndexedSkills = 800
     private static let suggestionLimit = 8
@@ -1657,7 +1724,7 @@ actor TextBoxMentionIndexStore {
         "vendor"
     ]
 
-    private var fileIndexesByRoot: [String: CachedIndex] = [:]
+    private var fileIndexCache = TextBoxMentionFileIndexCache()
     private var skillIndexesByRootKey: [String: TextBoxMentionCandidateIndex] = [:]
 
     func suggestions(
@@ -1679,36 +1746,11 @@ actor TextBoxMentionIndexStore {
         for query: TextBoxMentionQuery,
         rootDirectory: String
     ) -> [TextBoxMentionSuggestion] {
-        let now = Date()
-        let index = fileIndex(rootDirectory: rootDirectory, now: now)
-        var matches = index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
-        if matches.isEmpty, !query.query.isEmpty {
-            let refreshed = refreshFileIndex(rootDirectory: rootDirectory, now: now)
-            matches = refreshed.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
-        }
-        return matches
-            .map { $0.suggestion(trigger: query.trigger) }
-    }
-
-    private func fileIndex(
-        rootDirectory: String,
-        now: Date
-    ) -> TextBoxMentionCandidateIndex {
-        if let cached = fileIndexesByRoot[rootDirectory],
-           now.timeIntervalSince(cached.createdAt) < Self.fileIndexTTL {
-            return cached.index
-        }
-        return refreshFileIndex(rootDirectory: rootDirectory, now: now)
-    }
-
-    private func refreshFileIndex(
-        rootDirectory: String,
-        now: Date
-    ) -> TextBoxMentionCandidateIndex {
-        let rootURL = URL(fileURLWithPath: rootDirectory, isDirectory: true)
-        let index = TextBoxMentionCandidateIndex(candidates: Self.scanFiles(rootURL: rootURL))
-        fileIndexesByRoot[rootDirectory] = CachedIndex(index: index, createdAt: now)
-        return index
+        fileIndexCache.suggestions(
+            for: query,
+            rootDirectory: rootDirectory,
+            scanFiles: Self.scanFiles
+        )
     }
 
     private func skillIndex(rootDirectory: String?) -> TextBoxMentionCandidateIndex {
@@ -1747,7 +1789,7 @@ actor TextBoxMentionIndexStore {
         return index
     }
 
-    private static func scanFiles(rootURL: URL) -> [TextBoxMentionCandidate] {
+    static func scanFiles(rootURL: URL) -> [TextBoxMentionCandidate] {
         let fileManager = FileManager.default
         guard let enumerator = fileManager.enumerator(
             at: rootURL,
@@ -2805,7 +2847,7 @@ private final class TextBoxSubmitEventRunner {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor in
+            Self.performOnMainActor {
                 guard let self, self.observationToken == token else { return }
                 if let notificationSurface = notification.object as AnyObject? {
                     guard notificationSurface === self.surface as AnyObject else { return }
@@ -2882,6 +2924,10 @@ private final class TextBoxSubmitEventRunner {
             timeoutSeconds: Self.waitTimeoutSeconds,
             onExhausted: onExhausted
         )
+        guard Self.active[id] === self,
+              observationToken == token else {
+            return nil
+        }
 
         @MainActor
         func checkIfCurrent() {
@@ -2897,7 +2943,7 @@ private final class TextBoxSubmitEventRunner {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
+            Self.performOnMainActor {
                 guard self != nil else { return }
                 checkIfCurrent()
             }
@@ -2908,7 +2954,7 @@ private final class TextBoxSubmitEventRunner {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor in
+            Self.performOnMainActor {
                 guard let self else { return }
                 if let surfaceView = notification.object as? GhosttyNSView {
                     guard let expectedSurface = self.surface.textBoxSubmitTerminalSurface,
@@ -2925,7 +2971,7 @@ private final class TextBoxSubmitEventRunner {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor in
+            Self.performOnMainActor {
                 guard let self else { return }
                 if let surfaceView = notification.object as? GhosttyNSView {
                     guard let expectedSurface = self.surface.textBoxSubmitTerminalSurface,
@@ -2941,13 +2987,13 @@ private final class TextBoxSubmitEventRunner {
             observers.append(center.addObserver(
                 forName: NSWindow.didUpdateNotification,
                 object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard self != nil else { return }
-                checkIfCurrent()
-            }
-        })
+                queue: .main
+            ) { [weak self] _ in
+                Self.performOnMainActor {
+                    guard self != nil else { return }
+                    checkIfCurrent()
+                }
+            })
         }
 
         if performInitialCheck {
@@ -2967,11 +3013,18 @@ private final class TextBoxSubmitEventRunner {
         onExhausted: (@MainActor () -> Void)?
     ) {
         waitTimeoutTimer?.cancel()
+        guard timeoutSeconds > 0 else {
+#if DEBUG
+            cmuxDebugLog("textbox.submit.wait.timeout.immediate id=\(id.uuidString.prefix(5))")
+#endif
+            onExhausted?()
+            return
+        }
         let timer = DispatchSource.makeTimerSource(queue: .main)
         waitTimeoutTimer = timer
         timer.schedule(deadline: .now() + timeoutSeconds)
         timer.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
+            Self.performOnMainActor {
                 guard let self,
                       self.observationToken == token else {
                     return
@@ -2983,6 +3036,18 @@ private final class TextBoxSubmitEventRunner {
             }
         }
         timer.resume()
+    }
+
+    private nonisolated static func performOnMainActor(_ work: @escaping @MainActor () -> Void) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                work()
+            }
+        } else {
+            Task { @MainActor in
+                work()
+            }
+        }
     }
 
     private func pasteFilePath(_ path: String) -> Bool {

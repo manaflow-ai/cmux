@@ -1365,6 +1365,9 @@ class TabManager: ObservableObject {
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
+#if DEBUG
+    var suppressSelectionSideEffectsForTesting = false
+#endif
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -1450,6 +1453,9 @@ class TabManager: ObservableObject {
                 "ws.select.didSet id=\(switchId) from=\(Self.debugShortWorkspaceId(previousTabId)) " +
                 "to=\(Self.debugShortWorkspaceId(selectedTabId)) dt=\(Self.debugMsText(switchDtMs))"
             )
+            if suppressSelectionSideEffectsForTesting {
+                return
+            }
 #endif
             selectionSideEffectsGeneration &+= 1
             let generation = selectionSideEffectsGeneration
@@ -1574,15 +1580,18 @@ class TabManager: ObservableObject {
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
+        debugCreateInitialWorkspace: Bool = true,
         commandRunner: any CommandRunning = CommandRunner()
     ) {
         self.commandRunner = commandRunner
-        addWorkspace(
-            title: initialWorkspaceTitle,
-            workingDirectory: initialWorkingDirectory,
-            initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded
-        )
+        if debugCreateInitialWorkspace {
+            addWorkspace(
+                title: initialWorkspaceTitle,
+                workingDirectory: initialWorkingDirectory,
+                initialTerminalInput: initialTerminalInput,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded
+            )
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -7689,7 +7698,7 @@ class TabManager: ObservableObject {
            ) {
             return
         }
-        if tabs.count <= 1 {
+        if workspaceCloseDestination(workspaceCount: tabs.count) == .window {
             // Last workspace in this window: match Close Workspace shortcut behavior.
             if let window {
                 window.performClose(nil)
@@ -7808,9 +7817,11 @@ class TabManager: ObservableObject {
     }
 
     private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace, panelId: UUID) -> Bool {
-        LastSurfaceCloseShortcutSettings.closesWorkspace() &&
-            workspace.panels.count <= 1 &&
-            workspace.panels[panelId] != nil
+        shouldMarkExplicitCloseForLastSurfaceShortcut(
+            closesWorkspaceOnLastSurfaceShortcut: LastSurfaceCloseShortcutSettings.closesWorkspace(),
+            panelCount: workspace.panels.count,
+            panelExists: workspace.panels[panelId] != nil
+        )
     }
 
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {

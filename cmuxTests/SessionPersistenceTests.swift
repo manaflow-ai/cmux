@@ -1,4 +1,5 @@
 import Darwin
+import AppKit
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -11,6 +12,14 @@ final class SessionPersistenceTests: XCTestCase {
     private struct LegacyPersistedWindowGeometry: Codable {
         let frame: SessionRectSnapshot
         let display: SessionDisplaySnapshot?
+    }
+
+    func testScreenIdentityParsesAllAppKitDisplayIDNumberTypes() {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+
+        XCTAssertEqual(ScreenIdentity.displayID(from: [key: UInt32(177)]), 177)
+        XCTAssertEqual(ScreenIdentity.displayID(from: [key: Int(178)]), 178)
+        XCTAssertEqual(ScreenIdentity.displayID(from: [key: NSNumber(value: 179)]), 179)
     }
 
     @MainActor

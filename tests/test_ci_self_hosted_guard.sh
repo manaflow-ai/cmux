@@ -13,6 +13,9 @@ CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
+PERF_FILE="$ROOT_DIR/.github/workflows/perf-activation.yml"
+NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
+RELEASE_FILE="$ROOT_DIR/.github/workflows/release.yml"
 
 check_macos_runner() {
   local file="$1" job="$2"
@@ -27,6 +30,25 @@ check_macos_runner() {
     exit 1
   fi
   echo "PASS: $job in $(basename "$file") uses a paid macOS runner"
+}
+
+check_self_hosted_workspace_prep() {
+  local file="$1" job="$2"
+  if ! awk -v job="$job" '
+    $0 ~ "^  "job":" { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && index($0, "- name: Prepare self-hosted workspace") { saw_prep=1; if (!saw_checkout) prep_before_checkout=1 }
+    in_job && index($0, "sudo -n chown -R \"$(id -un):$(id -gn)\" \"$GITHUB_WORKSPACE\"") { saw_chown=1 }
+    in_job && index($0, "chmod -R u+rwX \"$GITHUB_WORKSPACE\"") { saw_chmod=1 }
+    in_job && index($0, "find \"$GITHUB_WORKSPACE\" -mindepth 1 -maxdepth 1 -exec rm -rf {} +") { saw_clean=1 }
+    in_job && /uses: actions\/checkout/ { saw_checkout=1 }
+    END { exit(saw_prep && prep_before_checkout && saw_chown && saw_chmod && saw_clean ? 0 : 1) }
+  ' "$file"; then
+    echo "FAIL: $job in $(basename "$file") must normalize and clean GITHUB_WORKSPACE before checkout so root-owned leftovers cannot break self-hosted macOS jobs"
+    exit 1
+  fi
+
+  echo "PASS: $job in $(basename "$file") normalizes self-hosted workspace before checkout"
 }
 
 check_e2e_runner_fallbacks() {
@@ -104,6 +126,19 @@ check_xcode_selection() {
   echo "PASS: workflow Xcode selection avoids ls/glob ordering"
 }
 
+check_workflow_yaml_parse() {
+  ruby -e 'require "yaml"; ARGV.each { |path| YAML.load_file(path) }' \
+    "$CI_FILE" \
+    "$GHOSTTYKIT_FILE" \
+    "$COMPAT_FILE" \
+    "$E2E_FILE" \
+    "$PERF_FILE" \
+    "$NIGHTLY_FILE" \
+    "$RELEASE_FILE"
+
+  echo "PASS: workflow YAML parses"
+}
+
 check_release_build_signal() {
   if ! grep -Fq 'lipo "$APP_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
     echo "FAIL: release-build must verify the Release app binary stays universal"
@@ -123,22 +158,229 @@ check_release_build_signal() {
   echo "PASS: release-build keeps universal artifact verification"
 }
 
+check_no_xctest_quarantines() {
+  if grep -R -n -- "-skip-testing:" "$ROOT_DIR/.github/workflows"; then
+    echo "FAIL: workflow XCTest coverage must not be hidden with -skip-testing quarantines"
+    exit 1
+  fi
+
+  echo "PASS: workflows do not hide XCTest coverage with -skip-testing"
+}
+
+check_retryable_submodule_checkout() {
+  if grep -R -n "submodules: recursive" "$ROOT_DIR/.github/workflows"; then
+    echo "FAIL: workflows must not let actions/checkout fetch submodules without the retry wrapper"
+    exit 1
+  fi
+
+  local file line missing=0
+  while IFS=: read -r file line _; do
+    if ! sed -n "${line},$((line + 4))p" "$file" | grep -Fq "./scripts/ci/init-submodules-with-retry.sh"; then
+      echo "FAIL: $(basename "$file") line $line sets submodules: false without Initialize submodules with retry"
+      missing=1
+    fi
+  done < <(grep -R -n "submodules: false" "$ROOT_DIR/.github/workflows" || true)
+
+  if [ "$missing" -ne 0 ]; then
+    exit 1
+  fi
+
+  echo "PASS: workflow submodule checkout uses retry wrapper"
+}
+
+check_split_theme_regression_timeout() {
+  if ! awk '
+    /^[[:space:]]*- name: Run Ghostty split-theme appearance regression$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_wrapper=1 }
+    in_step && /CMUX_SPLIT_THEME_TEST_TIMEOUT_SECONDS/ { saw_timeout=1 }
+    in_step && /xcodebuild split-theme regression timeout/ { saw_timeout_message=1 }
+    in_step && /Cargo registry download failed during split-theme build, retrying once/ { saw_cargo_retry=1 }
+    in_step && /static\\.crates\\.io/ { saw_static_crates_match=1 }
+    END { exit(saw_wrapper && saw_timeout && saw_timeout_message && saw_cargo_retry && saw_static_crates_match ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: split-theme XCTest regression must use noninteractive xcodebuild, a step timeout, and a Cargo registry retry"
+    exit 1
+  fi
+
+  echo "PASS: split-theme XCTest regression uses noninteractive xcodebuild with timeout and Cargo registry retry"
+}
+
+check_tests_deriveddata_cache() {
+  if ! awk '
+    /^  tests:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /name: Compute DerivedData cache fingerprint/ { saw_fingerprint_step=1 }
+    in_job && /deriveddata-cache-fingerprint\.sh tests/ { saw_fingerprint_mode=1 }
+    in_job && /path: \.ci-derived-data\/tests/ { saw_cache_path=1 }
+    in_job && /key: deriveddata-tests-\$\{\{ steps\.deriveddata-fingerprint\.outputs\.hash \}\}-\$\{\{ steps\.ghostty-revision\.outputs\.sha \}\}/ { saw_key=1 }
+    in_job && /restore-keys:[[:space:]]*\|/ { in_restore=1; next }
+    in_job && in_restore && /deriveddata-tests-\$\{\{ steps\.deriveddata-fingerprint\.outputs\.hash \}\}-\$\{\{ steps\.ghostty-revision\.outputs\.sha \}\}-/ { saw_restore=1 }
+    in_job && in_restore && /deriveddata-tests-/ && !/steps\.deriveddata-fingerprint\.outputs\.hash/ { saw_broad_restore=1 }
+    in_job && in_restore && /^[[:space:]]{10}[^[:space:]-]/ { in_restore=0 }
+    in_job && /DERIVED_DATA_PATH="\$PWD\/\.ci-derived-data\/tests"/ { saw_derived_data_env += 1 }
+    in_job && /-derivedDataPath "\$DERIVED_DATA_PATH"/ { saw_derived_data += 1 }
+    in_job && /CLI_BIN="\$DERIVED_DATA_PATH\/Build\/Products\/Debug\/cmux"/ { saw_cli_path=1 }
+    END { exit(saw_fingerprint_step && saw_fingerprint_mode && saw_cache_path && saw_key && saw_restore && !saw_broad_restore && saw_derived_data_env >= 3 && saw_derived_data >= 2 && saw_cli_path ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: tests job must cache and reuse a source-fingerprinted explicit DerivedData path across split-theme and unit XCTest steps"
+    exit 1
+  fi
+
+  echo "PASS: tests job reuses source-fingerprinted explicit cached DerivedData across XCTest steps"
+}
+
+check_ui_regression_budget() {
+  local timeout_minutes
+  timeout_minutes="$(
+    awk '
+      /^  ui-regressions:/ { in_job=1; next }
+      in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+      in_job && /timeout-minutes:/ { print $2; exit }
+    ' "$CI_FILE"
+  )"
+
+  if [ -z "$timeout_minutes" ] || [ "$timeout_minutes" -lt 75 ]; then
+    echo "FAIL: ui-regressions must keep enough job time for a cold build-for-testing plus both UI regressions after observed 40m+ cold builds"
+    exit 1
+  fi
+
+  if ! grep -Fq 'path: .ci-derived-data/ui-regressions' "$CI_FILE"; then
+    echo "FAIL: ui-regressions must cache its explicit DerivedData path"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  ui-regressions:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /name: Compute DerivedData cache fingerprint/ { saw_fingerprint_step=1 }
+    in_job && /deriveddata-cache-fingerprint\.sh app/ { saw_fingerprint_mode=1 }
+    in_job && /key: deriveddata-ui-regressions-\$\{\{ steps\.deriveddata-fingerprint\.outputs\.hash \}\}-\$\{\{ steps\.ghostty-revision\.outputs\.sha \}\}/ { saw_key=1 }
+    in_job && /restore-keys: deriveddata-ui-regressions-\$\{\{ steps\.deriveddata-fingerprint\.outputs\.hash \}\}-\$\{\{ steps\.ghostty-revision\.outputs\.sha \}\}-/ { saw_restore=1 }
+    in_job && /restore-keys: deriveddata-ui-regressions-/ && !/steps\.deriveddata-fingerprint\.outputs\.hash/ { saw_broad_restore=1 }
+    END { exit(saw_fingerprint_step && saw_fingerprint_mode && saw_key && saw_restore && !saw_broad_restore ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: ui-regressions DerivedData cache must be source-fingerprinted and must not use a broad stale restore key"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  ui-regressions:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /-derivedDataPath "\$DERIVED_DATA_PATH"/ { saw += 1 }
+    END { exit(saw >= 3 ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: ui-regressions must use its explicit DerivedData path for build-for-testing and both test-without-building runs"
+    exit 1
+  fi
+
+  if grep -Fq 'name: Create persistent virtual display' "$CI_FILE"; then
+    echo "FAIL: ui-regressions must reuse the display-churn virtual display instead of creating a second CGVirtualDisplay"
+    exit 1
+  fi
+
+  if ! grep -Fq 'echo "VDISPLAY_PERSISTENT_PID=$HELPER_PID" >> "$GITHUB_ENV"' "$CI_FILE"; then
+    echo "FAIL: ui-regressions must keep the display-churn helper alive for the browser find regression and final cleanup"
+    exit 1
+  fi
+
+  echo "PASS: ui-regressions keeps enough time and cached DerivedData for both UI regressions"
+}
+
+check_build_and_lag_budget() {
+  local timeout_minutes
+  timeout_minutes="$(
+    awk '
+      /^  tests-build-and-lag:/ { in_job=1; next }
+      in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+      in_job && /timeout-minutes:/ { print $2; exit }
+    ' "$CI_FILE"
+  )"
+
+  if [ -z "$timeout_minutes" ] || [ "$timeout_minutes" -lt 75 ]; then
+    echo "FAIL: tests-build-and-lag must keep enough job time for a cold merged-main build plus lag regressions"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  tests-build-and-lag:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /name: Compute DerivedData cache fingerprint/ { saw_fingerprint_step=1 }
+    in_job && /deriveddata-cache-fingerprint\.sh app/ { saw_fingerprint_mode=1 }
+    in_job && /path: \.ci-derived-data\/build/ { saw_cache_path=1 }
+    in_job && /key: deriveddata-build-\$\{\{ steps\.deriveddata-fingerprint\.outputs\.hash \}\}-\$\{\{ steps\.ghostty-revision\.outputs\.sha \}\}/ { saw_key=1 }
+    in_job && /restore-keys:[[:space:]]*\|/ { in_restore=1; next }
+    in_job && in_restore && /deriveddata-build-\$\{\{ steps\.deriveddata-fingerprint\.outputs\.hash \}\}-\$\{\{ steps\.ghostty-revision\.outputs\.sha \}\}-/ { saw_restore=1 }
+    in_job && in_restore && /deriveddata-build-/ && !/steps\.deriveddata-fingerprint\.outputs\.hash/ { saw_broad_restore=1 }
+    in_job && in_restore && /^[[:space:]]{10}[^[:space:]-]/ { in_restore=0 }
+    in_job && /DERIVED_DATA_PATH="\$PWD\/\.ci-derived-data\/build"/ { saw_derived_data_env += 1 }
+    in_job && /-derivedDataPath "\$DERIVED_DATA_PATH"/ { saw_derived_data=1 }
+    END { exit(saw_fingerprint_step && saw_fingerprint_mode && saw_cache_path && saw_key && saw_restore && !saw_broad_restore && saw_derived_data_env >= 3 && saw_derived_data ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: tests-build-and-lag must restore and use its source-fingerprinted workspace-local DerivedData path so retries are not always cold"
+    exit 1
+  fi
+
+  echo "PASS: tests-build-and-lag keeps enough time and restores source-fingerprinted DerivedData for cold builds"
+}
+
+check_zig_helper_build_runner() {
+  local file="$1" job="$2"
+  if ! awk -v job="$job" '
+    $0 ~ "^  "job":" { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /runs-on:.*vars\.MACOS_RUNNER_15/ { saw_runner=1 }
+    in_job && /runs-on:.*warp-macos-15-arm64-6x/ { saw_fallback=1 }
+    END { exit !(saw_runner && saw_fallback) }
+  ' "$file"; then
+    echo "FAIL: $job in $(basename "$file") must build the real Ghostty CLI helper on the macOS 15 lane until Zig 0.15.2 no longer links against the Xcode 26.4 SDK"
+    exit 1
+  fi
+
+  echo "PASS: $job in $(basename "$file") builds the real Ghostty CLI helper away from the Xcode 26.4 Zig linker failure lane"
+}
+
 # ci.yml jobs
 check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_macos_runner "$CI_FILE" "release-build"
 check_macos_runner "$CI_FILE" "ui-regressions"
+check_self_hosted_workspace_prep "$CI_FILE" "tests"
+check_self_hosted_workspace_prep "$CI_FILE" "tests-build-and-lag"
+check_self_hosted_workspace_prep "$CI_FILE" "release-ghostty-cli-helper"
+check_self_hosted_workspace_prep "$CI_FILE" "release-build"
+check_self_hosted_workspace_prep "$CI_FILE" "ui-regressions"
 
 # build-ghosttykit.yml
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
+check_self_hosted_workspace_prep "$GHOSTTYKIT_FILE" "build-ghosttykit"
 
 # ci-macos-compat.yml (matrix.os routed through the MACOS_RUNNER_* repo vars)
 check_macos_runner "$COMPAT_FILE" "compat-tests"
+check_self_hosted_workspace_prep "$COMPAT_FILE" "compat-tests"
 
 # test-e2e.yml is manual, so keep the Depot GUI runner choices but cancel
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
+check_self_hosted_workspace_prep "$E2E_FILE" "e2e"
+
+# perf-activation.yml
+check_macos_runner "$PERF_FILE" "activation-session"
+check_self_hosted_workspace_prep "$PERF_FILE" "activation-session"
+
+# release lanes
+check_self_hosted_workspace_prep "$NIGHTLY_FILE" "build-sign-notarize-nightly"
+check_self_hosted_workspace_prep "$RELEASE_FILE" "build-sign-notarize"
 
 check_xcode_selection
+check_workflow_yaml_parse
 check_release_build_signal
+check_no_xctest_quarantines
+check_retryable_submodule_checkout
+check_split_theme_regression_timeout
+check_tests_deriveddata_cache
+check_ui_regression_budget
+check_build_and_lag_budget
+check_zig_helper_build_runner "$CI_FILE" "release-ghostty-cli-helper"
+check_zig_helper_build_runner "$RELEASE_FILE" "build-ghostty-cli-helper"
