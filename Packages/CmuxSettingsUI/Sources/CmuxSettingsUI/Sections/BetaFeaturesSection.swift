@@ -1,16 +1,16 @@
 import CmuxSettings
 import SwiftUI
 
-/// **Beta Features** section — mirrors the legacy
-/// `BetaFeaturesSettingsView`: warning note followed by a single
-/// `Dock` toggle.
+/// **Beta Features** section: a warning note followed by the master
+/// `Dock` toggle (gates the multi-dock workspace layout) and a nested
+/// `Left Dock` toggle that is enabled only while `Dock` is on.
 @MainActor
 public struct BetaFeaturesSection: View {
     @State private var dock: DefaultsValueModel<Bool>
     @State private var leftDock: DefaultsValueModel<Bool>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
-        _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
+        _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.dock))
         _leftDock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.leftDock))
     }
 
@@ -36,8 +36,8 @@ public struct BetaFeaturesSection: View {
             searchAnchorID: "setting:betaFeatures:dock",
             String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"),
             subtitle: dock.current
-                ? String(localized: "settings.betaFeatures.dock.subtitleOn", defaultValue: "Shows Dock in the right sidebar mode switcher for custom terminal controls.")
-                : String(localized: "settings.betaFeatures.dock.subtitleOff", defaultValue: "Hides Dock from the right sidebar until you enable it here.")
+                ? String(localized: "settings.betaFeatures.dock.subtitleOn", defaultValue: "Shows dock toggles in the workspace titlebar. Each edge dock has its own split tree.")
+                : String(localized: "settings.betaFeatures.dock.subtitleOff", defaultValue: "Adds bottom and right docks to the workspace titlebar. Enable to try the multi-dock layout.")
         ) {
             Toggle("", isOn: Binding(get: { dock.current }, set: { dock.set($0) }))
                 .labelsHidden()
@@ -59,8 +59,10 @@ public struct BetaFeaturesSection: View {
             Toggle("", isOn: Binding(get: { leftDock.current }, set: { leftDock.set($0) }))
                 .labelsHidden()
                 .controlSize(.small)
+                .disabled(!dock.current)
                 .accessibilityIdentifier("SettingsBetaLeftDockToggle")
         }
+        .opacity(dock.current ? 1 : 0.5)
     }
 }
 

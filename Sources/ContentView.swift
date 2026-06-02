@@ -2250,6 +2250,7 @@ struct ContentView: View {
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
+    @AppStorage(WorkspaceDockSettings.enabledKey) private var docksEnabled = WorkspaceDockSettings.defaultEnabled
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     private var windowAppearanceSnapshot: WindowAppearanceSnapshot {
@@ -2364,7 +2365,7 @@ struct ContentView: View {
                 // from under the dock buttons so their normal hit testing stays intact.
                 .background(WindowDragHandleView())
 
-                if let selectedWorkspace = tabManager.selectedWorkspace {
+                if docksEnabled, let selectedWorkspace = tabManager.selectedWorkspace {
                     WorkspaceDockToggleCluster(layout: selectedWorkspace.dockLayout)
                 }
             }

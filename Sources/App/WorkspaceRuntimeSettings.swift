@@ -387,9 +387,20 @@ enum RightSidebarBetaFeatureSettings {
 }
 
 enum WorkspaceDockSettings {
+    /// Master beta gate for the multi-dock workspace layout. When off, no
+    /// dock toggles appear in the workspace titlebar.
+    static let enabledKey = "docks.enabled"
+
+    static let defaultEnabled = false
+
     static let leftEnabledKey = "docks.leftEnabled"
 
     static let defaultLeftEnabled = false
+
+    nonisolated static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: enabledKey) != nil else { return defaultEnabled }
+        return defaults.bool(forKey: enabledKey)
+    }
 
     nonisolated static func isLeftEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: leftEnabledKey) != nil else { return defaultLeftEnabled }

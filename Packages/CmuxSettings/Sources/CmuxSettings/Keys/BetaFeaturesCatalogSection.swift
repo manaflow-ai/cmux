@@ -6,18 +6,19 @@ import Foundation
 /// pattern `<feature-domain>.beta.<flag-name>` so the cmux.json view
 /// groups them sensibly.
 public struct BetaFeaturesCatalogSection: SettingCatalogSection {
-    /// Right-sidebar Dock: an experimental terminal-controls dock that
-    /// replaces the per-pane action chrome with a unified right-side
-    /// rail. Defaults off; flagged as unstable in the Settings UI.
-    public let rightSidebarDock = DefaultsKey<Bool>(
-        id: "rightSidebar.beta.dock.enabled",
+    /// Dock: the multi-dock workspace layout. Each window edge (bottom and
+    /// right by default, left when ``leftDock`` is on) gets its own dock
+    /// with an independent split tree, toggled from the workspace
+    /// titlebar. Defaults off; flagged as unstable in the Settings UI.
+    public let dock = DefaultsKey<Bool>(
+        id: "docks.enabled",
         defaultValue: false,
-        userDefaultsKey: "rightSidebar.beta.dock.enabled"
+        userDefaultsKey: "docks.enabled"
     )
 
-    /// Left dock: the multi-dock workspace prototype shows the bottom and
-    /// right dock toggles by default. Enable this to also show the left
-    /// dock toggle in the workspace titlebar. Defaults off.
+    /// Left dock: when ``dock`` is enabled, also show the left dock toggle
+    /// in the workspace titlebar (bottom and right show by default).
+    /// Defaults off.
     public let leftDock = DefaultsKey<Bool>(
         id: "docks.leftEnabled",
         defaultValue: false,

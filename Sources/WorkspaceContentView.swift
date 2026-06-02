@@ -1647,8 +1647,8 @@ private struct WorkspaceDockToggleIcon: View {
             .resizable()
             .scaledToFit()
             .frame(
-                width: RightSidebarChromeMetrics.headerIconFrameSize,
-                height: RightSidebarChromeMetrics.headerIconFrameSize
+                width: HeaderChromeControlMetrics.iconFrameSize,
+                height: HeaderChromeControlMetrics.iconFrameSize
             )
             .opacity(isOpen ? 1.0 : 0.6)
             .accessibilityHidden(true)
