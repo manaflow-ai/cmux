@@ -273,23 +273,11 @@ if [[ -f "$INFO_PLIST" ]]; then
   if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
     rm -f "$CMUX_SOCKET_PATH_VALUE"
   fi
-  # Re-sign the patched staging app. Prefer a stable dev-cert signature
-  # (keeps TCC permission grants across rebuilds) and preserve the built
-  # entitlements; fall back to ad-hoc if no identity is available.
-  CMUX_SIGN_IDENTITY="${CMUX_SIGN_IDENTITY:-Apple Development: sean@mobility-labs.com}"
-  ENT_TMP="$(mktemp -t cmux-staging-ent).plist"
-  /usr/bin/codesign -d --entitlements ":$ENT_TMP" "$STAGING_APP_PATH" >/dev/null 2>&1 || true
-  if /usr/bin/security find-identity -v -p codesigning 2>/dev/null | grep -qF "$CMUX_SIGN_IDENTITY"; then
-    if [[ -s "$ENT_TMP" ]]; then
-      /usr/bin/codesign --force --sign "$CMUX_SIGN_IDENTITY" --timestamp=none --generate-entitlement-der --entitlements "$ENT_TMP" "$STAGING_APP_PATH" >/dev/null 2>&1 \
-        || /usr/bin/codesign --force --sign "$CMUX_SIGN_IDENTITY" --timestamp=none --generate-entitlement-der "$STAGING_APP_PATH" >/dev/null 2>&1 || true
-    else
-      /usr/bin/codesign --force --sign "$CMUX_SIGN_IDENTITY" --timestamp=none --generate-entitlement-der "$STAGING_APP_PATH" >/dev/null 2>&1 || true
-    fi
-  else
-    /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$STAGING_APP_PATH" >/dev/null 2>&1 || true
-  fi
-  rm -f "$ENT_TMP"
+  # Capture the built app's entitlements now. The actual (re)signing is deferred
+  # until after cmuxd is copied into Resources/bin below, so the bundle seal stays
+  # valid and every nested CLI helper gets signed.
+  STAGING_APP_ENT_TMP="$(mktemp -t cmux-staging-ent).plist"
+  /usr/bin/codesign -d --entitlements ":$STAGING_APP_ENT_TMP" "$STAGING_APP_PATH" >/dev/null 2>&1 || true
 fi
 APP_PATH="$STAGING_APP_PATH"
 
@@ -309,6 +297,106 @@ if [[ -x "$CMUXD_SRC" ]]; then
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
   chmod +x "$BIN_DIR/cmuxd"
 fi
+
+# Inside-out re-sign now that Resources/bin is fully populated (incl. cmuxd).
+# Prefer a stable dev-cert signature (keeps TCC grants across rebuilds); fall
+# back to ad-hoc. CLI helpers are signed with MINIMAL entitlements: the app-level
+# entitlements include the restricted `keychain-access-groups`, which a standalone
+# CLI helper cannot satisfy (no reachable provisioning profile) and which makes
+# AMFI SIGKILL the helper ("Killed: 9") on every exec.
+CMUX_SIGN_IDENTITY="${CMUX_SIGN_IDENTITY:-Apple Development: sean@mobility-labs.com}"
+CMUX_HELPER_ENT="$PWD/cmux-helper.entitlements"
+# The friendly cert name can match MULTIPLE certs (e.g. a stale + a freshly
+# created Apple Development cert with identical names). `codesign --sign <name>`
+# then fails with "ambiguous", and a single head -n1 hash may resolve to the
+# unusable one — whose failure, if swallowed, leaves the bundle on its stale
+# pre-PlistBuddy signature so AMFI SIGKILLs it on launch ("can't be opened").
+# Collect EVERY matching hash and try each until one produces a signature that
+# actually verifies.
+CMUX_SIGN_HASHES=()
+while IFS= read -r _hash; do
+  [[ -n "$_hash" ]] && CMUX_SIGN_HASHES+=("$_hash")
+done < <(/usr/bin/security find-identity -v -p codesigning 2>/dev/null \
+  | grep -F "$CMUX_SIGN_IDENTITY" | awk '{print $2}')
+
+sign_staging_helpers() {
+  local identity="$1" helper
+  for helper in "$APP_PATH/Contents/Resources/bin"/*; do
+    [[ -f "$helper" && -x "$helper" ]] || continue
+    /usr/bin/file -b "$helper" | grep -q "Mach-O" || continue
+    if [[ "$identity" != "-" && -f "$CMUX_HELPER_ENT" ]]; then
+      /usr/bin/codesign --force --options runtime --timestamp=none --sign "$identity" --entitlements "$CMUX_HELPER_ENT" "$helper" >/dev/null 2>&1 || true
+    else
+      /usr/bin/codesign --force --options runtime --timestamp=none --sign "$identity" "$helper" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
+# Sign nested helpers + the app bundle with one identity, then VERIFY the seal.
+# Returns 0 only if the resulting signature validates, so a swallowed codesign
+# failure can never ship an unlaunchable, AMFI-killed bundle. Diagnostic output
+# from a failed sign is surfaced (not redirected to /dev/null) so a future
+# breakage is debuggable from the reloads.sh log.
+sign_and_verify_staging_app() {
+  local identity="$1" sign_err
+  sign_staging_helpers "$identity"
+  if [[ "$identity" != "-" && -s "${STAGING_APP_ENT_TMP:-}" ]]; then
+    sign_err="$(/usr/bin/codesign --force --sign "$identity" --timestamp=none --generate-entitlement-der --entitlements "$STAGING_APP_ENT_TMP" "$APP_PATH" 2>&1)" \
+      || { echo "$sign_err" >&2; return 1; }
+  else
+    sign_err="$(/usr/bin/codesign --force --sign "$identity" --timestamp=none --generate-entitlement-der "$APP_PATH" 2>&1)" \
+      || { echo "$sign_err" >&2; return 1; }
+  fi
+  /usr/bin/codesign --verify --verbose=2 "$APP_PATH" >/dev/null 2>&1
+}
+
+CMUX_SIGNED_OK=0
+if [[ "${#CMUX_SIGN_HASHES[@]}" -gt 0 ]]; then
+  for _hash in "${CMUX_SIGN_HASHES[@]}"; do
+    if sign_and_verify_staging_app "$_hash"; then
+      echo "==> Signed staging app with identity $_hash"
+      CMUX_SIGNED_OK=1
+      break
+    fi
+    echo "==> warning: identity $_hash did not produce a valid signature; trying next" >&2
+  done
+fi
+if [[ "$CMUX_SIGNED_OK" -eq 0 ]]; then
+  echo "==> warning: no Developer identity produced a valid signature; falling back to ad-hoc" >&2
+  if sign_and_verify_staging_app -; then
+    CMUX_SIGNED_OK=1
+  fi
+fi
+rm -f "${STAGING_APP_ENT_TMP:-}"
+if [[ "$CMUX_SIGNED_OK" -eq 0 ]]; then
+  echo "error: failed to produce a valid code signature for $APP_PATH" >&2
+  echo "       The app would be SIGKILLed by AMFI on launch (\"can't be opened\")." >&2
+  echo "       codesign --verify output:" >&2
+  /usr/bin/codesign --verify --verbose=2 "$APP_PATH" >&2 || true
+  exit 1
+fi
+
+# Install the freshly-signed staging app to a stable, canonical location in
+# /Applications and launch THAT, so Spotlight, the Dock, and `open -b <bundle id>`
+# always resolve to this build. Otherwise reloads.sh builds, signs, and launches
+# entirely inside DerivedData (build scratch that Xcode "Clean" wipes), while any
+# hand-dragged /Applications copy goes stale; Spotlight prefers /Applications, so
+# it launches the stale bundle, which AMFI SIGKILLs ("can't be opened"). ditto
+# preserves the code signature produced above, so the installed copy stays valid
+# without re-signing. If install fails for any reason, fall back to launching the
+# DerivedData build (previous behavior) rather than failing the reload.
+INSTALLED_APP_PATH="/Applications/${APP_NAME}.app"
+if rm -rf "$INSTALLED_APP_PATH" 2>/dev/null && ditto "$APP_PATH" "$INSTALLED_APP_PATH" 2>/dev/null \
+  && /usr/bin/codesign --verify --verbose=2 "$INSTALLED_APP_PATH" >/dev/null 2>&1; then
+  LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
+  [[ -x "$LSREGISTER" ]] && "$LSREGISTER" -f "$INSTALLED_APP_PATH" >/dev/null 2>&1 || true
+  APP_PATH="$INSTALLED_APP_PATH"
+  echo "==> Installed staging app to $INSTALLED_APP_PATH"
+else
+  rm -rf "$INSTALLED_APP_PATH" 2>/dev/null || true
+  echo "==> warning: could not install a valid copy to $INSTALLED_APP_PATH; launching DerivedData build instead" >&2
+fi
+
 # Avoid inheriting cmux/ghostty environment variables from the terminal that
 # runs this script (often inside another cmux instance), which can cause
 # socket and resource-path conflicts.
