@@ -16,6 +16,8 @@ E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
 PERF_FILE="$ROOT_DIR/.github/workflows/perf-activation.yml"
 NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 RELEASE_FILE="$ROOT_DIR/.github/workflows/release.yml"
+TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
+TERMINAL_CORPUS_NIGHTLY_FILE="$ROOT_DIR/.github/workflows/terminal-corpus-nightly.yml"
 
 check_macos_runner() {
   local file="$1" job="$2"
@@ -134,9 +136,20 @@ check_workflow_yaml_parse() {
     "$E2E_FILE" \
     "$PERF_FILE" \
     "$NIGHTLY_FILE" \
-    "$RELEASE_FILE"
+    "$RELEASE_FILE" \
+    "$TMUX_CORPUS_FILE" \
+    "$TERMINAL_CORPUS_NIGHTLY_FILE"
 
   echo "PASS: workflow YAML parses"
+}
+
+check_tmux_corpus_pr_jobs_do_not_report_skipped_terminal_tests() {
+  if grep -Eq "^[[:space:]]{2}terminal-nightly:" "$TMUX_CORPUS_FILE"; then
+    echo "FAIL: tmux-corpus.yml must not include terminal-nightly as a job-level skipped PR check; keep scheduled/manual terminal corpus tests in terminal-corpus-nightly.yml"
+    exit 1
+  fi
+
+  echo "PASS: tmux-corpus PR workflow does not report skipped terminal-nightly checks"
 }
 
 check_release_build_signal() {
@@ -369,6 +382,10 @@ check_self_hosted_workspace_prep "$E2E_FILE" "e2e"
 check_macos_runner "$PERF_FILE" "activation-session"
 check_self_hosted_workspace_prep "$PERF_FILE" "activation-session"
 
+# terminal-corpus-nightly.yml
+check_macos_runner "$TERMINAL_CORPUS_NIGHTLY_FILE" "terminal-nightly"
+check_self_hosted_workspace_prep "$TERMINAL_CORPUS_NIGHTLY_FILE" "terminal-nightly"
+
 # release lanes
 check_self_hosted_workspace_prep "$NIGHTLY_FILE" "build-sign-notarize-nightly"
 check_self_hosted_workspace_prep "$RELEASE_FILE" "build-sign-notarize"
@@ -377,6 +394,7 @@ check_xcode_selection
 check_workflow_yaml_parse
 check_release_build_signal
 check_no_xctest_quarantines
+check_tmux_corpus_pr_jobs_do_not_report_skipped_terminal_tests
 check_retryable_submodule_checkout
 check_split_theme_regression_timeout
 check_tests_deriveddata_cache
