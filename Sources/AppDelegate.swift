@@ -8116,6 +8116,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    static func positionedNewMainWindowFrame(
+        relativeToSourceFrame sourceFrame: NSRect,
+        initialFrame: NSRect,
+        visibleFrame: NSRect
+    ) -> NSRect {
+        let cascadeOffset: CGFloat = 24
+        let minimumWindowSize = NSSize(width: 460, height: 360)
+        var frame = initialFrame
+        frame.origin = NSPoint(
+            x: sourceFrame.minX + cascadeOffset,
+            y: sourceFrame.maxY - cascadeOffset - frame.height
+        )
+        return Self.clampFrame(
+            frame,
+            within: visibleFrame,
+            minWidth: minimumWindowSize.width,
+            minHeight: minimumWindowSize.height
+        )
+    }
+
     private func positionNewMainWindow(_ window: NSWindow, relativeTo sourceWindow: NSWindow) {
         let sourceFrame = sourceWindow.frame
         let sourceScreen = sourceWindow.screen
@@ -8125,19 +8145,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        let cascadeOffset: CGFloat = 24
-        let minimumWindowSize = NSSize(width: 460, height: 360)
-        var frame = window.frame
-        frame.origin = NSPoint(
-            x: sourceFrame.minX + cascadeOffset,
-            y: sourceFrame.maxY - cascadeOffset - frame.height
-        )
         window.setFrame(
-            Self.clampFrame(
-                frame,
-                within: visibleFrame,
-                minWidth: minimumWindowSize.width,
-                minHeight: minimumWindowSize.height
+            Self.positionedNewMainWindowFrame(
+                relativeToSourceFrame: sourceFrame,
+                initialFrame: window.frame,
+                visibleFrame: visibleFrame
             ),
             display: false
         )

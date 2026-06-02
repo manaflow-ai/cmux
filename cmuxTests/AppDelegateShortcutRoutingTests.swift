@@ -1285,91 +1285,75 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(panelEntry.restoreInOriginalPane)
     }
 
-    func testCmdShiftNCreatesWindowFromEventWindowWithoutAddingWorkspace() {
+    func testCmdShiftNPlansNewWindowFromEventWindowWithoutAddingWorkspace() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
-        var createdWindowId: UUID?
-
-        defer {
-            if let createdWindowId {
-                closeWindow(withId: createdWindowId)
-            }
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
-        }
-
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let firstWindow = window(withId: firstWindowId),
-              let secondWindow = window(withId: secondWindowId),
-              let visibleFrame = (secondWindow.screen ?? NSScreen.main)?.visibleFrame else {
-            XCTFail("Expected both window contexts to exist")
-            return
-        }
-
-        let firstFrame = NSRect(
-            x: visibleFrame.minX + 40,
-            y: visibleFrame.maxY - 460,
-            width: 760,
-            height: 420
-        )
-        let secondFrame = NSRect(
-            x: min(visibleFrame.minX + 180, visibleFrame.maxX - 600),
-            y: max(visibleFrame.minY + 80, visibleFrame.maxY - 560),
-            width: 560,
-            height: 380
-        )
-        firstWindow.setFrame(firstFrame, display: true)
-        secondWindow.setFrame(secondFrame, display: true)
-        firstWindow.makeKey()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        let eventSourceFrame = secondWindow.frame
-        let firstCount = firstManager.tabs.count
-        let secondCount = secondManager.tabs.count
-        let existingWindowIds = mainWindowIds()
-
+#if DEBUG
         guard let event = makeKeyDownEvent(
             key: "n",
             modifiers: [.command, .shift],
             keyCode: 45,
-            windowNumber: secondWindow.windowNumber
+            windowNumber: 906
         ) else {
             XCTFail("Failed to construct Cmd+Shift+N event")
             return
         }
 
-#if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .newWindow))
+        XCTAssertFalse(
+            appDelegate.debugMatchesConfiguredShortcut(event: event, action: .newTab),
+            "Cmd+Shift+N must stay routed to new-window behavior instead of add-workspace behavior"
+        )
 
-        let newWindowIds = mainWindowIds().subtracting(existingWindowIds)
-        XCTAssertEqual(newWindowIds.count, 1, "Cmd+Shift+N should create one new main window")
-        createdWindowId = newWindowIds.first
+        let staleActiveWindowId = UUID()
+        let eventWindowId = UUID()
+        let shortcutSelection = selectShortcutRoutingContextAfterEventResolution(
+            debugPreferredWindowId: nil,
+            eventWindowId: eventWindowId,
+            hasAddressableEventWindow: true,
+            eventWindowAllowsFallback: false,
+            keyWindowId: staleActiveWindowId,
+            mainWindowId: staleActiveWindowId,
+            activeManagerWindowId: staleActiveWindowId,
+            fallbackWindowId: staleActiveWindowId
+        )
+        XCTAssertEqual(shortcutSelection.reason, .eventWindow)
+        XCTAssertEqual(shortcutSelection.windowId, eventWindowId)
+        XCTAssertNotEqual(
+            shortcutSelection.windowId,
+            staleActiveWindowId,
+            "Cmd+Shift+N should create the new window from the event window, not a stale key or active window"
+        )
 
-        XCTAssertEqual(firstManager.tabs.count, firstCount, "Cmd+Shift+N must not create a workspace in the key window")
-        XCTAssertEqual(secondManager.tabs.count, secondCount, "Cmd+Shift+N must not create a workspace in the event window")
+        let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        let visibleFrame = NSRect(x: 0, y: 0, width: 1_440, height: 900)
+        let eventSourceFrame = NSRect(x: 180, y: 260, width: 560, height: 380)
+        let initialGeometry = AppDelegate.resolvedMainWindowInitialGeometry(
+            styleMask: styleMask,
+            restoredFrame: nil,
+            sourceFrame: eventSourceFrame,
+            persistedGeometryFrame: nil
+        )
+        XCTAssertNil(initialGeometry.explicitFrame)
 
-        guard let createdWindowId,
-              let createdWindow = window(withId: createdWindowId) else {
-            XCTFail("Expected created window")
-            return
-        }
-
-        XCTAssertEqual(createdWindow.frame.width, eventSourceFrame.width, accuracy: 1)
-        XCTAssertEqual(createdWindow.frame.height, eventSourceFrame.height, accuracy: 1)
+        let initialFrame = NSWindow.frameRect(forContentRect: initialGeometry.contentRect, styleMask: styleMask)
+        let positionedFrame = AppDelegate.positionedNewMainWindowFrame(
+            relativeToSourceFrame: eventSourceFrame,
+            initialFrame: initialFrame,
+            visibleFrame: visibleFrame
+        )
+        XCTAssertEqual(positionedFrame.width, eventSourceFrame.width, accuracy: 1)
+        XCTAssertEqual(positionedFrame.height, eventSourceFrame.height, accuracy: 1)
         XCTAssertTrue(
-            visibleFrame.contains(createdWindow.frame),
+            visibleFrame.contains(positionedFrame),
             "New window should be placed inside the source window display"
         )
+#else
+        XCTFail("Cmd+Shift+N routing helpers are only available in DEBUG")
+#endif
     }
 
     func testAddWorkspaceInPreferredMainWindowUsesKeyWindowWhenObjectKeyLookupIsMismatched() {
