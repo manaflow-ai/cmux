@@ -3818,9 +3818,38 @@ body.reduce-motion *::after {
   grid-template-columns: repeat(auto-fit, minmax(min(112px, 100%), 1fr));
 }
 
-.active-pane-text-actions {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.active-pane-text-control {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(64px, auto) minmax(74px, auto);
+  align-items: center;
   gap: var(--space-1);
+}
+
+.active-pane-text-number-wrap {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(42px, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.active-pane-text-number {
+  width: 58px;
+  padding: 0 6px;
+  text-align: right;
+}
+
+.active-pane-text-number-unit {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+@container (max-width: 330px) {
+  .active-pane-text-control {
+    grid-template-columns: 1fr;
+  }
 }
 
 .pane-shape-panel {

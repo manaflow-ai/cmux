@@ -8213,40 +8213,75 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
 
   if (panel.type === "terminal") {
     const paneFontSize = terminalFontSizeForPanel(panel);
+    const updatePaneTextLabel = (row, size) => {
+      setTextIfChanged(row.querySelector(".setting-label"), `Pane text ${size || terminalFontSizeForPanel(panel)}px`);
+    };
     const fontRange = document.createElement("input");
     fontRange.className = "setting-control";
     fontRange.type = "range";
     fontRange.min = String(terminalFontSizeMin);
     fontRange.max = String(terminalFontSizeMax);
     fontRange.value = String(paneFontSize);
-    const fontRow = settingRow(`Pane text ${paneFontSize}px`, fontRange, false, "active pane terminal text size font zoom");
-    fontRow.dataset.activePaneTextRow = panel.id;
     fontRange.dataset.activePaneTextRange = panel.id;
-    fontRange.oninput = () => {
-      const nextSize = setPaneTerminalFontSizeOverride(panel.id, Number(fontRange.value), { toast: false });
-      fontRow.querySelector(".setting-label").textContent = `Pane text ${nextSize || terminalFontSizeForPanel(panel)}px`;
-      const resetButton = wrapper.querySelector("[data-active-pane-reset-text]");
-      if (resetButton) resetButton.disabled = false;
-    };
-    fontRange.onchange = () => {
-      toast(`Pane text ${terminalFontSizeForPanel(panel)}px.`);
-    };
-    wrapper.append(fontRow);
-    const textActions = document.createElement("div");
-    textActions.className = "settings-actions active-pane-text-actions";
-    textActions.dataset.settingsSearch = normalizeSettingsQuery("active pane terminal text size font zoom smaller larger default reset");
+    const fontNumber = document.createElement("input");
+    fontNumber.className = "setting-control active-pane-text-number";
+    fontNumber.type = "number";
+    fontNumber.inputMode = "numeric";
+    fontNumber.min = String(terminalFontSizeMin);
+    fontNumber.max = String(terminalFontSizeMax);
+    fontNumber.step = "1";
+    fontNumber.value = String(paneFontSize);
+    fontNumber.dataset.activePaneTextNumber = panel.id;
     const resetText = settingsActionButton("Default", () => {
       if (!resetPaneTerminalFontSize(panel.id)) return;
       refreshActivePaneTextControls(panel.id);
     }, "", "active pane terminal text size reset default");
     resetText.dataset.activePaneResetText = panel.id;
     resetText.disabled = !panelHasTerminalFontSize(panel);
-    textActions.append(
-      settingsActionButton("Smaller", () => changePaneTerminalFontSize(panel.id, -1), "", "active pane terminal text size smaller zoom out"),
-      settingsActionButton("Larger", () => changePaneTerminalFontSize(panel.id, 1), "", "active pane terminal text size larger zoom in"),
-      resetText
-    );
-    wrapper.append(textActions);
+    const numberWrap = document.createElement("span");
+    numberWrap.className = "active-pane-text-number-wrap";
+    const numberUnit = document.createElement("span");
+    numberUnit.className = "active-pane-text-number-unit";
+    numberUnit.textContent = "px";
+    numberWrap.append(fontNumber, numberUnit);
+    const textControl = document.createElement("span");
+    textControl.className = "active-pane-text-control";
+    textControl.append(fontRange, numberWrap, resetText);
+    const fontRow = settingRow(`Pane text ${paneFontSize}px`, textControl, false, "active pane terminal text size font zoom exact smaller larger default reset");
+    fontRow.dataset.activePaneTextRow = panel.id;
+    const syncTextSizeControl = (value, options = {}) => {
+      const nextSize = setPaneTerminalFontSizeOverride(panel.id, Number(value), { toast: false });
+      fontRange.value = String(nextSize);
+      fontNumber.value = String(nextSize);
+      updatePaneTextLabel(fontRow, nextSize);
+      const resetButton = wrapper.querySelector("[data-active-pane-reset-text]");
+      if (resetButton) resetButton.disabled = false;
+      if (options.toast) toast(`Pane text ${nextSize}px.`);
+      return nextSize;
+    };
+    fontRange.oninput = () => syncTextSizeControl(fontRange.value);
+    fontRange.onchange = () => syncTextSizeControl(fontRange.value, { toast: true });
+    fontNumber.oninput = () => {
+      if (!fontNumber.value.trim()) return;
+      const parsed = Number(fontNumber.value);
+      if (!Number.isFinite(parsed)) return;
+      syncTextSizeControl(parsed);
+    };
+    fontNumber.onchange = () => syncTextSizeControl(fontNumber.value.trim() || terminalFontSizeForPanel(panel), { toast: true });
+    fontNumber.onkeydown = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        fontNumber.blur();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        const current = terminalFontSizeForPanel(panel);
+        fontRange.value = String(current);
+        fontNumber.value = String(current);
+        updatePaneTextLabel(fontRow, current);
+        fontNumber.blur();
+      }
+    };
+    wrapper.append(fontRow);
   } else {
     const urlInput = document.createElement("input");
     urlInput.className = "setting-control";
@@ -13459,6 +13494,9 @@ function refreshActivePaneTextControls(panelId) {
   }
   for (const range of elements.inspectorBody.querySelectorAll("[data-active-pane-text-range]")) {
     if (range.dataset.activePaneTextRange === panelId) range.value = String(nextSize);
+  }
+  for (const number of elements.inspectorBody.querySelectorAll("[data-active-pane-text-number]")) {
+    if (number.dataset.activePaneTextNumber === panelId) number.value = String(nextSize);
   }
   for (const button of elements.inspectorBody.querySelectorAll("[data-active-pane-reset-text]")) {
     if (button.dataset.activePaneResetText === panelId) button.disabled = !hasOverride;
