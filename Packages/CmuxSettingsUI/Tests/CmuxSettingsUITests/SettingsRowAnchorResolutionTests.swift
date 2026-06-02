@@ -39,6 +39,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.commandPaletteSearchesAllSurfaces",
         "app.confirmQuit",
         "app.focusPaneOnFirstClick",
+        "fileEditor.wordWrap",
         "app.hideTabCloseButton",
         "app.iMessageMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",

@@ -598,12 +598,16 @@
           "fontSize": "新しく開く Markdown ビューアの本文フォントサイズの既定値（ポイント単位）です。Cmd-+ / Cmd-- / Cmd-0 でその場で拡大・縮小できます。",
           "fontFamily": "新しく開く Markdown ビューアの本文フォントファミリーの既定値です。空のままにするとシステムの Markdown フォントスタックを使います。",
           "maxWidth": "新しく開く Markdown ビューアの読み取りカラム最大幅の既定値（CSS ピクセル単位）です。"
+        },
+        "fileEditor": {
+          "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
         }
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",
       "exampleMarkdownFontSizeZoom": "Cmd-+ / Cmd-- / Cmd-0 でその場で拡大・縮小できます。",
       "exampleMarkdownFontFamily": "本文フォントファミリーの既定値です。空のままにするとシステムの Markdown フォントスタックを使います。",
-      "exampleMarkdownMaxWidth": "読み取りカラム最大幅の既定値（CSS ピクセル単位）です。"
+      "exampleMarkdownMaxWidth": "読み取りカラム最大幅の既定値（CSS ピクセル単位）です。",
+      "exampleFileEditorWordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
     },
     "customCommands": {
       "title": "カスタムコマンド",
