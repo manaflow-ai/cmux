@@ -90,6 +90,7 @@ extension ShortcutAction {
         case .useSelectionForFind: return ShortcutStroke(key: "e", command: true)
         case .toggleBrowserDeveloperTools: return ShortcutStroke(key: "i", command: true, option: true)
         case .showBrowserJavaScriptConsole: return ShortcutStroke(key: "c", command: true, option: true)
+        case .toggleBrowserFocusMode: return ShortcutStroke(key: "\r", command: true, option: true)
         case .toggleReactGrab: return ShortcutStroke(key: "g", command: true, shift: true)
         }
     }

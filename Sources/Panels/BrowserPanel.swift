@@ -27,6 +27,25 @@ fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     return result
 }
 
+private struct BrowserFocusModePlainEscapeEventFingerprint: Equatable {
+    let type: NSEvent.EventType
+    let timestamp: TimeInterval
+    let windowNumber: Int
+    let keyCode: UInt16
+    let modifierFlags: NSEvent.ModifierFlags.RawValue
+
+    init(_ event: NSEvent) {
+        self.type = event.type
+        self.timestamp = event.timestamp
+        self.windowNumber = event.windowNumber
+        self.keyCode = event.keyCode
+        self.modifierFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+            .rawValue
+    }
+}
+
 struct BrowserProxyEndpoint: Equatable {
     let host: String
     let port: Int
@@ -3412,6 +3431,16 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Increment to request a UI-only flash highlight (e.g. from a keyboard shortcut).
     @Published private(set) var focusFlashToken: Int = 0
 
+    /// Browser focus mode gives the focused WKWebView first ownership of page/app shortcuts.
+    @Published private(set) var isBrowserFocusModeActive: Bool = false
+
+    /// A first plain Escape in browser focus mode is forwarded to the page and arms exit.
+    @Published private(set) var isBrowserFocusModeExitArmed: Bool = false
+
+    private static let browserFocusModeEscapeSequenceInterval: TimeInterval = 1.6
+    private var browserFocusModeExitArmedAt: TimeInterval?
+    private var lastBrowserFocusModePlainEscapeEventFingerprint: BrowserFocusModePlainEscapeEventFingerprint?
+
     /// Sticky omnibar-focus intent. This survives view mount timing races and is
     /// cleared only after BrowserPanelView acknowledges handling it.
     @Published private(set) var pendingAddressBarFocusRequestId: UUID?
@@ -3431,6 +3460,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published var searchState: BrowserSearchState? = nil {
         didSet {
             if let searchState {
+                clearBrowserFocusMode(reason: "searchStateCreated")
                 preferredFocusIntent = .findField
 #if DEBUG
                 cmuxDebugLog("browser.find.state.created panel=\(id.uuidString.prefix(5))")
@@ -3741,6 +3771,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let historyCurrentURL = preferredURLStringForOmnibar() ?? restoreURL?.absoluteString
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
 
+        clearBrowserFocusMode(reason: "webViewDiscard")
         invalidateSearchFocusRequests(reason: "webViewDiscard")
         searchState = nil
         loadingEndWorkItem?.cancel()
@@ -5279,6 +5310,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func unfocus() {
+        clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
         if Self.responderChainContains(window.firstResponder, target: webView) {
@@ -6029,6 +6061,8 @@ extension BrowserPanel {
         !pageTitle.isEmpty ||
         faviconPNGData != nil ||
         searchState != nil ||
+        isBrowserFocusModeActive ||
+        isBrowserFocusModeExitArmed ||
         nativeCanGoBack ||
         nativeCanGoForward ||
         restoredHistoryCurrentURL != nil ||
@@ -6063,6 +6097,7 @@ extension BrowserPanel {
 #endif
 
         _ = hideDeveloperTools()
+        clearBrowserFocusMode(reason: "contextReset")
         cancelDeveloperToolsRestoreRetry()
         setPreferredDeveloperToolsVisible(false)
         preferredDeveloperToolsPresentation = .unknown
@@ -7085,6 +7120,7 @@ extension BrowserPanel {
     // MARK: - Find in Page
 
     func startFind() {
+        clearBrowserFocusMode(reason: "startFind")
         preferredFocusIntent = .findField
         let created = searchState == nil
         let recoveredNeedle = created ? lastSearchNeedle : ""
@@ -7146,6 +7182,166 @@ extension BrowserPanel {
         invalidateSearchFocusRequests(reason: "hideFind")
         searchState = nil
         if shouldRestoreWebViewFocus { focus() }
+    }
+
+    var canEnterBrowserFocusMode: Bool {
+        shouldRenderWebView &&
+            browserInteractiveModalHostWindow(for: webView) != nil &&
+            !webView.isHiddenOrHasHiddenAncestor &&
+            searchState == nil
+    }
+
+    var canToggleBrowserFocusMode: Bool {
+        isBrowserFocusModeActive || canEnterBrowserFocusMode
+    }
+
+    @discardableResult
+    func toggleBrowserFocusMode(reason: String, focusWebView: Bool = true) -> Bool {
+        setBrowserFocusModeActive(
+            !isBrowserFocusModeActive,
+            reason: reason,
+            focusWebView: focusWebView
+        )
+    }
+
+    @discardableResult
+    func setBrowserFocusModeActive(
+        _ active: Bool,
+        reason: String,
+        focusWebView: Bool = true
+    ) -> Bool {
+        if !active {
+            clearBrowserFocusMode(reason: reason)
+            return true
+        }
+
+        guard canEnterBrowserFocusMode else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.focusMode.activate.reject panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) render=\(shouldRenderWebView ? 1 : 0) " +
+                "window=\(webView.window == nil ? 0 : 1) hidden=\(webView.isHiddenOrHasHiddenAncestor ? 1 : 0) " +
+                "find=\(searchState == nil ? 0 : 1)"
+            )
+#endif
+            return false
+        }
+
+        pendingAddressBarFocusRequestId = nil
+        isBrowserFocusModeActive = true
+        clearBrowserFocusModeEscapeArms(reason: "\(reason).activate")
+        preferredFocusIntent = .webView
+        invalidateSearchFocusRequests(reason: "browserFocusModeActivate")
+
+        let didFocus = focusWebView ? requestExplicitWebViewFocus() : true
+        guard didFocus else {
+            clearBrowserFocusMode(reason: "\(reason).focusFailed")
+            return false
+        }
+
+#if DEBUG
+        cmuxDebugLog("browser.focusMode.activate panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+        NotificationCenter.default.post(name: .browserFocusModeStateDidChange, object: id)
+        return true
+    }
+
+    func clearBrowserFocusMode(reason: String) {
+        let shouldNotify = isBrowserFocusModeActive || isBrowserFocusModeExitArmed
+        guard isBrowserFocusModeActive ||
+            isBrowserFocusModeExitArmed ||
+            browserFocusModeExitArmedAt != nil ||
+            lastBrowserFocusModePlainEscapeEventFingerprint != nil
+        else { return }
+        browserFocusModeExitArmedAt = nil
+        lastBrowserFocusModePlainEscapeEventFingerprint = nil
+        isBrowserFocusModeExitArmed = false
+        isBrowserFocusModeActive = false
+#if DEBUG
+        cmuxDebugLog("browser.focusMode.clear panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+        if shouldNotify {
+            NotificationCenter.default.post(name: .browserFocusModeStateDidChange, object: id)
+        }
+    }
+
+    func clearBrowserFocusModeEscapeArms(reason: String) {
+        clearBrowserFocusModeExitArm(reason: reason)
+        lastBrowserFocusModePlainEscapeEventFingerprint = nil
+    }
+
+    func clearBrowserFocusModeExitArm(reason: String) {
+        guard isBrowserFocusModeExitArmed || browserFocusModeExitArmedAt != nil else { return }
+        browserFocusModeExitArmedAt = nil
+        isBrowserFocusModeExitArmed = false
+#if DEBUG
+        cmuxDebugLog("browser.focusMode.escape.disarm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+    }
+
+    private func browserFocusModeEscapeArmIsFresh(for event: NSEvent) -> Bool {
+        guard let startedAt = browserFocusModeExitArmedAt else { return false }
+        guard startedAt > 0, event.timestamp > 0 else { return true }
+        return max(0, event.timestamp - startedAt) <= Self.browserFocusModeEscapeSequenceInterval
+    }
+
+    func handleBrowserFocusModeKeyEvent(_ event: NSEvent, reason: String) -> BrowserFocusModeKeyDecision {
+        guard canEnterBrowserFocusMode else {
+            clearBrowserFocusMode(reason: "\(reason).ineligible")
+            return .inactive
+        }
+
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        let isPlainEscape = flags.isEmpty && event.keyCode == 53
+        guard isPlainEscape else {
+            lastBrowserFocusModePlainEscapeEventFingerprint = nil
+            clearBrowserFocusModeEscapeArms(reason: "\(reason).nonEscape")
+            return isBrowserFocusModeActive ? .forwardToWebView : .inactive
+        }
+
+        guard isBrowserFocusModeActive else {
+            lastBrowserFocusModePlainEscapeEventFingerprint = nil
+            clearBrowserFocusModeEscapeArms(reason: "\(reason).inactiveEscape")
+            return .inactive
+        }
+
+        guard !event.isARepeat else {
+#if DEBUG
+            cmuxDebugLog("browser.focusMode.escape.repeat panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+            return .consume
+        }
+
+        let eventFingerprint = BrowserFocusModePlainEscapeEventFingerprint(event)
+        if lastBrowserFocusModePlainEscapeEventFingerprint == eventFingerprint {
+#if DEBUG
+            cmuxDebugLog("browser.focusMode.escape.duplicate panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+            return .consume
+        }
+        lastBrowserFocusModePlainEscapeEventFingerprint = eventFingerprint
+
+        if isBrowserFocusModeExitArmed {
+            if browserFocusModeEscapeArmIsFresh(for: event) {
+                clearBrowserFocusMode(reason: "\(reason).escapeExit")
+                return .consume
+            }
+
+            browserFocusModeExitArmedAt = event.timestamp
+#if DEBUG
+            cmuxDebugLog("browser.focusMode.escape.rearm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+            return .forwardToWebView
+        }
+
+        isBrowserFocusModeExitArmed = true
+        browserFocusModeExitArmedAt = event.timestamp
+#if DEBUG
+        cmuxDebugLog("browser.focusMode.escape.arm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+        return .forwardToWebView
     }
 
     private func restoreFindStateAfterNavigation(replaySearch: Bool) {
@@ -7285,6 +7481,7 @@ extension BrowserPanel {
 
     @discardableResult
     func requestAddressBarFocus() -> UUID {
+        clearBrowserFocusMode(reason: "requestAddressBarFocus")
         setOmnibarVisible(true)
         preferredFocusIntent = .addressBar
         invalidateSearchFocusRequests(reason: "requestAddressBarFocus")
@@ -7339,12 +7536,14 @@ extension BrowserPanel {
     }
 
     func noteAddressBarFocused() {
+        clearBrowserFocusMode(reason: "addressBarFocused")
         guard preferredFocusIntent != .addressBar else { return }
         preferredFocusIntent = .addressBar
         invalidateSearchFocusRequests(reason: "addressBarFocused")
     }
 
     func noteFindFieldFocused() {
+        clearBrowserFocusMode(reason: "findFieldFocused")
         guard preferredFocusIntent != .findField else { return }
         preferredFocusIntent = .findField
     }
@@ -7392,10 +7591,12 @@ extension BrowserPanel {
             invalidateSearchFocusRequests(reason: "prepareWebView")
             endSuppressWebViewFocusForAddressBar()
         case .addressBar:
+            clearBrowserFocusMode(reason: "prepareAddressBar")
             preferredFocusIntent = .addressBar
             invalidateSearchFocusRequests(reason: "prepareAddressBar")
             beginSuppressWebViewFocusForAddressBar()
         case .findField:
+            clearBrowserFocusMode(reason: "prepareFindField")
             preferredFocusIntent = .findField
         }
 #if DEBUG

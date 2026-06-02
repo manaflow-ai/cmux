@@ -99,6 +99,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case useSelectionForFind
     case toggleBrowserDeveloperTools
     case showBrowserJavaScriptConsole
+    case toggleBrowserFocusMode
     case toggleReactGrab
 }
 
@@ -151,7 +152,7 @@ extension ShortcutAction {
              .browserZoomReset, .markdownZoomIn, .markdownZoomOut, .markdownZoomReset,
              .find, .findInDirectory, .findNext, .findPrevious,
              .hideFind, .useSelectionForFind, .toggleBrowserDeveloperTools,
-             .showBrowserJavaScriptConsole, .toggleReactGrab:
+             .showBrowserJavaScriptConsole, .toggleBrowserFocusMode, .toggleReactGrab:
             return .browser
         }
     }
@@ -238,6 +239,7 @@ extension ShortcutAction {
         case .useSelectionForFind: return "Use Selection for Find"
         case .toggleBrowserDeveloperTools: return "Toggle Browser Developer Tools"
         case .showBrowserJavaScriptConsole: return "Show Browser JavaScript Console"
+        case .toggleBrowserFocusMode: return "Enter Browser Focus Mode"
         case .toggleReactGrab: return "Toggle React Grab"
         }
     }
