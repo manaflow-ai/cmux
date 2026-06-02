@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Regression test for https://github.com/manaflow-ai/cmux/issues/385.
-# Ensures paid CI jobs use a paid macOS runner (Blacksmith or WarpBuild, routed
-# through the MACOS_RUNNER_15 / MACOS_RUNNER_26 repo variables), never a free
-# GitHub-hosted runner. Flip Blacksmith<->Warp by editing those repo variables;
-# see docs/macos-ci-runners.md.
+# Ensures paid CI jobs use a paid macOS runner (a Blacksmith label), never a
+# free GitHub-hosted runner. Runners are hardcoded in the workflows; see
+# docs/macos-ci-runners.md.
 # Fork PRs are gated by GitHub's built-in "Require approval for outside
 # collaborators" setting, so workflow-level fork guards are not needed.
 set -euo pipefail
@@ -19,11 +18,11 @@ check_macos_runner() {
   if ! awk -v job="$job" '
     $0 ~ "^  "job":" { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /runs-on:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64)/ { saw=1 }
-    in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64)/ { saw=1 }
+    in_job && /runs-on:.*blacksmith-[0-9]+vcpu-macos-/ { saw=1 }
+    in_job && /os:.*blacksmith-[0-9]+vcpu-macos-/ { saw=1 }
     END { exit !(saw) }
   ' "$file"; then
-    echo "FAIL: $job in $(basename "$file") must run on a paid macOS runner (vars.MACOS_RUNNER_* or a Blacksmith/Warp label), not a GitHub-hosted runner"
+    echo "FAIL: $job in $(basename "$file") must run on a paid macOS runner (a Blacksmith label), not a GitHub-hosted runner"
     exit 1
   fi
   echo "PASS: $job in $(basename "$file") uses a paid macOS runner"
@@ -61,7 +60,7 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  if ! grep -Fq "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner, 'depot-macos-')" "$E2E_FILE"; then
+  if ! grep -Fq "startsWith((!inputs.runner || inputs.runner == 'auto') && 'blacksmith-6vcpu-macos-15' || inputs.runner, 'depot-macos-')" "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must validate all Depot macOS runner choices"
     exit 1
   fi
@@ -133,7 +132,7 @@ check_macos_runner "$CI_FILE" "ui-regressions"
 # build-ghosttykit.yml
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
 
-# ci-macos-compat.yml (matrix.os routed through the MACOS_RUNNER_* repo vars)
+# ci-macos-compat.yml (matrix.os uses hardcoded Blacksmith labels)
 check_macos_runner "$COMPAT_FILE" "compat-tests"
 
 # test-e2e.yml is manual, so keep the Depot GUI runner choices but cancel

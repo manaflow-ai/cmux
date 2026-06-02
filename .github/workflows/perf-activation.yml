@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       runner:
-        description: macOS runner (auto follows the MACOS_RUNNER_15 repo variable, then warp)
+        description: macOS runner (auto uses the Blacksmith default)
         required: false
         default: auto
         type: choice
@@ -18,8 +18,6 @@ on:
           - blacksmith-6vcpu-macos-15
           - blacksmith-6vcpu-macos-26
           - blacksmith-6vcpu-macos-latest
-          - warp-macos-15-arm64-6x
-          - warp-macos-26-arm64-6x
       workspace_count:
         description: Fixture workspace count
         required: false
@@ -39,7 +37,7 @@ concurrency:
 
 jobs:
   activation-session:
-    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}
+    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && 'blacksmith-6vcpu-macos-15' || inputs.runner }}
     timeout-minutes: 45
     env:
       PERF_TAG: perfci
@@ -94,8 +92,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-
+          key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && 'blacksmith-6vcpu-macos-15' || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && 'blacksmith-6vcpu-macos-15' || inputs.runner }}-
 
       - name: Resolve Swift packages
         run: |
