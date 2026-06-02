@@ -1556,6 +1556,48 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected enriched Grok Stop to leave Grok idle, saw \(enrichedStopCommands)"
         )
 
+        let oversizedSessionId = "grok-oversized-final"
+        let oversizedAssistantMessage = "Oversized Grok assistant response " + String(repeating: "g", count: 300_000)
+        let oversizedStart = runGrokHook(
+            "session-start",
+            input: #"{"sessionId":"\#(oversizedSessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
+        )
+        XCTAssertFalse(oversizedStart.timedOut, oversizedStart.stderr)
+        XCTAssertEqual(oversizedStart.status, 0, oversizedStart.stderr)
+
+        let oversizedPrompt = runGrokHook(
+            "prompt-submit",
+            input: #"{"sessionId":"\#(oversizedSessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"oversized turn"}"#
+        )
+        XCTAssertFalse(oversizedPrompt.timedOut, oversizedPrompt.stderr)
+        XCTAssertEqual(oversizedPrompt.status, 0, oversizedPrompt.stderr)
+
+        let oversizedSessionURL = grokHome
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(grokEncodedSessionCWD(root.path), isDirectory: true)
+            .appendingPathComponent(oversizedSessionId, isDirectory: true)
+        try FileManager.default.createDirectory(at: oversizedSessionURL, withIntermediateDirectories: true)
+        let oversizedPayload: [String: Any] = ["type": "assistant", "content": oversizedAssistantMessage]
+        let oversizedData = try JSONSerialization.data(withJSONObject: oversizedPayload, options: [.sortedKeys])
+        try oversizedData.write(to: oversizedSessionURL.appendingPathComponent("chat_history.jsonl", isDirectory: false))
+
+        let oversizedStopCommandStart = state.commands.count
+        let oversizedStop = runGrokHook(
+            "stop",
+            input: #"{"sessionId":"\#(oversizedSessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
+        )
+        XCTAssertFalse(oversizedStop.timedOut, oversizedStop.stderr)
+        XCTAssertEqual(oversizedStop.status, 0, oversizedStop.stderr)
+
+        let oversizedStopCommands = Array(state.commands.dropFirst(oversizedStopCommandStart))
+        XCTAssertTrue(
+            oversizedStopCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
+                    && $0.contains("Oversized Grok assistant response")
+            },
+            "Expected Grok Stop fallback to parse the oversized final chat-history line, saw \(oversizedStopCommands)"
+        )
+
         let genericCompletionCommandStart = state.commands.count
         let genericCompletion = runGrokHook(
             "notification",
