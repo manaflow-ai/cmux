@@ -158,6 +158,21 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         assertResolvedColorMatchesTheme(for: .dark)
     }
 
+    func testTransparentGhosttyBackgroundKeepsAlphaForBlankBrowserChrome() {
+        let baseColor = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 1.0)
+        let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.42)
+
+        guard let actual = resolvedBrowserChromeBackgroundColor(
+            for: .dark,
+            themeBackgroundColor: themeBackground
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(actual.alphaComponent, 0.42, accuracy: 0.001)
+    }
+
     private func assertResolvedColorMatchesTheme(
         for colorScheme: ColorScheme,
         file: StaticString = #filePath,
@@ -553,6 +568,21 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
 
     func testDarkModeSlightlyDarkensThemeBackground() {
         assertResolvedColorMatchesExpectedBlend(for: .dark, darkenMix: 0.05)
+    }
+
+    func testTransparentGhosttyBackgroundKeepsAlphaForOmnibarPill() {
+        let baseColor = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.91, alpha: 1.0)
+        let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.42)
+
+        guard let actual = resolvedBrowserOmnibarPillBackgroundColor(
+            for: .light,
+            themeBackgroundColor: themeBackground
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(actual.alphaComponent, 0.42, accuracy: 0.001)
     }
 
     private func assertResolvedColorMatchesExpectedBlend(
