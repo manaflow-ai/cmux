@@ -15046,6 +15046,41 @@ struct TabItemView: View, Equatable {
         }
     }
 
+    private func nativeSidebarHeader(
+        workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
+        scaledUnreadBadgeSize: CGFloat,
+        protectedWorkspaceTooltip: String
+    ) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            if unreadCount > 0 {
+                ZStack {
+                    Circle()
+                        .fill(activeUnreadBadgeFillColor)
+                    Text("\(unreadCount)")
+                        .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        .foregroundColor(activeUnreadBadgeTextColor)
+                }
+                .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+            }
+
+            if workspaceSnapshot.isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: scaledFontSize(9), weight: .semibold))
+                    .foregroundColor(activeSecondaryColor(0.8))
+                    .safeHelp(protectedWorkspaceTooltip)
+            }
+
+            Text(workspaceSnapshot.title)
+                .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
+                .foregroundColor(activePrimaryTextColor)
+                .lineLimit(settings.wrapsWorkspaceTitles ? nil : 1)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
+        }
+    }
+
     var body: some View {
         let workspaceSnapshot = self.workspaceSnapshot
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
@@ -15082,34 +15117,11 @@ struct TabItemView: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 8) {
-                if unreadCount > 0 {
-                    ZStack {
-                        Circle()
-                            .fill(activeUnreadBadgeFillColor)
-                        Text("\(unreadCount)")
-                            .font(.system(size: scaledFontSize(9), weight: .semibold))
-                            .foregroundColor(activeUnreadBadgeTextColor)
-                    }
-                    .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
-                }
-
-                if workspaceSnapshot.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: scaledFontSize(9), weight: .semibold))
-                        .foregroundColor(activeSecondaryColor(0.8))
-                        .safeHelp(protectedWorkspaceTooltip)
-                }
-
-                Text(workspaceSnapshot.title)
-                    .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
-                    .foregroundColor(activePrimaryTextColor)
-                    .lineLimit(settings.wrapsWorkspaceTitles ? nil : 1)
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .layoutPriority(1)
-            }
+            nativeSidebarHeader(
+                workspaceSnapshot: workspaceSnapshot,
+                scaledUnreadBadgeSize: scaledUnreadBadgeSize,
+                protectedWorkspaceTooltip: protectedWorkspaceTooltip
+            )
 
             if let description = workspaceSnapshot.customDescription {
                 SidebarWorkspaceDescriptionText(
