@@ -5,6 +5,7 @@ import Combine
 import CMUXExtensionClient
 import CmuxExtensionKit
 import CmuxSettings
+import CmuxSidebarScript
 import CmuxSettingsUI
 import ImageIO
 import Observation
@@ -10418,6 +10419,9 @@ struct VerticalTabsSidebar: View {
     )
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State var dragState = SidebarDragState()
+    /// Compiled once at sidebar construction; nil unless the user has a valid
+    /// ~/.config/cmux/sidebar.lisp. Passed by value into each row.
+    @State private var sidebarScriptStore = SidebarScriptStore()
     // Freezes `showsModifierShortcutHints` for the workspace whose context menu
     // is open. Set on the row's contextMenu.onAppear and cleared on
     // .onDisappear so modifier-key transitions don't flip the badges on the
@@ -12220,6 +12224,8 @@ struct VerticalTabsSidebar: View {
             contextMenuPinState: contextMenuPinState,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
+            sidebarScript: sidebarScriptStore.script,
+            sidebarScriptVersion: sidebarScriptStore.version,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
         )
@@ -14664,6 +14670,82 @@ private final class SidebarTabItemContextMenuState: ObservableObject {
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
 
+private struct SidebarWorkspaceRowChrome<Content: View>: View {
+    let content: Content
+    let latestLog: SidebarLogEntry?
+    let progress: SidebarProgressState?
+    let metadataBlockCount: Int
+    let backgroundColor: Color
+    let activeBorderColor: Color
+    let activeBorderLineWidth: CGFloat
+    let showsLeadingRail: Bool
+    let railColor: Color
+    let showsWorkspaceShortcutHint: Bool
+    let workspaceShortcutLabel: String?
+    let shortcutHintEmphasis: Double
+    let sidebarShortcutHintXOffset: Double
+    let sidebarShortcutHintYOffset: Double
+    let shortcutHintFontSize: CGFloat
+    let showCloseButton: Bool
+    let closeButtonTooltip: String
+    let closeButtonFontSize: CGFloat
+    let closeButtonForegroundColor: Color
+    let closeButtonWidth: CGFloat
+    let closeButtonHitSize: CGFloat
+    let closeWorkspace: () -> Void
+
+    var body: some View {
+        content
+            .animation(.easeInOut(duration: 0.2), value: latestLog)
+            .animation(.easeInOut(duration: 0.2), value: progress != nil)
+            .animation(.easeInOut(duration: 0.2), value: metadataBlockCount)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(backgroundColor)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
+                    }
+                    .overlay(alignment: .leading) {
+                        if showsLeadingRail {
+                            Capsule(style: .continuous)
+                                .fill(railColor)
+                                .frame(width: 3)
+                                .padding(.leading, 4)
+                                .padding(.vertical, 5)
+                                .offset(x: -1)
+                        }
+                    }
+            )
+            .sidebarShortcutHintOverlay(
+                text: showsWorkspaceShortcutHint ? workspaceShortcutLabel : nil,
+                emphasis: shortcutHintEmphasis,
+                offsetX: sidebarShortcutHintXOffset,
+                offsetY: sidebarShortcutHintYOffset,
+                fontSize: shortcutHintFontSize
+            )
+            .overlay(alignment: .topTrailing) {
+                if showsWorkspaceShortcutHint {
+                    EmptyView()
+                } else if showCloseButton {
+                    Button(action: closeWorkspace) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: closeButtonFontSize, weight: .medium))
+                            .foregroundColor(closeButtonForegroundColor)
+                    }
+                    .buttonStyle(.plain)
+                    .safeHelp(closeButtonTooltip)
+                    .frame(width: closeButtonWidth, height: closeButtonHitSize, alignment: .center)
+                    .padding(.top, 8)
+                    .padding(.trailing, 10)
+                }
+            }
+            .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
+    }
+}
+
 struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
@@ -14690,6 +14772,7 @@ struct TabItemView: View, Equatable {
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
+        lhs.sidebarScriptVersion == rhs.sidebarScriptVersion &&
         lhs.settings == rhs.settings
     }
 
@@ -14734,6 +14817,11 @@ struct TabItemView: View, Equatable {
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
+    /// Optional user sidebar script. A plain immutable reference (like
+    /// `tabManager`), excluded from `==`; row re-render on script change is gated
+    /// by `sidebarScriptVersion`. Nil means render the native row.
+    let sidebarScript: SidebarScript?
+    let sidebarScriptVersion: Int
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
     /// modifier-key transitions from flipping the badges on the row sitting
@@ -15029,65 +15117,153 @@ struct TabItemView: View, Equatable {
         )
     }
 
-    var body: some View {
-        let workspaceSnapshot = self.workspaceSnapshot
-        let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
-        let protectedWorkspaceTooltip = String(
-            localized: "sidebar.pinnedWorkspaceProtected.tooltip",
-            defaultValue: "Pinned workspace. Closing requires confirmation."
-        )
-        let closeButtonTooltip = workspaceSnapshot.isPinned
-            ? protectedWorkspaceTooltip
-            : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
-        let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
-        let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
-        let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
-        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
-        let latestNotificationSubtitle = latestNotificationText
-        let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
-            ? workspaceSnapshot.latestConversationMessage?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .nilIfEmpty
-            : nil
-        let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
-        let detailVisibility = visibleAuxiliaryDetails
-        let scaledUnreadBadgeSize = 16 * fontScale
-        let scaledCloseButtonHitSize = max(16, 16 * fontScale)
-        let scaledCloseButtonWidth = max(
-            SidebarTrailingAccessoryWidthPolicy.closeButtonWidth,
-            scaledCloseButtonHitSize
-        )
+    // MARK: - Sidebar script rendering
 
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 8) {
-                if unreadCount > 0 {
-                    ZStack {
-                        Circle()
-                            .fill(activeUnreadBadgeFillColor)
-                        Text("\(unreadCount)")
-                            .font(.system(size: scaledFontSize(9), weight: .semibold))
-                            .foregroundColor(activeUnreadBadgeTextColor)
-                    }
-                    .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
-                }
+    /// Renders this row through the user's sidebar script, or returns nil to use
+    /// the native row. Any render fault logs and falls back to native, so a bad
+    /// script never breaks the sidebar. Called from `body`; performs no state
+    /// mutation.
+    private func renderedSidebarScriptNode(
+        workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+    ) -> RenderNode? {
+        guard let sidebarScript else { return nil }
+        do {
+            return try sidebarScript.render(makeSidebarScriptContext(workspaceSnapshot))
+        } catch {
+            SidebarScriptStore.logRenderFailure(error)
+            return nil
+        }
+    }
 
-                if workspaceSnapshot.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: scaledFontSize(9), weight: .semibold))
-                        .foregroundColor(activeSecondaryColor(0.8))
-                        .safeHelp(protectedWorkspaceTooltip)
-                }
-
-                Text(workspaceSnapshot.title)
-                    .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
-                    .foregroundColor(activePrimaryTextColor)
-                    .lineLimit(settings.wrapsWorkspaceTitles ? nil : 1)
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .layoutPriority(1)
+    private func makeSidebarScriptContext(
+        _ snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+    ) -> SidebarScriptContext {
+        SidebarScriptContext(
+            title: snapshot.title,
+            detail: snapshot.customDescription,
+            branch: snapshot.compactGitBranchSummaryText,
+            directory: snapshot.compactDirectoryCandidates.first,
+            directories: snapshot.compactDirectoryCandidates,
+            pullRequests: snapshot.pullRequestRows.map {
+                SidebarScriptContext.PullRequest(
+                    number: $0.number,
+                    state: $0.status.rawValue,
+                    url: $0.url.absoluteString,
+                    title: $0.label,
+                    isDraft: false,
+                    isStale: $0.isStale
+                )
+            },
+            ports: snapshot.listeningPorts,
+            unreadCount: unreadCount,
+            isPinned: snapshot.isPinned,
+            isActive: isActive,
+            isSelected: isMultiSelected,
+            colorHex: snapshot.customColorHex,
+            isDarkMode: colorScheme == .dark,
+            latestMessage: latestNotificationText ?? snapshot.latestConversationMessage,
+            progress: snapshot.progress?.value,
+            remoteTarget: snapshot.remoteWorkspaceSidebarText,
+            statusEntries: snapshot.metadataEntries.map {
+                SidebarScriptContext.StatusEntry(label: $0.key, value: $0.value, colorHex: $0.color)
             }
+        )
+    }
+
+    private func handleSidebarScriptAction(_ action: RNAction) {
+        switch action.kind {
+        case "open-url":
+            guard let raw = action.payload["url"], let url = URL(string: raw) else { return }
+            if tabManager.openBrowser(inWorkspace: tab.id, url: url, insertAtEnd: true) == nil {
+                NSWorkspace.shared.open(url)
+            }
+        case "copy":
+            guard let text = action.payload["text"] else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        default:
+            break
+        }
+    }
+
+    private func nativeSidebarHeader(
+        workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
+        scaledUnreadBadgeSize: CGFloat,
+        protectedWorkspaceTooltip: String
+    ) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            if unreadCount > 0 {
+                ZStack {
+                    Circle()
+                        .fill(activeUnreadBadgeFillColor)
+                    Text("\(unreadCount)")
+                        .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        .foregroundColor(activeUnreadBadgeTextColor)
+                }
+                .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+            }
+
+            if workspaceSnapshot.isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: scaledFontSize(9), weight: .semibold))
+                    .foregroundColor(activeSecondaryColor(0.8))
+                    .safeHelp(protectedWorkspaceTooltip)
+            }
+
+            Text(workspaceSnapshot.title)
+                .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
+                .foregroundColor(activePrimaryTextColor)
+                .lineLimit(settings.wrapsWorkspaceTitles ? nil : 1)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
+        }
+    }
+
+    @ViewBuilder
+    private func nativeSidebarMetadata(
+        workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+    ) -> some View {
+        let metadataEntries = workspaceSnapshot.metadataEntries
+        let metadataBlocks = workspaceSnapshot.metadataBlocks
+        if !metadataEntries.isEmpty {
+            SidebarMetadataRows(
+                entries: metadataEntries,
+                isActive: usesInvertedActiveForeground,
+                activeForegroundColor: activeSecondaryColor(0.95),
+                activeSecondaryForegroundColor: activeSecondaryColor(0.65),
+                fontScale: fontScale,
+                onFocus: { updateSelection() }
+            )
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+        if !metadataBlocks.isEmpty {
+            SidebarMetadataMarkdownBlocks(
+                blocks: metadataBlocks,
+                isActive: usesInvertedActiveForeground,
+                activeForegroundColor: activeSecondaryColor(0.8),
+                activeSecondaryForegroundColor: activeSecondaryColor(0.65),
+                fontScale: fontScale,
+                onFocus: { updateSelection() }
+            )
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
+
+    private func nativeSidebarRowContent(
+        workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
+        effectiveSubtitle: String?,
+        detailVisibility: SidebarWorkspaceAuxiliaryDetailVisibility,
+        scaledUnreadBadgeSize: CGFloat,
+        protectedWorkspaceTooltip: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            nativeSidebarHeader(
+                workspaceSnapshot: workspaceSnapshot,
+                scaledUnreadBadgeSize: scaledUnreadBadgeSize,
+                protectedWorkspaceTooltip: protectedWorkspaceTooltip
+            )
 
             if let description = workspaceSnapshot.customDescription {
                 SidebarWorkspaceDescriptionText(
@@ -15111,30 +15287,7 @@ struct TabItemView: View, Equatable {
             remoteWorkspaceSection
 
             if detailVisibility.showsMetadata {
-                let metadataEntries = workspaceSnapshot.metadataEntries
-                let metadataBlocks = workspaceSnapshot.metadataBlocks
-                if !metadataEntries.isEmpty {
-                    SidebarMetadataRows(
-                        entries: metadataEntries,
-                        isActive: usesInvertedActiveForeground,
-                        activeForegroundColor: activeSecondaryColor(0.95),
-                        activeSecondaryForegroundColor: activeSecondaryColor(0.65),
-                        fontScale: fontScale,
-                        onFocus: { updateSelection() }
-                    )
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-                if !metadataBlocks.isEmpty {
-                    SidebarMetadataMarkdownBlocks(
-                        blocks: metadataBlocks,
-                        isActive: usesInvertedActiveForeground,
-                        activeForegroundColor: activeSecondaryColor(0.8),
-                        activeSecondaryForegroundColor: activeSecondaryColor(0.65),
-                        fontScale: fontScale,
-                        onFocus: { updateSelection() }
-                    )
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
+                nativeSidebarMetadata(workspaceSnapshot: workspaceSnapshot)
             }
 
             if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
@@ -15174,7 +15327,6 @@ struct TabItemView: View, Equatable {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            // Branch + directory row
             if detailVisibility.showsBranchDirectory {
                 if sidebarBranchVerticalLayout {
                     if !workspaceSnapshot.branchDirectoryLines.isEmpty {
@@ -15271,7 +15423,6 @@ struct TabItemView: View, Equatable {
                 }
             }
 
-            // Pull request rows
             if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
@@ -15303,7 +15454,6 @@ struct TabItemView: View, Equatable {
                 }
             }
 
-            // Ports row
             if detailVisibility.showsPorts, !workspaceSnapshot.listeningPorts.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(workspaceSnapshot.listeningPorts, id: \.self) { port in
@@ -15325,58 +15475,80 @@ struct TabItemView: View, Equatable {
                 .lineLimit(1)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.metadataBlocks.count)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(backgroundColor)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
-                }
-                .overlay(alignment: .leading) {
-                    if showsLeadingRail {
-                        Capsule(style: .continuous)
-                            .fill(railColor)
-                            .frame(width: 3)
-                            .padding(.leading, 4)
-                            .padding(.vertical, 5)
-                            .offset(x: -1)
-                    }
-                }
+    }
+
+    var body: some View {
+        let workspaceSnapshot = self.workspaceSnapshot
+        let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
+        let protectedWorkspaceTooltip = String(
+            localized: "sidebar.pinnedWorkspaceProtected.tooltip",
+            defaultValue: "Pinned workspace. Closing requires confirmation."
         )
-        .sidebarShortcutHintOverlay(
-            text: showsWorkspaceShortcutHint ? workspaceShortcutLabel : nil,
-            emphasis: shortcutHintEmphasis,
-            offsetX: sidebarShortcutHintXOffset,
-            offsetY: sidebarShortcutHintYOffset,
-            fontSize: scaledFontSize(10)
+        let closeButtonTooltip = workspaceSnapshot.isPinned
+            ? protectedWorkspaceTooltip
+            : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
+        let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
+        let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
+        let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
+        let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
+        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
+        let latestNotificationSubtitle = latestNotificationText
+        let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
+            ? workspaceSnapshot.latestConversationMessage?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .nilIfEmpty
+            : nil
+        let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
+        let detailVisibility = visibleAuxiliaryDetails
+        let scaledUnreadBadgeSize = 16 * fontScale
+        let scaledCloseButtonHitSize = max(16, 16 * fontScale)
+        let scaledCloseButtonWidth = max(
+            SidebarTrailingAccessoryWidthPolicy.closeButtonWidth,
+            scaledCloseButtonHitSize
         )
-        .overlay(alignment: .topTrailing) {
-            if showsWorkspaceShortcutHint {
-                EmptyView()
-            } else if showCloseButton {
-                Button(action: {
-                    #if DEBUG
-                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                    #endif
-                    tabManager.closeWorkspaceWithConfirmation(tab)
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: scaledFontSize(9), weight: .medium))
-                        .foregroundColor(activeSecondaryColor(0.7))
-                }
-                .buttonStyle(.plain)
-                .safeHelp(closeButtonTooltip)
-                .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
-                .padding(.top, 8)
-                .padding(.trailing, 10)
-            }
+        let scriptedSidebarRow = renderedSidebarScriptNode(workspaceSnapshot: workspaceSnapshot).map { scriptNode in
+            AnyView(
+                RenderNodeView(node: scriptNode, onAction: { handleSidebarScriptAction($0) })
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            )
         }
-        .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
+
+        let nativeSidebarRow = AnyView(nativeSidebarRowContent(
+            workspaceSnapshot: workspaceSnapshot,
+            effectiveSubtitle: effectiveSubtitle,
+            detailVisibility: detailVisibility,
+            scaledUnreadBadgeSize: scaledUnreadBadgeSize,
+            protectedWorkspaceTooltip: protectedWorkspaceTooltip
+        ))
+        SidebarWorkspaceRowChrome(
+            content: scriptedSidebarRow ?? nativeSidebarRow,
+            latestLog: workspaceSnapshot.latestLog,
+            progress: workspaceSnapshot.progress,
+            metadataBlockCount: workspaceSnapshot.metadataBlocks.count,
+            backgroundColor: backgroundColor,
+            activeBorderColor: activeBorderColor,
+            activeBorderLineWidth: activeBorderLineWidth,
+            showsLeadingRail: showsLeadingRail,
+            railColor: railColor,
+            showsWorkspaceShortcutHint: showsWorkspaceShortcutHint,
+            workspaceShortcutLabel: workspaceShortcutLabel,
+            shortcutHintEmphasis: shortcutHintEmphasis,
+            sidebarShortcutHintXOffset: sidebarShortcutHintXOffset,
+            sidebarShortcutHintYOffset: sidebarShortcutHintYOffset,
+            shortcutHintFontSize: scaledFontSize(10),
+            showCloseButton: showCloseButton,
+            closeButtonTooltip: closeButtonTooltip,
+            closeButtonFontSize: scaledFontSize(9),
+            closeButtonForegroundColor: activeSecondaryColor(0.7),
+            closeButtonWidth: scaledCloseButtonWidth,
+            closeButtonHitSize: scaledCloseButtonHitSize,
+            closeWorkspace: {
+                #if DEBUG
+                cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                #endif
+                tabManager.closeWorkspaceWithConfirmation(tab)
+            }
+        )
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .contentShape(Rectangle())
