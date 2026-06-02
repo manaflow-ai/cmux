@@ -355,7 +355,7 @@ const terminalWheelZoomThreshold = 80;
 const terminalWheelZoomIdleResetMs = 450;
 const terminalWheelZoomMaxSteps = 3;
 const paletteVisibleResultLimit = 80;
-const deferredTerminalInitIdleTimeoutMs = 140;
+const deferredTerminalInitIdleTimeoutMs = 70;
 const browserLoadTimeoutMs = 15000;
 const browserSuspendStopDelayMs = 1200;
 const embeddedGooglePolishMinIntervalMs = 750;
@@ -17328,6 +17328,7 @@ function handleWindowWheelZoom(event) {
   } else if (event.target?.closest?.(".shell, .pane, .surface-tabs, .sidebar, .topbar, .command-strip")) {
     event.preventDefault();
     event.stopPropagation();
+    event.stopImmediatePropagation?.();
   }
 }
 

@@ -1816,33 +1816,29 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   position: sticky;
   z-index: 3;
   height: 29px;
-  flex: 0 0 78px;
-  min-width: 78px;
-  max-width: 78px;
-  grid-template-columns: auto minmax(0, 1fr);
+  flex: 0 0 34px;
+  min-width: 34px;
+  max-width: 34px;
+  grid-template-columns: minmax(0, 1fr);
   justify-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 0 8px;
+  gap: 0;
+  padding: 0 5px;
   border-color: var(--color-line);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane) 88%, var(--color-terminal-gutter) 12%);
+  background: color-mix(in oklch, var(--color-pane) 82%, var(--color-chrome) 18%);
   color: var(--color-text);
   font: 720 11px/1 var(--font-ui);
   box-shadow:
-    0 1px 0 color-mix(in oklch, var(--color-canvas) 40%, transparent),
     inset 0 1px 0 color-mix(in oklch, var(--color-text) 7%, transparent);
 }
 
 .surface-new-terminal {
-  right: 82px;
+  right: 43px;
   color: color-mix(in oklch, var(--color-success) 72%, var(--color-text));
 }
 
 .surface-new-browser {
-  flex-basis: 70px;
-  min-width: 70px;
-  max-width: 70px;
   right: 6px;
   color: color-mix(in oklch, var(--color-accent) 76%, var(--color-text));
 }
@@ -1854,7 +1850,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .surface-tabs.is-crowded {
-  scroll-padding-inline: 10px 88px;
+  scroll-padding-inline: 10px 82px;
 }
 
 .surface-tabs.is-crowded .surface-new-tab,
@@ -1903,7 +1899,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .surface-new-label {
-  display: block;
+  display: none;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -1953,7 +1949,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .shell.density-compact .surface-tabs {
-  scroll-padding-inline: 10px 88px;
+  scroll-padding-inline: 10px 82px;
 }
 
 .shell.density-compact .surface-new-terminal {
