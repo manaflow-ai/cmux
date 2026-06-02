@@ -271,7 +271,7 @@ actor TextBoxMentionIndexStore {
 
         var seenPaths = Set<String>()
         var candidates: [TextBoxMentionCandidate] = []
-        for root in roots {
+        for (rootIndex, root) in roots.enumerated() {
             for skillURL in Self.scanSkillFiles(rootURL: root) {
                 let path = skillURL.standardizedFileURL.path
                 guard seenPaths.insert(path).inserted else { continue }
@@ -282,7 +282,7 @@ actor TextBoxMentionIndexStore {
                     targetPath: path,
                     systemImageName: "sparkle.magnifyingglass",
                     searchKey: "\(skillName) \(path)".lowercased(),
-                    priority: 0
+                    priority: rootIndex
                 ))
                 if candidates.count >= Self.maxIndexedSkills {
                     break

@@ -547,6 +547,54 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
+    func testTextBoxMentionEmptySkillSuggestionsKeepNearestProjectSkillsBeforeCap() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-local-skill-priority-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let ancestorSkillsDirectory = root.appendingPathComponent("skills", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let projectSkillsDirectory = projectDirectory.appendingPathComponent("skills", isDirectory: true)
+        let localSkillDirectory = projectSkillsDirectory.appendingPathComponent("zz-local-skill", isDirectory: true)
+        try fileManager.createDirectory(at: localSkillDirectory, withIntermediateDirectories: true)
+        try "name: zz-local-skill\n".write(
+            to: localSkillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        for index in 0..<520 {
+            let skillName = String(format: "aaa-global-%03d", index)
+            let skillDirectory = ancestorSkillsDirectory.appendingPathComponent(skillName, isDirectory: true)
+            try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+            try "name: \(skillName)\n".write(
+                to: skillDirectory.appendingPathComponent("SKILL.md"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "/"
+            ),
+            rootDirectory: projectDirectory.path
+        )
+
+        let localSkillIndex = suggestions.firstIndex { $0.title == "/zz-local-skill" }
+        let ancestorSkillIndex = suggestions.firstIndex { $0.title.hasPrefix("/aaa-global-") }
+        #expect(localSkillIndex != nil)
+        #expect(ancestorSkillIndex != nil)
+        #expect((localSkillIndex ?? Int.max) < (ancestorSkillIndex ?? Int.max))
+    }
+
+    @Test
     func testTextBoxMentionSkillSuggestionsFindNestedSkillPacks() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
