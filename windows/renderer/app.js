@@ -1119,6 +1119,12 @@ function installBackgroundDropTarget(target, options = {}) {
       if (changed !== null && options.input && !payload.inputValue) options.input.value = "";
       return;
     }
+    if (options.saveTarget) {
+      const target = typeof options.saveTarget === "function" ? options.saveTarget() : state.backgroundApplyTarget;
+      const saved = await applyAndSaveBackgroundImageToTarget(background, target);
+      if (saved && options.input && !payload.inputValue) options.input.value = "";
+      return;
+    }
     if (options.save) {
       const saved = await applyAndSaveCustomBackgroundImage(background);
       if (saved && options.input && !payload.inputValue) options.input.value = "";
@@ -1958,6 +1964,41 @@ async function applyAndSaveCustomBackgroundImage(background, options = {}) {
     else if (changed) toast(`${saved.label} background applied.`);
     else if (!wasSaved) toast("Background image saved.");
     else toast(`${saved.label} background already active.`);
+  }
+  return saved;
+}
+
+async function applyAndSaveBackgroundImageToTarget(background, target = state.backgroundApplyTarget, options = {}) {
+  const input = typeof background === "string" ? { url: background } : background || {};
+  const source = input.url || input.value || input.backgroundImage;
+  const scope = normalizeBackgroundApplyTarget(target);
+  const targetOption = backgroundApplyTargetOption(scope);
+  if (!activeBackgroundTargetStatus(scope).canTarget) {
+    if (options.toast !== false) toast(`${targetOption.label} cannot use a background right now.`);
+    return null;
+  }
+  if (!normalizedImageUrl(source)) {
+    if (options.toast !== false) toast("Choose a custom background image first.");
+    return null;
+  }
+  const validated = await validateBackgroundImageValue(source);
+  if (!validated.ok) {
+    if (options.toast !== false) toast("Background image could not be loaded.");
+    if (options.resetInput) options.resetInput.value = isBackgroundPreset(state.settings.backgroundImage) ? "" : state.settings.backgroundImage;
+    return null;
+  }
+  const urlKey = validated.url.toLowerCase();
+  const wasSaved = state.savedBackgroundImages.some((candidate) => candidate.url.toLowerCase() === urlKey);
+  const saved = upsertSavedBackgroundImage({ ...input, url: validated.url }, { render: false, toast: false });
+  if (!saved) return null;
+  const changed = await applyBackgroundValueToTarget(validated.url, scope, { render: false, toast: false });
+  if (changed !== null && options.render !== false) renderSettingsInspector();
+  if (options.toast !== false) {
+    const targetLabel = targetOption.label.toLowerCase();
+    if (changed === true && !wasSaved) toast(`Background saved and applied to ${targetLabel}.`);
+    else if (changed === true) toast(`${saved.label} applied to ${targetLabel}.`);
+    else if (!wasSaved) toast(`Background saved. ${targetOption.label} already uses it.`);
+    else toast(`${targetOption.label} already uses ${saved.label}.`);
   }
   return saved;
 }
@@ -8346,44 +8387,44 @@ function renderSettingsInspector(options = {}) {
     const imageInput = document.createElement("input");
     imageInput.className = "setting-control";
     imageInput.value = isBackgroundPreset(state.settings.backgroundImage) ? "" : state.settings.backgroundImage;
-    imageInput.placeholder = "URL or C:\\path\\image.png";
+    imageInput.placeholder = "URL or C:\\path\\image.png for selected target";
     const applyImageInput = (showToast = false) => withDisabledControl(imageInput, async () => {
       const next = imageInput.value.trim();
-      if (next || !isBackgroundPreset(state.settings.backgroundImage)) {
-        await applyCustomBackgroundImage(next, { resetInput: imageInput, toast: showToast });
+      if (!next) {
+        if (showToast) toast("Enter an image URL or local path first.");
+        return null;
       }
+      const changed = await applyBackgroundValueToTarget(next, state.backgroundApplyTarget, {
+        resetInput: imageInput,
+        render: false,
+        toast: showToast
+      });
+      if (changed !== null) renderSettingsInspector();
+      return changed;
     });
     imageInput.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
       event.preventDefault();
       applyImageInput(true);
     });
-    imageInput.addEventListener("blur", async (event) => {
-      const relatedElement = event.relatedTarget?.nodeType === Node.ELEMENT_NODE ? event.relatedTarget : null;
-      if (relatedElement?.closest?.(".background-actions")) return;
-      await applyImageInput();
-    });
     const customImageRow = settingRow("Custom image", imageInput, true, "background image url local path file drop wallpaper");
-    installBackgroundDropTarget(customImageRow, { input: imageInput });
+    installBackgroundDropTarget(customImageRow, { input: imageInput, applyTarget: () => state.backgroundApplyTarget });
     appearanceSection.append(customImageRow);
     const imageActions = document.createElement("div");
     imageActions.className = "settings-actions background-actions";
     imageActions.append(
-      settingsActionButton("Apply image", () => applyImageInput(true), "", "background image url local path apply wallpaper"),
+      settingsActionButton("Apply to target", () => applyImageInput(true), "", "background image url local path apply selected target wallpaper"),
       settingsActionButton("Apply + save", async () => {
-        const saved = await applyAndSaveCustomBackgroundImage({ url: imageInput.value }, { resetInput: imageInput });
+        const saved = await applyAndSaveBackgroundImageToTarget({ url: imageInput.value }, state.backgroundApplyTarget, { resetInput: imageInput });
         if (saved) imageInput.value = saved.url;
-      }, "", "background image url local path apply save wallpaper"),
-      settingsActionButton("Paste", () => pasteBackgroundImageFromClipboard({ input: imageInput }), "", "background image paste clipboard url local path wallpaper"),
-      settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input: imageInput, save: true }), "", "background image paste clipboard copied image apply save wallpaper"),
-      settingsActionButton("Choose file", chooseBackgroundImage, "", "background image local file wallpaper"),
-      settingsActionButton("Choose + save", () => chooseBackgroundImage({ save: true }), "", "background image local file choose apply save wallpaper library"),
-      settingsActionButton("Clear image", () => {
-        updateSettings({ backgroundImage: "" }, { immediate: true });
-        renderSettingsInspector();
-      }, "danger", "background image local file wallpaper reset remove")
+      }, "", "background image url local path apply save selected target wallpaper"),
+      settingsActionButton("Paste", () => pasteBackgroundImageFromClipboard({ input: imageInput, target: () => state.backgroundApplyTarget }), "", "background image paste clipboard url local path selected target wallpaper"),
+      settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input: imageInput, target: () => state.backgroundApplyTarget, save: true }), "", "background image paste clipboard copied image apply save selected target wallpaper"),
+      settingsActionButton("Choose file", () => chooseBackgroundImageForTarget(), "", "background image local file selected target wallpaper"),
+      settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "background image local file choose apply save selected target wallpaper library"),
+      settingsActionButton("Clear target", clearBackgroundApplyTarget, "danger", "background image local file wallpaper reset remove clear selected target")
     );
-    imageActions.dataset.settingsSearch = normalizeSettingsQuery("background image local file wallpaper apply clear paste clipboard");
+    imageActions.dataset.settingsSearch = normalizeSettingsQuery("background image local file wallpaper apply clear paste clipboard selected target");
     appearanceSection.append(imageActions);
     appearanceSection.append(savedBackgroundDisclosurePanel());
 
@@ -13059,7 +13100,7 @@ function savedBackgroundImagesPanel() {
   input.addEventListener("keydown", async (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      const saved = await withDisabledControl(input, () => applyAndSaveCustomBackgroundImage({ url: input.value }));
+      const saved = await withDisabledControl(input, () => saveCustomBackgroundImage({ url: input.value }));
       if (saved) input.value = "";
     }
   });
@@ -13074,21 +13115,21 @@ function savedBackgroundImagesPanel() {
   actions.className = "settings-actions saved-background-actions";
   actions.dataset.settingsSearch = normalizeSettingsQuery("saved background current choose local file wallpaper apply save");
   const applyAndSave = settingsActionButton("Apply + save", async () => {
-    const saved = await withDisabledControl(input, () => applyAndSaveCustomBackgroundImage({ url: input.value }));
+    const saved = await withDisabledControl(input, () => applyAndSaveBackgroundImageToTarget({ url: input.value }, state.backgroundApplyTarget));
     if (saved) input.value = "";
-  }, "", "saved background image apply save url local path file wallpaper");
-  const saveCurrent = settingsActionButton("Save current", () => saveCustomBackgroundImage({
-    url: state.settings.backgroundImage
-  }), "", "saved background image current");
-  saveCurrent.disabled = !isCustomBackgroundImage(state.settings.backgroundImage);
+  }, "", "saved background image apply save selected target url local path file wallpaper");
+  const saveCurrent = settingsActionButton("Save selected", () => saveCustomBackgroundImage({
+    url: activeBackgroundPanelViewModel().background
+  }), "", "saved background image current selected target");
+  saveCurrent.disabled = !isCustomBackgroundImage(activeBackgroundPanelViewModel().background);
   actions.append(
     applyAndSave,
     saveCurrent,
-    settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input, save: true }), "", "saved background image paste clipboard copied image apply save wallpaper"),
-    settingsActionButton("Choose + save", () => chooseBackgroundImage({ save: true }), "", "saved background image choose local file wallpaper")
+    settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input, target: () => state.backgroundApplyTarget, save: true }), "", "saved background image paste clipboard copied image apply save selected target wallpaper"),
+    settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "saved background image choose local file selected target wallpaper")
   );
   panel.append(actions);
-  installBackgroundDropTarget(panel, { input, save: true });
+  installBackgroundDropTarget(panel, { input, saveTarget: () => state.backgroundApplyTarget });
 
   if (state.savedBackgroundImages.length === 0) {
     const empty = document.createElement("div");
@@ -13729,13 +13770,16 @@ async function chooseBackgroundImage(options = {}) {
   renderSettingsInspector();
 }
 
-async function chooseBackgroundImageForTarget() {
+async function chooseBackgroundImageForTarget(options = {}) {
   if (!window.cmuxNative?.pickBackgroundImage) {
     toast("Local image picker is unavailable.");
     return null;
   }
   const url = await window.cmuxNative.pickBackgroundImage();
   if (!url) return null;
+  if (options.save) {
+    return applyAndSaveBackgroundImageToTarget({ url }, state.backgroundApplyTarget, { render: true });
+  }
   const changed = await applyBackgroundValueToTarget(url, state.backgroundApplyTarget, { render: false, toast: true });
   if (changed !== null) renderSettingsInspector();
   return changed;
@@ -13769,6 +13813,11 @@ async function pasteBackgroundImageFromClipboard(options = {}) {
   const background = pastedImage ? { url: value, label: "Clipboard image" } : { url: value };
   if (options.target) {
     const target = typeof options.target === "function" ? options.target() : options.target;
+    if (options.save) {
+      const saved = await applyAndSaveBackgroundImageToTarget(background, target, { resetInput: options.input });
+      if (saved && options.input) options.input.value = pastedImage ? "" : saved.url;
+      return saved;
+    }
     const changed = await applyBackgroundValueToTarget(value, target, { resetInput: options.input, toast: true });
     if (changed !== null && pastedImage && options.input) options.input.value = "";
     return changed;
