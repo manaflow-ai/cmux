@@ -15925,6 +15925,12 @@ function normalizedWheelZoomDelta(event) {
   return event.deltaY;
 }
 
+function normalizedWheelDeltaX(event) {
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return event.deltaX * 40;
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) return event.deltaX * 360;
+  return event.deltaX;
+}
+
 function closestElementFromEvent(event, selector) {
   for (const target of event?.composedPath?.() || []) {
     const element = target?.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
@@ -16012,6 +16018,7 @@ function handleWindowWheelZoom(event) {
   const targetsTerminalViewport = eventTargetsTerminalViewport(event);
   const panel = panelFromEvent(event) || panelFromPoint(event.clientX, event.clientY);
   if (panel?.type === "browser" && applyBrowserWheelZoomGuard(event, panel)) return;
+  if (scrollCtrlWheelChrome(event)) return;
   if (targetsTerminalViewport) {
     event.preventDefault();
     event.stopPropagation();
@@ -16020,6 +16027,34 @@ function handleWindowWheelZoom(event) {
     event.preventDefault();
     event.stopPropagation();
   }
+}
+
+function scrollCtrlWheelChrome(event) {
+  const target = closestElementFromEvent(
+    event,
+    "#inspectorBody, #workspaceList, #surfaceTabs, #paletteList, .command-strip"
+  );
+  if (!target) return false;
+  const canScrollY = target.scrollHeight > target.clientHeight;
+  const canScrollX = target.scrollWidth > target.clientWidth;
+  if (!canScrollY && !canScrollX) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation?.();
+  const deltaY = normalizedWheelZoomDelta(event);
+  const deltaX = normalizedWheelDeltaX(event);
+  const preferHorizontal = canScrollX && (
+    !canScrollY
+    || target.id === "surfaceTabs"
+    || target.classList.contains("command-strip")
+    || Math.abs(deltaX) > Math.abs(deltaY)
+  );
+  if (preferHorizontal) {
+    target.scrollLeft += deltaX || deltaY;
+  } else {
+    target.scrollTop += deltaY;
+  }
+  return true;
 }
 
 function setPaneMinimized(panelId, minimized = true) {
