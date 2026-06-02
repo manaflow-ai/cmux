@@ -4,6 +4,40 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
+enum BrowserMouseNavigationAction: Equatable {
+    case back
+    case forward
+}
+
+func browserMouseNavigationAction(buttonNumber: Int) -> BrowserMouseNavigationAction? {
+    switch buttonNumber {
+    case 3:
+        return .back
+    case 4:
+        return .forward
+    default:
+        return nil
+    }
+}
+
+@discardableResult
+func browserHandleMouseNavigationButton(
+    buttonNumber: Int,
+    goBack: () -> Void,
+    goForward: () -> Void
+) -> Bool {
+    switch browserMouseNavigationAction(buttonNumber: buttonNumber) {
+    case .back:
+        goBack()
+        return true
+    case .forward:
+        goForward()
+        return true
+    case nil:
+        return false
+    }
+}
+
 extension WKWebView {
     nonisolated private static var cmuxSetPageMutedSelector: Selector {
         NSSelectorFromString("_setPageMuted:")
@@ -375,6 +409,8 @@ final class CmuxWebView: WKWebView {
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
     var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
+    var onMouseBackButton: (() -> Void)?
+    var onMouseForwardButton: (() -> Void)?
     var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
     var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
@@ -777,21 +813,33 @@ final class CmuxWebView: WKWebView {
 #endif
         // Button 3 = back, button 4 = forward (multi-button mice like Logitech).
         // Consume the event so WebKit doesn't handle it.
-        switch event.buttonNumber {
-        case 3:
+        let handledNavigationButton = browserHandleMouseNavigationButton(
+            buttonNumber: event.buttonNumber,
+            goBack: { [weak self] in
+                guard let self else { return }
 #if DEBUG
-            cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goBack canGoBack=\(canGoBack ? 1 : 0)")
+                cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goBack canGoBack=\(canGoBack ? 1 : 0)")
 #endif
-            goBack()
-            return
-        case 4:
+                if let onMouseBackButton = self.onMouseBackButton {
+                    onMouseBackButton()
+                } else {
+                    _ = self.goBack()
+                }
+            },
+            goForward: { [weak self] in
+                guard let self else { return }
 #if DEBUG
-            cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goForward canGoForward=\(canGoForward ? 1 : 0)")
+                cmuxDebugLog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goForward canGoForward=\(canGoForward ? 1 : 0)")
 #endif
-            goForward()
+                if let onMouseForwardButton = self.onMouseForwardButton {
+                    onMouseForwardButton()
+                } else {
+                    _ = self.goForward()
+                }
+            }
+        )
+        if handledNavigationButton {
             return
-        default:
-            break
         }
         super.otherMouseDown(with: event)
     }
@@ -808,6 +856,9 @@ final class CmuxWebView: WKWebView {
             "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
         )
 #endif
+        if browserMouseNavigationAction(buttonNumber: event.buttonNumber) != nil {
+            return
+        }
         super.otherMouseUp(with: event)
     }
 
