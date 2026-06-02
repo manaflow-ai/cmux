@@ -3653,14 +3653,17 @@ function createSurfaceTab() {
   button.addEventListener("dragover", (event) => {
     if (!state.dragPanelId || state.dragPanelId === button.dataset.panelId) return;
     event.preventDefault();
-    button.classList.add("is-drop-before");
+    clearSurfaceTabDropTargets();
+    button.classList.add(surfaceTabDropPlacement(event, button) === "after" ? "is-drop-after" : "is-drop-before");
   });
-  button.addEventListener("dragleave", () => button.classList.remove("is-drop-before"));
+  button.addEventListener("dragleave", () => button.classList.remove("is-drop-before", "is-drop-after"));
   button.addEventListener("drop", (event) => {
     event.preventDefault();
-    button.classList.remove("is-drop-before");
+    const placement = surfaceTabDropPlacement(event, button);
+    button.classList.remove("is-drop-before", "is-drop-after");
     if (state.dragPanelId && state.dragPanelId !== button.dataset.panelId) {
-      movePanelBefore(state.dragPanelId, button.dataset.panelId);
+      if (placement === "after") movePanelAfter(state.dragPanelId, button.dataset.panelId);
+      else movePanelBefore(state.dragPanelId, button.dataset.panelId);
     }
   });
   button.addEventListener("dragend", () => {
@@ -3697,6 +3700,17 @@ function updateSurfaceTab(button, workspace, panel) {
   setStylePropertyIfChanged(button, "--tab-color", panel.color || workspace.color || "var(--color-accent)");
   setDatasetIfChanged(parts.dot, "tabIndex", String(ordinal));
   setTextIfChanged(parts.label, label);
+}
+
+function surfaceTabDropPlacement(event, button) {
+  const rect = button.getBoundingClientRect();
+  return event.clientX > rect.left + rect.width / 2 ? "after" : "before";
+}
+
+function clearSurfaceTabDropTargets() {
+  for (const button of elements.surfaceTabs.querySelectorAll(".surface-tab.is-drop-before, .surface-tab.is-drop-after")) {
+    button.classList.remove("is-drop-before", "is-drop-after");
+  }
 }
 
 function getNewSurfaceTab(workspace) {
@@ -4813,8 +4827,8 @@ function clearPaneDropTarget(pane) {
 
 function clearAllDropTargets() {
   for (const pane of document.querySelectorAll(".pane.is-drop-target")) clearPaneDropTarget(pane);
-  for (const node of document.querySelectorAll(".is-drop-before, .workspace-row.is-drop-target, .workspace-row.is-workspace-drop-before, .workspace-row.is-workspace-drop-after")) {
-    node.classList.remove("is-drop-before", "is-drop-target", "is-workspace-drop-before", "is-workspace-drop-after");
+  for (const node of document.querySelectorAll(".is-drop-before, .is-drop-after, .workspace-row.is-drop-target, .workspace-row.is-workspace-drop-before, .workspace-row.is-workspace-drop-after")) {
+    node.classList.remove("is-drop-before", "is-drop-after", "is-drop-target", "is-workspace-drop-before", "is-workspace-drop-after");
   }
   for (const pane of document.querySelectorAll(".pane.is-dragging")) pane.classList.remove("is-dragging");
   document.body.classList.remove("pane-drag-active");
@@ -12586,6 +12600,19 @@ async function movePanelBefore(panelId, beforePanelId) {
   const workspace = activeWorkspace();
   if (!workspace || !panelId || !beforePanelId || panelId === beforePanelId) return;
   await updatePanel(panelId, { workspaceId: workspace.id, beforePanelId });
+}
+
+async function movePanelAfter(panelId, afterPanelId) {
+  const workspace = activeWorkspace();
+  if (!workspace || !panelId || !afterPanelId || panelId === afterPanelId) return;
+  const targetIndex = workspace.panels.findIndex((panel) => panel.id === afterPanelId);
+  if (targetIndex < 0) return;
+  const nextPanel = workspace.panels.slice(targetIndex + 1).find((panel) => panel.id !== panelId);
+  if (nextPanel) {
+    await updatePanel(panelId, { workspaceId: workspace.id, beforePanelId: nextPanel.id });
+    return;
+  }
+  await updatePanel(panelId, { workspaceId: workspace.id, moveToEnd: true });
 }
 
 async function movePanelRelative(panelId, targetPanelId, placement) {

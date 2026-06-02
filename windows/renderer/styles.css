@@ -1382,15 +1382,23 @@ body.reduce-motion *::after {
   opacity: .58;
 }
 
-.surface-tab.is-drop-before::before {
+.surface-tab.is-drop-before::before,
+.surface-tab.is-drop-after::after {
   content: "";
   position: absolute;
-  left: 0;
   top: 5px;
   bottom: 5px;
   width: 2px;
   border-radius: 2px;
   background: var(--color-accent);
+}
+
+.surface-tab.is-drop-before::before {
+  left: -2px;
+}
+
+.surface-tab.is-drop-after::after {
+  right: -2px;
 }
 
 .surface-new-tab {
