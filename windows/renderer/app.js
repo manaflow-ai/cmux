@@ -9448,10 +9448,30 @@ function paneShapePanel(workspace = activeWorkspace()) {
         <span class="pane-shape-number-unit">%</span>
       </span>
     </div>
+    <span class="pane-shape-quick" role="group" aria-label="Quick pane sizes"></span>
     <span class="pane-shape-actions"></span>
   `;
   const titleNode = wrapper.querySelector(".pane-shape-title");
   const valueNode = wrapper.querySelector(".pane-shape-slider-value");
+  let quickButtons = [];
+  let smaller = null;
+  let bigger = null;
+  let equal = null;
+  let side = null;
+  let stack = null;
+  const updateControlStates = (nextPercent) => {
+    if (smaller) smaller.disabled = !multiPane || nextPercent <= paneLayoutPercentMin;
+    if (bigger) bigger.disabled = !multiPane || nextPercent >= paneLayoutPercentMax;
+    if (equal) equal.disabled = !multiPane;
+    if (side) side.disabled = !multiPane;
+    if (stack) stack.disabled = !multiPane;
+    for (const button of quickButtons) {
+      const isActive = Number(button.dataset.percent || 0) === nextPercent;
+      button.disabled = !multiPane;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    }
+  };
   const updatePercentView = (nextPercent) => {
     wrapper.style.setProperty("--pane-shape-fill", `${nextPercent}%`);
     titleNode.textContent = multiPane
@@ -9475,6 +9495,7 @@ function paneShapePanel(workspace = activeWorkspace()) {
     range.value = String(nextPercent);
     number.value = String(nextPercent);
     updatePercentView(nextPercent);
+    updateControlStates(nextPercent);
   };
   range.min = String(paneLayoutPercentMin);
   range.max = String(paneLayoutPercentMax);
@@ -9516,19 +9537,31 @@ function paneShapePanel(workspace = activeWorkspace()) {
       number.blur();
     }
   };
-  syncPercentInputs(percent);
+  const quick = wrapper.querySelector(".pane-shape-quick");
+  quickButtons = [25, 33, 50, 67, 75].map((quickPercent) => {
+    const button = document.createElement("button");
+    button.className = "pane-shape-quick-button";
+    button.type = "button";
+    button.dataset.percent = String(quickPercent);
+    button.dataset.settingsSearch = normalizeSettingsQuery(`pane shape quick size ${quickPercent} percent split layout`);
+    button.textContent = `${quickPercent}%`;
+    button.title = `Set active pane to ${quickPercent}%`;
+    button.setAttribute("aria-pressed", "false");
+    button.onclick = () => {
+      const nextPercent = applyActivePaneLayoutPercent(quickPercent, { save: true, toast: true });
+      syncPercentInputs(nextPercent);
+    };
+    return button;
+  });
+  quick.append(...quickButtons);
   const actions = wrapper.querySelector(".pane-shape-actions");
-  const smaller = settingsActionButton(t("paneShape.smaller"), () => adjustActivePaneLayoutPercent(-5), "", "pane shape smaller reduce active pane size");
-  smaller.disabled = !multiPane || percent <= paneLayoutPercentMin;
-  const bigger = settingsActionButton(t("paneShape.bigger"), () => adjustActivePaneLayoutPercent(5), "", "pane shape bigger increase active pane size");
-  bigger.disabled = !multiPane || percent >= paneLayoutPercentMax;
-  const equal = settingsActionButton(t("paneShape.equal"), resetActivePaneLayout, "", "pane shape equalize reset split layout");
-  equal.disabled = !multiPane;
-  const side = settingsActionButton(t("paneShape.columns"), () => applyPaneLayoutPreset("sideBySide"), "", "pane shape side by side columns");
-  side.disabled = !multiPane;
-  const stack = settingsActionButton(t("paneShape.rows"), () => applyPaneLayoutPreset("stacked"), "", "pane shape stacked rows");
-  stack.disabled = !multiPane;
+  smaller = settingsActionButton(t("paneShape.smaller"), () => adjustActivePaneLayoutPercent(-5), "", "pane shape smaller reduce active pane size");
+  bigger = settingsActionButton(t("paneShape.bigger"), () => adjustActivePaneLayoutPercent(5), "", "pane shape bigger increase active pane size");
+  equal = settingsActionButton(t("paneShape.equal"), resetActivePaneLayout, "", "pane shape equalize reset split layout");
+  side = settingsActionButton(t("paneShape.columns"), () => applyPaneLayoutPreset("sideBySide"), "", "pane shape side by side columns");
+  stack = settingsActionButton(t("paneShape.rows"), () => applyPaneLayoutPreset("stacked"), "", "pane shape stacked rows");
   actions.append(smaller, bigger, equal, side, stack);
+  syncPercentInputs(percent);
   return wrapper;
 }
 

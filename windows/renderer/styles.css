@@ -1573,7 +1573,7 @@ body.reduce-motion *::after {
 }
 
 .pane-splitter {
-  flex: 0 0 12px;
+  flex: 0 0 14px;
   position: relative;
   z-index: 4;
   background: transparent;
@@ -1585,7 +1585,7 @@ body.reduce-motion *::after {
 .pane-splitter:hover,
 .pane-splitter:focus-visible,
 .pane-splitter.is-dragging {
-  background: color-mix(in oklch, var(--color-terminal-gutter) 54%, transparent);
+  background: color-mix(in oklch, var(--color-terminal-gutter) 34%, transparent);
 }
 
 .pane-splitter[data-orientation="right"] {
@@ -1607,7 +1607,7 @@ body.reduce-motion *::after {
 .pane-splitter::before {
   content: "";
   position: absolute;
-  inset: 12% calc(50% - 1px);
+  inset: 18% calc(50% - 2px);
   border-radius: 999px;
   background: color-mix(in oklch, var(--color-line-strong) 76%, transparent);
   opacity: .72;
@@ -1619,7 +1619,7 @@ body.reduce-motion *::after {
 
 .pane-split.direction-down > .pane-splitter::before,
 .pane-grid.direction-down > .pane-splitter::before {
-  inset: calc(50% - 1px) 12%;
+  inset: calc(50% - 2px) 18%;
 }
 
 .pane-splitter:hover::before,
@@ -1656,7 +1656,6 @@ body.reduce-motion *::after {
   transition: opacity var(--dur-fast) var(--ease-out);
 }
 
-.pane-splitter:hover::after,
 .pane-splitter:focus-visible::after,
 .pane-splitter.is-dragging::after {
   opacity: 1;
@@ -4081,6 +4080,46 @@ body.reduce-motion *::after {
   color: var(--color-muted);
   font-size: 11px;
   font-weight: 650;
+}
+
+.pane-shape-quick {
+  grid-column: 1 / -1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-line);
+}
+
+.pane-shape-quick-button {
+  min-width: 0;
+  height: 28px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 0;
+  background: var(--color-pane-warm);
+  color: var(--color-muted);
+  font: 650 11px/1 var(--font-ui);
+  cursor: pointer;
+}
+
+.pane-shape-quick-button:hover:not(:disabled),
+.pane-shape-quick-button.is-active {
+  background: color-mix(in oklch, var(--color-accent) 22%, var(--color-pane) 78%);
+  color: var(--color-text);
+}
+
+.pane-shape-quick-button:focus-visible {
+  outline: 2px solid var(--color-accent-hover);
+  outline-offset: -2px;
+}
+
+.pane-shape-quick-button:disabled {
+  opacity: .46;
+  cursor: default;
 }
 
 .pane-shape-actions {
