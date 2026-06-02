@@ -2544,9 +2544,9 @@ body.reduce-motion *::after {
   min-width: 54px;
   max-width: 116px;
   flex-basis: 92px;
-  grid-template-columns: 14px minmax(0, 1fr) 17px;
+  grid-template-columns: 14px minmax(0, 1fr);
   gap: 4px;
-  padding: 0 3px 0 5px;
+  padding: 0 5px 0 5px;
 }
 
 .browser-tab-list.is-crowded .browser-tab::before {
@@ -2625,7 +2625,10 @@ body.reduce-motion *::after {
 }
 
 .browser-tab-list.is-crowded .browser-tab-close {
-  position: static;
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 17px;
   height: 17px;
   background: color-mix(in oklch, var(--color-pane) 84%, var(--color-canvas) 16%);
@@ -2645,8 +2648,9 @@ body.reduce-motion *::after {
 }
 
 .browser-tab-list.is-crowded .browser-tab:hover .browser-tab-label,
-.browser-tab-list.is-crowded .browser-tab:focus-within .browser-tab-label {
-  padding-right: 0;
+.browser-tab-list.is-crowded .browser-tab:focus-within .browser-tab-label,
+.browser-tab-list.is-crowded .browser-tab.is-active .browser-tab-label {
+  padding-right: 18px;
 }
 
 .browser-tab-close:hover {
@@ -2743,6 +2747,7 @@ body.reduce-motion *::after {
     position: absolute;
     right: 1px;
     top: 4px;
+    transform: none;
     width: 16px;
     height: 16px;
     background: color-mix(in oklch, var(--color-pane) 82%, var(--color-canvas) 18%);
