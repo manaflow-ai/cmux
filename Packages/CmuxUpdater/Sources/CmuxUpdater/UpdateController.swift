@@ -23,6 +23,7 @@ public final class UpdateController {
     private let clock: any UpdateClock
     private let defaults: UserDefaults
     private let fileManager: FileManager
+    private let hostBundle: Bundle
     private let backgroundProbeInterval: TimeInterval
 
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
@@ -76,6 +77,7 @@ public final class UpdateController {
         self.clock = clock
         self.defaults = defaults
         self.fileManager = fileManager
+        self.hostBundle = hostBundle
         self.backgroundProbeInterval = settings.scheduledCheckInterval
         settings.apply(to: defaults)
 
@@ -279,7 +281,7 @@ public final class UpdateController {
                     error: NSError(
                         domain: "cmux.update",
                         code: 1,
-                        userInfo: [NSLocalizedDescriptionKey: "Updater is still starting. Try again in a moment."]
+                        userInfo: [NSLocalizedDescriptionKey: String(localized: "update.error.notReady", defaultValue: "Updater is still starting. Try again in a moment.")]
                     ),
                     retry: { [weak self] in self?.checkForUpdates() },
                     dismiss: { [weak self] in self?.model.setState(.idle) }
@@ -381,7 +383,7 @@ public final class UpdateController {
     }
 
     private func ensureSparkleInstallationCache() {
-        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
+        guard let bundleIdentifier = hostBundle.bundleIdentifier else { return }
         guard let cachesURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
 
         let baseURL = cachesURL
