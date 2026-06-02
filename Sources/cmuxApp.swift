@@ -632,15 +632,12 @@ struct cmuxApp: App {
                     AppDelegate.shared?.showOpenFolderPanel()
                 }
 
-                Button(
-                    String(
-                        localized: "menu.file.openFolderInVSCodeInline",
-                        defaultValue: "Open Folder in VS Code (Inline)…"
-                    )
-                ) {
-                    AppDelegate.shared?.showOpenFolderInInlineVSCodePanel()
+                ForEach(InlineWebAppRegistry.default.profiles, id: \.target.rawValue) { profile in
+                    Button(profile.openFolderTitle()) {
+                        AppDelegate.shared?.showOpenFolderInInlineWebAppPanel(profile)
+                    }
+                    .disabled(!profile.isAvailable())
                 }
-                .disabled(!TerminalDirectoryOpenTarget.vscodeInline.isAvailable())
             }
 
             // Close tab/workspace

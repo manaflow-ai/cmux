@@ -171,7 +171,7 @@ final class FinderServicePathResolverTests: XCTestCase {
 }
 
 
-final class VSCodeServeWebURLBuilderTests: XCTestCase {
+final class InlineWebAppProfileVSCodeTests: XCTestCase {
     func testExtractWebUIURLParsesServeWebOutput() {
         let output = """
         *
@@ -180,16 +180,16 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
         Web UI available at http://127.0.0.1:5555?tkn=test-token
         """
 
-        let url = VSCodeServeWebURLBuilder.extractWebUIURL(from: output)
+        let url = InlineWebAppProfile.vscode.outputURLExtractor.extract(from: output)
         XCTAssertEqual(url?.absoluteString, "http://127.0.0.1:5555?tkn=test-token")
     }
 
     func testOpenFolderURLAppendsFolderQueryWhilePreservingToken() {
         let baseURL = URL(string: "http://127.0.0.1:5555?tkn=test-token")!
 
-        let url = VSCodeServeWebURLBuilder.openFolderURL(
-            baseWebUIURL: baseURL,
-            directoryPath: "/Users/tester/Projects/cmux"
+        let url = InlineWebAppProfile.vscode.openURL(
+            baseURL: baseURL,
+            directoryURL: URL(fileURLWithPath: "/Users/tester/Projects/cmux", isDirectory: true)
         )
 
         let components = URLComponents(url: url!, resolvingAgainstBaseURL: false)
@@ -200,9 +200,9 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
     func testOpenFolderURLReplacesExistingFolderQuery() {
         let baseURL = URL(string: "http://127.0.0.1:5555?tkn=test-token&folder=/tmp/old")!
 
-        let url = VSCodeServeWebURLBuilder.openFolderURL(
-            baseWebUIURL: baseURL,
-            directoryPath: "/Users/tester/New Folder"
+        let url = InlineWebAppProfile.vscode.openURL(
+            baseURL: baseURL,
+            directoryURL: URL(fileURLWithPath: "/Users/tester/New Folder", isDirectory: true)
         )
 
         let components = URLComponents(url: url!, resolvingAgainstBaseURL: false)
@@ -218,32 +218,64 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
 }
 
 
-final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
-    func testLaunchConfigurationUsesCodeTunnelBinary() {
-        let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
-        let expectedExecutablePath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
-
-        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
-            vscodeApplicationURL: appURL,
-            baseEnvironment: [:],
-            isExecutableAtPath: { $0 == expectedExecutablePath }
+final class InlineWebAppLaunchConfigurationTests: XCTestCase {
+    private func environment(existingPaths: Set<String>) -> TerminalDirectoryOpenTarget.DetectionEnvironment {
+        TerminalDirectoryOpenTarget.DetectionEnvironment(
+            homeDirectoryPath: "/Users/tester",
+            pathEnvironment: "",
+            fileExistsAtPath: { existingPaths.contains($0) },
+            isExecutableFileAtPath: { existingPaths.contains($0) },
+            applicationPathForName: { _ in nil }
         )
+    }
+
+    func testLaunchConfigurationUsesCodeTunnelBinary() {
+        let expectedExecutablePath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+        let env = environment(existingPaths: [
+            "/Applications/Visual Studio Code.app",
+            expectedExecutablePath,
+        ])
+
+        let configuration = InlineWebAppProfile.vscode.launchConfiguration(
+            directoryURL: URL(fileURLWithPath: "/Users/tester/project", isDirectory: true),
+            baseEnvironment: [:],
+            environment: env
+        )
+        defer {
+            if let connectionTokenFileURL = configuration?.connectionTokenFileURL {
+                InlineWebAppProfile.removeConnectionTokenFile(at: connectionTokenFileURL)
+            }
+        }
 
         XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
-        XCTAssertEqual(configuration?.argumentsPrefix, [])
+        XCTAssertEqual(
+            Array(configuration?.arguments.prefix(2) ?? ArraySlice<String>()),
+            ["serve-web", "--accept-server-license-terms"]
+        )
         XCTAssertEqual(configuration?.environment["ELECTRON_RUN_AS_NODE"], "1")
     }
 
     func testLaunchConfigurationMapsNodeEnvironmentVariables() {
-        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
-            vscodeApplicationURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true),
+        let expectedExecutablePath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+        let env = environment(existingPaths: [
+            "/Applications/Visual Studio Code.app",
+            expectedExecutablePath,
+        ])
+
+        let configuration = InlineWebAppProfile.vscode.launchConfiguration(
+            directoryURL: URL(fileURLWithPath: "/Users/tester/project", isDirectory: true),
             baseEnvironment: [
                 "PATH": "/usr/bin:/bin",
                 "NODE_OPTIONS": "--max-old-space-size=4096",
                 "NODE_REPL_EXTERNAL_MODULE": "module-name"
             ],
-            isExecutableAtPath: { _ in true }
+            environment: env
         )
+        defer {
+            if let connectionTokenFileURL = configuration?.connectionTokenFileURL {
+                InlineWebAppProfile.removeConnectionTokenFile(at: connectionTokenFileURL)
+            }
+        }
 
         XCTAssertEqual(configuration?.environment["PATH"], "/usr/bin:/bin")
         XCTAssertEqual(configuration?.environment["VSCODE_NODE_OPTIONS"], "--max-old-space-size=4096")
@@ -253,15 +285,26 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
     }
 
     func testLaunchConfigurationClearsStaleVSCodeNodeVariablesWhenNodeVariablesAreAbsent() {
-        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
-            vscodeApplicationURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true),
+        let expectedExecutablePath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+        let env = environment(existingPaths: [
+            "/Applications/Visual Studio Code.app",
+            expectedExecutablePath,
+        ])
+
+        let configuration = InlineWebAppProfile.vscode.launchConfiguration(
+            directoryURL: URL(fileURLWithPath: "/Users/tester/project", isDirectory: true),
             baseEnvironment: [
                 "PATH": "/usr/bin:/bin",
                 "VSCODE_NODE_OPTIONS": "--stale",
                 "VSCODE_NODE_REPL_EXTERNAL_MODULE": "stale-module"
             ],
-            isExecutableAtPath: { _ in true }
+            environment: env
         )
+        defer {
+            if let connectionTokenFileURL = configuration?.connectionTokenFileURL {
+                InlineWebAppProfile.removeConnectionTokenFile(at: connectionTokenFileURL)
+            }
+        }
 
         XCTAssertEqual(configuration?.environment["PATH"], "/usr/bin:/bin")
         XCTAssertNil(configuration?.environment["VSCODE_NODE_OPTIONS"])
@@ -270,9 +313,9 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
 }
 
 
-final class ServeWebOutputCollectorTests: XCTestCase {
+final class InlineWebAppOutputCollectorTests: XCTestCase {
     func testWaitForURLReturnsFalseAfterProcessExitSignal() {
-        let collector = ServeWebOutputCollector()
+        let collector = InlineWebAppOutputCollector(extractor: .linePrefix("Web UI available at "))
 
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
             collector.markProcessExited()
@@ -287,7 +330,7 @@ final class ServeWebOutputCollectorTests: XCTestCase {
     }
 
     func testWaitForURLReturnsTrueWhenURLIsCollected() {
-        let collector = ServeWebOutputCollector()
+        let collector = InlineWebAppOutputCollector(extractor: .linePrefix("Web UI available at "))
         let urlLine = "Web UI available at http://127.0.0.1:7777?tkn=test-token\n"
 
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
@@ -299,7 +342,7 @@ final class ServeWebOutputCollectorTests: XCTestCase {
     }
 
     func testMarkProcessExitedParsesFinalURLWithoutTrailingNewline() {
-        let collector = ServeWebOutputCollector()
+        let collector = InlineWebAppOutputCollector(extractor: .linePrefix("Web UI available at "))
         let finalChunk = "Web UI available at http://127.0.0.1:9001?tkn=final-token"
 
         collector.append(Data(finalChunk.utf8))
@@ -311,7 +354,7 @@ final class ServeWebOutputCollectorTests: XCTestCase {
 }
 
 
-final class VSCodeServeWebControllerTests: XCTestCase {
+final class InlineWebAppControllerTests: XCTestCase {
     func testStopDuringInFlightLaunchDoesNotDropNextGenerationCompletion() {
         let firstLaunchStarted = expectation(description: "first launch started")
         let firstCompletionCalled = expectation(description: "first generation completion called")
@@ -321,7 +364,7 @@ final class VSCodeServeWebControllerTests: XCTestCase {
         let launchCallLock = NSLock()
         var launchCallCount = 0
 
-        let controller = VSCodeServeWebController.makeForTesting { _, _ in
+        let controller = InlineWebAppController.makeForTesting(profile: .vscode) { _, _ in
             launchCallLock.lock()
             launchCallCount += 1
             let callNumber = launchCallCount
@@ -337,9 +380,9 @@ final class VSCodeServeWebControllerTests: XCTestCase {
         let callbackLock = NSLock()
         var firstGenerationCallbacks: [URL?] = []
         var secondGenerationCallbacks: [URL?] = []
-        let vscodeAppURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+        let directoryURL = URL(fileURLWithPath: "/Users/tester/project", isDirectory: true)
 
-        controller.ensureServeWebURL(vscodeApplicationURL: vscodeAppURL) { url in
+        controller.ensureServerURL(directoryURL: directoryURL) { url in
             callbackLock.lock()
             firstGenerationCallbacks.append(url)
             callbackLock.unlock()
@@ -349,7 +392,7 @@ final class VSCodeServeWebControllerTests: XCTestCase {
         wait(for: [firstLaunchStarted], timeout: 1)
         controller.stop()
 
-        controller.ensureServeWebURL(vscodeApplicationURL: vscodeAppURL) { url in
+        controller.ensureServerURL(directoryURL: directoryURL) { url in
             callbackLock.lock()
             secondGenerationCallbacks.append(url)
             callbackLock.unlock()
@@ -385,7 +428,7 @@ final class VSCodeServeWebControllerTests: XCTestCase {
         try Data("token".utf8).write(to: tokenFileURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: tokenFileURL.path))
 
-        let controller = VSCodeServeWebController.makeForTesting { _, _ in
+        let controller = InlineWebAppController.makeForTesting(profile: .vscode) { _, _ in
             XCTFail("Expected no launch")
             return nil
         }

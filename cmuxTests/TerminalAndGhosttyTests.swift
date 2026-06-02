@@ -2080,10 +2080,12 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
     private func environment(
         existingPaths: Set<String>,
         homeDirectoryPath: String = "/Users/tester",
+        pathEnvironment: String = "",
         applicationPathsByName: [String: String] = [:]
     ) -> TerminalDirectoryOpenTarget.DetectionEnvironment {
         TerminalDirectoryOpenTarget.DetectionEnvironment(
             homeDirectoryPath: homeDirectoryPath,
+            pathEnvironment: pathEnvironment,
             fileExistsAtPath: { existingPaths.contains($0) },
             isExecutableFileAtPath: { existingPaths.contains($0) },
             applicationPathForName: { applicationPathsByName[$0] }
@@ -2131,6 +2133,17 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertFalse(TerminalDirectoryOpenTarget.vscodeInline.isAvailable(in: env))
     }
 
+    func testJupyterInlineRequiresExecutable() {
+        let missingEnv = environment(existingPaths: [])
+        XCTAssertFalse(TerminalDirectoryOpenTarget.jupyterInline.isAvailable(in: missingEnv))
+
+        let pathEnv = environment(
+            existingPaths: ["/Users/tester/.local/bin/jupyter"],
+            pathEnvironment: "/Users/tester/.local/bin"
+        )
+        XCTAssertTrue(TerminalDirectoryOpenTarget.jupyterInline.isAvailable(in: pathEnv))
+    }
+
     func testITerm2DetectsLegacyBundleName() {
         let env = environment(existingPaths: ["/Applications/iTerm.app"])
         XCTAssertTrue(TerminalDirectoryOpenTarget.iterm2.isAvailable(in: env))
@@ -2156,6 +2169,98 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         let availableTargets = TerminalDirectoryOpenTarget.availableTargets(in: env)
         XCTAssertTrue(availableTargets.contains(.vscode))
         XCTAssertTrue(availableTargets.contains(.vscodeInline))
+    }
+
+    func testInlineWebAppOpenURLStrategies() throws {
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:3000/?tkn=abc"))
+        let directoryURL = URL(fileURLWithPath: "/Users/tester/project", isDirectory: true)
+
+        let vscodeURL = try XCTUnwrap(InlineWebAppProfile.vscode.openURL(
+            baseURL: baseURL,
+            directoryURL: directoryURL
+        ))
+        XCTAssertEqual(vscodeURL.absoluteString, "http://127.0.0.1:3000/?tkn=abc&folder=/Users/tester/project")
+
+        let jupyterURL = try XCTUnwrap(InlineWebAppProfile.jupyter.openURL(
+            baseURL: baseURL,
+            directoryURL: directoryURL
+        ))
+        XCTAssertEqual(jupyterURL, baseURL)
+    }
+
+    func testInlineWebAppProfilesBuildLaunchConfigurations() throws {
+        let vscodePath = "/Applications/Visual Studio Code.app"
+        let vscodeEnv = environment(
+            existingPaths: [
+                vscodePath,
+                "\(vscodePath)/Contents/Resources/app/bin/code-tunnel",
+            ]
+        )
+        let vscodeConfig = try XCTUnwrap(InlineWebAppProfile.vscode.launchConfiguration(
+            directoryURL: URL(fileURLWithPath: "/Users/tester/project", isDirectory: true),
+            baseEnvironment: [
+                "NODE_OPTIONS": "--inspect",
+                "NODE_REPL_EXTERNAL_MODULE": "loader",
+            ],
+            environment: vscodeEnv
+        ))
+        defer {
+            if let connectionTokenFileURL = vscodeConfig.connectionTokenFileURL {
+                InlineWebAppProfile.removeConnectionTokenFile(at: connectionTokenFileURL)
+            }
+        }
+
+        XCTAssertEqual(vscodeConfig.executableURL.path, "\(vscodePath)/Contents/Resources/app/bin/code-tunnel")
+        XCTAssertEqual(
+            Array(vscodeConfig.arguments.prefix(6)),
+            ["serve-web", "--accept-server-license-terms", "--host", "127.0.0.1", "--port", "0"]
+        )
+        XCTAssertTrue(vscodeConfig.arguments.contains("--connection-token-file"))
+        XCTAssertEqual(vscodeConfig.environment["ELECTRON_RUN_AS_NODE"], "1")
+        XCTAssertNil(vscodeConfig.environment["NODE_OPTIONS"])
+        XCTAssertEqual(vscodeConfig.environment["VSCODE_NODE_OPTIONS"], "--inspect")
+        XCTAssertEqual(vscodeConfig.environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"], "loader")
+
+        let jupyterEnv = environment(
+            existingPaths: ["/opt/homebrew/bin/jupyter"],
+            pathEnvironment: "/opt/homebrew/bin"
+        )
+        let jupyterConfig = try XCTUnwrap(InlineWebAppProfile.jupyter.launchConfiguration(
+            directoryURL: URL(fileURLWithPath: "/Users/tester/notebooks", isDirectory: true),
+            baseEnvironment: [:],
+            environment: jupyterEnv
+        ))
+
+        XCTAssertEqual(jupyterConfig.executableURL.path, "/opt/homebrew/bin/jupyter")
+        XCTAssertEqual(
+            jupyterConfig.arguments,
+            [
+                "lab",
+                "--no-browser",
+                "--ip=127.0.0.1",
+                "--port=0",
+                "--ServerApp.open_browser=False",
+                "--ServerApp.root_dir",
+                "/Users/tester/notebooks",
+            ]
+        )
+        XCTAssertNil(jupyterConfig.connectionTokenFileURL)
+    }
+
+    func testInlineWebAppOutputExtractors() throws {
+        let vscodeURL = InlineWebAppOutputURLExtractor.linePrefix("Web UI available at ")
+            .extract(from: "ready\nWeb UI available at http://127.0.0.1:49152/?tkn=abc\n")
+        XCTAssertEqual(vscodeURL?.absoluteString, "http://127.0.0.1:49152/?tkn=abc")
+
+        let jupyterURL = InlineWebAppOutputURLExtractor.firstLoopbackHTTPURL.extract(
+            from: "or copy and paste one of these URLs:\n    http://127.0.0.1:8888/lab?token=abc\n"
+        )
+        XCTAssertEqual(jupyterURL?.absoluteString, "http://127.0.0.1:8888/lab?token=abc")
+
+        let externalURL = InlineWebAppOutputURLExtractor.firstLoopbackHTTPURL.extract(
+            from: "https://example.com/lab?token=abc"
+        )
+        XCTAssertNil(externalURL)
     }
 
     func testTowerDetectedViaApplicationLookupOutsideApplications() {
