@@ -3502,15 +3502,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: windowId)
-        }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
+#if DEBUG
+        let context = makeVisibleRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer { closeRegisteredShortcutRoutingWindow(context.window, id: context.windowId) }
+        let window = context.window
+#else
+        XCTFail("makeVisibleRegisteredLightweightMainWindowContext is only available in DEBUG")
+        return
+#endif
 
         appDelegate.setCommandPaletteVisible(true, for: window)
         defer {
@@ -3579,15 +3578,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: windowId)
-        }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
+#if DEBUG
+        let context = makeVisibleRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer { closeRegisteredShortcutRoutingWindow(context.window, id: context.windowId) }
+        let window = context.window
+#else
+        XCTFail("makeVisibleRegisteredLightweightMainWindowContext is only available in DEBUG")
+        return
+#endif
 
         let dismissExpectation = expectation(description: "Expected command palette dismiss notification for Escape")
         var observedDismissWindow: NSWindow?
@@ -3683,15 +3681,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: windowId)
-        }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
+#if DEBUG
+        let context = makeVisibleRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer { closeRegisteredShortcutRoutingWindow(context.window, id: context.windowId) }
+        let window = context.window
+#else
+        XCTFail("makeVisibleRegisteredLightweightMainWindowContext is only available in DEBUG")
+        return
+#endif
 
 #if DEBUG
         XCTAssertTrue(
@@ -3743,15 +3740,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: windowId)
-        }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
+#if DEBUG
+        let context = makeVisibleRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer { closeRegisteredShortcutRoutingWindow(context.window, id: context.windowId) }
+        let window = context.window
+#else
+        XCTFail("makeVisibleRegisteredLightweightMainWindowContext is only available in DEBUG")
+        return
+#endif
 
 #if DEBUG
         XCTAssertTrue(
@@ -3828,15 +3824,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: windowId)
-        }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
+#if DEBUG
+        let context = makeVisibleRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer { closeRegisteredShortcutRoutingWindow(context.window, id: context.windowId) }
+        let window = context.window
+#else
+        XCTFail("makeVisibleRegisteredLightweightMainWindowContext is only available in DEBUG")
+        return
+#endif
 
         // Reproduce the menu-command path (Cmd+Shift+P/Cmd+P) routed via AppDelegate.
         appDelegate.requestCommandPaletteCommands(
@@ -3895,15 +3890,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: windowId)
-        }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
+#if DEBUG
+        let context = makeVisibleRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer { closeRegisteredShortcutRoutingWindow(context.window, id: context.windowId) }
+        let window = context.window
+#else
+        XCTFail("makeVisibleRegisteredLightweightMainWindowContext is only available in DEBUG")
+        return
+#endif
 
         appDelegate.setCommandPaletteVisible(true, for: window)
         defer {
@@ -3956,15 +3950,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: windowId)
-        }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
+#if DEBUG
+        let context = makeVisibleRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer { closeRegisteredShortcutRoutingWindow(context.window, id: context.windowId) }
+        let window = context.window
+#else
+        XCTFail("makeVisibleRegisteredLightweightMainWindowContext is only available in DEBUG")
+        return
+#endif
 
         appDelegate.setCommandPaletteVisible(true, for: window)
         defer {
@@ -9486,15 +9479,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: windowId)
-        }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window", file: file, line: line)
-            return
-        }
+#if DEBUG
+        let context = makeVisibleRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer { closeRegisteredShortcutRoutingWindow(context.window, id: context.windowId) }
+        let window = context.window
+#else
+        XCTFail("makeVisibleRegisteredLightweightMainWindowContext is only available in DEBUG", file: file, line: line)
+        return
+#endif
 
         openRequest(appDelegate, window)
         appDelegate.setCommandPaletteVisible(true, for: window)
@@ -9563,6 +9555,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             notifyObservers: false
         )
         return (registeredWindowId, window, tabManager)
+    }
+
+    private func makeVisibleRegisteredLightweightMainWindowContext(
+        appDelegate: AppDelegate,
+        createInitialWorkspace: Bool = false
+    ) -> (windowId: UUID, window: NSWindow, tabManager: TabManager) {
+        let context = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: createInitialWorkspace
+        )
+        context.window.orderFrontRegardless()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        return context
     }
 #endif
 
