@@ -150,6 +150,7 @@ enum KeyboardShortcutSettings {
         case toggleBrowserDeveloperTools
         case showBrowserJavaScriptConsole
         case toggleBrowserFocusMode
+        case exitBrowserFocusMode
         case toggleReactGrab
         case openDiffViewer
         case diffViewerScrollDown
@@ -245,6 +246,7 @@ enum KeyboardShortcutSettings {
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
             case .toggleBrowserFocusMode: return String(localized: "shortcut.toggleBrowserFocusMode.label", defaultValue: "Enter Browser Focus Mode")
+            case .exitBrowserFocusMode: return String(localized: "shortcut.exitBrowserFocusMode.label", defaultValue: "Exit Browser Focus Mode")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
             case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
             case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
@@ -461,6 +463,15 @@ enum KeyboardShortcutSettings {
                 // avoids the Ctrl+Cmd+Return global hotkey some screen recorders use.
                 // Exit stays double-Escape; rebind in Settings or cmux.json.
                 return StoredShortcut(key: "\r", command: true, shift: false, option: true, control: false)
+            case .exitBrowserFocusMode:
+                // Double-Escape by default: the first Escape forwards to the page
+                // (so page-side Escape handling still runs) and arms exit; the
+                // second within the freshness window exits. Rebindable to any key
+                // or chord in Settings / cmux.json.
+                return StoredShortcut(
+                    first: ShortcutStroke(key: "escape", command: false, shift: false, option: false, control: false),
+                    second: ShortcutStroke(key: "escape", command: false, shift: false, option: false, control: false)
+                )
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .openDiffViewer:
@@ -1410,6 +1421,8 @@ struct ShortcutStroke: Equatable, Hashable {
         case "space": return String(localized: "shortcut.key.space", defaultValue: "Space")
         case "\r":
             return "↩"
+        case "escape":
+            return "⎋"
         case "media.brightnessDown":
             return String(localized: "shortcut.key.mediaBrightnessDown", defaultValue: "Brightness Down")
         case "media.brightnessUp":
@@ -1895,6 +1908,7 @@ struct ShortcutStroke: Equatable, Hashable {
         case "media.next": return 17
         case "media.previous": return 18
         case "space": return 49
+        case "escape": return 53
         case "a": return 0
         case "s": return 1
         case "d": return 2
@@ -1954,7 +1968,7 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
-        key == "space" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+        key == "space" || key == "escape" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
     }
 
     private static func functionKeyDisplayString(for key: String) -> String? {

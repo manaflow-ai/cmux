@@ -134,7 +134,7 @@ public struct KeyboardShortcutsSection: View {
     @ViewBuilder
     private func actionRow(_ action: ShortcutAction) -> some View {
         let override = bindings[action.rawValue]
-        let effective = override ?? action.defaultStroke.map { StoredShortcut(first: $0) }
+        let effective = override ?? action.defaultShortcut
         let isUnbound = effective?.isUnbound ?? true
         let canRestore = isUnbound && restoreShortcuts[action.rawValue] != nil
         let bareKeyRejected = bareKeyRejections.contains(action.rawValue)
@@ -157,7 +157,7 @@ public struct KeyboardShortcutsSection: View {
                 // displayed shortcut string in parentheses so the user can
                 // identify which existing shortcut is in the way.
                 let conflictOverride = bindings[conflict.rawValue]
-                let conflictEffective = conflictOverride ?? conflict.defaultStroke.map { StoredShortcut(first: $0) }
+                let conflictEffective = conflictOverride ?? conflict.defaultShortcut
                 let conflictShortcutString = conflictEffective.map { format($0) } ?? ""
                 let messageFormat = String(
                     localized: "shortcut.recorder.error.conflictsWithAction",
@@ -307,7 +307,7 @@ public struct KeyboardShortcutsSection: View {
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
         for other in ShortcutAction.allCases where other != action {
             let override = bindings[other.rawValue]
-            let effective = override ?? other.defaultStroke.map { StoredShortcut(first: $0) }
+            let effective = override ?? other.defaultShortcut
             guard let effective, !effective.isUnbound else { continue }
             if stroke.first == effective.first { return other }
         }
@@ -355,6 +355,8 @@ public struct KeyboardShortcutsSection: View {
             return String(localized: "shortcut.key.space", defaultValue: "Space")
         case "\r":
             return "↩"
+        case "escape":
+            return "⎋"
         case "media.brightnessDown":
             return String(localized: "shortcut.key.mediaBrightnessDown", defaultValue: "Brightness Down")
         case "media.brightnessUp":
@@ -411,7 +413,7 @@ public struct KeyboardShortcutsSection: View {
                 conflictRejections.removeValue(forKey: key)
                 continue
             }
-            let effective = bindings[action.rawValue] ?? action.defaultStroke.map { StoredShortcut(first: $0) }
+            let effective = bindings[action.rawValue] ?? action.defaultShortcut
             if let effective, detectConflict(for: action, stroke: effective) == nil {
                 conflictRejections.removeValue(forKey: key)
             } else if effective == nil {

@@ -79,7 +79,7 @@ extension KeyboardShortcutSettings.Action {
         case .renameTab, .renameWorkspace, .sendCtrlFToTerminal:
             return .nonBrowserPanel
         case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
-             .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode:
+             .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode, .exitBrowserFocusMode:
             return .browserPanel
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .markdownPanel

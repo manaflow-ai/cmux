@@ -735,13 +735,30 @@ struct BrowserPanelView: View {
     }
 
     private var browserFocusModeShortcutHint: String {
-        String(localized: "browser.focusMode.shortcutHint", defaultValue: "Esc Esc")
+        // Reflect the configured exit binding (default: the ⎋ ⎋ chord) so the hint
+        // stays correct when the user rebinds Exit Browser Focus Mode.
+        let exit = KeyboardShortcutSettings.shortcut(for: .exitBrowserFocusMode)
+        if !exit.isUnbound {
+            return exit.displayString
+        }
+        return String(localized: "browser.focusMode.shortcutHint", defaultValue: "Esc Esc")
     }
 
     private var browserFocusModeEnterShortcutHint: String? {
         let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleBrowserFocusMode)
         guard !shortcut.isUnbound else { return nil }
         return shortcut.displayString
+    }
+
+    private var browserFocusModeArmedText: String {
+        // Armed only happens for a chord exit binding; name the key the user
+        // must press again (default ⎋) so the pill matches a rebound exit.
+        let exit = KeyboardShortcutSettings.shortcut(for: .exitBrowserFocusMode)
+        if exit.hasChord, let second = exit.secondStroke {
+            let format = String(localized: "browser.focusMode.armedWithKey.format", defaultValue: "%@ again to exit")
+            return String(format: format, second.displayString)
+        }
+        return String(localized: "browser.focusMode.armed", defaultValue: "Esc again to exit")
     }
 
     private var shouldShowBrowserFocusModeShortcutHint: Bool {
@@ -1322,7 +1339,7 @@ struct BrowserPanelView: View {
                 if panel.isBrowserFocusModeActive {
                     Text(
                         panel.isBrowserFocusModeExitArmed
-                            ? String(localized: "browser.focusMode.armed", defaultValue: "Esc again to exit")
+                            ? browserFocusModeArmedText
                             : String(localized: "browser.focusMode.active", defaultValue: "Focus Mode")
                     )
                     .font(.system(size: 11, weight: .semibold))

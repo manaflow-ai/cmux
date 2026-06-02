@@ -212,6 +212,12 @@ export const shortcutCategories: ShortcutCategory[] = [
         note: { en: "Gives the focused web page first claim on shortcuts. Press Esc twice to exit.", ja: "フォーカス中のWebページにショートカットの優先権を渡します。Escを2回押すと終了します。" },
       },
       {
+        id: "exitBrowserFocusMode",
+        combos: [["⎋", "⎋"]],
+        description: { en: "Exit browser focus mode", ja: "ブラウザフォーカスモードを終了" },
+        note: { en: "Default is double-Escape; the first press still reaches the page. Rebindable to any key or chord.", ja: "デフォルトはEscの2回押し。最初の押下はページにも届きます。任意のキーやコードに再割り当て可能です。" },
+      },
+      {
         id: "toggleReactGrab",
         combos: [["⌘", "⇧", "G"]],
         description: { en: "Toggle React Grab", ja: "React Grabを切り替え" },
