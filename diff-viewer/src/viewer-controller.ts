@@ -301,12 +301,6 @@ function showStatusMessage(message: string, options: StatusMessageOptions = {}):
   status.textContent = message;
 }
 
-function replaceDocumentWith(text: string): void {
-  document.open();
-  document.write(text);
-  document.close();
-}
-
 async function applyReplacementFrom(response: Response): Promise<boolean> {
   if (!response.ok) {
     showStatusMessage(label("renderFailed"), { error: true, loading: false, statusOnly: true });
@@ -316,7 +310,11 @@ async function applyReplacementFrom(response: Response): Promise<boolean> {
   if (text.includes("data-cmux-diff-pending=\"true\"")) {
     return false;
   }
-  replaceDocumentWith(text);
+  // The deferred page already evaluated main.mjs, and module scripts run once
+  // per realm, so document.write-ing the replacement HTML would leave an empty
+  // #root. Reload instead: a fresh document load re-bootstraps React against
+  // the now-final on-disk HTML the server serves.
+  window.location.reload();
   return true;
 }
 
