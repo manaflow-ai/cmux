@@ -501,6 +501,8 @@ const state = {
   commandStripResizeObserver: null,
   dragPanelId: null,
   dragWorkspaceId: null,
+  workspaceDropTargetId: "",
+  workspaceDropTargetMode: "",
   zoomedPanelId: null,
   zoomedPanelIds: new Map(),
   minimizedPanelIds: new Set(),
@@ -3969,22 +3971,24 @@ function createWorkspaceRow() {
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
     clearWorkspaceListDropTarget();
     if (state.dragPanelId) {
-      button.classList.add("is-drop-target");
+      setWorkspaceRowDropTarget(button, "panel");
       return;
     }
-    if (state.dragWorkspaceId === button.dataset.workspaceId) return;
+    if (state.dragWorkspaceId === button.dataset.workspaceId) {
+      clearWorkspaceRowDropTarget(button);
+      return;
+    }
     const placement = workspaceDropPlacement(event, button);
-    button.classList.toggle("is-workspace-drop-before", placement === "before");
-    button.classList.toggle("is-workspace-drop-after", placement === "after");
+    setWorkspaceRowDropTarget(button, placement);
   });
   button.addEventListener("dragleave", () => {
-    button.classList.remove("is-drop-target", "is-workspace-drop-before", "is-workspace-drop-after");
+    clearWorkspaceRowDropTarget(button);
   });
   button.addEventListener("drop", (event) => {
     event.preventDefault();
     const targetWorkspaceId = button.dataset.workspaceId;
     const workspacePlacement = workspaceDropPlacement(event, button);
-    button.classList.remove("is-drop-target", "is-workspace-drop-before", "is-workspace-drop-after");
+    clearWorkspaceRowDropTarget(button);
     if (state.dragPanelId) movePanelToWorkspace(state.dragPanelId, targetWorkspaceId);
     else if (state.dragWorkspaceId && state.dragWorkspaceId !== targetWorkspaceId) {
       moveWorkspaceRelative(state.dragWorkspaceId, targetWorkspaceId, workspacePlacement);
@@ -3995,6 +3999,30 @@ function createWorkspaceRow() {
 
 function clearWorkspaceListDropTarget() {
   elements.workspaceList.classList.remove("is-workspace-drop-end");
+}
+
+function clearWorkspaceRowDropTarget(row = null) {
+  const target = row || state.workspaceRows.get(state.workspaceDropTargetId);
+  target?.classList?.remove("is-drop-target", "is-workspace-drop-before", "is-workspace-drop-after");
+  if (!row || row.dataset.workspaceId === state.workspaceDropTargetId) {
+    state.workspaceDropTargetId = "";
+    state.workspaceDropTargetMode = "";
+  }
+}
+
+function setWorkspaceRowDropTarget(row, mode) {
+  const workspaceId = row?.dataset?.workspaceId || "";
+  if (!workspaceId || !mode) {
+    clearWorkspaceRowDropTarget();
+    return;
+  }
+  if (state.workspaceDropTargetId === workspaceId && state.workspaceDropTargetMode === mode) return;
+  clearWorkspaceRowDropTarget();
+  row.classList.toggle("is-drop-target", mode === "panel");
+  row.classList.toggle("is-workspace-drop-before", mode === "before");
+  row.classList.toggle("is-workspace-drop-after", mode === "after");
+  state.workspaceDropTargetId = workspaceId;
+  state.workspaceDropTargetMode = mode;
 }
 
 function isWorkspaceRowEvent(event) {
@@ -4015,12 +4043,14 @@ function handleWorkspaceListDragOver(event) {
   if (isWorkspaceRowEvent(event) || !workspaceListCanDropToEnd()) return;
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  clearWorkspaceRowDropTarget();
   elements.workspaceList.classList.add("is-workspace-drop-end");
 }
 
 function handleWorkspaceListDragLeave(event) {
   if (event.currentTarget.contains(event.relatedTarget)) return;
   clearWorkspaceListDropTarget();
+  clearWorkspaceRowDropTarget();
 }
 
 function handleWorkspaceListDrop(event) {
@@ -4028,6 +4058,7 @@ function handleWorkspaceListDrop(event) {
   event.preventDefault();
   const workspaceId = state.dragWorkspaceId;
   clearWorkspaceListDropTarget();
+  clearWorkspaceRowDropTarget();
   updateWorkspaceOrder(workspaceId, { moveToEnd: true });
 }
 
@@ -5800,6 +5831,7 @@ function clearAllDropTargets() {
     node.classList.remove("is-drop-before", "is-drop-after", "is-drop-target", "is-workspace-drop-before", "is-workspace-drop-after");
   }
   clearWorkspaceListDropTarget();
+  clearWorkspaceRowDropTarget();
   for (const pane of document.querySelectorAll(".pane.is-dragging")) pane.classList.remove("is-dragging");
   document.body.classList.remove("pane-drag-active");
   state.panePointerDrag = null;
