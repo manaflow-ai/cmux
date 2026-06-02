@@ -8169,6 +8169,7 @@ function activeWorkspaceSettingsSignature() {
     appendSignatureValue(nextParts, panel.shellProfile);
     appendSignatureValue(nextParts, panel.shellPath);
     appendSignatureValue(nextParts, panel.terminalFontSize || 0);
+    appendSignatureValue(nextParts, panel.backgroundImage || "");
     appendSignatureValue(nextParts, panel.url);
   });
   return parts.join("");
