@@ -1456,20 +1456,20 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .surface-tabs {
   --surface-add-width: 82px;
   --surface-add-gap: 6px;
-  --surface-add-reserve: 178px;
+  --surface-add-reserve: 180px;
   position: relative;
   isolation: isolate;
   container-type: inline-size;
   display: flex;
   align-items: end;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scroll-padding-inline: 10px var(--surface-add-reserve);
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
-  background: color-mix(in oklch, var(--color-terminal-gutter) 88%, var(--color-canvas) 12%);
+  background: color-mix(in oklch, var(--color-terminal-gutter) 84%, var(--color-canvas) 16%);
   padding: 5px 6px 0;
 }
 
@@ -1498,7 +1498,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .surface-tab {
   position: relative;
   appearance: none;
-  height: 29px;
+  height: 30px;
   flex: 0 1 var(--surface-tab-basis, 156px);
   min-inline-size: 0;
   min-width: var(--surface-tab-min, 100px);
@@ -1511,7 +1511,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   border-bottom-color: transparent;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
   padding: 0 4px 0 8px;
-  background: color-mix(in oklch, var(--color-pane) 20%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 28%, transparent);
   color: var(--color-muted);
   font: inherit;
   user-select: none;
@@ -1551,7 +1551,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .surface-tab:hover {
   border-color: color-mix(in oklch, var(--color-line) 70%, transparent);
-  background: color-mix(in oklch, var(--color-pane) 64%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 72%, transparent);
 }
 
 .surface-tab.is-active {
@@ -1755,6 +1755,10 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   padding: 0 3px 0 5px;
 }
 
+.surface-tabs.is-crowded .surface-label {
+  font-size: 11px;
+}
+
 .surface-tabs.is-crowded .surface-tab:hover .surface-label,
 .surface-tabs.is-crowded .surface-tab:focus-within .surface-label,
 .surface-tabs.is-crowded .surface-tab.is-active .surface-label {
@@ -1818,7 +1822,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   align-self: center;
   position: sticky;
   z-index: 3;
-  height: 29px;
+  height: 30px;
   flex: 0 0 var(--surface-add-width);
   min-width: var(--surface-add-width);
   max-width: var(--surface-add-width);
@@ -1829,10 +1833,12 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   padding: 0 8px 0 6px;
   border-color: var(--color-line);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane) 76%, var(--color-chrome) 24%);
+  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-chrome) 16%);
   color: var(--color-muted);
   font: 720 11px/1 var(--font-ui);
-  box-shadow: none;
+  box-shadow:
+    -10px 0 14px -16px var(--color-canvas),
+    inset 0 1px 0 color-mix(in oklch, var(--color-text) 6%, transparent);
   transition:
     border-color var(--dur-fast) var(--ease-out),
     background var(--dur-fast) var(--ease-out),
@@ -2001,7 +2007,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .surface-new-tab:hover {
   border-color: color-mix(in oklch, currentcolor 48%, var(--color-line-strong) 52%);
-  background: var(--color-pane-active);
+  background: color-mix(in oklch, var(--color-pane-active) 88%, currentcolor 12%);
   color: var(--color-text);
 }
 
@@ -2191,7 +2197,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .pane-splitter {
-  flex: 0 0 14px;
+  flex: 0 0 16px;
   position: relative;
   z-index: 4;
   background: transparent;
@@ -2270,18 +2276,18 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .pane-splitter::after {
-  content: attr(data-resize-label);
+  content: attr(data-resize-short);
   position: absolute;
   left: 50%;
   top: 50%;
   z-index: 5;
   min-width: max-content;
   max-width: min(260px, calc(100vw - 32px));
-  padding: 4px 7px;
-  border: 1px solid var(--color-line-strong);
+  padding: 3px 5px;
+  border: 1px solid transparent;
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-chrome) 92%, var(--color-canvas) 8%);
-  color: var(--color-text);
+  background: color-mix(in oklch, var(--color-chrome) 74%, transparent);
+  color: var(--color-faint);
   font-size: 10px;
   font-weight: 650;
   line-height: 1;
@@ -2289,7 +2295,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  opacity: 0;
+  opacity: .48;
   pointer-events: none;
   transform: translate(-50%, -50%);
   transition:
@@ -2300,9 +2306,12 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .pane-splitter:hover::after,
 .pane-splitter:focus-visible::after,
 .pane-splitter.is-dragging::after {
+  content: attr(data-resize-label);
   opacity: 1;
+  padding: 4px 7px;
   border-color: color-mix(in oklch, var(--color-accent) 46%, var(--color-line-strong) 54%);
   background: color-mix(in oklch, var(--color-chrome) 96%, var(--color-accent) 4%);
+  color: var(--color-text);
   transform: translate(-50%, -50%) scale(1.03);
 }
 
@@ -3639,9 +3648,9 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .browser-tab-new {
-  flex: 0 0 30px;
-  min-width: 30px;
-  width: 30px;
+  flex: 0 0 32px;
+  min-width: 32px;
+  width: 32px;
   height: 26px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -3655,7 +3664,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   border-bottom: 0;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
   color: var(--color-text);
-  background: color-mix(in oklch, var(--color-pane) 74%, var(--color-chrome) 26%);
+  background: color-mix(in oklch, var(--color-pane) 82%, var(--color-chrome) 18%);
   font-size: 11px;
   font-weight: 760;
   box-shadow:
@@ -3667,11 +3676,16 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .browser-tab-new-icon {
   display: grid;
   place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 58%, transparent);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 86%, transparent);
 }
 
 .browser-tab-new svg {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
 }
 
 .browser-tab-new-label {
@@ -3685,6 +3699,11 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   box-shadow:
     -8px 0 10px -12px var(--color-canvas),
     inset 0 -2px 0 var(--color-accent);
+}
+
+.browser-tab-new:hover .browser-tab-new-icon {
+  border-color: color-mix(in oklch, var(--color-accent) 42%, var(--color-line-strong) 58%);
+  background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane-active) 90%);
 }
 
 .browser-tab-new.is-drop-before {
@@ -3738,10 +3757,15 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   }
 
   .browser-tab-new {
-    flex-basis: 22px;
-    min-width: 22px;
-    width: 22px;
+    flex-basis: 24px;
+    min-width: 24px;
+    width: 24px;
     height: 24px;
+  }
+
+  .browser-tab-new-icon {
+    width: 18px;
+    height: 18px;
   }
 
   .browser-tab-new svg {
@@ -3807,10 +3831,15 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   }
 
   .browser-tab-new {
-    flex-basis: 20px;
-    min-width: 20px;
-    width: 20px;
+    flex-basis: 22px;
+    min-width: 22px;
+    width: 22px;
     height: 22px;
+  }
+
+  .browser-tab-new-icon {
+    width: 17px;
+    height: 17px;
   }
 
   .browser-tab-new svg {

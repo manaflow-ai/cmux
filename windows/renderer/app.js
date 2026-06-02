@@ -5519,6 +5519,7 @@ function setSplitterResizePercent(splitter, percent, direction = splitter?.datas
     ? `Top ${nextPercent}% / bottom ${100 - nextPercent}%`
     : `Left ${nextPercent}% / right ${100 - nextPercent}%`;
   setDatasetIfChanged(splitter, "resizePercent", String(nextPercent));
+  setDatasetIfChanged(splitter, "resizeShort", `${nextPercent}%`);
   setDatasetIfChanged(splitter, "resizeLabel", label);
   setAttributeIfChanged(splitter, "aria-valuenow", String(nextPercent));
   setAttributeIfChanged(splitter, "aria-valuetext", label);
@@ -7755,6 +7756,35 @@ function showBrowserTabContextMenu(event, session, tabId) {
   showContextMenuAt(menu, event.clientX, event.clientY);
 }
 
+function showBrowserNewTabMenu(event, session) {
+  event.preventDefault();
+  event.stopPropagation();
+  if (!session) return;
+  const activeTab = activeBrowserTab(session);
+  const atLimit = browserTabAtLimit(session);
+  const homeUrl = normalizeUrl(state.settings.browserHomeUrl, defaultSettings.browserHomeUrl);
+  const currentUrl = normalizeUrl(activeTab?.url || session.address?.value || homeUrl, homeUrl);
+  const menu = ensureContextMenu();
+  menu.className = "context-menu";
+  const title = document.createElement("div");
+  title.className = "context-title";
+  title.textContent = t("browser.newTab");
+  const meta = document.createElement("div");
+  meta.className = "context-meta";
+  meta.textContent = atLimit ? browserTabLimitMessage() : hostnameOf(homeUrl) || homeUrl;
+  const actions = contextMenuActionGroup(
+    contextMenuButton(t("browser.newTab"), () => createBrowserTab(session, homeUrl, { focusAddress: true }), atLimit),
+    contextMenuButton("Duplicate current tab", () => activeTab && duplicateBrowserTab(session, activeTab.id), atLimit || !activeTab),
+    contextMenuButton("Open home externally", () => openExternalBrowser(homeUrl, { toast: true })),
+    contextMenuButton(t("browser.openWithProfile"), () => showExternalBrowserProfileMenuAt(event.clientX, event.clientY, currentUrl), false, "", { keepOpen: true })
+  );
+  const settingsActions = contextMenuActionGroup(
+    contextMenuButton(t("browser.settings"), () => openSettingsCategory("browser"))
+  );
+  menu.replaceChildren(title, meta, contextMenuSectionTitle("Browser"), actions, contextMenuSectionTitle("Settings"), settingsActions);
+  showContextMenuAt(menu, event.clientX, event.clientY);
+}
+
 function updateActiveBrowserTabUrl(session, value) {
   const tab = activeBrowserTab(session);
   if (!tab) return;
@@ -8121,6 +8151,7 @@ function ensureBrowser(panel, body) {
   go.onclick = navigate;
   external.onclick = () => openBrowserPanelExternally(panel);
   external.oncontextmenu = (event) => showExternalBrowserProfileMenu(event, browserPanelUrl(panel));
+  tabNew.oncontextmenu = (event) => showBrowserNewTabMenu(event, session);
   tabNew.onclick = (event) => {
     if (browserTabAtLimit(session)) {
       event.preventDefault();
