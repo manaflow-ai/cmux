@@ -632,6 +632,12 @@ const elements = {
   commandStrip: document.querySelector(".command-strip"),
   surfaceTabs: document.getElementById("surfaceTabs"),
   paneGrid: document.getElementById("paneGrid"),
+  paneCreationButtons: [
+    document.getElementById("newTerminalButton"),
+    document.getElementById("splitRightButton"),
+    document.getElementById("splitDownButton"),
+    document.getElementById("newBrowserButton")
+  ].filter(Boolean),
   inspector: document.getElementById("inspector"),
   inspectorTitle: document.getElementById("inspectorTitle"),
   inspectorSubtitle: document.getElementById("inspectorSubtitle"),
@@ -3694,12 +3700,9 @@ function updateOperationChrome() {
   toggleClassIfChanged(elements.shell, "operation-pending", Boolean(label));
   toggleClassIfChanged(elements.statusSummary, "is-busy", Boolean(label));
   setTextIfChanged(elements.statusSummary, label || defaultStatusSummary());
-  for (const id of ["newTerminalButton", "splitRightButton", "splitDownButton", "newBrowserButton"]) {
-    const button = document.getElementById(id);
-    if (button) button.disabled = creatingPane;
-  }
+  for (const button of elements.paneCreationButtons) setDisabledIfChanged(button, creatingPane);
   for (const button of Object.values(state.newSurfaceAddButtons)) {
-    if (button) button.disabled = creatingPane;
+    if (button) setDisabledIfChanged(button, creatingPane);
   }
   updateVisibleEmptyWorkspaceControls();
 }
@@ -4354,7 +4357,7 @@ function getNewSurfaceTab(kind, workspace) {
   setDisabledIfChanged(button, paneCreationButtonsDisabled());
   const title = button.disabled ? paneCreationLimitLabel() : `${config.title}. Right-click to choose right or below.`;
   setTitleIfChanged(button, title);
-  if (button.getAttribute("aria-label") !== title) button.setAttribute("aria-label", title);
+  setAttributeIfChanged(button, "aria-label", title);
   return button;
 }
 
@@ -4601,7 +4604,7 @@ function setPaneToolIcon(button, icon) {
 function updatePaneToolState(button, icon, label) {
   setPaneToolIcon(button, icon);
   setTitleIfChanged(button, label);
-  if (button?.getAttribute("aria-label") !== label) button.setAttribute("aria-label", label);
+  setAttributeIfChanged(button, "aria-label", label);
 }
 
 function renderPaneNode(panel, workspace, visibleCount) {
@@ -4637,16 +4640,14 @@ function renderPaneNode(panel, workspace, visibleCount) {
   setTitleIfChanged(parts.header, `${title} - drag header to move, double-click to rename`);
   updatePaneToolState(parts.zoom, zoomed ? "showAll" : "focus", zoomed ? "Show all panes" : "Focus pane");
   updatePaneToolState(parts.minimize, minimized ? "restore" : "minimize", minimized ? "Restore pane" : "Minimize pane");
-  const terminalOnlyButtons = [parts.fontDown, parts.fontUp, parts.restart];
   for (const button of parts.tools) {
-    button.disabled = (pending && !button.classList.contains("close"))
-      || (terminalOnlyButtons.includes(button) && panel.type !== "terminal");
+    const terminalOnly = button === parts.fontDown || button === parts.fontUp || button === parts.restart;
+    setDisabledIfChanged(button, (pending && !button.classList.contains("close"))
+      || (terminalOnly && panel.type !== "terminal"));
   }
   const closeActionLabel = pending ? "Cancel pane" : closePaneActionLabel(workspace, panel.id);
   setTitleIfChanged(parts.close, closeActionLabel);
-  if (parts.close.getAttribute("aria-label") !== closeActionLabel) {
-    parts.close.setAttribute("aria-label", closeActionLabel);
-  }
+  setAttributeIfChanged(parts.close, "aria-label", closeActionLabel);
   if (pending) {
     renderPendingPane(panel, parts.body);
     return pane;

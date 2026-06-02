@@ -1,6 +1,10 @@
 import {
   replaceChildrenIfChanged,
+  setAttributeIfChanged,
+  setDatasetIfChanged,
+  setDisabledIfChanged,
   setTextIfChanged,
+  setTitleIfChanged,
   toggleClassIfChanged
 } from "./dom-utils.js";
 
@@ -43,7 +47,28 @@ function createLauncherButton() {
     </span>
     <span class="empty-workspace-launcher-plus" aria-hidden="true"></span>
   `;
+  button._emptyLauncherParts = launcherButtonParts(button);
+  button.onclick = () => {
+    if (button.disabled) return;
+    button._emptyLauncherRun?.(button._emptyLauncherConfig);
+  };
   return button;
+}
+
+function launcherButtonParts(button) {
+  button._emptyLauncherParts ||= {
+    icon: button.querySelector(".empty-workspace-launcher-icon"),
+    label: button.querySelector(".empty-workspace-launcher-label"),
+    meta: button.querySelector(".empty-workspace-launcher-meta"),
+    plus: button.querySelector(".empty-workspace-launcher-plus")
+  };
+  return button._emptyLauncherParts;
+}
+
+function setIconMarkupIfChanged(node, key, markup) {
+  if (!node || node.dataset.iconKey === key) return;
+  node.dataset.iconKey = key;
+  node.innerHTML = markup;
 }
 
 function updateLauncherButton(button, launcher, options) {
@@ -51,20 +76,21 @@ function updateLauncherButton(button, launcher, options) {
   const busy = Boolean(options.busy);
   const launcherLabel = `${launcher.label}: ${launcher.meta}`;
   const busyLabel = options.busyLabel || "Action unavailable";
-  button.dataset.emptyLauncher = launcher.id;
+  const parts = launcherButtonParts(button);
+  button._emptyLauncherConfig = launcher;
+  button._emptyLauncherRun = options.onRun;
+  setDatasetIfChanged(button, "emptyLauncher", launcher.id);
   toggleClassIfChanged(button, "is-primary", launcher.primary);
   toggleClassIfChanged(button, "is-add", launcher.addAction);
   toggleClassIfChanged(button, "has-plus", launcher.addAction);
-  button.disabled = busy;
-  button.title = busy ? busyLabel : launcherLabel;
-  button.setAttribute("aria-label", busy ? `${launcherLabel}. ${busyLabel}.` : launcherLabel);
-  button.querySelector(".empty-workspace-launcher-icon").innerHTML = iconMarkup(launcher.icon);
-  setTextIfChanged(button.querySelector(".empty-workspace-launcher-label"), launcher.label);
-  setTextIfChanged(button.querySelector(".empty-workspace-launcher-meta"), launcher.meta);
-  const plus = button.querySelector(".empty-workspace-launcher-plus");
-  toggleClassIfChanged(plus, "is-visible", launcher.addAction);
-  plus.innerHTML = launcher.addAction ? iconMarkup("plus") : "";
-  button.onclick = () => options.onRun?.(launcher);
+  setDisabledIfChanged(button, busy);
+  setTitleIfChanged(button, busy ? busyLabel : launcherLabel);
+  setAttributeIfChanged(button, "aria-label", busy ? `${launcherLabel}. ${busyLabel}.` : launcherLabel);
+  setIconMarkupIfChanged(parts.icon, launcher.icon, iconMarkup(launcher.icon));
+  setTextIfChanged(parts.label, launcher.label);
+  setTextIfChanged(parts.meta, launcher.meta);
+  toggleClassIfChanged(parts.plus, "is-visible", launcher.addAction);
+  setIconMarkupIfChanged(parts.plus, launcher.addAction ? "plus" : "", launcher.addAction ? iconMarkup("plus") : "");
 }
 
 function renderEmptyWorkspaceLaunchers(node, options) {
