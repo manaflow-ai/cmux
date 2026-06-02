@@ -125,6 +125,7 @@ const controlIconSvg = {
   home: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m4 11 8-7 8 7"></path><path d="M6 10v10h12V10"></path></svg>`,
   plus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"></path></svg>`,
   reload: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 1 1-2.34-5.66"></path><path d="M20 4v6h-6"></path></svg>`,
+  browser: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"></circle><path d="M4 12h16M12 4c2.2 2.3 2.2 13.7 0 16M12 4c-2.2 2.3-2.2 13.7 0 16"></path></svg>`,
   browserPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10" cy="12" r="6"></circle><path d="M4 12h12M10 6c1.7 1.9 1.7 10.1 0 12M10 6c-1.7 1.9-1.7 10.1 0 12"></path><path d="M18 14v6M15 17h6"></path></svg>`,
   terminalPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="14" height="14" rx="2"></rect><path d="m7 10 3 3-3 3"></path><path d="M12 16h4"></path><path d="M18 13v6M15 16h6"></path></svg>`,
   up: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"></path></svg>`
@@ -7078,6 +7079,7 @@ function ensureBrowser(panel, body) {
   errorPane.hidden = true;
   errorPane.innerHTML = `
     <div class="browser-error-card">
+      <span class="browser-error-icon" aria-hidden="true">${controlIconMarkup("browser")}</span>
       <span class="browser-error-title"></span>
       <span class="browser-error-body"></span>
       <span class="browser-error-url"></span>
@@ -7085,12 +7087,14 @@ function ensureBrowser(panel, body) {
         <button class="browser-error-action browser-error-retry" type="button">Retry</button>
         <button class="browser-error-action browser-error-open" type="button">Open</button>
         <button class="browser-error-action browser-error-home" type="button">Home</button>
+        <button class="browser-error-action browser-error-settings" type="button">Settings</button>
       </span>
     </div>
   `;
   const loadingPane = document.createElement("div");
   loadingPane.className = "browser-loading";
   loadingPane.innerHTML = `
+    <span class="browser-loading-icon" aria-hidden="true">${controlIconMarkup("browser")}</span>
     <span class="browser-loading-track"></span>
     <span class="browser-loading-title"></span>
     <span class="browser-loading-url"></span>
@@ -7276,6 +7280,7 @@ function ensureBrowser(panel, body) {
     address.value = state.settings.browserHomeUrl;
     navigate();
   };
+  errorPane.querySelector(".browser-error-settings").onclick = () => openSettingsCategory("browser");
   shell.addEventListener("wheel", handleBrowserWheel, { passive: false, capture: true });
   view.addEventListener("wheel", handleBrowserWheel, { passive: false, capture: true });
   address.addEventListener("focus", () => markInteractedPanel(panel.id));

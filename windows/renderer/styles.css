@@ -3367,11 +3367,14 @@ body.reduce-motion *::after {
 .browser-loading-track {
   width: 100%;
   height: 2px;
+  overflow: hidden;
   border-radius: 0;
+  background: color-mix(in oklch, var(--color-line) 72%, transparent);
 }
 
 .browser-loading-title,
-.browser-loading-url {
+.browser-loading-url,
+.browser-loading-icon {
   display: none;
 }
 
@@ -3486,14 +3489,6 @@ body.reduce-motion *::after {
   }
 }
 
-.browser-loading-track {
-  width: min(220px, 62%);
-  height: 2px;
-  overflow: hidden;
-  border-radius: var(--radius-pill);
-  background: color-mix(in oklch, var(--color-line) 72%, transparent);
-}
-
 .browser-loading-track::before {
   content: "";
   display: block;
@@ -3502,6 +3497,46 @@ body.reduce-motion *::after {
   border-radius: inherit;
   background: var(--color-accent);
   animation: browser-loading-track 1.1s var(--ease-in-out) infinite;
+}
+
+.browser-content:not(.has-loaded).is-loading .browser-loading {
+  z-index: 2;
+  align-self: stretch;
+  height: auto;
+  align-content: center;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 94%, transparent), var(--color-canvas));
+  text-align: center;
+}
+
+.browser-content:not(.has-loaded).is-loading .browser-loading-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in oklch, var(--color-accent) 42%, var(--color-line) 58%);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane) 86%);
+  color: var(--color-text);
+}
+
+.browser-content:not(.has-loaded).is-loading .browser-loading-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.browser-content:not(.has-loaded).is-loading .browser-loading-track {
+  width: min(220px, 62%);
+  height: 3px;
+  border-radius: var(--radius-pill);
+}
+
+.browser-content:not(.has-loaded).is-loading .browser-loading-title,
+.browser-content:not(.has-loaded).is-loading .browser-loading-url {
+  display: block;
 }
 
 .browser-loading-title {
@@ -3624,6 +3659,7 @@ body.reduce-motion *::after {
 .browser-error-card {
   width: min(420px, 100%);
   display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
   gap: var(--space-2);
   padding: var(--space-4);
   border: 1px solid var(--color-line);
@@ -3632,7 +3668,26 @@ body.reduce-motion *::after {
   box-shadow: var(--shadow-soft);
 }
 
+.browser-error-icon {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in oklch, var(--color-warning) 42%, var(--color-line) 58%);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-warning) 12%, var(--color-pane) 88%);
+  color: var(--color-text);
+}
+
+.browser-error-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
 .browser-error-title {
+  grid-column: 2;
   color: var(--color-text);
   font-size: 14px;
   font-weight: 760;
@@ -3640,6 +3695,7 @@ body.reduce-motion *::after {
 
 .browser-error-body,
 .browser-error-url {
+  grid-column: 2;
   min-width: 0;
   color: var(--color-muted);
   font-size: 12px;
@@ -3655,6 +3711,7 @@ body.reduce-motion *::after {
 }
 
 .browser-error-actions {
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
@@ -3680,6 +3737,30 @@ body.reduce-motion *::after {
 .browser-error-action:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+@container (max-width: 240px) {
+  .browser-error-card {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    text-align: center;
+  }
+
+  .browser-error-icon,
+  .browser-error-title,
+  .browser-error-body,
+  .browser-error-url,
+  .browser-error-actions {
+    grid-column: 1;
+  }
+
+  .browser-error-icon {
+    grid-row: auto;
+  }
+
+  .browser-error-actions {
+    justify-content: center;
+  }
 }
 
 .browser-status {
