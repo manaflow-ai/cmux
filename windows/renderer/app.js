@@ -3132,6 +3132,32 @@ function defaultStatusSummary(workspace = activeWorkspace(), options = {}) {
   return parts.join(" · ");
 }
 
+function switchHudParts(hud) {
+  hud._switchHudParts ||= {
+    index: hud.querySelector(".workspace-switch-index"),
+    title: hud.querySelector(".workspace-switch-title"),
+    meta: hud.querySelector(".workspace-switch-meta")
+  };
+  return hud._switchHudParts;
+}
+
+function setSwitchHudVisible(hud, visible) {
+  toggleClassIfChanged(hud, "is-visible", visible);
+  const ariaHidden = visible ? "false" : "true";
+  if (hud.getAttribute("aria-hidden") !== ariaHidden) {
+    hud.setAttribute("aria-hidden", ariaHidden);
+  }
+}
+
+function updateSwitchHud(hud, details) {
+  const parts = switchHudParts(hud);
+  setStylePropertyIfChanged(hud, "--workspace-hud-color", details.color);
+  setTextIfChanged(parts.index, details.index);
+  setTextIfChanged(parts.title, details.title);
+  setTextIfChanged(parts.meta, details.meta);
+  setSwitchHudVisible(hud, true);
+}
+
 function showWorkspaceSwitchHud(workspace) {
   if (!workspace || !elements.workspaceSwitchHud) return;
   const workspaces = state.data?.workspaces || [];
@@ -3141,17 +3167,16 @@ function showWorkspaceSwitchHud(workspace) {
     isAppHomeWorkspace(workspace) ? "home" : workspace.cwdShort || workspace.cwd || "no directory",
     panelCount ? `${panelCount} pane${panelCount === 1 ? "" : "s"}` : "home"
   ].filter(Boolean).join(" · ");
-  elements.workspaceSwitchHud.style.setProperty("--workspace-hud-color", workspace.color || state.data?.palette?.[0] || state.settings.accent);
-  setTextIfChanged(elements.workspaceSwitchHud.querySelector(".workspace-switch-index"), `${index + 1} / ${Math.max(1, workspaces.length)}`);
-  setTextIfChanged(elements.workspaceSwitchHud.querySelector(".workspace-switch-title"), workspaceDisplayTitle(workspace, `Workspace ${index + 1}`));
-  setTextIfChanged(elements.workspaceSwitchHud.querySelector(".workspace-switch-meta"), meta);
-  elements.workspaceSwitchHud.classList.add("is-visible");
-  elements.workspaceSwitchHud.setAttribute("aria-hidden", "false");
+  updateSwitchHud(elements.workspaceSwitchHud, {
+    color: workspace.color || state.data?.palette?.[0] || state.settings.accent,
+    index: `${index + 1} / ${Math.max(1, workspaces.length)}`,
+    title: workspaceDisplayTitle(workspace, `Workspace ${index + 1}`),
+    meta
+  });
   if (state.workspaceSwitchHudTimer) clearTimeout(state.workspaceSwitchHudTimer);
   state.workspaceSwitchHudTimer = setTimeout(() => {
     state.workspaceSwitchHudTimer = 0;
-    elements.workspaceSwitchHud.classList.remove("is-visible");
-    elements.workspaceSwitchHud.setAttribute("aria-hidden", "true");
+    setSwitchHudVisible(elements.workspaceSwitchHud, false);
   }, 900);
 }
 
@@ -3163,17 +3188,16 @@ function showPaneSwitchHud(panel, workspace = activeWorkspace()) {
   const location = panel.type === "browser"
     ? hostnameOf(panel.url || state.settings.browserHomeUrl)
     : panel.cwdShort || panel.cwd || workspace.cwdShort || "~";
-  elements.paneSwitchHud.style.setProperty("--workspace-hud-color", panel.color || workspace.color || state.data?.palette?.[0] || state.settings.accent);
-  setTextIfChanged(elements.paneSwitchHud.querySelector(".workspace-switch-index"), `${index + 1} / ${Math.max(1, panels.length)}`);
-  setTextIfChanged(elements.paneSwitchHud.querySelector(".workspace-switch-title"), panelDisplayTitle(panel, false));
-  setTextIfChanged(elements.paneSwitchHud.querySelector(".workspace-switch-meta"), `${panelType} · ${location}`);
-  elements.paneSwitchHud.classList.add("is-visible");
-  elements.paneSwitchHud.setAttribute("aria-hidden", "false");
+  updateSwitchHud(elements.paneSwitchHud, {
+    color: panel.color || workspace.color || state.data?.palette?.[0] || state.settings.accent,
+    index: `${index + 1} / ${Math.max(1, panels.length)}`,
+    title: panelDisplayTitle(panel, false),
+    meta: `${panelType} · ${location}`
+  });
   if (state.paneSwitchHudTimer) clearTimeout(state.paneSwitchHudTimer);
   state.paneSwitchHudTimer = setTimeout(() => {
     state.paneSwitchHudTimer = 0;
-    elements.paneSwitchHud.classList.remove("is-visible");
-    elements.paneSwitchHud.setAttribute("aria-hidden", "true");
+    setSwitchHudVisible(elements.paneSwitchHud, false);
   }, 720);
 }
 
