@@ -22206,13 +22206,7 @@ struct CMUXCLI {
     }
 
     private func readTranscriptSummary(path: String) -> TranscriptSummary? {
-        let expandedPath = NSString(string: path).expandingTildeInPath
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: expandedPath)) else {
-            return nil
-        }
-        guard let content = String(data: data, encoding: .utf8) else { return nil }
-
-        let lines = content.components(separatedBy: "\n")
+        guard let lines = readRecentTranscriptLines(path: path) else { return nil }
 
         var lastAssistantMessage: String?
 
@@ -22234,6 +22228,36 @@ struct CMUXCLI {
 
         guard lastAssistantMessage != nil else { return nil }
         return TranscriptSummary(lastAssistantMessage: lastAssistantMessage)
+    }
+
+    private func readRecentTranscriptLines(
+        path: String,
+        maxBytes: UInt64 = 1_048_576
+    ) -> [String]? {
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
+            return nil
+        }
+        defer { try? handle.close() }
+
+        let size: UInt64
+        do {
+            size = try handle.seekToEnd()
+            let start = size > maxBytes ? size - maxBytes : 0
+            try handle.seek(toOffset: start)
+            guard let data = try handle.readToEnd(), !data.isEmpty else {
+                return nil
+            }
+            var text = String(decoding: data, as: UTF8.self)
+            if start > 0, let newline = text.firstIndex(of: "\n") {
+                text.removeSubrange(...newline)
+            } else if start > 0 {
+                text.removeAll()
+            }
+            return text.components(separatedBy: "\n")
+        } catch {
+            return nil
+        }
     }
 
     private struct CodexHookFailureSummary {
@@ -28471,19 +28495,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         path: String,
         matchingToolName: String?
     ) -> [String: Any]? {
-        let expandedPath = NSString(string: path).expandingTildeInPath
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: expandedPath)),
-              let content = String(data: data, encoding: .utf8)
-        else {
-            return nil
-        }
+        guard let lines = readRecentTranscriptLines(path: path) else { return nil }
 
         var lastUserMessage: String?
         var lastAssistantText: String?
         var permissionMode: String?
         var matchedContext: [String: Any]?
 
-        for line in content.components(separatedBy: "\n") {
+        for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
                   let lineData = trimmed.data(using: .utf8),
