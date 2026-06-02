@@ -2918,9 +2918,8 @@ class TerminalController {
 #endif
 
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
-        let v2Request = parseV2SocketRequest(command)
         if Thread.isMainThread,
-           let request = v2Request,
+           let request = parseV2SocketRequest(command),
            Self.executionPolicy(forV2Method: request.method) == .socketWorker,
            !Self.mainThreadCallableSocketWorkerV2Methods.contains(request.method) {
             return v2Error(
