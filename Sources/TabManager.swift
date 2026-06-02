@@ -7948,6 +7948,17 @@ class TabManager: ObservableObject {
         return tab.panels[panelId] as? BrowserPanel
     }
 
+    /// Returns the focused panel if it's a MarkdownPanel showing the rendered
+    /// preview, nil otherwise. Zoom applies to the preview WKWebView, so the raw
+    /// text-edit mode is deliberately excluded.
+    var focusedMarkdownPanel: MarkdownPanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId,
+              let panel = tab.panels[panelId] as? MarkdownPanel,
+              panel.displayMode == .preview else { return nil }
+        return panel
+    }
+
     @discardableResult
     func zoomInFocusedBrowser() -> Bool {
         focusedBrowserPanel?.zoomIn() ?? false
@@ -7961,6 +7972,21 @@ class TabManager: ObservableObject {
     @discardableResult
     func resetZoomFocusedBrowser() -> Bool {
         focusedBrowserPanel?.resetZoom() ?? false
+    }
+
+    @discardableResult
+    func zoomInFocusedMarkdown() -> Bool {
+        focusedMarkdownPanel?.zoomIn() ?? false
+    }
+
+    @discardableResult
+    func zoomOutFocusedMarkdown() -> Bool {
+        focusedMarkdownPanel?.zoomOut() ?? false
+    }
+
+    @discardableResult
+    func resetZoomFocusedMarkdown() -> Bool {
+        focusedMarkdownPanel?.resetZoom() ?? false
     }
 
     @discardableResult
