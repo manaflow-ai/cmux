@@ -5833,6 +5833,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
               cmuxSurfacePointerAppearsLive(surface) else {
             let callbackContext = surfaceCallbackContext
             surfaceCallbackContext = nil
+            // Detach the about-to-be-freed context from the (stale but not yet
+            // freed) surface so a late callback can't dereference it.
+            ghostty_surface_set_userdata(surface, nil)
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
@@ -6343,6 +6346,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         ))
         let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(surfaceView: view, terminalSurface: self))
         surfaceConfig.userdata = callbackContext.toOpaque()
+        // If a previous surface is still alive, it holds the old context as its
+        // userdata. We're about to release that context, so detach it from the
+        // surface first — otherwise a queued mailbox action could hand the freed
+        // context back to a callback (the root cause of the handleAction UAF).
+        if let staleSurface = surface {
+            ghostty_surface_set_userdata(staleSurface, nil)
+        }
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
