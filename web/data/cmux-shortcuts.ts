@@ -221,6 +221,11 @@ export const shortcutCategories: ShortcutCategory[] = [
     titleKey: "diffViewer",
     shortcuts: [
       {
+        id: "openDiffViewer",
+        combos: [["⌃", "⌘", "D"]],
+        description: { en: "Open diff viewer", ja: "差分ビューアを開く" },
+      },
+      {
         id: "diffViewerScrollDown",
         combos: [["J"]],
         description: { en: "Scroll diff down", ja: "差分を下にスクロール" },

@@ -1971,6 +1971,64 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testOpenDiffViewerShortcutDefaultsToCmdCtrlDAndRoutesToSharedDiffPath() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        // Default is Cmd+Ctrl+D (the natural Cmd+Shift+D collides with Split Down), and
+        // it must be conflict-free so the recorder accepts it as-is.
+        let cmdCtrlD = StoredShortcut(key: "d", command: true, shift: false, option: false, control: true)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .openDiffViewer), cmdCtrlD)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.openDiffViewer.normalizedRecordedShortcutResult(cmdCtrlD),
+            .accepted(cmdCtrlD),
+            "Default Open Diff Viewer shortcut must not conflict with any other action"
+        )
+        XCTAssertTrue(
+            KeyboardShortcutSettings.settingsVisibleActions.contains(.openDiffViewer),
+            "Open Diff Viewer must be visible/editable in Settings → Keyboard Shortcuts"
+        )
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        guard let targetWindow = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        // Intercept the shared diff-open path so the dispatch test never spawns a
+        // subprocess; we only assert the shortcut routes here.
+        var openDiffViewerCount = 0
+        appDelegate.debugOpenDiffViewerHandler = { openDiffViewerCount += 1 }
+        defer { appDelegate.debugOpenDiffViewerHandler = nil }
+
+        guard let event = makeKeyDownEvent(
+            key: "d",
+            modifiers: [.command, .control],
+            keyCode: 2, // kVK_ANSI_D
+            windowNumber: targetWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Ctrl+D event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+Ctrl+D should be consumed by the Open Diff Viewer shortcut"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertEqual(
+            openDiffViewerCount,
+            1,
+            "Cmd+Ctrl+D must route to the shared diff-open path (same path as the command palette)"
+        )
+    }
+
     func testCmdCtrlWPromptsBeforeClosingWindow() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
