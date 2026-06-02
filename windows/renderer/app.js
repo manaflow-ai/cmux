@@ -6771,7 +6771,7 @@ function renderSettingsInspector(options = {}) {
   state.settingsScrollResetPending = false;
   const signature = settingsInspectorSignature();
   if (
-    options.ifChanged
+    options.force !== true
     && signature === state.settingsInspectorSignature
     && elements.inspectorBody.querySelector(".settings-react-host")
   ) {
