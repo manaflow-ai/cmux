@@ -6676,6 +6676,10 @@ function ensureBrowser(panel, body) {
   external.onclick = () => openBrowserPanelExternally(panel);
   external.oncontextmenu = (event) => showExternalBrowserProfileMenu(event, browserPanelUrl(panel));
   tabNew.onclick = () => createBrowserTab(session, state.settings.browserHomeUrl);
+  tabStrip.addEventListener("dblclick", (event) => {
+    if (event.target.closest?.(".browser-tab, .browser-tab-new, button, input")) return;
+    createBrowserTab(session, state.settings.browserHomeUrl);
+  });
   deferredPane.onclick = () => {
     focusPanel(panel.id);
     loadDeferredBrowserSession(session);

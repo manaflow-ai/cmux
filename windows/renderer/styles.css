@@ -2691,6 +2691,7 @@ body.reduce-motion *::after {
 
 .browser-tab-new {
   flex: 0 0 30px;
+  min-width: 30px;
   width: 30px;
   height: 26px;
   display: grid;
@@ -2702,6 +2703,7 @@ body.reduce-motion *::after {
   color: var(--color-muted);
   background: color-mix(in oklch, var(--color-pane) 42%, transparent);
   font: 700 16px/1 var(--font-mono);
+  box-shadow: -8px 0 10px -12px var(--color-canvas);
   z-index: 1;
 }
 
@@ -2709,6 +2711,9 @@ body.reduce-motion *::after {
   border-color: var(--color-line);
   color: var(--color-text);
   background: var(--color-pane);
+  box-shadow:
+    -8px 0 10px -12px var(--color-canvas),
+    inset 0 1px 0 color-mix(in oklch, var(--color-text) 10%, transparent);
 }
 
 .browser-tab-new.is-drop-before {
@@ -2748,6 +2753,7 @@ body.reduce-motion *::after {
 
   .browser-tab-new {
     flex-basis: 22px;
+    min-width: 22px;
     width: 22px;
     height: 24px;
     font-size: 14px;
@@ -2808,6 +2814,7 @@ body.reduce-motion *::after {
 
   .browser-tab-new {
     flex-basis: 20px;
+    min-width: 20px;
     width: 20px;
     height: 22px;
     font-size: 13px;
