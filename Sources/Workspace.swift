@@ -17724,6 +17724,22 @@ final class Workspace: Identifiable, ObservableObject {
     func recordForkedAgentFallbackSnapshot(_ snapshot: SessionRestorableAgentSnapshot, panelId: UUID) {
         guard panels[panelId] is TerminalPanel else { return }
         forkedAgentFallbackSnapshotsByPanelId[panelId] = snapshot
+        if let binding = forkedAgentStartupBinding(snapshot) {
+            surfaceResumeBindingsByPanelId[panelId] = binding
+        }
+    }
+
+    private func forkedAgentStartupBinding(_ snapshot: SessionRestorableAgentSnapshot) -> SurfaceResumeBindingSnapshot? {
+        guard let command = snapshot.forkCommand else { return nil }
+        return SurfaceResumeBindingSnapshot(
+            name: snapshot.agentDisplayName,
+            kind: snapshot.kind.rawValue,
+            command: command,
+            cwd: snapshot.workingDirectory,
+            checkpointId: snapshot.sessionId,
+            source: "agent-hook",
+            autoResume: true
+        )
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
