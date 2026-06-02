@@ -188,15 +188,30 @@ button {
   -webkit-app-region: no-drag;
 }
 
+.window-resize-edge::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background: color-mix(in oklch, var(--color-accent) 46%, transparent);
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.window-resize-edge:hover::after,
+.shell.window-resizing .window-resize-edge::after {
+  opacity: .38;
+}
+
 .shell.window-maximized .window-resize-edge {
   display: none;
 }
 
 .window-resize-edge-top,
 .window-resize-edge-bottom {
-  left: 14px;
-  right: 14px;
-  height: 5px;
+  left: 18px;
+  right: 18px;
+  height: 6px;
   cursor: ns-resize;
 }
 
@@ -210,9 +225,9 @@ button {
 
 .window-resize-edge-right,
 .window-resize-edge-left {
-  top: 14px;
-  bottom: 14px;
-  width: 5px;
+  top: 18px;
+  bottom: 18px;
+  width: 8px;
   cursor: ew-resize;
 }
 
@@ -228,8 +243,8 @@ button {
 .window-resize-corner-top-right,
 .window-resize-corner-bottom-right,
 .window-resize-corner-bottom-left {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
 }
 
 .window-resize-corner-top-left {
