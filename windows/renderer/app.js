@@ -1490,6 +1490,51 @@ async function showExternalBrowserProfileMenu(event, url = state.settings.browse
   return showExternalBrowserProfileMenuAt(event.clientX, event.clientY, url);
 }
 
+function showNewTerminalMenu(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  const menu = ensureContextMenu();
+  menu.className = "context-menu";
+  const workspace = activeWorkspace();
+  const disabled = !workspace || paneCreationButtonsDisabled();
+  const title = document.createElement("div");
+  title.className = "context-title";
+  title.textContent = "New terminal";
+  const meta = document.createElement("div");
+  meta.className = "context-meta";
+  meta.textContent = workspace
+    ? `${workspaceDisplayTitle(workspace)} / ${optionLabel(terminalProfiles, state.settings.terminalProfile, "Auto")}`
+    : "Open a workspace first";
+  const createProfile = (direction, shellProfile = state.settings.terminalProfile) => createTerminalPanel(direction, {
+    workspaceId: workspace?.id,
+    shellProfile
+  });
+  const placementActions = contextMenuActionGroup(
+    contextMenuButton("Terminal right", () => createProfile("right"), disabled),
+    contextMenuButton("Terminal below", () => createProfile("down"), disabled)
+  );
+  const profileActions = contextMenuActionGroup(...terminalProfiles.map(([id, label]) => {
+    const isCustomMissing = id === "custom" && !state.settings.terminalCustomShell;
+    const suffix = id === state.settings.terminalProfile ? " (default)" : "";
+    return contextMenuButton(`${label}${suffix}`, () => createProfile("right", id), disabled || isCustomMissing);
+  }));
+  const settingsActions = contextMenuActionGroup(
+    contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
+    contextMenuButton("Shell path", () => openSettingsCategory("terminal", { query: "shell path", focusSearch: true }))
+  );
+  menu.replaceChildren(
+    title,
+    meta,
+    contextMenuSectionTitle("Placement"),
+    placementActions,
+    contextMenuSectionTitle("Shell profile"),
+    profileActions,
+    contextMenuSectionTitle("Settings"),
+    settingsActions
+  );
+  showContextMenuAt(menu, event.clientX, event.clientY);
+}
+
 function hasRecentActivity() {
   return Boolean(
     state.recentFolders.length
@@ -18251,7 +18296,9 @@ function announceNewAttention(previous, next) {
 
 document.getElementById("newWorkspaceButton").onclick = () => createWorkspace();
 document.getElementById("resetSessionButton").onclick = () => resetSession();
-document.getElementById("newTerminalButton").onclick = () => createTerminalPanel("right");
+const newTerminalButton = document.getElementById("newTerminalButton");
+newTerminalButton.onclick = () => createTerminalPanel("right");
+newTerminalButton.oncontextmenu = showNewTerminalMenu;
 document.getElementById("splitRightButton").onclick = () => splitActivePanel("right");
 document.getElementById("splitDownButton").onclick = () => splitActivePanel("down");
 const newBrowserButton = document.getElementById("newBrowserButton");
