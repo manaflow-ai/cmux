@@ -756,6 +756,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     enum WorkspaceCreationContextSelectionReason: String, Equatable {
+        case eventWindow = "event_window"
+        case eventContextRequiredNoFallback = "event_context_required_no_fallback"
         case debugPreferredWindow = "debug_preferred_window"
         case keyWindow = "key_window"
         case mainWindow = "main_window"
@@ -766,6 +768,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     struct WorkspaceCreationContextSelection: Equatable {
         let windowId: UUID?
         let reason: WorkspaceCreationContextSelectionReason
+    }
+
+    static func selectWorkspaceCreationContext(
+        eventWindowId: UUID?,
+        hasAddressableEventWindow: Bool,
+        debugPreferredWindowId: UUID?,
+        keyWindowId: UUID?,
+        mainWindowId: UUID?,
+        orderedWindowIds: [UUID],
+        fallbackCandidates: [WorkspaceCreationContextCandidate]
+    ) -> WorkspaceCreationContextSelection {
+        if let eventWindowId {
+            return WorkspaceCreationContextSelection(
+                windowId: eventWindowId,
+                reason: .eventWindow
+            )
+        }
+
+        if hasAddressableEventWindow {
+            return WorkspaceCreationContextSelection(
+                windowId: nil,
+                reason: .eventContextRequiredNoFallback
+            )
+        }
+
+        return selectWorkspaceCreationContextAfterEventResolution(
+            debugPreferredWindowId: debugPreferredWindowId,
+            keyWindowId: keyWindowId,
+            mainWindowId: mainWindowId,
+            orderedWindowIds: orderedWindowIds,
+            fallbackCandidates: fallbackCandidates
+        )
     }
 
     static func selectWorkspaceCreationContextAfterEventResolution(
@@ -7202,18 +7236,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return (preferredContext, livePreferredContext)
     }
 
-#if DEBUG
-    func debugNewWorkspaceActionContextForTesting(
-        tabManager preferredTabManager: TabManager? = nil,
-        event: NSEvent? = nil,
-        debugSource: String = "test"
-    ) -> MainWindowContext? {
-        let preferred = preferredNewWorkspaceActionContext(tabManager: preferredTabManager)
-        return preferred.livePreferredContext
-            ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
-    }
-#endif
-
     private func executeConfiguredNewWorkspaceActionIfAvailable(
         in context: MainWindowContext,
         debugSource: String,
@@ -7849,28 +7871,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         }
 
-        if let context = mainWindowContext(forShortcutEvent: event, debugSource: debugSource) {
-            return context
-        }
-
-        // If a keyboard event identifies a specific window but that context
-        // can't be resolved, do not fall back to another window.
-        if shortcutEventHasAddressableWindow(event) {
-#if DEBUG
-            logWorkspaceCreationRouting(
-                phase: "choose",
-                source: debugSource,
-                reason: "event_context_required_no_fallback",
-                event: event,
-                chosenContext: nil
-            )
-#endif
-            return nil
-        }
+        let eventContext = mainWindowContext(forShortcutEvent: event, debugSource: debugSource)
+        let hasAddressableEventWindow = shortcutEventHasAddressableWindow(event)
+        let shouldResolveFallbackSources = eventContext == nil && !hasAddressableEventWindow
 
         let debugPreferredContext: MainWindowContext?
 #if DEBUG
-        if let debugPreferredWindow = debugPreferredWorkspaceCreationWindowOverride {
+        if shouldResolveFallbackSources,
+           let debugPreferredWindow = debugPreferredWorkspaceCreationWindowOverride {
             debugPreferredContext = contextForMainTerminalWindow(debugPreferredWindow)
         } else {
             debugPreferredContext = nil
@@ -7879,19 +7887,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugPreferredContext = nil
 #endif
         let keyContext: MainWindowContext?
-        if debugPreferredContext == nil {
+        if shouldResolveFallbackSources && debugPreferredContext == nil {
             keyContext = NSApp.keyWindow.flatMap { contextForMainTerminalWindow($0) }
         } else {
             keyContext = nil
         }
         let mainContext: MainWindowContext?
-        if debugPreferredContext == nil && keyContext == nil {
+        if shouldResolveFallbackSources && debugPreferredContext == nil && keyContext == nil {
             mainContext = NSApp.mainWindow.flatMap { contextForMainTerminalWindow($0) }
         } else {
             mainContext = nil
         }
         let orderedContexts: [MainWindowContext]
-        if debugPreferredContext == nil && keyContext == nil && mainContext == nil {
+        if shouldResolveFallbackSources && debugPreferredContext == nil && keyContext == nil && mainContext == nil {
             orderedContexts = NSApp.orderedWindows.compactMap { window -> MainWindowContext? in
                 guard isMainTerminalWindow(window) else { return nil }
                 return contextForMainTerminalWindow(window)
@@ -7904,7 +7912,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mainContext == nil &&
             orderedContexts.isEmpty
         let fallbackCandidates: [WorkspaceCreationContextCandidate]
-        if shouldUseFallback {
+        if shouldResolveFallbackSources && shouldUseFallback {
             fallbackCandidates = mainWindowContexts.values.map { context in
                 WorkspaceCreationContextCandidate(
                     windowId: context.windowId,
@@ -7914,7 +7922,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             fallbackCandidates = []
         }
-        let selection = Self.selectWorkspaceCreationContextAfterEventResolution(
+        let selection = Self.selectWorkspaceCreationContext(
+            eventWindowId: eventContext?.windowId,
+            hasAddressableEventWindow: hasAddressableEventWindow,
             debugPreferredWindowId: debugPreferredContext?.windowId,
             keyWindowId: keyContext?.windowId,
             mainWindowId: mainContext?.windowId,

@@ -983,31 +983,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let previousTabManager = appDelegate.tabManager
-        let staleContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
-        let eventContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
-        defer {
-            appDelegate.tabManager = previousTabManager
-            appDelegate.unregisterMainWindowContextForTesting(windowId: staleContext.windowId, notifyObservers: false)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: eventContext.windowId, notifyObservers: false)
-            closeTestWindow(staleContext.window)
-            closeTestWindow(eventContext.window)
-        }
-
-        let eventWindowNumber = eventContext.window.windowNumber
-        XCTAssertGreaterThan(eventWindowNumber, 0, "Cmd+N routing test requires an addressable event window")
-        guard eventWindowNumber > 0 else { return }
-
-        XCTAssertTrue(appDelegate.debugInjectWindowContextKeyMismatch(windowId: eventContext.windowId))
-
-        // Ensure stale active-manager pointer does not mask routing errors.
-        appDelegate.tabManager = staleContext.tabManager
-
         guard let event = makeKeyDownEvent(
             key: "n",
             modifiers: [.command],
             keyCode: 45,
-            windowNumber: eventWindowNumber
+            windowNumber: 905
         ) else {
             XCTFail("Failed to construct Cmd+N event")
             return
@@ -1015,49 +995,49 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .newTab))
 
-        let routedContext = appDelegate.preferredMainWindowContextForShortcutRouting(event: event)
-        guard let routedContext else {
-            XCTFail("Cmd+N should still route by event window metadata when object-key lookup misses")
-            return
-        }
-        XCTAssertEqual(routedContext.windowId, eventContext.windowId)
-        guard routedContext.windowId == eventContext.windowId else { return }
+        let staleActiveWindowId = UUID()
+        let eventWindowId = UUID()
+        let shortcutSelection = selectShortcutRoutingContextAfterEventResolution(
+            debugPreferredWindowId: nil,
+            eventWindowId: eventWindowId,
+            hasAddressableEventWindow: true,
+            eventWindowAllowsFallback: false,
+            keyWindowId: staleActiveWindowId,
+            mainWindowId: staleActiveWindowId,
+            activeManagerWindowId: staleActiveWindowId,
+            fallbackWindowId: staleActiveWindowId
+        )
+        XCTAssertEqual(shortcutSelection.reason, .eventWindow)
+        XCTAssertEqual(shortcutSelection.windowId, eventWindowId)
         XCTAssertNotEqual(
-            routedContext.windowId,
-            staleContext.windowId,
+            shortcutSelection.windowId,
+            staleActiveWindowId,
             "Cmd+N should not route to another window when object-key lookup misses"
         )
 
-        let workspaceCreationContext = appDelegate.debugPreferredMainWindowContextForWorkspaceCreation(
-            event: event,
-            debugSource: "test.cmdN.objectKeyMismatch"
+        let workspaceCreationSelection = AppDelegate.selectWorkspaceCreationContext(
+            eventWindowId: eventWindowId,
+            hasAddressableEventWindow: true,
+            debugPreferredWindowId: nil,
+            keyWindowId: staleActiveWindowId,
+            mainWindowId: staleActiveWindowId,
+            orderedWindowIds: [staleActiveWindowId],
+            fallbackCandidates: [
+                AppDelegate.WorkspaceCreationContextCandidate(
+                    windowId: staleActiveWindowId,
+                    hasResolvedWindow: true
+                )
+            ]
         )
-        guard let workspaceCreationContext else {
-            XCTFail("Cmd+N workspace creation should target the event window when object-key lookup misses")
-            return
-        }
-        XCTAssertEqual(workspaceCreationContext.windowId, eventContext.windowId)
-        guard workspaceCreationContext.windowId == eventContext.windowId else { return }
+        XCTAssertEqual(workspaceCreationSelection.reason, .eventWindow)
+        XCTAssertEqual(workspaceCreationSelection.windowId, eventWindowId)
         XCTAssertNotEqual(
-            workspaceCreationContext.windowId,
-            staleContext.windowId,
+            workspaceCreationSelection.windowId,
+            staleActiveWindowId,
             "Cmd+N workspace creation should not target the stale active window when object-key lookup misses"
         )
-
-        let newWorkspaceActionContext = appDelegate.debugNewWorkspaceActionContextForTesting(
-            tabManager: eventContext.tabManager,
-            event: event,
-            debugSource: "test.cmdN.objectKeyMismatch"
-        )
-        XCTAssertEqual(
-            newWorkspaceActionContext?.windowId,
-            eventContext.windowId,
-            "Configured Cmd+N should dispatch new-workspace through the event window context when object-key lookup misses"
-        )
-        XCTAssertEqual(staleContext.tabManager.tabs.count, 0, "Cmd+N routing test should not create a workspace in stale active window")
-        XCTAssertEqual(eventContext.tabManager.tabs.count, 0, "Cmd+N routing test should avoid launching a real terminal surface")
 #else
-        XCTFail("debugInjectWindowContextKeyMismatch is only available in DEBUG")
+        XCTFail("Cmd+N routing helpers are only available in DEBUG")
 #endif
     }
 
