@@ -353,7 +353,10 @@ func resolvedBrowserChromeColorScheme(
         for: colorScheme,
         themeBackgroundColor: themeBackgroundColor
     )
-    return backgroundColor.isLightColor ? .light : .dark
+    let readableBackgroundColor = backgroundColor.alphaComponent < 0.999
+        ? cmuxCompositedNSColor(backgroundColor, over: .windowBackgroundColor)
+        : backgroundColor
+    return readableBackgroundColor.isLightColor ? .light : .dark
 }
 
 func resolvedBrowserOmnibarPillBackgroundColor(
@@ -370,7 +373,11 @@ func resolvedBrowserOmnibarPillBackgroundColor(
         darkenMix = 0.04
     }
 
-    return themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
+    let alpha = themeBackgroundColor.alphaComponent
+    let opaqueBackgroundColor = themeBackgroundColor.withAlphaComponent(1)
+    let blendedColor = opaqueBackgroundColor.blended(withFraction: darkenMix, of: .black)
+        ?? opaqueBackgroundColor
+    return blendedColor.withAlphaComponent(alpha)
 }
 
 private struct BrowserChromeStyle {
@@ -382,17 +389,18 @@ private struct BrowserChromeStyle {
         for colorScheme: ColorScheme,
         themeBackgroundColor: NSColor
     ) -> BrowserChromeStyle {
-        let backgroundColor = resolvedBrowserChromeBackgroundColor(
+        let themeFillColor = resolvedBrowserChromeBackgroundColor(
             for: colorScheme,
             themeBackgroundColor: themeBackgroundColor
         )
+        let backgroundColor = themeFillColor.alphaComponent < 0.999 ? .clear : themeFillColor
         let chromeColorScheme = resolvedBrowserChromeColorScheme(
             for: colorScheme,
-            themeBackgroundColor: backgroundColor
+            themeBackgroundColor: themeFillColor
         )
         let omnibarPillBackgroundColor = resolvedBrowserOmnibarPillBackgroundColor(
             for: chromeColorScheme,
-            themeBackgroundColor: backgroundColor
+            themeBackgroundColor: themeFillColor
         )
         return BrowserChromeStyle(
             backgroundColor: backgroundColor,
@@ -460,7 +468,7 @@ struct BrowserPanelView: View {
     @State private var isBrowserThemeMenuPresented = false
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
         for: .light,
-        themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
+        themeBackgroundColor: GhosttyBackgroundTheme.currentTranslucentColor()
     )
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
@@ -1683,7 +1691,7 @@ struct BrowserPanelView: View {
     private func refreshBrowserChromeStyle() {
         browserChromeStyle = BrowserChromeStyle.resolve(
             for: colorScheme,
-            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
+            themeBackgroundColor: GhosttyBackgroundTheme.currentTranslucentColor()
         )
     }
 

@@ -44,6 +44,15 @@ enum GhosttyBackgroundTheme {
         WindowAppearanceSnapshot.clampedOpacity(opacity)
     }
 
+    static func translucentColor(backgroundColor: NSColor, opacity: Double) -> NSColor {
+        backgroundColor.withAlphaComponent(clampedOpacity(opacity))
+    }
+
+    static func surfaceFillColor(backgroundColor: NSColor, opacity: Double) -> NSColor {
+        let color = translucentColor(backgroundColor: backgroundColor, opacity: opacity)
+        return color.alphaComponent < 0.999 ? .clear : color
+    }
+
     static func color(backgroundColor: NSColor, opacity: Double) -> NSColor {
         WindowAppearanceSnapshot.compositedTerminalColor(
             backgroundColor: backgroundColor,
@@ -51,11 +60,11 @@ enum GhosttyBackgroundTheme {
         )
     }
 
-    static func color(
+    private static func backgroundComponents(
         from notification: Notification?,
         fallbackColor: NSColor,
         fallbackOpacity: Double
-    ) -> NSColor {
+    ) -> (color: NSColor, opacity: Double) {
         let userInfo = notification?.userInfo
         let backgroundColor =
             (userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
@@ -70,7 +79,62 @@ enum GhosttyBackgroundTheme {
             opacity = fallbackOpacity
         }
 
-        return color(backgroundColor: backgroundColor, opacity: opacity)
+        return (backgroundColor, opacity)
+    }
+
+    static func color(
+        from notification: Notification?,
+        fallbackColor: NSColor,
+        fallbackOpacity: Double
+    ) -> NSColor {
+        let components = backgroundComponents(
+            from: notification,
+            fallbackColor: fallbackColor,
+            fallbackOpacity: fallbackOpacity
+        )
+        return color(backgroundColor: components.color, opacity: components.opacity)
+    }
+
+    static func translucentColor(
+        from notification: Notification?,
+        fallbackColor: NSColor,
+        fallbackOpacity: Double
+    ) -> NSColor {
+        let components = backgroundComponents(
+            from: notification,
+            fallbackColor: fallbackColor,
+            fallbackOpacity: fallbackOpacity
+        )
+        return translucentColor(backgroundColor: components.color, opacity: components.opacity)
+    }
+
+    static func surfaceFillColor(
+        from notification: Notification?,
+        fallbackColor: NSColor,
+        fallbackOpacity: Double
+    ) -> NSColor {
+        let components = backgroundComponents(
+            from: notification,
+            fallbackColor: fallbackColor,
+            fallbackOpacity: fallbackOpacity
+        )
+        return surfaceFillColor(backgroundColor: components.color, opacity: components.opacity)
+    }
+
+    static func translucentColor(from notification: Notification?) -> NSColor {
+        translucentColor(
+            from: notification,
+            fallbackColor: GhosttyApp.shared.defaultBackgroundColor,
+            fallbackOpacity: GhosttyApp.shared.defaultBackgroundOpacity
+        )
+    }
+
+    static func surfaceFillColor(from notification: Notification?) -> NSColor {
+        surfaceFillColor(
+            from: notification,
+            fallbackColor: GhosttyApp.shared.defaultBackgroundColor,
+            fallbackOpacity: GhosttyApp.shared.defaultBackgroundOpacity
+        )
     }
 
     static func color(from notification: Notification?) -> NSColor {
@@ -83,6 +147,20 @@ enum GhosttyBackgroundTheme {
 
     static func currentColor() -> NSColor {
         color(
+            backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
+            opacity: GhosttyApp.shared.defaultBackgroundOpacity
+        )
+    }
+
+    static func currentTranslucentColor() -> NSColor {
+        translucentColor(
+            backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
+            opacity: GhosttyApp.shared.defaultBackgroundOpacity
+        )
+    }
+
+    static func currentSurfaceFillColor() -> NSColor {
+        surfaceFillColor(
             backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
             opacity: GhosttyApp.shared.defaultBackgroundOpacity
         )
@@ -3919,7 +3997,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // Match only the unpainted/loading background so newly-created browsers don't flash
         // white before content loads. Do not force page appearance or inject color-scheme CSS;
         // websites must keep control of their own theme.
-        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentSurfaceFillColor()
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         return webView
@@ -4905,7 +4983,7 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
-                self.webView.underPageBackgroundColor = GhosttyBackgroundTheme.color(from: notification)
+                self.webView.underPageBackgroundColor = GhosttyBackgroundTheme.surfaceFillColor(from: notification)
             }
             .store(in: &webViewCancellables)
     }
@@ -6985,7 +7063,7 @@ extension BrowserPanel {
     }
 
     func refreshAppearanceDrivenColors() {
-        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentSurfaceFillColor()
     }
 
     func suppressOmnibarAutofocus(for seconds: TimeInterval) {
