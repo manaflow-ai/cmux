@@ -3263,13 +3263,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc private func handleScreenParametersDidChange(_ notification: Notification) {
         screenParametersReconcileToken &+= 1
         let token = screenParametersReconcileToken
-        // Let AppKit settle the new `NSScreen` geometry before we read it back.
+        // Coalesce the burst of notifications a single reconfiguration emits: only the
+        // latest token survives, so we reconcile once. The short delay is a debounce,
+        // not a correctness dependency. The notification is posted after `NSScreen` is
+        // updated, the reconcile re-runs on every notification, and it is idempotent,
+        // so windows end up correct regardless of the exact delay or burst size.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             guard let self, self.screenParametersReconcileToken == token else { return }
             self.reconcileMainWindowFramesAfterScreenChange()
         }
     }
 
+    /// Refits every tracked main window onto the display it now belongs to after a
+    /// display reconfiguration, leaving windows that already fit untouched.
     private func reconcileMainWindowFramesAfterScreenChange() {
         let displays = currentDisplayGeometries()
         guard !displays.available.isEmpty else { return }
@@ -3277,7 +3283,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let minWidth = CGFloat(SessionPersistencePolicy.minimumWindowWidth)
         let minHeight = CGFloat(SessionPersistencePolicy.minimumWindowHeight)
 
-        for context in mainWindowContexts.values {
+        // Snapshot the contexts before iterating: `resolvedWindow(for:)` can reindex
+        // `mainWindowContexts`, and mutating the dictionary mid-enumeration crashes.
+        for context in Array(mainWindowContexts.values) {
             guard let window = resolvedWindow(for: context) else { continue }
             let currentFrame = window.frame
 
@@ -3336,6 +3344,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Whether two frames match within `tolerance` points on every component, used to
+    /// skip a redundant `setFrame` when reconciliation produces an unchanged frame.
     private nonisolated static func framesAreApproximatelyEqual(
         _ lhs: CGRect,
         _ rhs: CGRect,
