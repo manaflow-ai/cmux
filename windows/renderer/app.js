@@ -160,6 +160,9 @@ const terminalOutputPerformanceChunkSize = 16384;
 const terminalOutputBacklogThreshold = 262144;
 const terminalHiddenOutputQueueLimit = terminalOutputBacklogThreshold * 2;
 const terminalHiddenOutputPreserveBytes = terminalOutputBacklogThreshold;
+const terminalResumeOutputChunkSize = 8192;
+const terminalResumeThrottleThreshold = terminalOutputBacklogThreshold / 2;
+const terminalResumeThrottleFrames = 4;
 const embeddedBackgroundDataUrlLimitBytes = 2 * 1024 * 1024;
 const renderSlowFrameMs = 24;
 const renderVerySlowFrameMs = 72;
@@ -6505,6 +6508,7 @@ function ensureTerminal(panel, body) {
     lastHostHeight: 0,
     forceFit: false,
     fitDeferred: false,
+    resumeThrottleFrames: 0,
     fontSize,
     searchOverlay: null,
     searchTerm: "",
@@ -6786,6 +6790,7 @@ function flushTerminalOutput(session) {
   session.writing = true;
   session.term.write(chunk, () => {
     session.writing = false;
+    if (session.resumeThrottleFrames > 0) session.resumeThrottleFrames -= 1;
     if (session.disposed) return;
     clearTerminalConnectionStatus(session);
     if (session.queue) scheduleTerminalOutputFlush(session);
@@ -6793,6 +6798,9 @@ function flushTerminalOutput(session) {
 }
 
 function terminalOutputChunkSizeFor(session) {
+  if (session.resumeThrottleFrames > 0) {
+    return Math.min(terminalResumeOutputChunkSize, terminalOutputPerformanceChunkSize);
+  }
   if (
     state.settings.performanceMode
     || (state.settings.adaptivePerformance && session.queue.length >= terminalOutputBacklogThreshold)
@@ -6814,7 +6822,11 @@ function resumeTerminalOutputAfterActivityChange(visiblePanelIds = visiblePanePa
   const pauseInactive = terminalOutputPausesInactive();
   for (const session of state.terminals.values()) {
     if (session.disposed || !session.queue) continue;
-    if (!pauseInactive || visiblePanelIds.has(session.panelId)) scheduleTerminalOutputFlush(session);
+    const visible = visiblePanelIds.has(session.panelId);
+    if (pauseInactive && visible && session.queue.length >= terminalResumeThrottleThreshold) {
+      session.resumeThrottleFrames = Math.max(session.resumeThrottleFrames || 0, terminalResumeThrottleFrames);
+    }
+    if (!pauseInactive || visible) scheduleTerminalOutputFlush(session);
   }
   updateTerminalOutputBacklog();
 }
