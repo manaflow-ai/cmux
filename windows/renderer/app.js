@@ -6141,21 +6141,15 @@ function scheduleEmbeddedGoogleHomePolish(view, value) {
   if (typeof view?.executeJavaScript !== "function") return;
   let polishState = embeddedGooglePolishState.get(view);
   if (!polishState) {
-    polishState = { frame: 0, timer: 0, lastAt: 0, value: "" };
+    polishState = { frame: 0, lastAt: 0, value: "" };
     embeddedGooglePolishState.set(view, polishState);
   }
-  polishState.value = value || view.src || "";
-  if (polishState.frame || polishState.timer) return;
-  const waitMs = Math.max(0, embeddedGooglePolishMinIntervalMs - (performance.now() - polishState.lastAt));
-  const queueFrame = () => {
-    polishState.timer = 0;
-    polishState.frame = requestAnimationFrame(() => runEmbeddedGoogleHomePolish(view, polishState));
-  };
-  if (waitMs > 0) {
-    polishState.timer = setTimeout(queueFrame, waitMs);
-  } else {
-    queueFrame();
-  }
+  const targetValue = value || view.src || "";
+  const now = performance.now();
+  if (polishState.frame) return;
+  if (polishState.value === targetValue && now - polishState.lastAt < embeddedGooglePolishMinIntervalMs) return;
+  polishState.value = targetValue;
+  polishState.frame = requestAnimationFrame(() => runEmbeddedGoogleHomePolish(view, polishState));
 }
 
 function loadDeferredBrowserSession(session) {
