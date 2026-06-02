@@ -1177,6 +1177,43 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(responder.receivedRequests, [])
     }
 
+    func testBrowserMCPServerPropagatesEnvironmentWorkspaceResolutionErrors() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: #"{"ok":true,"result":{"workspaces":[]}}"#)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+        var environment = testEnvironment.environment
+        environment["CMUX_WORKSPACE_ID"] = "99"
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_open","arguments":{"url":"https://example.com"}}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let callResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        XCTAssertEqual(callResult["isError"] as? Bool, true, result.stdout)
+        let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+        XCTAssertTrue((content.first?["text"] as? String)?.contains("Workspace index not found") == true, result.stdout)
+
+        XCTAssertEqual(responder.receivedRequests.count, 1, responder.receivedRequests.joined(separator: "\n"))
+        let requestObject = try jsonObject(fromLine: try XCTUnwrap(responder.receivedRequests.first))
+        XCTAssertEqual(requestObject["method"] as? String, "workspace.list")
+    }
+
     func testBrowserMCPServerRejectsBooleanStringArguments() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"

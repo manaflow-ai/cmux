@@ -89,7 +89,7 @@ extension CMUXBrowserMCPServer {
                 params["workspace_id"] = workspace
             } else if windowRaw == nil,
                       let environmentWorkspaceRaw = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
-                      let workspace = try? cli.normalizeWorkspaceHandle(environmentWorkspaceRaw, client: client) {
+                      let workspace = try cli.normalizeWorkspaceHandle(environmentWorkspaceRaw, client: client) {
                 params["workspace_id"] = workspace
             }
             if let windowRaw {
