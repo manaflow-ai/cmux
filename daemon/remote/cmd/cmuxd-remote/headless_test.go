@@ -114,3 +114,25 @@ func TestHeadlessConnectBridgesRPCFrames(t *testing.T) {
 		t.Fatalf("stdout = %q", got)
 	}
 }
+
+func TestUserRuntimeDirPrefersPrivateXDGRuntimeDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+	if got := userRuntimeDir(); got != dir {
+		t.Fatalf("userRuntimeDir() = %q, want %q", got, dir)
+	}
+}
+
+func TestUserRuntimeDirRejectsWorldAccessibleXDGRuntimeDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+	if got := userRuntimeDir(); got == dir {
+		t.Fatalf("userRuntimeDir() = %q, want it to reject the group/other-accessible dir", got)
+	}
+}
