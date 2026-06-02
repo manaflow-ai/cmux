@@ -290,6 +290,44 @@ public struct KeyboardShortcutsSection: View {
 
     // MARK: - Conflict helpers
 
+    private enum ShortcutConflictContext: Equatable {
+        case application
+        case nonBrowserPanel
+        case browserPanel
+        case markdownPanel
+        case rightSidebarFocus
+
+        func overlaps(_ other: ShortcutConflictContext) -> Bool {
+            if self == .application || other == .application {
+                return true
+            }
+            if self == .nonBrowserPanel && other == .markdownPanel {
+                return true
+            }
+            if self == .markdownPanel && other == .nonBrowserPanel {
+                return true
+            }
+            return self == other
+        }
+    }
+
+    private static func shortcutContext(for action: ShortcutAction) -> ShortcutConflictContext {
+        switch action {
+        case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions,
+             .switchRightSidebarToFeed, .switchRightSidebarToDock:
+            return .rightSidebarFocus
+        case .renameTab, .renameWorkspace:
+            return .nonBrowserPanel
+        case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools,
+             .showBrowserJavaScriptConsole, .browserZoomIn, .browserZoomOut, .browserZoomReset:
+            return .browserPanel
+        case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
+            return .markdownPanel
+        default:
+            return .application
+        }
+    }
+
     /// Mirrors legacy `KeyboardShortcutSettings.Action.conflicts(with:proposedAction:configuredShortcut:)`
     /// at a coarser grain: only treat two actions as conflicting when the
     /// *configured* (effective) shortcut of the other action is not
@@ -305,7 +343,9 @@ public struct KeyboardShortcutsSection: View {
     }
 
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
+        let context = Self.shortcutContext(for: action)
         for other in ShortcutAction.allCases where other != action {
+            guard context.overlaps(Self.shortcutContext(for: other)) else { continue }
             let override = bindings[other.rawValue]
             let effective = override ?? other.defaultStroke.map { StoredShortcut(first: $0) }
             guard let effective, !effective.isUnbound else { continue }

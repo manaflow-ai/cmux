@@ -84,6 +84,7 @@ struct MarkdownPanelView: View {
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
+                fontSizePoints: panel.fontSizePoints,
                 session: panel.rendererSession,
                 onRequestPanelFocus: onRequestPanelFocus
             )

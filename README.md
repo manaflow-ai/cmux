@@ -197,6 +197,13 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 | ⌥ ⌘ I | Toggle Developer Tools (Safari default) |
 | ⌥ ⌘ C | Show JavaScript Console (Safari default) |
 
+### Markdown Viewer
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ = / ⌘ - | Increase / decrease rendered markdown size |
+| ⌘ 0 | Reset rendered markdown size |
+
 ### Notifications
 
 | Shortcut | Action |

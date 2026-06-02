@@ -21,3 +21,13 @@ Controls what the tab right-click `Fork Conversation` item does. The submenu sti
 Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
+
+## `app.markdownViewerFontSize`
+
+Controls the default rendered font size for new cmux markdown viewer panels.
+
+Value: a number of points from `1` through `96`.
+
+Default: `15`.
+
+Panel-specific zoom from the markdown viewer shortcuts overrides this value for that panel until reset.

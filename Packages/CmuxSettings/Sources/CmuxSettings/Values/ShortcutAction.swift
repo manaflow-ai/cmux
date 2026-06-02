@@ -87,6 +87,9 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case browserZoomIn
     case browserZoomOut
     case browserZoomReset
+    case markdownZoomIn
+    case markdownZoomOut
+    case markdownZoomReset
     case find
     case findInDirectory
     case findNext
@@ -106,6 +109,7 @@ extension ShortcutAction {
         case navigation
         case panes
         case browser
+        case markdown
 
         public var title: String {
             switch self {
@@ -114,6 +118,7 @@ extension ShortcutAction {
             case .navigation: return "Navigation"
             case .panes: return "Panes"
             case .browser: return "Browser & Find"
+            case .markdown: return "Markdown Viewer"
             }
         }
     }
@@ -148,6 +153,8 @@ extension ShortcutAction {
              .hideFind, .useSelectionForFind, .toggleBrowserDeveloperTools,
              .showBrowserJavaScriptConsole, .toggleReactGrab:
             return .browser
+        case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
+            return .markdown
         }
     }
 
@@ -221,6 +228,9 @@ extension ShortcutAction {
         case .browserZoomIn: return "Zoom In"
         case .browserZoomOut: return "Zoom Out"
         case .browserZoomReset: return "Actual Size"
+        case .markdownZoomIn: return "Markdown Viewer: Zoom In"
+        case .markdownZoomOut: return "Markdown Viewer: Zoom Out"
+        case .markdownZoomReset: return "Markdown Viewer: Actual Size"
         case .find: return "Find…"
         case .findInDirectory: return "Find in Directory…"
         case .findNext: return "Find Next"

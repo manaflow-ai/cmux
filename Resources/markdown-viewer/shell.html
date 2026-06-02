@@ -13,7 +13,12 @@
 {{highlightDarkCSS}}
 </style>
 <style>
-:root { color-scheme: light dark; }
+:root {
+  color-scheme: light dark;
+  --cmux-markdown-font-size: 15px;
+  --cmux-markdown-code-font-size: 13.5px;
+  --cmux-markdown-small-code-font-size: 12.5px;
+}
 html, body {
   margin: 0;
   padding: 0;
@@ -31,7 +36,7 @@ body {
   background: transparent;
   /* GitHub uses 16px on github.com for body text; keep that exact
      metric so headings, line-height, and spacing match. */
-  font-size: 15px;
+  font-size: var(--cmux-markdown-font-size);
   /* The package sets max-width via wrapper class on github.com; we
      let it span the panel and just cap it to a comfortable reading
      width on very wide splits. */
@@ -43,7 +48,7 @@ body {
 .markdown-body pre code.hljs {
   padding: 16px;
   background: transparent;
-  font-size: 13.5px;
+  font-size: var(--cmux-markdown-code-font-size);
   line-height: 1.5;
 }
 .markdown-body pre {
@@ -202,13 +207,13 @@ body {
 .cmux-frontmatter pre code.hljs {
   padding: 10px 12px;
   background: transparent;
-  font-size: 12.5px;
+  font-size: var(--cmux-markdown-small-code-font-size);
   line-height: 1.45;
 }
 .cmux-render-error {
   color: #f85149;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 12.5px;
+  font-size: var(--cmux-markdown-small-code-font-size);
   white-space: pre-wrap;
   padding: 8px 12px;
   border: 1px solid #f85149;
