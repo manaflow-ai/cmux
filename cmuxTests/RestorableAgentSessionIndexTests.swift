@@ -199,6 +199,155 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    // A Claude session can start in one directory and `cd` into another (e.g. a repo root then a
+    // worktree); the hook-reported `cwd` drifts to the latter, but Claude keeps the transcript in
+    // the start directory's project folder. Fork/resume must cd into the directory that actually
+    // holds the transcript, otherwise `claude --resume` fails with "No conversation found".
+    func testClaudeForkResolvesDriftedCwdViaTranscriptPath() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-fork-drift-path-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let launchCwd = root.appendingPathComponent("repo", isDirectory: true)
+        let driftedCwd = root.appendingPathComponent("worktree", isDirectory: true)
+        try fm.createDirectory(at: launchCwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: driftedCwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(launchCwd.path),
+                isDirectory: true
+            ),
+            withIntermediateDirectories: true
+        )
+
+        let sessionId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeTranscript(sessionId: sessionId, cwd: launchCwd, projectsDir: projectsDir)
+        let transcriptPath = projectsDir
+            .appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(launchCwd.path),
+                isDirectory: true
+            )
+            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+            .path
+
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                sessionId: driftedHookRecord(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedCwd: driftedCwd.path,
+                    launchCwd: launchCwd.path,
+                    configDir: configDir.path,
+                    transcriptPath: transcriptPath,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.workingDirectory, launchCwd.path)
+        let forkCommand = try XCTUnwrap(snapshot.forkCommand)
+        XCTAssertTrue(
+            forkCommand.contains("cd -- '\(launchCwd.path)'"),
+            "fork should cd into the transcript's directory; got: \(forkCommand)"
+        )
+        XCTAssertFalse(
+            forkCommand.contains(driftedCwd.path),
+            "fork must not cd into the drifted cwd; got: \(forkCommand)"
+        )
+    }
+
+    // Same drift, but the record carries no explicit transcriptPath: resolution must still find the
+    // correct directory by probing the Claude config directory on disk.
+    func testClaudeForkResolvesDriftedCwdViaConfigScanWhenTranscriptPathMissing() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-fork-drift-scan-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let launchCwd = root.appendingPathComponent("repo", isDirectory: true)
+        let driftedCwd = root.appendingPathComponent("worktree", isDirectory: true)
+        try fm.createDirectory(at: launchCwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: driftedCwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(launchCwd.path),
+                isDirectory: true
+            ),
+            withIntermediateDirectories: true
+        )
+
+        let sessionId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeTranscript(sessionId: sessionId, cwd: launchCwd, projectsDir: projectsDir)
+
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                sessionId: driftedHookRecord(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedCwd: driftedCwd.path,
+                    launchCwd: launchCwd.path,
+                    configDir: configDir.path,
+                    transcriptPath: nil,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.workingDirectory, launchCwd.path)
+    }
+
+    private func driftedHookRecord(
+        sessionId: String,
+        workspaceId: UUID,
+        panelId: UUID,
+        recordedCwd: String,
+        launchCwd: String,
+        configDir: String,
+        transcriptPath: String?,
+        updatedAt: TimeInterval
+    ) -> [String: Any] {
+        var record: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": workspaceId.uuidString,
+            "surfaceId": panelId.uuidString,
+            "cwd": recordedCwd,
+            "pid": NSNull(),
+            "updatedAt": updatedAt,
+            "launchCommand": [
+                "launcher": "claude",
+                "executablePath": "/usr/local/bin/claude",
+                "arguments": ["/usr/local/bin/claude", "--dangerously-skip-permissions"],
+                "workingDirectory": launchCwd,
+                "environment": ["CLAUDE_CONFIG_DIR": configDir],
+                "capturedAt": updatedAt,
+                "source": "test",
+            ],
+        ]
+        if let transcriptPath {
+            record["transcriptPath"] = transcriptPath
+        }
+        return record
+    }
+
     private func hookRecord(
         sessionId: String,
         workspaceId: UUID,
