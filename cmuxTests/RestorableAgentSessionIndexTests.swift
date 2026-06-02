@@ -313,6 +313,122 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     /// Mirrors Claude's external project-directory naming rule ("/" and "." both become "-")
     /// independently of the production `encodeClaudeProjectDir`, so these regression tests fail if
     /// that helper regresses instead of masking it by sharing the same code path.
+    // When CMUX passes --session-id <uuid> to Claude and Claude uses the Workflow tool, Claude
+    // creates <uuid>/ (a directory) as the Workflow container rather than <uuid>.jsonl. The actual
+    // interactive transcript lands as a sibling file with a different UUID in the same project dir.
+    // CMUX must detect the directory case and use the sibling's session ID for resume.
+    func testClaudeWorkflowContainerUsesInteractiveSiblingTranscript() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-workflow-sibling-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        let projectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(cwd.path),
+            isDirectory: true
+        )
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        // UUID CMUX stored (passed as --session-id; Claude used it for the Workflow directory)
+        let workflowContainerId = "a5323ac1-b493-46d1-a031-5549577d8bf8"
+        // UUID of the actual interactive transcript Claude created internally
+        let interactiveId = "18fc1ee3-0000-0000-0000-000000000000"
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        // Workflow container directory with subagent artifacts inside
+        let workflowDir = projectDir.appendingPathComponent(workflowContainerId, isDirectory: true)
+        try fm.createDirectory(
+            at: workflowDir.appendingPathComponent("subagents", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try "subagent data".write(
+            to: workflowDir.appendingPathComponent("subagents/agent-0001.jsonl"),
+            atomically: true, encoding: .utf8
+        )
+
+        // Actual interactive transcript — sibling of the Workflow directory
+        try writeClaudeTranscript(
+            sessionId: interactiveId,
+            transcriptURL: projectDir.appendingPathComponent("\(interactiveId).jsonl"),
+            cwd: cwd
+        )
+
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                workflowContainerId: hookRecord(
+                    sessionId: workflowContainerId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertEqual(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId,
+            interactiveId,
+            "Workflow container directory: must resolve to the interactive sibling transcript for resume."
+        )
+    }
+
+    // When the stored session ID is a Workflow container directory but there is no sibling .jsonl,
+    // the session cannot be resumed.
+    func testClaudeWorkflowContainerWithNoSiblingIsNotRestorable() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-workflow-no-sibling-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        let projectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(cwd.path),
+            isDirectory: true
+        )
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let workflowContainerId = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        // Only the Workflow container directory, no sibling .jsonl
+        try fm.createDirectory(
+            at: projectDir.appendingPathComponent(workflowContainerId, isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                workflowContainerId: hookRecord(
+                    sessionId: workflowContainerId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId),
+            "Workflow container directory without a sibling transcript must not be restorable."
+        )
+    }
+
     private func expectedClaudeProjectDirName(_ path: String) -> String {
         path.replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ".", with: "-")
