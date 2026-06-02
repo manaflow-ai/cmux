@@ -74,6 +74,15 @@ func runUnixHeadlessServer(ctx context.Context, cfg unixHeadlessServerConfig, st
 	if err != nil {
 		return err
 	}
+	// userRuntimeDir keeps the socket in a private 0700 directory, so tightening
+	// it to 0600 here closes the remaining exposure with no meaningful TOCTOU
+	// window (a process-wide umask would not be goroutine-safe). Remove the socket
+	// on failure so a partially-initialized path is not left behind.
+	if err := os.Chmod(absSocketPath, 0o600); err != nil {
+		listener.Close()
+		_ = os.Remove(absSocketPath)
+		return fmt.Errorf("chmod headless socket %s: %w", absSocketPath, err)
+	}
 	defer listener.Close()
 	defer os.Remove(absSocketPath)
 
@@ -418,7 +427,38 @@ func defaultHeadlessRegistryDir() string {
 }
 
 func defaultHeadlessSocketPath(instanceID string) string {
-	return filepath.Join("/tmp", fmt.Sprintf("cmux-headless-%d-%s.sock", os.Getuid(), instanceID))
+	socketName := fmt.Sprintf("cmux-headless-%d-%s.sock", os.Getuid(), instanceID)
+	if dir := userRuntimeDir(); dir != "" {
+		return filepath.Join(dir, socketName)
+	}
+	return filepath.Join("/tmp", socketName)
+}
+
+// userRuntimeDir returns a private per-user runtime directory for the headless
+// instance socket, preferring $XDG_RUNTIME_DIR and falling back to /run/user/<uid>
+// when it exists. It only accepts a directory that is owned by the current user
+// and not accessible by group/other, so an attacker-controlled $XDG_RUNTIME_DIR
+// cannot redirect the socket into a shared location; otherwise it returns "" and
+// the caller falls back to the world-traversable temp dir.
+func userRuntimeDir() string {
+	if dir := strings.TrimSpace(os.Getenv("XDG_RUNTIME_DIR")); dir != "" && isPrivateDir(dir) {
+		return dir
+	}
+	if runUser := fmt.Sprintf("/run/user/%d", os.Getuid()); isPrivateDir(runUser) {
+		return runUser
+	}
+	return ""
+}
+
+// isPrivateDir reports whether path is a directory owned by the current user with
+// no group/other access (mode 0700), so a socket placed there stays private.
+func isPrivateDir(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+		return false
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	return ok && int(st.Uid) == os.Getuid()
 }
 
 func processExists(pid int) bool {
