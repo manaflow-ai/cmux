@@ -1163,7 +1163,7 @@ body.reduce-motion *::after {
   height: 16px;
   display: block;
   fill: none;
-  stroke: currentColor;
+  stroke: currentcolor;
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -1463,7 +1463,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-padding-inline: 10px 164px;
+  scroll-padding-inline: 10px 206px;
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
   background: color-mix(in oklch, var(--color-terminal-gutter) 88%, var(--color-canvas) 12%);
@@ -1816,14 +1816,14 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   position: sticky;
   z-index: 3;
   height: 29px;
-  flex: 0 0 34px;
-  min-width: 34px;
-  max-width: 34px;
-  grid-template-columns: minmax(0, 1fr);
+  flex: 0 0 94px;
+  min-width: 94px;
+  max-width: 94px;
+  grid-template-columns: 23px minmax(0, 1fr);
   justify-items: center;
   justify-content: center;
-  gap: 0;
-  padding: 0 5px;
+  gap: 6px;
+  padding: 0 8px 0 6px;
   border-color: var(--color-line);
   border-radius: var(--radius-1);
   background: color-mix(in oklch, var(--color-pane) 82%, var(--color-chrome) 18%);
@@ -1831,10 +1831,14 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   font: 720 11px/1 var(--font-ui);
   box-shadow:
     inset 0 1px 0 color-mix(in oklch, var(--color-text) 7%, transparent);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .surface-new-terminal {
-  right: 43px;
+  right: 104px;
   color: color-mix(in oklch, var(--color-success) 72%, var(--color-text));
 }
 
@@ -1844,8 +1848,8 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .surface-new-tab:hover {
-  border-color: color-mix(in oklch, currentColor 38%, var(--color-line));
-  background: color-mix(in oklch, currentColor 10%, var(--color-pane));
+  border-color: color-mix(in oklch, currentcolor 38%, var(--color-line));
+  background: color-mix(in oklch, currentcolor 10%, var(--color-pane));
   color: var(--color-text);
 }
 
@@ -1882,9 +1886,9 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   place-items: center;
   width: 23px;
   height: 23px;
-  border: 1px solid color-mix(in oklch, currentColor 38%, var(--color-line) 62%);
+  border: 1px solid color-mix(in oklch, currentcolor 38%, var(--color-line) 62%);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, currentColor 9%, var(--color-pane));
+  background: color-mix(in oklch, currentcolor 9%, var(--color-pane));
 }
 
 .surface-new-tab svg {
@@ -1892,14 +1896,15 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   width: 15px;
   height: 15px;
   fill: none;
-  stroke: currentColor;
+  stroke: currentcolor;
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .surface-new-label {
-  display: none;
+  display: block;
+  justify-self: start;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -1928,13 +1933,13 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .surface-new-tab:hover {
-  border-color: color-mix(in oklch, currentColor 48%, var(--color-line-strong) 52%);
-  background: color-mix(in oklch, var(--color-pane-active) 88%, currentColor 12%);
+  border-color: color-mix(in oklch, currentcolor 48%, var(--color-line-strong) 52%);
+  background: color-mix(in oklch, var(--color-pane-active) 88%, currentcolor 12%);
   color: var(--color-text);
 }
 
 .surface-new-tab:hover .surface-new-icon {
-  background: color-mix(in oklch, currentColor 15%, var(--color-pane-active));
+  background: color-mix(in oklch, currentcolor 15%, var(--color-pane-active));
 }
 
 .shell.density-compact .surface-new-tab {
@@ -4402,7 +4407,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .empty-workspace-launchers {
-  width: min(520px, 100%);
+  width: min(460px, 100%);
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2);
@@ -4412,23 +4417,23 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .empty-workspace-launcher {
   position: relative;
   min-width: 0;
-  min-height: 50px;
+  min-height: 48px;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
+  grid-template-columns: 28px minmax(0, 1fr);
   align-items: center;
-  gap: var(--space-2);
+  gap: 9px;
   padding: 8px 10px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane-warm) 72%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 86%, var(--color-canvas) 14%);
   color: var(--color-text);
   text-align: left;
   cursor: pointer;
-  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 4%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 5%, transparent);
 }
 
 .empty-workspace-launcher.has-plus {
-  grid-template-columns: 30px minmax(0, 1fr);
+  grid-template-columns: 28px minmax(0, 1fr);
   padding-right: 34px;
 }
 
@@ -4439,7 +4444,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .empty-workspace-launcher:hover {
   border-color: var(--color-line-strong);
-  background: var(--color-pane-warm);
+  background: var(--color-pane-active);
 }
 
 .empty-workspace-launcher.is-add:hover {
@@ -4449,7 +4454,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .empty-workspace-launcher[data-empty-launcher="terminal"],
 .empty-workspace-launcher[data-empty-launcher="browser"] {
-  min-height: 58px;
+  min-height: 54px;
 }
 
 .empty-workspace-launcher.is-primary {
@@ -4479,8 +4484,8 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .empty-workspace-launcher-icon {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -4514,8 +4519,8 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   height: 18px;
   place-items: center;
   border: 1px solid color-mix(in oklch, var(--color-accent) 50%, var(--color-line));
-  border-radius: 999px;
-  background: color-mix(in oklch, var(--color-accent) 26%, var(--color-pane));
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-accent) 18%, var(--color-pane));
   color: var(--color-accent-ink);
 }
 
@@ -9933,7 +9938,7 @@ textarea.dialog-input {
   place-items: center;
   border-radius: var(--radius-1);
   color: var(--color-faint);
-  background: color-mix(in oklch, currentColor 7%, transparent);
+  background: color-mix(in oklch, currentcolor 7%, transparent);
 }
 
 .palette-icon svg {

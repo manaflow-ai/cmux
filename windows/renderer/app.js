@@ -140,8 +140,8 @@ const controlIconSvg = {
   reload: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 1 1-2.34-5.66"></path><path d="M20 4v6h-6"></path></svg>`,
   browser: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"></circle><path d="M4 12h16M12 4c2.2 2.3 2.2 13.7 0 16M12 4c-2.2 2.3-2.2 13.7 0 16"></path></svg>`,
   terminal: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="m8 10 3 3-3 3"></path><path d="M13 16h4"></path></svg>`,
-  browserPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10" cy="12" r="6"></circle><path d="M4 12h12M10 6c1.7 1.9 1.7 10.1 0 12M10 6c-1.7 1.9-1.7 10.1 0 12"></path><path d="M18 14v6M15 17h6"></path></svg>`,
-  terminalPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="14" height="14" rx="2"></rect><path d="m7 10 3 3-3 3"></path><path d="M12 16h4"></path><path d="M18 13v6M15 16h6"></path></svg>`,
+  browserPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="13" height="12" rx="2"></rect><path d="M3.5 9h13"></path><path d="M7 7h.01M10 7h.01"></path><circle cx="18" cy="16" r="4"></circle><path d="M18 14v4M16 16h4"></path></svg>`,
+  terminalPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="13" height="14" rx="2"></rect><path d="m7 10 2.5 2.5L7 15"></path><path d="M11 15h3"></path><circle cx="18" cy="16" r="4"></circle><path d="M18 14v4M16 16h4"></path></svg>`,
   splitRight: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14"></path></svg>`,
   settings: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"></path></svg>`,
   up: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"></path></svg>`
