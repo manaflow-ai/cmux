@@ -5475,7 +5475,7 @@ function getPaneSplitter(workspace, splitNode) {
   const direction = paneTreeDirection(splitNode.direction);
   setDatasetIfChanged(splitter, "orientation", direction);
   setSplitterResizePercent(splitter, Math.round(paneTreeRatio(splitNode.ratio) * 100), direction);
-  setTitleIfChanged(splitter, "Drag to resize. Right-click for sizes. Double-click to equalize. Arrow keys adjust 1%; Shift+Arrow adjusts 10%.");
+  setTitleIfChanged(splitter, "Drag this grip to resize from 1% to 99%. Right-click for exact sizes. Double-click to equalize. Arrow keys adjust 1%; Shift+Arrow adjusts 10%.");
   return splitter;
 }
 

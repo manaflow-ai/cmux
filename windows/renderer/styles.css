@@ -2091,19 +2091,23 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .pane-splitter {
-  flex: 0 0 12px;
+  flex: 0 0 14px;
   position: relative;
   z-index: 4;
   background: transparent;
   cursor: col-resize;
   outline: 0;
   touch-action: none;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .pane-splitter:hover,
 .pane-splitter:focus-visible,
 .pane-splitter.is-dragging {
-  background: color-mix(in oklch, var(--color-terminal-gutter) 24%, transparent);
+  background: color-mix(in oklch, var(--color-terminal-gutter) 34%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 22%, transparent);
 }
 
 .pane-splitter[data-orientation="right"] {
@@ -2125,10 +2129,15 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .pane-splitter::before {
   content: "";
   position: absolute;
-  inset: 18% calc(50% - 1px);
+  inset: 16% calc(50% - 2px);
   border-radius: 999px;
-  background: color-mix(in oklch, var(--color-line-strong) 76%, transparent);
-  opacity: .72;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--color-line-strong) 84%, transparent),
+      color-mix(in oklch, var(--color-line-strong) 54%, transparent)
+    );
+  opacity: .82;
   transition:
     background var(--dur-fast) var(--ease-out),
     opacity var(--dur-fast) var(--ease-out),
@@ -2137,7 +2146,13 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .pane-split.direction-down > .pane-splitter::before,
 .pane-grid.direction-down > .pane-splitter::before {
-  inset: calc(50% - 1px) 18%;
+  inset: calc(50% - 2px) 16%;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in oklch, var(--color-line-strong) 84%, transparent),
+      color-mix(in oklch, var(--color-line-strong) 54%, transparent)
+    );
 }
 
 .pane-splitter:hover::before,
@@ -2145,7 +2160,9 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .pane-splitter.is-dragging::before {
   background: var(--color-accent);
   opacity: 1;
-  box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-accent) 22%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in oklch, var(--color-accent) 22%, transparent),
+    0 0 18px color-mix(in oklch, var(--color-accent) 26%, transparent);
 }
 
 .pane-splitter:focus-visible {
@@ -2159,7 +2176,8 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   top: 50%;
   z-index: 5;
   min-width: max-content;
-  padding: 3px 6px;
+  max-width: min(260px, calc(100vw - 32px));
+  padding: 4px 7px;
   border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-1);
   background: color-mix(in oklch, var(--color-chrome) 92%, var(--color-canvas) 8%);
@@ -2168,16 +2186,24 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   font-weight: 650;
   line-height: 1;
   letter-spacing: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, -50%);
-  transition: opacity var(--dur-fast) var(--ease-out);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 .pane-splitter:hover::after,
 .pane-splitter:focus-visible::after,
 .pane-splitter.is-dragging::after {
   opacity: 1;
+  border-color: color-mix(in oklch, var(--color-accent) 46%, var(--color-line-strong) 54%);
+  background: color-mix(in oklch, var(--color-chrome) 96%, var(--color-accent) 4%);
+  transform: translate(-50%, -50%) scale(1.03);
 }
 
 .shell.pane-resizing,
