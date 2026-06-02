@@ -191,6 +191,11 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "markdown": [
+                    "fontSize": Int(MarkdownFontSizeSettings.defaultPointSize),
+                ],
+            ],
+            [
                 "shortcuts": [
                     "bindings": shortcutsBindings,
                 ],

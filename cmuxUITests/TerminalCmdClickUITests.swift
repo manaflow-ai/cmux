@@ -100,6 +100,57 @@ final class TerminalCmdClickUITests: XCTestCase {
         )
     }
 
+    func testContextMenuOnUnselectedTerminalWordIncludesLookupAndPaneActions() throws {
+        let app = launchApp(captureOpenPaths: false, captureHoverDiagnostics: false)
+        defer { app.terminate() }
+
+        _ = try waitForReadySetup()
+        let result = try runCommand(action: "context_menu_token")
+        XCTAssertEqual(
+            result["lastCommandSucceeded"] as? String,
+            "1",
+            "Expected unselected token context menu to include Look Up plus pane actions without Copy. result=\(result)"
+        )
+
+        let titles = try XCTUnwrap(result["lastCommandMenuTitles"] as? [String])
+        XCTAssertTrue(
+            titles.contains { $0.hasPrefix("Look Up “Cmd\\ Click\\ Fixture.txt") || $0.hasPrefix("Look Up “Cmd Click Fixture.txt") },
+            "Expected Look Up title to include the right-clicked terminal word. titles=\(titles)"
+        )
+        XCTAssertFalse(titles.contains("Copy"), "Unselected word menu should not expose selection Copy. titles=\(titles)")
+        XCTAssertTrue(titles.contains("Paste"), "Expected pane Paste action to remain available. titles=\(titles)")
+        XCTAssertTrue(titles.contains("Split Horizontally"), "Expected pane split action to remain available. titles=\(titles)")
+        XCTAssertTrue(titles.contains("Reset Terminal"), "Expected pane reset action to remain available. titles=\(titles)")
+    }
+
+    func testContextMenuOnSelectedTerminalTextIncludesCopyLookupAndPaneActions() throws {
+        let app = launchApp(captureOpenPaths: false, captureHoverDiagnostics: false)
+        defer { app.terminate() }
+
+        _ = try waitForReadySetup()
+        let result = try runCommand(action: "context_menu_selected_token")
+        XCTAssertEqual(
+            result["lastCommandSucceeded"] as? String,
+            "1",
+            "Expected selected token context menu to include Copy, Look Up, and pane actions. result=\(result)"
+        )
+        XCTAssertEqual(
+            result["lastCommandSelectionActive"] as? String,
+            "1",
+            "Expected UI harness to create a real Ghostty selection before inspecting the menu. result=\(result)"
+        )
+
+        let titles = try XCTUnwrap(result["lastCommandMenuTitles"] as? [String])
+        XCTAssertTrue(titles.contains("Copy"), "Expected selected text menu to expose Copy. titles=\(titles)")
+        XCTAssertTrue(
+            titles.contains { $0.hasPrefix("Look Up “") },
+            "Expected selected text menu to expose quoted Look Up title. titles=\(titles)"
+        )
+        XCTAssertTrue(titles.contains("Paste"), "Expected pane Paste action to remain available. titles=\(titles)")
+        XCTAssertTrue(titles.contains("Split Horizontally"), "Expected pane split action to remain available. titles=\(titles)")
+        XCTAssertTrue(titles.contains("Reset Terminal"), "Expected pane reset action to remain available. titles=\(titles)")
+    }
+
     func testCmdClickEscapedPathWithSpacesOpensResolvedFile() throws {
         let app = launchApp(
             displayMode: .escaped,
@@ -760,6 +811,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         viewportOffsetDelta: Int? = nil
     ) -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchEnvironment["CMUX_TAG"] = "ui-test-terminal-cmd-click"
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_SETUP"] = "1"

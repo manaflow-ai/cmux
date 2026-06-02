@@ -1011,6 +1011,21 @@
         }
       }
     },
+    "markdown": {
+      "title": "markdown",
+      "description": "Built-in markdown viewer settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fontSize": {
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 96,
+          "default": 15,
+          "description": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0."
+        }
+      }
+    },
     "shortcuts": {
       "title": "shortcuts",
       "description": "Keyboard shortcut settings from Settings > Keyboard Shortcuts.",
@@ -1092,6 +1107,9 @@
               "browserZoomIn",
               "browserZoomOut",
               "browserZoomReset",
+              "markdownZoomIn",
+              "markdownZoomOut",
+              "markdownZoomReset",
               "find",
               "findInDirectory",
               "findNext",
