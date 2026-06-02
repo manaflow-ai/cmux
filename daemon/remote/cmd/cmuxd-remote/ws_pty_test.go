@@ -68,10 +68,12 @@ func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
 	}
 
 	msg := err.Error()
+	lowered := strings.ToLower(msg)
 	// Pin the stable marker the Swift clients key their passthrough off of: a
 	// daemon wording change that dropped it would silently break client-side
-	// preservation of this diagnostic without failing any other assertion.
-	if !strings.Contains(msg, "could not allocate a remote PTY") {
+	// preservation of this diagnostic without failing any other assertion. Match
+	// case-insensitively, exactly as Sources/Workspace.swift does.
+	if !strings.Contains(lowered, "could not allocate a remote pty") {
 		t.Fatalf("error must preserve the stable PTY-allocation marker the clients key off: %q", msg)
 	}
 	if !strings.Contains(msg, "/dev/ptmx") {
@@ -81,7 +83,6 @@ func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
 	// independent of /proc/self/mountinfo, so these assertions hold even in a
 	// container/sandbox without a real devpts mount (describeDevPTS may add
 	// nothing there). Key off the hint, not the optional mount summary.
-	lowered := strings.ToLower(msg)
 	if !strings.Contains(lowered, "ptmxmode") || !strings.Contains(lowered, "remount") {
 		t.Fatalf("error should explain the hardened devpts cause and remediation: %q", msg)
 	}
