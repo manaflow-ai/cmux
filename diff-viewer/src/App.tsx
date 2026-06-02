@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useRef } from "react";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 import { startDiffViewer } from "./viewer-controller";
 import type { DiffViewerConfig } from "./types";
@@ -167,13 +167,14 @@ export function App({ config }: ConfigProps) {
   const label = createDiffViewerLabelResolver(config.payload?.labels, {
     assertMissing: shouldAssertMissingLabels(),
   });
-  const rootRef = useCallback((node: HTMLDivElement | null) => {
+  // React Compiler memoizes this callback ref, so no manual useCallback.
+  const rootRef = (node: HTMLDivElement | null) => {
     if (!node || started.current) {
       return;
     }
     started.current = true;
     startDiffViewer(config);
-  }, [config]);
+  };
 
   return (
     <div id="app" ref={rootRef}>
