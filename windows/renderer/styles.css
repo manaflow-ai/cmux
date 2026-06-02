@@ -4590,6 +4590,26 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   background: var(--color-rail);
 }
 
+.settings-react-shell {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding-bottom: var(--space-2);
+  background: var(--color-rail);
+  box-shadow: 0 1px 0 var(--color-line);
+}
+
+.settings-react-shell .settings-search,
+.settings-react-shell .settings-page-switcher {
+  position: static;
+  top: auto;
+  z-index: auto;
+  padding-bottom: 0;
+}
+
 .settings-search.has-query {
   grid-template-columns: minmax(0, 1fr) 28px;
 }
