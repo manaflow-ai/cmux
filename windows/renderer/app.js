@@ -13752,10 +13752,16 @@ function showPanelContextMenu(event, panel) {
   const panesToRight = found.workspace.panels.slice(index + 1);
   const title = document.createElement("div");
   title.className = "context-title";
-  title.textContent = panel.type === "browser" ? hostnameOf(panel.url) : panel.title || "Terminal";
+  title.textContent = panelDisplayTitle(panel, true);
+  const meta = document.createElement("div");
+  meta.className = "context-meta";
+  meta.textContent = panel.type === "browser"
+    ? browserPanelUrl(panel)
+    : `${optionLabel(terminalProfiles, panel.shellProfile || state.settings.terminalProfile, "Shell")} / ${panel.cwdShort || "~"}`;
   if (isPendingPanel(panel)) {
     menu.replaceChildren(
       title,
+      meta,
       contextMenuButton(panel.type === "browser" ? "Opening..." : "Starting...", () => {}, true)
     );
     showContextMenuAt(menu, event.clientX, event.clientY);
@@ -13847,6 +13853,7 @@ function showPanelContextMenu(event, panel) {
   });
   const nodes = [
     title,
+    meta,
     contextMenuSectionTitle("Tab"),
     generalActions,
     colorTitle,
