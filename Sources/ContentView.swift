@@ -5,6 +5,7 @@ import Combine
 import CMUXExtensionClient
 import CmuxExtensionKit
 import CmuxSettings
+import CmuxSidebarScript
 import CmuxSettingsUI
 import ImageIO
 import Observation
@@ -10354,6 +10355,9 @@ struct VerticalTabsSidebar: View {
     )
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State var dragState = SidebarDragState()
+    /// Compiled once at sidebar construction; nil unless the user has a valid
+    /// ~/.config/cmux/sidebar.lisp. Passed by value into each row.
+    @State private var sidebarScriptStore = SidebarScriptStore()
     // Freezes `showsModifierShortcutHints` for the workspace whose context menu
     // is open. Set on the row's contextMenu.onAppear and cleared on
     // .onDisappear so modifier-key transitions don't flip the badges on the
@@ -12156,6 +12160,8 @@ struct VerticalTabsSidebar: View {
             contextMenuPinState: contextMenuPinState,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
+            sidebarScript: sidebarScriptStore.script,
+            sidebarScriptVersion: sidebarScriptStore.version,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
         )
@@ -14626,6 +14632,7 @@ struct TabItemView: View, Equatable {
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
+        lhs.sidebarScriptVersion == rhs.sidebarScriptVersion &&
         lhs.settings == rhs.settings
     }
 
@@ -14670,6 +14677,11 @@ struct TabItemView: View, Equatable {
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
+    /// Optional user sidebar script. A plain immutable reference (like
+    /// `tabManager`), excluded from `==`; row re-render on script change is gated
+    /// by `sidebarScriptVersion`. Nil means render the native row.
+    let sidebarScript: SidebarScript?
+    let sidebarScriptVersion: Int
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
     /// modifier-key transitions from flipping the badges on the row sitting
@@ -14965,6 +14977,75 @@ struct TabItemView: View, Equatable {
         )
     }
 
+    // MARK: - Sidebar script rendering
+
+    /// Renders this row through the user's sidebar script, or returns nil to use
+    /// the native row. Any render fault logs and falls back to native, so a bad
+    /// script never breaks the sidebar. Called from `body`; performs no state
+    /// mutation.
+    private func renderedSidebarScriptNode(
+        workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+    ) -> RenderNode? {
+        guard let sidebarScript else { return nil }
+        do {
+            return try sidebarScript.render(makeSidebarScriptContext(workspaceSnapshot))
+        } catch {
+            SidebarScriptStore.logRenderFailure(error)
+            return nil
+        }
+    }
+
+    private func makeSidebarScriptContext(
+        _ snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+    ) -> SidebarScriptContext {
+        SidebarScriptContext(
+            title: snapshot.title,
+            detail: snapshot.customDescription,
+            branch: snapshot.compactGitBranchSummaryText,
+            directory: snapshot.compactDirectoryCandidates.first,
+            directories: snapshot.compactDirectoryCandidates,
+            pullRequests: snapshot.pullRequestRows.map {
+                SidebarScriptContext.PullRequest(
+                    number: $0.number,
+                    state: $0.status.rawValue,
+                    url: $0.url.absoluteString,
+                    title: $0.label,
+                    isDraft: false,
+                    isStale: $0.isStale
+                )
+            },
+            ports: snapshot.listeningPorts,
+            unreadCount: unreadCount,
+            isPinned: snapshot.isPinned,
+            isActive: isActive,
+            isSelected: isMultiSelected,
+            colorHex: snapshot.customColorHex,
+            isDarkMode: colorScheme == .dark,
+            latestMessage: latestNotificationText ?? snapshot.latestConversationMessage,
+            progress: snapshot.progress?.value,
+            remoteTarget: snapshot.remoteWorkspaceSidebarText,
+            statusEntries: snapshot.metadataEntries.map {
+                SidebarScriptContext.StatusEntry(label: $0.key, value: $0.value, colorHex: $0.color)
+            }
+        )
+    }
+
+    private func handleSidebarScriptAction(_ action: RNAction) {
+        switch action.kind {
+        case "open-url":
+            guard let raw = action.payload["url"], let url = URL(string: raw) else { return }
+            if tabManager.openBrowser(inWorkspace: tab.id, url: url, insertAtEnd: true) == nil {
+                NSWorkspace.shared.open(url)
+            }
+        case "copy":
+            guard let text = action.payload["text"] else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        default:
+            break
+        }
+    }
+
     var body: some View {
         let workspaceSnapshot = self.workspaceSnapshot
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
@@ -14995,6 +15076,11 @@ struct TabItemView: View, Equatable {
             scaledCloseButtonHitSize
         )
 
+        Group {
+        if let scriptNode = renderedSidebarScriptNode(workspaceSnapshot: workspaceSnapshot) {
+            RenderNodeView(node: scriptNode, onAction: { handleSidebarScriptAction($0) })
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
                 if unreadCount > 0 {
@@ -15260,6 +15346,8 @@ struct TabItemView: View, Equatable {
                 .foregroundColor(activeSecondaryColor(0.75))
                 .lineLimit(1)
             }
+        }
+        }
         }
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
