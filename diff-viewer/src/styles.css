@@ -552,6 +552,9 @@ body[data-status-only="true"] #loading-layer {
   position: static;
   width: 100%;
   height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
   pointer-events: auto;
 }
 #status {
@@ -573,15 +576,54 @@ body[data-status-only="true"] #loading-layer {
   line-height: var(--cmux-diff-ui-line-height);
   color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
 }
+/* Centered empty state (no diff to show): icon badge + message, like a polished
+   "nothing here" page rather than a thin status strip. */
 body[data-status-only="true"] #status {
   position: static;
-  width: 100%;
-  max-width: none;
-  min-height: 40px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  width: auto;
+  max-width: 340px;
+  min-height: 0;
   border: 0;
-  border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   border-radius: 0;
-  padding: 10px 14px;
+  padding: 0;
+  background: transparent;
+  text-align: center;
+  text-wrap: balance;
+  font-size: 14px;
+  line-height: 1.55;
+  color: color-mix(in lab, var(--cmux-diff-fg) 58%, var(--cmux-diff-bg));
+}
+body[data-status-only="true"] #status-text {
+  font-weight: 500;
+  letter-spacing: 0.005em;
+}
+/* Icon badge: only for the friendly empty state, not errors or while loading. */
+#status-icon {
+  display: none;
+}
+body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+}
+body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon::before {
+  content: "";
+  display: block;
+  width: 26px;
+  height: 26px;
+  background-color: currentColor;
+  opacity: 0.8;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 #status[data-pending="true"]::before,
 body[data-loading="true"] #status::before {
