@@ -1,17 +1,21 @@
 #if DEBUG
 import Foundation
 
+/// A `URLProtocol` that serves a synthetic Sparkle appcast (and update archive) for UI tests,
+/// so an end-to-end update check can run against an in-process feed.
+///
+/// DEBUG-only test scaffolding. The feed contents are driven by `CMUX_UI_TEST_*` environment
+/// variables.
 final class UpdateTestURLProtocol: URLProtocol {
     static let host = "cmux.test"
     static let appcastPath = "/appcast.xml"
     static let updatePath = "/cmux-test.zip"
 
-    private static var isRegistered = false
-    private static let registrationLock = NSLock()
+    @MainActor private static var isRegistered = false
 
+    /// Registers the protocol once. Main-actor isolated so the one-time flag needs no lock.
+    @MainActor
     static func registerIfNeeded() {
-        registrationLock.lock()
-        defer { registrationLock.unlock() }
         guard !isRegistered else { return }
         URLProtocol.registerClass(UpdateTestURLProtocol.self)
         isRegistered = true

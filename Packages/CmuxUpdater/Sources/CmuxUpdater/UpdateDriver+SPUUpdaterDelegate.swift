@@ -1,18 +1,7 @@
-import Sparkle
-import Cocoa
+import Foundation
+@preconcurrency import Sparkle
 
-enum UpdateFeedResolver {
-    static let fallbackFeedURL = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
-
-    static func resolvedFeedURLString(infoFeedURL: String?) -> (url: String, isNightly: Bool, usedFallback: Bool) {
-        guard let infoFeedURL, !infoFeedURL.isEmpty else {
-            return (fallbackFeedURL, false, true)
-        }
-        return (infoFeedURL, infoFeedURL.contains("/nightly/"), false)
-    }
-}
-
-extension UpdateDriver: SPUUpdaterDelegate {
+extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     func updaterShouldPromptForPermissionToCheck(forUpdates _: SPUUpdater) -> Bool {
         false
     }
@@ -30,33 +19,31 @@ extension UpdateDriver: SPUUpdaterDelegate {
         // - Stable releases use the stable appcast URL
         // - cmux NIGHTLY has the nightly appcast URL injected by CI
         let infoFeedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
-        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeedURL)
-        UpdateLogStore.shared.append("update channel: \(resolved.isNightly ? "nightly" : "stable")")
+        let resolved = UpdateFeedResolver().resolve(infoFeedURL: infoFeedURL)
+        log.append("update channel: \(resolved.isNightly ? "nightly" : "stable")")
         recordFeedURLString(resolved.url, usedFallback: resolved.usedFallback)
         return resolved.url
     }
 
     func updater(_ updater: SPUUpdater, willScheduleUpdateCheckAfterDelay delay: TimeInterval) {
-        UpdateLogStore.shared.append("next update check scheduled in \(Int(delay.rounded()))s")
+        log.append("next update check scheduled in \(Int(delay.rounded()))s")
     }
 
     func updaterWillNotScheduleUpdateCheck(_ updater: SPUUpdater) {
-        UpdateLogStore.shared.append("automatic update checks disabled; no scheduled check")
+        log.append("automatic update checks disabled; no scheduled check")
     }
 
     /// Called when an update is scheduled to install silently,
     /// which occurs when automatic download is enabled.
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
-        DispatchQueue.main.async { [weak viewModel] in
-            viewModel?.clearDetectedUpdate()
-            viewModel?.state = .installing(.init(
-                isAutoUpdate: true,
-                retryTerminatingApplication: immediateInstallHandler,
-                dismiss: { [weak viewModel] in
-                    viewModel?.state = .idle
-                }
-            ))
-        }
+        model.clearDetectedUpdate()
+        model.setState(.installing(.init(
+            isAutoUpdate: true,
+            retryTerminatingApplication: immediateInstallHandler,
+            dismiss: { [weak self] in
+                self?.model.setState(.idle)
+            }
+        )))
         return true
     }
 
@@ -64,29 +51,25 @@ extension UpdateDriver: SPUUpdaterDelegate {
         let count = appcast.items.count
         let firstVersion = appcast.items.first?.displayVersionString ?? ""
         if firstVersion.isEmpty {
-            UpdateLogStore.shared.append("appcast loaded (items=\(count))")
+            log.append("appcast loaded (items=\(count))")
         } else {
-            UpdateLogStore.shared.append("appcast loaded (items=\(count), first=\(firstVersion))")
+            log.append("appcast loaded (items=\(count), first=\(firstVersion))")
         }
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
-        DispatchQueue.main.async { [weak viewModel] in
-            viewModel?.recordDetectedUpdate(item)
-        }
+        model.recordDetectedUpdate(item)
         let version = item.displayVersionString
         let fileURL = item.fileURL?.absoluteString ?? ""
         if fileURL.isEmpty {
-            UpdateLogStore.shared.append("valid update found: \(version)")
+            log.append("valid update found: \(version)")
         } else {
-            UpdateLogStore.shared.append("valid update found: \(version) (\(fileURL))")
+            log.append("valid update found: \(version) (\(fileURL))")
         }
     }
 
-    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
-        DispatchQueue.main.async { [weak viewModel] in
-            viewModel?.dismissDetectedAvailableUpdate()
-        }
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: any Error) {
+        model.dismissDetectedAvailableUpdate()
         let nsError = error as NSError
         let reasonValue = (nsError.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue
         let reason = reasonValue.map { SPUNoUpdateFoundReason(rawValue: OSStatus($0)) } ?? nil
@@ -95,27 +78,18 @@ extension UpdateDriver: SPUUpdaterDelegate {
         let latestItem = nsError.userInfo[SPULatestAppcastItemFoundKey] as? SUAppcastItem
         let latestVersion = latestItem?.displayVersionString ?? ""
         if latestVersion.isEmpty {
-            UpdateLogStore.shared.append("no update found (reason=\(reasonText), userInitiated=\(userInitiated))")
+            log.append("no update found (reason=\(reasonText), userInitiated=\(userInitiated))")
         } else {
-            UpdateLogStore.shared.append("no update found (reason=\(reasonText), userInitiated=\(userInitiated), latest=\(latestVersion))")
+            log.append("no update found (reason=\(reasonText), userInitiated=\(userInitiated), latest=\(latestVersion))")
         }
     }
 
     func updater(_ updater: SPUUpdater, userDidMake _: SPUUserUpdateChoice, forUpdate _: SUAppcastItem, state _: SPUUserUpdateState) {
-        DispatchQueue.main.async { [weak viewModel] in
-            viewModel?.clearDetectedUpdate()
-        }
+        model.clearDetectedUpdate()
     }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
-        Task { @MainActor in
-            AppDelegate.shared?.persistSessionForUpdateRelaunch()
-            TerminalController.shared.stop()
-            NSApp.invalidateRestorableState()
-            for window in NSApp.windows {
-                window.invalidateRestorableState()
-            }
-        }
+        actionDelegate?.updaterWillRelaunchApplication()
     }
 }
 
@@ -132,6 +106,8 @@ private func describeNoUpdateFoundReason(_ reason: SPUNoUpdateFoundReason) -> St
     case .systemIsTooNew:
         return "systemIsTooNew"
     @unknown default:
+        // Newer Sparkle adds cases like `.hardwareDoesNotSupportARM64`; handled here so the
+        // code compiles against the app's pinned (older) Sparkle and newer SwiftPM resolutions.
         return "unknown"
     }
 }

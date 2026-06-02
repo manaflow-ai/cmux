@@ -1,24 +1,43 @@
+public import SwiftUI
+public import CmuxUpdater
 import AppKit
-import Foundation
-import SwiftUI
 
 /// A pill-shaped button that displays update status and provides access to update actions.
-struct UpdatePill: View {
-    @ObservedObject var model: UpdateViewModel
+public struct UpdatePill: View {
+    private let model: UpdateStateModel
+    private let appearance: UpdateAppearance
+    private let actions: any UpdateActionsHost
     @State private var showPopover = false
 
     private let textFont = NSFont.systemFont(ofSize: 11, weight: .medium)
 
-    var body: some View {
-        if model.showsPill {
-            pillButton
-                .background(UpdatePillPopoverAnchor(isPresented: $showPopover, model: model))
-                .onChange(of: model.showsPill) { _, showsPill in
-                    if !showsPill {
-                        showPopover = false
-                    }
-                }
-                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+    /// Creates the pill.
+    ///
+    /// - Parameters:
+    ///   - model: The observable update state.
+    ///   - accent: The host accent color used for "update available" emphasis.
+    ///   - actions: The host that performs update actions the pill triggers.
+    public init(model: UpdateStateModel, accent: Color, actions: any UpdateActionsHost) {
+        self.model = model
+        self.appearance = UpdateAppearance(accent: accent)
+        self.actions = actions
+    }
+
+    public var body: some View {
+        ZStack {
+            if model.showsPill {
+                pillButton
+                    .background(UpdatePillPopoverAnchor(isPresented: $showPopover, model: model, actions: actions))
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
+        }
+        // The pill's appear/dismiss animation lives here (the controller no longer wraps the
+        // "no updates" auto-dismiss in withAnimation, keeping SwiftUI out of the domain layer).
+        .animation(.easeInOut(duration: 0.25), value: model.showsPill)
+        .onChange(of: model.showsPill) { _, showsPill in
+            if !showsPill {
+                showPopover = false
+            }
         }
     }
 
@@ -26,7 +45,7 @@ struct UpdatePill: View {
     private var pillButton: some View {
         Button(action: handleTap) {
             HStack(spacing: 6) {
-                UpdateBadge(model: model)
+                UpdateBadge(model: model, appearance: appearance)
                     .frame(width: 14, height: 14)
 
                 Text(model.text)
@@ -39,9 +58,9 @@ struct UpdatePill: View {
             .padding(.vertical, 4)
             .background(
                 Capsule()
-                    .fill(model.backgroundColor)
+                    .fill(appearance.backgroundColor(for: model))
             )
-            .foregroundColor(model.foregroundColor)
+            .foregroundColor(appearance.foregroundColor(for: model))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -58,13 +77,13 @@ struct UpdatePill: View {
                 showPopover = false
             } else {
                 showPopover = true
-                AppDelegate.shared?.checkForUpdatesInCustomUI()
+                actions.checkForUpdatesInCustomUI()
             }
             return
         }
 
         if case .notFound(let notFound) = model.state {
-            model.state = .idle
+            model.setState(.idle)
             notFound.acknowledgement()
         } else {
             showPopover.toggle()
@@ -80,7 +99,8 @@ struct UpdatePill: View {
 
 private struct UpdatePillPopoverAnchor: NSViewRepresentable {
     @Binding var isPresented: Bool
-    @ObservedObject var model: UpdateViewModel
+    let model: UpdateStateModel
+    let actions: any UpdateActionsHost
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -93,7 +113,7 @@ private struct UpdatePillPopoverAnchor: NSViewRepresentable {
         context.coordinator.anchorView = nsView
         context.coordinator.updateRootView(
             AnyView(
-                UpdatePopoverView(model: model) {
+                UpdatePopoverView(model: model, actions: actions) {
                     [weak coordinator] in
                     coordinator?.closeFromContent()
                 }
@@ -115,6 +135,7 @@ private struct UpdatePillPopoverAnchor: NSViewRepresentable {
         coordinator.dismiss()
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSPopoverDelegate {
         @Binding var isPresented: Bool
 
@@ -186,10 +207,15 @@ private struct UpdatePillPopoverAnchor: NSViewRepresentable {
 }
 
 /// Menu item that shows "Install Update and Relaunch" when an update is ready.
-struct InstallUpdateMenuItem: View {
-    @ObservedObject var model: UpdateViewModel
+public struct InstallUpdateMenuItem: View {
+    private let model: UpdateStateModel
 
-    var body: some View {
+    /// Creates the menu item for `model`.
+    public init(model: UpdateStateModel) {
+        self.model = model
+    }
+
+    public var body: some View {
         if model.state.isInstallable {
             Button(String(localized: "update.installAndRelaunch", defaultValue: "Install Update and Relaunch")) {
                 model.state.confirm()

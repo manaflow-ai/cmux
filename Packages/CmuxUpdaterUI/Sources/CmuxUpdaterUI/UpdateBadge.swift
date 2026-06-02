@@ -1,10 +1,19 @@
-import SwiftUI
+public import SwiftUI
+public import CmuxUpdater
 
-/// A badge view that displays the current state of an update operation.
-struct UpdateBadge: View {
-    @ObservedObject var model: UpdateViewModel
+/// A badge view that displays the current state of an update operation (icon, progress ring,
+/// or loading spinner) for the update pill.
+public struct UpdateBadge: View {
+    private let model: UpdateStateModel
+    private let appearance: UpdateAppearance
 
-    var body: some View {
+    /// Creates a badge for `model`, using `appearance` for the loading-spinner tint.
+    public init(model: UpdateStateModel, appearance: UpdateAppearance) {
+        self.model = model
+        self.appearance = appearance
+    }
+
+    public var body: some View {
         badgeContent
             .accessibilityLabel(model.text)
     }
@@ -29,7 +38,7 @@ struct UpdateBadge: View {
                 ProgressRingView(progress: min(1, max(0, extracting.progress)))
 
             case .checking:
-                BrowserStyleLoadingSpinner(size: 14, color: model.foregroundColor)
+                BrowserStyleLoadingSpinner(size: 14, color: appearance.foregroundColor(for: model))
 
             default:
                 if let iconName = model.iconName {
@@ -40,7 +49,7 @@ struct UpdateBadge: View {
     }
 }
 
-fileprivate struct ProgressRingView: View {
+private struct ProgressRingView: View {
     let progress: Double
     let lineWidth: CGFloat = 2
 
@@ -58,7 +67,7 @@ fileprivate struct ProgressRingView: View {
     }
 }
 
-fileprivate struct BrowserStyleLoadingSpinner: View {
+private struct BrowserStyleLoadingSpinner: View {
     let size: CGFloat
     let color: Color
 
