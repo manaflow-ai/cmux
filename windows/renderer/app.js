@@ -12527,6 +12527,11 @@ function paneShapePanel(workspace = activeWorkspace()) {
       <span class="pane-shape-title"></span>
       <span class="pane-shape-meta"></span>
     </span>
+    <span class="pane-shape-stats" aria-label="Pane shape details">
+      <span class="pane-shape-stat" data-pane-shape-stat="target"></span>
+      <span class="pane-shape-stat" data-pane-shape-stat="direction"></span>
+      <span class="pane-shape-stat" data-pane-shape-stat="range"></span>
+    </span>
     <div class="pane-shape-slider">
       <span class="pane-shape-slider-label"></span>
       <input class="setting-control pane-shape-range" type="range">
@@ -12549,12 +12554,14 @@ function paneShapePanel(workspace = activeWorkspace()) {
   let quickButtons = [];
   let smaller = null;
   let bigger = null;
+  let exact = null;
   let equal = null;
   let side = null;
   let stack = null;
   const updateControlStates = (nextPercent) => {
     if (smaller) smaller.disabled = !multiPane || nextPercent <= paneLayoutPercentMin;
     if (bigger) bigger.disabled = !multiPane || nextPercent >= paneLayoutPercentMax;
+    if (exact) exact.disabled = !multiPane;
     if (equal) equal.disabled = !multiPane;
     if (side) side.disabled = !multiPane;
     if (stack) stack.disabled = !multiPane;
@@ -12581,6 +12588,14 @@ function paneShapePanel(workspace = activeWorkspace()) {
     : hasPendingPane
       ? t("paneShape.metaPending")
       : t("paneShape.metaEmpty");
+  wrapper.querySelector('[data-pane-shape-stat="target"]').textContent = multiPane
+    ? formatMessage("paneShape.activeTarget", { title: panelTitle })
+    : t("paneShape.noPane");
+  wrapper.querySelector('[data-pane-shape-stat="direction"]').textContent = directionLabel;
+  wrapper.querySelector('[data-pane-shape-stat="range"]').textContent = formatMessage("paneShape.range", {
+    min: paneLayoutPercentMin,
+    max: paneLayoutPercentMax
+  });
   wrapper.querySelector(".pane-shape-slider-label").textContent = t("paneShape.size");
   const range = wrapper.querySelector(".pane-shape-range");
   const number = wrapper.querySelector(".pane-shape-number");
@@ -12641,7 +12656,7 @@ function paneShapePanel(workspace = activeWorkspace()) {
     }
   };
   const quick = wrapper.querySelector(".pane-shape-quick");
-  quickButtons = [1, 5, 10, 25, 33, 50, 67, 75, 90, 95, 99].map((quickPercent) => {
+  quickButtons = [10, 25, 50, 75, 90].map((quickPercent) => {
     const button = document.createElement("button");
     button.className = "pane-shape-quick-button";
     button.type = "button";
@@ -12660,12 +12675,16 @@ function paneShapePanel(workspace = activeWorkspace()) {
   const actions = wrapper.querySelector(".pane-shape-actions");
   const sizeActions = actions.querySelector(".pane-shape-action-group-size");
   const layoutActions = actions.querySelector(".pane-shape-action-group-layout");
-  smaller = settingsActionButton(t("paneShape.smaller"), () => adjustActivePaneLayoutPercent(-5), "", "pane shape smaller reduce active pane size");
-  bigger = settingsActionButton(t("paneShape.bigger"), () => adjustActivePaneLayoutPercent(5), "", "pane shape bigger increase active pane size");
+  smaller = settingsActionButton(t("paneShape.smaller"), () => adjustActivePaneLayoutPercent(-1), "", "pane shape smaller reduce active pane size one percent");
+  exact = settingsActionButton(t("paneShape.exact"), promptActivePaneLayoutPercent, "", "pane shape exact active pane size percent dialog");
+  bigger = settingsActionButton(t("paneShape.bigger"), () => adjustActivePaneLayoutPercent(1), "", "pane shape bigger increase active pane size one percent");
+  smaller.title = "Nudge active pane smaller by 1%.";
+  exact.title = "Enter an exact active pane size.";
+  bigger.title = "Nudge active pane larger by 1%.";
   equal = settingsActionButton(t("paneShape.equal"), resetActivePaneLayout, "", "pane shape equalize reset split layout");
   side = settingsActionButton(t("paneShape.columns"), () => applyPaneLayoutPreset("sideBySide"), "", "pane shape side by side columns");
   stack = settingsActionButton(t("paneShape.rows"), () => applyPaneLayoutPreset("stacked"), "", "pane shape stacked rows");
-  sizeActions.append(smaller, bigger);
+  sizeActions.append(smaller, exact, bigger);
   layoutActions.append(equal, side, stack);
   syncPercentInputs(percent);
   return wrapper;

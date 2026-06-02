@@ -151,6 +151,8 @@ const windowsMessages = {
     "paneShape.metaReady": "{direction} / drag splitters or enter 1-99%",
     "paneShape.metaPending": "Layout controls unlock when every pane is ready.",
     "paneShape.metaEmpty": "Split right or down, then tune any pane from here.",
+    "paneShape.activeTarget": "Active: {title}",
+    "paneShape.range": "{min}-{max}%",
     "paneShape.size": "Size",
     "paneShape.sizeAria": "Active pane size",
     "paneShape.smaller": "Smaller",
