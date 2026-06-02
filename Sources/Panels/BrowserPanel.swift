@@ -2634,30 +2634,58 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     /// but the manifest + files persist in the trusted diff viewer directory).
     /// Returns `true` when the token is registered and ready to serve.
     func registerFromManifest(token: String, now: Date = Date()) -> Bool {
-        guard Self.isValidToken(token) else { return false }
-        let manifestURL = trustedRootURL.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
-        guard let data = try? Data(contentsOf: manifestURL),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let fileObjects = object["files"] as? [[String: Any]] else {
-            return false
-        }
-        // Streamed remote diffs carry a `remote_url` patch entry with no local
-        // file; the local-file scheme handler cannot serve those, so don't try
-        // to restore them (the surface degrades to blank rather than erroring).
-        for fileObject in fileObjects {
-            let filePath = fileObject["file_path"] as? String ?? ""
-            if fileObject["remote_url"] is String || filePath.isEmpty {
-                return false
-            }
-        }
-        let files = fileObjects.compactMap { Self.registeredFile(from: $0) }
-        guard files.count == fileObjects.count, !files.isEmpty else { return false }
+        guard let files = localManifestFiles(token: token) else { return false }
         do {
             try register(token: token, files: files, now: now)
             return true
         } catch {
             return false
         }
+    }
+
+    /// Loads the registered files for a token's on-disk manifest, or `nil` when
+    /// the manifest is missing, empty, or references remote patch entries
+    /// (`remote_url` / empty `file_path`) that the local-file scheme handler
+    /// cannot serve. Streamed remote PR diffs fall into the latter case.
+    private func localManifestFiles(token: String) -> [RegisteredFile]? {
+        guard Self.isValidToken(token) else { return nil }
+        let manifestURL = trustedRootURL.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+        guard let data = try? Data(contentsOf: manifestURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let fileObjects = object["files"] as? [[String: Any]],
+              !fileObjects.isEmpty else {
+            return nil
+        }
+        var files: [RegisteredFile] = []
+        for fileObject in fileObjects {
+            let filePath = fileObject["file_path"] as? String ?? ""
+            if fileObject["remote_url"] is String || filePath.isEmpty {
+                return nil
+            }
+            guard let file = Self.registeredFile(from: fileObject) else { return nil }
+            files.append(file)
+        }
+        return files
+    }
+
+    /// Whether a diff viewer surface can be restored through the custom scheme.
+    /// Requires a local-only manifest and an entry page that is not a pending
+    /// placeholder — pending pages poll a deferred-load wait endpoint that only
+    /// the local HTTP server implements, so they would render-fail under the
+    /// custom scheme.
+    func diffViewerRestorable(token: String, requestPath: String) -> Bool {
+        guard let files = localManifestFiles(token: token),
+              let entry = files.first(where: { $0.requestPath == requestPath }),
+              let handle = try? FileHandle(forReadingFrom: entry.fileURL) else {
+            return false
+        }
+        defer { try? handle.close() }
+        let head = (try? handle.read(upToCount: 1024)) ?? Data()
+        if let text = String(data: head, encoding: .utf8),
+           text.contains("data-cmux-diff-pending=\"true\"") {
+            return false
+        }
+        return true
     }
 
     /// Extracts the diff viewer `(token, requestPath)` from a live diff viewer
@@ -4869,10 +4897,15 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func shouldPersistSessionSnapshot() -> Bool {
-        // Diff viewer surfaces are otherwise treated as temporary, but they are
-        // restorable via manifest re-registration, so persist them.
-        if diffViewerSessionComponents() != nil {
-            return true
+        // Diff viewer surfaces are otherwise treated as temporary. Persist them
+        // only when they can actually be restored via the custom scheme (a
+        // local-only, non-pending manifest); otherwise persisting would leave a
+        // blank panel on restart with no URL to fall back to.
+        if let components = diffViewerSessionComponents() {
+            return CmuxDiffViewerURLSchemeHandler.shared.diffViewerRestorable(
+                token: components.token,
+                requestPath: components.requestPath
+            )
         }
         guard !Self.isTemporarySessionHistoryURL(webView.url),
               !Self.isTemporarySessionHistoryURL(currentURL),
