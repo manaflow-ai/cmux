@@ -11020,6 +11020,7 @@ function showPanelContextMenu(event, panel) {
     colors.append(button);
   }
   const clear = contextMenuButton("Clear color", () => updatePanel(panel.id, { color: "" }), !panel.color);
+  const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(panel.color), !normalizeCustomPaletteColor(panel.color));
   const customColor = contextColorPicker(panel.color, (color) => updatePanel(panel.id, { color }));
   const nodes = [
     title,
@@ -11037,7 +11038,7 @@ function showPanelContextMenu(event, panel) {
     colorTitle,
     colors,
     customColor,
-    clear
+    contextMenuActionGroup(saveColor, clear)
   );
   menu.replaceChildren(...nodes);
   showContextMenuAt(menu, event.clientX, event.clientY);
@@ -11083,7 +11084,16 @@ function showWorkspaceContextMenu(event, workspace) {
     colors.append(button);
   }
   const customColor = contextColorPicker(workspace.color, (color) => setWorkspaceColor(color, workspace.id));
-  menu.replaceChildren(title, meta, actions, colors, customColor);
+  const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(workspace.color), !normalizeCustomPaletteColor(workspace.color));
+  menu.replaceChildren(
+    title,
+    meta,
+    actions,
+    contextMenuSectionTitle("Workspace color"),
+    colors,
+    customColor,
+    contextMenuActionGroup(saveColor)
+  );
   showContextMenuAt(menu, event.clientX, event.clientY);
 }
 
