@@ -3988,8 +3988,10 @@ function renderPaneNode(panel, workspace, visibleCount) {
   setTitleIfChanged(parts.zoom, zoomed ? "Show all panes" : "Focus pane");
   setTextIfChanged(parts.minimize, isPanelMinimized(panel) ? "+" : "-");
   setTitleIfChanged(parts.minimize, isPanelMinimized(panel) ? "Restore pane" : "Minimize pane");
+  const terminalOnlyButtons = [parts.fontDown, parts.fontUp, parts.restart];
   for (const button of parts.tools) {
-    button.disabled = pending && !button.classList.contains("close");
+    button.disabled = (pending && !button.classList.contains("close"))
+      || (terminalOnlyButtons.includes(button) && panel.type !== "terminal");
   }
   setTitleIfChanged(parts.close, pending ? "Cancel pane" : "Close");
   if (pending) {
