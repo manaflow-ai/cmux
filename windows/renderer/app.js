@@ -1886,11 +1886,63 @@ async function applyPanelBackgroundImage(value, panel = focusedPanel(), options 
   return true;
 }
 
+async function applyWorkspaceBackgroundImageToTerminals(value, workspace = activeWorkspace(), options = {}) {
+  const terminals = (workspace?.panels || []).filter((panel) => panel.type === "terminal");
+  if (terminals.length === 0) {
+    if (options.toast !== false) toast("Open a terminal pane first.");
+    return false;
+  }
+  const raw = String(value || "").trim();
+  let backgroundImage = "";
+  if (raw) {
+    const preset = isBackgroundPreset(raw) ? raw : "";
+    if (preset) {
+      backgroundImage = preset;
+    } else {
+      const validated = await validateBackgroundImageValue(raw);
+      if (!validated.ok) {
+        if (options.toast !== false) toast("Pane background image could not be loaded.");
+        return null;
+      }
+      backgroundImage = validated.url;
+    }
+  }
+  const normalized = normalizeBackgroundValue(backgroundImage);
+  const changedPanels = terminals.filter((panel) => normalizeBackgroundValue(panel.backgroundImage) !== normalized);
+  if (changedPanels.length === 0) {
+    if (options.toast !== false) {
+      toast(normalized ? "Terminal pane backgrounds already match." : "Terminal pane backgrounds are already clear.");
+    }
+    return false;
+  }
+  await Promise.all(changedPanels.map((panel) => updatePanel(panel.id, { backgroundImage: normalized })));
+  if (options.render !== false && state.inspectorMode === "settings") renderSettingsInspector();
+  if (options.toast !== false) {
+    const action = normalized ? "updated" : "cleared";
+    toast(`${changedPanels.length} terminal pane${changedPanels.length === 1 ? "" : "s"} ${action}.`);
+  }
+  return true;
+}
+
 async function applySavedBackgroundImageToPanel(backgroundId, panel = focusedPanel()) {
   const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
   if (!background) return null;
   return applyPanelBackgroundImage(background.url, panel, { toast: false }).then((changed) => {
     if (changed !== null) toast(`${background.label} applied to pane.`);
+    return changed;
+  });
+}
+
+async function applySavedBackgroundImageToWorkspaceTerminals(backgroundId, workspace = activeWorkspace()) {
+  const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
+  if (!background) return null;
+  return applyWorkspaceBackgroundImageToTerminals(background.url, workspace, { toast: false }).then((changed) => {
+    if (changed === true) {
+      toast(`${background.label} applied to terminal panes.`);
+    } else if (changed === false) {
+      const terminals = (workspace?.panels || []).filter((panel) => panel.type === "terminal");
+      toast(terminals.length ? "Terminal pane backgrounds already match." : "Open a terminal pane first.");
+    }
     return changed;
   });
 }
@@ -8466,6 +8518,9 @@ function activeBackgroundPanel(options = {}) {
   const pane = settingsActionButton("Pane", () => applyPanelBackgroundImage(state.settings.backgroundImage), "", "active background apply to active terminal pane");
   pane.dataset.backgroundAction = "pane";
   pane.disabled = !hasBackground || !resolveTerminalPanel(focusedPanel());
+  const allPanes = settingsActionButton("All panes", () => applyWorkspaceBackgroundImageToTerminals(state.settings.backgroundImage), "", "active background apply to all terminal panes workspace");
+  allPanes.dataset.backgroundAction = "all-panes";
+  allPanes.disabled = !hasBackground || !(activeWorkspace()?.panels || []).some((candidate) => candidate.type === "terminal");
   const open = settingsActionButton("Open", () => openBackgroundImageSource(), "", "active background open local file url source reveal");
   open.dataset.backgroundAction = "open";
   open.disabled = !canOpenBackgroundImageSource(state.settings.backgroundImage);
@@ -8480,6 +8535,7 @@ function activeBackgroundPanel(options = {}) {
     paste,
     save,
     pane,
+    allPanes,
     open,
     clear
   );
@@ -10848,9 +10904,12 @@ function savedBackgroundImagesPanel() {
     cardActions.className = "saved-background-card-actions";
     const open = settingsActionButton("Open", () => openBackgroundImageSource(background.url), "", `open saved background source ${background.label}`);
     open.disabled = !canOpenBackgroundImageSource(background.url);
+    const allPanes = settingsActionButton("All panes", () => applySavedBackgroundImageToWorkspaceTerminals(background.id), "", `apply saved background to all terminal panes workspace ${background.label}`);
+    allPanes.disabled = !(activeWorkspace()?.panels || []).some((candidate) => candidate.type === "terminal");
     cardActions.append(
       settingsActionButton("Apply", () => applySavedBackgroundImage(background.id), "", `apply saved background ${background.label}`),
       settingsActionButton("Pane", () => applySavedBackgroundImageToPanel(background.id), "", `apply saved background to active terminal pane ${background.label}`),
+      allPanes,
       open,
       settingsActionButton("Rename", () => renameSavedBackgroundImage(background.id), "", `rename saved background ${background.label}`),
       settingsActionButton("Delete", () => deleteSavedBackgroundImage(background.id), "danger", `delete saved background ${background.label}`)
