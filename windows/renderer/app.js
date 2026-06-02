@@ -8153,7 +8153,7 @@ function renderSettingsInspector(options = {}) {
     );
     appearanceSection.append(appearanceActions);
     appearanceSection.append(activeBackgroundPanel({ tuning: true }));
-    appearanceSection.append(settingRow("Background templates", backgroundPresetGrid(), true, "background preset template wallpaper image app pane terminal"));
+    appearanceSection.append(appearanceBackgroundTemplateDisclosurePanel());
 
     const imageInput = document.createElement("input");
     imageInput.className = "setting-control";
@@ -8197,7 +8197,7 @@ function renderSettingsInspector(options = {}) {
     );
     imageActions.dataset.settingsSearch = normalizeSettingsQuery("background image local file wallpaper apply clear paste clipboard");
     appearanceSection.append(imageActions);
-    appearanceSection.append(settingRow("Saved backgrounds", savedBackgroundImagesPanel(), true, "saved background image wallpaper library apply rename delete save"));
+    appearanceSection.append(savedBackgroundDisclosurePanel());
 
     nodes.push(appearanceSection);
   }
@@ -11225,9 +11225,11 @@ function quickSetupActionGrid() {
 function ensureSettingsDisclosureContent(disclosure) {
   if (!disclosure || disclosure.dataset.disclosureMounted === "true") return false;
   const contentBuilder = {
+    "background-presets": backgroundPresetGrid,
     "quick-actions": quickSetupActionGrid,
     "quick-categories": quickSettingsShortcutGrid,
-    "quick-presets": settingsPresetGrid
+    "quick-presets": settingsPresetGrid,
+    "saved-backgrounds": savedBackgroundImagesPanel
   }[disclosure.dataset.disclosureContent];
   if (!contentBuilder) return false;
   disclosure.append(contentBuilder());
@@ -11294,6 +11296,28 @@ function quickPresetDisclosurePanel() {
     title: t("quickGuide.presets"),
     body: t("quickGuide.presets.body"),
     meta: formatMessage("quickGuide.presetCount", { count: settingsPresets.length })
+  });
+}
+
+function appearanceBackgroundTemplateDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "appearance-background-disclosure",
+    content: "background-presets",
+    searchTerms: "appearance background templates preset wallpaper image app active pane terminal all terminals",
+    title: t("appearance.backgroundTemplates"),
+    body: t("appearance.backgroundTemplates.body"),
+    meta: formatMessage("appearance.backgroundTemplateCount", { count: backgroundPresets.length })
+  });
+}
+
+function savedBackgroundDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "appearance-saved-background-disclosure",
+    content: "saved-backgrounds",
+    searchTerms: "appearance saved backgrounds image wallpaper library apply rename delete save paste choose",
+    title: t("appearance.savedBackgrounds"),
+    body: t("appearance.savedBackgrounds.body"),
+    meta: formatMessage("appearance.savedBackgroundCount", { count: state.savedBackgroundImages.length })
   });
 }
 

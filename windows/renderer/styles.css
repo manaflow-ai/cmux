@@ -4928,7 +4928,10 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   font: 10px/1 var(--font-mono);
 }
 
-.settings-disclosure[open] > .quick-settings-shortcut-grid {
+.settings-disclosure[open] > .background-preset-grid,
+.settings-disclosure[open] > .quick-settings-shortcut-grid,
+.settings-disclosure[open] > .saved-background-panel,
+.settings-disclosure[open] > .settings-preset-grid {
   margin-top: var(--space-1);
 }
 
