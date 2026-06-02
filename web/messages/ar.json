@@ -242,6 +242,22 @@
         "p3": "هذا يرسل مساحة العمل الحالية إلى نهاية دورة غير المقروء حتى تستطيع المتابعة دون مسح الحالة.",
         "p4": "يبدل Cmd+Option+U مساحة العمل الحالية بين مقروءة وغير مقروءة.",
         "p5": "هذا مفيد عندما تنتقل إلى مساحة غير مقروءة عبر Cmd+Shift+U وتحتاج إلى تغيير السياق قبل الرد."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "أعد فتح الطرفيات والمتصفحات ومساحات العمل وجلسات الوكلاء المغلقة باستخدام Cmd+Shift+T، وتتبّع تركيزك للخلف باستخدام Cmd+[ وCmd+].",
+        "date": "2 يونيو 2026",
+        "p1": "تغلق علامة تبويب طرفية لترتيب مساحتك، ثم تدرك أنك كنت بحاجة إليها. أو تغلق مساحة عمل كاملة فتفقد الوكيل الذي كان في منتصف مهمته. أصبح cmux الآن يحتفظ بسجل لما أغلقته وما ركّزت عليه، فيكفي اختصار واحد لاستعادته.",
+        "reopenTitle": "أعد فتح ما أغلقته",
+        "reopenP": "اضغط <code>Cmd+Shift+T</code> لإعادة فتح آخر ما أغلقته. يعمل ذلك مع علامات تبويب الطرفية وعلامات تبويب المتصفح ومساحات العمل والنوافذ، ويستعيدها واحدة تلو الأخرى بالترتيب الذي أغلقتها به. يعود كل سطح إلى مكانه مع بقاء أجزائه كما هي.",
+        "agentTitle": "جلسات الوكلاء تعود أيضًا",
+        "agentP": "يعيد السجل أيضًا فتح جلسات الوكلاء المغلقة. أعد فتح جلسة Claude Code أو Codex أو OpenCode فتستأنف من حيث توقفت. شغّل <code>cmux hooks setup</code> مرة واحدة كي يتمكن cmux من تتبّع جلسات الوكلاء؛ بعد ذلك تُعاد فتحها مثل أي شيء آخر.",
+        "agentP2": "يعتمد هذا على <link>استعادة الجلسات</link> في cmux، التي تستأنف الوكلاء المدعومين عبر أوامر الاستئناف الأصلية الخاصة بكل منها.",
+        "focusTitle": "ارجع إلى حيث كنت",
+        "focusP": "تنقلك أزرار الرجوع والتقدّم في شريط العنوان، أو <code>Cmd+[</code> و<code>Cmd+]</code>، إلى مساحة العمل أو النافذة السابقة والتالية التي كنت تعمل فيها، تمامًا مثل الرجوع والتقدّم في المتصفح.",
+        "fullHistoryTitle": "لوحة السجل الكاملة",
+        "fullHistoryP": "عندما تحتاج إلى أكثر من العنصر الأخير، افتح لوحة السجل الكاملة: عرض قابل للبحث ومجمّع حسب اليوم لكل ما أغلقته وركّزت عليه، مع طوابع زمنية وإجراء Clear Closed.",
+        "docsCta": "راجع <link>اختصارات لوحة المفاتيح</link> للاطلاع على القائمة الكاملة، بما في ذلك كيفية إعادة تعيين تنقل السجل."
       }
     },
     "zenOfCmux": {
@@ -367,6 +383,10 @@
         "وكلاء برمجة بالذكاء الاصطناعي",
         "مساحة عمل غير مقروءة"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: إعادة فتح الطرفيات والجلسات المغلقة",
+      "metaDescription": "يحتفظ cmux بسجل لما أغلقته وما ركّزت عليه. أعد فتح الطرفيات والمتصفحات ومساحات العمل وجلسات Claude Code وCodex وOpenCode المغلقة باستخدام Cmd+Shift+T، وحرّك التركيز للخلف وللأمام باستخدام Cmd+[ وCmd+]."
     }
   },
   "docs": {
@@ -513,8 +533,17 @@
           "byCwd": {
             "newWorkspacePlacement": "تجاوز لكل cwd لمكان وضع مساحة العمل الجديدة عند استخدام Cmd-N داخل المجموعة أو زر + في رأس المجموعة أو إجراءات المجموعة المضبوطة: `afterCurrent` (بعد مساحة العمل النشطة داخل المجموعة، مع الرجوع إلى top)، أو `top` (الموضع الثاني بعد المرساة مباشرة)، أو `end` (بعد آخر عضو). عند الحذف، يتم الرجوع إلى الإعداد الافتراضي العام."
           }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "أوامر مخصصة",

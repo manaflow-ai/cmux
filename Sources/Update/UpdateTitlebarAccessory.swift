@@ -2815,7 +2815,7 @@ private final class HoverTrackingNSView: NSView {
 
 @MainActor
 final class UpdateTitlebarAccessoryController {
-    private weak var updateViewModel: UpdateViewModel?
+    private let updateLog: UpdateLogStore
     private var didStart = false
     private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
     private var observers: [NSObjectProtocol] = []
@@ -2827,8 +2827,8 @@ final class UpdateTitlebarAccessoryController {
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
 
-    init(viewModel: UpdateViewModel) {
-        self.updateViewModel = viewModel
+    init(updateLog: UpdateLogStore) {
+        self.updateLog = updateLog
     }
 
     deinit {
@@ -2926,7 +2926,7 @@ final class UpdateTitlebarAccessoryController {
                 if env["CMUX_UI_TEST_MODE"] == "1" {
                     let ids = NSApp.windows.map { $0.identifier?.rawValue ?? "<nil>" }
                     let delayText = String(format: "%.2f", delay)
-                    UpdateLogStore.shared.append("startup window scan (delay=\(delayText)) count=\(NSApp.windows.count) ids=\(ids.joined(separator: ","))")
+                    self?.updateLog.append("startup window scan (delay=\(delayText)) count=\(NSApp.windows.count) ids=\(ids.joined(separator: ","))")
                 }
 #endif
             }
@@ -2988,7 +2988,7 @@ final class UpdateTitlebarAccessoryController {
         let env = ProcessInfo.processInfo.environment
         if env["CMUX_UI_TEST_MODE"] == "1" {
             let ident = window.identifier?.rawValue ?? "<nil>"
-            UpdateLogStore.shared.append("attached titlebar accessories to window id=\(ident)")
+            updateLog.append("attached titlebar accessories to window id=\(ident)")
         }
 #endif
     }
@@ -3044,7 +3044,7 @@ final class UpdateTitlebarAccessoryController {
         let env = ProcessInfo.processInfo.environment
         if env["CMUX_UI_TEST_MODE"] == "1" {
             let ident = window.identifier?.rawValue ?? "<nil>"
-            UpdateLogStore.shared.append("removed titlebar accessories from window id=\(ident)")
+            updateLog.append("removed titlebar accessories from window id=\(ident)")
         }
 #endif
     }

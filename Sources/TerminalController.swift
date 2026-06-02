@@ -2336,7 +2336,10 @@ class TerminalController {
         }
 
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
-            socketWorkerV2Response(request)
+            if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
+                return v2Result(id: request.id, workspaceParamError)
+            }
+            return socketWorkerV2Response(request)
         }
     }
 
@@ -3359,10 +3362,13 @@ class TerminalController {
             )
         }
 
-        v2MainSync { self.v2RefreshKnownRefs() }
-
-
         return withSocketCommandPolicy(commandKey: method, isV2: true, params: params) {
+            if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: method, params: params) {
+                return v2Result(id: id, workspaceParamError)
+            }
+
+            v2MainSync { self.v2RefreshKnownRefs() }
+
             switch method {
         case "system.ping":
             return v2Ok(id: id, result: ["pong": true])
@@ -5179,6 +5185,22 @@ class TerminalController {
         case .err(let code, let message, let data):
             return v2Error(id: id, code: code, message: message, data: data)
         }
+    }
+
+    private nonisolated func v2UnsupportedWorkspaceAliasError(method: String, params: [String: Any]) -> V2CallResult? {
+        guard method.hasPrefix("workspace."), params.keys.contains("window") else { return nil }
+        return .err(
+            code: "invalid_params",
+            message: String(
+                localized: "socket.workspace.unsupportedWindowParam",
+                defaultValue: "Unsupported parameter `window`; use `window_id` with a window UUID or ref from `window.list`."
+            ),
+            data: [
+                "method": method,
+                "unsupported_param": "window",
+                "supported_param": "window_id"
+            ]
+        )
     }
 
     private nonisolated func v2Encode(_ object: Any) -> String {
@@ -12565,6 +12587,7 @@ class TerminalController {
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
+            let transparentBackground = v2Bool(params, "transparent_background") ?? false
             let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
 
             var createdSplit = true
@@ -12578,6 +12601,7 @@ class TerminalController {
                     selectWhenNotFocused: true,
                     creationPolicy: .automationPreload,
                     omnibarVisible: omnibarVisible,
+                    transparentBackground: transparentBackground,
                     bypassRemoteProxy: bypassRemoteProxy
                 )
                 createdSplit = false
@@ -12590,6 +12614,7 @@ class TerminalController {
                     focus: focus,
                     creationPolicy: .automationPreload,
                     omnibarVisible: omnibarVisible,
+                    transparentBackground: transparentBackground,
                     bypassRemoteProxy: bypassRemoteProxy
                 )
             }
@@ -12619,6 +12644,7 @@ class TerminalController {
                 "created_split": createdSplit,
                 "placement_strategy": placementStrategy,
                 "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible,
+                "transparent_background": transparentBackground,
                 "bypass_remote_proxy": bypassRemoteProxy
             ])
         }
