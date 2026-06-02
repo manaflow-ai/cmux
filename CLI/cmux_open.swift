@@ -865,6 +865,7 @@ extension CMUXCLI {
             "url": viewer.url.absoluteString,
             "focus": focus,
             "show_omnibar": false,
+            "transparent_background": true,
             "bypass_remote_proxy": true
         ]
         if viewer.url.scheme == DiffViewerURLMapper.scheme {

@@ -353,6 +353,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let commandPayload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
         let params = try XCTUnwrap(commandPayload["params"] as? [String: Any])
         XCTAssertEqual(params["show_omnibar"] as? Bool, false)
+        XCTAssertEqual(params["transparent_background"] as? Bool, true)
         XCTAssertEqual(params["bypass_remote_proxy"] as? Bool, true)
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let viewerURL = try XCTUnwrap(URL(string: rawURL))

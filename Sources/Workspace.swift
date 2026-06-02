@@ -14461,6 +14461,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
+        transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
         initialDividerPosition: CGFloat? = nil
     ) -> BrowserPanel? {
@@ -14496,6 +14497,7 @@ final class Workspace: Identifiable, ObservableObject {
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             omnibarVisible: omnibarVisible,
+            transparentBackground: transparentBackground,
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
@@ -14570,6 +14572,7 @@ final class Workspace: Identifiable, ObservableObject {
         bypassInsecureHTTPHostOnce: String? = nil,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
+        transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
@@ -14597,6 +14600,7 @@ final class Workspace: Identifiable, ObservableObject {
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             omnibarVisible: omnibarVisible,
+            transparentBackground: transparentBackground,
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,

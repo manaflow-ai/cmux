@@ -3441,6 +3441,11 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
     private let bypassesRemoteWorkspaceProxy: Bool
+    /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
+    /// or other custom UI) rather than a normal web page. When set, the webview
+    /// is made fully clear over a transparent Ghostty theme so the page's own
+    /// CSS owns the background. See `applyWebViewBackground(color:)`.
+    private let usesTransparentBackground: Bool
     private let developerToolsDetachedOpenGracePeriod: TimeInterval = 0.35
     private var developerToolsDetachedOpenGraceDeadline: Date?
     private var developerToolsTransitionTargetVisible: Bool?
@@ -4091,6 +4096,7 @@ final class BrowserPanel: Panel, ObservableObject {
         preloadInitialNavigationInBackground: Bool = false,
         bypassInsecureHTTPHostOnce: String? = nil,
         omnibarVisible: Bool = true,
+        transparentBackground: Bool = false,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
@@ -4111,6 +4117,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.isOmnibarVisible = omnibarVisible
+        self.usesTransparentBackground = transparentBackground
         self.websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
@@ -4905,9 +4912,59 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
-                self.webView.underPageBackgroundColor = GhosttyBackgroundTheme.color(from: notification)
+                self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
             }
             .store(in: &webViewCancellables)
+
+        // Apply the configured background for the freshly bound webview (covers
+        // the initial bind and every post-crash replacement).
+        applyConfiguredWebViewBackground()
+    }
+
+    /// Configures the live webview's background for the current Ghostty theme.
+    private func applyConfiguredWebViewBackground() {
+        applyWebViewBackground(color: GhosttyBackgroundTheme.currentColor())
+    }
+
+    /// Applies the webview background for a given composited terminal color.
+    ///
+    /// Normal browser surfaces always paint the solid composited color so pages
+    /// never flash the desktop while loading. Transparent internal-UI surfaces
+    /// (``usesTransparentBackground``) instead let the page's own CSS own the
+    /// background: when the terminal theme is transparent (alpha < 1) the
+    /// webview is made fully clear so the page composites against the window
+    /// exactly once, with no extra native fill. When the theme is opaque the
+    /// solid fill is kept even for transparent surfaces to avoid a load flash.
+    private func applyWebViewBackground(color: NSColor) {
+        if usesTransparentBackground, Self.shouldClearTransparentSurfaceBackground() {
+            webView.wantsLayer = true
+            webView.setValue(false, forKey: "drawsBackground")
+            webView.underPageBackgroundColor = .clear
+            webView.layer?.isOpaque = false
+            webView.layer?.backgroundColor = NSColor.clear.cgColor
+            return
+        }
+        if usesTransparentBackground {
+            // Restore opaque drawing in case a transparent theme previously made
+            // this webview clear before the user switched to an opaque theme.
+            webView.setValue(true, forKey: "drawsBackground")
+            webView.layer?.isOpaque = true
+            webView.layer?.backgroundColor = nil
+        }
+        webView.underPageBackgroundColor = color
+    }
+
+    /// Whether a transparent internal-UI surface should drop its webview fill so
+    /// the window backdrop shows through. Mirrors the terminal/markdown panels'
+    /// ``PanelAppearance/usesClearContentBackground`` decision using the live
+    /// Ghostty appearance: the composited terminal color is always opaque, so we
+    /// gate on the runtime opacity/blur/transparent-window state instead.
+    private static func shouldClearTransparentSurfaceBackground() -> Bool {
+        PanelAppearance.shouldUseClearContentBackground(
+            opacity: GhosttyApp.shared.defaultBackgroundOpacity,
+            usesGhosttyGlassStyle: GhosttyApp.shared.defaultBackgroundBlur.isMacOSGlassStyle,
+            usesTransparentWindow: cmuxShouldUseTransparentBackgroundWindow()
+        )
     }
 
     private func replaceWebViewAfterContentProcessTermination(for terminatedWebView: WKWebView) {
@@ -6985,7 +7042,7 @@ extension BrowserPanel {
     }
 
     func refreshAppearanceDrivenColors() {
-        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
+        applyConfiguredWebViewBackground()
     }
 
     func suppressOmnibarAutofocus(for seconds: TimeInterval) {
