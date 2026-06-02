@@ -14064,32 +14064,31 @@ private struct SidebarHelpMenuButton: View {
         shortcutHint: String? = nil,
         trailingSystemImage: String? = nil
     ) -> some View {
-        Button {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 12))
+            Spacer(minLength: 0)
+            if let shortcutHint {
+                helpOptionShortcutHint(text: shortcutHint)
+            }
+            if let trailingSystemImage {
+                helpOptionTrailingIcon(systemName: trailingSystemImage)
+            }
+            if isExternalLink {
+                helpOptionTrailingIcon(systemName: "arrow.up.right", size: 8)
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 24)
+        .contentShape(Rectangle())
+        .onTapGesture {
             isPopoverPresented = false
             perform(action)
-        } label: {
-            HStack(spacing: 8) {
-                Text(title)
-                    .font(.system(size: 12))
-                Spacer(minLength: 0)
-                if let shortcutHint {
-                    helpOptionShortcutHint(text: shortcutHint)
-                }
-                if let trailingSystemImage {
-                    helpOptionTrailingIcon(systemName: trailingSystemImage)
-                }
-                if isExternalLink {
-                    helpOptionTrailingIcon(systemName: "arrow.up.right", size: 8)
-                }
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 24)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
         .accessibilityIdentifier(accessibilityIdentifier)
+        .accessibilityAddTraits(.isButton)
         .accessibilityAction {
             isPopoverPresented = false
             perform(action)

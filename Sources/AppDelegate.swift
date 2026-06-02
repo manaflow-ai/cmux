@@ -1122,10 +1122,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var emptyNotificationsBlockingUITestObservers: [NSObjectProtocol] = []
     private var didSetupUITestSocketBridge = false
     private var uiTestSocketBridgeTimer: DispatchSourceTimer?
-    private let uiTestSocketBridgeQueue = DispatchQueue(label: "cmux.ui-test.socket-bridge")
-    private var uiTestSocketBridgeDistributedObserver: NSObjectProtocol?
-    private let uiTestSocketBridgeRequestNotificationName = Notification.Name("com.cmux.ui-test.socket-bridge.request")
-    private let uiTestSocketBridgeResponseNotificationName = Notification.Name("com.cmux.ui-test.socket-bridge.response")
+    private let uiTestSocketBridgePasteboardRequestType = NSPasteboard.PasteboardType("com.cmux.ui-test.socket-bridge.request")
+    private let uiTestSocketBridgePasteboardResponseType = NSPasteboard.PasteboardType("com.cmux.ui-test.socket-bridge.response")
     private var uiTestSocketBridgeLastRequestId: String?
     private var uiTestSocketBridgeProcessingRequestIds: Set<String> = []
     private var didSetupDisplayResolutionUITestDiagnostics = false
@@ -1703,7 +1701,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let bridgePath = env["CMUX_UI_TEST_SOCKET_BRIDGE_PATH"] ?? ""
         payload["socketBridgePath"] = bridgePath
         payload["socketBridgeSetup"] = didSetupUITestSocketBridge ? "1" : "0"
-        payload["socketBridgeDistributedObserver"] = uiTestSocketBridgeDistributedObserver == nil ? "0" : "1"
         let bridgePathExists = !bridgePath.isEmpty && FileManager.default.fileExists(atPath: bridgePath)
         payload["socketBridgePathExists"] = bridgePathExists ? "1" : "0"
         if bridgePath.isEmpty {
@@ -3025,17 +3022,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             response: "READY",
             path: uiTestSocketBridgeResponsePath(for: path)
         )
-        uiTestSocketBridgeDistributedObserver = DistributedNotificationCenter.default().addObserver(
-            forName: uiTestSocketBridgeRequestNotificationName,
-            object: path,
-            queue: .main
-        ) { [weak self] notification in
-            self?.processUITestSocketBridgeDistributedRequest(notification: notification, path: path)
-        }
-        let timer = DispatchSource.makeTimerSource(queue: uiTestSocketBridgeQueue)
+        let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now(), repeating: .milliseconds(50))
         timer.setEventHandler { [weak self] in
             self?.processUITestSocketBridgeRequestIfNeeded(path: path)
+            self?.processUITestSocketBridgePasteboardRequestIfNeeded(path: path)
         }
         uiTestSocketBridgeTimer = timer
         timer.resume()
@@ -3062,25 +3053,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func processUITestSocketBridgeDistributedRequest(notification: Notification, path: String) {
-        guard let userInfo = notification.userInfo,
-              let requestId = userInfo["id"] as? String,
-              let line = userInfo["line"] as? String,
-              userInfo["completed"] as? Bool != true else {
+    private func processUITestSocketBridgePasteboardRequestIfNeeded(path: String) {
+        let pasteboard = NSPasteboard.general
+        guard let raw = pasteboard.string(forType: uiTestSocketBridgePasteboardRequestType),
+              let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["bridgePath"] as? String == path,
+              let requestId = object["id"] as? String,
+              let line = object["line"] as? String,
+              object["completed"] as? Bool != true else {
             return
         }
 
         handleUITestSocketBridgeRequest(requestId: requestId, line: line) { response in
-            DistributedNotificationCenter.default().postNotificationName(
-                uiTestSocketBridgeResponseNotificationName,
-                object: path,
-                userInfo: uiTestSocketBridgeResponsePayload(
-                    requestId: requestId,
-                    line: line,
-                    response: response
-                ),
-                deliverImmediately: true
+            var payload = uiTestSocketBridgeResponsePayload(requestId: requestId, line: line, response: response)
+            payload["bridgePath"] = path
+            guard let responseData = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+                  let responseRaw = String(data: responseData, encoding: .utf8) else {
+                return
+            }
+            pasteboard.declareTypes(
+                [uiTestSocketBridgePasteboardRequestType, uiTestSocketBridgePasteboardResponseType],
+                owner: nil
             )
+            pasteboard.setString(raw, forType: uiTestSocketBridgePasteboardRequestType)
+            pasteboard.setString(responseRaw, forType: uiTestSocketBridgePasteboardResponseType)
         }
     }
 

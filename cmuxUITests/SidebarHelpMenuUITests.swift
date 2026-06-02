@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 import Foundation
 
@@ -387,8 +388,8 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
 }
 
 final class CommandPaletteAllSurfacesUITests: XCTestCase {
-    private let socketBridgeRequestNotificationName = Notification.Name("com.cmux.ui-test.socket-bridge.request")
-    private let socketBridgeResponseNotificationName = Notification.Name("com.cmux.ui-test.socket-bridge.response")
+    private let socketBridgePasteboardRequestType = NSPasteboard.PasteboardType("com.cmux.ui-test.socket-bridge.request")
+    private let socketBridgePasteboardResponseType = NSPasteboard.PasteboardType("com.cmux.ui-test.socket-bridge.response")
 
     private var socketPath = ""
     private var socketBridgePath = ""
@@ -1543,50 +1544,50 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     private func socketBridgeCommand(_ command: String, responseTimeout: TimeInterval) -> String? {
-        if let response = socketDistributedBridgeCommand(command, responseTimeout: responseTimeout) {
+        if let response = socketPasteboardBridgeCommand(command, responseTimeout: responseTimeout) {
             return response
         }
         return socketFileBridgeCommand(command, responseTimeout: responseTimeout)
     }
 
-    private func socketDistributedBridgeCommand(_ command: String, responseTimeout: TimeInterval) -> String? {
+    private func socketPasteboardBridgeCommand(_ command: String, responseTimeout: TimeInterval) -> String? {
         guard !socketBridgePath.isEmpty else { return nil }
         let requestId = UUID().uuidString
-        let center = DistributedNotificationCenter.default()
-        var response: String?
-        let observer = center.addObserver(
-            forName: socketBridgeResponseNotificationName,
-            object: socketBridgePath,
-            queue: .main
-        ) { notification in
-            guard let userInfo = notification.userInfo,
-                  userInfo["id"] as? String == requestId,
-                  userInfo["completed"] as? Bool == true else {
-                return
-            }
-            response = userInfo["response"] as? String
+        let payload: [String: Any] = [
+            "id": requestId,
+            "line": command,
+            "bridgePath": socketBridgePath,
+            "completed": false,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let raw = String(data: data, encoding: .utf8) else {
+            return nil
         }
-        defer { center.removeObserver(observer) }
 
-        center.postNotificationName(
-            socketBridgeRequestNotificationName,
-            object: socketBridgePath,
-            userInfo: [
-                "id": requestId,
-                "line": command,
-                "completed": false,
-            ],
-            deliverImmediately: true
-        )
+        let pasteboard = NSPasteboard.general
+        pasteboard.declareTypes([socketBridgePasteboardRequestType], owner: nil)
+        pasteboard.setString(raw, forType: socketBridgePasteboardRequestType)
 
         let deadline = ProcessInfo.processInfo.systemUptime + responseTimeout
         while ProcessInfo.processInfo.systemUptime < deadline {
-            if let response {
+            if let response = socketPasteboardBridgeResponse(requestId: requestId) {
                 return response
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         return nil
+    }
+
+    private func socketPasteboardBridgeResponse(requestId: String) -> String? {
+        guard let raw = NSPasteboard.general.string(forType: socketBridgePasteboardResponseType),
+              let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["bridgePath"] as? String == socketBridgePath,
+              object["id"] as? String == requestId,
+              object["completed"] as? Bool == true else {
+            return nil
+        }
+        return object["response"] as? String
     }
 
     private func socketFileBridgeCommand(_ command: String, responseTimeout: TimeInterval) -> String? {
