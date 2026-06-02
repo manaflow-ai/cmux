@@ -5,6 +5,7 @@ import {
   buildApnsPayload,
   shouldPruneToken,
 } from "../services/apns/payload";
+import { summarizeApnsSendResults } from "../services/apns/response";
 import { signApnsJwt, normalizeP8 } from "../services/apns/sender";
 import {
   MAX_PUSH_BODY_CHARS,
@@ -70,6 +71,19 @@ describe("apns host + pruning", () => {
     expect(shouldPruneToken(0, "timeout")).toBe(false); // transient
     expect(shouldPruneToken(503, "ServiceUnavailable")).toBe(false); // transient
     expect(shouldPruneToken(429, "TooManyRequests")).toBe(false);
+  });
+});
+
+describe("apns response", () => {
+  test("summarizes sends without exposing provider reasons", () => {
+    const summary = summarizeApnsSendResults([
+      { deviceToken: "a".repeat(64), status: 200, prune: false },
+      { deviceToken: "b".repeat(64), status: 400, reason: "BadDeviceToken", prune: true },
+    ]);
+
+    expect(summary).toEqual({ sent: 1, devices: 2, pruned: 1 });
+    expect(JSON.stringify(summary)).not.toContain("BadDeviceToken");
+    expect(JSON.stringify(summary)).not.toContain("apns");
   });
 });
 

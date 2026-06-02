@@ -19,6 +19,7 @@ import {
   readBoundedJsonObject,
 } from "../../../../services/apns/routePolicy";
 import { sendApnsNotification, type ApnsConfig } from "../../../../services/apns/sender";
+import { summarizeApnsSendResults } from "../../../../services/apns/response";
 
 export const runtime = "nodejs"; // http2 + node:crypto, not edge
 export const dynamic = "force-dynamic";
@@ -77,7 +78,7 @@ async function sendPush(request: Request): Promise<Response> {
 
   const config = apnsConfig();
   if (!config) {
-    return jsonResponse({ error: "apns_not_configured" }, 503);
+    return jsonResponse({ error: "push_service_not_configured" }, 503);
   }
 
   if (process.env.VERCEL === "1" && env.CMUX_PUSH_RATE_LIMIT_ID) {
@@ -114,11 +115,5 @@ async function sendPush(request: Request): Promise<Response> {
       .where(and(eq(deviceTokens.userId, user.id), inArray(deviceTokens.deviceToken, dead)));
   }
 
-  const sent = results.filter((r) => r.status >= 200 && r.status < 300).length;
-  return jsonResponse({
-    sent,
-    devices: tokens.length,
-    pruned: dead.length,
-    results: results.map((r) => ({ status: r.status, reason: r.reason })),
-  });
+  return jsonResponse(summarizeApnsSendResults(results));
 }

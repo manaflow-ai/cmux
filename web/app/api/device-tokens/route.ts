@@ -49,7 +49,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
   const db = cloudDb();
 
   const registered = await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 0))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`);
 
     const [existingToken] = await tx
       .select({ userId: deviceTokens.userId })
