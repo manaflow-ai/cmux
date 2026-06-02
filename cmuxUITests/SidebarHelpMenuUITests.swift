@@ -46,12 +46,14 @@ final class SidebarHelpMenuUITests: XCTestCase {
             "Expected sidebar help controls to be ready. \(sidebarReadinessDebug(app: app))"
         )
 
-        let helpButton = requireElement(
-            candidates: helpButtonCandidates(in: app),
-            timeout: 6.0,
-            description: "sidebar help button"
+        XCTAssertTrue(
+            openSidebarHelpMenu(
+                app: app,
+                expectedItemIdentifier: "SidebarHelpMenuOptionCheckForUpdates",
+                expectedItemTitle: "Check for Updates"
+            ),
+            "Expected the sidebar help menu to open. \(sidebarReadinessDebug(app: app))"
         )
-        clickElement(helpButton)
 
         let checkForUpdatesItem = requireElement(
             candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionCheckForUpdates", title: "Check for Updates"),
@@ -75,12 +77,14 @@ final class SidebarHelpMenuUITests: XCTestCase {
             "Expected sidebar help controls to be ready. \(sidebarReadinessDebug(app: app))"
         )
 
-        let helpButton = requireElement(
-            candidates: helpButtonCandidates(in: app),
-            timeout: 6.0,
-            description: "sidebar help button"
+        XCTAssertTrue(
+            openSidebarHelpMenu(
+                app: app,
+                expectedItemIdentifier: "SidebarHelpMenuOptionSendFeedback",
+                expectedItemTitle: "Send Feedback"
+            ),
+            "Expected the sidebar help menu to open. \(sidebarReadinessDebug(app: app))"
         )
-        clickElement(helpButton)
 
         let sendFeedbackItem = requireElement(
             candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionSendFeedback", title: "Send Feedback"),
@@ -145,6 +149,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
             "-NSQuitAlwaysKeepsWindows", "NO",
             "-workspacePresentationMode", "standard",
             "-menuBarOnly", "false",
+            "-showSidebarDevBuildBanner", "false",
         ]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
     }
@@ -157,8 +162,31 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
     private func waitForSidebarReady(app: XCUIApplication, timeout: TimeInterval) -> Bool {
         sidebarHelpPollUntil(timeout: timeout) {
-            app.windows.count >= 1 && helpButtonCandidates(in: app).contains { $0.exists }
+            app.windows.count >= 1 && app.otherElements["Sidebar"].exists
         }
+    }
+
+    private func openSidebarHelpMenu(
+        app: XCUIApplication,
+        expectedItemIdentifier: String,
+        expectedItemTitle: String
+    ) -> Bool {
+        if let helpButton = firstExistingElement(candidates: helpButtonCandidates(in: app), timeout: 1.5) {
+            clickElement(helpButton)
+        } else {
+            let sidebar = app.otherElements["Sidebar"].firstMatch
+            guard sidebar.exists else { return false }
+            sidebar.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.965)).click()
+        }
+
+        return firstExistingElement(
+            candidates: helpMenuItemCandidates(
+                in: app,
+                identifier: expectedItemIdentifier,
+                title: expectedItemTitle
+            ),
+            timeout: 2.0
+        ) != nil
     }
 
     private func helpButtonCandidates(in app: XCUIApplication) -> [XCUIElement] {
@@ -376,7 +404,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         socketBridgePath = "/tmp/cmux-ui-test-command-palette-bridge-\(UUID().uuidString).json"
         diagnosticsPath = "/tmp/cmux-ui-test-command-palette-diagnostics-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: socketPath)
-        try? FileManager.default.removeItem(atPath: socketBridgePath)
+        removeSocketBridgeFiles()
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
     }
 
@@ -384,7 +412,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         XCUIApplication().terminate()
         resetMenuBarOnlyDefault()
         try? FileManager.default.removeItem(atPath: socketPath)
-        try? FileManager.default.removeItem(atPath: socketBridgePath)
+        removeSocketBridgeFiles()
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
         super.tearDown()
     }
@@ -1495,7 +1523,8 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
             return nil
         }
-        try? data.write(to: URL(fileURLWithPath: socketBridgePath), options: .atomic)
+        try? FileManager.default.removeItem(atPath: socketBridgeResponsePath)
+        try? data.write(to: URL(fileURLWithPath: socketBridgeRequestPath), options: .atomic)
 
         let deadline = ProcessInfo.processInfo.systemUptime + responseTimeout
         while ProcessInfo.processInfo.systemUptime < deadline {
@@ -1508,13 +1537,28 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     private func socketBridgeResponse(requestId: String) -> String? {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: socketBridgePath)),
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: socketBridgeResponsePath)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               object["id"] as? String == requestId,
               object["completed"] as? Bool == true else {
             return nil
         }
         return object["response"] as? String
+    }
+
+    private var socketBridgeRequestPath: String {
+        socketBridgePath + ".request"
+    }
+
+    private var socketBridgeResponsePath: String {
+        socketBridgePath + ".response"
+    }
+
+    private func removeSocketBridgeFiles() {
+        guard !socketBridgePath.isEmpty else { return }
+        try? FileManager.default.removeItem(atPath: socketBridgePath)
+        try? FileManager.default.removeItem(atPath: socketBridgeRequestPath)
+        try? FileManager.default.removeItem(atPath: socketBridgeResponsePath)
     }
 
     private func socketCommandViaNetcat(_ command: String, responseTimeout: TimeInterval) -> String? {

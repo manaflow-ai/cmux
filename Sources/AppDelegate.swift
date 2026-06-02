@@ -1702,6 +1702,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         payload["socketBridgeSetup"] = didSetupUITestSocketBridge ? "1" : "0"
         let bridgePathExists = !bridgePath.isEmpty && FileManager.default.fileExists(atPath: bridgePath)
         payload["socketBridgePathExists"] = bridgePathExists ? "1" : "0"
+        if bridgePath.isEmpty {
+            payload["socketBridgeRequestPathExists"] = "0"
+            payload["socketBridgeResponsePathExists"] = "0"
+        } else {
+            let bridgeRequestPath = uiTestSocketBridgeRequestPath(for: bridgePath)
+            let bridgeResponsePath = uiTestSocketBridgeResponsePath(for: bridgePath)
+            payload["socketBridgeRequestPathExists"] = FileManager.default.fileExists(atPath: bridgeRequestPath) ? "1" : "0"
+            payload["socketBridgeResponsePathExists"] = FileManager.default.fileExists(atPath: bridgeResponsePath) ? "1" : "0"
+        }
 
         guard let config = socketListenerConfigurationIfEnabled() else {
             payload["socketExpectedPath"] = env["CMUX_SOCKET_PATH"] ?? ""
@@ -3006,6 +3015,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             response: "READY",
             path: path
         )
+        writeUITestSocketBridgeResponse(
+            requestId: "bridge-ready",
+            line: "",
+            response: "READY",
+            path: uiTestSocketBridgeResponsePath(for: path)
+        )
         let timer = DispatchSource.makeTimerSource(queue: uiTestSocketBridgeQueue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(50))
         timer.setEventHandler { [weak self] in
@@ -3016,7 +3031,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func processUITestSocketBridgeRequestIfNeeded(path: String) {
-        let url = URL(fileURLWithPath: path)
+        let requestPath = uiTestSocketBridgeRequestPath(for: path)
+        let url = URL(fileURLWithPath: requestPath)
         guard let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let requestId = object["id"] as? String,
@@ -3039,8 +3055,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             requestId: requestId,
             line: line,
             response: response,
-            path: path
+            path: uiTestSocketBridgeResponsePath(for: path)
         )
+    }
+
+    private func uiTestSocketBridgeRequestPath(for path: String) -> String {
+        path + ".request"
+    }
+
+    private func uiTestSocketBridgeResponsePath(for path: String) -> String {
+        path + ".response"
     }
 
     private func writeUITestSocketBridgeResponse(
