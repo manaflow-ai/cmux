@@ -1336,7 +1336,7 @@ body.reduce-motion *::after {
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-padding-inline: 10px 134px;
+  scroll-padding-inline: 10px 190px;
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
   background: color-mix(in oklch, var(--color-terminal-gutter) 88%, var(--color-canvas) 12%);
@@ -1690,9 +1690,9 @@ body.reduce-motion *::after {
   position: sticky;
   z-index: 3;
   height: 25px;
-  flex: 0 0 58px;
-  min-width: 58px;
-  max-width: 58px;
+  flex: 0 0 84px;
+  min-width: 84px;
+  max-width: 84px;
   grid-template-columns: 17px minmax(0, auto);
   justify-items: center;
   justify-content: center;
@@ -1705,7 +1705,7 @@ body.reduce-motion *::after {
 }
 
 .surface-new-terminal {
-  right: 70px;
+  right: 96px;
 }
 
 .surface-new-browser {
@@ -1741,6 +1741,10 @@ body.reduce-motion *::after {
   letter-spacing: 0;
 }
 
+.surface-new-tab .surface-new-label::before {
+  content: "+ ";
+}
+
 .surface-new-terminal {
   border-color: color-mix(in oklch, var(--color-accent) 45%, var(--color-line) 55%);
 }
@@ -1757,12 +1761,20 @@ body.reduce-motion *::after {
 
 .shell.density-compact .surface-new-tab {
   height: 27px;
-  flex-basis: 58px;
-  min-width: 58px;
-  max-width: 58px;
+  flex-basis: 76px;
+  min-width: 76px;
+  max-width: 76px;
 }
 
-@container (max-width: 440px) {
+.shell.density-compact .surface-new-terminal {
+  right: 88px;
+}
+
+@container (max-width: 560px) {
+  .surface-tabs {
+    scroll-padding-inline: 10px 74px;
+  }
+
   .surface-new-tab,
   .shell.density-compact .surface-new-tab {
     flex-basis: 30px;
@@ -4084,33 +4096,32 @@ body.reduce-motion *::after {
 }
 
 .empty-workspace-launchers {
-  width: min(640px, 100%);
+  width: min(520px, 100%);
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
   gap: var(--space-2);
   margin-top: var(--space-2);
 }
 
 .empty-workspace-launcher {
   min-width: 0;
-  min-height: 58px;
+  min-height: 44px;
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
+  grid-template-columns: 26px minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2);
+  padding: 7px 9px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane-warm) 66%, transparent);
+  background: color-mix(in oklch, var(--color-pane-warm) 50%, transparent);
   color: var(--color-text);
   text-align: left;
   cursor: pointer;
 }
 
 .empty-workspace-launcher.is-add {
-  min-height: 64px;
   border-color: color-mix(in oklch, var(--color-accent) 34%, var(--color-line));
-  background: color-mix(in oklch, var(--color-pane-warm) 78%, var(--color-accent-hover));
+  background: color-mix(in oklch, var(--color-pane-warm) 78%, var(--color-accent) 8%);
 }
 
 .empty-workspace-launcher:hover {
@@ -4120,12 +4131,12 @@ body.reduce-motion *::after {
 
 .empty-workspace-launcher.is-add:hover {
   border-color: color-mix(in oklch, var(--color-accent) 64%, var(--color-line-strong));
-  background: color-mix(in oklch, var(--color-pane-warm) 70%, var(--color-accent-hover));
+  background: color-mix(in oklch, var(--color-pane-warm) 72%, var(--color-accent) 14%);
 }
 
 .empty-workspace-launcher.is-primary {
   border-color: color-mix(in oklch, var(--color-accent) 54%, var(--color-line));
-  background: color-mix(in oklch, var(--color-accent-hover) 46%, var(--color-pane-warm));
+  background: color-mix(in oklch, var(--color-accent) 18%, var(--color-pane-warm));
 }
 
 .empty-workspace-launcher:disabled {
@@ -4134,8 +4145,8 @@ body.reduce-motion *::after {
 }
 
 .empty-workspace-launcher-icon {
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -4149,8 +4160,8 @@ body.reduce-motion *::after {
 }
 
 .empty-workspace-launcher-icon svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   stroke-width: 2;
 }
 
@@ -4163,7 +4174,7 @@ body.reduce-motion *::after {
 .empty-workspace-launcher-text {
   min-width: 0;
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .empty-workspace-launcher-label,
