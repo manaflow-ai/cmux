@@ -6576,7 +6576,7 @@ body.reduce-motion *::after {
 .saved-background-card-actions {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(74px, 100%), 1fr));
   gap: var(--space-1);
 }
 
