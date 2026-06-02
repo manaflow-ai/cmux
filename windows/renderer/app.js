@@ -2111,6 +2111,10 @@ function normalizeColorApplyTarget(target) {
   return ["accent", "workspace", "pane", "all"].includes(target) ? target : "accent";
 }
 
+function colorKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function colorApplyTargetOptions(workspace = activeWorkspace()) {
   const panel = focusedPanel() || activePanel();
   const paneCount = workspace?.panels?.length || 0;
@@ -2167,7 +2171,7 @@ async function applySavedColorToTarget(color, target = state.colorApplyTarget) {
   }
   const scope = normalizeColorApplyTarget(target);
   if (scope === "accent") {
-    if (state.settings.accent.toLowerCase() === normalized.toLowerCase()) {
+    if (colorKey(state.settings.accent) === colorKey(normalized)) {
       toast("Accent already uses this color.");
       return false;
     }
@@ -7137,13 +7141,25 @@ function renderBrowserTabs(session) {
     session.tabRenderFrame = 0;
   }
   if (!session.tabButtons) session.tabButtons = new Map();
+  const tabLabels = browserTabLabels(session);
+  const signature = browserTabsSignature(session, tabLabels);
+  if (
+    signature === session.tabSignature
+    && session.tabButtons.size === session.tabs.length
+    && session.tabList.children.length === session.tabs.length
+    && session.tabNew
+  ) {
+    updateBrowserTabNewButton(session);
+    scheduleActiveBrowserTabIntoView(session);
+    scheduleBrowserTabOverflowRefresh(session);
+    return;
+  }
   const validTabIds = new Set(session.tabs.map((tab) => tab.id));
   for (const [tabId, button] of [...session.tabButtons.entries()]) {
     if (validTabIds.has(tabId)) continue;
     button.remove();
     session.tabButtons.delete(tabId);
   }
-  const tabLabels = browserTabLabels(session);
   const nodes = session.tabs.map((tab) => {
     let button = session.tabButtons.get(tab.id);
     if (!button) {
@@ -7155,8 +7171,22 @@ function renderBrowserTabs(session) {
   });
   replaceChildrenIfChanged(session.tabList, nodes);
   updateBrowserTabNewButton(session);
+  session.tabSignature = signature;
   scheduleActiveBrowserTabIntoView(session);
   scheduleBrowserTabOverflowRefresh(session);
+}
+
+function browserTabsSignature(session, tabLabels = browserTabLabels(session)) {
+  const parts = [];
+  appendSignatureValue(parts, session?.activeTabId || "");
+  appendSignatureValue(parts, browserTabAtLimit(session));
+  appendSignatureArray(parts, session?.tabs || [], (nextParts, tab) => {
+    appendSignatureValue(nextParts, tab.id);
+    appendSignatureValue(nextParts, tab.url || "");
+    appendSignatureValue(nextParts, tab.title || "");
+    appendSignatureValue(nextParts, tabLabels.get(tab.id) || browserTabBaseLabel(tab));
+  });
+  return parts.join("");
 }
 
 function updateBrowserTabNewButton(session) {
@@ -8000,6 +8030,7 @@ function ensureBrowser(panel, body) {
     tabs: tabSnapshot.tabs,
     activeTabId: tabSnapshot.activeTabId,
     tabButtons: new Map(),
+    tabSignature: "",
     setStatus,
     setLoading,
     updateNavState,
@@ -12672,10 +12703,11 @@ function savedColorPalettePanel() {
   const targetOption = colorApplyTargetOption(colorTarget, workspace);
   const activePane = activePaneForColorTarget();
   for (const color of state.customColorPalette) {
-    const activeAccent = state.settings.accent.toLowerCase() === color.toLowerCase();
-    const activeWorkspace = String(workspace?.color || "").toLowerCase() === color.toLowerCase();
-    const activePaneColor = String(activePane?.color || "").toLowerCase() === color.toLowerCase();
-    const activeAllPanes = Boolean(workspace?.panels?.length) && workspace.panels.every((panel) => String(panel.color || "").toLowerCase() === color.toLowerCase());
+    const colorValue = colorKey(color);
+    const activeAccent = colorKey(state.settings.accent) === colorValue;
+    const activeWorkspace = colorKey(workspace?.color) === colorValue;
+    const activePaneColor = colorKey(activePane?.color) === colorValue;
+    const activeAllPanes = Boolean(workspace?.panels?.length) && workspace.panels.every((panel) => colorKey(panel.color) === colorValue);
     const activeTarget = colorTarget === "workspace"
       ? activeWorkspace
       : colorTarget === "pane"
@@ -12705,13 +12737,30 @@ function savedColorPalettePanel() {
     const value = document.createElement("div");
     value.className = "saved-color-value";
     value.textContent = color;
+    const scope = document.createElement("div");
+    scope.className = "background-preset-scope saved-color-scope";
+    scope.dataset.settingsSearch = normalizeSettingsQuery(`saved color scope accent workspace pane all ${color}`);
+    const addScopeChip = (labelText, active, muted = false) => {
+      const chip = document.createElement("span");
+      chip.className = [
+        "background-preset-scope-chip",
+        active ? "is-active" : "",
+        muted ? "is-muted" : ""
+      ].filter(Boolean).join(" ");
+      chip.textContent = active ? `${labelText} active` : labelText;
+      scope.append(chip);
+    };
+    addScopeChip("Accent", activeAccent);
+    addScopeChip("Workspace", activeWorkspace, !workspace);
+    addScopeChip("Pane", activePaneColor, !activePane);
+    addScopeChip(workspace?.panels?.length ? `All ${workspace.panels.length}` : "All", activeAllPanes, !workspace?.panels?.length);
     const cardActions = document.createElement("div");
     cardActions.className = "saved-color-card-actions";
     const apply = settingsActionButton(colorApplyTargetPrimaryLabel(colorTarget), () => applySavedColorToTarget(color, colorTarget), "primary", `saved color apply selected target ${targetOption.label} ${color}`);
     apply.disabled = Boolean(targetOption.disabled);
     const more = settingsActionButton("More", (event) => showSavedColorMenu(event, color), "", `saved color more actions accent workspace pane all delete ${color}`);
     cardActions.append(apply, more);
-    card.append(swatch, value, cardActions);
+    card.append(swatch, value, scope, cardActions);
     list.append(card);
   }
   panel.append(list);
@@ -15347,6 +15396,22 @@ function paletteEntries() {
       shortcut: "Color",
       search: normalizeSettingsQuery(`saved color palette custom workspace pane tab ${color}`),
       run: () => setWorkspaceColor(color)
+    });
+    entries.push({
+      id: `savedColor.pane.${color.slice(1)}`,
+      label: `Pane color: ${color}`,
+      meta: "Active pane",
+      shortcut: "Color",
+      search: normalizeSettingsQuery(`saved color palette custom active pane tab ${color}`),
+      run: () => applySavedColorToTarget(color, "pane")
+    });
+    entries.push({
+      id: `savedColor.all.${color.slice(1)}`,
+      label: `All pane colors: ${color}`,
+      meta: "Current workspace",
+      shortcut: "Color",
+      search: normalizeSettingsQuery(`saved color palette custom all panes workspace ${color}`),
+      run: () => applySavedColorToTarget(color, "all")
     });
   }
   for (const background of state.savedBackgroundImages) {
