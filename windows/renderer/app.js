@@ -6732,7 +6732,6 @@ function ensureBrowser(panel, body) {
   });
   view.addEventListener("dom-ready", () => {
     webviewReady = true;
-    markBrowserContentLoaded();
     lockBrowserViewZoom(view);
     scheduleEmbeddedGoogleHomePolish(view, address.value || view.src);
     updateNavState();
@@ -6755,6 +6754,7 @@ function ensureBrowser(panel, body) {
     updateNavState();
   });
   view.addEventListener("did-stop-loading", () => {
+    if (!browserLoadFailed) markBrowserContentLoaded();
     setLoading(false);
     setStatus("");
     updateNavState();
@@ -6768,7 +6768,6 @@ function ensureBrowser(panel, body) {
     updateNavState();
   });
   view.addEventListener("did-frame-finish-load", () => {
-    markBrowserContentLoaded();
     scheduleEmbeddedGoogleHomePolish(view, address.value || view.src);
     if (webviewReady) setStatus("");
   });
