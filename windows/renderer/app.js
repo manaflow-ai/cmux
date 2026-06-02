@@ -5033,13 +5033,10 @@ function updateEmptyWorkspaceActions(node, workspace) {
 }
 
 function emptyWorkspaceViewModel(workspace, canReopen = state.closedPanels.length > 0) {
-  const busy = paneCreationButtonsDisabled();
   return {
     title: "cmux",
     bodyText: canReopen ? "Reopen the last pane or start fresh." : "Start with a terminal or browser.",
     launchers: emptyWorkspaceLaunchers(),
-    busy,
-    busyLabel: paneCreationLimitLabel(),
     iconMarkup: controlIconMarkup,
     onRun: (launcher) => runEmptyWorkspaceLauncher(launcher, workspace)
   };
@@ -5061,13 +5058,25 @@ async function createEmptyWorkspacePanel(type, workspace) {
   return createPanel(type, "right", options);
 }
 
+function emptyWorkspaceCreationLauncherState(defaultMeta) {
+  const queueLabel = paneCreationQueueStatusLabel();
+  if (!queueLabel) return { meta: defaultMeta };
+  const queueFull = paneCreationButtonsDisabled();
+  return {
+    meta: queueFull ? "Queue full" : queueLabel.replace(/\.$/, ""),
+    busy: queueFull,
+    busyMeta: "Queue full",
+    busyLabel: queueFull ? paneCreationLimitLabel() : queueLabel
+  };
+}
+
 function emptyWorkspaceLaunchers() {
   const launchers = [
     {
       id: "terminal",
       icon: "terminal",
       label: "Terminal",
-      meta: "New shell",
+      ...emptyWorkspaceCreationLauncherState("New shell"),
       kind: "panel",
       type: "terminal",
       addAction: true,
@@ -5077,7 +5086,7 @@ function emptyWorkspaceLaunchers() {
       id: "browser",
       icon: "browser",
       label: "Browser",
-      meta: "Home page",
+      ...emptyWorkspaceCreationLauncherState("Home page"),
       kind: "panel",
       type: "browser",
       addAction: true
@@ -5097,7 +5106,7 @@ function emptyWorkspaceLaunchers() {
       id: "reopen",
       icon: "history",
       label: "Reopen",
-      meta: "last pane",
+      ...emptyWorkspaceCreationLauncherState("last pane"),
       kind: "reopen",
       primary: true
     });
@@ -5106,7 +5115,11 @@ function emptyWorkspaceLaunchers() {
 }
 
 async function runEmptyWorkspaceLauncher(launcher, workspace) {
-  if (!launcher || paneCreationButtonsDisabled()) return;
+  if (!launcher) return;
+  if ((launcher.kind === "panel" || launcher.kind === "reopen") && paneCreationButtonsDisabled()) {
+    toast(paneCreationLimitLabel());
+    return;
+  }
   if (launcher.kind === "reopen") {
     await reopenClosedPanel();
     return;

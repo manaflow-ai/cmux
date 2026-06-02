@@ -73,22 +73,24 @@ function setIconMarkupIfChanged(node, key, markup) {
 
 function updateLauncherButton(button, launcher, options) {
   const iconMarkup = options.iconMarkup || (() => "");
-  const busy = Boolean(options.busy);
-  const launcherLabel = `${launcher.label}: ${launcher.meta}`;
-  const busyLabel = options.busyLabel || "Action unavailable";
+  const busy = Boolean(launcher.busy ?? options.busy);
+  const meta = busy && launcher.busyMeta ? launcher.busyMeta : launcher.meta || "";
+  const launcherLabel = meta ? `${launcher.label}: ${meta}` : launcher.label;
+  const busyLabel = launcher.busyLabel || options.busyLabel || "Action unavailable";
   const parts = launcherButtonParts(button);
   button._emptyLauncherConfig = launcher;
   button._emptyLauncherRun = options.onRun;
   setDatasetIfChanged(button, "emptyLauncher", launcher.id);
   toggleClassIfChanged(button, "is-primary", launcher.primary);
   toggleClassIfChanged(button, "is-add", launcher.addAction);
+  toggleClassIfChanged(button, "is-busy", busy);
   toggleClassIfChanged(button, "has-plus", launcher.addAction);
   setDisabledIfChanged(button, busy);
   setTitleIfChanged(button, busy ? busyLabel : launcherLabel);
   setAttributeIfChanged(button, "aria-label", busy ? `${launcherLabel}. ${busyLabel}.` : launcherLabel);
   setIconMarkupIfChanged(parts.icon, launcher.icon, iconMarkup(launcher.icon));
   setTextIfChanged(parts.label, launcher.label);
-  setTextIfChanged(parts.meta, launcher.meta);
+  setTextIfChanged(parts.meta, meta);
   toggleClassIfChanged(parts.plus, "is-visible", launcher.addAction);
   setIconMarkupIfChanged(parts.plus, launcher.addAction ? "plus" : "", launcher.addAction ? iconMarkup("plus") : "");
 }
