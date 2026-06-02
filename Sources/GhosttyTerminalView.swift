@@ -7489,7 +7489,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate static func focusLog(_ message: String) {
         guard focusDebugEnabled else { return }
         AppDelegate.shared?.focusLog.append(message)
+        #if DEBUG
         NSLog("[FOCUSDBG] %@", message)
+        #endif
     }
 
     weak var terminalSurface: TerminalSurface?
