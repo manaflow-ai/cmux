@@ -35,6 +35,7 @@ export const env = createEnv({
     CMUX_APNS_KEY_P8: z.string().min(1).optional(),
     CMUX_APNS_KEY_ID: z.string().min(1).optional(),
     CMUX_APNS_TEAM_ID: z.string().min(1).optional(),
+    CMUX_PUSH_RATE_LIMIT_ID: z.string().min(1).optional(),
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
@@ -47,6 +48,7 @@ export const env = createEnv({
     CMUX_APNS_KEY_P8: trimEnv(process.env.CMUX_APNS_KEY_P8),
     CMUX_APNS_KEY_ID: trimEnv(process.env.CMUX_APNS_KEY_ID),
     CMUX_APNS_TEAM_ID: trimEnv(process.env.CMUX_APNS_TEAM_ID),
+    CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(
       process.env.NEXT_PUBLIC_STACK_PROJECT_ID,
       "00000000-0000-4000-8000-000000000000"

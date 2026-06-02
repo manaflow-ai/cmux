@@ -3,12 +3,19 @@
 // forwarding. No-ops (no APNs traffic) when the user has no registered devices.
 // Auth: Stack Bearer (the Mac's signed-in user); routing is by that user id.
 
+import { checkRateLimit } from "@vercel/firewall";
 import { and, eq, inArray } from "drizzle-orm";
 import { env } from "../../../env";
 import { cloudDb } from "../../../../db/client";
 import { deviceTokens } from "../../../../db/schema";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
+import { recordPushSendOrThrow, PushRateLimitExceededError } from "../../../../services/apns/rateLimit";
+import {
+  MAX_DEVICE_TOKENS_PER_USER,
+  MAX_PUSH_REQUEST_BYTES,
+  parsePushPayload,
+} from "../../../../services/apns/routePolicy";
 import { sendApnsNotification, type ApnsConfig } from "../../../../services/apns/sender";
 
 export const runtime = "nodejs"; // http2 + node:crypto, not edge
@@ -22,29 +29,43 @@ function apnsConfig(): ApnsConfig | null {
   return { keyP8, keyId, teamId };
 }
 
+async function readJson(request: Request): Promise<Record<string, unknown> | null> {
+  const text = await request.text();
+  if (text.length > MAX_PUSH_REQUEST_BYTES) return null;
+  if (!text) return {};
+  try {
+    const raw = JSON.parse(text) as unknown;
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+    return raw as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function rateLimitResponse(error: PushRateLimitExceededError): Response {
+  return new Response(
+    JSON.stringify({ error: "rate_limited", retryAfterSeconds: error.retryAfterSeconds }),
+    {
+      status: 429,
+      headers: {
+        "content-type": "application/json",
+        "retry-after": String(error.retryAfterSeconds),
+      },
+    },
+  );
+}
+
 export async function POST(request: Request): Promise<Response> {
   const user = await verifyRequest(request);
   if (!user) return unauthorized();
 
-  let body: Record<string, unknown>;
-  try {
-    const text = await request.text();
-    const raw = text ? (JSON.parse(text) as unknown) : {};
-    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-      return jsonResponse({ error: "invalid_json" }, 400);
-    }
-    body = raw as Record<string, unknown>;
-  } catch {
+  const body = await readJson(request);
+  if (!body) {
     return jsonResponse({ error: "invalid_json" }, 400);
   }
 
-  const title = typeof body.title === "string" ? body.title : "";
-  const subtitle = typeof body.subtitle === "string" ? body.subtitle : null;
-  const text = typeof body.body === "string" ? body.body : "";
-  const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId : null;
-  const surfaceId = typeof body.surfaceId === "string" ? body.surfaceId : null;
-  const hideContent = body.hideContent === true;
-  if (!title && !text) return jsonResponse({ error: "empty_notification" }, 400);
+  const payload = parsePushPayload(body);
+  if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
 
   const db = cloudDb();
   const tokens = await db
@@ -54,7 +75,8 @@ export async function POST(request: Request): Promise<Response> {
       environment: deviceTokens.environment,
     })
     .from(deviceTokens)
-    .where(eq(deviceTokens.userId, user.id));
+    .where(eq(deviceTokens.userId, user.id))
+    .limit(MAX_DEVICE_TOKENS_PER_USER);
 
   if (tokens.length === 0) {
     return jsonResponse({ sent: 0, devices: 0 });
@@ -65,14 +87,32 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: "apns_not_configured" }, 503);
   }
 
-  const results = await sendApnsNotification(config, tokens, {
-    title,
-    subtitle,
-    body: text,
-    workspaceId,
-    surfaceId,
-    hideContent,
-  });
+  if (process.env.VERCEL === "1" && env.CMUX_PUSH_RATE_LIMIT_ID) {
+    const { error, rateLimited } = await checkRateLimit(env.CMUX_PUSH_RATE_LIMIT_ID, {
+      request,
+      rateLimitKey: user.id,
+    });
+    if (rateLimited || error === "blocked") {
+      return new Response(JSON.stringify({ error: "rate_limited" }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (error === "not-found") {
+      console.error("notifications.push.rate_limit_not_found", env.CMUX_PUSH_RATE_LIMIT_ID);
+    }
+  }
+
+  try {
+    await recordPushSendOrThrow(db, user.id, tokens.length);
+  } catch (error) {
+    if (error instanceof PushRateLimitExceededError) {
+      return rateLimitResponse(error);
+    }
+    throw error;
+  }
+
+  const results = await sendApnsNotification(config, tokens, payload.value);
 
   const dead = results.filter((r) => r.prune).map((r) => r.deviceToken);
   if (dead.length > 0) {

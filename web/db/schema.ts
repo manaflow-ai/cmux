@@ -132,6 +132,19 @@ export const deviceTokens = pgTable(
   ],
 );
 
+export const notificationSendEvents = pgTable(
+  "notification_send_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    deviceCount: integer("device_count").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("notification_send_events_user_created_idx").on(table.userId, table.createdAt),
+  ],
+);
+
 export const cloudVmBillingGrants = pgTable(
   "cloud_vm_billing_grants",
   {
