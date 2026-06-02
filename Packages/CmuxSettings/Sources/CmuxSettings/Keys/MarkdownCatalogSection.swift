@@ -5,6 +5,7 @@ import Foundation
 /// Controls the built-in markdown viewer that `cmux markdown open` and the file
 /// explorer use. The viewer renders into a WKWebView and scales with
 /// `WKWebView.pageZoom`, so ``fontSize`` is the body font size in points.
+/// ``fontFamily`` optionally overrides the prose font stack.
 public struct MarkdownCatalogSection: SettingCatalogSection {
     /// Default body font size, in points, for newly opened markdown viewers.
     ///
@@ -16,6 +17,16 @@ public struct MarkdownCatalogSection: SettingCatalogSection {
         id: "markdown.fontSize",
         defaultValue: 15,
         userDefaultsKey: "markdown.fontSize"
+    )
+
+    /// Default body prose font family for newly opened markdown viewers.
+    ///
+    /// Empty means the System/GitHub markdown stack. Code blocks continue to use
+    /// the viewer's monospace stack.
+    public let fontFamily = DefaultsKey<String>(
+        id: "markdown.fontFamily",
+        defaultValue: "",
+        userDefaultsKey: "markdown.fontFamily"
     )
 
     /// Creates the markdown settings section with its default keys.

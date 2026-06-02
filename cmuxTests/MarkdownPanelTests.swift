@@ -75,6 +75,22 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(MarkdownFontSizeSettings.resolvedDefault(defaults: defaults), MarkdownFontSizeSettings.maximumPointSize)
     }
 
+    func testMarkdownFontFamilyNormalizesDefaultsAndEscapesCSSValue() throws {
+        let suiteName = "cmux.markdownFontFamilyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(MarkdownFontFamily.resolvedDefault(defaults: defaults), MarkdownFontFamily.systemDefault)
+        XCTAssertNil(MarkdownFontFamily.cssValue(for: ""))
+
+        MarkdownFontFamily.setDefault("  Avenir Next  \n", defaults: defaults)
+        XCTAssertEqual(MarkdownFontFamily.resolvedDefault(defaults: defaults), "Avenir Next")
+        XCTAssertEqual(MarkdownFontFamily.cssValue(for: #"Quote " Test \ Family"#), #""Quote \" Test \\ Family""#)
+
+        MarkdownFontFamily.setDefault(" \n ", defaults: defaults)
+        XCTAssertNil(defaults.object(forKey: MarkdownFontFamily.key))
+    }
+
     func testMarkdownPanelZoomStepsClampAndReset() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
@@ -119,6 +135,43 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(panel.resetZoom())
         XCTAssertEqual(panel.fontSize, 20)
         XCTAssertFalse(panel.resetZoom())
+    }
+
+    func testMarkdownPanelTypographyResetsToConfiguredDefaults() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-typography-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# hello".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let savedSize = UserDefaults.standard.object(forKey: MarkdownFontSizeSettings.key)
+        let savedFamily = UserDefaults.standard.object(forKey: MarkdownFontFamily.key)
+        UserDefaults.standard.set(19, forKey: MarkdownFontSizeSettings.key)
+        UserDefaults.standard.set("Avenir Next", forKey: MarkdownFontFamily.key)
+        defer {
+            if let savedSize {
+                UserDefaults.standard.set(savedSize, forKey: MarkdownFontSizeSettings.key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: MarkdownFontSizeSettings.key)
+            }
+            if let savedFamily {
+                UserDefaults.standard.set(savedFamily, forKey: MarkdownFontFamily.key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: MarkdownFontFamily.key)
+            }
+        }
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path, fontSize: 15)
+        defer { panel.close() }
+
+        XCTAssertEqual(panel.fontFamily, "Avenir Next")
+        XCTAssertTrue(panel.setFontFamily("  Menlo  \n"))
+        XCTAssertEqual(panel.fontFamily, "Menlo")
+        panel.resetTypography()
+        XCTAssertEqual(panel.fontSize, 19)
+        XCTAssertEqual(panel.fontFamily, "Avenir Next")
     }
 
     func testFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
@@ -278,6 +331,7 @@ final class MarkdownPanelTests: XCTestCase {
             workspaceId: workspaceId,
             filePath: filePath,
             fontSize: 15,
+            fontFamily: MarkdownFontFamily.systemDefault,
             session: session,
             onRequestPanelFocus: {}
         )
@@ -291,6 +345,7 @@ final class MarkdownPanelTests: XCTestCase {
             workspaceId: workspaceId,
             filePath: filePath,
             fontSize: 15,
+            fontFamily: MarkdownFontFamily.systemDefault,
             session: session,
             onRequestPanelFocus: {}
         )

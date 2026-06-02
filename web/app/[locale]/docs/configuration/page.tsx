@@ -92,7 +92,9 @@ const settingsFileExample = `{
   // "markdown": {
   //   // Default body font size (points) for newly opened markdown viewers.
   //   // Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.
-  //   "fontSize": 15
+  //   "fontSize": 15,
+  //   // Default body font family. Empty keeps the system markdown font stack.
+  //   "fontFamily": ""
   // },
 
   // "automation": {

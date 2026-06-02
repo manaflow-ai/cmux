@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CoreText
 import Foundation
 
 enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
@@ -55,6 +56,13 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// transient; the persistent default lives in `MarkdownFontSizeSettings`.
     @Published private(set) var fontSize: Double
 
+    /// Body prose font family for the preview renderer, as an installed
+    /// font-family name. Empty string means the System default (the GitHub
+    /// stack). Applied as an inline `font-family` on the rendered content; code
+    /// blocks stay monospace. Per-panel; the persistent default lives in
+    /// `MarkdownFontFamily`.
+    @Published private(set) var fontFamily: String
+
     /// Stable markdown renderer state. Keep this panel-owned so split/tab
     /// layout churn does not recreate the WKWebView and flash existing content.
     let rendererSession = MarkdownRendererSession()
@@ -74,6 +82,13 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
     private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
+    // NotificationCenter token; removal is thread-safe so deinit can drop it.
+    private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
+    // The typography default this viewer is currently tracking. While the panel
+    // still matches it, a default change (Set as Default / cmux.json reload) is
+    // adopted; once the user customizes the panel it diverges and is left alone.
+    private var followedFontSize: Double
+    private var followedFontFamily: String
 
     // MARK: - Init
 
@@ -81,14 +96,47 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     ///   panel uses the persistent `markdown.fontSize` default. The value is
     ///   clamped to the supported range.
     init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
+        let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
+        let defaultFamily = MarkdownFontFamily.resolvedDefault()
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
-        self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? MarkdownFontSizeSettings.resolvedDefault())
+        self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
+        self.fontFamily = defaultFamily
+        self.followedFontSize = defaultSize
+        self.followedFontFamily = defaultFamily
         self.displayTitle = (filePath as NSString).lastPathComponent
 
         loadFileContent()
         startFileWatcher()
+        observeTypographyDefaults()
+    }
+
+    /// Adopt a changed typography default (from another viewer's "Set as Default"
+    /// or a `cmux.json` reload), but only while this viewer still matches the
+    /// default it was tracking — i.e. the user has not customized it.
+    private func observeTypographyDefaults() {
+        typographyDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.adoptTypographyDefaultsIfFollowing()
+            }
+        }
+    }
+
+    private func adoptTypographyDefaultsIfFollowing() {
+        guard !isClosed else { return }
+        // Only viewers still tracking the default follow the change.
+        guard abs(fontSize - followedFontSize) < 0.01, fontFamily == followedFontFamily else { return }
+        let newSize = MarkdownFontSizeSettings.resolvedDefault()
+        let newFamily = MarkdownFontFamily.resolvedDefault()
+        _ = setFontSize(newSize)
+        _ = setFontFamily(newFamily)
+        followedFontSize = newSize
+        followedFontFamily = newFamily
     }
 
     // MARK: - Font size / zoom
@@ -114,12 +162,31 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         setFontSize(MarkdownFontSizeSettings.resolvedDefault())
     }
 
+    /// Sets the preview font size to an explicit point value (clamped). Used by
+    /// the header font-size popover's manual entry. Returns `true` if changed.
     @discardableResult
-    private func setFontSize(_ candidate: Double) -> Bool {
+    func setFontSize(_ candidate: Double) -> Bool {
         let clamped = MarkdownFontSizeSettings.clamp(candidate)
         guard abs(clamped - fontSize) > 0.0001 else { return false }
         fontSize = clamped
         return true
+    }
+
+    /// Sets the preview body prose font family (an installed font-family name,
+    /// or empty for the System default). Returns `true` if changed.
+    @discardableResult
+    func setFontFamily(_ family: String) -> Bool {
+        let normalized = MarkdownFontFamily.normalized(family)
+        guard normalized != fontFamily else { return false }
+        fontFamily = normalized
+        return true
+    }
+
+    /// Resets both font size and family to the configured defaults. Used by the
+    /// typography popover's "Reset to default" action.
+    func resetTypography() {
+        _ = setFontSize(MarkdownFontSizeSettings.resolvedDefault())
+        _ = setFontFamily(MarkdownFontFamily.resolvedDefault())
     }
 
     // MARK: - Panel protocol
@@ -140,6 +207,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
         stopWatching()
+        if let typographyDefaultsObserver {
+            NotificationCenter.default.removeObserver(typographyDefaultsObserver)
+            self.typographyDefaultsObserver = nil
+        }
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -463,9 +534,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     }
 
     deinit {
-        // DispatchSource cancel is safe from any thread.
+        // DispatchSource cancel and removeObserver are safe from any thread.
         fileWatchSource?.cancel()
         directoryWatchSource?.cancel()
+        if let typographyDefaultsObserver {
+            NotificationCenter.default.removeObserver(typographyDefaultsObserver)
+        }
     }
 }
 
@@ -501,8 +575,114 @@ enum MarkdownFontSizeSettings {
         return clamp(raw.doubleValue)
     }
 
+    /// Persists `points` (clamped, rounded to integer points) as the default
+    /// `markdown.fontSize` so new viewers start at this size. The Settings UI
+    /// stepper and runtime both read the same key.
+    static func setDefault(_ points: Double, defaults: UserDefaults = .standard) {
+        defaults.set(Int(clamp(points).rounded()), forKey: key)
+    }
+
     /// The WKWebView `pageZoom` factor that renders the body at `pointSize`.
     static func pageZoom(forPointSize pointSize: Double) -> CGFloat {
         CGFloat(clamp(pointSize) / baseRenderPointSize)
+    }
+}
+
+/// Body prose font for the markdown viewer, chosen from the user's installed
+/// fonts (including custom fonts).
+///
+/// The stored value is a font-family name; an empty string is the System
+/// default (the GitHub stack), which clears the inline override. The chosen
+/// family is applied as an inline `font-family` on the content element
+/// (mirroring the theme injection). Code blocks keep their own monospace stack
+/// from `github-markdown.css`.
+enum MarkdownFontFamily {
+    /// UserDefaults / cmux.json key (`markdown.fontFamily`).
+    static let key = "markdown.fontFamily"
+    /// Sentinel value for the System default (inherits the GitHub stack).
+    static let systemDefault = ""
+
+    /// Normalizes user/config input before persisting or applying it. Newlines
+    /// collapse to spaces so a malformed cmux.json value cannot produce invalid
+    /// multiline CSS.
+    static func normalized(_ family: String) -> String {
+        family
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The CSS `font-family` to apply, or `nil` for the System default. The
+    /// family name is quoted so multi-word names resolve correctly.
+    static func cssValue(for family: String) -> String? {
+        let trimmed = normalized(family)
+        guard !trimmed.isEmpty else { return nil }
+        let escaped = trimmed
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
+    }
+
+    /// The persistent default font family, honoring `markdown.fontFamily` from
+    /// UserDefaults / cmux.json and falling back to the System default.
+    static func resolvedDefault(defaults: UserDefaults = .standard) -> String {
+        normalized(defaults.string(forKey: key) ?? systemDefault)
+    }
+
+    /// Persists `family` as the default `markdown.fontFamily` so new viewers
+    /// start with it. An empty family removes the override.
+    static func setDefault(_ family: String, defaults: UserDefaults = .standard) {
+        let trimmed = normalized(family)
+        if trimmed.isEmpty {
+            defaults.removeObject(forKey: key)
+        } else {
+            defaults.set(trimmed, forKey: key)
+        }
+    }
+
+    private static let familyCache = MarkdownFontFamilyCache()
+
+    /// Installed font families available to choose, sorted case-insensitively
+    /// and excluding hidden (dot-prefixed) system fonts.
+    ///
+    /// Loaded off the main thread (font enumeration can take noticeable time on
+    /// machines with many installed fonts) and cached, so the typography popover
+    /// opens instantly and the list fills in shortly after.
+    static func availableFamilies() async -> [String] {
+        await familyCache.families()
+    }
+}
+
+/// Loads and caches the installed font-family list off the main thread.
+/// `CTFontManagerCopyAvailableFontFamilyNames` is thread-safe, unlike the
+/// AppKit `NSFontManager` accessor.
+private actor MarkdownFontFamilyCache {
+    private var cached: [String]?
+
+    func families() async -> [String] {
+        if let cached { return cached }
+        let names = await Task.detached(priority: .userInitiated) { () -> [String] in
+            let raw = (CTFontManagerCopyAvailableFontFamilyNames() as? [String]) ?? []
+            return raw
+                .filter { !$0.hasPrefix(".") }
+                .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        }.value
+        cached = names
+        return names
+    }
+}
+
+/// Writes the markdown viewer typography defaults (size + font).
+///
+/// Writing the keys triggers `UserDefaults.didChangeNotification`, which open
+/// viewers observe: those still on the previous default adopt the new one, while
+/// individually customized viewers keep their settings. The same path applies a
+/// `markdown.*` change from `cmux.json` (the config file store writes the managed
+/// values to `UserDefaults.standard`), so `cmux reload-config` refreshes open
+/// viewers too.
+enum MarkdownTypographyDefaults {
+    static func setDefault(fontSize: Double, fontFamily: String, defaults: UserDefaults = .standard) {
+        MarkdownFontSizeSettings.setDefault(fontSize, defaults: defaults)
+        MarkdownFontFamily.setDefault(fontFamily, defaults: defaults)
     }
 }

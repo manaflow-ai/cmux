@@ -85,6 +85,7 @@ struct MarkdownPanelView: View {
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
                 fontSize: panel.fontSize,
+                fontFamily: panel.fontFamily,
                 session: panel.rendererSession,
                 onRequestPanelFocus: onRequestPanelFocus
             )
@@ -126,6 +127,9 @@ struct MarkdownPanelView: View {
                     isDisabled: !panel.isDirty || panel.isSaving,
                     action: { panel.saveTextContent() }
                 )
+            }
+            if panel.displayMode == .preview {
+                MarkdownTypographyControl(panel: panel)
             }
             markdownModeButton
             MarkdownPanelToolbar(
@@ -297,5 +301,130 @@ private struct MarkdownPanelToolbar: View {
             label: title,
             action: action
         )
+    }
+}
+
+/// Header popover control for the markdown viewer's typography: a native font
+/// picker and size stepper/field, plus reset and set-as-default. Drives the
+/// same `MarkdownPanel` methods as the keyboard shortcuts, command palette, and
+/// CLI so every entrypoint shares one path.
+@MainActor
+private struct MarkdownTypographyControl: View {
+    @ObservedObject var panel: MarkdownPanel
+    @State private var isPresented = false
+    // Loaded lazily in the background after the popover appears so it opens
+    // instantly even on machines with hundreds of fonts.
+    @State private var families: [String] = []
+    private let labelColumnWidth: CGFloat = 66
+
+    private var buttonLabel: String {
+        String(localized: "markdown.toolbar.fontSize", defaultValue: "Font Size")
+    }
+
+    private var sizeBinding: Binding<Double> {
+        Binding(get: { panel.fontSize }, set: { _ = panel.setFontSize($0) })
+    }
+
+    private var fontBinding: Binding<String> {
+        Binding(get: { panel.fontFamily }, set: { _ = panel.setFontFamily($0) })
+    }
+
+    /// The current selection is always tag-able, even before the full list loads.
+    private var pickerFamilies: [String] {
+        let current = panel.fontFamily
+        if !current.isEmpty, !families.contains(current) {
+            return [current] + families
+        }
+        return families
+    }
+
+    var body: some View {
+        Button { isPresented.toggle() } label: {
+            PanelHeaderIconGlyph(systemName: "textformat.size")
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .help(buttonLabel)
+        .accessibilityLabel(buttonLabel)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            popoverContent
+        }
+    }
+
+    private var popoverContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    fieldLabel(String(localized: "markdown.typography.font", defaultValue: "Font"))
+                    fontPicker
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    fieldLabel(String(localized: "markdown.typography.size", defaultValue: "Size"))
+                    HStack(spacing: 6) {
+                        TextField(
+                            String(localized: "markdown.fontSize.field", defaultValue: "Size"),
+                            value: sizeBinding,
+                            format: .number
+                        )
+                        .labelsHidden()
+                        .frame(width: 44)
+                        .multilineTextAlignment(.trailing)
+                        .textFieldStyle(.roundedBorder)
+                        Text(String(localized: "markdown.fontSize.unit", defaultValue: "pt"))
+                            .foregroundStyle(.secondary)
+                        Stepper(
+                            "",
+                            value: sizeBinding,
+                            in: MarkdownFontSizeSettings.minimumPointSize...MarkdownFontSizeSettings.maximumPointSize,
+                            step: MarkdownFontSizeSettings.stepPointSize
+                        )
+                        .labelsHidden()
+                    }
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Button(String(localized: "markdown.fontSize.reset", defaultValue: "Reset to default")) {
+                    panel.resetTypography()
+                }
+                Button(String(localized: "markdown.fontSize.setDefault", defaultValue: "Set as Default")) {
+                    MarkdownTypographyDefaults.setDefault(fontSize: panel.fontSize, fontFamily: panel.fontFamily)
+                }
+            }
+            .buttonStyle(.link)
+        }
+        .padding(14)
+        .frame(width: 248)
+        .task {
+            // Load the installed font list off-main after the popover is shown.
+            if families.isEmpty {
+                families = await MarkdownFontFamily.availableFamilies()
+            }
+        }
+    }
+
+    private func fieldLabel(_ title: String) -> some View {
+        Text(title)
+            .foregroundStyle(.secondary)
+            .frame(width: labelColumnWidth, alignment: .leading)
+    }
+
+    private var fontPicker: some View {
+        // Plain system-font names: rendering each item in its own font made the
+        // menu slow to open and gave rows uneven heights. The chosen font still
+        // applies to the document.
+        Picker(selection: fontBinding) {
+            Text(String(localized: "markdown.font.system", defaultValue: "System"))
+                .tag(MarkdownFontFamily.systemDefault)
+            Divider()
+            ForEach(pickerFamilies, id: \.self) { family in
+                Text(family).tag(family)
+            }
+        } label: { EmptyView() }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .frame(width: 150, alignment: .leading)
     }
 }
