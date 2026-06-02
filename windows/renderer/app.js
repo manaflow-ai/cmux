@@ -106,7 +106,7 @@ import {
 import {
   normalizeSettingsQuery,
   settingsCategorySearchAliases,
-  settingsSearchMatches,
+  settingsSearchMatchesNormalized,
   settingsSearchTokens
 } from "./settings-search.js";
 
@@ -9589,14 +9589,14 @@ function scheduleSettingsFilter() {
 function buildSettingsSearchIndex() {
   return [...elements.inspectorBody.querySelectorAll(".settings-section")].map((section) => ({
     section,
-    sectionSearch: section.dataset.settingsSearch || "",
+    sectionSearch: normalizeSettingsQuery(section.dataset.settingsSearch || ""),
     sectionTitle: settingsSectionTitle(section),
     items: [...section.querySelectorAll("[data-settings-search]")]
       .filter((item) => item !== section)
-      .map((item) => ({ item, search: item.dataset.settingsSearch || "" })),
+      .map((item) => ({ item, search: normalizeSettingsQuery(item.dataset.settingsSearch || "") })),
     groups: [...section.querySelectorAll(".settings-command-group")].map((group) => ({
       group,
-      search: group.dataset.settingsSearch || "",
+      search: normalizeSettingsQuery(group.dataset.settingsSearch || ""),
       cards: [...group.querySelectorAll(".settings-command-card")]
     }))
   }));
@@ -9606,7 +9606,7 @@ function updateSettingsSearchIndexItemSearch(target, search) {
   for (const section of state.settingsSearchIndex) {
     const record = section.items.find((item) => item.item === target);
     if (record) {
-      record.search = search;
+      record.search = normalizeSettingsQuery(search);
       return;
     }
   }
@@ -9661,14 +9661,14 @@ function applySettingsFilter() {
   const sections = state.settingsSearchIndex.length ? state.settingsSearchIndex : buildSettingsSearchIndex();
   for (const sectionRecord of sections) {
     const { section, sectionSearch, sectionTitle, items, groups } = sectionRecord;
-    const sectionMatches = settingsSearchMatches(sectionSearch, tokens);
+    const sectionMatches = settingsSearchMatchesNormalized(sectionSearch, tokens);
     let sectionVisible = sectionMatches;
     if (query && sectionMatches) {
       matchingItems += 1;
       bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, section, sectionTitle);
     }
     for (const { item, search } of items) {
-      const itemMatches = settingsSearchMatches(search, tokens);
+      const itemMatches = settingsSearchMatchesNormalized(search, tokens);
       const visible = itemMatches || sectionMatches;
       setHiddenIfChanged(item, !visible);
       sectionVisible ||= visible;
@@ -9679,7 +9679,7 @@ function applySettingsFilter() {
     }
     for (const { group, search, cards } of groups) {
       const cardVisible = cards.some((card) => !card.hidden);
-      const groupMatches = settingsSearchMatches(search, tokens);
+      const groupMatches = settingsSearchMatchesNormalized(search, tokens);
       const groupVisible = cardVisible || groupMatches || sectionMatches;
       setHiddenIfChanged(group, !groupVisible);
       sectionVisible ||= groupVisible;

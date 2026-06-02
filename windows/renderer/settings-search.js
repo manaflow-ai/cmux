@@ -34,7 +34,10 @@ export function settingsSearchTokens(value) {
 }
 
 export function settingsSearchMatches(searchText, tokens) {
+  return settingsSearchMatchesNormalized(normalizeSettingsQuery(searchText), tokens);
+}
+
+export function settingsSearchMatchesNormalized(haystack, tokens) {
   if (!tokens.length) return true;
-  const haystack = normalizeSettingsQuery(searchText);
   return tokens.every((group) => group.some((token) => haystack.includes(token)));
 }
