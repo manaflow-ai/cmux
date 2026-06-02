@@ -114,6 +114,23 @@ const workspaceColorOptions = [...new Set([
   "oklch(62% 0.22 255)",
   "oklch(76% 0.15 82)"
 ])];
+const controlIconSvg = {
+  arrowRight: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14"></path><path d="m13 6 6 6-6 6"></path></svg>`,
+  back: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"></path></svg>`,
+  caseMatch: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 17 9 7l5 10"></path><path d="M6 13h6"></path><path d="M17 13h2a2 2 0 0 1 0 4h-3V9a2 2 0 0 1 4 0"></path></svg>`,
+  close: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 7 10 10M17 7 7 17"></path></svg>`,
+  down: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"></path></svg>`,
+  external: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 4h6v6"></path><path d="M10 14 20 4"></path><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"></path></svg>`,
+  forward: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 6 6 6-6 6"></path></svg>`,
+  home: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m4 11 8-7 8 7"></path><path d="M6 10v10h12V10"></path></svg>`,
+  plus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"></path></svg>`,
+  reload: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 1 1-2.34-5.66"></path><path d="M20 4v6h-6"></path></svg>`,
+  up: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"></path></svg>`
+};
+
+function controlIconMarkup(icon) {
+  return controlIconSvg[icon] || controlIconSvg.arrowRight;
+}
 const TerminalConstructor = window.Terminal;
 const FitAddonConstructor = window.FitAddon?.FitAddon;
 const WebLinksAddonConstructor = window.WebLinksAddon?.WebLinksAddon;
@@ -5825,10 +5842,10 @@ function createTerminalSearchOverlay(panel, session) {
   overlay.innerHTML = `
     <input class="terminal-search-input" type="search" autocomplete="off" spellcheck="false" placeholder="Find in terminal">
     <span class="terminal-search-status"></span>
-    <button class="terminal-search-button terminal-search-prev" type="button" title="Previous match">↑</button>
-    <button class="terminal-search-button terminal-search-next" type="button" title="Next match">↓</button>
-    <button class="terminal-search-button terminal-search-case" type="button" title="Match case">Aa</button>
-    <button class="terminal-search-button terminal-search-close" type="button" title="Close search" aria-label="Close search"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 7 10 10M17 7 7 17"></path></svg></button>
+    <button class="terminal-search-button terminal-search-prev" type="button" title="Previous match" aria-label="Previous match">${controlIconMarkup("up")}</button>
+    <button class="terminal-search-button terminal-search-next" type="button" title="Next match" aria-label="Next match">${controlIconMarkup("down")}</button>
+    <button class="terminal-search-button terminal-search-case" type="button" title="Match case" aria-label="Match case">${controlIconMarkup("caseMatch")}</button>
+    <button class="terminal-search-button terminal-search-close" type="button" title="Close search" aria-label="Close search">${controlIconMarkup("close")}</button>
   `;
   const input = overlay.querySelector(".terminal-search-input");
   const previous = overlay.querySelector(".terminal-search-prev");
@@ -6645,7 +6662,7 @@ function createBrowserTabButton(session) {
   label.className = "browser-tab-label";
   const close = document.createElement("span");
   close.className = "browser-tab-close";
-  close.textContent = "×";
+  close.innerHTML = controlIconMarkup("close");
   button._browserTabParts = { label, close };
   close.addEventListener("click", (event) => {
     event.preventDefault();
@@ -6950,7 +6967,7 @@ function ensureBrowser(panel, body) {
   tabNew.type = "button";
   tabNew.title = t("browser.newTab");
   tabNew.setAttribute("aria-label", t("browser.newTab"));
-  tabNew.textContent = "+";
+  tabNew.innerHTML = controlIconMarkup("plus");
   tabStrip.append(tabList, tabNew);
   const bar = document.createElement("div");
   bar.className = "browser-bar";
@@ -6958,22 +6975,26 @@ function ensureBrowser(panel, body) {
   back.className = "browser-nav browser-back";
   back.type = "button";
   back.title = "Back";
-  back.textContent = "‹";
+  back.setAttribute("aria-label", "Back");
+  back.innerHTML = controlIconMarkup("back");
   const forward = document.createElement("button");
   forward.className = "browser-nav browser-forward";
   forward.type = "button";
   forward.title = "Forward";
-  forward.textContent = "›";
+  forward.setAttribute("aria-label", "Forward");
+  forward.innerHTML = controlIconMarkup("forward");
   const reload = document.createElement("button");
   reload.className = "browser-nav browser-reload";
   reload.type = "button";
   reload.title = "Reload";
-  reload.textContent = "↻";
+  reload.setAttribute("aria-label", "Reload");
+  reload.innerHTML = controlIconMarkup("reload");
   const home = document.createElement("button");
   home.className = "browser-nav browser-home";
   home.type = "button";
   home.title = "Home";
-  home.textContent = "⌂";
+  home.setAttribute("aria-label", "Home");
+  home.innerHTML = controlIconMarkup("home");
   const address = document.createElement("input");
   address.className = "browser-address";
   const tabSnapshot = browserTabSnapshotForPanel(state.browserTabSnapshots, panel, state.settings.browserHomeUrl);
@@ -6982,14 +7003,16 @@ function ensureBrowser(panel, body) {
   const go = document.createElement("button");
   go.className = "browser-go browser-go-submit";
   go.type = "button";
-  go.textContent = "Go";
+  go.title = "Go";
+  go.setAttribute("aria-label", "Go");
+  go.innerHTML = controlIconMarkup("arrowRight");
   const external = document.createElement("button");
   external.className = "browser-go browser-go-external";
   external.type = "button";
   const externalTitle = browserExternalProfileTitle();
   external.title = externalTitle;
   external.setAttribute("aria-label", externalTitle);
-  external.textContent = "↗";
+  external.innerHTML = controlIconMarkup("external");
   const status = document.createElement("div");
   status.className = "browser-status";
   status.textContent = "Loading";
@@ -8171,6 +8194,7 @@ function activeWorkspaceSettingsSignature() {
   appendSignatureValue(parts, workspace.splitDirection);
   appendSignatureValue(parts, workspace.terminalCount);
   appendSignatureValue(parts, workspace.browserCount);
+  appendSignatureValue(parts, zoomedPanelIdForWorkspace(workspace) || "");
   appendSignatureData(parts, state.paneTrees.get(workspace.id) || null);
   appendSignatureArray(parts, workspace.panels, (nextParts, panel) => {
     appendSignatureValue(nextParts, panel.id);
@@ -8189,6 +8213,8 @@ function activeWorkspaceSettingsSignature() {
     appendSignatureValue(nextParts, panel.terminalFontSize || 0);
     appendSignatureValue(nextParts, panel.backgroundImage || "");
     appendSignatureValue(nextParts, panel.url);
+    appendSignatureValue(nextParts, isPanelMinimized(panel));
+    appendSignatureValue(nextParts, isPendingPanel(panel));
   });
   return parts.join("");
 }
@@ -8320,7 +8346,7 @@ function settingsSearch() {
   clear.type = "button";
   clear.title = t("settings.clearSearch");
   clear.setAttribute("aria-label", t("settings.clearSearch"));
-  clear.textContent = "×";
+  clear.innerHTML = controlIconMarkup("close");
   clear.disabled = !state.settingsQuery;
   clear.onclick = () => {
     state.settingsQuery = "";

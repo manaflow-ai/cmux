@@ -1037,6 +1037,11 @@ body.reduce-motion *::after {
 .pane-tool svg,
 .surface-close svg,
 .terminal-search-button svg,
+.browser-nav svg,
+.browser-go svg,
+.browser-tab-new svg,
+.browser-tab-close svg,
+.settings-search-clear svg,
 .window-control svg,
 .quick-action-icon svg {
   width: 16px;
@@ -2974,6 +2979,11 @@ body.reduce-motion *::after {
   z-index: 1;
 }
 
+.browser-tab-new svg {
+  width: 15px;
+  height: 15px;
+}
+
 .browser-tab-new:hover {
   border-color: var(--color-line-strong);
   color: var(--color-text);
@@ -3030,7 +3040,11 @@ body.reduce-motion *::after {
     min-width: 22px;
     width: 22px;
     height: 24px;
-    font-size: 14px;
+  }
+
+  .browser-tab-new svg {
+    width: 14px;
+    height: 14px;
   }
 
   .browser-tab::before {
@@ -3091,7 +3105,11 @@ body.reduce-motion *::after {
     min-width: 20px;
     width: 20px;
     height: 22px;
-    font-size: 13px;
+  }
+
+  .browser-tab-new svg {
+    width: 13px;
+    height: 13px;
   }
 }
 
@@ -3162,9 +3180,15 @@ body.reduce-motion *::after {
 .browser-go {
   min-width: 0;
   height: 24px;
+  display: grid;
+  place-items: center;
   padding: 0 var(--space-2);
   border-color: var(--color-line);
   background: var(--color-pane);
+}
+
+.browser-go-submit {
+  padding: 0;
 }
 
 .browser-go-external {
