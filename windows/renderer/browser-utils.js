@@ -13,6 +13,7 @@ export const embeddedGooglePromoDismissScript = `(() => {
     window[observerKey]?.disconnect?.();
     window[observerKey] = null;
   };
+  const nodes = (selector) => Array.from(document.querySelectorAll(selector));
   const finish = (result) => {
     cleanup();
     window[doneKey] = result || "done";
@@ -20,8 +21,7 @@ export const embeddedGooglePromoDismissScript = `(() => {
   };
   if (window[observerKey]) return "watching";
   const dismissPromo = () => {
-    const elements = Array.from(document.querySelectorAll("*"));
-    const dismiss = elements.find((node) => {
+    const dismiss = nodes('button, [role="button"], a, input[type="button"], input[type="submit"]').find((node) => {
       const text = textOf(node);
       if (!/^do not .*chrome$/i.test(text) && !/^no thanks$/i.test(text) && !/^not now$/i.test(text)) return false;
       const rect = node.getBoundingClientRect();
@@ -32,8 +32,7 @@ export const embeddedGooglePromoDismissScript = `(() => {
       return "clicked";
     }
     let hidden = 0;
-    for (const node of elements) {
-      if (node.tagName === "HTML" || node.tagName === "BODY") continue;
+    for (const node of nodes('dialog, [role="dialog"], [aria-modal="true"], aside, section, div')) {
       const text = textOf(node);
       if (!/built by Google/i.test(text) || !/Download Chrome/i.test(text)) continue;
       const rect = node.getBoundingClientRect();
