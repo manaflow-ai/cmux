@@ -4402,9 +4402,9 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .empty-workspace-launchers {
-  width: min(460px, 100%);
+  width: min(520px, 100%);
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2);
   margin-top: var(--space-2);
 }
@@ -4433,8 +4433,8 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .empty-workspace-launcher.is-add {
-  border-color: var(--color-line);
-  background: color-mix(in oklch, var(--color-pane-warm) 78%, var(--color-accent) 4%);
+  border-color: color-mix(in oklch, var(--color-line-strong) 78%, var(--color-accent) 22%);
+  background: color-mix(in oklch, var(--color-pane-warm) 82%, var(--color-accent) 6%);
 }
 
 .empty-workspace-launcher:hover {
@@ -4444,12 +4444,27 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .empty-workspace-launcher.is-add:hover {
   border-color: color-mix(in oklch, var(--color-accent) 28%, var(--color-line-strong));
-  background: color-mix(in oklch, var(--color-pane-warm) 76%, var(--color-accent) 8%);
+  background: color-mix(in oklch, var(--color-pane-warm) 72%, var(--color-accent) 12%);
+}
+
+.empty-workspace-launcher[data-empty-launcher="terminal"],
+.empty-workspace-launcher[data-empty-launcher="browser"] {
+  min-height: 58px;
 }
 
 .empty-workspace-launcher.is-primary {
   border-color: color-mix(in oklch, var(--color-accent) 36%, var(--color-line));
   background: color-mix(in oklch, var(--color-accent) 9%, var(--color-pane-warm));
+}
+
+.empty-workspace-launcher[data-empty-launcher="terminal"] {
+  border-color: color-mix(in oklch, var(--color-success) 30%, var(--color-line) 70%);
+  background: color-mix(in oklch, var(--color-success) 8%, var(--color-pane-warm) 92%);
+}
+
+.empty-workspace-launcher[data-empty-launcher="browser"] {
+  border-color: color-mix(in oklch, var(--color-accent) 30%, var(--color-line) 70%);
+  background: color-mix(in oklch, var(--color-accent) 8%, var(--color-pane-warm) 92%);
 }
 
 .empty-workspace-launcher:disabled {

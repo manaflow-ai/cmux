@@ -98,6 +98,8 @@ const windowsMessages = {
     "palette.quickPane": "Active pane",
     "emptyWorkspace.noPanesReopen": "No panes are open. Reopen your last pane or start fresh.",
     "emptyWorkspace.noPanesStart": "No panes are open. Start with a terminal or browser.",
+    "emptyWorkspace.addTerminal": "+ Terminal",
+    "emptyWorkspace.addBrowser": "+ Browser",
     "emptyWorkspace.savedLayouts": "Saved layouts",
     "emptyWorkspace.reopen": "Reopen",
     "emptyWorkspace.lastClosedPane": "Last closed pane",

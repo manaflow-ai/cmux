@@ -5389,8 +5389,8 @@ function emptyWorkspaceLaunchers() {
   const launchers = [
     {
       id: "terminal",
-      icon: "terminal",
-      label: t("palette.quickTerminal"),
+      icon: "terminalPlus",
+      label: t("emptyWorkspace.addTerminal"),
       ...emptyWorkspaceCreationLauncherState(optionLabel(terminalProfiles, state.settings.terminalProfile, "Auto shell")),
       kind: "panel",
       type: "terminal",
@@ -5399,8 +5399,8 @@ function emptyWorkspaceLaunchers() {
     },
     {
       id: "browser",
-      icon: "browser",
-      label: t("palette.quickBrowser"),
+      icon: "browserPlus",
+      label: t("emptyWorkspace.addBrowser"),
       ...emptyWorkspaceCreationLauncherState(hostnameOf(state.settings.browserHomeUrl)),
       kind: "panel",
       type: "browser",
