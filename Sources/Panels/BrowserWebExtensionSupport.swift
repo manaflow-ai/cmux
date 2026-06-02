@@ -1374,6 +1374,50 @@ final class BrowserWebExtensionInstallStore {
         )
     }
 
+    func revalidatedSource(
+        for record: BrowserWebExtensionInstallRecord,
+        developerModeEnabled: Bool = BrowserExtensionDeveloperModeSettings.isEnabled()
+    ) throws -> BrowserWebExtensionInstallSource {
+        guard record.sourceKind == .appExtensionBundle else {
+            throw BrowserWebExtensionInstallError.unsupportedSource(URL(fileURLWithPath: record.sourcePath))
+        }
+        let storedURL = URL(fileURLWithPath: record.sourcePath).standardizedFileURL
+        switch Self.appExtensionValidationResult(for: storedURL, fileManager: fileManager) {
+        case .valid:
+            break
+        case .missingManifest:
+            throw BrowserWebExtensionInstallError.noManifest(storedURL)
+        case .missingInfoPlist, .notSafariWebExtension:
+            throw BrowserWebExtensionInstallError.noWebExtensionInApp(storedURL)
+        }
+        if let containingAppURL = Self.containingAppURL(forAppExtensionURL: storedURL) {
+            let trust = try Self.verifiedSourceTrust(
+                containingAppURL: containingAppURL,
+                appExtensionURL: storedURL,
+                developerModeEnabled: developerModeEnabled
+            )
+            return BrowserWebExtensionInstallSource(
+                kind: .appExtensionBundle,
+                url: storedURL,
+                containingAppURL: containingAppURL,
+                trust: trust
+            )
+        }
+        return try discoverSource(from: storedURL, developerModeEnabled: developerModeEnabled)
+    }
+
+    nonisolated static func containingAppURL(forAppExtensionURL appExtensionURL: URL) -> URL? {
+        let standardizedURL = appExtensionURL.standardizedFileURL
+        guard standardizedURL.pathExtension.lowercased() == "appex" else { return nil }
+        let pluginsURL = standardizedURL.deletingLastPathComponent()
+        guard pluginsURL.lastPathComponent == "PlugIns" else { return nil }
+        let contentsURL = pluginsURL.deletingLastPathComponent()
+        guard contentsURL.lastPathComponent == "Contents" else { return nil }
+        let appURL = contentsURL.deletingLastPathComponent()
+        guard appURL.pathExtension.lowercased() == "app" else { return nil }
+        return appURL
+    }
+
     private func existingRecord(for source: BrowserWebExtensionInstallSource) -> BrowserWebExtensionInstallRecord? {
         guard source.kind == .appExtensionBundle else { return nil }
         return records.first { record in
@@ -2576,10 +2620,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             contextsByRuntimeKey[runtimeKey]?[record.id] = nil
         }
 
-        let source = BrowserWebExtensionInstallSource(
-            kind: record.sourceKind,
-            url: URL(fileURLWithPath: record.sourcePath)
-        )
+        let source = try store.revalidatedSource(for: record)
         let webExtension = try await loadWebExtension(from: source)
         let context = WKWebExtensionContext(for: webExtension)
         if let uniqueIdentifier = browserWebExtensionContextUniqueIdentifier(

@@ -4275,6 +4275,12 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.requestNavigation = { [weak self] request, intent in
             self?.requestNavigation(request, intent: intent)
         }
+        navDelegate.shouldPrepareWebExtensionsBeforeNavigation = { [weak self] url in
+            self?.needsWebExtensionPreparation(beforeNavigationTo: url) ?? false
+        }
+        navDelegate.prepareWebExtensionsBeforeNavigation = { [weak self] url, completion in
+            self?.prepareWebExtensionsBeforePolicyNavigation(to: url, completion: completion) ?? completion()
+        }
         navDelegate.presentAlert = { [weak self] alert, webView, completion, cancel in
             guard let self else {
                 cancel()
@@ -5938,6 +5944,35 @@ final class BrowserPanel: Panel, ObservableObject {
             navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: false)
         case .newTab:
             openLinkInNewTab(request: request)
+        }
+    }
+
+    private func needsWebExtensionPreparation(beforeNavigationTo url: URL) -> Bool {
+        BrowserWebExtensionSupport.needsPreparationBeforeNavigation(
+            profileID: profileID,
+            websiteDataStore: websiteDataStore,
+            targetURL: url
+        )
+    }
+
+    private func prepareWebExtensionsBeforePolicyNavigation(
+        to url: URL,
+        completion: @escaping () -> Void
+    ) {
+        guard needsWebExtensionPreparation(beforeNavigationTo: url) else {
+            completion()
+            return
+        }
+        Task { @MainActor [
+            navigationProfileID = profileID,
+            navigationWebsiteDataStore = websiteDataStore
+        ] in
+            await BrowserWebExtensionSupport.prepareBeforeNavigation(
+                profileID: navigationProfileID,
+                websiteDataStore: navigationWebsiteDataStore,
+                targetURL: url
+            )
+            completion()
         }
     }
 
@@ -8317,6 +8352,20 @@ func browserNavigationShouldFallbackNilTargetToNewTab(
     navigationType != .other
 }
 
+func browserNavigationShouldPrepareWebExtensionsBeforeAllowingMainFrameNavigation(
+    requestURL: URL?,
+    targetFrameIsMainFrame: Bool?,
+    shouldOpenInNewTab: Bool,
+    needsPreparation: (URL) -> Bool
+) -> Bool {
+    guard !shouldOpenInNewTab,
+          targetFrameIsMainFrame == true,
+          let requestURL else {
+        return false
+    }
+    return needsPreparation(requestURL)
+}
+
 func browserNavigationHasSimpleUserActivation(
     currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type
 ) -> Bool {
@@ -8471,6 +8520,8 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var shouldPrepareWebExtensionsBeforeNavigation: ((URL) -> Bool)?
+    var prepareWebExtensionsBeforeNavigation: ((URL, @escaping () -> Void) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
@@ -8742,6 +8793,27 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 #endif
             openRequestInNewTab(navigationAction.request)
             decisionHandler(.cancel)
+            return
+        }
+
+        if browserNavigationShouldPrepareWebExtensionsBeforeAllowingMainFrameNavigation(
+            requestURL: navigationAction.request.url,
+            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame,
+            shouldOpenInNewTab: shouldOpenInNewTab,
+            needsPreparation: { [shouldPrepareWebExtensionsBeforeNavigation] url in
+                shouldPrepareWebExtensionsBeforeNavigation?(url) ?? false
+            }
+        ),
+           let requestURL = navigationAction.request.url,
+           let prepareWebExtensionsBeforeNavigation {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.nav.decidePolicy.action kind=prepareExtensions url=\(requestURL.absoluteString)"
+            )
+#endif
+            prepareWebExtensionsBeforeNavigation(requestURL) {
+                decisionHandler(.allow)
+            }
             return
         }
 

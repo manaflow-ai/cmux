@@ -48,6 +48,7 @@
 		D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */; };
 		B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770BA00000000000000002 /* BrowserAutomation.swift */; };
 		E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */; };
+		B3770D10000000000000001 /* BrowserExtensionNavigationPreparationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770D10000000000000002 /* BrowserExtensionNavigationPreparationTests.swift */; };
 		B3770BF00000000000000001 /* BrowserExtensionsSettingsRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770BF00000000000000002 /* BrowserExtensionsSettingsRows.swift */; };
 		A5008373 /* BrowserFindJavaScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008372 /* BrowserFindJavaScript.swift */; };
 		A5008381 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008380 /* BrowserFindJavaScriptTests.swift */; };
@@ -73,6 +74,7 @@
 		A5008371 /* BrowserSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008370 /* BrowserSearchOverlay.swift */; };
 		B3770C00000000000000001 /* BrowserSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770C00000000000000002 /* BrowserSettingsSection.swift */; };
 		A5007422 /* BrowserWebAuthnSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007423 /* BrowserWebAuthnSupport.swift */; };
+		B3770D20000000000000001 /* BrowserWebExtensionInstallStoreSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770D20000000000000002 /* BrowserWebExtensionInstallStoreSwiftTests.swift */; };
 		B3770BE00000000000000001 /* BrowserWebExtensionSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770BE00000000000000002 /* BrowserWebExtensionSupport.swift */; };
 		A5001534 /* BrowserWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001533 /* BrowserWindowPortal.swift */; };
 		C0DE35530000000000000101 /* BundledCLILinkageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35530000000000000102 /* BundledCLILinkageTests.swift */; };
@@ -690,6 +692,7 @@
 		D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
 		B3770BA00000000000000002 /* BrowserAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAutomation.swift; sourceTree = "<group>"; };
 		970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
+		B3770D10000000000000002 /* BrowserExtensionNavigationPreparationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserExtensionNavigationPreparationTests.swift; sourceTree = "<group>"; };
 		B3770BF00000000000000002 /* BrowserExtensionsSettingsRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/BrowserExtensionsSettingsRows.swift; sourceTree = "<group>"; };
 		A5008372 /* BrowserFindJavaScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserFindJavaScript.swift; sourceTree = "<group>"; };
 		A5008380 /* BrowserFindJavaScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScriptTests.swift; sourceTree = "<group>"; };
@@ -715,6 +718,7 @@
 		A5008370 /* BrowserSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserSearchOverlay.swift; sourceTree = "<group>"; };
 		B3770C00000000000000002 /* BrowserSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/BrowserSettingsSection.swift; sourceTree = "<group>"; };
 		A5007423 /* BrowserWebAuthnSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnSupport.swift; sourceTree = "<group>"; };
+		B3770D20000000000000002 /* BrowserWebExtensionInstallStoreSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionInstallStoreSwiftTests.swift; sourceTree = "<group>"; };
 		B3770BE00000000000000002 /* BrowserWebExtensionSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionSupport.swift; sourceTree = "<group>"; };
 		A5001533 /* BrowserWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowPortal.swift; sourceTree = "<group>"; };
 		C0DE35530000000000000102 /* BundledCLILinkageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledCLILinkageTests.swift; sourceTree = "<group>"; };
@@ -1782,12 +1786,14 @@
 					C0DEC0DE000000000000F101 /* CommandPaletteNucleoFFITests.swift */,
 					C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */,
 					C0DEC0DE000000000000F203 /* CommandPaletteNucleoFixtures.swift */,
-				A50019B3 /* SettingsSearchIndexTests.swift */,
-				D36090010000000000000004 /* SettingsWindowPresenterTests.swift */,
-				970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */,
-				D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */,
-				58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */,
-				D0B1000DA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift */,
+					A50019B3 /* SettingsSearchIndexTests.swift */,
+					D36090010000000000000004 /* SettingsWindowPresenterTests.swift */,
+					970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */,
+					B3770D10000000000000002 /* BrowserExtensionNavigationPreparationTests.swift */,
+					D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */,
+					58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */,
+					B3770D20000000000000002 /* BrowserWebExtensionInstallStoreSwiftTests.swift */,
+					D0B1000DA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift */,
 					D0B1000FA1B2C3D4E5F60001 /* BrowserPaneDropRoutingTests.swift */,
 					02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */,
 					C35610000000000000000002 /* FinderFileDropRegressionTests.swift */,
@@ -2602,15 +2608,17 @@
 				D7AB0000000000000000000F /* AppDelegateMoveTabToNewWorkspaceTests.swift in Sources */,
 				C34670010000000000000001 /* AppDelegateRenameShortcutContextTests.swift in Sources */,
 				F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */,
-				A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */,
-				D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */,
-				E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */,
-				A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
+					A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */,
+					D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */,
+					E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */,
+					B3770D10000000000000001 /* BrowserExtensionNavigationPreparationTests.swift in Sources */,
+					A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
 				FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */,
 					C2B6A97D1F2E4C71A8B9D001 /* BrowserOmnibarPerformanceSupportTests.swift in Sources */,
-				D0B1000EA1B2C3D4E5F60001 /* BrowserPaneDropRoutingTests.swift in Sources */,
-				1F14445B9627DE9D3AF4FD2E /* BrowserPanelTests.swift in Sources */,
-					C0DE35530000000000000101 /* BundledCLILinkageTests.swift in Sources */,
+					D0B1000EA1B2C3D4E5F60001 /* BrowserPaneDropRoutingTests.swift in Sources */,
+					1F14445B9627DE9D3AF4FD2E /* BrowserPanelTests.swift in Sources */,
+					B3770D20000000000000001 /* BrowserWebExtensionInstallStoreSwiftTests.swift in Sources */,
+						C0DE35530000000000000101 /* BundledCLILinkageTests.swift in Sources */,
 				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,
 				D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */,
 				C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */,
