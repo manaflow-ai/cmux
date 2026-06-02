@@ -6811,12 +6811,12 @@ function renderSettingsInspector(options = {}) {
     imageInput.className = "setting-control";
     imageInput.value = isBackgroundPreset(state.settings.backgroundImage) ? "" : state.settings.backgroundImage;
     imageInput.placeholder = "URL or C:\\path\\image.png";
-    const applyImageInput = async (showToast = false) => {
+    const applyImageInput = (showToast = false) => withDisabledControl(imageInput, async () => {
       const next = imageInput.value.trim();
       if (next || !isBackgroundPreset(state.settings.backgroundImage)) {
         await applyCustomBackgroundImage(next, { resetInput: imageInput, toast: showToast });
       }
-    };
+    });
     imageInput.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
       event.preventDefault();
@@ -9692,11 +9692,13 @@ function savedBackgroundImagesPanel() {
   input.addEventListener("keydown", async (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      if (await applyAndSaveCustomBackgroundImage({ url: input.value })) input.value = "";
+      const saved = await withDisabledControl(input, () => applyAndSaveCustomBackgroundImage({ url: input.value }));
+      if (saved) input.value = "";
     }
   });
   const saveUrl = settingsActionButton("Save image", async () => {
-    if (await saveCustomBackgroundImage({ url: input.value })) input.value = "";
+    const saved = await withDisabledControl(input, () => saveCustomBackgroundImage({ url: input.value }));
+    if (saved) input.value = "";
   }, "", "saved background image url local path file add");
   addRow.append(input, saveUrl);
   panel.append(addRow);
@@ -9705,7 +9707,8 @@ function savedBackgroundImagesPanel() {
   actions.className = "settings-actions saved-background-actions";
   actions.dataset.settingsSearch = normalizeSettingsQuery("saved background current choose local file wallpaper apply save");
   const applyAndSave = settingsActionButton("Apply + save", async () => {
-    if (await applyAndSaveCustomBackgroundImage({ url: input.value })) input.value = "";
+    const saved = await withDisabledControl(input, () => applyAndSaveCustomBackgroundImage({ url: input.value }));
+    if (saved) input.value = "";
   }, "", "saved background image apply save url local path file wallpaper");
   const saveCurrent = settingsActionButton("Save current", () => saveCustomBackgroundImage({
     url: state.settings.backgroundImage
@@ -10177,6 +10180,17 @@ function settingsActionButton(label, onClick, tone = "", searchTerms = "") {
     runSettingsAction(button, label, result);
   };
   return button;
+}
+
+async function withDisabledControl(control, task) {
+  if (control?.disabled) return null;
+  const wasDisabled = Boolean(control?.disabled);
+  if (control) control.disabled = true;
+  try {
+    return await task();
+  } finally {
+    if (control?.isConnected) control.disabled = wasDisabled;
+  }
 }
 
 async function runSettingsAction(button, label, promise) {
