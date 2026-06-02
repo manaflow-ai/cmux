@@ -1690,22 +1690,23 @@ body.reduce-motion *::after {
   position: sticky;
   z-index: 3;
   height: 25px;
-  flex: 0 0 84px;
-  min-width: 84px;
-  max-width: 84px;
-  grid-template-columns: 17px minmax(0, auto);
+  flex: 0 0 88px;
+  min-width: 88px;
+  max-width: 88px;
+  grid-template-columns: 16px minmax(0, auto);
   justify-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 6px;
+  padding: 0 8px;
   border-color: color-mix(in oklch, var(--color-line) 64%, transparent);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane) 42%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 58%, transparent);
   color: var(--color-muted);
   font: inherit;
 }
 
 .surface-new-terminal {
-  right: 96px;
+  right: 100px;
 }
 
 .surface-new-browser {
@@ -1715,19 +1716,20 @@ body.reduce-motion *::after {
 .surface-new-icon {
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, currentColor 10%, transparent);
+  font: 760 13px/1 var(--font-ui);
+}
+
+.surface-new-icon::before {
+  content: "+";
 }
 
 .surface-new-tab svg {
-  width: 17px;
-  height: 17px;
-  stroke-width: 1.9;
-}
-
-.surface-new-terminal svg {
-  width: 18px;
-  height: 18px;
+  display: none;
 }
 
 .surface-new-label {
@@ -1742,15 +1744,17 @@ body.reduce-motion *::after {
 }
 
 .surface-new-tab .surface-new-label::before {
-  content: "+ ";
+  content: "";
 }
 
 .surface-new-terminal {
   border-color: color-mix(in oklch, var(--color-accent) 45%, var(--color-line) 55%);
+  color: color-mix(in oklch, var(--color-accent) 72%, var(--color-text) 28%);
 }
 
 .surface-new-browser {
   border-color: color-mix(in oklch, var(--color-success) 38%, var(--color-line) 62%);
+  color: color-mix(in oklch, var(--color-success) 70%, var(--color-text) 30%);
 }
 
 .surface-new-tab:hover {
@@ -1761,13 +1765,14 @@ body.reduce-motion *::after {
 
 .shell.density-compact .surface-new-tab {
   height: 27px;
-  flex-basis: 76px;
-  min-width: 76px;
-  max-width: 76px;
+  flex-basis: 78px;
+  min-width: 78px;
+  max-width: 78px;
+  padding-inline: 6px;
 }
 
 .shell.density-compact .surface-new-terminal {
-  right: 88px;
+  right: 90px;
 }
 
 @container (max-width: 560px) {
