@@ -8,6 +8,41 @@ import XCTest
 
 @MainActor
 final class WorkspaceAdjacentPaneMoveTests: XCTestCase {
+    func testMoveFocusRightFromTallPaneTargetsCenterAlignedMiddleRow() throws {
+        let workspace = Workspace()
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let topRightPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(
+                from: leftPanelId,
+                orientation: .horizontal,
+                initialDividerPosition: 0.5
+            )
+        )
+        let middleRightPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(
+                from: topRightPanel.id,
+                orientation: .vertical,
+                initialDividerPosition: 1.0 / 3.0
+            )
+        )
+        _ = try XCTUnwrap(
+            workspace.newTerminalSplit(
+                from: middleRightPanel.id,
+                orientation: .vertical,
+                initialDividerPosition: 0.5
+            )
+        )
+
+        workspace.focusPanel(leftPanelId)
+        workspace.moveFocus(direction: .right)
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            middleRightPanel.id,
+            "Expected right navigation from a full-height left pane to choose the center-aligned middle row"
+        )
+    }
+
     func testTabContextMoveToRightPaneMovesSurfaceToAdjacentPane() throws {
         let workspace = Workspace()
         let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
