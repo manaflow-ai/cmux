@@ -8314,7 +8314,7 @@ function activeBackgroundPanel(options = {}) {
   const filePath = backgroundFilePath(background);
   const label = hasBackground ? appearanceBackgroundLabel(background) : "None";
   const source = !hasBackground
-    ? "No image is applied."
+    ? "Drop an image here, paste one, or choose a local file."
     : preset
       ? "Built-in preset"
       : filePath || normalized;
@@ -8341,6 +8341,10 @@ function activeBackgroundPanel(options = {}) {
   panel.querySelector(".active-background-source").textContent = source;
   panel.querySelector(".active-background-source").title = source;
   const actions = panel.querySelector(".active-background-actions");
+  const chooseAndSave = settingsActionButton("Choose + save", () => chooseBackgroundImage({ save: true }), "primary", "active background choose local file apply save wallpaper library");
+  chooseAndSave.dataset.backgroundAction = "choose-save";
+  const paste = settingsActionButton("Paste", () => pasteBackgroundImageFromClipboard(), "", "active background paste clipboard image url local path apply");
+  paste.dataset.backgroundAction = "paste";
   const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }), "", "active background save current");
   save.dataset.backgroundAction = "save";
   save.disabled = !isCustomBackgroundImage(state.settings.backgroundImage);
@@ -8354,7 +8358,8 @@ function activeBackgroundPanel(options = {}) {
   clear.dataset.backgroundAction = "clear";
   clear.disabled = !hasBackground;
   actions.append(
-    settingsActionButton("Choose", () => chooseBackgroundImage(), "", "active background choose local file"),
+    chooseAndSave,
+    paste,
     save,
     open,
     clear
@@ -8383,7 +8388,7 @@ function activeBackgroundViewModel(settings = state.settings) {
     hasBackground,
     label: hasBackground ? appearanceBackgroundLabel(background) : "None",
     source: !hasBackground
-      ? "No image is applied."
+      ? "Drop an image here, paste one, or choose a local file."
       : preset
         ? "Built-in preset"
         : filePath || normalized,

@@ -6230,6 +6230,17 @@ body.reduce-motion *::after {
   background: var(--color-pane-active);
 }
 
+.settings-action.primary {
+  border-color: color-mix(in oklch, var(--color-accent) 64%, var(--color-line) 36%);
+  background: color-mix(in oklch, var(--color-accent) 22%, var(--color-pane-warm) 78%);
+  color: var(--color-accent-ink);
+}
+
+.settings-action.primary:hover:not(:disabled) {
+  border-color: color-mix(in oklch, var(--color-accent-hover) 74%, var(--color-line) 26%);
+  background: color-mix(in oklch, var(--color-accent) 32%, var(--color-pane-active) 68%);
+}
+
 .settings-action:disabled {
   opacity: .46;
   cursor: default;
@@ -6757,7 +6768,7 @@ body.reduce-motion *::after {
 .active-background-actions {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(104px, 100%), 1fr));
   gap: var(--space-1);
 }
 
