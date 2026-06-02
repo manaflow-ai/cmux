@@ -12277,12 +12277,19 @@ class TerminalController {
             let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
             let insertFirst = (direction == .left || direction == .up)
 
+            if params["font_size"] != nil, v2Double(params, "font_size") == nil {
+                result = .err(code: "invalid_params", message: "Invalid 'font_size' (expected a number)", data: nil)
+                return
+            }
+            let fontSize = v2Double(params, "font_size").map { MarkdownFontSizeSettings.clamp($0) }
+
             let createdPanel = ws.newMarkdownSplit(
                 from: sourceSurfaceId,
                 orientation: orientation,
                 insertFirst: insertFirst,
                 filePath: filePath,
-                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false),
+                fontSize: fontSize
             )
 
             guard let markdownPanelId = createdPanel?.id else {
@@ -12558,6 +12565,7 @@ class TerminalController {
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
+            let transparentBackground = v2Bool(params, "transparent_background") ?? false
             let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
 
             var createdSplit = true
@@ -12571,6 +12579,7 @@ class TerminalController {
                     selectWhenNotFocused: true,
                     creationPolicy: .automationPreload,
                     omnibarVisible: omnibarVisible,
+                    transparentBackground: transparentBackground,
                     bypassRemoteProxy: bypassRemoteProxy
                 )
                 createdSplit = false
@@ -12583,6 +12592,7 @@ class TerminalController {
                     focus: focus,
                     creationPolicy: .automationPreload,
                     omnibarVisible: omnibarVisible,
+                    transparentBackground: transparentBackground,
                     bypassRemoteProxy: bypassRemoteProxy
                 )
             }
@@ -12612,6 +12622,7 @@ class TerminalController {
                 "created_split": createdSplit,
                 "placement_strategy": placementStrategy,
                 "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible,
+                "transparent_background": transparentBackground,
                 "bypass_remote_proxy": bypassRemoteProxy
             ])
         }

@@ -1218,6 +1218,73 @@ private func cmuxShellEscapedTokenContainingColumn(
     return nil
 }
 
+private func cmuxWhitespaceDelimitedTokenContainingColumn(
+    in line: String,
+    column: Int
+) -> String? {
+    let characters = Array(line)
+    guard !characters.isEmpty, column >= 0, column < characters.count else { return nil }
+    guard !characters[column].isWhitespace else { return nil }
+
+    var start = column
+    while start > 0, !characters[start - 1].isWhitespace {
+        start -= 1
+    }
+
+    var end = column
+    while (end + 1) < characters.count, !characters[end + 1].isWhitespace {
+        end += 1
+    }
+
+    let candidate = String(characters[start...end]).trimmingCharacters(in: .whitespacesAndNewlines)
+    return candidate.isEmpty ? nil : candidate
+}
+
+private func cmuxVisibleBackslashJoinedTokenContainingColumn(
+    in line: String,
+    column: Int
+) -> String? {
+    let characters = Array(line)
+    guard !characters.isEmpty, column >= 0, column < characters.count else { return nil }
+
+    var index = 0
+    while index < characters.count {
+        while index < characters.count, characters[index].isWhitespace {
+            index += 1
+        }
+        let start = index
+
+        while index < characters.count {
+            guard characters[index].isWhitespace else {
+                index += 1
+                continue
+            }
+
+            if index > start, characters[index - 1] == "\\" {
+                index += 1
+                continue
+            }
+
+            break
+        }
+
+        if start < index, column >= start, column < index {
+            return String(characters[start..<index])
+        }
+    }
+
+    return nil
+}
+
+private func cmuxVisibleTextTokenContainingColumn(
+    in line: String,
+    column: Int
+) -> String? {
+    cmuxVisibleBackslashJoinedTokenContainingColumn(in: line, column: column)
+        ?? cmuxShellEscapedTokenContainingColumn(in: line, column: column)
+        ?? cmuxWhitespaceDelimitedTokenContainingColumn(in: line, column: column)
+}
+
 private func cmuxIsHardPathDelimiter(
     in characters: [Character],
     at index: Int
@@ -6362,20 +6429,35 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 // macOS ships /bin/bash 3.2, where Ghostty's automatic bash
                 // integration is unsupported and HOME-based wrapper startup is
                 // not reliable. Bootstrap cmux bash integration on the first
-                // interactive prompt instead.
-                setManagedEnvironmentValue("PROMPT_COMMAND", """
-                unset PROMPT_COMMAND; \
-                if [[ "${CMUX_LOAD_GHOSTTY_BASH_INTEGRATION:-0}" == "1" && -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then \
-                _cmux_ghostty_bash="$GHOSTTY_RESOURCES_DIR/shell-integration/bash/ghostty.bash"; \
-                [[ -r "$_cmux_ghostty_bash" ]] && source "$_cmux_ghostty_bash"; \
-                fi; \
-                if [[ "${CMUX_SHELL_INTEGRATION:-1}" != "0" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" ]]; then \
-                _cmux_bash_integration="$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; \
-                [[ -r "$_cmux_bash_integration" ]] && source "$_cmux_bash_integration"; \
-                fi; \
-                unset _cmux_ghostty_bash _cmux_bash_integration; \
-                if declare -F _cmux_prompt_command >/dev/null 2>&1; then _cmux_prompt_command; fi
-                """)
+                // interactive prompt by exporting the shared bootstrap script as
+                // PROMPT_COMMAND. The script lives in Resources/shell-integration
+                // so the app and the regression test share one source of truth
+                // (see issue #5164). Doc comments and blank lines are stripped so
+                // users never see them in $PROMPT_COMMAND; the test mirrors this.
+                let bashBootstrapPath = (integrationDir as NSString)
+                    .appendingPathComponent("cmux-bash-bootstrap.bash")
+                do {
+                    let rawBootstrap = try String(contentsOfFile: bashBootstrapPath, encoding: .utf8)
+                    let bootstrap = rawBootstrap
+                        .components(separatedBy: "\n")
+                        .filter { line in
+                            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                            return !trimmed.isEmpty && !trimmed.hasPrefix("#")
+                        }
+                        .joined(separator: "\n")
+                    if !bootstrap.isEmpty {
+                        setManagedEnvironmentValue("PROMPT_COMMAND", bootstrap)
+                    }
+                } catch {
+                    // The bootstrap ships in the app bundle alongside
+                    // cmux-bash-integration.bash, so a read failure means a
+                    // corrupt/partial bundle. Surface it (with the underlying
+                    // error) in unified logging rather than silently leaving bash
+                    // without cmux integration. The path is logged privately so
+                    // user-specific install paths are not exposed in the log.
+                    Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
+                        .error("cmux bash bootstrap unreadable at \(bashBootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); bash shell integration will not load")
+                }
             }
         }
         env = Self.mergedStartupEnvironment(
@@ -7612,6 +7694,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var deferredSurfaceSizeRetryQueued = false
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
+    private var selectionSharingServicePicker: NSSharingServicePicker?
+    private var contextMenuTextSnapshot: TextMenuSnapshot?
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -8438,6 +8522,56 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = performBindingAction("copy_to_clipboard")
     }
 
+    @objc private func lookUpContextMenuText(_ sender: Any?) {
+        guard let snapshot = contextMenuTextSnapshot ?? readSelectionTextMenuSnapshot(),
+              !snapshot.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            NSSound.beep()
+            return
+        }
+        let attributed = NSAttributedString(string: snapshot.string)
+        showDefinition(for: attributed, at: selectionDefinitionOrigin(for: snapshot))
+    }
+
+    private func selectionDefinitionOrigin(for snapshot: TextMenuSnapshot) -> NSPoint {
+        NSPoint(
+            x: max(0, snapshot.topLeft.x),
+            y: max(0, bounds.height - snapshot.topLeft.y)
+        )
+    }
+
+    static let textServicePasteboardTypes: Set<NSPasteboard.PasteboardType> = [
+        .string,
+        NSPasteboard.PasteboardType("public.utf8-plain-text")
+    ]
+
+    static func supportsTextServiceRequest(
+        sendType: NSPasteboard.PasteboardType?,
+        returnType: NSPasteboard.PasteboardType?,
+        hasSelection: Bool
+    ) -> Bool {
+        guard returnType == nil else { return false }
+        guard sendType.map({ textServicePasteboardTypes.contains($0) }) ?? true else { return false }
+        guard let sendType else { return hasSelection }
+        return textServicePasteboardTypes.contains(sendType) && hasSelection
+    }
+
+    static func lookUpMenuTitle(for text: String, previewLimit: Int = 40) -> String {
+        let normalized = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let preview: String
+        if normalized.count > previewLimit {
+            preview = String(normalized.prefix(previewLimit)).trimmingCharacters(in: .whitespaces) + "\u{2026}"
+        } else {
+            preview = normalized
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "terminalContextMenu.lookUpFormat", defaultValue: "Look Up \"%@\""),
+            preview
+        )
+    }
+
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
         guard let terminalSurface else { return }
         let paneId = terminalSurface.owningWorkspace()?.paneId(forPanelId: terminalSurface.id)?.id
@@ -8501,6 +8635,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case #selector(copy(_:)):
             guard let surface = surface else { return false }
             return ghostty_surface_has_selection(surface)
+        case #selector(lookUpContextMenuText(_:)):
+            let snapshot = contextMenuTextSnapshot ?? readSelectionTextMenuSnapshot()
+            return snapshot?.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         case #selector(paste(_:)):
             return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(pasteAsPlainText(_:)):
@@ -8512,6 +8649,33 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         default:
             return true
         }
+    }
+
+    override func validRequestor(
+        forSendType sendType: NSPasteboard.PasteboardType?,
+        returnType: NSPasteboard.PasteboardType?
+    ) -> Any? {
+        let hasSelection = surface.map { ghostty_surface_has_selection($0) } ?? false
+        guard Self.supportsTextServiceRequest(
+            sendType: sendType,
+            returnType: returnType,
+            hasSelection: hasSelection
+        ) else {
+            return super.validRequestor(forSendType: sendType, returnType: returnType)
+        }
+
+        return self
+    }
+
+    @objc(writeSelectionToPasteboard:types:)
+    func writeSelection(to pasteboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
+        guard !Self.textServicePasteboardTypes.isDisjoint(with: Set(types)),
+              let snapshot = readSelectionSnapshot(),
+              !snapshot.string.isEmpty else {
+            return false
+        }
+        pasteboard.clearContents()
+        return pasteboard.setString(snapshot.string, forType: .string)
     }
 
     // MARK: - Accessibility
@@ -8601,6 +8765,109 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             string: selected,
             topLeft: CGPoint(x: text.tl_px_x, y: text.tl_px_y)
         )
+    }
+
+    private func readSelectionTextMenuSnapshot() -> TextMenuSnapshot? {
+        guard let snapshot = readSelectionSnapshot(),
+              !snapshot.string.isEmpty else {
+            return nil
+        }
+        return TextMenuSnapshot(
+            string: snapshot.string,
+            topLeft: snapshot.topLeft,
+            isSelection: true
+        )
+    }
+
+    private func readQuickLookWordTextMenuSnapshot() -> TextMenuSnapshot? {
+        guard let surface else { return nil }
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_quicklook_word(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let ptr = text.text, text.text_len > 0 else { return nil }
+
+        let wordData = Data(bytes: ptr, count: Int(text.text_len))
+        let word = String(decoding: wordData, as: UTF8.self)
+        guard !word.isEmpty else { return nil }
+        return TextMenuSnapshot(
+            string: word,
+            topLeft: CGPoint(x: text.tl_px_x, y: text.tl_px_y),
+            isSelection: false
+        )
+    }
+
+    private func readVisibleTextMenuSnapshot(at point: NSPoint) -> TextMenuSnapshot? {
+        guard let terminalSurface,
+              let workspace = terminalSurface.owningWorkspace(),
+              let panel = workspace.terminalPanel(for: terminalSurface.id),
+              let surface else {
+            return nil
+        }
+
+        let size = ghostty_surface_size(surface)
+        let rows = max(Int(size.rows), 1)
+        let cols = max(Int(size.columns), 1)
+        let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
+        let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
+        guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
+
+        let visibleText = TerminalController.shared.readTerminalTextForSnapshot(
+            terminalPanel: panel,
+            lineLimit: max(200, rows * 4)
+        ) ?? ""
+        let visibleLines = cmuxVisibleTerminalLines(from: visibleText, rows: rows)
+        let rowOffset = max(0, rows - visibleLines.count)
+        let xInset = max(0, (bounds.width - (CGFloat(cols) * resolvedCellWidth)) / 2)
+        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
+
+        let yFromTop = bounds.height - point.y
+        let xInGrid = point.x - xInset
+        let yInGrid = yFromTop - yInset
+        guard xInGrid >= 0,
+              xInGrid < CGFloat(cols) * resolvedCellWidth,
+              yInGrid >= 0,
+              yInGrid < CGFloat(rows) * resolvedCellHeight else {
+            return nil
+        }
+
+        let rowFromTop = Int(yInGrid / resolvedCellHeight)
+        let visibleRow = rowFromTop - rowOffset
+        guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
+
+        let column = Int(xInGrid / resolvedCellWidth)
+        guard let token = cmuxVisibleTextTokenContainingColumn(
+            in: visibleLines[visibleRow],
+            column: column
+        ) else {
+            return nil
+        }
+
+        return TextMenuSnapshot(
+            string: token,
+            topLeft: CGPoint(
+                x: xInset + (CGFloat(column) * resolvedCellWidth),
+                y: yInset + (CGFloat(rowFromTop) * resolvedCellHeight)
+            ),
+            isSelection: false
+        )
+    }
+
+    private func readContextMenuTextSnapshot(at point: NSPoint) -> TextMenuSnapshot? {
+        if let selectionSnapshot = readSelectionTextMenuSnapshot() {
+            return selectionSnapshot
+        }
+
+        let quickLookSnapshot = readQuickLookWordTextMenuSnapshot()
+        let visibleSnapshot = readVisibleTextMenuSnapshot(at: point)
+        if let quickLookSnapshot,
+           quickLookSnapshot.string.hasSuffix("\\"),
+           let visibleSnapshot,
+           visibleSnapshot.string.count > quickLookSnapshot.string.count {
+            return visibleSnapshot
+        }
+
+        return quickLookSnapshot ?? visibleSnapshot
     }
 
     private func visibleDocumentRectInScreenCoordinates() -> NSRect {
@@ -8744,6 +9011,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let range: NSRange
         let string: String
         let topLeft: CGPoint
+    }
+
+    private struct TextMenuSnapshot {
+        let string: String
+        let topLeft: CGPoint
+        let isSelection: Bool
     }
 
 #if DEBUG
@@ -10458,9 +10731,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+        contextMenuTextSnapshot = readContextMenuTextSnapshot(at: point)
 
         let menu = NSMenu()
+        if let contextMenuTextSnapshot {
+            appendTerminalTextContextMenuItems(to: menu, snapshot: contextMenuTextSnapshot)
+            menu.addItem(.separator())
+        }
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
         if onTriggerFlash != nil {
             let flashItem = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.triggerFlash", defaultValue: "Trigger Flash"),
@@ -10470,14 +10748,71 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             flashItem.target = self
             menu.addItem(.separator())
         }
-        if ghostty_surface_has_selection(surface) {
-            let item = menu.addItem(
+        appendTerminalPaneContextMenuItems(to: menu)
+        return menu
+    }
+
+    private func appendTerminalTextContextMenuItems(to menu: NSMenu, snapshot: TextMenuSnapshot) {
+        if snapshot.isSelection {
+            let copyItem = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.copy", defaultValue: "Copy"),
                 action: #selector(copy(_:)),
                 keyEquivalent: ""
             )
-            item.target = self
+            copyItem.target = self
         }
+
+        let lookUpItem = menu.addItem(
+            withTitle: Self.lookUpMenuTitle(for: snapshot.string),
+            action: #selector(lookUpContextMenuText(_:)),
+            keyEquivalent: ""
+        )
+        lookUpItem.target = self
+
+        selectionSharingServicePicker = NSSharingServicePicker(items: [snapshot.string])
+        if let shareItem = selectionSharingServicePicker?.standardShareMenuItem {
+            menu.addItem(shareItem)
+        }
+    }
+
+#if DEBUG
+    func debugContextMenuDetails(at point: NSPoint) -> [String: Any] {
+        guard let window else { return ["error": "Missing window"] }
+        let locationInWindow = convert(point, to: nil)
+        guard let event = NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: locationInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ) else {
+            return ["error": "Failed to create right-click event"]
+        }
+        guard let menu = menu(for: event) else { return ["error": "No context menu"] }
+        let titles = menu.items
+            .filter { !$0.isSeparatorItem }
+            .map(\.title)
+        var payload: [String: Any] = [
+            "menuTitles": titles,
+            "hasCopy": titles.contains(String(localized: "terminalContextMenu.copy", defaultValue: "Copy")) ? "1" : "0",
+            "hasLookUp": menu.items.contains { $0.action == #selector(lookUpContextMenuText(_:)) } ? "1" : "0",
+            "hasPaste": titles.contains(String(localized: "terminalContextMenu.paste", defaultValue: "Paste")) ? "1" : "0",
+            "hasSplitHorizontally": titles.contains(String(localized: "terminalContextMenu.splitHorizontally", defaultValue: "Split Horizontally")) ? "1" : "0",
+            "hasResetTerminal": titles.contains(String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal")) ? "1" : "0"
+        ]
+        if let contextMenuTextSnapshot {
+            payload["textSnapshotString"] = contextMenuTextSnapshot.string
+            payload["textSnapshotIsSelection"] = contextMenuTextSnapshot.isSelection ? "1" : "0"
+        }
+        return payload
+    }
+#endif
+
+    private func appendTerminalPaneContextMenuItems(to menu: NSMenu) {
         let pasteItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.paste", defaultValue: "Paste"),
             action: #selector(paste(_:)),
@@ -10534,7 +10869,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
             linkItem.target = self
         }
-        return menu
     }
 
     private func canSplitCurrentSurface() -> Bool {
@@ -11376,6 +11710,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugSimulateCommandClick(at point: NSPoint) -> [String: Any] {
         surfaceView.debugSimulateCommandClick(at: debugPointInSurface(point))
+    }
+
+    func debugContextMenuDetails(at point: NSPoint) -> [String: Any] {
+        surfaceView.debugContextMenuDetails(at: debugPointInSurface(point))
     }
 #endif
 

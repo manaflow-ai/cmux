@@ -4574,6 +4574,17 @@ struct CMUXCLI {
         }
     }
 
+    /// Validates a `cmux markdown open --font-size <points>` value. The viewer
+    /// clamps the rendered size to 8...96 points, so reject anything outside
+    /// that range here instead of silently clamping the user's input.
+    private func parseMarkdownViewerFontSize(_ rawValue: String) throws -> Double {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let size = Double(trimmed), size >= 8, size <= 96 else {
+            throw CLIError(message: "--font-size must be a number between 8 and 96")
+        }
+        return (size * 100).rounded() / 100
+    }
+
     func resolvePath(_ path: String) -> String {
         let expanded = NSString(string: path).expandingTildeInPath
         if expanded.hasPrefix("/") { return expanded }
@@ -4636,7 +4647,10 @@ struct CMUXCLI {
         let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
         let (directionOpt, argsAfterDirection) = parseOption(argsAfterSurface, name: "--direction")
         let (focusOpt, argsAfterFocus) = parseOption(argsAfterDirection, name: "--focus")
-        args = argsAfterFocus
+        let (fontSizeOpt, argsAfterFontSize) = parseOption(argsAfterFocus, name: "--font-size")
+        args = argsAfterFontSize
+
+        let fontSize = try fontSizeOpt.map(parseMarkdownViewerFontSize)
 
         // Determine subcommand. Explicit "open" is supported, otherwise treat
         // a single positional argument as shorthand path.
@@ -4651,7 +4665,7 @@ struct CMUXCLI {
             if let first = args.first, first.hasPrefix("-") {
                 throw CLIError(
                     message:
-                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
+                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>] [--font-size <points>]"
                 )
             } else if let first = args.first, looksLikePath(first) || first.contains(".") {
                 subArgs = args
@@ -4669,13 +4683,13 @@ struct CMUXCLI {
         if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
             throw CLIError(
                 message:
-                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
+                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>] [--font-size <points>]"
             )
         }
         if let extraArg = trailingArgs.first {
             throw CLIError(
                 message:
-                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
+                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>] [--font-size <points>]"
             )
         }
 
@@ -4684,6 +4698,9 @@ struct CMUXCLI {
         // Build params
         let direction = directionOpt ?? "right"
         var params: [String: Any] = ["path": absolutePath, "direction": direction]
+        if let fontSize {
+            params["font_size"] = fontSize
+        }
         if let surfaceRaw = surfaceOpt {
             if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = surface
@@ -10184,6 +10201,15 @@ struct CMUXCLI {
         }
         if lowered.contains("timed out") || lowered.contains("timeout") {
             return "remote daemon did not respond in time"
+        }
+        // Surface the daemon's PTY-allocation diagnostic verbatim (it names the
+        // failing device and the devpts/ptmxmode cause) instead of collapsing it
+        // into a generic message. Key off the daemon's stable marker only, so an
+        // unrelated error that merely mentions a device path is not leaked. The
+        // peer branches in this CLI helper return plain English, so this branch
+        // does too. See issue #5185.
+        if lowered.contains("could not allocate a remote pty") {
+            return trimmed
         }
         return "remote PTY operation failed"
     }

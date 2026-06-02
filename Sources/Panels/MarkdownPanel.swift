@@ -49,6 +49,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
+    /// Body font size for the preview renderer, in points. Drives the
+    /// WKWebView `pageZoom` so `--font-size` and Cmd-+/Cmd-- scale the rendered
+    /// document the way browser zoom scales a browser surface. Per-panel and
+    /// transient; the persistent default lives in `MarkdownFontSizeSettings`.
+    @Published private(set) var fontSize: Double
+
     /// Stable markdown renderer state. Keep this panel-owned so split/tab
     /// layout churn does not recreate the WKWebView and flash existing content.
     let rendererSession = MarkdownRendererSession()
@@ -71,14 +77,49 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     // MARK: - Init
 
-    init(workspaceId: UUID, filePath: String) {
+    /// - Parameter fontSize: Initial body font size in points. When `nil`, the
+    ///   panel uses the persistent `markdown.fontSize` default. The value is
+    ///   clamped to the supported range.
+    init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? MarkdownFontSizeSettings.resolvedDefault())
         self.displayTitle = (filePath as NSString).lastPathComponent
 
         loadFileContent()
         startFileWatcher()
+    }
+
+    // MARK: - Font size / zoom
+
+    /// Increases the preview font size by one step. Returns `true` if the size
+    /// changed (so callers can beep when already at the maximum).
+    @discardableResult
+    func zoomIn() -> Bool {
+        setFontSize(fontSize + MarkdownFontSizeSettings.stepPointSize)
+    }
+
+    /// Decreases the preview font size by one step. Returns `true` if the size
+    /// changed (so callers can beep when already at the minimum).
+    @discardableResult
+    func zoomOut() -> Bool {
+        setFontSize(fontSize - MarkdownFontSizeSettings.stepPointSize)
+    }
+
+    /// Resets the preview font size to the configured `markdown.fontSize`
+    /// default. Returns `true` if the size changed.
+    @discardableResult
+    func resetZoom() -> Bool {
+        setFontSize(MarkdownFontSizeSettings.resolvedDefault())
+    }
+
+    @discardableResult
+    private func setFontSize(_ candidate: Double) -> Bool {
+        let clamped = MarkdownFontSizeSettings.clamp(candidate)
+        guard abs(clamped - fontSize) > 0.0001 else { return false }
+        fontSize = clamped
+        return true
     }
 
     // MARK: - Panel protocol
@@ -425,5 +466,43 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         // DispatchSource cancel is safe from any thread.
         fileWatchSource?.cancel()
         directoryWatchSource?.cancel()
+    }
+}
+
+/// Persistent + per-panel font size for the markdown viewer.
+///
+/// The value is the `.markdown-body` font size in points. The web shell renders
+/// the body at `baseRenderPointSize` px intrinsically, so the panel applies
+/// `pointSize / baseRenderPointSize` as the WKWebView `pageZoom` to scale the
+/// whole rendered document (text, code, tables, diagrams, images) the way
+/// browser zoom does. Keep `baseRenderPointSize` in sync with the
+/// `.markdown-body { font-size: … }` rule in `Resources/markdown-viewer/shell.html`.
+enum MarkdownFontSizeSettings {
+    /// UserDefaults / cmux.json key (`markdown.fontSize`).
+    static let key = "markdown.fontSize"
+    static let defaultPointSize: Double = 15
+    static let minimumPointSize: Double = 8
+    static let maximumPointSize: Double = 96
+    static let stepPointSize: Double = 1
+    /// Intrinsic `.markdown-body` font size baked into shell.html, in CSS px.
+    static let baseRenderPointSize: Double = 15
+
+    /// Clamps a requested point size into the supported range.
+    static func clamp(_ value: Double) -> Double {
+        min(max(value, minimumPointSize), maximumPointSize)
+    }
+
+    /// The persistent default point size, honoring `markdown.fontSize` from
+    /// UserDefaults / cmux.json and falling back to ``defaultPointSize``.
+    static func resolvedDefault(defaults: UserDefaults = .standard) -> Double {
+        guard let raw = defaults.object(forKey: key) as? NSNumber else {
+            return defaultPointSize
+        }
+        return clamp(raw.doubleValue)
+    }
+
+    /// The WKWebView `pageZoom` factor that renders the body at `pointSize`.
+    static func pageZoom(forPointSize pointSize: Double) -> CGFloat {
+        CGFloat(clamp(pointSize) / baseRenderPointSize)
     }
 }
