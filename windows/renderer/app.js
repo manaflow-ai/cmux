@@ -527,6 +527,7 @@ const state = {
   deferredTerminalInitTimer: 0,
   deferredTerminalInitFrame: 0,
   paintDeferredTerminalInitPanelIds: new Set(),
+  immediateTerminalInitPanelIds: new Set(),
   deferredTerminalFitFrame: 0,
   appearancePreviewFrame: 0,
   terminalSettingsPreviewFrame: 0,
@@ -4156,8 +4157,10 @@ function renderPaneNode(panel, workspace, visibleCount) {
   }
   if (panel.type === "terminal") {
     const body = parts.body;
-    const deferUntilPaint = shouldDeferTerminalInitUntilPaint(panel, workspace);
-    if (shouldDeferInitialTerminalLoad(panel, workspace, visibleCount)) {
+    const immediateInit = state.immediateTerminalInitPanelIds.has(panel.id);
+    if (immediateInit) state.immediateTerminalInitPanelIds.delete(panel.id);
+    const deferUntilPaint = !immediateInit && shouldDeferTerminalInitUntilPaint(panel, workspace);
+    if (!immediateInit && shouldDeferInitialTerminalLoad(panel, workspace, visibleCount)) {
       renderDeferredTerminal(panel, body);
       if (deferUntilPaint) state.paintDeferredTerminalInitPanelIds.delete(panel.id);
       queueDeferredTerminalInit(panel.id, { afterPaint: deferUntilPaint });
@@ -5062,6 +5065,7 @@ function cleanupPanel(panelId) {
   if (state.hoveredPanelId === panelId) state.hoveredPanelId = null;
   state.visibleTerminalFitPanelIds.delete(panelId);
   state.paintDeferredTerminalInitPanelIds.delete(panelId);
+  state.immediateTerminalInitPanelIds.delete(panelId);
   if (state.terminalFocusPanelId === panelId) {
     state.terminalFocusPanelId = "";
     if (state.terminalFocusFrame) cancelAnimationFrame(state.terminalFocusFrame);
@@ -12497,7 +12501,18 @@ function addPendingPanel(workspace, panel, anchorPanelId, direction, options = {
   return added;
 }
 
-function deferCreatedTerminalInitUntilPaint(panel, workspace) {
+function shouldInitCreatedTerminalImmediately(panel, workspace, options = {}) {
+  return panel?.type === "terminal"
+    && options.focus !== false
+    && options.immediateTerminalInit !== false
+    && workspace?.activePanelId === panel.id
+    && state.data?.activeWorkspaceId === workspace.id
+    && !state.terminals.has(panel.id)
+    && !isPanelMinimized(panel)
+    && !isPendingPanel(panel);
+}
+
+function deferCreatedTerminalInitUntilPaint(panel, workspace, options = {}) {
   if (
     panel?.type !== "terminal"
     || !workspace
@@ -12506,6 +12521,11 @@ function deferCreatedTerminalInitUntilPaint(panel, workspace) {
     || isPanelMinimized(panel)
     || isPendingPanel(panel)
   ) {
+    return false;
+  }
+  if (shouldInitCreatedTerminalImmediately(panel, workspace, options)) {
+    state.paintDeferredTerminalInitPanelIds.delete(panel.id);
+    state.immediateTerminalInitPanelIds.add(panel.id);
     return false;
   }
   state.paintDeferredTerminalInitPanelIds.add(panel.id);
@@ -12621,7 +12641,7 @@ async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, op
     workspace.cwd = nextPanel.cwd || workspace.cwd;
     refreshWorkspaceCounts(workspace);
     if (options.focus !== false) state.data.activeWorkspaceId = workspace.id;
-    deferCreatedTerminalInitUntilPaint(nextPanel, workspace);
+    deferCreatedTerminalInitUntilPaint(nextPanel, workspace, options);
     render();
     return true;
   }
@@ -12634,7 +12654,7 @@ async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, op
   workspace.cwd = nextPanel.cwd || workspace.cwd;
   refreshWorkspaceCounts(workspace);
   if (options.focus !== false) state.data.activeWorkspaceId = workspace.id;
-  deferCreatedTerminalInitUntilPaint(nextPanel, workspace);
+  deferCreatedTerminalInitUntilPaint(nextPanel, workspace, options);
   render();
   return true;
 }
