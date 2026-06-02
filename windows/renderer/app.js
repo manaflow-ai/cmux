@@ -8558,8 +8558,10 @@ function settingsInspectorSignature() {
     state.settingsQuery,
     settingsInspectorSettingsSignature(category, searching)
   ];
-  if (searching || ["workspace", "layout", "blueprints", "appearance", "performance", "actions"].includes(category)) {
+  if (searching || ["workspace", "layout", "blueprints", "performance", "actions"].includes(category)) {
     parts.push(activeWorkspaceSettingsSignature());
+  } else if (category === "appearance") {
+    parts.push(appearanceWorkspaceSettingsSignature());
   }
   if (searching || ["layout", "data", "actions"].includes(category)) {
     parts.push(stableJson(state.paneLayouts), stableJson(state.paneTrees));
@@ -8638,6 +8640,27 @@ function activeWorkspaceSettingsSignature() {
     appendSignatureValue(nextParts, panel.backgroundImage || "");
     appendSignatureValue(nextParts, panel.url);
     appendSignatureValue(nextParts, isPanelMinimized(panel));
+    appendSignatureValue(nextParts, isPendingPanel(panel));
+  });
+  return parts.join("");
+}
+
+function appearanceWorkspaceSettingsSignature(workspace = activeWorkspace()) {
+  if (!workspace) return "";
+  const activeTerminal = activeTerminalPanelForSettings();
+  const parts = [];
+  appendSignatureValue(parts, workspace.id);
+  appendSignatureValue(parts, workspace.color);
+  appendSignatureValue(parts, workspace.activePanelId);
+  appendSignatureValue(parts, state.focusedPanelId || "");
+  appendSignatureValue(parts, state.backgroundApplyTarget);
+  appendSignatureValue(parts, activeTerminal?.id || "");
+  appendSignatureArray(parts, workspace.panels || [], (nextParts, panel) => {
+    appendSignatureValue(nextParts, panel.id);
+    appendSignatureValue(nextParts, panel.type);
+    appendSignatureValue(nextParts, panel.title || "");
+    appendSignatureValue(nextParts, panel.color || "");
+    appendSignatureValue(nextParts, panel.type === "terminal" ? panel.backgroundImage || "" : "");
     appendSignatureValue(nextParts, isPendingPanel(panel));
   });
   return parts.join("");
