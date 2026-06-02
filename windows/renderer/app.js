@@ -3167,7 +3167,7 @@ function closingPanelShowsWorkspaceHome(workspace, panelId) {
 }
 
 function closePaneActionLabel(workspace, panelId) {
-  return closingPanelShowsWorkspaceHome(workspace, panelId) ? "Close to cmux home" : "Close pane";
+  return closingPanelShowsWorkspaceHome(workspace, panelId) ? "Close pane and show cmux home" : "Close pane";
 }
 
 function panelFromElement(target) {
@@ -4463,13 +4463,13 @@ const surfaceAddTabConfigs = {
     className: "surface-new-terminal",
     icon: "terminalPlus",
     title: "New terminal pane",
-    label: "Terminal"
+    label: "+ Terminal"
   },
   browser: {
     className: "surface-new-browser",
     icon: "browserPlus",
     title: "New browser pane",
-    label: "Browser"
+    label: "+ Browser"
   }
 };
 
@@ -5035,7 +5035,9 @@ function updateEmptyWorkspaceActions(node, workspace) {
 function emptyWorkspaceViewModel(workspace, canReopen = state.closedPanels.length > 0) {
   return {
     title: "cmux",
-    bodyText: canReopen ? "Reopen the last pane or start fresh." : "Start with a terminal or browser.",
+    bodyText: canReopen
+      ? "Reopen the last pane, or start this workspace with a terminal or browser."
+      : "Start this workspace with a terminal or browser.",
     launchers: emptyWorkspaceLaunchers(),
     iconMarkup: controlIconMarkup,
     onRun: (launcher) => runEmptyWorkspaceLauncher(launcher, workspace)
@@ -5076,7 +5078,7 @@ function emptyWorkspaceLaunchers() {
       id: "terminal",
       icon: "terminal",
       label: "Terminal",
-      ...emptyWorkspaceCreationLauncherState("New shell"),
+      ...emptyWorkspaceCreationLauncherState(optionLabel(terminalProfiles, state.settings.terminalProfile, "Auto shell")),
       kind: "panel",
       type: "terminal",
       addAction: true,
@@ -5086,7 +5088,7 @@ function emptyWorkspaceLaunchers() {
       id: "browser",
       icon: "browser",
       label: "Browser",
-      ...emptyWorkspaceCreationLauncherState("Home page"),
+      ...emptyWorkspaceCreationLauncherState(hostnameOf(state.settings.browserHomeUrl)),
       kind: "panel",
       type: "browser",
       addAction: true
@@ -5106,7 +5108,7 @@ function emptyWorkspaceLaunchers() {
       id: "reopen",
       icon: "history",
       label: "Reopen",
-      ...emptyWorkspaceCreationLauncherState("last pane"),
+      ...emptyWorkspaceCreationLauncherState("Last pane"),
       kind: "reopen",
       primary: true
     });
@@ -8628,7 +8630,7 @@ function renderSettingsInspector(options = {}) {
     actions.className = "settings-actions";
     const clearRecent = settingsActionButton("Clear recent activity", clearRecentActivity, "danger", "clear recent activity folders commands browser pages tabs history");
     clearRecent.disabled = !hasRecentActivity();
-    const closeEmpty = settingsActionButton("Close empty workspaces", closeEmptyWorkspaces, "danger", "workspace cleanup empty duplicate close remove");
+    const closeEmpty = settingsActionButton("Close extra empty workspaces", closeEmptyWorkspaces, "danger", "workspace cleanup empty duplicate close remove");
     closeEmpty.disabled = !hasEmptyWorkspaceCleanupTargets();
     actions.append(
       settingsActionButton("Export", exportSettings),
@@ -14034,7 +14036,7 @@ function showToolbarMenu(event) {
       contextMenuButton("Open workspace folder", () => openWorkspaceFolder(), !workspace?.cwd),
       contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
       contextMenuButton("Save workspace blueprint", saveCurrentWorkspaceBlueprint, !panel),
-      contextMenuButton("Close empty workspaces", closeEmptyWorkspaces, !hasEmptyWorkspaceCleanupTargets(), "danger")
+      contextMenuButton("Close extra empty workspaces", closeEmptyWorkspaces, !hasEmptyWorkspaceCleanupTargets(), "danger")
     ),
     contextMenuSectionTitle("Settings"),
     contextMenuActionGroup(
@@ -15133,12 +15135,12 @@ async function closeWorkspaceById(workspaceId) {
 async function closeEmptyWorkspaces() {
   const targets = emptyWorkspaceCleanupTargets();
   if (targets.length === 0) {
-    toast(emptyWorkspaces().length ? "One empty workspace stays available." : "No empty workspaces to close.");
+    toast(emptyWorkspaces().length ? "cmux home is the only empty workspace." : "No empty workspaces to close.");
     return false;
   }
   const label = `${targets.length} empty workspace${targets.length === 1 ? "" : "s"}`;
   if (!await showConfirmDialog({
-    title: "Close empty workspaces",
+    title: "Close extra empty workspaces",
     message: `Close ${label}? Workspaces with panes stay open.`,
     confirmLabel: "Close",
     danger: true

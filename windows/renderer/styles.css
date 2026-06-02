@@ -1437,7 +1437,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-padding-inline: 10px 228px;
+  scroll-padding-inline: 10px 244px;
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
   background: color-mix(in oklch, var(--color-terminal-gutter) 88%, var(--color-canvas) 12%);
@@ -1790,9 +1790,9 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   position: sticky;
   z-index: 3;
   height: 29px;
-  flex: 0 0 104px;
-  min-width: 104px;
-  max-width: 104px;
+  flex: 0 0 112px;
+  min-width: 112px;
+  max-width: 112px;
   grid-template-columns: 23px minmax(0, 1fr);
   justify-items: start;
   justify-content: center;
@@ -1807,14 +1807,22 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .surface-new-terminal {
-  right: 116px;
+  right: 124px;
+  color: color-mix(in oklch, var(--color-success) 72%, var(--color-text));
 }
 
 .surface-new-browser {
-  flex-basis: 104px;
-  min-width: 104px;
-  max-width: 104px;
+  flex-basis: 112px;
+  min-width: 112px;
+  max-width: 112px;
   right: 6px;
+  color: color-mix(in oklch, var(--color-accent) 76%, var(--color-text));
+}
+
+.surface-new-tab:hover {
+  border-color: color-mix(in oklch, currentColor 38%, var(--color-line));
+  background: color-mix(in oklch, currentColor 10%, var(--color-pane));
+  color: var(--color-text);
 }
 
 .surface-tabs.is-crowded {
@@ -4237,7 +4245,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   place-items: center;
   padding: clamp(var(--space-4), 6vw, var(--space-6));
   background:
-    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 68%, transparent), var(--color-canvas));
+    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 62%, transparent), var(--color-canvas));
 }
 
 .shell.has-background .empty-workspace {
@@ -4250,16 +4258,16 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .empty-workspace-inner {
-  width: min(560px, 100%);
+  width: min(600px, 100%);
   display: grid;
   justify-items: center;
-  gap: var(--space-2);
+  gap: 10px;
   text-align: center;
 }
 
 .empty-workspace-logo {
-  width: 78px;
-  height: 78px;
+  width: 84px;
+  height: 84px;
   display: block;
   filter: drop-shadow(0 14px 28px color-mix(in oklch, var(--color-canvas) 50%, transparent));
 }
@@ -4316,7 +4324,8 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .empty-workspace-title {
   color: var(--color-text);
   font-weight: 780;
-  font-size: 24px;
+  font-size: 26px;
+  line-height: 1;
   letter-spacing: 0;
 }
 
@@ -4328,9 +4337,9 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .empty-workspace-launchers {
-  width: min(440px, 100%);
+  width: min(500px, 100%);
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: var(--space-2);
   margin-top: var(--space-2);
 }
@@ -4338,18 +4347,19 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .empty-workspace-launcher {
   position: relative;
   min-width: 0;
-  min-height: 46px;
+  min-height: 52px;
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
-  padding: 8px 10px;
+  padding: 9px 10px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane-warm) 66%, transparent);
+  background: color-mix(in oklch, var(--color-pane-warm) 78%, transparent);
   color: var(--color-text);
   text-align: left;
   cursor: pointer;
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 4%, transparent);
 }
 
 .empty-workspace-launcher.has-plus {
@@ -4358,7 +4368,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .empty-workspace-launcher.is-add {
   border-color: var(--color-line);
-  background: color-mix(in oklch, var(--color-pane-warm) 78%, var(--color-accent) 4%);
+  background: color-mix(in oklch, var(--color-pane-warm) 82%, var(--color-accent) 4%);
 }
 
 .empty-workspace-launcher:hover {
@@ -4424,10 +4434,10 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   width: 22px;
   height: 22px;
   place-items: center;
-  border: 1px solid color-mix(in oklch, var(--color-accent) 36%, var(--color-line));
+  border: 1px solid color-mix(in oklch, var(--color-accent) 50%, var(--color-line));
   border-radius: 999px;
-  background: color-mix(in oklch, var(--color-accent) 18%, var(--color-pane));
-  color: var(--color-text);
+  background: color-mix(in oklch, var(--color-accent) 34%, var(--color-pane));
+  color: var(--color-accent-ink);
 }
 
 .empty-workspace-launcher-plus.is-visible {
