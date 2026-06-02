@@ -1545,6 +1545,7 @@ class CmuxWindowsRuntime {
         let buffer = "";
         let bufferedBytes = 0;
         let authContext = null;
+        socket.on("error", () => {});
         socket.on("data", (chunk) => {
           if (bufferedBytes + chunk.length > pipeReadBufferLimitBytes) {
             socket.destroy();
