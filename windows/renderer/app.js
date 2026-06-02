@@ -11112,12 +11112,11 @@ async function applyWorkspaceBlueprint(blueprintId, workspaceId = activeWorkspac
   }
   clearPaneLayoutsForWorkspace(workspace);
   try {
-    const createdPanels = [];
-    for (const panel of blueprint.panels) {
-      const created = await createPanel(panel.type, blueprint.splitDirection, {
+    const results = await Promise.allSettled(blueprint.panels.map((panel) => createPanel(panel.type, blueprint.splitDirection, {
         workspaceId: workspace.id,
         focus: false,
         reconcile: false,
+        operation: false,
         title: panel.title,
         color: panel.color,
         cwd: panel.cwd || blueprint.cwd || workspace.cwd,
@@ -11125,9 +11124,14 @@ async function applyWorkspaceBlueprint(blueprintId, workspaceId = activeWorkspac
         shellPath: panel.shellPath,
         terminalFontSize: panel.terminalFontSize,
         url: panel.url
-      });
-      if (created?.id) createdPanels.push({ id: created.id, weight: panel.weight });
+      })));
+    if (results.some((result) => result.status === "rejected" || !result.value?.id)) {
+      throw new Error("Workspace blueprint panel creation failed.");
     }
+    const createdPanels = results.map((result, index) => ({
+      id: result.value.id,
+      weight: blueprint.panels[index].weight
+    }));
     for (const created of createdPanels) {
       setStoredPaneWeight(created.id, blueprint.splitDirection, created.weight);
     }
@@ -12351,14 +12355,15 @@ async function applyWorkspaceStarter(starterId, workspaceId = activeWorkspace()?
   return withUiOperation("workspace-starter", "create-panel", `Adding ${starter.label}...`, async () => {
     clearPaneLayoutsForWorkspace(workspace);
     try {
-      for (const type of starter.panels) {
-        await createPanel(type, "right", {
+      const results = await Promise.allSettled(starter.panels.map((type) => createPanel(type, "right", {
           workspaceId: workspace.id,
           focus: false,
           reconcile: false,
           operation: false,
           url: type === "browser" ? state.settings.browserHomeUrl : undefined
-        });
+        })));
+      if (results.some((result) => result.status === "rejected" || !result.value?.id)) {
+        throw new Error("Workspace starter panel creation failed.");
       }
       await loadState();
       if (workspace.id !== state.data?.activeWorkspaceId) await focusWorkspace(workspace.id);
