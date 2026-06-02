@@ -1119,6 +1119,7 @@
               "toggleBrowserDeveloperTools",
               "showBrowserJavaScriptConsole",
               "toggleBrowserFocusMode",
+              "exitBrowserFocusMode",
               "toggleReactGrab",
               "diffViewerScrollDown",
               "diffViewerScrollUp",
