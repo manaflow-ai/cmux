@@ -1,15 +1,40 @@
 import React, { useEffect, useRef } from "react";
 import { formatMessage, t } from "../../i18n.js";
 
-const defaultLabels = () => ({
-  searchPlaceholder: t("settings.searchPlaceholder"),
-  clearSearch: t("settings.clearSearch"),
-  searchHint: t("settings.searchHint"),
-  pageLabel: t("settings.pageLabel"),
-  pageAriaLabel: t("settings.pageAriaLabel"),
-  pagesAriaLabel: t("settings.pagesAriaLabel"),
-  tabTitle: formatMessage("settings.tabTitle", { label: "{label}" })
-});
+const labelKeys = {
+  searchPlaceholder: "settings.searchPlaceholder",
+  clearSearch: "settings.clearSearch",
+  searchHint: "settings.searchHint",
+  pageLabel: "settings.pageLabel",
+  pageAriaLabel: "settings.pageAriaLabel",
+  pagesAriaLabel: "settings.pagesAriaLabel",
+  tabTitle: "settings.tabTitle"
+};
+
+function localizedShellLabels() {
+  return {
+    searchPlaceholder: t(labelKeys.searchPlaceholder),
+    clearSearch: t(labelKeys.clearSearch),
+    searchHint: t(labelKeys.searchHint),
+    pageLabel: t(labelKeys.pageLabel),
+    pageAriaLabel: t(labelKeys.pageAriaLabel),
+    pagesAriaLabel: t(labelKeys.pagesAriaLabel),
+    tabTitle: formatMessage(labelKeys.tabTitle, { label: "{label}" })
+  };
+}
+
+function mergeShellLabels(labels) {
+  const localizedLabels = localizedShellLabels();
+  return {
+    searchPlaceholder: labels?.searchPlaceholder || localizedLabels.searchPlaceholder,
+    clearSearch: labels?.clearSearch || localizedLabels.clearSearch,
+    searchHint: labels?.searchHint || localizedLabels.searchHint,
+    pageLabel: labels?.pageLabel || localizedLabels.pageLabel,
+    pageAriaLabel: labels?.pageAriaLabel || localizedLabels.pageAriaLabel,
+    pagesAriaLabel: labels?.pagesAriaLabel || localizedLabels.pagesAriaLabel,
+    tabTitle: labels?.tabTitle || localizedLabels.tabTitle
+  };
+}
 
 function CloseIcon() {
   return (
@@ -120,20 +145,11 @@ export function SettingsShell({
   onCategory,
   onQuery,
   onClear,
-  labels = {}
+  labels
 }) {
-  const localizedDefaults = defaultLabels();
-  const safeLabels = {
-    searchPlaceholder: labels.searchPlaceholder || localizedDefaults.searchPlaceholder,
-    clearSearch: labels.clearSearch || localizedDefaults.clearSearch,
-    searchHint: labels.searchHint || localizedDefaults.searchHint,
-    pageLabel: labels.pageLabel || localizedDefaults.pageLabel,
-    pageAriaLabel: labels.pageAriaLabel || localizedDefaults.pageAriaLabel,
-    pagesAriaLabel: labels.pagesAriaLabel || localizedDefaults.pagesAriaLabel,
-    tabTitle: labels.tabTitle || localizedDefaults.tabTitle
-  };
+  const safeLabels = mergeShellLabels(labels);
   const searchInputRef = useRef(null);
-  const restoreSearchFocusAfterClearRef = useRef(false);
+  const searchWasClearedRef = useRef(false);
   const tabsRef = useRef(null);
 
   useEffect(() => {
@@ -141,8 +157,8 @@ export function SettingsShell({
   }, [focusSearchOnMount]);
 
   useEffect(() => {
-    if (!restoreSearchFocusAfterClearRef.current || query) return;
-    restoreSearchFocusAfterClearRef.current = false;
+    if (!searchWasClearedRef.current || query) return;
+    searchWasClearedRef.current = false;
     searchInputRef.current?.focus({ preventScroll: true });
   }, [query]);
 
@@ -159,10 +175,10 @@ export function SettingsShell({
   };
   const clearSearch = () => {
     if (!query) return;
-    restoreSearchFocusAfterClearRef.current = true;
+    searchWasClearedRef.current = true;
     onClear();
   };
-  const tabTitleTemplate = safeLabels.tabTitle || localizedDefaults.tabTitle;
+  const tabTitleTemplate = safeLabels.tabTitle;
   const feedbackText = searchFeedback || safeLabels.searchHint;
 
   return (
