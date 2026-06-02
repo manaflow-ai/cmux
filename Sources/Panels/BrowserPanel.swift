@@ -2641,8 +2641,17 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
               let fileObjects = object["files"] as? [[String: Any]] else {
             return false
         }
+        // Streamed remote diffs carry a `remote_url` patch entry with no local
+        // file; the local-file scheme handler cannot serve those, so don't try
+        // to restore them (the surface degrades to blank rather than erroring).
+        for fileObject in fileObjects {
+            let filePath = fileObject["file_path"] as? String ?? ""
+            if fileObject["remote_url"] is String || filePath.isEmpty {
+                return false
+            }
+        }
         let files = fileObjects.compactMap { Self.registeredFile(from: $0) }
-        guard !files.isEmpty else { return false }
+        guard files.count == fileObjects.count, !files.isEmpty else { return false }
         do {
             try register(token: token, files: files, now: now)
             return true
@@ -4850,7 +4859,12 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func shouldRenderWebViewForSessionSnapshot() -> Bool {
-        guard preferredURLStringForSessionSnapshot() != nil else { return false }
+        // Diff viewer URLs are "temporary" so `preferredURLStringForSessionSnapshot()`
+        // is nil, but they are restorable via their token, so honor their render
+        // intent too (otherwise a restored diff surface never navigates).
+        guard preferredURLStringForSessionSnapshot() != nil || diffViewerSessionComponents() != nil else {
+            return false
+        }
         return hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView ?? shouldRenderWebView
     }
 
