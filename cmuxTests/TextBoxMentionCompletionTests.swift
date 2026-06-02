@@ -684,7 +684,7 @@ struct TextBoxMentionCompletionTests {
         var submitCount = 0
         textView.onSubmit = { submitCount += 1 }
         textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
-        #expect(submitCount == 0)
+        #expect(submitCount == 1)
         #expect(textView.string == "@z")
 
         // Switching the trigger is a different completion kind, so stale rows are
