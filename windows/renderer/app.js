@@ -2153,6 +2153,52 @@ function backgroundApplyTargetPrimaryLabel(target = state.backgroundApplyTarget)
   return "Apply to app";
 }
 
+function backgroundApplyTargetClearLabel(target = state.backgroundApplyTarget) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  if (scope === "pane") return "Clear pane";
+  if (scope === "all") return "Clear all";
+  return "Clear app";
+}
+
+function updateBackgroundCustomActionLabels(root = elements.inspectorBody, workspace = activeWorkspace()) {
+  if (!root) return;
+  const groups = root.matches?.("[data-background-custom-actions]")
+    ? [root]
+    : [...(root.querySelectorAll?.("[data-background-custom-actions]") || [])];
+  if (groups.length === 0) return;
+  const status = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);
+  const targetLabel = backgroundApplyTargetActionLabel(status.scope);
+  const applyLabel = backgroundApplyTargetPrimaryLabel(status.scope);
+  const clearLabel = backgroundApplyTargetClearLabel(status.scope);
+  for (const group of groups) {
+    const action = (id) => group.querySelector(`[data-background-custom-action="${id}"]`);
+    const apply = action("apply");
+    const applySave = action("apply-save");
+    const paste = action("paste");
+    const pasteSave = action("paste-save");
+    const choose = action("choose");
+    const chooseSave = action("choose-save");
+    const clear = action("clear");
+    if (apply) {
+      setSettingsActionLabel(apply, applyLabel);
+      setTitleIfChanged(apply, `Apply the typed image to ${targetLabel}`);
+    }
+    if (applySave) setTitleIfChanged(applySave, `Apply and save the typed image for ${targetLabel}`);
+    if (paste) setTitleIfChanged(paste, `Paste an image for ${targetLabel}`);
+    if (pasteSave) setTitleIfChanged(pasteSave, `Paste, apply, and save an image for ${targetLabel}`);
+    if (choose) setTitleIfChanged(choose, `Choose an image for ${targetLabel}`);
+    if (chooseSave) setTitleIfChanged(chooseSave, `Choose, apply, and save an image for ${targetLabel}`);
+    if (clear) {
+      setSettingsActionLabel(clear, clearLabel);
+      setTitleIfChanged(clear, `Clear ${targetLabel}`);
+    }
+    for (const button of [apply, applySave, paste, pasteSave, choose, chooseSave].filter(Boolean)) {
+      setDisabledIfChanged(button, !status.canTarget);
+    }
+    if (clear) setDisabledIfChanged(clear, !status.canTarget || !status.hasValue);
+  }
+}
+
 function normalizeColorApplyTarget(target) {
   return ["accent", "workspace", "pane", "all"].includes(target) ? target : "accent";
 }
@@ -8452,19 +8498,35 @@ function renderSettingsInspector(options = {}) {
     appearanceSection.append(customImageRow);
     const imageActions = document.createElement("div");
     imageActions.className = "settings-actions background-actions";
+    imageActions.dataset.backgroundCustomActions = "true";
+    const imageApply = settingsActionButton(backgroundApplyTargetPrimaryLabel(), () => applyImageInput(true), "primary", "background image url local path apply selected target wallpaper");
+    imageApply.dataset.backgroundCustomAction = "apply";
+    const imageApplySave = settingsActionButton("Apply + save", async () => {
+      const saved = await applyAndSaveBackgroundImageToTarget({ url: imageInput.value }, state.backgroundApplyTarget, { resetInput: imageInput });
+      if (saved) imageInput.value = saved.url;
+    }, "", "background image url local path apply save selected target wallpaper");
+    imageApplySave.dataset.backgroundCustomAction = "apply-save";
+    const imagePaste = settingsActionButton("Paste", () => pasteBackgroundImageFromClipboard({ input: imageInput, target: () => state.backgroundApplyTarget }), "", "background image paste clipboard url local path selected target wallpaper");
+    imagePaste.dataset.backgroundCustomAction = "paste";
+    const imagePasteSave = settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input: imageInput, target: () => state.backgroundApplyTarget, save: true }), "", "background image paste clipboard copied image apply save selected target wallpaper");
+    imagePasteSave.dataset.backgroundCustomAction = "paste-save";
+    const imageChoose = settingsActionButton("Choose file", () => chooseBackgroundImageForTarget(), "", "background image local file selected target wallpaper");
+    imageChoose.dataset.backgroundCustomAction = "choose";
+    const imageChooseSave = settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "background image local file choose apply save selected target wallpaper library");
+    imageChooseSave.dataset.backgroundCustomAction = "choose-save";
+    const imageClear = settingsActionButton("Clear target", clearBackgroundApplyTarget, "danger", "background image local file wallpaper reset remove clear selected target");
+    imageClear.dataset.backgroundCustomAction = "clear";
     imageActions.append(
-      settingsActionButton("Apply to target", () => applyImageInput(true), "", "background image url local path apply selected target wallpaper"),
-      settingsActionButton("Apply + save", async () => {
-        const saved = await applyAndSaveBackgroundImageToTarget({ url: imageInput.value }, state.backgroundApplyTarget, { resetInput: imageInput });
-        if (saved) imageInput.value = saved.url;
-      }, "", "background image url local path apply save selected target wallpaper"),
-      settingsActionButton("Paste", () => pasteBackgroundImageFromClipboard({ input: imageInput, target: () => state.backgroundApplyTarget }), "", "background image paste clipboard url local path selected target wallpaper"),
-      settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input: imageInput, target: () => state.backgroundApplyTarget, save: true }), "", "background image paste clipboard copied image apply save selected target wallpaper"),
-      settingsActionButton("Choose file", () => chooseBackgroundImageForTarget(), "", "background image local file selected target wallpaper"),
-      settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "background image local file choose apply save selected target wallpaper library"),
-      settingsActionButton("Clear target", clearBackgroundApplyTarget, "danger", "background image local file wallpaper reset remove clear selected target")
+      imageApply,
+      imageApplySave,
+      imagePaste,
+      imagePasteSave,
+      imageChoose,
+      imageChooseSave,
+      imageClear
     );
     imageActions.dataset.settingsSearch = normalizeSettingsQuery("background image local file wallpaper apply clear paste clipboard selected target");
+    updateBackgroundCustomActionLabels(imageActions);
     appearanceSection.append(imageActions);
     appearanceSection.append(savedBackgroundDisclosurePanel());
 
@@ -9850,6 +9912,7 @@ function refreshBackgroundPreviewNodes() {
       }
     }
   }
+  updateBackgroundCustomActionLabels(elements.inspectorBody, activeWorkspace());
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
 
@@ -13808,16 +13871,17 @@ function settingsActionButton(label, onClick, tone = "", searchTerms = "") {
   button.dataset.settingsSearch = normalizeSettingsQuery(`${label} ${searchTerms}`);
   button.onclick = (event) => {
     if (button.disabled || button.classList.contains("is-busy")) return;
+    const currentLabel = button.querySelector(".settings-action-label")?.textContent || button.textContent || label;
     let result = null;
     try {
       result = onClick?.(event);
     } catch (error) {
       console.error(error);
-      toast(`${label} failed.`);
+      toast(`${currentLabel} failed.`);
       return;
     }
     if (!result || typeof result.then !== "function") return;
-    runSettingsAction(button, label, result);
+    runSettingsAction(button, currentLabel, result);
   };
   return button;
 }

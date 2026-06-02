@@ -5081,9 +5081,32 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   gap: var(--space-2);
 }
 
+.background-actions {
+  grid-template-columns: repeat(auto-fit, minmax(min(92px, 100%), 1fr));
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
+}
+
+.background-actions .settings-action {
+  height: 28px;
+  padding-inline: 6px;
+  font-size: 11px;
+}
+
+.background-actions [data-background-custom-action="apply"] {
+  grid-column: span 2;
+}
+
 @container (max-width: 380px) {
   .settings-actions {
     grid-template-columns: 1fr;
+  }
+
+  .background-actions [data-background-custom-action="apply"] {
+    grid-column: auto;
   }
 
   .settings-disclosure-summary {
