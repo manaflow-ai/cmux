@@ -99,7 +99,9 @@ set +e
 PROMPT_COMMAND="$(cat "$CMUX_BOOTSTRAP_FILE")"
 
 # The user's startup files run starship init before the first prompt.
-eval "$(starship init bash)"
+if [[ "${CMUX_WITH_STARSHIP:-1}" == "1" ]]; then
+    eval "$(starship init bash)"
+fi
 
 # Squash newlines so each marker is one line for the test parser.
 _emit() { printf '%s<%s>\n' "$1" "${2//$'\n'/<NL>}"; }
@@ -125,7 +127,7 @@ done
 """
 
 
-def _run_driver() -> dict[str, str]:
+def _run_driver(*, with_starship: bool = True) -> dict[str, str]:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         bin_dir = tmp_path / "bin"
@@ -166,6 +168,7 @@ def _run_driver() -> dict[str, str]:
                 "CMUX_SOCKET_PATH": "",
                 "STARSHIP_COUNTER_FILE": str(tmp_path / "counter"),
                 "CMUX_CD_TARGET": str(cd_target),
+                "CMUX_WITH_STARSHIP": "1" if with_starship else "0",
             }
         )
 
@@ -236,6 +239,27 @@ def test_starship_precmd_survives_under_cmux_bash_bootstrap() -> None:
     )
 
 
+def test_plain_bash_bootstrap_installs_cmux_prompt_command() -> None:
+    """No-regression guard: with no user PROMPT_COMMAND hook, the bootstrap must
+    still install _cmux_prompt_command (and remove its own marker)."""
+    assert BOOTSTRAP.exists(), f"missing bootstrap file: {BOOTSTRAP}"
+    fields = _run_driver(with_starship=False)
+    debug = (
+        f"\n\n--- driver stdout ---\n{fields.get('__stdout__', '')}"
+        f"\n--- driver stderr ---\n{fields.get('__stderr__', '')}"
+    )
+    for i in (1, 2, 3):
+        pc = fields.get(f"PC_{i}", "")
+        assert pc == "_cmux_prompt_command", (
+            f"plain-bash PROMPT_COMMAND at prompt {i} should be exactly "
+            f"_cmux_prompt_command, got <{pc}>" + debug
+        )
+        assert "__cmux_bash_bootstrap_marker__" not in pc, (
+            f"bootstrap marker leaked into PROMPT_COMMAND at prompt {i}: <{pc}>" + debug
+        )
+
+
 if __name__ == "__main__":
     test_starship_precmd_survives_under_cmux_bash_bootstrap()
-    print("PASS: starship_precmd survives under the cmux bash bootstrap")
+    test_plain_bash_bootstrap_installs_cmux_prompt_command()
+    print("PASS: cmux bash bootstrap composes with (and without) user prompt hooks")
