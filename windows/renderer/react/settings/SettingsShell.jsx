@@ -42,11 +42,18 @@ export function SettingsShell({
     tabTitle: labels.tabTitle || localizedDefaults.tabTitle
   };
   const searchInputRef = useRef(null);
+  const restoreSearchFocusAfterClearRef = useRef(false);
   const tabsRef = useRef(null);
 
   useEffect(() => {
     if (focusSearchOnMount) searchInputRef.current?.focus({ preventScroll: true });
   }, [focusSearchOnMount]);
+
+  useEffect(() => {
+    if (!restoreSearchFocusAfterClearRef.current || query) return;
+    restoreSearchFocusAfterClearRef.current = false;
+    searchInputRef.current?.focus({ preventScroll: true });
+  }, [query]);
 
   useEffect(() => {
     tabsRef.current
@@ -61,6 +68,7 @@ export function SettingsShell({
   };
   const clearSearch = () => {
     if (!query) return;
+    restoreSearchFocusAfterClearRef.current = true;
     onClear();
   };
   const tabTitleTemplate = safeLabels.tabTitle || localizedDefaults.tabTitle;
