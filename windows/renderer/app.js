@@ -13355,6 +13355,11 @@ function normalizedWheelZoomDelta(event) {
   return event.deltaY;
 }
 
+function eventTargetsTerminalViewport(event) {
+  const target = event?.target?.nodeType === Node.ELEMENT_NODE ? event.target : event?.target?.parentElement;
+  return Boolean(target?.closest?.(".terminal-host"));
+}
+
 function applyTerminalWheelZoom(event, panel) {
   const terminalPanel = resolveTerminalPanel(panel);
   if (!terminalPanel) return false;
@@ -13387,6 +13392,7 @@ function applyTerminalWheelZoom(event, panel) {
 
 function handleTerminalWheelZoom(event) {
   if (!event.ctrlKey) return;
+  if (!eventTargetsTerminalViewport(event)) return;
   const panel = panelFromEvent(event);
   if (panel?.type !== "terminal") return;
   applyTerminalWheelZoom(event, panel);
@@ -13394,6 +13400,7 @@ function handleTerminalWheelZoom(event) {
 
 function handlePaneWheelZoom(event) {
   if (!event.ctrlKey) return;
+  if (!eventTargetsTerminalViewport(event)) return;
   const panelId = event.currentTarget?.dataset?.panelId || "";
   const panel = panelId ? findPanelState(panelId)?.panel : null;
   if (panel?.type !== "terminal") return;
@@ -13402,13 +13409,14 @@ function handlePaneWheelZoom(event) {
 
 function handleWindowWheelZoom(event) {
   if (!event.ctrlKey) return;
+  const targetsTerminalViewport = eventTargetsTerminalViewport(event);
   const panel = panelFromEvent(event) || panelFromPoint(event.clientX, event.clientY);
-  if (panel?.type === "terminal") {
+  if (targetsTerminalViewport && panel?.type === "terminal") {
     applyTerminalWheelZoom(event, panel);
     return;
   }
   if (panel?.type === "browser" && applyBrowserWheelZoomGuard(event, panel)) return;
-  if (event.target?.closest?.(".terminal-host")) {
+  if (targetsTerminalViewport) {
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation?.();
