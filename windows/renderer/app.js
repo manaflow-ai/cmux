@@ -8029,6 +8029,7 @@ function renderSettingsInspector(options = {}) {
   if (shouldBuildSection("quick")) {
     const quickSection = settingsSection("Quick setup");
     quickSection.append(quickSetupOverviewPanel());
+    quickSection.append(quickSetupGuidePanel());
     quickSection.append(quickSetupActionGrid());
     quickSection.append(paneShapePanel(workspace));
     quickSection.append(...quickColorControlRows(workspace));
@@ -10790,6 +10791,15 @@ function activeSettingsPresetLabel() {
   return settingsPresets.find((preset) => isActiveSettingsPreset(preset))?.label || "Custom";
 }
 
+function settingsPresetById(presetId) {
+  return settingsPresets.find((preset) => preset.id === presetId) || null;
+}
+
+function isSettingsPresetIdActive(presetId) {
+  const preset = settingsPresetById(presetId);
+  return Boolean(preset && isActiveSettingsPreset(preset));
+}
+
 function accentModeLabel() {
   return normalizeCustomPaletteColor(state.settings.accent) ? "Custom color" : "Preset color";
 }
@@ -10925,8 +10935,8 @@ function activeTerminalPaneBackgroundLabel() {
   return background ? appearanceBackgroundLabel(background) : "Default";
 }
 
-function quickSetupActionGrid() {
-  const actions = [
+function quickSetupActionDefinitions() {
+  return [
     {
       id: "new-terminal",
       icon: "terminalPlus",
@@ -11055,6 +11065,117 @@ function quickSetupActionGrid() {
       run: () => saveCurrentWorkspaceBlueprint()
     }
   ];
+}
+
+function workspaceNeedsQuickRename(workspace = activeWorkspace()) {
+  const title = String(workspace?.title || "").trim();
+  if (!workspace || !title) return false;
+  if (/^workspace(?:\s+\d+)?$/i.test(title)) return true;
+  const folderTitle = workspaceSuggestedTitle(workspace);
+  return Boolean(folderTitle && title === workspace.id && folderTitle !== title);
+}
+
+function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
+  const panels = (workspace?.panels || []).filter((panel) => !isPendingPanel(panel));
+  const terminalCount = panels.filter((panel) => panel.type === "terminal").length;
+  const browserCount = panels.filter((panel) => panel.type === "browser").length;
+  const activeTerminal = activeTerminalPanelForSettings();
+  const ids = [];
+
+  if (!workspace || terminalCount === 0) ids.push("new-terminal");
+  if (workspace && browserCount === 0) ids.push("new-browser");
+  if (!isSettingsPresetIdActive("simple")) ids.push("clean-ui");
+  if (!state.settings.performanceMode) ids.push("tune-speed");
+  if (!state.settings.backgroundImage) ids.push("background");
+  else if (activeTerminal && !normalizeBackgroundValue(activeTerminal.backgroundImage)) ids.push("pane-background");
+  if (workspaceNeedsQuickRename(workspace)) ids.push("rename");
+  if (workspace && panels.length > 1 && state.workspaceBlueprints.length < workspaceBlueprintsLimit) ids.push("save-layout");
+
+  return [...new Set(ids)].slice(0, 4);
+}
+
+function quickSetupGuidePanel() {
+  const actions = quickSetupActionDefinitions();
+  const actionById = new Map(actions.map((action) => [action.id, action]));
+  const recommended = quickSetupRecommendedActionIds()
+    .map((id) => actionById.get(id))
+    .filter(Boolean);
+  const panel = document.createElement("div");
+  panel.className = "quick-setup-guide";
+  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup recommended simple speed background terminal browser rename layout");
+  panel.innerHTML = `
+    <div class="quick-guide-heading">
+      <span class="quick-guide-title"></span>
+      <span class="quick-guide-subtitle"></span>
+    </div>
+    <div class="quick-guide-list"></div>
+  `;
+  setTextIfChanged(panel.querySelector(".quick-guide-title"), t("quickGuide.title"));
+  const subtitle = panel.querySelector(".quick-guide-subtitle");
+  const list = panel.querySelector(".quick-guide-list");
+  subtitle.textContent = recommended.length
+    ? t("quickGuide.subtitleActions")
+    : t("quickGuide.subtitleReady");
+
+  if (recommended.length === 0) {
+    const done = document.createElement("button");
+    done.className = "quick-guide-item is-complete";
+    done.type = "button";
+    done.dataset.settingsSearch = normalizeSettingsQuery("quick setup ready saved profile settings");
+    done.innerHTML = `
+      <span class="quick-guide-icon" aria-hidden="true">${quickActionIconMarkup("profiles")}</span>
+      <span class="quick-guide-copy">
+        <span class="quick-guide-item-title"></span>
+        <span class="quick-guide-item-body"></span>
+      </span>
+      <span class="quick-guide-cta"></span>
+    `;
+    setTextIfChanged(done.querySelector(".quick-guide-item-title"), t("quickGuide.saveProfile"));
+    setTextIfChanged(done.querySelector(".quick-guide-item-body"), t("quickGuide.saveProfile.body"));
+    setTextIfChanged(done.querySelector(".quick-guide-cta"), t("quickGuide.profiles"));
+    done.title = `${t("quickGuide.saveProfile")}: ${t("quickGuide.saveProfile.body")}`;
+    done.setAttribute("aria-label", done.title);
+    done.onclick = () => openSettingsCategory("profiles");
+    list.append(done);
+    return panel;
+  }
+
+  for (const action of recommended) {
+    const item = document.createElement("button");
+    item.className = "quick-guide-item";
+    item.type = "button";
+    item.disabled = Boolean(action.disabled?.());
+    item.dataset.quickGuideAction = action.id;
+    item.dataset.settingsSearch = normalizeSettingsQuery(`quick recommended ${action.label} ${action.body} ${action.search}`);
+    item.title = `${action.label}: ${action.body}`;
+    item.setAttribute("aria-label", `${action.label}. ${action.body} Current: ${action.meta()}.`);
+    item.innerHTML = `
+      <span class="quick-guide-icon" aria-hidden="true"></span>
+      <span class="quick-guide-copy">
+        <span class="quick-guide-item-title"></span>
+        <span class="quick-guide-item-body"></span>
+      </span>
+      <span class="quick-guide-side">
+        <span class="quick-guide-meta"></span>
+        <span class="quick-guide-cta"></span>
+      </span>
+    `;
+    item.querySelector(".quick-guide-icon").innerHTML = quickActionIconMarkup(action.icon);
+    item.querySelector(".quick-guide-item-title").textContent = action.label;
+    item.querySelector(".quick-guide-item-body").textContent = action.body;
+    item.querySelector(".quick-guide-meta").textContent = action.meta();
+    item.querySelector(".quick-guide-cta").textContent = action.cta;
+    item.onclick = () => {
+      if (item.disabled) return;
+      action.run();
+    };
+    list.append(item);
+  }
+  return panel;
+}
+
+function quickSetupActionGrid() {
+  const actions = quickSetupActionDefinitions();
   const grid = document.createElement("div");
   grid.className = "quick-settings-shortcut-grid quick-action-grid";
   grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions new terminal browser add pane clean ui speed tune focus mode background image wallpaper pane shape resize split rows columns");
@@ -13035,7 +13156,7 @@ function applySettingsPreset(preset) {
 }
 
 function applySettingsPresetById(presetId) {
-  const preset = settingsPresets.find((candidate) => candidate.id === presetId);
+  const preset = settingsPresetById(presetId);
   if (!preset) return;
   applySettingsPreset(preset);
 }
