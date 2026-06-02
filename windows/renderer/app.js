@@ -13941,7 +13941,10 @@ function optimisticUpdatePanel(panelId, updates = {}, options = {}) {
   if (updates.direction === "down" || updates.direction === "right") {
     panelWorkspace.splitDirection = updates.direction;
   }
-  if (options.render !== false) render();
+  if (options.render !== false) {
+    if (options.schedule) scheduleRender();
+    else render();
+  }
   return true;
 }
 
@@ -14118,7 +14121,7 @@ async function closePanesToRight(panelId = activePanel()?.id) {
 }
 
 async function updatePanel(panelId, updates) {
-  optimisticUpdatePanel(panelId, updates);
+  optimisticUpdatePanel(panelId, updates, { schedule: true });
   try {
     const result = await api(`/api/panels/${panelId}`, {
       method: "PATCH",
@@ -14142,7 +14145,7 @@ async function updatePanels(panelUpdates) {
   for (const entry of entries) {
     changed = optimisticUpdatePanel(entry.panelId, entry.updates, { render: false }) || changed;
   }
-  if (changed) render();
+  if (changed) scheduleRender();
   try {
     const results = await Promise.all(entries.map((entry) => api(`/api/panels/${entry.panelId}`, {
       method: "PATCH",
@@ -14266,7 +14269,7 @@ function swapPanePositions(panelId, targetPanelId) {
   swapWorkspacePanelOrder(target.workspace, panelId, targetPanelId);
   target.workspace.activePanelId = panelId;
   state.data.activeWorkspaceId = target.workspace.id;
-  render();
+  scheduleRender();
   queueFocusSync({ type: "panel", panelId });
   focusTerminalSession(panelId);
   return true;
