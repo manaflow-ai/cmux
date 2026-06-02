@@ -15110,13 +15110,14 @@ struct TabItemView: View, Equatable {
             SidebarTrailingAccessoryWidthPolicy.closeButtonWidth,
             scaledCloseButtonHitSize
         )
+        let scriptedSidebarRow = renderedSidebarScriptNode(workspaceSnapshot: workspaceSnapshot).map { scriptNode in
+            AnyView(
+                RenderNodeView(node: scriptNode, onAction: { handleSidebarScriptAction($0) })
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            )
+        }
 
-        Group {
-        if let scriptNode = renderedSidebarScriptNode(workspaceSnapshot: workspaceSnapshot) {
-            RenderNodeView(node: scriptNode, onAction: { handleSidebarScriptAction($0) })
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-        VStack(alignment: .leading, spacing: 4) {
+        let nativeSidebarRow = AnyView(VStack(alignment: .leading, spacing: 4) {
             nativeSidebarHeader(
                 workspaceSnapshot: workspaceSnapshot,
                 scaledUnreadBadgeSize: scaledUnreadBadgeSize,
@@ -15358,9 +15359,8 @@ struct TabItemView: View, Equatable {
                 .foregroundColor(activeSecondaryColor(0.75))
                 .lineLimit(1)
             }
-        }
-        }
-        }
+        })
+        (scriptedSidebarRow ?? nativeSidebarRow)
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.metadataBlocks.count)
