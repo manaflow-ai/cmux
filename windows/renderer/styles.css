@@ -1395,7 +1395,7 @@ body.reduce-motion *::after {
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-padding-inline: 10px 86px;
+  scroll-padding-inline: 10px 92px;
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
   background: color-mix(in oklch, var(--color-terminal-gutter) 88%, var(--color-canvas) 12%);
@@ -1744,25 +1744,25 @@ body.reduce-motion *::after {
   align-self: center;
   position: sticky;
   z-index: 3;
-  height: 27px;
-  flex: 0 0 34px;
-  min-width: 34px;
-  max-width: 34px;
+  height: 28px;
+  flex: 0 0 36px;
+  min-width: 36px;
+  max-width: 36px;
   grid-template-columns: minmax(0, 1fr);
   justify-items: center;
   justify-content: center;
   gap: 0;
-  padding: 0 5px;
-  border-color: color-mix(in oklch, var(--color-line) 64%, transparent);
+  padding: 0 6px;
+  border-color: var(--color-line);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane) 74%, var(--color-terminal-gutter) 26%);
-  color: var(--color-muted);
+  background: color-mix(in oklch, var(--color-pane) 88%, var(--color-terminal-gutter) 12%);
+  color: var(--color-text);
   font: inherit;
-  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 4%, transparent);
+  box-shadow: 0 1px 0 color-mix(in oklch, var(--color-canvas) 40%, transparent);
 }
 
 .surface-new-terminal {
-  right: 43px;
+  right: 47px;
 }
 
 .surface-new-browser {
@@ -1770,7 +1770,7 @@ body.reduce-motion *::after {
 }
 
 .surface-tabs.is-crowded {
-  scroll-padding-inline: 10px 80px;
+  scroll-padding-inline: 10px 88px;
 }
 
 .surface-tabs.is-crowded .surface-new-tab,
@@ -1785,7 +1785,7 @@ body.reduce-motion *::after {
 
 .surface-tabs.is-crowded .surface-new-terminal,
 .shell.density-compact .surface-tabs.is-crowded .surface-new-terminal {
-  right: 41px;
+  right: 43px;
 }
 
 .surface-tabs.is-crowded .surface-new-browser {
@@ -1800,18 +1800,22 @@ body.reduce-motion *::after {
   position: relative;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
-  border: 1px solid color-mix(in oklch, currentColor 52%, transparent);
+  width: 21px;
+  height: 21px;
+  border: 1px solid color-mix(in oklch, currentColor 38%, var(--color-line) 62%);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, currentColor 10%, transparent);
+  background: color-mix(in oklch, currentColor 9%, var(--color-pane));
 }
 
 .surface-new-tab svg {
   display: block;
   width: 15px;
   height: 15px;
+  fill: none;
+  stroke: currentColor;
   stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .surface-new-label {
@@ -1831,40 +1835,40 @@ body.reduce-motion *::after {
 }
 
 .surface-new-terminal {
-  border-color: color-mix(in oklch, var(--color-accent) 45%, var(--color-line) 55%);
-  color: color-mix(in oklch, var(--color-accent) 72%, var(--color-text) 28%);
+  border-color: color-mix(in oklch, var(--color-accent) 36%, var(--color-line) 64%);
+  color: color-mix(in oklch, var(--color-accent) 66%, var(--color-text) 34%);
 }
 
 .surface-new-browser {
-  border-color: color-mix(in oklch, var(--color-success) 38%, var(--color-line) 62%);
-  color: color-mix(in oklch, var(--color-success) 70%, var(--color-text) 30%);
+  border-color: color-mix(in oklch, var(--color-success) 32%, var(--color-line) 68%);
+  color: color-mix(in oklch, var(--color-success) 62%, var(--color-text) 38%);
 }
 
 .surface-new-tab:hover {
-  border-color: var(--color-line-strong);
-  background: color-mix(in oklch, var(--color-pane-active) 82%, currentColor 18%);
+  border-color: color-mix(in oklch, currentColor 48%, var(--color-line-strong) 52%);
+  background: color-mix(in oklch, var(--color-pane-active) 88%, currentColor 12%);
   color: var(--color-text);
 }
 
 .surface-new-tab:hover .surface-new-icon {
-  background: color-mix(in oklch, currentColor 16%, transparent);
+  background: color-mix(in oklch, currentColor 15%, var(--color-pane-active));
 }
 
 .shell.density-compact .surface-new-tab {
   height: 27px;
-  flex-basis: 32px;
-  min-width: 32px;
-  max-width: 32px;
+  flex-basis: 34px;
+  min-width: 34px;
+  max-width: 34px;
   padding-inline: 5px;
 }
 
 .shell.density-compact .surface-new-terminal {
-  right: 41px;
+  right: 43px;
 }
 
 @container (max-width: 560px) {
   .surface-tabs {
-    scroll-padding-inline: 10px 74px;
+    scroll-padding-inline: 10px 78px;
   }
 
   .surface-new-tab,
