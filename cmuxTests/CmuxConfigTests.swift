@@ -1867,6 +1867,34 @@ final class CmuxCommandIdentityTests: XCTestCase {
 @MainActor
 final class CmuxConfigWorkspaceCommandExecutionTests: XCTestCase {
 
+    func testWorkspaceCommandStartsSelectedTerminalWithoutSidebarClick() throws {
+        let manager = TabManager()
+        let command = CmuxCommandDefinition(
+            name: "cmux-home",
+            workspace: CmuxWorkspaceDefinition(name: "cmux-home")
+        )
+
+        XCTAssertTrue(CmuxConfigExecutor.execute(
+            command: command,
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            configSourcePath: nil,
+            globalConfigPath: "/tmp/cmux-test-global-config.json"
+        ))
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        defer { terminalPanel.surface.teardownSurface() }
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertGreaterThan(
+            terminalPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
+            0,
+            "Workspace commands launched from cmux home must start the selected terminal immediately instead of waiting for a sidebar click."
+        )
+    }
+
     func testWorkspaceCommandCreatesNewWorkspaceByDefaultWhenNameAlreadyExists() {
         let manager = TabManager()
         let existingWorkspace = manager.tabs[0]

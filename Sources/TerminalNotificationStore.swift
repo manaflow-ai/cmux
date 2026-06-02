@@ -2074,6 +2074,14 @@ final class TerminalNotificationStore: ObservableObject {
             completion(false)
             return
         }
+#if DEBUG
+        if isAutomaticRequest,
+           ProcessInfo.processInfo.environment["CMUX_UI_TEST_DISABLE_NOTIFICATION_AUTHORIZATION_PROMPT"] == "1" {
+            logAuthorization("request suppressed for ui test origin=\(origin.rawValue)")
+            completion(false)
+            return
+        }
+#endif
         if isAutomaticRequest {
             hasRequestedAutomaticAuthorization = true
         }
