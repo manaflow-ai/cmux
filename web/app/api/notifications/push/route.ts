@@ -73,7 +73,7 @@ async function sendPush(request: Request): Promise<Response> {
     .limit(MAX_DEVICE_TOKENS_PER_USER);
 
   if (tokens.length === 0) {
-    return jsonResponse({ sent: 0, devices: 0, pruned: 0 });
+    return jsonResponse(summarizeApnsSendResults([]));
   }
 
   const config = apnsConfig();
