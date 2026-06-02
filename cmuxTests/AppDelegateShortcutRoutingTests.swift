@@ -2369,6 +2369,86 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testRebindingSelectWorkspaceByNumberHonorsNewModifierAndDropsDefault() {
+        // Companion to testGhosttyConfigDoesNotRetainNumberedGotoTabFallback (#5189):
+        // the cmux routing layer must drive the numbered shortcut from the configured
+        // value, so a rebound modifier selects the workspace and the old ⌘ default no
+        // longer routes through cmux.
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let mainWindow = window(withId: windowId) else {
+            XCTFail("Expected window context")
+            return
+        }
+
+        // Need at least two workspaces so a digit-1 selection is observable.
+        _ = manager.addTab(select: true)
+        _ = manager.addTab(select: true)
+        guard manager.tabs.count >= 2,
+              let firstTabId = manager.tabs.first?.id else {
+            XCTFail("Expected at least two workspaces")
+            return
+        }
+        manager.selectTab(at: manager.tabs.count - 1)
+        appDelegate.tabManager = manager
+        let selectionBeforeStaleDefault = manager.selectedTabId
+        XCTAssertNotEqual(selectionBeforeStaleDefault, firstTabId, "Expected a non-first workspace selected before the digit press")
+
+        let rebound = StoredShortcut(key: "1", command: false, shift: false, option: true, control: true)
+        withTemporaryShortcut(action: .selectWorkspaceByNumber, shortcut: rebound) {
+            guard let staleCmd1 = makeKeyDownEvent(
+                key: "1",
+                modifiers: [.command],
+                keyCode: UInt16(kVK_ANSI_1),
+                windowNumber: mainWindow.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+1 event")
+                return
+            }
+#if DEBUG
+            XCTAssertFalse(
+                appDelegate.debugHandleCustomShortcut(event: staleCmd1),
+                "After rebinding Select Workspace 1…9, the old ⌘1 must not be routed by cmux"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+            XCTAssertEqual(
+                manager.selectedTabId,
+                selectionBeforeStaleDefault,
+                "⌘1 must not change workspace selection after the shortcut is rebound away from ⌘"
+            )
+
+            guard let reboundEvent = makeKeyDownEvent(
+                key: "1",
+                modifiers: [.control, .option],
+                keyCode: UInt16(kVK_ANSI_1),
+                windowNumber: mainWindow.windowNumber
+            ) else {
+                XCTFail("Failed to construct Ctrl+Option+1 event")
+                return
+            }
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: reboundEvent),
+                "The rebound Ctrl+Option+1 shortcut should be routed by cmux"
+            )
+#endif
+            XCTAssertEqual(
+                manager.selectedTabId,
+                firstTabId,
+                "Ctrl+Option+1 should select the first workspace after the rebind"
+            )
+        }
+    }
+
     func testBrowserPopupPanelCloseShortcutFollowsCloseTabRemap() throws {
         let defaultCloseTab = KeyboardShortcutSettings.Action.closeTab.defaultShortcut
         let previousMainMenu = NSApp.mainMenu
