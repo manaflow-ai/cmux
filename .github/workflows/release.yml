@@ -32,7 +32,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -79,7 +82,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
 
       - name: Validate Sparkle build number is monotonic
         run: ./tests/test_ci_sparkle_build_monotonic.sh

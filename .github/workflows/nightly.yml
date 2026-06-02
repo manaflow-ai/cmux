@@ -124,7 +124,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.decide.outputs.head_sha }}
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
 
       - name: Check whether build commit is still current main HEAD before build
         if: needs.decide.outputs.should_publish == 'true'

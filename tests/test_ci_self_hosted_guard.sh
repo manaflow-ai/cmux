@@ -167,6 +167,27 @@ check_no_xctest_quarantines() {
   echo "PASS: workflows do not hide XCTest coverage with -skip-testing"
 }
 
+check_retryable_submodule_checkout() {
+  if grep -R -n "submodules: recursive" "$ROOT_DIR/.github/workflows"; then
+    echo "FAIL: workflows must not let actions/checkout fetch submodules without the retry wrapper"
+    exit 1
+  fi
+
+  local file line missing=0
+  while IFS=: read -r file line _; do
+    if ! sed -n "${line},$((line + 4))p" "$file" | grep -Fq "./scripts/ci/init-submodules-with-retry.sh"; then
+      echo "FAIL: $(basename "$file") line $line sets submodules: false without Initialize submodules with retry"
+      missing=1
+    fi
+  done < <(grep -R -n "submodules: false" "$ROOT_DIR/.github/workflows" || true)
+
+  if [ "$missing" -ne 0 ]; then
+    exit 1
+  fi
+
+  echo "PASS: workflow submodule checkout uses retry wrapper"
+}
+
 check_split_theme_regression_timeout() {
   if ! awk '
     /^[[:space:]]*- name: Run Ghostty split-theme appearance regression$/ { in_step=1; next }
@@ -305,6 +326,7 @@ check_macos_runner "$CI_FILE" "release-build"
 check_macos_runner "$CI_FILE" "ui-regressions"
 check_self_hosted_workspace_prep "$CI_FILE" "tests"
 check_self_hosted_workspace_prep "$CI_FILE" "tests-build-and-lag"
+check_self_hosted_workspace_prep "$CI_FILE" "release-ghostty-cli-helper"
 check_self_hosted_workspace_prep "$CI_FILE" "release-build"
 check_self_hosted_workspace_prep "$CI_FILE" "ui-regressions"
 
@@ -333,6 +355,7 @@ check_xcode_selection
 check_workflow_yaml_parse
 check_release_build_signal
 check_no_xctest_quarantines
+check_retryable_submodule_checkout
 check_split_theme_regression_timeout
 check_tests_deriveddata_cache
 check_ui_regression_budget

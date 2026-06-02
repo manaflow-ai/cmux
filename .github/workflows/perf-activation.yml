@@ -58,7 +58,10 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ inputs.ref || github.ref }}
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize submodules with retry
+        run: ./scripts/ci/init-submodules-with-retry.sh
 
       - name: Select Xcode
         run: |
