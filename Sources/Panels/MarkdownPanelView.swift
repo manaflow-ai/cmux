@@ -316,6 +316,8 @@ private struct MarkdownTypographyControl: View {
     // Loaded lazily in the background after the popover appears so it opens
     // instantly even on machines with hundreds of fonts.
     @State private var families: [String] = []
+    @State private var sizeText = ""
+    @State private var maxWidthText = ""
     private let labelColumnWidth: CGFloat = 66
 
     private var buttonLabel: String {
@@ -368,13 +370,18 @@ private struct MarkdownTypographyControl: View {
                     HStack(spacing: 6) {
                         TextField(
                             String(localized: "markdown.fontSize.field", defaultValue: "Size"),
-                            value: sizeBinding,
-                            format: .number
+                            text: $sizeText
                         )
                         .labelsHidden()
                         .frame(width: 44)
                         .multilineTextAlignment(.trailing)
                         .textFieldStyle(.roundedBorder)
+                        .onChange(of: sizeText) { _ in
+                            applySizeTextIfValid()
+                        }
+                        .onSubmit {
+                            commitSizeText()
+                        }
                         Text(String(localized: "markdown.fontSize.unit", defaultValue: "pt"))
                             .foregroundStyle(.secondary)
                         Stepper(
@@ -391,13 +398,18 @@ private struct MarkdownTypographyControl: View {
                     HStack(spacing: 6) {
                         TextField(
                             String(localized: "markdown.maxWidth.field", defaultValue: "Width"),
-                            value: maxWidthBinding,
-                            format: .number
+                            text: $maxWidthText
                         )
                         .labelsHidden()
                         .frame(width: 54)
                         .multilineTextAlignment(.trailing)
                         .textFieldStyle(.roundedBorder)
+                        .onChange(of: maxWidthText) { _ in
+                            applyMaxWidthTextIfValid()
+                        }
+                        .onSubmit {
+                            commitMaxWidthText()
+                        }
                         Text(String(localized: "markdown.maxWidth.unit", defaultValue: "px"))
                             .foregroundStyle(.secondary)
                         Stepper(
@@ -432,6 +444,20 @@ private struct MarkdownTypographyControl: View {
         }
         .padding(14)
         .frame(width: 272)
+        .onAppear {
+            syncDraftFieldsFromPanel()
+        }
+        .onChange(of: isPresented) { presented in
+            if presented {
+                syncDraftFieldsFromPanel()
+            }
+        }
+        .onChange(of: panel.fontSize) { _ in
+            syncSizeTextFromPanel()
+        }
+        .onChange(of: panel.maxContentWidth) { _ in
+            syncMaxWidthTextFromPanel()
+        }
         .task {
             // Load the installed font list off-main after the popover is shown.
             if families.isEmpty {
@@ -444,6 +470,61 @@ private struct MarkdownTypographyControl: View {
         Text(title)
             .foregroundStyle(.secondary)
             .frame(width: labelColumnWidth, alignment: .leading)
+    }
+
+    private func syncDraftFieldsFromPanel() {
+        syncSizeTextFromPanel()
+        syncMaxWidthTextFromPanel()
+    }
+
+    private func syncSizeTextFromPanel() {
+        let next = integerText(panel.fontSize)
+        if sizeText != next {
+            sizeText = next
+        }
+    }
+
+    private func syncMaxWidthTextFromPanel() {
+        let next = integerText(panel.maxContentWidth)
+        if maxWidthText != next {
+            maxWidthText = next
+        }
+    }
+
+    private func applySizeTextIfValid() {
+        guard let value = Double(sizeText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              value >= MarkdownFontSizeSettings.minimumPointSize,
+              value <= MarkdownFontSizeSettings.maximumPointSize else { return }
+        _ = panel.setFontSize(value)
+    }
+
+    private func applyMaxWidthTextIfValid() {
+        guard let value = Double(maxWidthText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              value >= MarkdownMaxWidthSettings.minimumCSSPixels,
+              value <= MarkdownMaxWidthSettings.maximumCSSPixels else { return }
+        _ = panel.setMaxContentWidth(value)
+    }
+
+    private func commitSizeText() {
+        guard let value = Double(sizeText.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            syncSizeTextFromPanel()
+            return
+        }
+        _ = panel.setFontSize(value)
+        syncSizeTextFromPanel()
+    }
+
+    private func commitMaxWidthText() {
+        guard let value = Double(maxWidthText.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            syncMaxWidthTextFromPanel()
+            return
+        }
+        _ = panel.setMaxContentWidth(value)
+        syncMaxWidthTextFromPanel()
+    }
+
+    private func integerText(_ value: Double) -> String {
+        String(Int(value.rounded()))
     }
 
     private var fontPicker: some View {
