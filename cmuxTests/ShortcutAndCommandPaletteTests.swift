@@ -1848,15 +1848,17 @@ final class QuitConfirmationPolicyTests: XCTestCase {
 
 final class UpdateChannelSettingsTests: XCTestCase {
     func testResolvedFeedFallsBackWhenInfoFeedMissing() {
-        let resolved = UpdateFeedResolver().resolve(infoFeedURL: nil)
-        XCTAssertEqual(resolved.url, UpdateFeedResolver.fallbackFeedURL)
+        let resolver = UpdateFeedResolver()
+        let resolved = resolver.resolve(infoFeedURL: nil)
+        XCTAssertEqual(resolved.url, resolver.fallbackFeedURL)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }
 
     func testResolvedFeedFallsBackWhenInfoFeedEmpty() {
-        let resolved = UpdateFeedResolver().resolve(infoFeedURL: "")
-        XCTAssertEqual(resolved.url, UpdateFeedResolver.fallbackFeedURL)
+        let resolver = UpdateFeedResolver()
+        let resolved = resolver.resolve(infoFeedURL: "")
+        XCTAssertEqual(resolved.url, resolver.fallbackFeedURL)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }

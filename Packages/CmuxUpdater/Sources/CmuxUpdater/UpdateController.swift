@@ -9,8 +9,8 @@ import Sparkle
 /// (`$state.sink`, `Publishers.CombineLatest`). This version consumes the model's
 /// ``UpdateStateModel/stateChanges()`` `AsyncStream` in one long-lived main-actor task and
 /// runs the three reactions (force-install, attempt-update, "no updates" auto-dismiss) as
-/// plain state-machine logic gated by flags. Bounded delays use the injected ``UpdateClock``;
-/// readiness is observed via `SPUUpdater.canCheckForUpdates` (KVO) rather than a retry-poll.
+/// plain state-machine logic gated by flags. Bounded delays (and the updater-readiness wait)
+/// use the injected ``UpdateClock``.
 ///
 /// Construct one at app startup, set ``actionDelegate``, and inject it where the update menu
 /// items and pill live. This is the package's composition surface; the app target supplies the
