@@ -339,7 +339,7 @@ public final class RecorderHostButton: NSButton {
         if isRecording {
             if let pendingFirst {
                 let format = String(localized: "shortcut.recorder.pendingChord", defaultValue: "%@ …")
-                title = String.localizedStringWithFormat(format, display(pendingFirst))
+                title = String.localizedStringWithFormat(format, shortcutStrokeDisplayString(pendingFirst))
             } else {
                 title = String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
             }
@@ -350,50 +350,4 @@ public final class RecorderHostButton: NSButton {
         }
     }
 
-    /// Formats a single stroke with modifier symbols + the
-    /// human-readable key label. Mirrors legacy
-    /// `ShortcutStroke.displayString` so the chord-pending preview
-    /// shows e.g. "⌃B" or "⌘Space" instead of "⌃B" + raw key tokens
-    /// like "space" or "media.next".
-    private func display(_ stroke: ShortcutStroke) -> String {
-        var result = ""
-        if stroke.control { result.append("⌃") }
-        if stroke.option { result.append("⌥") }
-        if stroke.shift { result.append("⇧") }
-        if stroke.command { result.append("⌘") }
-        result.append(Self.keyDisplayString(stroke.key))
-        return result
-    }
-
-    /// Mirrors legacy `ShortcutStroke.keyDisplayString`. Returns the
-    /// localized friendly label for named keys (Tab, Space, media keys)
-    /// and the uppercased raw character otherwise.
-    private static func keyDisplayString(_ key: String) -> String {
-        switch key {
-        case "\t":
-            return String(localized: "shortcut.key.tab", defaultValue: "Tab")
-        case "space":
-            return String(localized: "shortcut.key.space", defaultValue: "Space")
-        case "\r":
-            return "↩"
-        case "media.brightnessDown":
-            return String(localized: "shortcut.key.mediaBrightnessDown", defaultValue: "Brightness Down")
-        case "media.brightnessUp":
-            return String(localized: "shortcut.key.mediaBrightnessUp", defaultValue: "Brightness Up")
-        case "media.mute":
-            return String(localized: "shortcut.key.mediaMute", defaultValue: "Mute")
-        case "media.next":
-            return String(localized: "shortcut.key.mediaNext", defaultValue: "Next Track")
-        case "media.playPause":
-            return String(localized: "shortcut.key.mediaPlayPause", defaultValue: "Play/Pause")
-        case "media.previous":
-            return String(localized: "shortcut.key.mediaPrevious", defaultValue: "Previous Track")
-        case "media.volumeDown":
-            return String(localized: "shortcut.key.mediaVolumeDown", defaultValue: "Volume Down")
-        case "media.volumeUp":
-            return String(localized: "shortcut.key.mediaVolumeUp", defaultValue: "Volume Up")
-        default:
-            return key.uppercased()
-        }
-    }
 }
