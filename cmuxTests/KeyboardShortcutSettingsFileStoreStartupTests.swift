@@ -440,11 +440,13 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         try preservingDefaults(keys: [
             MarkdownFontSizeSettings.key,
             MarkdownFontFamily.key,
+            MarkdownMaxWidthSettings.key,
             settingsFileBackupsDefaultsKey,
             importedManagedDefaultsKey
         ]) {
             defaults.removeObject(forKey: MarkdownFontSizeSettings.key)
             defaults.removeObject(forKey: MarkdownFontFamily.key)
+            defaults.removeObject(forKey: MarkdownMaxWidthSettings.key)
             defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             defaults.removeObject(forKey: importedManagedDefaultsKey)
 
@@ -457,7 +459,8 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 {
                   "markdown": {
                     "fontSize": 22,
-                    "fontFamily": "  Avenir Next  \\n"
+                    "fontFamily": "  Avenir Next  \\n",
+                    "maxWidth": 1220
                   }
                 }
                 """,
@@ -474,6 +477,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             withExtendedLifetime(store) {
                 XCTAssertEqual(defaults.integer(forKey: MarkdownFontSizeSettings.key), 22)
                 XCTAssertEqual(defaults.string(forKey: MarkdownFontFamily.key), "Avenir Next")
+                XCTAssertEqual(defaults.integer(forKey: MarkdownMaxWidthSettings.key), 1220)
             }
         }
     }

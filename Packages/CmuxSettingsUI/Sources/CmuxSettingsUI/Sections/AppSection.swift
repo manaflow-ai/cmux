@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 /// Keep Workspace Open When Closing Last Surface, Focus Pane on
 /// First Click, File Drops, Open Files With, Open Supported Files in
 /// cmux, Terminal Config link, Open Markdown in cmux Viewer,
-/// iMessage Mode, Reorder on Notification, Dock Badge, Menu Bar
+/// Markdown Viewer typography, iMessage Mode, Reorder on Notification, Dock Badge, Menu Bar
 /// Only, Show in Menu Bar, Unread Pane Ring, Pane Flash, Desktop
 /// Notifications, Notification Sound, Notification Command, Send
 /// anonymous telemetry, Warn Before Quit, Warn Before Closing Tab /
@@ -37,6 +37,7 @@ public struct AppSection: View {
     @State private var openMarkdown: DefaultsValueModel<Bool>
     @State private var markdownFontSize: DefaultsValueModel<Int>
     @State private var markdownFontFamily: DefaultsValueModel<String>
+    @State private var markdownMaxWidth: DefaultsValueModel<Int>
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<Bool>
     @State private var dockBadge: DefaultsValueModel<Bool>
@@ -79,6 +80,7 @@ public struct AppSection: View {
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
         _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
+        _markdownMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.maxWidth))
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
         _dockBadge = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge))
@@ -334,6 +336,30 @@ public struct AppSection: View {
                 .accessibilityIdentifier("SettingsMarkdownFontSizeStepper")
                 .accessibilityLabel(
                     String(localized: "settings.app.markdownFontSize", defaultValue: "Markdown Viewer Font Size")
+                )
+            }
+            SettingsCardDivider()
+
+            // Markdown Viewer Max Width
+            SettingsCardRow(
+                configurationReview: .json("markdown.maxWidth"),
+                String(localized: "settings.app.markdownMaxWidth", defaultValue: "Markdown Viewer Max Width"),
+                subtitle: String(localized: "settings.app.markdownMaxWidth.subtitle", defaultValue: "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."),
+                controlWidth: Self.columnWidth
+            ) {
+                Stepper(
+                    value: Binding(get: { markdownMaxWidth.current }, set: { markdownMaxWidth.set($0) }),
+                    in: 320...2400,
+                    step: 20
+                ) {
+                    Text(verbatim: "\(markdownMaxWidth.current)")
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsMarkdownMaxWidthStepper")
+                .accessibilityLabel(
+                    String(localized: "settings.app.markdownMaxWidth", defaultValue: "Markdown Viewer Max Width")
                 )
             }
             SettingsCardDivider()

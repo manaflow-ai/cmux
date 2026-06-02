@@ -91,6 +91,27 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: MarkdownFontFamily.key))
     }
 
+    func testMarkdownMaxWidthSettingsClampAndResolvedDefault() throws {
+        XCTAssertEqual(MarkdownMaxWidthSettings.clamp(200), MarkdownMaxWidthSettings.minimumCSSPixels)
+        XCTAssertEqual(MarkdownMaxWidthSettings.clamp(4000), MarkdownMaxWidthSettings.maximumCSSPixels)
+        XCTAssertEqual(MarkdownMaxWidthSettings.clamp(980), 980)
+
+        let suiteName = "cmux.markdownMaxWidthTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(MarkdownMaxWidthSettings.resolvedDefault(defaults: defaults), MarkdownMaxWidthSettings.defaultCSSPixels)
+
+        MarkdownMaxWidthSettings.setDefault(1220, defaults: defaults)
+        XCTAssertEqual(MarkdownMaxWidthSettings.resolvedDefault(defaults: defaults), 1220)
+
+        defaults.set(10000, forKey: MarkdownMaxWidthSettings.key)
+        XCTAssertEqual(MarkdownMaxWidthSettings.resolvedDefault(defaults: defaults), MarkdownMaxWidthSettings.maximumCSSPixels)
+
+        MarkdownMaxWidthSettings.resetDefault(defaults: defaults)
+        XCTAssertNil(defaults.object(forKey: MarkdownMaxWidthSettings.key))
+    }
+
     func testMarkdownPanelZoomStepsClampAndReset() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
@@ -332,6 +353,7 @@ final class MarkdownPanelTests: XCTestCase {
             filePath: filePath,
             fontSize: 15,
             fontFamily: MarkdownFontFamily.systemDefault,
+            maxContentWidth: MarkdownMaxWidthSettings.defaultCSSPixels,
             session: session,
             onRequestPanelFocus: {}
         )
@@ -346,6 +368,7 @@ final class MarkdownPanelTests: XCTestCase {
             filePath: filePath,
             fontSize: 15,
             fontFamily: MarkdownFontFamily.systemDefault,
+            maxContentWidth: MarkdownMaxWidthSettings.defaultCSSPixels,
             session: session,
             onRequestPanelFocus: {}
         )

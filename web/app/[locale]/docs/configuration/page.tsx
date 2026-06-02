@@ -94,7 +94,9 @@ const settingsFileExample = `{
   //   // Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.
   //   "fontSize": 15,
   //   // Default body font family. Empty keeps the system markdown font stack.
-  //   "fontFamily": ""
+  //   "fontFamily": "",
+  //   // Default maximum reading column width, in CSS pixels.
+  //   "maxWidth": 980
   // },
 
   // "automation": {

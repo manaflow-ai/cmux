@@ -86,6 +86,7 @@ struct MarkdownPanelView: View {
                 filePath: panel.filePath,
                 fontSize: panel.fontSize,
                 fontFamily: panel.fontFamily,
+                maxContentWidth: panel.maxContentWidth,
                 session: panel.rendererSession,
                 onRequestPanelFocus: onRequestPanelFocus
             )
@@ -305,9 +306,9 @@ private struct MarkdownPanelToolbar: View {
 }
 
 /// Header popover control for the markdown viewer's typography: a native font
-/// picker and size stepper/field, plus reset and set-as-default. Drives the
-/// same `MarkdownPanel` methods as the keyboard shortcuts, command palette, and
-/// CLI so every entrypoint shares one path.
+/// picker, size field, max-width field, plus reset and set-as-default. Drives
+/// the same `MarkdownPanel` model methods as the other markdown controls so
+/// every entrypoint shares one path.
 @MainActor
 private struct MarkdownTypographyControl: View {
     @ObservedObject var panel: MarkdownPanel
@@ -327,6 +328,10 @@ private struct MarkdownTypographyControl: View {
 
     private var fontBinding: Binding<String> {
         Binding(get: { panel.fontFamily }, set: { _ = panel.setFontFamily($0) })
+    }
+
+    private var maxWidthBinding: Binding<Double> {
+        Binding(get: { panel.maxContentWidth }, set: { _ = panel.setMaxContentWidth($0) })
     }
 
     /// The current selection is always tag-able, even before the full list loads.
@@ -381,6 +386,29 @@ private struct MarkdownTypographyControl: View {
                         .labelsHidden()
                     }
                 }
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    fieldLabel(String(localized: "markdown.typography.maxWidth", defaultValue: "Max Width"))
+                    HStack(spacing: 6) {
+                        TextField(
+                            String(localized: "markdown.maxWidth.field", defaultValue: "Width"),
+                            value: maxWidthBinding,
+                            format: .number
+                        )
+                        .labelsHidden()
+                        .frame(width: 54)
+                        .multilineTextAlignment(.trailing)
+                        .textFieldStyle(.roundedBorder)
+                        Text(String(localized: "markdown.maxWidth.unit", defaultValue: "px"))
+                            .foregroundStyle(.secondary)
+                        Stepper(
+                            "",
+                            value: maxWidthBinding,
+                            in: MarkdownMaxWidthSettings.minimumCSSPixels...MarkdownMaxWidthSettings.maximumCSSPixels,
+                            step: MarkdownMaxWidthSettings.stepCSSPixels
+                        )
+                        .labelsHidden()
+                    }
+                }
             }
 
             Divider()
@@ -389,14 +417,21 @@ private struct MarkdownTypographyControl: View {
                 Button(String(localized: "markdown.fontSize.reset", defaultValue: "Reset to default")) {
                     panel.resetTypography()
                 }
+                Button(String(localized: "markdown.typography.resetBuiltIn", defaultValue: "Reset to built-in defaults")) {
+                    panel.resetTypographyToBuiltInDefaults()
+                }
                 Button(String(localized: "markdown.fontSize.setDefault", defaultValue: "Set as Default")) {
-                    MarkdownTypographyDefaults.setDefault(fontSize: panel.fontSize, fontFamily: panel.fontFamily)
+                    MarkdownTypographyDefaults.setDefault(
+                        fontSize: panel.fontSize,
+                        fontFamily: panel.fontFamily,
+                        maxContentWidth: panel.maxContentWidth
+                    )
                 }
             }
             .buttonStyle(.link)
         }
         .padding(14)
-        .frame(width: 248)
+        .frame(width: 272)
         .task {
             // Load the installed font list off-main after the popover is shown.
             if families.isEmpty {

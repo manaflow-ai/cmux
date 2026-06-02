@@ -63,6 +63,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// `MarkdownFontFamily`.
     @Published private(set) var fontFamily: String
 
+    /// Maximum width for the rendered markdown content column, in CSS pixels.
+    /// Per-panel and transient; the persistent default lives in
+    /// `MarkdownMaxWidthSettings`.
+    @Published private(set) var maxContentWidth: Double
+
     /// Stable markdown renderer state. Keep this panel-owned so split/tab
     /// layout churn does not recreate the WKWebView and flash existing content.
     let rendererSession = MarkdownRendererSession()
@@ -89,6 +94,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     // adopted; once the user customizes the panel it diverges and is left alone.
     private var followedFontSize: Double
     private var followedFontFamily: String
+    private var followedMaxContentWidth: Double
 
     // MARK: - Init
 
@@ -98,13 +104,16 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
         let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
         let defaultFamily = MarkdownFontFamily.resolvedDefault()
+        let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
         self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
         self.fontFamily = defaultFamily
+        self.maxContentWidth = defaultMaxWidth
         self.followedFontSize = defaultSize
         self.followedFontFamily = defaultFamily
+        self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
 
         loadFileContent()
@@ -130,13 +139,18 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private func adoptTypographyDefaultsIfFollowing() {
         guard !isClosed else { return }
         // Only viewers still tracking the default follow the change.
-        guard abs(fontSize - followedFontSize) < 0.01, fontFamily == followedFontFamily else { return }
+        guard abs(fontSize - followedFontSize) < 0.01,
+              fontFamily == followedFontFamily,
+              abs(maxContentWidth - followedMaxContentWidth) < 0.01 else { return }
         let newSize = MarkdownFontSizeSettings.resolvedDefault()
         let newFamily = MarkdownFontFamily.resolvedDefault()
+        let newMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
         _ = setFontSize(newSize)
         _ = setFontFamily(newFamily)
+        _ = setMaxContentWidth(newMaxWidth)
         followedFontSize = newSize
         followedFontFamily = newFamily
+        followedMaxContentWidth = newMaxWidth
     }
 
     // MARK: - Font size / zoom
@@ -182,11 +196,40 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         return true
     }
 
-    /// Resets both font size and family to the configured defaults. Used by the
-    /// typography popover's "Reset to default" action.
+    /// Sets the rendered markdown content column max width, in CSS pixels.
+    /// Returns `true` if changed.
+    @discardableResult
+    func setMaxContentWidth(_ candidate: Double) -> Bool {
+        let clamped = MarkdownMaxWidthSettings.clamp(candidate)
+        guard abs(clamped - maxContentWidth) > 0.0001 else { return false }
+        maxContentWidth = clamped
+        return true
+    }
+
+    /// Resets typography to the configured defaults. Used by the popover's
+    /// "Reset to default" action.
     func resetTypography() {
-        _ = setFontSize(MarkdownFontSizeSettings.resolvedDefault())
-        _ = setFontFamily(MarkdownFontFamily.resolvedDefault())
+        let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
+        let defaultFamily = MarkdownFontFamily.resolvedDefault()
+        let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
+        _ = setFontSize(defaultSize)
+        _ = setFontFamily(defaultFamily)
+        _ = setMaxContentWidth(defaultMaxWidth)
+        followedFontSize = defaultSize
+        followedFontFamily = defaultFamily
+        followedMaxContentWidth = defaultMaxWidth
+    }
+
+    /// Clears persisted markdown typography defaults and resets this viewer to
+    /// the built-in app defaults.
+    func resetTypographyToBuiltInDefaults() {
+        MarkdownTypographyDefaults.resetToBuiltInDefaults()
+        _ = setFontSize(MarkdownFontSizeSettings.defaultPointSize)
+        _ = setFontFamily(MarkdownFontFamily.systemDefault)
+        _ = setMaxContentWidth(MarkdownMaxWidthSettings.defaultCSSPixels)
+        followedFontSize = MarkdownFontSizeSettings.defaultPointSize
+        followedFontFamily = MarkdownFontFamily.systemDefault
+        followedMaxContentWidth = MarkdownMaxWidthSettings.defaultCSSPixels
     }
 
     // MARK: - Panel protocol
@@ -653,6 +696,38 @@ enum MarkdownFontFamily {
     }
 }
 
+/// Maximum content column width for the markdown viewer.
+///
+/// The value is applied as CSS pixels to the rendered `.markdown-body`
+/// `max-width`. The panel still uses full available width on narrower splits.
+enum MarkdownMaxWidthSettings {
+    /// UserDefaults / cmux.json key (`markdown.maxWidth`).
+    static let key = "markdown.maxWidth"
+    static let defaultCSSPixels: Double = 980
+    static let minimumCSSPixels: Double = 320
+    static let maximumCSSPixels: Double = 2400
+    static let stepCSSPixels: Double = 20
+
+    static func clamp(_ value: Double) -> Double {
+        min(max(value, minimumCSSPixels), maximumCSSPixels)
+    }
+
+    static func resolvedDefault(defaults: UserDefaults = .standard) -> Double {
+        guard let raw = defaults.object(forKey: key) as? NSNumber else {
+            return defaultCSSPixels
+        }
+        return clamp(raw.doubleValue)
+    }
+
+    static func setDefault(_ pixels: Double, defaults: UserDefaults = .standard) {
+        defaults.set(Int(clamp(pixels).rounded()), forKey: key)
+    }
+
+    static func resetDefault(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: key)
+    }
+}
+
 /// Loads and caches the installed font-family list off the main thread.
 /// `CTFontManagerCopyAvailableFontFamilyNames` is thread-safe, unlike the
 /// AppKit `NSFontManager` accessor.
@@ -672,7 +747,7 @@ private actor MarkdownFontFamilyCache {
     }
 }
 
-/// Writes the markdown viewer typography defaults (size + font).
+/// Writes the markdown viewer typography defaults (size, font, and width).
 ///
 /// Writing the keys triggers `UserDefaults.didChangeNotification`, which open
 /// viewers observe: those still on the previous default adopt the new one, while
@@ -681,8 +756,20 @@ private actor MarkdownFontFamilyCache {
 /// values to `UserDefaults.standard`), so `cmux reload-config` refreshes open
 /// viewers too.
 enum MarkdownTypographyDefaults {
-    static func setDefault(fontSize: Double, fontFamily: String, defaults: UserDefaults = .standard) {
+    static func setDefault(
+        fontSize: Double,
+        fontFamily: String,
+        maxContentWidth: Double,
+        defaults: UserDefaults = .standard
+    ) {
         MarkdownFontSizeSettings.setDefault(fontSize, defaults: defaults)
         MarkdownFontFamily.setDefault(fontFamily, defaults: defaults)
+        MarkdownMaxWidthSettings.setDefault(maxContentWidth, defaults: defaults)
+    }
+
+    static func resetToBuiltInDefaults(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: MarkdownFontSizeSettings.key)
+        MarkdownFontFamily.setDefault(MarkdownFontFamily.systemDefault, defaults: defaults)
+        MarkdownMaxWidthSettings.resetDefault(defaults: defaults)
     }
 }

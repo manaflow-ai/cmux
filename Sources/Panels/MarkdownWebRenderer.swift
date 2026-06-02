@@ -18,6 +18,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     /// Body prose font-family name (empty = System). Applied as an inline
     /// `font-family` on the content.
     let fontFamily: String
+    /// Maximum content column width, in CSS pixels.
+    let maxContentWidth: Double
     let session: MarkdownRendererSession
     let onRequestPanelFocus: () -> Void
 
@@ -37,6 +39,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             applyAppearance(to: webView, isDark: theme.isDark)
             context.coordinator.setFontSize(fontSize)
             context.coordinator.setFontFamily(fontFamily)
+            context.coordinator.setMaxContentWidth(maxContentWidth)
             return webView
         }
 
@@ -74,6 +77,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.webView = webView
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
+        context.coordinator.setMaxContentWidth(maxContentWidth)
         context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
         return webView
     }
@@ -87,6 +91,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         applyAppearance(to: nsView, isDark: theme.isDark)
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
+        context.coordinator.setMaxContentWidth(maxContentWidth)
         context.coordinator.update(markdown: markdown, theme: theme)
     }
 
@@ -130,6 +135,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastTheme: MarkdownWebTheme? = nil
         private var lastFontFamily: String = ""
         private var lastFontSize: Double = MarkdownFontSizeSettings.defaultPointSize
+        private var lastMaxContentWidth: Double = MarkdownMaxWidthSettings.defaultCSSPixels
         private var isLoaded = false
         private var isShellLoading = false
         private var webContentProcessRecoveryAttempts = 0
@@ -203,6 +209,25 @@ struct MarkdownWebRenderer: NSViewRepresentable {
               var content = document.getElementById('content');
               if (content) { content.style.fontFamily = arr[0]; }
             })(\(encoded));
+            """
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
+        /// Records the desired content column max width. This DOM style is lost
+        /// when the shell reloads, so it is re-applied in `didFinish`.
+        func setMaxContentWidth(_ pixels: Double) {
+            lastMaxContentWidth = MarkdownMaxWidthSettings.clamp(pixels)
+            applyMaxContentWidth()
+        }
+
+        private func applyMaxContentWidth() {
+            guard let webView else { return }
+            let width = Int(MarkdownMaxWidthSettings.clamp(lastMaxContentWidth).rounded())
+            let js = """
+            (function(width) {
+              var content = document.getElementById('content');
+              if (content) { content.style.maxWidth = width + 'px'; }
+            })(\(width));
             """
             webView.evaluateJavaScript(js, completionHandler: nil)
         }
@@ -656,6 +681,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             // font-family is a DOM inline style on a freshly-created #content,
             // so it MUST be re-applied after every shell (re)load.
             applyFontFamily()
+            applyMaxContentWidth()
             applyTheme(lastTheme ?? pendingTheme)
             // Replay last known markdown after the shell finishes loading.
             // Keep the recovery budget scoped to the current markdown payload:

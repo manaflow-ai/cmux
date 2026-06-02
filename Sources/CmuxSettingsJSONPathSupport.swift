@@ -164,6 +164,7 @@ extension CmuxSettingsFileStore {
         "browser.reactGrabVersion",
         "markdown.fontSize",
         "markdown.fontFamily",
+        "markdown.maxWidth",
         "shortcuts.bindings",
     ]
 }
