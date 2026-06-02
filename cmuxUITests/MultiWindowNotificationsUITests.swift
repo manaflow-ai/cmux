@@ -188,12 +188,14 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0))
         guard let resolvedPath = resolveSocketPath(timeout: 8.0) else {
-            throw XCTSkip("Control socket unavailable in this test environment. requested=\(socketPath)")
+            XCTFail("Control socket unavailable in this test environment. requested=\(socketPath)")
+            return
         }
         socketPath = resolvedPath
         let pingResponse = waitForSocketPong(timeout: 8.0)
         guard pingResponse == "PONG" else {
-            throw XCTSkip("Control socket did not respond in time. path=\(socketPath) response=\(pingResponse ?? "<nil>")")
+            XCTFail("Control socket did not respond in time. path=\(socketPath) response=\(pingResponse ?? "<nil>")")
+            return
         }
 
         _ = socketCommand("clear_notifications")

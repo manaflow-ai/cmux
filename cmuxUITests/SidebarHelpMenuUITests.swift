@@ -906,7 +906,10 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             }
         }
 
-        throw XCTSkip("Could not find the command palette all-surfaces toggle")
+        return try XCTUnwrap(
+            nil as XCUIElement?,
+            "Could not find the command palette all-surfaces toggle"
+        )
     }
 
     private func requireMinimalModeToggle(app: XCUIApplication) throws -> XCUIElement {
@@ -931,7 +934,10 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             }
         }
 
-        throw XCTSkip("Could not find the minimal mode toggle")
+        return try XCTUnwrap(
+            nil as XCUIElement?,
+            "Could not find the minimal mode toggle"
+        )
     }
 
     private func requireMenuBarOnlyToggle(app: XCUIApplication) throws -> XCUIElement {
@@ -956,7 +962,10 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             }
         }
 
-        throw XCTSkip("Could not find the menu-bar-only toggle")
+        return try XCTUnwrap(
+            nil as XCUIElement?,
+            "Could not find the menu-bar-only toggle"
+        )
     }
 
     private func toggleIsOn(_ element: XCUIElement) -> Bool {
