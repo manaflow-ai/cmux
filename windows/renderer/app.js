@@ -4249,13 +4249,18 @@ function renderPendingPane(panel, body) {
       </span>
       <button class="pending-pane-cancel" type="button">Cancel</button>
     `;
+    pending._pendingPaneParts = pendingPaneParts(pending);
+    pending._pendingPaneParts.cancel.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelPendingPanel(pending.dataset.panelId);
+    };
+    body.replaceChildren(pending);
   }
-  const cancel = pending.querySelector(".pending-pane-cancel");
-  cancel.onclick = (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    cancelPendingPanel(panel.id);
-  };
+  if (pending.parentElement !== body) body.replaceChildren(pending);
+  const parts = pending._pendingPaneParts || pendingPaneParts(pending);
+  pending._pendingPaneParts = parts;
+  setDatasetIfChanged(pending, "panelId", panel.id);
   const isBrowser = panel.type === "browser";
   const elapsedSeconds = pendingPanelElapsedSeconds(panel);
   const slow = elapsedSeconds >= 8;
@@ -4265,14 +4270,21 @@ function renderPendingPane(panel, body) {
     : `${optionLabel(terminalProfiles, panel.shellProfile || state.settings.terminalProfile, "Shell")} / ${panel.cwdShort || "~"}`;
   const meta = `${baseMeta} / ${elapsedSeconds}s`;
   setTextIfChanged(
-    pending.querySelector(".pending-pane-text"),
+    parts.text,
     slow
       ? (isBrowser ? "Browser is still opening..." : "Terminal is still starting...")
       : (isBrowser ? "Opening browser..." : "Starting terminal...")
   );
-  setTextIfChanged(pending.querySelector(".pending-pane-meta"), meta);
-  replaceChildrenIfChanged(body, [pending]);
+  setTextIfChanged(parts.meta, meta);
   ensurePendingPaneTimer();
+}
+
+function pendingPaneParts(pending) {
+  return {
+    text: pending.querySelector(".pending-pane-text"),
+    meta: pending.querySelector(".pending-pane-meta"),
+    cancel: pending.querySelector(".pending-pane-cancel")
+  };
 }
 
 function pendingPanelElapsedSeconds(panel) {
@@ -4298,7 +4310,7 @@ function updatePendingPaneTimers() {
   }
   for (const panel of state.pendingPanels.values()) {
     const pane = state.paneCache.get(panel.id)
-      || [...elements.paneGrid.querySelectorAll(".pane[data-panel-id]")].find((candidate) => candidate.dataset.panelId === panel.id);
+      || elements.paneGrid.querySelector(`.pane[data-panel-id="${paneIdSelector(panel.id)}"]`);
     const body = pane ? paneParts(pane).body : null;
     if (body?.isConnected) renderPendingPane(panel, body);
   }
