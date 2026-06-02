@@ -2996,16 +2996,16 @@ body.reduce-motion *::after {
   right: var(--space-2);
   z-index: 12;
   min-width: 0;
-  width: min(420px, calc(100% - var(--space-4)));
+  width: min(392px, calc(100% - var(--space-4)));
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) auto 26px 26px 30px 26px;
+  grid-template-columns: minmax(120px, 1fr) minmax(44px, auto) 26px 26px 30px 26px;
   align-items: center;
   gap: var(--space-1);
-  border: 1px solid var(--color-line-strong);
-  border-radius: var(--radius-2);
-  background: color-mix(in oklch, var(--color-rail) 94%, transparent);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane-warm) 96%, var(--color-rail) 4%);
   padding: var(--space-1);
-  box-shadow: 0 10px 36px color-mix(in oklch, var(--color-canvas) 64%, transparent);
+  box-shadow: 0 8px 24px color-mix(in oklch, var(--color-canvas) 48%, transparent);
 }
 
 .terminal-search[hidden] {
@@ -3037,10 +3037,12 @@ body.reduce-motion *::after {
 
 .terminal-search-button {
   width: 26px;
-  height: 24px;
+  height: 26px;
   display: grid;
   place-items: center;
   padding: 0;
+  border-color: transparent;
+  background: transparent;
   color: var(--color-muted);
   font: 11px/1 var(--font-mono);
 }

@@ -5957,20 +5957,33 @@ function requestInitialTerminalLayout(session, panelId, frame = 0) {
 function createTerminalSearchOverlay(panel, session) {
   const overlay = document.createElement("div");
   overlay.className = "terminal-search";
+  overlay.setAttribute("role", "search");
+  overlay.setAttribute("aria-label", t("terminal.searchLabel"));
   overlay.hidden = true;
   overlay.innerHTML = `
-    <input class="terminal-search-input" type="search" autocomplete="off" spellcheck="false" placeholder="Find in terminal">
-    <span class="terminal-search-status"></span>
-    <button class="terminal-search-button terminal-search-prev" type="button" title="Previous match" aria-label="Previous match">${controlIconMarkup("up")}</button>
-    <button class="terminal-search-button terminal-search-next" type="button" title="Next match" aria-label="Next match">${controlIconMarkup("down")}</button>
-    <button class="terminal-search-button terminal-search-case" type="button" title="Match case" aria-label="Match case">${controlIconMarkup("caseMatch")}</button>
-    <button class="terminal-search-button terminal-search-close" type="button" title="Close search" aria-label="Close search">${controlIconMarkup("close")}</button>
+    <input class="terminal-search-input" type="search" autocomplete="off" spellcheck="false">
+    <span class="terminal-search-status" aria-live="polite"></span>
+    <button class="terminal-search-button terminal-search-prev" type="button">${controlIconMarkup("up")}</button>
+    <button class="terminal-search-button terminal-search-next" type="button">${controlIconMarkup("down")}</button>
+    <button class="terminal-search-button terminal-search-case" type="button">${controlIconMarkup("caseMatch")}</button>
+    <button class="terminal-search-button terminal-search-close" type="button">${controlIconMarkup("close")}</button>
   `;
   const input = overlay.querySelector(".terminal-search-input");
   const previous = overlay.querySelector(".terminal-search-prev");
   const next = overlay.querySelector(".terminal-search-next");
   const matchCase = overlay.querySelector(".terminal-search-case");
   const close = overlay.querySelector(".terminal-search-close");
+  input.placeholder = t("terminal.searchPlaceholder");
+  input.setAttribute("aria-label", t("terminal.searchPlaceholder"));
+  for (const [button, label] of [
+    [previous, t("terminal.searchPrevious")],
+    [next, t("terminal.searchNext")],
+    [matchCase, t("terminal.searchMatchCase")],
+    [close, t("terminal.searchClose")]
+  ]) {
+    button.title = label;
+    button.setAttribute("aria-label", label);
+  }
   overlay.addEventListener("pointerdown", (event) => event.stopPropagation());
   overlay.addEventListener("click", (event) => event.stopPropagation());
   input.addEventListener("input", () => runTerminalSearch(session, "next", true));
@@ -6024,7 +6037,7 @@ function updateTerminalSearchStatus(session, resultIndex = -1, resultCount = 0) 
   if (!hasTerm) {
     status.textContent = "";
   } else if (count === 0) {
-    status.textContent = "No results";
+    status.textContent = t("terminal.searchNoResults");
   } else {
     status.textContent = `${Math.max(0, Number(resultIndex) || 0) + 1} / ${count}`;
   }
@@ -6058,11 +6071,11 @@ function terminalSearchTarget(panel = activePanel()) {
 function openTerminalSearch(panel = activePanel()) {
   const target = terminalSearchTarget(panel);
   if (!target) {
-    toast("Focus a terminal pane first.");
+    toast(t("terminal.searchNeedsPane"));
     return false;
   }
   if (!target.session.searchAddon) {
-    toast("Terminal search is unavailable.");
+    toast(t("terminal.searchUnavailable"));
     return false;
   }
   target.session.searchOverlay.hidden = false;
