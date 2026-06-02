@@ -1823,7 +1823,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 
 .surface-new-tab {
   align-self: center;
-  position: sticky;
+  position: relative;
   z-index: 3;
   height: 30px;
   flex: 0 0 var(--surface-add-width);
@@ -1839,20 +1839,25 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   background: color-mix(in oklch, var(--color-pane) 84%, var(--color-chrome) 16%);
   color: var(--color-muted);
   font: 720 11px/1 var(--font-ui);
-  box-shadow:
-    -10px 0 14px -16px var(--color-canvas),
-    inset 0 1px 0 color-mix(in oklch, var(--color-text) 6%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 6%, transparent);
   transition:
     border-color var(--dur-fast) var(--ease-out),
     background var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out);
 }
 
-.surface-new-terminal {
+.surface-tabs.has-overflow .surface-new-tab {
+  position: sticky;
+  box-shadow:
+    -10px 0 14px -16px var(--color-canvas),
+    inset 0 1px 0 color-mix(in oklch, var(--color-text) 6%, transparent);
+}
+
+.surface-tabs.has-overflow .surface-new-terminal {
   right: calc(6px + var(--surface-add-width) + var(--surface-add-gap));
 }
 
-.surface-new-browser {
+.surface-tabs.has-overflow .surface-new-browser {
   right: 6px;
 }
 
@@ -1875,7 +1880,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   padding-inline: 6px;
 }
 
-.shell.add-tabs-compact .surface-new-terminal {
+.shell.add-tabs-compact .surface-tabs.has-overflow .surface-new-terminal {
   right: calc(6px + var(--surface-add-width) + var(--surface-add-gap));
 }
 
@@ -1910,12 +1915,12 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   padding-inline: 6px;
 }
 
-.surface-tabs.is-crowded .surface-new-terminal,
-.shell.density-compact .surface-tabs.is-crowded .surface-new-terminal {
+.surface-tabs.has-overflow.is-crowded .surface-new-terminal,
+.shell.density-compact .surface-tabs.has-overflow.is-crowded .surface-new-terminal {
   right: calc(6px + var(--surface-add-width) + var(--surface-add-gap));
 }
 
-.surface-tabs.is-crowded .surface-new-browser {
+.surface-tabs.has-overflow.is-crowded .surface-new-browser {
   right: 6px;
 }
 
@@ -1988,7 +1993,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .surface-new-tab .surface-new-label::before {
-  content: "";
+  content: "+ ";
   font-weight: 820;
 }
 
@@ -2055,11 +2060,11 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   --surface-add-reserve: 82px;
 }
 
-.shell.density-compact:not(.add-tabs-labeled) .surface-new-terminal {
+.shell.density-compact:not(.add-tabs-labeled) .surface-tabs.has-overflow .surface-new-terminal {
   right: calc(6px + var(--surface-add-width) + var(--surface-add-gap));
 }
 
-.shell.density-compact:not(.add-tabs-labeled) .surface-new-browser {
+.shell.density-compact:not(.add-tabs-labeled) .surface-tabs.has-overflow .surface-new-browser {
   right: 6px;
 }
 
@@ -2088,11 +2093,11 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
     gap: 0;
   }
 
-  .surface-new-terminal {
+  .surface-tabs.has-overflow .surface-new-terminal {
     right: calc(5px + var(--surface-add-width) + var(--surface-add-gap));
   }
 
-  .surface-new-browser {
+  .surface-tabs.has-overflow .surface-new-browser {
     right: 5px;
   }
 
