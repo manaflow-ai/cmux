@@ -13346,6 +13346,10 @@ final class FeedbackComposerMessageEditorView: NSView {
     fileprivate let textView = FeedbackComposerTextView()
     private let placeholderField = FeedbackComposerPassthroughLabel(labelWithString: "")
 
+    var textViewForTesting: NSTextView {
+        textView
+    }
+
     var placeholder: String = "" {
         didSet {
             placeholderField.stringValue = placeholder

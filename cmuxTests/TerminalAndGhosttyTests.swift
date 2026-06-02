@@ -1316,14 +1316,15 @@ final class FeedbackComposerMessageEditorViewTests: XCTestCase {
         editor.placeholder = "Message"
         editor.layoutSubtreeIfNeeded()
 
-        editor.textView.string = (0..<80)
+        let textView = editor.textViewForTesting
+        textView.string = (0..<80)
             .map { "feedback line \($0)" }
             .joined(separator: "\n")
         editor.refreshTextLayout()
         editor.layoutSubtreeIfNeeded()
 
         XCTAssertGreaterThan(
-            editor.textView.frame.height,
+            textView.frame.height,
             editor.scrollView.contentSize.height + 40
         )
     }
@@ -1337,15 +1338,16 @@ final class FeedbackComposerMessageEditorViewTests: XCTestCase {
         let messageWithoutTrailingBlankLine = (0..<20)
             .map { "feedback line \($0)" }
             .joined(separator: "\n")
-        editor.textView.string = messageWithoutTrailingBlankLine
+        let textView = editor.textViewForTesting
+        textView.string = messageWithoutTrailingBlankLine
         editor.refreshTextLayout()
-        let heightWithoutTrailingBlankLine = editor.textView.frame.height
+        let heightWithoutTrailingBlankLine = textView.frame.height
 
-        editor.textView.string = messageWithoutTrailingBlankLine + "\n"
+        textView.string = messageWithoutTrailingBlankLine + "\n"
         editor.refreshTextLayout()
 
         XCTAssertGreaterThan(
-            editor.textView.frame.height,
+            textView.frame.height,
             heightWithoutTrailingBlankLine + 5
         )
     }
