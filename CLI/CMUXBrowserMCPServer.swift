@@ -55,6 +55,16 @@ final class CMUXBrowserMCPServer {
 
     func handleMessage(_ message: [String: Any]) {
         let id = message["id"]
+        if id == nil {
+            guard message["jsonrpc"] as? String == "2.0",
+                  let method = message["method"] as? String else {
+                logDiagnostic("cmux browser MCP ignored invalid notification")
+                return
+            }
+            handleNotification(method: method)
+            return
+        }
+
         guard message["jsonrpc"] as? String == "2.0" else {
             writeError(
                 id: id,
@@ -72,11 +82,6 @@ final class CMUXBrowserMCPServer {
                 code: -32600,
                 message: String(localized: "cli.browserMCP.error.invalidRequest", defaultValue: "Invalid Request")
             )
-            return
-        }
-
-        if id == nil {
-            handleNotification(method: method)
             return
         }
 

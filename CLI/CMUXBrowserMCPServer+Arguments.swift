@@ -7,6 +7,9 @@ extension CMUXBrowserMCPServer {
                 return value
             }
             if let value = arguments[key] as? NSNumber {
+                if CFGetTypeID(value) == CFBooleanGetTypeID() {
+                    continue
+                }
                 return value.stringValue
             }
         }
