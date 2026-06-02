@@ -883,47 +883,53 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testToggleSidebarInActiveMainWindowIgnoresStaleTabManagerPointer() {
+#if DEBUG
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
+        let firstContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let secondContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let originalTabManager = appDelegate.tabManager
 
         defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
+            appDelegate.tabManager = originalTabManager
+            appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId, notifyObservers: false)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId, notifyObservers: false)
+            closeTestWindow(firstContext.window)
+            closeTestWindow(secondContext.window)
         }
 
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondWindow = window(withId: secondWindowId),
-              let firstVisibleBefore = appDelegate.sidebarVisibility(windowId: firstWindowId),
-              let secondVisibleBefore = appDelegate.sidebarVisibility(windowId: secondWindowId) else {
+        guard let firstVisibleBefore = appDelegate.sidebarVisibility(windowId: firstContext.windowId),
+              let secondVisibleBefore = appDelegate.sidebarVisibility(windowId: secondContext.windowId) else {
             XCTFail("Expected both window contexts to exist")
             return
         }
 
-        secondWindow.makeKeyAndOrderFront(nil)
+        secondContext.window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         // Force a stale app-level pointer to another manager. Window-local UI
         // controls should still target the key/main window, not this stale pointer.
-        appDelegate.tabManager = firstManager
-        XCTAssertTrue(appDelegate.tabManager === firstManager)
+        appDelegate.tabManager = firstContext.tabManager
+        XCTAssertTrue(appDelegate.tabManager === firstContext.tabManager)
 
         XCTAssertTrue(appDelegate.toggleSidebarInActiveMainWindow())
 
         XCTAssertEqual(
-            appDelegate.sidebarVisibility(windowId: firstWindowId),
+            appDelegate.sidebarVisibility(windowId: firstContext.windowId),
             firstVisibleBefore,
             "Stale active-manager pointer must not receive sidebar toggles"
         )
         XCTAssertEqual(
-            appDelegate.sidebarVisibility(windowId: secondWindowId),
+            appDelegate.sidebarVisibility(windowId: secondContext.windowId),
             !secondVisibleBefore,
             "Sidebar toggle should target the key/main window context"
         )
+#else
+        XCTFail("Shortcut routing test hooks are only available in DEBUG")
+#endif
     }
 
     func testWelcomeWindowSidebarShortcutsUseSharedToggleCommands() {
@@ -1054,21 +1060,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testDockMenuNewWindowItemCreatesMainWindow() {
+#if DEBUG
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
-        let existingWindowId = appDelegate.createMainWindow()
-        var createdWindowId: UUID?
+        let previousHandler = appDelegate.debugOpenNewMainWindowHandler
+        var receivedSender: Any?
         defer {
-            if let createdWindowId {
-                closeWindow(withId: createdWindowId)
-            }
-            closeWindow(withId: existingWindowId)
+            appDelegate.debugOpenNewMainWindowHandler = previousHandler
         }
-
-        let existingWindowIds = mainWindowIds()
+        appDelegate.debugOpenNewMainWindowHandler = { sender in
+            receivedSender = sender
+        }
 
         let delegate: NSApplicationDelegate = appDelegate
         guard let dockMenu = delegate.applicationDockMenu?(NSApp) else {
@@ -1083,12 +1088,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         XCTAssertEqual(item.title, expectedTitle)
+        XCTAssertTrue(item.target === appDelegate)
         XCTAssertTrue(NSApp.sendAction(#selector(AppDelegate.openNewMainWindow(_:)), to: item.target, from: item))
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        let newWindowIds = mainWindowIds().subtracting(existingWindowIds)
-        XCTAssertEqual(newWindowIds.count, 1, "Dock menu New Window should create one main window")
-        createdWindowId = newWindowIds.first
+        XCTAssertTrue(receivedSender as? NSMenuItem === item)
+#else
+        XCTFail("Dock menu action test hook is only available in DEBUG")
+#endif
     }
 
     func testRestorePreviousSessionSnapshotCreatesNewWindowWithoutClosingCurrentWindows() throws {
@@ -1398,10 +1403,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let orphanManager = TabManager(debugCreateInitialWorkspace: false)
 #if DEBUG
         let orphanWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: orphanManager)
+        let previousOpenNewMainWindowHandler = appDelegate.debugOpenNewMainWindowHandler
+        var didRequestFallbackNewWindow = false
+        appDelegate.debugOpenNewMainWindowHandler = { sender in
+            XCTAssertNil(sender)
+            didRequestFallbackNewWindow = true
+        }
 #else
         XCTFail("registerMainWindowContextForTesting is only available in DEBUG")
         return
 #endif
+        defer {
+#if DEBUG
+            appDelegate.debugOpenNewMainWindowHandler = previousOpenNewMainWindowHandler
+#endif
+        }
 
         XCTAssertNil(appDelegate.mainWindow(for: orphanWindowId), "Test precondition: orphaned context should not have a live window")
 
@@ -1449,11 +1465,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
 
         XCTAssertEqual(orphanManager.tabs.count, orphanCount, "Orphaned manager must not receive a new workspace from remapped Cmd+T")
         XCTAssertNil(appDelegate.tabManagerFor(windowId: orphanWindowId), "Remapped Cmd+T should prune the orphaned context after failed resolution")
+#if DEBUG
+        XCTAssertTrue(didRequestFallbackNewWindow, "Remapped Cmd+T should request a fallback new window after pruning the orphaned context")
+#endif
     }
 
     func testCmdDigitRoutesToEventWindowWhenActiveManagerIsStale() {

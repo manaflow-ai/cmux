@@ -1006,6 +1006,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var debugFocusedCloseShortcutWindowOverride: (() -> NSWindow?)?
     var debugAuxiliaryCloseShortcutWindowOverride: (() -> NSWindow?)?
     var debugToggleReactGrabShortcutHandler: (() -> Bool)?
+    var debugOpenNewMainWindowHandler: ((Any?) -> Void)?
 #endif
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -7062,6 +7063,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func openNewMainWindow(_ sender: Any?) {
+#if DEBUG
+        if let debugOpenNewMainWindowHandler {
+            debugOpenNewMainWindowHandler(sender)
+            return
+        }
+#endif
         _ = createMainWindow(sourceWindow: preferredSourceWindowForNewMainWindow(sender: sender))
     }
 
