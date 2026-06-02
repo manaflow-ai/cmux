@@ -230,7 +230,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         if element.isHittable {
             element.click()
         } else {
-            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, y: 0.5)).click()
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         }
     }
 
@@ -1147,7 +1147,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         if element.isHittable {
             element.click()
         } else {
-            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, y: 0.5)).click()
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         }
     }
 
