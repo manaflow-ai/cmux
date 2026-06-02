@@ -8042,13 +8042,13 @@ function renderSettingsInspector(options = {}) {
 
   if (shouldBuildSection("profiles")) {
     const profilesSection = settingsSection("Profiles", "saved settings profile preset apply save rename delete appearance layout terminal performance");
-    profilesSection.append(settingsProfilesPanel());
+    profilesSection.append(settingsProfilesDisclosurePanel());
     nodes.push(profilesSection);
   }
 
   if (shouldBuildSection("blueprints")) {
     const blueprintsSection = settingsSection("Workspace blueprints", "saved workspace blueprint layout pane template terminal browser split apply new save rename delete");
-    blueprintsSection.append(workspaceBlueprintsPanel());
+    blueprintsSection.append(workspaceBlueprintsDisclosurePanel());
     nodes.push(blueprintsSection);
   }
 
@@ -8475,7 +8475,7 @@ function renderSettingsInspector(options = {}) {
 
   if (shouldBuildSection("commands")) {
     const snippetsSection = settingsSection("Command snippets", "terminal command snippets saved custom git github gh cli run add edit delete palette");
-    snippetsSection.append(commandSnippetsSettings());
+    snippetsSection.append(commandSnippetsDisclosurePanel());
     nodes.push(snippetsSection);
   }
 
@@ -11228,13 +11228,16 @@ function ensureSettingsDisclosureContent(disclosure) {
   if (!disclosure || disclosure.dataset.disclosureMounted === "true") return false;
   const contentBuilder = {
     "background-presets": backgroundPresetGrid,
+    "command-snippets": commandSnippetsSettings,
     "quick-actions": quickSetupActionGrid,
     "quick-categories": quickSettingsShortcutGrid,
     "quick-presets": settingsPresetGrid,
     "saved-backgrounds": savedBackgroundImagesPanel,
+    "settings-profiles": settingsProfilesPanel,
     "settings-command-list": settingsCommandList,
     "terminal-colors": terminalColorPresetGrid,
-    "terminal-fonts": terminalFontChoiceGrid
+    "terminal-fonts": terminalFontChoiceGrid,
+    "workspace-blueprints": workspaceBlueprintsPanel
   }[disclosure.dataset.disclosureContent];
   if (!contentBuilder) return false;
   disclosure.append(contentBuilder());
@@ -11356,6 +11359,48 @@ function settingsCommandListDisclosurePanel() {
     title: t("actions.commandList"),
     body: t("actions.commandList.body"),
     meta: formatMessage("actions.commandCount", { count: commands.length })
+  });
+}
+
+function settingsProfilesDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "settings-profiles-disclosure",
+    content: "settings-profiles",
+    searchTerms: "profiles saved settings profile preset apply save rename delete built in appearance layout terminal performance",
+    title: t("profiles.savedProfiles"),
+    body: t("profiles.savedProfiles.body"),
+    meta: formatMessage("profiles.savedProfileCount", {
+      count: state.savedSettingsProfiles.length,
+      limit: savedSettingsProfilesLimit
+    })
+  });
+}
+
+function workspaceBlueprintsDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "workspace-blueprints-disclosure",
+    content: "workspace-blueprints",
+    searchTerms: "blueprints saved workspace layout pane template terminal browser split apply new save update rename delete starter layouts",
+    title: t("blueprints.savedBlueprints"),
+    body: t("blueprints.savedBlueprints.body"),
+    meta: formatMessage("blueprints.savedBlueprintCount", {
+      count: state.workspaceBlueprints.length,
+      limit: workspaceBlueprintsLimit
+    })
+  });
+}
+
+function commandSnippetsDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "command-snippets-disclosure",
+    content: "command-snippets",
+    searchTerms: "commands snippets terminal launcher saved built in custom git github gh cli add edit delete run",
+    title: t("commands.snippets"),
+    body: t("commands.snippets.body"),
+    meta: formatMessage("commands.snippetCount", {
+      count: state.customCommandSnippets.length,
+      limit: customCommandSnippetsLimit
+    })
   });
 }
 
