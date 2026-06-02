@@ -1403,21 +1403,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let orphanManager = TabManager(debugCreateInitialWorkspace: false)
 #if DEBUG
         let orphanWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: orphanManager)
-        let previousOpenNewMainWindowHandler = appDelegate.debugOpenNewMainWindowHandler
-        var didRequestFallbackNewWindow = false
-        appDelegate.debugOpenNewMainWindowHandler = { sender in
-            XCTAssertNil(sender)
-            didRequestFallbackNewWindow = true
-        }
 #else
         XCTFail("registerMainWindowContextForTesting is only available in DEBUG")
         return
 #endif
-        defer {
-#if DEBUG
-            appDelegate.debugOpenNewMainWindowHandler = previousOpenNewMainWindowHandler
-#endif
-        }
 
         XCTAssertNil(appDelegate.mainWindow(for: orphanWindowId), "Test precondition: orphaned context should not have a live window")
 
@@ -1439,10 +1428,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let orphanManager = TabManager(debugCreateInitialWorkspace: false)
 #if DEBUG
         let orphanWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: orphanManager)
+        let previousOpenNewMainWindowHandler = appDelegate.debugOpenNewMainWindowHandler
+        var didRequestFallbackNewWindow = false
+        appDelegate.debugOpenNewMainWindowHandler = { sender in
+            XCTAssertNil(sender)
+            didRequestFallbackNewWindow = true
+        }
 #else
         XCTFail("registerMainWindowContextForTesting is only available in DEBUG")
         return
 #endif
+        defer {
+#if DEBUG
+            appDelegate.debugOpenNewMainWindowHandler = previousOpenNewMainWindowHandler
+#endif
+        }
 
         XCTAssertNil(appDelegate.mainWindow(for: orphanWindowId), "Test precondition: orphaned context should not have a live window")
 
