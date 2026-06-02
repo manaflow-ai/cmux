@@ -9219,7 +9219,7 @@ function paneBackgroundControlPanel(panel) {
       : backgroundFilePath(background) || background;
   const control = document.createElement("div");
   control.className = `active-pane-background${hasBackground ? " has-image" : ""}`;
-  control.dataset.settingsSearch = normalizeSettingsQuery("active pane terminal background image wallpaper choose use app clear open source");
+  control.dataset.settingsSearch = normalizeSettingsQuery("active pane terminal background image wallpaper choose use app save library clear open source");
   control.style.setProperty("--active-pane-background-image", backgroundCss(background));
   control.style.setProperty("--active-pane-background-repeat", backgroundRepeatCss(background));
   control.style.setProperty("--active-pane-background-size", backgroundSizeCss(state.settings.backgroundFit));
@@ -9274,11 +9274,13 @@ function paneBackgroundControlPanel(panel) {
   const choose = settingsActionButton("Choose", () => choosePanelBackgroundImage(panel), "", "active pane terminal background choose local image");
   const useApp = settingsActionButton("Use app", () => applyPanelBackgroundImage(state.settings.backgroundImage, panel), "", "active pane terminal background use app global image");
   useApp.disabled = !state.settings.backgroundImage;
+  const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: background }), "", "active pane terminal background save image wallpaper library");
+  save.disabled = !isCustomBackgroundImage(background);
   const open = settingsActionButton("Open", () => openBackgroundImageSource(background), "", "active pane terminal background open source file url");
   open.disabled = !canOpenBackgroundImageSource(background);
   const clear = settingsActionButton("Clear", () => applyPanelBackgroundImage("", panel), "danger", "active pane terminal background clear remove");
   clear.disabled = !hasBackground;
-  actions.append(apply, paste, choose, useApp, open, clear);
+  actions.append(apply, paste, choose, useApp, save, open, clear);
 
   control.append(preview, copy, input, actions);
   installBackgroundDropTarget(control, { input, panel });
@@ -9359,7 +9361,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
       "Pane background",
       paneBackgroundControlPanel(panel),
       true,
-      "active pane terminal background image wallpaper choose use app clear open source"
+      "active pane terminal background image wallpaper choose use app save library clear open source"
     ));
 
     const paneFontSize = terminalFontSizeForPanel(panel);

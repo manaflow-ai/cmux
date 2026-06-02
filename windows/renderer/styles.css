@@ -4841,7 +4841,7 @@ body.reduce-motion *::after {
 
 .active-pane-background-actions {
   grid-column: 1 / -1;
-  grid-template-columns: repeat(auto-fit, minmax(min(76px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(68px, 100%), 1fr));
 }
 
 .active-pane-text-control {
