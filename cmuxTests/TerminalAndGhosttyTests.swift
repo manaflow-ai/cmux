@@ -2163,7 +2163,6 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
             existingPaths: [
                 "/Applications/Visual Studio Code.app",
                 "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel",
-                "/opt/homebrew/bin/jupyter",
             ]
         )
         let tools = CmuxDirectoryToolDefinition.defaultDefinitions.map {
@@ -2173,6 +2172,24 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         let availableTools = CmuxResolvedDirectoryTool.availableTools(tools, in: env)
         XCTAssertTrue(availableTools.contains("vscode-inline"))
         XCTAssertTrue(availableTools.contains("jupyter"))
+    }
+
+    func testShellDirectoryToolsArePaletteAvailableWithoutStaticExecutableMatch() {
+        let env = environment(existingPaths: [])
+        let tool = CmuxDirectoryToolDefinition(
+            id: "notebook",
+            title: "Open Notebook",
+            kind: .shellWebServer,
+            executablePathCandidates: ["/opt/homebrew/bin/notebook"],
+            command: "notebook --port=0"
+        )
+
+        let availableTools = CmuxResolvedDirectoryTool.availableTools(
+            [CmuxResolvedDirectoryTool(definition: tool, sourcePath: nil)],
+            in: env
+        )
+
+        XCTAssertEqual(availableTools, ["notebook"])
     }
 
     func testTowerDetectedViaApplicationLookupOutsideApplications() {

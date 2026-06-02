@@ -310,10 +310,7 @@ extension CmuxResolvedDirectoryTool {
                 isExecutableAtPath: environment.isExecutableFileAtPath
             ) != nil
         case .shellWebServer:
-            if executablePathCandidates.isEmpty {
-                return command?.isEmpty == false
-            }
-            return resolvedExecutablePath(in: environment) != nil
+            return command?.isEmpty == false
         }
     }
 
@@ -926,9 +923,6 @@ final class DirectoryToolWebServerController {
             return nil
         }
         let executablePath = tool.resolvedExecutablePath() ?? ""
-        guard !executablePath.isEmpty || tool.executablePathCandidates.isEmpty else {
-            return nil
-        }
         let cwdURL = resolvedCwdURL(template: tool.cwd, directoryURL: directoryURL)
 
         let process = Process()

@@ -479,7 +479,13 @@ struct CmuxDirectoryToolDefinition: Codable, Sendable, Hashable {
                 "/usr/local/bin/jupyter",
                 "/usr/bin/jupyter",
             ],
-            command: "exec \"$CMUX_TOOL_EXECUTABLE\" lab --no-browser --ip=127.0.0.1 --port=0",
+            command: """
+            TOOL="${CMUX_TOOL_EXECUTABLE:-$(command -v jupyter || true)}"; \
+            if [ -z "$TOOL" ]; then TOOL="$(command -v jupyter-lab || true)"; fi; \
+            if [ -z "$TOOL" ]; then exit 127; fi; \
+            if [ "$(basename "$TOOL")" = "jupyter-lab" ]; then exec "$TOOL" --no-browser --ip=127.0.0.1 --port=0; fi; \
+            exec "$TOOL" lab --no-browser --ip=127.0.0.1 --port=0
+            """,
             cwd: "{directory}",
             urlRegex: "(http://127\\.0\\.0\\.1:[^\\s]+)"
         ),
