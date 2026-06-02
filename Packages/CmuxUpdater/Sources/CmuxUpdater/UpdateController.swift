@@ -22,6 +22,7 @@ public final class UpdateController {
     private let log: any UpdateLogging
     private let clock: any UpdateClock
     private let defaults: UserDefaults
+    private let fileManager: FileManager
     private let backgroundProbeInterval: TimeInterval
 
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
@@ -63,14 +64,18 @@ public final class UpdateController {
     ///   - settings: The Sparkle defaults/migration configuration. Defaults to cmux's hourly check.
     ///   - hostBundle: The bundle Sparkle reads its configuration and version from.
     ///   - defaults: The `UserDefaults` the settings are applied to.
+    ///   - fileManager: Filesystem access for the Sparkle installation-cache workaround;
+    ///     injectable so tests can avoid touching the real filesystem.
     public init(log: any UpdateLogging,
                 clock: any UpdateClock = SystemUpdateClock(),
                 settings: UpdateSettings = UpdateSettings(),
                 hostBundle: Bundle = .main,
-                defaults: UserDefaults = .standard) {
+                defaults: UserDefaults = .standard,
+                fileManager: FileManager = .default) {
         self.log = log
         self.clock = clock
         self.defaults = defaults
+        self.fileManager = fileManager
         self.backgroundProbeInterval = settings.scheduledCheckInterval
         settings.apply(to: defaults)
 
@@ -377,7 +382,7 @@ public final class UpdateController {
 
     private func ensureSparkleInstallationCache() {
         guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
-        guard let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
+        guard let cachesURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
 
         let baseURL = cachesURL
             .appendingPathComponent(bundleIdentifier)
@@ -385,10 +390,10 @@ public final class UpdateController {
         let installURL = baseURL.appendingPathComponent("Installation")
 
         var isDirectory: ObjCBool = false
-        if FileManager.default.fileExists(atPath: installURL.path, isDirectory: &isDirectory) {
+        if fileManager.fileExists(atPath: installURL.path, isDirectory: &isDirectory) {
             if !isDirectory.boolValue {
                 do {
-                    try FileManager.default.removeItem(at: installURL)
+                    try fileManager.removeItem(at: installURL)
                 } catch {
                     log.append("Failed removing Sparkle installation cache file: \(error)")
                     return
@@ -399,7 +404,7 @@ public final class UpdateController {
         }
 
         do {
-            try FileManager.default.createDirectory(
+            try fileManager.createDirectory(
                 at: installURL,
                 withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o700]
