@@ -205,8 +205,10 @@ final class SidebarHelpMenuUITests: XCTestCase {
     ) -> XCUIElement? {
         var match: XCUIElement?
         let found = sidebarHelpPollUntil(timeout: timeout) {
-            for candidate in candidates where candidate.exists {
-                match = candidate
+            for candidate in candidates {
+                let resolved = candidate.firstMatch
+                guard resolved.exists else { continue }
+                match = resolved
                 return true
             }
             return false
@@ -227,10 +229,11 @@ final class SidebarHelpMenuUITests: XCTestCase {
     }
 
     private func clickElement(_ element: XCUIElement) {
-        if element.isHittable {
-            element.click()
+        let target = element.firstMatch
+        if target.isHittable {
+            target.click()
         } else {
-            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+            target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         }
     }
 
@@ -1134,8 +1137,10 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     ) -> XCUIElement? {
         var match: XCUIElement?
         let found = sidebarHelpPollUntil(timeout: timeout) {
-            for candidate in candidates where candidate.exists {
-                match = candidate
+            for candidate in candidates {
+                let resolved = candidate.firstMatch
+                guard resolved.exists else { continue }
+                match = resolved
                 return true
             }
             return false
@@ -1144,10 +1149,11 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     private func clickElement(_ element: XCUIElement) {
-        if element.isHittable {
-            element.click()
+        let target = element.firstMatch
+        if target.isHittable {
+            target.click()
         } else {
-            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+            target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         }
     }
 
