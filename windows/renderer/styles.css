@@ -1199,14 +1199,14 @@ body.reduce-motion *::after {
   flex-basis: min(var(--surface-tab-basis, 160px), 118px);
   min-width: min(var(--surface-tab-min, 104px), 82px);
   max-width: min(var(--surface-tab-max, 220px), 142px);
-  grid-template-columns: 16px minmax(0, 1fr) 20px;
+  grid-template-columns: 16px minmax(0, 1fr);
   gap: 3px;
-  padding: 0 3px 0 5px;
+  padding: 0 5px;
 }
 
 .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab):hover,
 .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab).is-active {
-  padding: 0 3px 0 5px;
+  padding: 0 5px;
 }
 
 @container (max-width: 520px) {
@@ -1339,11 +1339,13 @@ body.reduce-motion *::after {
 }
 
 .surface-tabs.is-crowded .surface-close {
-  position: static;
-  transform: none;
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 20px;
   height: 20px;
-  background: transparent;
+  background: color-mix(in oklch, var(--color-pane) 88%, transparent);
 }
 
 .surface-tabs.is-crowded .surface-tab:hover .surface-close,
@@ -1426,7 +1428,7 @@ body.reduce-motion *::after {
 .surface-tabs.is-crowded .surface-tab:hover .surface-label,
 .surface-tabs.is-crowded .surface-tab:focus-within .surface-label,
 .surface-tabs.is-crowded .surface-tab.is-active .surface-label {
-  padding-right: 0;
+  padding-right: 18px;
 }
 
 .surface-close:hover {
@@ -2646,9 +2648,9 @@ body.reduce-motion *::after {
   min-width: 54px;
   max-width: 116px;
   flex-basis: 92px;
-  grid-template-columns: 14px minmax(0, 1fr) 17px;
+  grid-template-columns: 14px minmax(0, 1fr);
   gap: 3px;
-  padding: 0 3px 0 5px;
+  padding: 0 5px;
 }
 
 .browser-tab-list.is-crowded .browser-tab::before {
@@ -2727,11 +2729,13 @@ body.reduce-motion *::after {
 }
 
 .browser-tab-list.is-crowded .browser-tab-close {
-  position: static;
-  transform: none;
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 17px;
   height: 17px;
-  background: transparent;
+  background: color-mix(in oklch, var(--color-pane) 88%, transparent);
   box-shadow: none;
 }
 
@@ -2750,7 +2754,7 @@ body.reduce-motion *::after {
 .browser-tab-list.is-crowded .browser-tab:hover .browser-tab-label,
 .browser-tab-list.is-crowded .browser-tab:focus-within .browser-tab-label,
 .browser-tab-list.is-crowded .browser-tab.is-active .browser-tab-label {
-  padding-right: 0;
+  padding-right: 17px;
 }
 
 .browser-tab-close:hover {
