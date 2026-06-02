@@ -473,7 +473,7 @@ if (!hasLock) {
       title: t("dialog.chooseBackground"),
       properties: ["openFile"],
       filters: [
-        { name: t("dialog.images"), extensions: ["jpg", "jpeg", "png", "gif", "webp", "bmp", "avif"] }
+        { name: t("dialog.images"), extensions: ["jpg", "jpeg", "png", "gif", "webp", "bmp", "avif", "svg"] }
       ]
     });
     const filePath = result.canceled ? "" : result.filePaths[0];

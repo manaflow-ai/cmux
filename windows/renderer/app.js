@@ -936,7 +936,7 @@ async function applyCustomBackgroundImage(value, options = {}) {
 }
 
 function isSupportedBackgroundFileName(name) {
-  return /\.(avif|bmp|gif|jpe?g|png|webp)$/i.test(String(name || ""));
+  return /\.(avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(String(name || ""));
 }
 
 function firstDroppedBackgroundFile(dataTransfer) {
@@ -1675,7 +1675,7 @@ function createSavedBackgroundImageId() {
 
 function defaultBackgroundLabel(url) {
   if (/^data:image\//i.test(url)) return "Background image";
-  const name = fileNameFromUrl(url).replace(/\.(?:avif|bmp|gif|jpe?g|png|webp)$/i, "");
+  const name = fileNameFromUrl(url).replace(/\.(?:avif|bmp|gif|jpe?g|png|svg|webp)$/i, "");
   if (name && !name.startsWith("data:image")) return normalizeBackgroundLabel(name);
   try {
     const parsed = new URL(url);
