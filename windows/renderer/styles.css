@@ -1704,7 +1704,8 @@ body.reduce-motion *::after {
 }
 
 .pane-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
@@ -1813,6 +1814,8 @@ body.reduce-motion *::after {
 .pane-toolbar {
   display: flex;
   flex: 0 0 auto;
+  justify-self: end;
+  min-width: 0;
   gap: var(--space-1);
   max-width: 0;
   overflow: hidden;
@@ -1828,7 +1831,7 @@ body.reduce-motion *::after {
 .pane-header:hover .pane-toolbar,
 .pane.is-active .pane-toolbar,
 .pane-toolbar:focus-within {
-  max-width: min(54%, 192px);
+  max-width: min(192px, 100%);
   opacity: 1;
   pointer-events: auto;
   transform: translateX(0);
@@ -1926,7 +1929,7 @@ body.reduce-motion *::after {
 .shell.pane-header-compact .pane:hover .pane-toolbar,
 .shell.pane-header-compact .pane.is-active .pane-toolbar,
 .shell.pane-header-compact .pane-header:focus-within .pane-toolbar {
-  max-width: min(48%, 116px);
+  max-width: min(116px, 100%);
   opacity: 1;
   pointer-events: auto;
   transform: none;
@@ -1960,7 +1963,7 @@ body.reduce-motion *::after {
   .pane-header:hover .pane-toolbar,
   .pane.is-active .pane-toolbar,
   .pane-toolbar:focus-within {
-    max-width: min(64%, 128px);
+    max-width: min(128px, 100%);
   }
 
   .pane-tool {
@@ -2032,6 +2035,7 @@ body.reduce-motion *::after {
 
 @container (max-width: 72px) {
   .pane-header {
+    grid-template-columns: minmax(0, 1fr);
     justify-content: center;
     gap: 0;
     padding: 0;
