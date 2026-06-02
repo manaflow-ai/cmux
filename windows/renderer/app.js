@@ -7156,6 +7156,7 @@ function renderSettingsInspector(options = {}) {
         if (saved) imageInput.value = saved.url;
       }, "", "background image url local path apply save wallpaper"),
       settingsActionButton("Paste", () => pasteBackgroundImageFromClipboard({ input: imageInput }), "", "background image paste clipboard url local path wallpaper"),
+      settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input: imageInput, save: true }), "", "background image paste clipboard copied image apply save wallpaper"),
       settingsActionButton("Choose file", chooseBackgroundImage, "", "background image local file wallpaper"),
       settingsActionButton("Clear image", () => {
         updateSettings({ backgroundImage: "" }, { immediate: true });
@@ -10243,6 +10244,7 @@ function savedBackgroundImagesPanel() {
   actions.append(
     applyAndSave,
     saveCurrent,
+    settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input, save: true }), "", "saved background image paste clipboard copied image apply save wallpaper"),
     settingsActionButton("Choose + save", () => chooseBackgroundImage({ save: true }), "", "saved background image choose local file wallpaper")
   );
   panel.append(actions);
