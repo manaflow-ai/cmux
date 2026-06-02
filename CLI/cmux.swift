@@ -22254,7 +22254,9 @@ struct CMUXCLI {
             guard let data = try handle.readToEnd(), !data.isEmpty else {
                 return nil
             }
-            var text = String(decoding: data, as: UTF8.self)
+            guard var text = String(bytes: data, encoding: .utf8) else {
+                return nil
+            }
             let maxWindowBytes = maxBytes > UInt64.max / 8 ? UInt64.max : maxBytes * 8
 
             while !hasCompleteLineAfterLeadingBoundary(text, readStart: readStart), readStart > 0 {
@@ -22269,7 +22271,10 @@ struct CMUXCLI {
                 guard let expandedData = try handle.readToEnd(), !expandedData.isEmpty else {
                     return nil
                 }
-                text = String(decoding: expandedData, as: UTF8.self)
+                guard let expandedText = String(bytes: expandedData, encoding: .utf8) else {
+                    return nil
+                }
+                text = expandedText
             }
 
             if readStart > 0, let newline = text.firstIndex(of: "\n") {
