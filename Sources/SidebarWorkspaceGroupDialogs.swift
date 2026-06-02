@@ -77,7 +77,7 @@ func presentSidebarWorkspaceGroupIconPrompt(
         alert.accessoryView = input
         let alertWindow = alert.window
         alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
+        Task { @MainActor in
             alertWindow.makeFirstResponder(input)
             input.selectText(nil)
         }
