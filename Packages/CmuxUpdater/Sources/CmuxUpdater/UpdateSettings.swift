@@ -25,6 +25,11 @@ public struct UpdateSettings: Sendable {
     public let scheduledCheckInterval: TimeInterval
 
     /// Creates the settings with cmux's defaults.
+    ///
+    /// - Parameter scheduledCheckInterval: How often Sparkle checks for updates, in seconds.
+    ///   Defaults to one hour.
+    /// - Parameter previousDefaultScheduledCheckInterval: The legacy interval the migration
+    ///   upgrades away from when it sees it persisted. Defaults to 24 hours.
     public init(scheduledCheckInterval: TimeInterval = 60 * 60,
                 previousDefaultScheduledCheckInterval: TimeInterval = 60 * 60 * 24) {
         self.scheduledCheckInterval = scheduledCheckInterval
