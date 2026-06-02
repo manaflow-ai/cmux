@@ -3736,7 +3736,9 @@ function workspaceListContentSignature() {
     const attentionTotal = workspace.panels.filter((panel) => panel.needsAttention).length;
     appendSignatureValue(nextParts, workspace.id);
     appendSignatureValue(nextParts, workspace.title || `Workspace ${index + 1}`);
+    appendSignatureValue(nextParts, workspace.cwd || "");
     appendSignatureValue(nextParts, workspace.cwdShort || "~");
+    appendSignatureValue(nextParts, workspace.branch || "");
     appendSignatureValue(nextParts, workspace.color || paletteColor);
     appendSignatureValue(nextParts, workspace.terminalCount || 0);
     appendSignatureValue(nextParts, workspace.browserCount || 0);
@@ -3768,7 +3770,10 @@ function createWorkspaceRow() {
         <span class="workspace-badge"></span>
       </span>
       <span class="workspace-detail-line">
-        <span class="workspace-path"></span>
+        <span class="workspace-meta">
+          <span class="workspace-path"></span>
+          <span class="workspace-branch"></span>
+        </span>
         <span class="workspace-counts"></span>
       </span>
     </span>
@@ -3870,6 +3875,7 @@ function workspaceRowParts(button) {
     name: button.querySelector(".workspace-name"),
     badge: button.querySelector(".workspace-badge"),
     path: button.querySelector(".workspace-path"),
+    branch: button.querySelector(".workspace-branch"),
     counts: button.querySelector(".workspace-counts")
   };
   return button._workspaceParts;
@@ -3885,20 +3891,25 @@ function updateWorkspaceRow(button, workspace, index, activeId) {
   const hasAttention = workspace.panels.some((panel) => panel.needsAttention);
   const attentionTotal = workspace.panels.filter((panel) => panel.needsAttention).length;
   const title = workspaceDisplayTitle(workspace, `Workspace ${index + 1}`);
-  const cwd = isAppHomeWorkspace(workspace) ? "home" : workspace.cwdShort || "~";
+  const isHome = isAppHomeWorkspace(workspace);
+  const cwd = isHome ? "home" : workspace.cwdShort || "~";
+  const fullCwd = isHome ? "cmux home" : workspace.cwd || cwd;
+  const branch = String(workspace.branch || "").trim();
   const paneSummary = `${workspace.terminalCount || 0} terminal${workspace.terminalCount === 1 ? "" : "s"} / ${workspace.browserCount || 0} browser${workspace.browserCount === 1 ? "" : "s"}`;
   const compactPaneSummary = `${workspace.terminalCount || 0}T ${workspace.browserCount || 0}B`;
   const parts = workspaceRowParts(button);
   setDatasetIfChanged(button, "workspaceId", workspace.id);
-  setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}${state.dragWorkspaceId === workspace.id ? " is-workspace-dragging" : ""}`);
+  setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}${branch ? " has-branch" : ""}${state.dragWorkspaceId === workspace.id ? " is-workspace-dragging" : ""}`);
   setStylePropertyIfChanged(button, "--workspace-color", workspace.color || state.data.palette?.[0] || "");
-  const rowHelp = `${title} - ${cwd} - ${paneSummary} - drag to reorder, double-click to rename, right-click for workspace options`;
+  const rowHelp = `${title} - ${fullCwd}${branch ? ` - ${branch}` : ""} - ${paneSummary} - drag to reorder, double-click to rename, right-click for workspace options`;
   setTitleIfChanged(button, rowHelp);
   if (button.getAttribute("aria-label") !== rowHelp) button.setAttribute("aria-label", rowHelp);
   setTextIfChanged(parts.name, title);
   setTextIfChanged(parts.badge, hasAttention ? String(attentionTotal) : "");
   setTextIfChanged(parts.path, cwd);
-  setTitleIfChanged(parts.path, cwd);
+  setTitleIfChanged(parts.path, fullCwd);
+  setTextIfChanged(parts.branch, branch);
+  setTitleIfChanged(parts.branch, branch ? `Git branch: ${branch}` : "");
   setTextIfChanged(parts.counts, compactPaneSummary);
   setTitleIfChanged(parts.counts, paneSummary);
 }

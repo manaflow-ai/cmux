@@ -726,7 +726,7 @@ body.reduce-motion *::after {
 }
 
 .workspace-row.is-active {
-  border-color: var(--workspace-color, var(--color-accent));
+  border-color: var(--color-line-strong);
   background: color-mix(in oklch, var(--workspace-color, var(--color-accent)) 10%, var(--color-pane) 90%);
   color: var(--color-text);
 }
@@ -889,6 +889,7 @@ body.reduce-motion *::after {
 
 .workspace-card {
   min-width: 0;
+  overflow: hidden;
   display: grid;
   align-content: center;
   gap: 3px;
@@ -896,7 +897,8 @@ body.reduce-motion *::after {
 }
 
 .workspace-name-line {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
@@ -936,7 +938,9 @@ body.reduce-motion *::after {
 }
 
 .workspace-detail-line,
-.workspace-path {
+.workspace-meta,
+.workspace-path,
+.workspace-branch {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -952,6 +956,28 @@ body.reduce-motion *::after {
   gap: var(--space-2);
 }
 
+.workspace-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.workspace-path {
+  flex: 1 1 auto;
+}
+
+.workspace-branch {
+  display: none;
+  flex: 0 1 48%;
+  max-width: 48%;
+  padding: 1px 5px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--color-pane) 76%, transparent);
+  color: var(--color-muted);
+  font: 700 10px/1.25 var(--font-mono);
+}
+
 .workspace-counts {
   display: none;
   min-width: max-content;
@@ -964,7 +990,8 @@ body.reduce-motion *::after {
 }
 
 .workspace-row.is-active .workspace-detail-line,
-.workspace-row.is-active .workspace-path {
+.workspace-row.is-active .workspace-path,
+.workspace-row.is-active .workspace-branch {
   color: var(--color-muted);
 }
 
@@ -982,6 +1009,11 @@ body.reduce-motion *::after {
   font-family: var(--font-mono);
 }
 
+.shell.workspace-detail-detailed .workspace-row.has-branch .workspace-branch {
+  display: inline-flex;
+}
+
+.shell.workspace-detail-balanced .workspace-counts,
 .shell.workspace-detail-detailed .workspace-counts {
   display: inline-flex;
 }
