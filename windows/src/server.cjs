@@ -588,7 +588,7 @@ class TerminalProcess {
       if (!this.panel.needsAttention || this.panel.notificationText !== notificationText) {
         this.panel.needsAttention = true;
         this.panel.notificationText = notificationText;
-        this.panel.runtime.broadcastState();
+        this.panel.runtime.scheduleTerminalMetadataBroadcast();
       }
     }
     const payload = JSON.stringify({ type: "output", data });
