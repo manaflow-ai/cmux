@@ -11,7 +11,10 @@ DERIVED_SET=0
 TAG=""
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
 # read the last-socket-path markers (https://github.com/manaflow-ai/cmux/issues/5146).
-LAST_SOCKET_PATH_DIR="$HOME/.local/state/cmux"
+# Resolve the real account home (getpwuid-equivalent) rather than $HOME, since the
+# app/CLI use homeDirectoryForCurrentUser which ignores a shell-overridden $HOME.
+_cmux_account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+LAST_SOCKET_PATH_DIR="${_cmux_account_home:-$HOME}/.local/state/cmux"
 
 write_last_socket_path() {
   local socket_path="$1"

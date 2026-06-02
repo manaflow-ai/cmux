@@ -77,7 +77,7 @@ import Testing
     @Test func bothStoresResolveIdenticalFileURL() async throws {
         let controlDirectory = tempBaseDirectory()
         let passwordURL = try #require(
-            SocketControlPasswordStore.defaultPasswordFileURL(directory: controlDirectory)
+            SocketControlPasswordStore.defaultPasswordFileURL(directory: controlDirectory, fileManager: .default)
         )
         // Exactly the derivation cmuxApp.init performs.
         let secretBase = passwordURL.deletingLastPathComponent()

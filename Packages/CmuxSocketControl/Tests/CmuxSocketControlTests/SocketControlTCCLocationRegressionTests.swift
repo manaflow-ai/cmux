@@ -30,7 +30,7 @@ import Testing
     }
 
     @Test func socketPasswordFileIsOutsideTCCProtectedAppData() throws {
-        let path = try #require(SocketControlPasswordStore.defaultPasswordFileURL()?.path)
+        let path = try #require(SocketControlPasswordStore.defaultPasswordFileURL(fileManager: .default)?.path)
         expectOutsideTCCAppData(path)
         #expect(path.hasSuffix("/.local/state/cmux/socket-control-password"))
     }

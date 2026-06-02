@@ -32,7 +32,7 @@ import Testing
     }
 
     @Test func legacyApplicationSupportURLPointsAtOldLocation() {
-        let legacy = CmuxStateDirectory.legacyApplicationSupportURL()
+        let legacy = CmuxStateDirectory.legacyApplicationSupportURL(fileManager: .default)
         // Only used for one-time migration; it must still address the old folder.
         #expect(legacy?.lastPathComponent == "cmux")
         #expect(legacy?.path.contains("/Application Support/cmux") == true)
@@ -59,7 +59,7 @@ import Testing
         let destination = destDir.appendingPathComponent(SocketControlPasswordStore.fileName)
         try Data("hunter2".utf8).write(to: legacy)
 
-        let moved = SocketControlPasswordStore.migratePasswordFile(from: legacy, to: destination)
+        let moved = SocketControlPasswordStore.migratePasswordFile(from: legacy, to: destination, fileManager: .default)
 
         #expect(moved)
         #expect(!FileManager.default.fileExists(atPath: legacy.path))
@@ -83,7 +83,7 @@ import Testing
         try Data("old".utf8).write(to: legacy)
         try Data("current".utf8).write(to: destination)
 
-        let moved = SocketControlPasswordStore.migratePasswordFile(from: legacy, to: destination)
+        let moved = SocketControlPasswordStore.migratePasswordFile(from: legacy, to: destination, fileManager: .default)
 
         #expect(!moved)
         // The newer destination wins; the legacy file is left untouched.
@@ -98,8 +98,36 @@ import Testing
         let legacy = legacyDir.appendingPathComponent(SocketControlPasswordStore.fileName)
         let destination = destDir.appendingPathComponent(SocketControlPasswordStore.fileName)
 
-        #expect(!SocketControlPasswordStore.migratePasswordFile(from: legacy, to: destination))
+        #expect(!SocketControlPasswordStore.migratePasswordFile(from: legacy, to: destination, fileManager: .default))
         #expect(!FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    /// When an atomic move fails (e.g. cross-device) but the copy succeeds, the
+    /// legacy original is removed so no stale credential copy is left behind in the
+    /// TCC-protected directory (https://github.com/manaflow-ai/cmux/issues/5146).
+    @Test func copyFallbackRemovesLegacyAfterSuccessfulCopy() throws {
+        let legacyDir = tempDir()
+        let destDir = tempDir()
+        defer {
+            try? FileManager.default.removeItem(at: legacyDir)
+            try? FileManager.default.removeItem(at: destDir)
+        }
+        try FileManager.default.createDirectory(at: legacyDir, withIntermediateDirectories: true)
+        let legacy = legacyDir.appendingPathComponent(SocketControlPasswordStore.fileName)
+        let destination = destDir.appendingPathComponent(SocketControlPasswordStore.fileName)
+        try Data("hunter2".utf8).write(to: legacy)
+
+        // Force the move to fail so the copy fallback runs.
+        let moved = SocketControlPasswordStore.migratePasswordFile(
+            from: legacy,
+            to: destination,
+            fileManager: MoveFailingFileManager()
+        )
+
+        #expect(moved)
+        #expect(try String(contentsOf: destination, encoding: .utf8) == "hunter2")
+        // The legacy original must not linger in the protected directory.
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
     }
 
     /// After migration, a store reading the default state-directory location sees
@@ -116,10 +144,20 @@ import Testing
         let destination = destDir.appendingPathComponent(SocketControlPasswordStore.fileName)
         try Data("secret-pw".utf8).write(to: legacy)
 
-        SocketControlPasswordStore.migratePasswordFile(from: legacy, to: destination)
+        SocketControlPasswordStore.migratePasswordFile(from: legacy, to: destination, fileManager: .default)
 
         let store = SocketControlPasswordStore(environment: [:], fileURL: destination)
         #expect(try store.loadPassword() == "secret-pw")
         #expect(store.verify(password: "secret-pw"))
+    }
+}
+
+/// A `FileManager` whose `moveItem(at:to:)` always fails, used to exercise the
+/// copy fallback path of ``SocketControlPasswordStore/migratePasswordFile(from:to:fileManager:)``.
+///
+/// Holds no mutable state, so it is safe to mark `@unchecked Sendable`.
+private final class MoveFailingFileManager: FileManager, @unchecked Sendable {
+    override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+        throw CocoaError(.fileWriteUnknown)
     }
 }

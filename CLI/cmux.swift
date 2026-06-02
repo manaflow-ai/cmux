@@ -1432,8 +1432,9 @@ enum SocketPasswordResolver {
     private static func loadFromFile() -> String? {
         // Resolve through the shared store so the CLI reads the exact path the app
         // writes — the non-TCC cmux state directory, not Application Support
-        // (https://github.com/manaflow-ai/cmux/issues/5146).
-        guard let passwordURL = SocketControlPasswordStore.defaultPasswordFileURL() else {
+        // (https://github.com/manaflow-ai/cmux/issues/5146). The CLI is a
+        // composition root, so it names the concrete `FileManager.default` here.
+        guard let passwordURL = SocketControlPasswordStore.defaultPasswordFileURL(fileManager: .default) else {
             return nil
         }
         guard let data = try? Data(contentsOf: passwordURL) else {
@@ -10509,8 +10510,9 @@ struct CMUXCLI {
         // cross-identity reach into the app's Application Support data triggers the
         // macOS Sequoia "access data from other apps" prompt
         // (https://github.com/manaflow-ai/cmux/issues/5146). The app's
-        // Workspace.remoteDaemonCachedBinaryURL resolves the same path.
-        return CmuxStateDirectory.url()
+        // Workspace.remoteDaemonCachedBinaryURL resolves the same path. The CLI is
+        // a composition root, so it names the concrete `FileManager.default` here.
+        return CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
             .appendingPathComponent("remote-daemons", isDirectory: true)
             .appendingPathComponent(version, isDirectory: true)
             .appendingPathComponent("\(goOS)-\(goArch)", isDirectory: true)

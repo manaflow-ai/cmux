@@ -48,14 +48,16 @@ struct cmuxApp: App {
         // apps" prompt; the password now lives in the non-protected cmux state
         // directory (https://github.com/manaflow-ai/cmux/issues/5146). The app
         // owns its Application Support data, so it can perform this move silently.
-        SocketControlPasswordStore.migrateLegacyApplicationSupportPasswordFileIfNeeded()
+        // This App initializer is the composition root, so it is where the
+        // concrete `FileManager.default` is named for the package's injected seams.
+        SocketControlPasswordStore.migrateLegacyApplicationSupportPasswordFileIfNeeded(fileManager: .default)
         // Secrets live in their own 0600 files under the cmux state directory,
         // the same directory (and `socket-control-password` file) the socket
         // auth path reads via SocketControlPasswordStore, so the Settings UI
         // and the listener share one source of truth.
-        let secretBaseDirectory = SocketControlPasswordStore.defaultPasswordFileURL()?
+        let secretBaseDirectory = SocketControlPasswordStore.defaultPasswordFileURL(fileManager: .default)?
             .deletingLastPathComponent()
-            ?? CmuxStateDirectory.url()
+            ?? CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
         let secretStore = SecretFileStore(baseDirectory: secretBaseDirectory)
 
         // Lift any plaintext socket-control password out of `cmux.json` into the

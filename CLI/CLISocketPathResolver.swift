@@ -499,16 +499,17 @@ enum CLISocketPathResolver {
     /// Resolves to ``CmuxStateDirectory`` (`~/.local/state/cmux`), matching the
     /// app's `SocketControlSettings.stableSocketDirectoryURL()`. This keeps the
     /// CLI off the app's TCC-protected Application Support data on the agent hook
-    /// path (https://github.com/manaflow-ai/cmux/issues/5146).
+    /// path (https://github.com/manaflow-ai/cmux/issues/5146). The CLI is a
+    /// composition root, so it names the concrete `FileManager.default` here.
     private static func stableSocketDirectoryURL() -> URL? {
-        CmuxStateDirectory.url()
+        CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
     }
 
     private static func socketDiscoveryDirectories() -> [String] {
-        let appSupportSocketDirectory: String = stableSocketDirectoryURL()?.path ?? ""
+        let stateSocketDirectory: String = stableSocketDirectoryURL()?.path ?? ""
         return dedupe([
             "/tmp",
-            appSupportSocketDirectory,
+            stateSocketDirectory,
         ])
     }
 

@@ -22,8 +22,10 @@ public import Foundation
 /// existing `~/.local/state/cmux/crash` breadcrumb directory.
 ///
 /// ```swift
-/// // The stable control socket, app and CLI agree on the same path:
-/// let socket = CmuxStateDirectory.url().appendingPathComponent("cmux.sock")
+/// // The stable control socket; app and CLI agree on the same path by passing
+/// // the real account home (`FileManager.default.homeDirectoryForCurrentUser`):
+/// let home = FileManager.default.homeDirectoryForCurrentUser
+/// let socket = CmuxStateDirectory.url(homeDirectory: home).appendingPathComponent("cmux.sock")
 /// ```
 public enum CmuxStateDirectory {
     /// The directory name segment under `~/.local/state` (and the legacy name
@@ -32,15 +34,17 @@ public enum CmuxStateDirectory {
 
     /// The cmux state directory: `<home>/.local/state/cmux`.
     ///
-    /// - Parameter homeDirectory: The user's home directory. Defaults to
-    ///   `FileManager.homeDirectoryForCurrentUser`, which resolves the real
-    ///   account home independently of the `HOME` environment variable, so the
-    ///   app and CLI always agree on the path even when a shell overrides `HOME`.
+    /// The home directory is injected (no ambient `FileManager.default` default)
+    /// so this stays a pure, testable function with no hidden global state.
+    /// Composition roots pass `FileManager.default.homeDirectoryForCurrentUser`,
+    /// which resolves the real account home independently of the `HOME`
+    /// environment variable, so the app and CLI always agree on the path even
+    /// when a shell overrides `HOME`.
+    ///
+    /// - Parameter homeDirectory: The user's home directory.
     /// - Returns: The state directory URL (its parents are created on first write
     ///   by the socket listener, marker writer, and password store).
-    public static func url(
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
-    ) -> URL {
+    public static func url(homeDirectory: URL) -> URL {
         homeDirectory
             .appendingPathComponent(".local", isDirectory: true)
             .appendingPathComponent("state", isDirectory: true)
@@ -53,14 +57,13 @@ public enum CmuxStateDirectory {
     /// Retained only so the app can migrate persistent files (the socket
     /// password) out of TCC-protected storage on launch. New reads and writes go
     /// through ``url(homeDirectory:)``; nothing on the CLI hook path should touch
-    /// this location.
+    /// this location. The `FileManager` is injected (no ambient default) to keep
+    /// the seam explicit for tests and alternate callers.
     ///
     /// - Parameter fileManager: Used to resolve Application Support.
     /// - Returns: The legacy directory, or `nil` when Application Support cannot
     ///   be resolved.
-    public static func legacyApplicationSupportURL(
-        fileManager: FileManager = .default
-    ) -> URL? {
+    public static func legacyApplicationSupportURL(fileManager: FileManager) -> URL? {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent(directoryName, isDirectory: true)
     }

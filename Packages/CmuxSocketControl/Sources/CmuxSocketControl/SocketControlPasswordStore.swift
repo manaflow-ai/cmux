@@ -224,14 +224,17 @@ public struct SocketControlPasswordStore: Sendable {
     /// outside Application Support so the separately-signed `cmux` CLI can read it
     /// on the agent hook path without triggering the macOS Sequoia "access data
     /// from other apps" prompt (https://github.com/manaflow-ai/cmux/issues/5146).
+    ///
+    /// The `fileManager` is injected (no ambient default) so the resolution has no
+    /// hidden global state; composition roots pass `.default`.
     /// - Parameters:
-    ///   - directory: An explicit directory to hold the file; defaults to the
-    ///     ``CmuxStateDirectory`` location.
-    ///   - fileManager: The file manager used to resolve the user's home; defaults to `.default`.
+    ///   - directory: An explicit directory to hold the file; when `nil`, the
+    ///     ``CmuxStateDirectory`` location is resolved via `fileManager`.
+    ///   - fileManager: The file manager used to resolve the user's home.
     /// - Returns: The password file URL.
     public static func defaultPasswordFileURL(
         directory: URL? = nil,
-        fileManager: FileManager = .default
+        fileManager: FileManager
     ) -> URL? {
         let controlDirectory = directory
             ?? CmuxStateDirectory.url(homeDirectory: fileManager.homeDirectoryForCurrentUser)
@@ -243,19 +246,24 @@ public struct SocketControlPasswordStore: Sendable {
     ///
     /// Used to relocate the socket password out of the legacy Application Support
     /// location (see ``defaultPasswordFileURL(directory:fileManager:)``). Falls
-    /// back to a copy when an atomic move is not possible, so a configured
-    /// password is never lost.
+    /// back to a copy when an atomic move is not possible (e.g. a cross-device
+    /// move), so a configured password is never lost; on the copy path the legacy
+    /// file is then removed so no stale credential copy is left behind in the
+    /// TCC-protected directory.
+    ///
+    /// The `fileManager` is injected (no ambient default) so the migration is
+    /// deterministic in tests.
     /// - Parameters:
     ///   - legacyURL: The existing password file to relocate.
     ///   - destination: The new password file path.
-    ///   - fileManager: The file manager used for the filesystem operations; defaults to `.default`.
+    ///   - fileManager: The file manager used for the filesystem operations.
     /// - Returns: `true` when a file was relocated, `false` when nothing was done
     ///   (no legacy file, destination already present, or same path).
     @discardableResult
     public static func migratePasswordFile(
         from legacyURL: URL,
         to destination: URL,
-        fileManager: FileManager = .default
+        fileManager: FileManager
     ) -> Bool {
         guard fileManager.fileExists(atPath: legacyURL.path),
               !fileManager.fileExists(atPath: destination.path),
@@ -273,6 +281,9 @@ public struct SocketControlPasswordStore: Sendable {
             guard (try? fileManager.copyItem(at: legacyURL, to: destination)) != nil else {
                 return false
             }
+            // The move failed but the copy succeeded; remove the legacy original
+            // so a stale password copy is not left in the TCC-protected directory.
+            try? fileManager.removeItem(at: legacyURL)
         }
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
         return true
@@ -285,10 +296,11 @@ public struct SocketControlPasswordStore: Sendable {
     /// The app — which owns its Application Support data and can read it without a
     /// TCC prompt — calls this on launch so an existing user's configured socket
     /// password survives the move to the non-protected directory. Nothing on the
-    /// CLI hook path reads the legacy location.
-    /// - Parameter fileManager: The file manager used for the move; defaults to `.default`.
+    /// CLI hook path reads the legacy location. The `fileManager` is injected (no
+    /// ambient default); composition roots pass `.default`.
+    /// - Parameter fileManager: The file manager used for the move.
     public static func migrateLegacyApplicationSupportPasswordFileIfNeeded(
-        fileManager: FileManager = .default
+        fileManager: FileManager
     ) {
         guard let destination = defaultPasswordFileURL(fileManager: fileManager),
               let legacyDirectory = CmuxStateDirectory.legacyApplicationSupportURL(fileManager: fileManager) else {
