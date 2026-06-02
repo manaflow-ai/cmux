@@ -2745,10 +2745,10 @@ const commands = [
   { id: "settings.clearRecentActivity", label: "Clear Recent Activity", shortcut: "", run: () => clearRecentActivity() },
   { id: "settings.terminal", label: "Open Terminal Settings", shortcut: "", run: () => openSettingsCategory("terminal") },
   { id: "settings.terminalColors", label: "Reset Terminal Colors", shortcut: "", run: () => applyTerminalColorPresetById("cmux") },
-  { id: "settings.colors", label: "Open Color Settings", shortcut: "", run: () => openSettingsCategory("appearance") },
+  { id: "settings.colors", label: "Open Color Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "color", focusSearch: true }) },
   { id: "settings.saveAccentColor", label: "Save Current Accent Color", shortcut: "", run: () => upsertCustomColorPalette(state.settings.accent) },
   { id: "settings.saveWorkspaceColor", label: "Save Current Workspace Color", shortcut: "", run: () => upsertCustomColorPalette(activeWorkspace()?.color) },
-  { id: "settings.backgrounds", label: "Open Background Settings", shortcut: "", run: () => openSettingsCategory("appearance") },
+  { id: "settings.backgrounds", label: "Open Background Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "background", focusSearch: true }) },
   { id: "settings.saveBackground", label: "Save Current Background", shortcut: "", run: () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }) },
   { id: "session.reset", label: "Reset Session", shortcut: "", run: () => resetSession() },
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() }
@@ -12310,9 +12310,9 @@ function showToolbarMenu(event) {
       contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
       contextMenuButton("Settings profiles", () => openSettingsCategory("profiles")),
       contextMenuButton("Clear recent activity", clearRecentActivity, !hasRecentActivity(), "danger"),
-      contextMenuButton("Color settings", () => openSettingsCategory("appearance")),
+      contextMenuButton("Color settings", () => openSettingsCategory("appearance", { query: "color", focusSearch: true })),
       contextMenuButton("Save current accent", () => upsertCustomColorPalette(state.settings.accent), !normalizeCustomPaletteColor(state.settings.accent)),
-      contextMenuButton("Background settings", () => openSettingsCategory("appearance")),
+      contextMenuButton("Background settings", () => openSettingsCategory("appearance", { query: "background", focusSearch: true })),
       contextMenuButton("Save current background", () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }), !isCustomBackgroundImage(state.settings.backgroundImage)),
       contextMenuButton("Workspace blueprints", () => openSettingsCategory("blueprints"))
     ),
@@ -14645,10 +14645,12 @@ function openInspector(mode) {
   render();
 }
 
-function openSettingsCategory(category = "quick") {
+function openSettingsCategory(category = "quick", options = {}) {
   state.inspectorMode = "settings";
   state.settingsCategory = settingsCategories.some(([id]) => id === category) ? category : "quick";
-  state.settingsQuery = "";
+  state.settingsQuery = String(options.query || "").trim();
+  state.settingsSearchFocusPending = Boolean(options.focusSearch || state.settingsQuery);
+  if (normalizeSettingsQuery(state.settingsQuery)) queueSettingsSearchAutoScroll();
   state.settingsScrollResetPending = true;
   updateRailButtons();
   render();

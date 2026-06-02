@@ -10,6 +10,14 @@ const defaultLabels = () => ({
   tabTitle: formatMessage("settings.tabTitle", { label: "{label}" })
 });
 
+function CloseIcon() {
+  return (
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+      <path d="m7 7 10 10M17 7 7 17" />
+    </svg>
+  );
+}
+
 export function SettingsShell({
   activeCategory,
   categories,
@@ -73,7 +81,7 @@ export function SettingsShell({
           title={safeLabels.clearSearch}
           onClick={clearSearch}
         >
-          <span aria-hidden="true">×</span>
+          <CloseIcon />
         </button>
       </div>
       <div className="settings-page-switcher">
