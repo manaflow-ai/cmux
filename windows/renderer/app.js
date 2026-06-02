@@ -4347,6 +4347,25 @@ function renderPaneTreeNode(node, workspace, panelById, visibleCount) {
   return split;
 }
 
+const paneToolIcons = {
+  focus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4H5a1 1 0 0 0-1 1v3M16 4h3a1 1 0 0 1 1 1v3M8 20H5a1 1 0 0 1-1-1v-3M16 20h3a1 1 0 0 0 1-1v-3"></path></svg>`,
+  showAll: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 9H5V5M15 9h4V5M9 15H5v4M15 15h4v4"></path><path d="m5 5 5 5M19 5l-5 5M5 19l5-5M19 19l-5-5"></path></svg>`,
+  minimize: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 12h10"></path></svg>`,
+  restore: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 7v10M7 12h10"></path></svg>`
+};
+
+function setPaneToolIcon(button, icon) {
+  if (!button || button.dataset.paneIcon === icon) return;
+  button.innerHTML = paneToolIcons[icon] || paneToolIcons.focus;
+  button.dataset.paneIcon = icon;
+}
+
+function updatePaneToolState(button, icon, label) {
+  setPaneToolIcon(button, icon);
+  setTitleIfChanged(button, label);
+  if (button?.getAttribute("aria-label") !== label) button.setAttribute("aria-label", label);
+}
+
 function renderPaneNode(panel, workspace, visibleCount) {
   let pane = state.paneCache.get(panel.id) || elements.paneGrid.querySelector(`[data-panel-id="${panel.id}"]`);
   if (!pane) pane = createPane(panel);
@@ -4364,11 +4383,12 @@ function renderPaneNode(panel, workspace, visibleCount) {
   if (terminalSession && panel.type === "terminal") terminalSession.term.options.theme = terminalTheme(panel);
   toggleClassIfChanged(pane, "is-active", panel.id === workspace.activePanelId);
   const zoomed = isPanelZoomed(panel, workspace);
+  const minimized = isPanelMinimized(panel);
   toggleClassIfChanged(pane, "is-zoomed", zoomed);
   toggleClassIfChanged(pane, "has-attention", panel.needsAttention);
   toggleClassIfChanged(pane, "is-browser", panel.type === "browser");
   toggleClassIfChanged(pane, "is-terminal", panel.type === "terminal");
-  toggleClassIfChanged(pane, "is-minimized", isPanelMinimized(panel));
+  toggleClassIfChanged(pane, "is-minimized", minimized);
   const pending = isPendingPanel(panel);
   toggleClassIfChanged(pane, "is-pending", pending);
   if (visibleCount <= 1) clearPaneFlex(pane);
@@ -4377,10 +4397,8 @@ function renderPaneNode(panel, workspace, visibleCount) {
   setTextIfChanged(parts.title, title);
   setTitleIfChanged(parts.title, title);
   setTitleIfChanged(parts.header, `${title} - drag header to move, double-click to rename`);
-  setTextIfChanged(parts.zoom, zoomed ? "↙" : "□");
-  setTitleIfChanged(parts.zoom, zoomed ? "Show all panes" : "Focus pane");
-  setTextIfChanged(parts.minimize, isPanelMinimized(panel) ? "+" : "-");
-  setTitleIfChanged(parts.minimize, isPanelMinimized(panel) ? "Restore pane" : "Minimize pane");
+  updatePaneToolState(parts.zoom, zoomed ? "showAll" : "focus", zoomed ? "Show all panes" : "Focus pane");
+  updatePaneToolState(parts.minimize, minimized ? "restore" : "minimize", minimized ? "Restore pane" : "Minimize pane");
   const terminalOnlyButtons = [parts.fontDown, parts.fontUp, parts.restart];
   for (const button of parts.tools) {
     button.disabled = (pending && !button.classList.contains("close"))
