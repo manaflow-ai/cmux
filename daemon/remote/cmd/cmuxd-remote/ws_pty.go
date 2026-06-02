@@ -21,6 +21,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/creack/pty"
 	"nhooyr.io/websocket"
@@ -316,7 +317,7 @@ func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 	attachment, err := cfg.PTYHub.attach(r.Context(), conn, auth)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "ws pty attach failed: %v\n", err)
-		_ = conn.Close(websocket.StatusInternalError, "pty start failed")
+		_ = conn.Close(websocket.StatusInternalError, truncateWebSocketCloseReason(err.Error()))
 		return
 	}
 	defer func() {
@@ -749,6 +750,9 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 		if tmpScript != "" {
 			_ = os.Remove(tmpScript)
 		}
+		if h.stderr != nil {
+			_, _ = fmt.Fprintf(h.stderr, "pty session start failed session=%s: %v\n", sessionID, err)
+		}
 		return nil, err
 	}
 	session := &wsPTYSession{
@@ -779,7 +783,7 @@ func (h *wsPTYHub) startPTYCommand(cmd *exec.Cmd, cols int, rows int) (*os.File,
 	}
 	ptyFile, ttyFile, err := open()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, newPTYAllocationError(err)
 	}
 	closeFiles := true
 	defer func() {
@@ -816,6 +820,96 @@ func (h *wsPTYHub) startPTYCommand(cmd *exec.Cmd, cols int, rows int) (*os.File,
 	closeFiles = false
 	_ = ttyFile.Close()
 	return ptyFile, nil, nil
+}
+
+// newPTYAllocationError wraps a raw PTY-allocation failure with actionable
+// diagnostics about the remote devpts. Without this, a hardened mount
+// (ptmxmode=000) or a non-writable /dev/ptmx surfaced only a generic
+// "remote PTY attach failed" with a 0-byte daemon log, leaving the operator no
+// way to tell why the terminal would not open. See issue #5185.
+func newPTYAllocationError(err error) error {
+	suffix := ""
+	if detail := describeDevPTS(); detail != "" {
+		suffix = "; " + detail
+	}
+	hint := ""
+	if isPermissionDeniedErr(err) {
+		hint = "; the remote devpts denies /dev/ptmx (e.g. mounted ptmxmode=000): remount it writable with `sudo mount -o remount,ptmxmode=0666 /dev/pts` or expose a writable /dev/ptmx so the cmux daemon can open a terminal"
+	}
+	return fmt.Errorf("could not allocate a remote PTY: %w%s%s", err, suffix, hint)
+}
+
+// describeDevPTS reports the current /dev/ptmx mode and the /dev/pts devpts
+// mount options (which carry ptmxmode) on a best-effort basis. It never errors;
+// missing data is simply omitted from the returned summary.
+func describeDevPTS() string {
+	var parts []string
+	if info, statErr := os.Stat("/dev/ptmx"); statErr == nil {
+		parts = append(parts, fmt.Sprintf("/dev/ptmx mode=%04o", info.Mode().Perm()))
+	} else {
+		parts = append(parts, fmt.Sprintf("/dev/ptmx stat error: %v", statErr))
+	}
+	if opts := devptsMountOptions(); opts != "" {
+		parts = append(parts, "devpts ("+opts+")")
+	}
+	return strings.Join(parts, "; ")
+}
+
+// devptsMountOptions returns the super-block options of the devpts filesystem
+// mounted at /dev/pts (e.g. "rw,gid=5,mode=620,ptmxmode=000"), or "" if it
+// cannot be determined. It parses /proc/self/mountinfo, whose per-line layout
+// places the optional fields and the " - <fstype> <source> <superopts>" tail
+// after a literal " - " separator.
+func devptsMountOptions() string {
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		// mount point is field index 4 (0-based) in the pre-separator section.
+		if len(fields) < 5 || fields[4] != "/dev/pts" {
+			continue
+		}
+		sep := -1
+		for i, f := range fields {
+			if f == "-" {
+				sep = i
+				break
+			}
+		}
+		if sep < 0 || sep+3 >= len(fields) {
+			continue
+		}
+		if fields[sep+1] != "devpts" {
+			continue
+		}
+		return fields[sep+3]
+	}
+	return ""
+}
+
+// truncateWebSocketCloseReason clamps a close reason to the 123-byte limit a
+// WebSocket control frame allows for its UTF-8 reason payload, trimming on a
+// rune boundary so the frame stays valid.
+func truncateWebSocketCloseReason(reason string) string {
+	const maxReasonBytes = 123
+	if len(reason) <= maxReasonBytes {
+		return reason
+	}
+	truncated := reason[:maxReasonBytes]
+	for len(truncated) > 0 && !utf8.ValidString(truncated) {
+		truncated = truncated[:len(truncated)-1]
+	}
+	return truncated
+}
+
+// isPermissionDeniedErr reports whether err is an EACCES/EPERM-class failure,
+// the signature of a devpts that refuses /dev/ptmx.
+func isPermissionDeniedErr(err error) bool {
+	return errors.Is(err, os.ErrPermission) ||
+		errors.Is(err, syscall.EACCES) ||
+		errors.Is(err, syscall.EPERM)
 }
 
 func (h *wsPTYHub) detach(attachment *wsPTYAttachment) bool {

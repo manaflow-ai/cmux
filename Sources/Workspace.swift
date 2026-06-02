@@ -5990,6 +5990,16 @@ final class WorkspaceRemotePTYBridgeServer {
                     defaultValue: "remote daemon did not respond in time"
                 )
             }
+            // Surface the daemon's PTY-allocation diagnostic verbatim (it names
+            // the failing device and the devpts/ptmxmode cause) instead of
+            // collapsing it into a generic message. See issue #5185.
+            if lowered.contains("could not allocate a remote pty") ||
+                lowered.contains("ptmxmode") ||
+                lowered.contains("/dev/ptmx") ||
+                lowered.contains("devpts") ||
+                lowered.contains("pseudo-terminal") {
+                return message
+            }
             return String(
                 localized: "remotePTYAttach.error.attachFailed",
                 defaultValue: "remote PTY attach failed"
