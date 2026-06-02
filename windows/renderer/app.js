@@ -380,6 +380,7 @@ const maxConcurrentPaneCreations = 8;
 const visibleBackgroundOpacity = 24;
 const terminalCursorMigrationStorageKey = "cmux.terminalCursorBarMigration";
 const browserHomeMigrationStorageKey = "cmux.browserHomeGoogleMigration";
+const sidebarBranchMigrationStorageKey = "cmux.sidebarBranchQuietMigration";
 const launchToken = new URLSearchParams(location.search).get("token") || "";
 const eventReconnectMinDelayMs = 250;
 const eventReconnectMaxDelayMs = 5000;
@@ -850,6 +851,17 @@ function loadSettings() {
   ) {
     parsed.browserHomeUrl = defaultSettings.browserHomeUrl;
     localStorage.setItem(browserHomeMigrationStorageKey, "1");
+    migrated = true;
+  }
+  if (
+    localStorage.getItem(sidebarBranchMigrationStorageKey) !== "1"
+    && parsed
+    && typeof parsed === "object"
+    && !Array.isArray(parsed)
+    && (!Object.hasOwn(parsed, "sidebarBranchMode") || parsed.sidebarBranchMode === "active")
+  ) {
+    parsed.sidebarBranchMode = defaultSettings.sidebarBranchMode;
+    localStorage.setItem(sidebarBranchMigrationStorageKey, "1");
     migrated = true;
   }
   const legacyFontSize = Number(localStorage.getItem("cmux.terminalFontSize") || 0);
