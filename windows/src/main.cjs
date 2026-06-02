@@ -15,6 +15,7 @@ const zoomLockedContents = new WeakSet();
 
 const appRoot = path.resolve(__dirname, "..");
 const serverProcessPath = path.join(__dirname, "server-process.cjs");
+const clipboardImageDataUrlLimitBytes = 2 * 1024 * 1024;
 function log(message) {
   try {
     const logPath = path.join(app.getPath("userData"), "cmux-windows.log");
@@ -467,6 +468,15 @@ if (!hasLock) {
     return true;
   }, false));
   ipcMain.handle("clipboard:read-text", trustedIpcHandler(() => clipboard.readText(), ""));
+  ipcMain.handle("clipboard:read-image-data-url", trustedIpcHandler(() => {
+    const image = clipboard.readImage();
+    if (!image || image.isEmpty()) return { ok: false, error: "empty" };
+    const dataUrl = image.toDataURL();
+    if (Buffer.byteLength(dataUrl, "utf8") > clipboardImageDataUrlLimitBytes) {
+      return { ok: false, error: "too_large" };
+    }
+    return { ok: true, dataUrl };
+  }, { ok: false, error: "forbidden" }));
   ipcMain.handle("background:pick-image", trustedIpcHandler(async () => {
     if (!mainWindow) return "";
     const result = await dialog.showOpenDialog(mainWindow, {

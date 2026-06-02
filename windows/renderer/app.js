@@ -10734,18 +10734,35 @@ async function pasteBackgroundImageFromClipboard(options = {}) {
     toast("Clipboard is unavailable.");
     return null;
   }
-  const value = String(await window.cmuxNative.readClipboard() || "").trim();
+  const textValue = String(await window.cmuxNative.readClipboard() || "").trim();
+  let value = textValue;
+  let pastedImage = false;
+  let imageError = "";
+  if (!value && window.cmuxNative?.readClipboardImage) {
+    const image = await window.cmuxNative.readClipboardImage();
+    if (image?.ok && image.dataUrl) {
+      value = image.dataUrl;
+      pastedImage = true;
+    } else {
+      imageError = image?.error || "";
+    }
+  }
   if (!value) {
-    toast("Clipboard does not contain an image URL or path.");
+    toast(imageError === "too_large"
+      ? "Clipboard image is too large for a saved background."
+      : "Clipboard does not contain an image URL, path, or copied image.");
     return null;
   }
-  if (options.input) options.input.value = value;
+  if (options.input) options.input.value = pastedImage ? "Copied image" : value;
+  const background = pastedImage ? { url: value, label: "Clipboard image" } : { url: value };
   if (options.save) {
-    const saved = await applyAndSaveCustomBackgroundImage({ url: value }, { resetInput: options.input });
-    if (saved && options.input) options.input.value = saved.url;
+    const saved = await applyAndSaveCustomBackgroundImage(background, { resetInput: options.input });
+    if (saved && options.input) options.input.value = pastedImage ? "" : saved.url;
     return saved;
   }
-  return applyCustomBackgroundImage(value, { resetInput: options.input, toast: true });
+  const changed = await applyCustomBackgroundImage(value, { resetInput: options.input, toast: true });
+  if (changed !== null && pastedImage && options.input) options.input.value = "";
+  return changed;
 }
 
 function settingsPresetGrid() {
