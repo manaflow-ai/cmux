@@ -27,6 +27,7 @@ export function normalizeBrowserPageUrl(value) {
   try {
     const parsed = new URL(url);
     if (!["http:", "https:"].includes(parsed.protocol)) return "";
+    if (parsed.username || parsed.password) return "";
     if (parsed.href.length > maxBrowserPageUrlLength) return "";
     return parsed.href;
   } catch {

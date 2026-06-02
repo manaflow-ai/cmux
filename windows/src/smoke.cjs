@@ -386,6 +386,15 @@ async function waitForCondition(label, probe, timeoutMs = 3000) {
   assert(unauthenticatedPing === "ERROR unauthorized", `unauthenticated pipe command should fail: ${unauthenticatedPing}`);
   const ping = await pipeRoundTrip("ping", info.launchToken);
   assert(ping === "OK", `pipe ping failed: ${ping}`);
+  const inlineRpcPing = JSON.parse(await pipeRoundTrip(JSON.stringify({
+    jsonrpc: "2.0",
+    id: "inline-auth",
+    method: "system.ping",
+    params: { token: info.launchToken }
+  })));
+  assert(inlineRpcPing.jsonrpc === "2.0", "inline authenticated JSON-RPC should use JSON-RPC envelope");
+  assert(inlineRpcPing.id === "inline-auth", "inline authenticated JSON-RPC should preserve id");
+  assert(inlineRpcPing.result?.ok === true, "inline authenticated JSON-RPC should dispatch the first request");
   const parseError = JSON.parse(await pipeRoundTrip("{", info.launchToken));
   assert(parseError.jsonrpc === "2.0", "pipe parse errors should use JSON-RPC envelope");
   assert(parseError.id === null, "pipe parse errors should use null JSON-RPC id");

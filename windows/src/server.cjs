@@ -147,6 +147,7 @@ function validBrowserUrl(value) {
   try {
     const parsed = new URL(String(value || "").trim());
     if (!["http:", "https:"].includes(parsed.protocol)) return "";
+    if (parsed.username || parsed.password) return "";
     return parsed.href.length <= 2048 ? parsed.href : "";
   } catch {
     return "";
@@ -350,21 +351,27 @@ function gitBranch(rawPath) {
   if (cached && now - cached.at < gitBranchCacheTtlMs) return cached.branch;
   let branch = "";
   try {
-    const current = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
+    let current = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
       ? resolved
       : path.dirname(resolved);
-    const dotGit = path.join(current, ".git");
-    if (fs.existsSync(dotGit)) {
-      const stat = fs.statSync(dotGit);
-      if (stat.isDirectory()) {
-        branch = branchFromGitDir(dotGit);
-      } else if (stat.isFile()) {
-        const match = fs.readFileSync(dotGit, "utf8").match(/^gitdir:\s*(.+)\s*$/im);
-        if (match) {
-          const gitDir = path.isAbsolute(match[1]) ? match[1] : path.resolve(current, match[1]);
-          branch = branchFromGitDir(gitDir);
+    while (current) {
+      const dotGit = path.join(current, ".git");
+      if (fs.existsSync(dotGit)) {
+        const stat = fs.statSync(dotGit);
+        if (stat.isDirectory()) {
+          branch = branchFromGitDir(dotGit);
+        } else if (stat.isFile()) {
+          const match = fs.readFileSync(dotGit, "utf8").match(/^gitdir:\s*(.+)\s*$/im);
+          if (match) {
+            const gitDir = path.isAbsolute(match[1]) ? match[1] : path.resolve(current, match[1]);
+            branch = branchFromGitDir(gitDir);
+          }
         }
+        break;
       }
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      current = parent;
     }
   } catch {
     branch = "";
@@ -711,6 +718,7 @@ class CmuxWindowsRuntime {
               shellProfile: panel.type === "terminal" ? sanitizeShellProfile(panel.shellProfile) : "",
               shellPath: panel.type === "terminal" ? sanitizeShellPath(panel.shellPath) : "",
               terminalFontSize: panel.type === "terminal" ? sanitizeTerminalFontSize(panel.terminalFontSize, 0) : 0,
+              url: panel.type === "browser" ? sanitizeBrowserUrl(panel.url) : defaultBrowserHomeUrl,
               runtime: this,
               needsAttention: false,
               notificationText: ""
@@ -910,11 +918,11 @@ class CmuxWindowsRuntime {
     return false;
   }
 
-  scheduleTerminalPrewarm(panel) {
+  scheduleTerminalPrewarm(panel, response = null) {
     if (this.closed || !panel || panel.type !== "terminal" || !this.hasRendererEventSocket()) return;
     if (this.terminals.has(panel.id) || this.pendingTerminalPrewarms.has(panel.id)) return;
     const panelId = panel.id;
-    const pending = { canceled: false, handle: null, handleType: "" };
+    const pending = { canceled: false, handle: null, handleType: "", response: null };
     const run = () => {
       if (pending.canceled) return;
       this.pendingTerminalPrewarms.delete(panelId);
@@ -929,29 +937,32 @@ class CmuxWindowsRuntime {
       }
     };
     this.pendingTerminalPrewarms.set(panelId, pending);
-    // Let the panel-create response reach the renderer before terminal spawn can
-    // spend time in native process startup.
-    if (typeof setImmediate === "function") {
-      pending.handleType = "immediate";
-      pending.handle = setImmediate(run);
-    } else {
-      pending.handleType = "timeout";
-      pending.handle = setTimeout(run, 0);
+    if (response?.writableEnded || response?.destroyed) {
+      run();
+      return;
     }
+    if (typeof response?.once === "function") {
+      pending.handleType = "response";
+      pending.handle = run;
+      pending.response = response;
+      response.once("finish", run);
+      return;
+    }
+    run();
   }
 
-  createWorkspace(title) {
+  createWorkspace(title, runtimeOptions = {}) {
     const explicitTitle = workspaceTitle(title, "");
     const workspace = this.newWorkspace(explicitTitle || this.generatedWorkspaceTitle());
     workspace.activePanelId = workspace.panels[0]?.id || null;
     this.state.workspaces.push(workspace);
     this.state.activeWorkspaceId = workspace.id;
     this.persistAndBroadcast();
-    this.scheduleTerminalPrewarm(workspace.panels[0]);
+    this.scheduleTerminalPrewarm(workspace.panels[0], runtimeOptions.prewarmResponse);
     return workspace;
   }
 
-  createWorkspaceFromOptions(options = {}) {
+  createWorkspaceFromOptions(options = {}, runtimeOptions = {}) {
     const hasRequestedCwd = Boolean(String(options.cwd || "").trim());
     const cwd = sanitizeDirectoryPath(options.cwd);
     const explicitTitle = workspaceTitle(options.title, "");
@@ -962,11 +973,11 @@ class CmuxWindowsRuntime {
     this.state.workspaces.push(workspace);
     this.state.activeWorkspaceId = workspace.id;
     this.persistAndBroadcast();
-    this.scheduleTerminalPrewarm(workspace.panels[0]);
+    this.scheduleTerminalPrewarm(workspace.panels[0], runtimeOptions.prewarmResponse);
     return workspace;
   }
 
-  createPanel(workspaceId, type, options = {}) {
+  createPanel(workspaceId, type, options = {}, runtimeOptions = {}) {
     const workspace = this.state.workspaces.find((candidate) => candidate.id === workspaceId)
       || this.activeWorkspace();
     const panel = this.newPanel(type || "terminal", workspace.id, {
@@ -980,7 +991,7 @@ class CmuxWindowsRuntime {
       workspace.splitDirection = options.direction;
     }
     this.schedulePersistAndBroadcast();
-    this.scheduleTerminalPrewarm(panel);
+    this.scheduleTerminalPrewarm(panel, runtimeOptions.prewarmResponse);
     return panel;
   }
 
@@ -1249,7 +1260,7 @@ class CmuxWindowsRuntime {
       }
       if (request.method === "POST" && url.pathname === "/api/workspaces") {
         const body = await readBody(request);
-        writeJSON(response, 200, this.serializeWorkspace(this.createWorkspaceFromOptions(body)));
+        writeJSON(response, 200, this.serializeWorkspace(this.createWorkspaceFromOptions(body, { prewarmResponse: response })));
         return;
       }
       if (request.method === "POST" && url.pathname === "/api/session/reset") {
@@ -1258,7 +1269,7 @@ class CmuxWindowsRuntime {
       }
       if (request.method === "POST" && url.pathname === "/api/panels") {
         const body = await readBody(request);
-        writeJSON(response, 200, this.serializePanel(this.createPanel(body.workspaceId, body.type, body)));
+        writeJSON(response, 200, this.serializePanel(this.createPanel(body.workspaceId, body.type, body, { prewarmResponse: response })));
         return;
       }
       const focusWorkspaceMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/focus$/);
@@ -1523,12 +1534,15 @@ class CmuxWindowsRuntime {
             if (!authContext) {
               authContext = this.authenticatePipeLine(line);
               if (authContext) {
-                index = buffer.indexOf("\n");
-                continue;
+                if (!authContext.processLine) {
+                  index = buffer.indexOf("\n");
+                  continue;
+                }
+              } else {
+                socket.write("ERROR unauthorized\n");
+                socket.end();
+                return;
               }
-              socket.write("ERROR unauthorized\n");
-              socket.end();
-              return;
             }
             this.handlePipeLine(line, authContext).then((reply) => {
               socket.write(reply + "\n");
@@ -1551,17 +1565,21 @@ class CmuxWindowsRuntime {
 
   authenticatePipeLine(line) {
     if (!line) return null;
-    if (tokensMatch(this.launchToken, line)) return { scope: "full" };
+    if (tokensMatch(this.launchToken, line)) return { scope: "full", processLine: false };
     if (line.startsWith("auth ")) {
-      return tokensMatch(this.launchToken, line.slice(5).trim()) ? { scope: "full" } : null;
+      return tokensMatch(this.launchToken, line.slice(5).trim()) ? { scope: "full", processLine: false } : null;
     }
     const panelAuth = line.match(/^auth-panel\s+(\S+)\s+(\S+)$/);
-    if (panelAuth) return this.authenticatePanelPipe(panelAuth[1], panelAuth[2]);
+    if (panelAuth) {
+      const context = this.authenticatePanelPipe(panelAuth[1], panelAuth[2]);
+      return context ? { ...context, processLine: false } : null;
+    }
     if (!line.startsWith("{")) return null;
     try {
       const request = JSON.parse(line);
-      if (tokensMatch(this.launchToken, request.token || request.params?.token)) return { scope: "full" };
-      return this.authenticatePanelPipe(request.params?.panelId, request.params?.panelToken);
+      if (tokensMatch(this.launchToken, request.token || request.params?.token)) return { scope: "full", processLine: true };
+      const context = this.authenticatePanelPipe(request.params?.panelId, request.params?.panelToken);
+      return context ? { ...context, processLine: true } : null;
     } catch {
       return null;
     }
@@ -1691,6 +1709,7 @@ class CmuxWindowsRuntime {
       pending.canceled = true;
       if (!pending.handle) continue;
       if (pending.handleType === "timeout") clearTimeout(pending.handle);
+      else if (pending.handleType === "response") pending.response?.removeListener?.("finish", pending.handle);
       else clearImmediate(pending.handle);
     }
     this.pendingTerminalPrewarms.clear();

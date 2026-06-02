@@ -1832,13 +1832,13 @@ body.reduce-motion *::after {
   width: 2px;
   height: 2px;
   border-radius: 999px;
-  background: currentColor;
+  background: currentcolor;
   box-shadow:
-    0 5px 0 currentColor,
-    0 10px 0 currentColor,
-    5px 0 0 currentColor,
-    5px 5px 0 currentColor,
-    5px 10px 0 currentColor;
+    0 5px 0 currentcolor,
+    0 10px 0 currentcolor,
+    5px 0 0 currentcolor,
+    5px 5px 0 currentcolor,
+    5px 10px 0 currentcolor;
 }
 
 .pane-header:hover .pane-grip,
