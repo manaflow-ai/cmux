@@ -33,6 +33,20 @@ export function paneTreeSplit(direction, first, second, ratio = 0.5, splitId = c
   };
 }
 
+export function paneTreeEqual(first, second) {
+  if (!first || !second) return !first && !second;
+  if (first.type !== second.type) return false;
+  if (first.type === "pane") {
+    return String(first.panelId || "") === String(second.panelId || "");
+  }
+  if (first.type !== "split") return false;
+  return String(first.id || "") === String(second.id || "")
+    && paneTreeDirection(first.direction) === paneTreeDirection(second.direction)
+    && paneTreeRatio(first.ratio) === paneTreeRatio(second.ratio)
+    && paneTreeEqual(first.first, second.first)
+    && paneTreeEqual(first.second, second.second);
+}
+
 export function clonePaneTree(node) {
   if (!node || typeof node !== "object") return null;
   if (node.type === "pane") return paneTreeLeaf(node.panelId);

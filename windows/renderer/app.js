@@ -67,6 +67,7 @@ import {
   loadPaneTreeLayouts,
   normalizePaneTree,
   paneTreeDirection,
+  paneTreeEqual,
   paneTreeLeaf,
   paneTreeLeafIds,
   paneTreeLayoutsStorageKey,
@@ -2113,7 +2114,6 @@ function paneTreeForWorkspace(workspace, panels = workspace?.panels || []) {
   const panelIds = panels.map((panel) => panel.id);
   const allowedPanelIds = new Set(panelIds);
   const existing = state.paneTrees.get(workspace.id);
-  const before = JSON.stringify(existing || null);
   let tree = normalizePaneTree(existing, allowedPanelIds);
   const presentPanelIds = new Set(paneTreeLeafIds(tree));
   for (const panelId of panelIds) {
@@ -2123,7 +2123,7 @@ function paneTreeForWorkspace(workspace, panels = workspace?.panels || []) {
     }
   }
   if (!tree) tree = buildPaneTreeFromPanelIds(panelIds, paneLayoutDirection(workspace));
-  if (JSON.stringify(tree || null) !== before) {
+  if (!paneTreeEqual(tree, existing)) {
     state.paneTrees.set(workspace.id, tree);
     savePaneTreeLayouts(state.paneTrees);
   }
@@ -2148,7 +2148,7 @@ function removePanelFromAllPaneTrees(panelId) {
   let changed = false;
   for (const [workspaceId, tree] of [...state.paneTrees.entries()]) {
     const next = removePanelFromPaneTree(tree, panelId);
-    if (JSON.stringify(next || null) === JSON.stringify(tree || null)) continue;
+    if (paneTreeEqual(next, tree)) continue;
     changed = true;
     if (next) state.paneTrees.set(workspaceId, next);
     else state.paneTrees.delete(workspaceId);
