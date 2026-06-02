@@ -242,6 +242,22 @@
         "p3": "这样会把当前工作区送到未读循环末尾，你可以继续查看未读工作区而不清除状态。",
         "p4": "Cmd+Option+U 会切换当前工作区的已读或未读状态。",
         "p5": "当你用 Cmd+Shift+U 跳到新的未读工作区，但想在回复前先切换上下文时很有用。"
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "用 Cmd+Shift+T 重新打开已关闭的终端、浏览器、工作区和 agent 会话，并用 Cmd+[ 和 Cmd+] 回溯你的聚焦。",
+        "date": "2026年6月2日",
+        "p1": "你为了清理而关掉一个终端标签，随后却发现还需要它。或者你关掉了整个工作区，丢失了正在工作的 agent。cmux 现在会记录你关闭和聚焦过的内容，一个快捷键就能找回来。",
+        "reopenTitle": "重新打开你关闭的内容",
+        "reopenP": "按 <code>Cmd+Shift+T</code> 即可重新打开你最后关闭的内容。它适用于终端标签、浏览器标签、工作区和窗口，并按你关闭的顺序逐个恢复。每个界面都会回到原来的位置，窗格布局也保持不变。",
+        "agentTitle": "agent 会话也会回来",
+        "agentP": "历史记录也会重新打开已关闭的 agent 会话。重新打开一个 Claude Code、Codex 或 OpenCode 会话，它会从中断处继续。运行一次 <code>cmux hooks setup</code>，让 cmux 能够跟踪 agent 会话，之后它们就能像其他内容一样被重新打开。",
+        "agentP2": "这建立在 cmux <link>会话恢复</link>之上，它通过受支持 agent 各自的原生恢复命令来恢复会话。",
+        "focusTitle": "回到你刚才所在的位置",
+        "focusP": "标题栏中的前进和后退按钮，或者 <code>Cmd+[</code> 和 <code>Cmd+]</code>，可以跳转到你之前和之后所在的工作区或窗口，就像浏览器中的前进和后退一样。",
+        "fullHistoryTitle": "完整的历史记录面板",
+        "fullHistoryP": "当你需要的不止最后一项时，打开完整的历史记录面板：它按天分组、可搜索，列出你关闭和聚焦过的所有内容，带有时间戳，还有 Clear Closed 操作。",
+        "docsCta": "查看<link>键盘快捷键</link>了解完整列表，包括如何重新绑定历史记录导航。"
       }
     },
     "zenOfCmux": {
@@ -367,6 +383,10 @@
         "AI 编程代理",
         "工作区未读"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history：重新打开已关闭的终端和会话",
+      "metaDescription": "cmux 会记录你关闭和聚焦过的内容。用 Cmd+Shift+T 重新打开已关闭的终端、浏览器、工作区，以及 Claude Code、Codex 和 OpenCode 会话，并用 Cmd+[ 和 Cmd+] 在聚焦之间前后切换。"
     }
   },
   "docs": {
