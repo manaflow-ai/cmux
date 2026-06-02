@@ -149,6 +149,7 @@ const embeddedBackgroundDataUrlLimitBytes = 2 * 1024 * 1024;
 const renderSlowFrameMs = 24;
 const renderVerySlowFrameMs = 72;
 const renderSlowFrameTriggerCount = 4;
+const performanceMetricsRefreshMinMs = 250;
 const performanceGuardStartupGraceMs = 2500;
 const performanceGuardStartupRenderCount = 3;
 const appearancePreviewKeys = new Set([
@@ -527,6 +528,9 @@ const state = {
   layoutSettingsPreviewFrame: 0,
   browserSettingsPreviewFrame: 0,
   settingsFilterFrame: 0,
+  performanceMetricsRefreshFrame: 0,
+  performanceMetricsRefreshTimer: 0,
+  performanceMetricsRefreshAt: 0,
   settingsSearchIndex: [],
   settingsSearchFocusPending: false,
   renderStats: {
@@ -2272,9 +2276,9 @@ function updateSettings(updates, options = {}) {
     resumeTerminalOutputAfterActivityChange();
   }
   if (changedKeys.includes("browserSuspendInactive")) {
-    render();
+    scheduleRender();
   } else if (previous.titleDetailMode !== state.settings.titleDetailMode) {
-    render();
+    scheduleRender();
   }
   return true;
 }
@@ -3465,9 +3469,7 @@ function recordRenderDuration(durationMs) {
     : value;
   state.renderStats.maxMs = Math.max(state.renderStats.maxMs, value);
   if (value >= renderSlowFrameMs) state.renderStats.slowCount += 1;
-  if (state.inspectorMode === "settings" && (state.settingsCategory === "performance" || normalizeSettingsQuery(state.settingsQuery))) {
-    refreshPerformanceMetricsGrid();
-  }
+  schedulePerformanceMetricsRefresh();
   if (!performanceGuardCanUseRenderSignal()) return;
   if (value >= renderSlowFrameMs) state.performanceGuardSlowRenderCount += 1;
   if (value >= renderVerySlowFrameMs || state.performanceGuardSlowRenderCount >= renderSlowFrameTriggerCount) {
@@ -8724,10 +8726,10 @@ function activeBackgroundPanel(options = {}) {
   const pane = settingsActionButton("Pane", () => applyPanelBackgroundImage(state.settings.backgroundImage), "", "active background apply to active terminal pane");
   pane.dataset.backgroundAction = "pane";
   pane.disabled = !hasBackground || !resolveTerminalPanel(focusedPanel());
-  const allPanes = settingsActionButton("All panes", () => applyWorkspaceBackgroundImageToTerminals(state.settings.backgroundImage), "", "active background apply to all terminal panes workspace");
+  const allPanes = settingsActionButton("All terminals", () => applyWorkspaceBackgroundImageToTerminals(state.settings.backgroundImage), "", "active background apply to all terminal panes workspace");
   allPanes.dataset.backgroundAction = "all-panes";
   allPanes.disabled = !hasBackground || !hasTerminalPanes;
-  const clearPanes = settingsActionButton("Clear panes", () => applyWorkspaceBackgroundImageToTerminals(""), "danger", "active background clear all terminal pane images workspace");
+  const clearPanes = settingsActionButton("Clear terminals", () => applyWorkspaceBackgroundImageToTerminals(""), "danger", "active background clear all terminal pane images workspace");
   clearPanes.dataset.backgroundAction = "clear-panes";
   clearPanes.disabled = !hasPaneBackgrounds;
   const open = settingsActionButton("Open", () => openBackgroundImageSource(), "", "active background open local file url source reveal");
@@ -10125,8 +10127,8 @@ function quickSetupActionGrid() {
     {
       id: "background",
       icon: "background",
-      label: "Background",
-      body: "Choose a local image for the workspace backdrop.",
+      label: "App image",
+      body: "Set a backdrop for the whole window.",
       meta: () => appearanceBackgroundLabel(state.settings.backgroundImage),
       cta: "Choose",
       search: "background image wallpaper choose local file appearance",
@@ -10135,13 +10137,28 @@ function quickSetupActionGrid() {
     {
       id: "pane-background",
       icon: "paneBackground",
-      label: "Pane image",
-      body: "Set an image on only the active terminal pane.",
+      label: "Terminal image",
+      body: "Set an image on only the active terminal.",
       meta: activeTerminalPaneBackgroundLabel,
       cta: "Choose",
       search: "active pane terminal background image specific terminal wallpaper",
       disabled: () => !resolveTerminalPanel(focusedPanel()),
       run: () => choosePanelBackgroundImage()
+    },
+    {
+      id: "all-terminal-backgrounds",
+      icon: "paneBackground",
+      label: "All terminals",
+      body: "Copy the app image to every terminal in this workspace.",
+      meta: () => {
+        const workspace = activeWorkspace();
+        const count = workspaceTerminalPanels(workspace).length;
+        return state.settings.backgroundImage ? `${count} terminal${count === 1 ? "" : "s"}` : "No app image";
+      },
+      cta: "Apply",
+      search: "all terminal pane background image app wallpaper workspace",
+      disabled: () => !state.settings.backgroundImage || workspaceTerminalPanels().length === 0,
+      run: () => applyWorkspaceBackgroundImageToTerminals(state.settings.backgroundImage)
     },
     {
       id: "pane-shape",
@@ -10353,6 +10370,30 @@ function settingsMetricCard(label, value, searchPrefix = "performance diagnostic
   card.querySelector(".settings-metric-value").textContent = value;
   card.querySelector(".settings-metric-label").textContent = label;
   return card;
+}
+
+function performanceMetricsShouldRefresh() {
+  return state.inspectorMode === "settings"
+    && (state.settingsCategory === "performance" || normalizeSettingsQuery(state.settingsQuery));
+}
+
+function schedulePerformanceMetricsRefresh() {
+  if (!performanceMetricsShouldRefresh()) return;
+  if (state.performanceMetricsRefreshFrame || state.performanceMetricsRefreshTimer) return;
+  const delay = Math.max(0, performanceMetricsRefreshMinMs - (performance.now() - state.performanceMetricsRefreshAt));
+  const enqueueFrame = () => {
+    state.performanceMetricsRefreshTimer = 0;
+    state.performanceMetricsRefreshFrame = requestAnimationFrame(() => {
+      state.performanceMetricsRefreshFrame = 0;
+      state.performanceMetricsRefreshAt = performance.now();
+      if (performanceMetricsShouldRefresh()) refreshPerformanceMetricsGrid();
+    });
+  };
+  if (delay > 0) {
+    state.performanceMetricsRefreshTimer = window.setTimeout(enqueueFrame, delay);
+    return;
+  }
+  enqueueFrame();
 }
 
 function refreshPerformanceMetricsGrid() {
@@ -10591,6 +10632,11 @@ function resetRenderStats() {
   state.performanceGuardReason = "";
   state.performanceGuardStartedAt = performance.now();
   state.performanceGuardSlowRenderCount = 0;
+  if (state.performanceMetricsRefreshTimer) window.clearTimeout(state.performanceMetricsRefreshTimer);
+  if (state.performanceMetricsRefreshFrame) cancelAnimationFrame(state.performanceMetricsRefreshFrame);
+  state.performanceMetricsRefreshTimer = 0;
+  state.performanceMetricsRefreshFrame = 0;
+  state.performanceMetricsRefreshAt = 0;
   renderSettingsInspector();
   toast("Performance stats reset.");
 }
@@ -11135,7 +11181,7 @@ function backgroundPresetGrid() {
     const appAction = settingsActionButton("App", () => applyBackgroundPreset(preset, { toast: true }), "primary", `background template app whole window ${preset.label}`);
     const paneAction = settingsActionButton("Pane", () => applyPanelBackgroundImage(preset.value, activeTerminalPanelForSettings()), "", `background template active terminal pane ${preset.label}`);
     paneAction.disabled = !activeTerminal;
-    const allAction = settingsActionButton("All terms", () => applyWorkspaceBackgroundImageToTerminals(preset.value), "", `background template all terminal panes ${preset.label}`);
+    const allAction = settingsActionButton("All terminals", () => applyWorkspaceBackgroundImageToTerminals(preset.value), "", `background template all terminal panes ${preset.label}`);
     allAction.disabled = !hasTerminalPanes;
     actions.append(appAction, paneAction, allAction);
 
@@ -11237,7 +11283,7 @@ function savedBackgroundImagesPanel() {
     text.append(label, url);
     const cardActions = document.createElement("div");
     cardActions.className = "saved-background-card-actions";
-    const allPanes = settingsActionButton("All panes", () => applySavedBackgroundImageToWorkspaceTerminals(background.id), "", `apply saved background to all terminal panes workspace ${background.label}`);
+    const allPanes = settingsActionButton("All terminals", () => applySavedBackgroundImageToWorkspaceTerminals(background.id), "", `apply saved background to all terminal panes workspace ${background.label}`);
     allPanes.disabled = !(activeWorkspace()?.panels || []).some((candidate) => candidate.type === "terminal");
     const more = settingsActionButton("More", (event) => showSavedBackgroundImageMenu(event, background), "", `saved background more actions open rename delete copy ${background.label}`);
     cardActions.append(

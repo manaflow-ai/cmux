@@ -364,6 +364,42 @@ button {
   transition-duration: 0ms !important;
 }
 
+.shell.performance-mode.has-background::before {
+  display: none;
+}
+
+.shell.performance-mode.has-background .sidebar,
+.shell.performance-mode.has-background .topbar,
+.shell.performance-mode.has-background .surface-tabs,
+.shell.performance-mode.has-background .statusbar,
+.shell.performance-mode.has-background .inspector {
+  background: var(--color-chrome);
+}
+
+.shell.performance-mode.has-background .main,
+.shell.performance-mode.has-background .pane-grid {
+  background: var(--color-canvas);
+}
+
+.shell.performance-mode.has-background .pane,
+.shell.performance-mode.has-background .terminal-host {
+  background: var(--color-pane);
+}
+
+.shell.performance-mode .pane.has-pane-background .terminal-host {
+  background: var(--color-pane);
+}
+
+.shell.performance-mode .pane.has-pane-background .terminal-host::before {
+  display: none;
+}
+
+.shell.performance-mode.has-background .pane-header,
+.shell.performance-mode.has-background .browser-tabs,
+.shell.performance-mode.has-background .browser-bar {
+  background: var(--color-pane-warm);
+}
+
 body.reduce-motion *,
 body.reduce-motion *::before,
 body.reduce-motion *::after {
@@ -7479,7 +7515,7 @@ body.reduce-motion *::after {
 .background-preset-actions {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, .85fr) minmax(0, .85fr) minmax(0, 1.3fr);
   gap: var(--space-1);
 }
 
