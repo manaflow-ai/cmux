@@ -191,6 +191,28 @@ func shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
     }
 }
 
+/// Ctrl-N / Ctrl-P navigate the mention-completion popover (and emacs-style line
+/// movement) inside the terminal textbox. Like plain arrows, the window's
+/// `performKeyEquivalent` claims these before they reach the textbox `keyDown`, so
+/// they must be routed to the first responder explicitly. Scoped to the textbox so
+/// terminal/browser Ctrl-N/Ctrl-P are unaffected.
+func shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+    charactersIgnoringModifiers: String?,
+    firstResponderIsTextBoxInput: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsTextBoxInput else { return false }
+    guard !firstResponderHasMarkedText else { return false }
+
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard normalizedFlags == [.control] else { return false }
+    let key = charactersIgnoringModifiers?.lowercased()
+    return key == "n" || key == "p"
+}
+
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
     chars: String,
