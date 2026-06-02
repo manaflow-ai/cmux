@@ -5085,10 +5085,9 @@ function renderPendingPane(panel, body) {
   const baseMeta = isBrowser
     ? hostnameOf(panel.url || state.settings.browserHomeUrl)
     : `${optionLabel(terminalProfiles, panel.shellProfile || state.settings.terminalProfile, "Shell")} / ${panel.cwdShort || "~"}`;
-  const title = slow
-    ? (isBrowser ? "Browser is still opening" : "Terminal is still starting")
-    : (isBrowser ? "Opening browser" : "Starting terminal");
-  const meta = `${baseMeta} / ${elapsedSeconds}s`;
+  const title = pendingPaneTitle(isBrowser, elapsedSeconds);
+  const elapsedLabel = elapsedSeconds > 0 ? `${elapsedSeconds}s elapsed` : "starting now";
+  const meta = `${baseMeta} / ${elapsedLabel}`;
   const iconName = isBrowser ? "browserPlus" : "terminalPlus";
   if (parts.icon.dataset.pendingIcon !== iconName) {
     parts.icon.dataset.pendingIcon = iconName;
@@ -5101,6 +5100,16 @@ function renderPendingPane(panel, body) {
   );
   setTextIfChanged(parts.meta, meta);
   ensurePendingPaneTimer();
+}
+
+function pendingPaneTitle(isBrowser, elapsedSeconds) {
+  if (elapsedSeconds >= 8) {
+    return isBrowser ? "Browser is still opening" : "Terminal is still starting";
+  }
+  if (elapsedSeconds >= 2) {
+    return isBrowser ? "Loading browser" : "Connecting terminal";
+  }
+  return isBrowser ? "Opening browser" : "Starting terminal";
 }
 
 function pendingPaneParts(pending) {
