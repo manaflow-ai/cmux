@@ -11452,6 +11452,10 @@ function showPanelContextMenu(event, panel) {
   const layoutActions = contextMenuActionGroup(
     contextMenuButton("Set pane size", () => promptPanelLayoutPercent(panel), found.workspace.panels.length <= 1),
     contextMenuButton(isPanelZoomed(panel, found.workspace) ? "Show all panes" : "Focus pane", () => togglePaneZoom(panel.id)),
+    contextMenuButton("Equalize panes", () => applyPaneLayoutPreset("equal", { panelId: panel.id }), found.workspace.panels.length <= 1),
+    contextMenuButton("Grid layout", () => applyPaneLayoutPreset("grid", { panelId: panel.id }), found.workspace.panels.length <= 1),
+    contextMenuButton("Active pane wide", () => applyPaneLayoutPreset("activeWide", { panelId: panel.id }), found.workspace.panels.length <= 1),
+    contextMenuButton("Active pane tall", () => applyPaneLayoutPreset("activeTall", { panelId: panel.id }), found.workspace.panels.length <= 1),
     contextMenuButton("Move left", () => movePanelLeft(found.workspace, index), index <= 0),
     contextMenuButton("Move right", () => movePanelRight(found.workspace, index), index >= found.workspace.panels.length - 1)
   );
@@ -14081,13 +14085,25 @@ function buildGridPanePresetTree(panelIds) {
   return combinePaneTrees(rowTrees, "down");
 }
 
-async function applyPaneLayoutPreset(presetId) {
+async function applyPaneLayoutPreset(presetId, options = {}) {
   const preset = paneLayoutPresets.find((candidate) => candidate.id === presetId);
-  const workspace = activeWorkspace();
-  const active = activePanel();
+  const workspace = options.workspaceId
+    ? state.data?.workspaces.find((candidate) => candidate.id === options.workspaceId)
+    : activeWorkspace();
+  const active = options.panelId
+    ? workspace?.panels.find((panel) => panel.id === options.panelId)
+    : activePanel();
   if (!preset || !workspace || workspace.panels.length <= 1 || !active) {
     toast("Open another pane to use layout presets.");
     return false;
+  }
+  if (state.data.activeWorkspaceId !== workspace.id || workspace.activePanelId !== active.id) {
+    workspace.activePanelId = active.id;
+    state.data.activeWorkspaceId = workspace.id;
+    state.focusedPanelId = active.id;
+    state.lastInteractedPanelId = active.id;
+    refreshAppStateSignature();
+    queueFocusSync({ type: "panel", panelId: active.id });
   }
   const direction = preset.direction || paneLayoutDirection(workspace);
   clearZoomedPanelForWorkspace(workspace);
