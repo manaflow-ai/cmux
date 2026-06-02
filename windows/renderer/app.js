@@ -447,6 +447,7 @@ const state = {
   workspaceListSignature: "",
   workspaceListContentSignature: "",
   workspaceListActiveId: "",
+  paneCleanupSignature: null,
   surfaceTabsSignature: "",
   paneRenderSignature: "",
   paneFitSignature: "",
@@ -2437,8 +2438,7 @@ function setStoredPaneWeight(panelId, direction, weight) {
   else state.paneLayouts.delete(panelId);
 }
 
-function cleanupPaneLayouts() {
-  const livePanelIds = allPanelIds();
+function cleanupPaneLayouts(livePanelIds = allPanelIds()) {
   let changed = false;
   for (const panelId of [...state.paneLayouts.keys()]) {
     if (!livePanelIds.has(panelId)) {
@@ -2958,6 +2958,18 @@ function workspaceDisplayTitle(workspace, fallback = "Workspace") {
 
 function allPanelIds() {
   return new Set(allPanels().map((panel) => panel.id));
+}
+
+function livePaneStructureSignature() {
+  const parts = [];
+  for (const workspace of state.data?.workspaces || []) {
+    parts.push(String(workspace.id || "").length, ":", workspace.id || "", "[");
+    for (const panel of workspace.panels || []) {
+      parts.push(String(panel.id || "").length, ":", panel.id || "", ";");
+    }
+    parts.push("]");
+  }
+  return parts.join("");
 }
 
 function rememberPreviousWorkspace(workspaceId) {
@@ -3484,11 +3496,14 @@ function performanceGuardCanUseRenderSignal() {
 }
 
 function cleanupStalePaneCache() {
+  const signature = livePaneStructureSignature();
+  if (signature === state.paneCleanupSignature) return;
+  state.paneCleanupSignature = signature;
   const livePanelIds = allPanelIds();
   for (const panelId of [...state.paneCache.keys()]) {
     if (!livePanelIds.has(panelId)) cleanupPanel(panelId);
   }
-  cleanupPaneLayouts();
+  cleanupPaneLayouts(livePanelIds);
   cleanupPaneTrees();
 }
 
