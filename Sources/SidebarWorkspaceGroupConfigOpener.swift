@@ -8,7 +8,7 @@ enum SidebarWorkspaceGroupConfigOpener {
     static func openCmuxConfigInEditor() {
         openCmuxConfigInEditor(
             home: FileManager.default.homeDirectoryForCurrentUser,
-            open: PreferredEditorSettings.open
+            open: { PreferredEditorSettings.open($0) }
         )
     }
 
@@ -32,7 +32,7 @@ enum SidebarWorkspaceGroupConfigOpener {
             )
             try? Data("{}\n".utf8).write(to: configURL, options: .atomic)
         }
-        NSWorkspace.shared.open(configURL)
+        open(configURL)
     }
 
     static func openWorkspaceGroupsDocs() {
