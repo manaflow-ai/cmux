@@ -2129,6 +2129,66 @@ final class BrowserNavigationNewTabDecisionTests: XCTestCase {
 }
 
 
+final class BrowserMouseNavigationButtonTests: XCTestCase {
+    func testButtonThreeMapsToBackNavigation() {
+        XCTAssertEqual(browserMouseNavigationAction(buttonNumber: 3), .back)
+    }
+
+    func testButtonFourMapsToForwardNavigation() {
+        XCTAssertEqual(browserMouseNavigationAction(buttonNumber: 4), .forward)
+    }
+
+    func testMiddleButtonDoesNotMapToHistoryNavigation() {
+        XCTAssertNil(browserMouseNavigationAction(buttonNumber: 2))
+    }
+
+    func testMouseNavigationDispatchesBackCallback() {
+        var backCallCount = 0
+        var forwardCallCount = 0
+
+        let handled = browserHandleMouseNavigationButton(
+            buttonNumber: 3,
+            goBack: { backCallCount += 1 },
+            goForward: { forwardCallCount += 1 }
+        )
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(backCallCount, 1)
+        XCTAssertEqual(forwardCallCount, 0)
+    }
+
+    func testMouseNavigationDispatchesForwardCallback() {
+        var backCallCount = 0
+        var forwardCallCount = 0
+
+        let handled = browserHandleMouseNavigationButton(
+            buttonNumber: 4,
+            goBack: { backCallCount += 1 },
+            goForward: { forwardCallCount += 1 }
+        )
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(backCallCount, 0)
+        XCTAssertEqual(forwardCallCount, 1)
+    }
+
+    func testMouseNavigationIgnoresNonHistoryButton() {
+        var backCallCount = 0
+        var forwardCallCount = 0
+
+        let handled = browserHandleMouseNavigationButton(
+            buttonNumber: 2,
+            goBack: { backCallCount += 1 },
+            goForward: { forwardCallCount += 1 }
+        )
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(backCallCount, 0)
+        XCTAssertEqual(forwardCallCount, 0)
+    }
+}
+
+
 final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
     func testOtherNavigationDoesNotFallbackToNewTab() {
         XCTAssertFalse(
