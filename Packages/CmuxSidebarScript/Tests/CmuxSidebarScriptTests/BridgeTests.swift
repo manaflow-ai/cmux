@@ -89,4 +89,29 @@ import Testing
         """).asNode)
         #expect(node.content["fill"] == .gradient(RNGradient(colors: [.named("red"), .named("blue")], direction: .horizontal)))
     }
+
+    @Test func gridCarriesColumnsAndChildren() throws {
+        let node = try #require(try run("""
+        (grid :columns 3 :spacing 2
+          (text "a")
+          (text "b")
+          (text "c"))
+        """).asNode)
+        #expect(node.kind == "grid")
+        #expect(node.content["columns"] == .number(3))
+        #expect(node.content["spacing"] == .number(2))
+        #expect(node.children.count == 3)
+    }
+
+    @Test func maskAndScaleModifiersCarryNodesAndNumbers() throws {
+        let node = try #require(try run("""
+        (text "x" :scale 1.2 :minimum-scale-factor 0.7 :mask (circle :fill (color :white)))
+        """).asNode)
+        #expect(node.modifier("scale")?.first == .number(1.2))
+        #expect(node.modifier("minimum-scale-factor")?.first == .number(0.7))
+        #expect(node.modifier("mask")?.first == .node(RenderNode(
+            kind: "circle",
+            content: ["fill": .color(.named("white"))]
+        )))
+    }
 }

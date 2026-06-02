@@ -40,6 +40,10 @@ extension RenderNode {
     func containsText(_ value: String) -> Bool {
         nodes(kind: "text").contains { $0.content["text"]?.string == value }
     }
+
+    func containsTextContaining(_ value: String) -> Bool {
+        nodes(kind: "text").contains { ($0.content["text"]?.string ?? "").contains(value) }
+    }
 }
 
 extension LispValue {

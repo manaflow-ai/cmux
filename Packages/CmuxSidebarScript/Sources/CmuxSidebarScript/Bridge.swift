@@ -92,6 +92,7 @@ enum Bridge {
         builtin("vstack", env) { args, ev in try stack("vstack", args, ev) }
         builtin("hstack", env) { args, ev in try stack("hstack", args, ev) }
         builtin("zstack", env) { args, ev in try stack("zstack", args, ev) }
+        builtin("grid", env) { args, _ in try grid(args) }
         builtin("text", env) { args, _ in try text(args) }
         builtin("image", env) { args, _ in try image(args) }
         builtin("label", env) { args, _ in try label(args) }
@@ -134,6 +135,20 @@ enum Bridge {
         let s = split.positional.map { Builtins.display($0) }.joined()
         let node = RenderNode(kind: "text", content: ["text": .string(s)])
         return .node(try finish(node, "text", split.options))
+    }
+
+    private static func grid(_ args: [LispValue]) throws -> LispValue {
+        let split = try Coercion.split(args, formName: "grid")
+        var node = RenderNode(kind: "grid", children: try Coercion.childNodes(split.positional, formName: "grid"))
+        var leftover: [(String, LispValue)] = []
+        for (k, v) in split.options {
+            switch k {
+            case "columns": node.content["columns"] = .number(try Coercion.number(v, "grid"))
+            case "spacing": node.content["spacing"] = .number(try Coercion.number(v, "grid"))
+            default: leftover.append((k, v))
+            }
+        }
+        return .node(try finish(node, "grid", leftover))
     }
 
     private static func image(_ args: [LispValue]) throws -> LispValue {
@@ -285,6 +300,8 @@ enum Bridge {
             return node.adding(RenderModifier("rotation", values: [.number(try Coercion.number(v, "rotation"))]))
         case "line-limit":
             return node.adding(RenderModifier("line-limit", values: [.number(try Coercion.number(v, "line-limit"))]))
+        case "minimum-scale-factor", "min-scale":
+            return node.adding(RenderModifier("minimum-scale-factor", values: [.number(try Coercion.number(v, "minimum-scale-factor"))]))
         case "kerning", "tracking":
             return node.adding(RenderModifier("kerning", values: [.number(try Coercion.number(v, "kerning"))]))
         case "layout-priority":
@@ -301,6 +318,10 @@ enum Bridge {
             return node.adding(RenderModifier("overlay", values: [.node(try nodeValue(v, "overlay"))]))
         case "offset":
             return node.adding(RenderModifier("offset", values: [try offsetValue(v)]))
+        case "scale":
+            return node.adding(RenderModifier("scale", values: [.number(try Coercion.number(v, "scale"))]))
+        case "mask":
+            return node.adding(RenderModifier("mask", values: [.node(try nodeValue(v, "mask"))]))
         case "bold":
             return node.adding(RenderModifier("bold", values: [.bool(v.isTruthy)]))
         case "italic":

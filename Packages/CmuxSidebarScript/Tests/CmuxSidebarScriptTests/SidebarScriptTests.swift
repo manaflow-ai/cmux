@@ -33,7 +33,7 @@ import Testing
                 let script = try SidebarScript(source: demo.source)
                 let node = try script.render(sampleContext())
                 #expect(node != .empty)
-                #expect(node.containsText("issue-118-korean-ime") || node.containsText("ISSUE-118-KOREAN-IME"))
+                #expect(node.containsTextContaining("issue-118") || node.containsTextContaining("ISSUE-118"))
             } catch {
                 Issue.record("Demo '\(demo.id)' failed: \(error)")
             }

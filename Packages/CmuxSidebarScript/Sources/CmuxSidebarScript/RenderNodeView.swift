@@ -55,6 +55,13 @@ struct RenderNodeRenderer {
             return AnyView(ZStack(
                 alignment: alignment2D(node.content["alignment"]) ?? .center
             ) { children(node.children) })
+        case "grid":
+            let columnCount = max(1, Int(node.content["columns"]?.number ?? 2))
+            let spacing = CGFloat(node.content["spacing"]?.number ?? 4)
+            let columns = Array(repeating: GridItem(.flexible(), spacing: spacing), count: columnCount)
+            return AnyView(LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
+                children(node.children)
+            })
         case "group":
             return AnyView(Group { children(node.children) })
         case "text":
@@ -157,6 +164,8 @@ struct RenderNodeRenderer {
             return AnyView(view.rotationEffect(.degrees(m.first?.number ?? 0)))
         case "line-limit":
             return AnyView(view.lineLimit(Int(m.first?.number ?? 1)))
+        case "minimum-scale-factor":
+            return AnyView(view.minimumScaleFactor(CGFloat(m.first?.number ?? 1)))
         case "kerning":
             return AnyView(view.kerning(CGFloat(m.first?.number ?? 0)))
         case "layout-priority":
@@ -181,6 +190,11 @@ struct RenderNodeRenderer {
             if case .list(let xy)? = m.first, xy.count == 2 {
                 return AnyView(view.offset(x: CGFloat(xy[0].number ?? 0), y: CGFloat(xy[1].number ?? 0)))
             }
+            return view
+        case "scale":
+            return AnyView(view.scaleEffect(CGFloat(m.first?.number ?? 1)))
+        case "mask":
+            if case .node(let n)? = m.first { return AnyView(view.mask { self.view(for: n) }) }
             return view
         case "bold":
             return boolOn(m) ? AnyView(view.bold()) : view

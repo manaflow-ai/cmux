@@ -42,13 +42,14 @@ so a form reads like SwiftUI.
   records (maps) read with `(get record :key default)`.
 - Library: arithmetic, comparisons, `map`/`filter`/`reduce`, list and string
   ops, `str`/`join`, `record`/`assoc`/`get`/`keys`.
-- Views: `vstack` `hstack` `zstack` `group` `text` `image` `label` `spacer`
-  `divider` `rectangle` `capsule` `circle` `rounded-rectangle` `progress-view`
-  `button`.
+- Views: `vstack` `hstack` `zstack` `grid` `group` `text` `image` `label`
+  `spacer` `divider` `rectangle` `capsule` `circle` `rounded-rectangle`
+  `progress-view` `button`.
 - Options (modifiers): `:font :foreground :background :tint :padding :frame`
   (`:width :height :max-width :frame-align ...`) `:corner-radius :opacity
-  :line-limit :truncation :text-align :shadow :overlay :offset :bold :italic
-  :underline :strikethrough :border :help :on-tap` and more.
+  :line-limit :minimum-scale-factor :truncation :text-align :shadow :overlay
+  :offset :scale :mask :bold :italic :underline :strikethrough :border :help
+  :on-tap` and more.
 - Style constructors: `(color :name)` `(hex "#rrggbb")` `(rgb r g b)`
   `(font :size :weight :design)` `(gradient c1 c2 :direction)` `(edges ...)`
   `(shadow ...)`.

@@ -1,77 +1,73 @@
-;; Finder-like rows with filled icons, rounded selections inside the content, and
-;; hover-friendly spacing.
+;; Nested Finder tree. Uses the row as a miniature filesystem navigator instead
+;; of a flat workspace card.
 
 (def (muted ws)
-  (if (get ws :dark-mode) (rgba 235 235 245 0.56) (rgba 60 60 67 0.56)))
+  (if (get ws :dark-mode) (rgba 235 235 245 0.55) (rgba 60 60 67 0.55)))
 
-(def (folder-symbol ws)
-  (cond
-    ((get ws :pinned) "pin.fill")
-    ((get ws :remote) "externaldrive.connected.to.line.below.fill")
-    ((not (empty? (get ws :ports))) "network")
-    (else "folder.fill")))
+(def (path-parts ws)
+  (if (get ws :directory)
+      (split (replace (replace (get ws :directory) "~/" "home/") " " "-") "/")
+      (list "workspace" (get ws :title))))
 
-(def (branch ws)
-  (when (get ws :branch)
-    (hstack :spacing 4
-      (image :system "arrow.triangle.branch" :font (font :size 10 :weight medium))
-      (text (get ws :branch)
-        :font (font :size 11)
-        :line-limit 1
-        :truncation middle)
-      :foreground (muted ws))))
-
-(def (pr-count ws)
-  (let ((open (count (filter (fn (pr) (= (get pr :state) "open")) (get ws :pull-requests)))))
-    (when (> open 0)
-      (text (str open)
-        :font (font :size 11 :weight semibold :monospaced-digit true)
-        :foreground (color :white)
-        :padding (edges :horizontal 6 :vertical 1)
-        :background (color :blue)
-        :corner-radius 8))))
-
-(def (status-row item ws)
+(def (tree-line depth label system tint selected)
   (hstack :spacing 5
-    (circle :fill (if (get item :color) (hex (get item :color)) (color :green)) :width 6 :height 6)
-    (text (get item :label)
-      :font (font :size 10)
-      :foreground (muted ws)
-      :line-limit 1)
+    (when (> depth 0)
+      (rectangle :fill (rgba 127 127 127 0.25) :width 1 :height 18
+        :padding (edges :leading (+ 6 (* (- depth 1) 12)))))
+    (image :system system
+      :font (font :size 12 :weight medium)
+      :foreground tint
+      :frame-align center
+      :width 16)
+    (text label
+      :font (font :size 12 :weight (if selected semibold regular))
+      :line-limit 1
+      :truncation tail)
     (spacer)
-    (text (get item :value)
-      :font (font :size 10 :weight medium)
-      :foreground (color :primary)
-      :line-limit 1)))
+    :padding (edges :leading (* depth 12) :trailing 4 :vertical 2)
+    :background (if selected (rgba 10 132 255 0.18) (color :clear))
+    :corner-radius 5))
+
+(def (path-line index part ws)
+  (let ((last (= index (- (count (path-parts ws)) 1))))
+    (tree-line index part
+      (cond
+        ((= index 0) "house.fill")
+        (last "folder.fill")
+        (else "folder"))
+      (if last (color :blue) (muted ws))
+      last)))
+
+(def (pr-leaf pr)
+  (tree-line 2
+    (str "#" (get pr :number) " " (get pr :state))
+    (if (get pr :stale) "clock.badge.exclamationmark" "arrow.triangle.pull")
+    (cond
+      ((= (get pr :state) "merged") (color :purple))
+      ((= (get pr :state) "closed") (color :red))
+      (else (color :green)))
+    false))
+
+(def (port-leaf port)
+  (button
+    (tree-line 2 (str "localhost:" port) "network" (color :blue) false)
+    :action (open-url (str "http://localhost:" port))))
 
 (def (render-row ws)
-  (vstack :spacing 5 :max-width infinity :frame-align leading
-    (hstack :spacing 7
-      (image :system (folder-symbol ws)
-        :font (font :size 16 :weight medium)
-        :foreground (if (get ws :active) (color :accent) (color :blue))
-        :frame-align center
-        :width 19)
+  (vstack :spacing 2 :max-width infinity :frame-align leading
+    (hstack :spacing 6
+      (image :system "sidebar.left" :font (font :size 12 :weight semibold) :foreground (color :blue))
       (text (get ws :title)
-        :font (font :size 13 :weight medium)
+        :font (font :size 12 :weight semibold)
         :line-limit 1
         :truncation tail)
       (spacer)
-      (pr-count ws)
       (when (> (get ws :unread) 0)
         (text (str (get ws :unread))
-          :font (font :size 11 :weight semibold :monospaced-digit true)
+          :font (font :size 10 :weight bold :monospaced-digit true)
           :foreground (color :red))))
-    (hstack :spacing 8
-      (branch ws)
-      (when (get ws :directory)
-        (text (get ws :directory)
-          :font (font :size 11)
-          :foreground (muted ws)
-          :line-limit 1
-          :truncation head)))
-    (when (not (empty? (get ws :status)))
-      (vstack :spacing 2 :max-width infinity :frame-align leading
-        (map (fn (entry) (status-row entry ws)) (get ws :status))))
-    (when (get ws :progress)
-      (progress-view :value (get ws :progress) :total 1 :tint (color :blue)))))
+    (map-indexed (fn (index part) (path-line index part ws)) (path-parts ws))
+    (when (get ws :branch)
+      (tree-line 1 (get ws :branch) "arrow.triangle.branch" (color :green) false))
+    (map pr-leaf (get ws :pull-requests))
+    (map port-leaf (get ws :ports))))
