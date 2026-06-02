@@ -2164,29 +2164,37 @@ function colorKey(value) {
 function colorApplyTargetOptions(workspace = activeWorkspace()) {
   const panel = focusedPanel() || activePanel();
   const paneCount = workspace?.panels?.length || 0;
+  const workspaceColor = workspace?.color || state.settings.accent;
+  const paneColor = panel?.color || workspaceColor;
+  const paneColors = (workspace?.panels || []).map((candidate) => colorKey(candidate.color)).filter(Boolean);
+  const uniquePaneColors = [...new Set(paneColors)];
   return [
     {
       id: "accent",
       label: "Accent",
-      meta: "app UI",
+      meta: "app chrome",
+      color: state.settings.accent,
       disabled: false
     },
     {
       id: "workspace",
       label: "Workspace",
-      meta: workspace?.title || "no workspace",
+      meta: workspace ? workspaceDisplayTitle(workspace) : "no workspace",
+      color: workspaceColor,
       disabled: !workspace
     },
     {
       id: "pane",
-      label: "Active pane",
+      label: "This pane",
       meta: panel ? panelDisplayTitle(panel, true) : "no pane",
+      color: paneColor,
       disabled: !panel
     },
     {
       id: "all",
       label: "All panes",
       meta: paneCount ? `${paneCount} pane${paneCount === 1 ? "" : "s"}` : "no panes",
+      color: uniquePaneColors.length === 1 ? uniquePaneColors[0] : workspaceColor,
       disabled: paneCount === 0
     }
   ];
@@ -2202,7 +2210,7 @@ function colorApplyTargetPrimaryLabel(target = state.colorApplyTarget) {
   if (scope === "workspace") return "Apply to workspace";
   if (scope === "pane") return "Apply to pane";
   if (scope === "all") return "Apply to all";
-  return "Apply";
+  return "Apply to accent";
 }
 
 function activePaneForColorTarget() {
@@ -12927,9 +12935,19 @@ function activeColorTargetControl() {
     button.className = "background-target-option";
     button.type = "button";
     button.dataset.colorTarget = target.id;
+    const icon = target.id === "accent"
+      ? quickActionIconMarkup("appearance")
+      : target.id === "workspace"
+        ? quickActionIconMarkup("workspace")
+        : target.id === "pane"
+          ? quickActionIconMarkup("paneSettings")
+          : quickActionIconMarkup("paneShape");
     button.innerHTML = `
-      <span class="background-target-name"></span>
-      <span class="background-target-meta"></span>
+      <span class="background-target-icon color-target-icon" aria-hidden="true">${icon}</span>
+      <span class="background-target-copy">
+        <span class="background-target-name"></span>
+        <span class="background-target-meta"></span>
+      </span>
     `;
     button.onclick = () => {
       const nextTarget = normalizeColorApplyTarget(button.dataset.colorTarget);
@@ -12953,7 +12971,9 @@ function updateActiveColorTargetControl(root) {
     setClassNameIfChanged(button, `background-target-option${active ? " is-active" : ""}${target.disabled ? " is-disabled" : ""}`);
     setDisabledIfChanged(button, target.disabled);
     setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
+    setAttributeIfChanged(button, "aria-label", `${target.label}: ${target.meta}`);
     setTitleIfChanged(button, `${target.label}: ${target.meta}`);
+    setStylePropertyIfChanged(button, "--target-color", target.color || state.settings.accent);
     setTextIfChanged(button.querySelector(".background-target-name"), target.label);
     setTextIfChanged(button.querySelector(".background-target-meta"), target.meta);
   }

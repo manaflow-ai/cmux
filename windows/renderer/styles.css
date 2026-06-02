@@ -8802,10 +8802,6 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   grid-template-columns: repeat(auto-fit, minmax(min(124px, 100%), 1fr));
 }
 
-.color-target-control .background-target-options {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
 .background-target-option {
   min-width: 0;
   min-height: 38px;
@@ -8854,6 +8850,44 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   min-width: 0;
   display: grid;
   gap: 2px;
+}
+
+.color-target-control {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 6px;
+  padding: var(--space-2);
+  background: color-mix(in oklch, var(--color-pane) 86%, var(--color-rail) 14%);
+}
+
+.color-target-control .background-target-options {
+  grid-template-columns: repeat(auto-fit, minmax(min(118px, 100%), 1fr));
+}
+
+.color-target-control .background-target-option {
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  align-content: stretch;
+  min-height: 48px;
+  padding: 7px 8px;
+}
+
+.color-target-icon {
+  position: relative;
+  overflow: hidden;
+}
+
+.color-target-icon::after {
+  content: "";
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid color-mix(in oklch, var(--color-canvas) 78%, transparent);
+  border-radius: 50%;
+  background: var(--target-color, var(--color-accent));
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-text) 12%, transparent);
 }
 
 .background-target-option:hover:not(:disabled) {
