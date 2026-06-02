@@ -45,7 +45,7 @@ struct UpdatePill: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .safeHelp(model.text)
+        .safeHelp(model.pillHelpText)
         .accessibilityLabel(model.text)
         .accessibilityIdentifier("UpdatePill")
     }
