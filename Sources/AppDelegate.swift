@@ -1117,6 +1117,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var gotoSplitUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
+    private var didSetupEmptyNotificationsBlockingUITest = false
+    private var emptyNotificationsBlockingUITestRecorder: DispatchSourceTimer?
+    private var emptyNotificationsBlockingUITestObservers: [NSObjectProtocol] = []
     private var didSetupDisplayResolutionUITestDiagnostics = false
     private var displayResolutionUITestObservers: [NSObjectProtocol] = []
     private var didSetupFeedSidebarUITest = false
@@ -1673,6 +1676,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return object
     }
 
+    private func writeUITestDiagnostics(_ updates: [String: String], at path: String) {
+        var payload = loadUITestDiagnostics(at: path)
+        for (key, value) in updates {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
     private func appendUITestSocketDiagnosticsIfNeeded(
         _ payload: inout [String: String],
         environment env: [String: String]
@@ -2077,6 +2089,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupGotoSplitUITestIfNeeded()
         setupBonsplitTabDragUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
+        setupEmptyNotificationsBlockingUITestIfNeeded()
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
         setupPortalStatsUITestDiagnosticsIfNeeded()
 
@@ -12032,6 +12045,139 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         restartSocketListenerIfEnabled(source: "uiTest.multiWindowNotifications.setup")
         publishCurrentState(isTimedOut: false)
+    }
+
+    private func setupEmptyNotificationsBlockingUITestIfNeeded() {
+        guard !didSetupEmptyNotificationsBlockingUITest else { return }
+        didSetupEmptyNotificationsBlockingUITest = true
+
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_EMPTY_NOTIFICATIONS_BLOCKING_SETUP"] == "1" else { return }
+        guard let path = env["CMUX_UI_TEST_DIAGNOSTICS_PATH"], !path.isEmpty else { return }
+
+        notificationStore?.replaceNotificationsForTesting([])
+
+        var captureCount = Int(loadUITestDiagnostics(at: path)["emptyNotificationsTerminalCaptureCount"] ?? "0") ?? 0
+        let startedAt = ProcessInfo.processInfo.systemUptime
+
+        func cleanupObservers() {
+            emptyNotificationsBlockingUITestObservers.forEach { NotificationCenter.default.removeObserver($0) }
+            emptyNotificationsBlockingUITestObservers.removeAll()
+        }
+
+        func terminalContext() -> (manager: TabManager, workspace: Workspace, terminalPanel: TerminalPanel, window: NSWindow?)? {
+            var managers: [TabManager] = []
+            if let tabManager {
+                managers.append(tabManager)
+            }
+            for context in mainWindowContexts.values where !managers.contains(where: { $0 === context.tabManager }) {
+                managers.append(context.tabManager)
+            }
+
+            for manager in managers {
+                guard let workspace = manager.selectedWorkspace ?? manager.tabs.first else { continue }
+                let terminalPanel: TerminalPanel? = {
+                    if let focusedPanelId = workspace.focusedPanelId,
+                       let focusedPanel = workspace.terminalPanel(for: focusedPanelId) {
+                        return focusedPanel
+                    }
+                    if let focusedTerminalPanel = workspace.focusedTerminalPanel {
+                        return focusedTerminalPanel
+                    }
+                    return workspace.panels.values
+                        .compactMap { $0 as? TerminalPanel }
+                        .sorted { $0.id.uuidString < $1.id.uuidString }
+                        .first
+                }()
+                guard let terminalPanel else { continue }
+
+                let window = terminalPanel.surface.uiWindow
+                    ?? liveMainWindowContext(for: manager).flatMap { resolvedWindow(for: $0) }
+                    ?? NSApp.keyWindow
+                    ?? NSApp.mainWindow
+                return (manager, workspace, terminalPanel, window)
+            }
+            return nil
+        }
+
+        func publishSnapshot() {
+            if ProcessInfo.processInfo.systemUptime - startedAt > 30.0 {
+                emptyNotificationsBlockingUITestRecorder?.cancel()
+                emptyNotificationsBlockingUITestRecorder = nil
+                cleanupObservers()
+                return
+            }
+
+            guard let context = terminalContext() else {
+                writeUITestDiagnostics([
+                    "emptyNotificationsTerminalReady": "0",
+                    "emptyNotificationsSetupFailure": "terminal_context_missing",
+                    "emptyNotificationsCaptureUpdatedAt": String(format: "%.6f", ProcessInfo.processInfo.systemUptime),
+                    "emptyNotificationsPopoverShown": isNotificationsPopoverShown() ? "1" : "0",
+                    "emptyNotificationsNotificationCount": String(notificationStore?.notifications.count ?? 0),
+                ], at: path)
+                return
+            }
+
+            let popoverShown = isNotificationsPopoverShown()
+            if !popoverShown, let window = context.window {
+                window.makeKeyAndOrderFront(nil)
+                window.orderFrontRegardless()
+                context.manager.selectWorkspace(context.workspace)
+                context.manager.focusSurface(tabId: context.workspace.id, surfaceId: context.terminalPanel.id)
+                context.terminalPanel.focus()
+            }
+
+            let text = TerminalController.shared.readTerminalTextForSnapshot(
+                terminalPanel: context.terminalPanel,
+                lineLimit: 200
+            )
+            captureCount += 1
+            let textBase64 = Data((text ?? "").utf8).base64EncodedString()
+            let ready = text != nil && context.terminalPanel.surface.surface != nil
+
+            writeUITestDiagnostics([
+                "emptyNotificationsTerminalReady": ready ? "1" : "0",
+                "emptyNotificationsTerminalWorkspaceId": context.workspace.id.uuidString,
+                "emptyNotificationsTerminalSurfaceId": context.terminalPanel.id.uuidString,
+                "emptyNotificationsTerminalTextBase64": textBase64,
+                "emptyNotificationsTerminalCaptureCount": String(captureCount),
+                "emptyNotificationsCaptureUpdatedAt": String(format: "%.6f", ProcessInfo.processInfo.systemUptime),
+                "emptyNotificationsPopoverShown": popoverShown ? "1" : "0",
+                "emptyNotificationsNotificationCount": String(notificationStore?.notifications.count ?? 0),
+                "emptyNotificationsSetupFailure": "",
+            ], at: path)
+        }
+
+        let observedNames: [Notification.Name] = [
+            NSWindow.didUpdateNotification,
+            .terminalSurfaceDidBecomeReady,
+            .ghosttyDidFocusSurface,
+            .ghosttyDidBecomeFirstResponderSurface,
+            .cmuxNotificationsPopoverVisibilityDidChange,
+        ]
+        emptyNotificationsBlockingUITestObservers = observedNames.map { name in
+            NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { @MainActor in
+                    publishSnapshot()
+                }
+            }
+        }
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(250), leeway: .milliseconds(50))
+        timer.setEventHandler {
+            Task { @MainActor in
+                publishSnapshot()
+            }
+        }
+        emptyNotificationsBlockingUITestRecorder = timer
+        timer.resume()
+        publishSnapshot()
     }
 
     private func writeMultiWindowNotificationTestData(_ updates: [String: String], at path: String) {

@@ -184,6 +184,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_EMPTY_NOTIFICATIONS_BLOCKING_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launch()
@@ -193,33 +194,20 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         )
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0))
-        guard let diagnostics = waitForSocketDiagnosticsReady(timeout: 12.0) else {
-            XCTFail(
-                "Control socket unavailable in this test environment. requested=\(socketPath) " +
-                "diagnostics=\(loadDiagnostics() ?? [:])"
-            )
-            return
-        }
-        if let expectedSocketPath = diagnostics["socketExpectedPath"], !expectedSocketPath.isEmpty {
+        if let diagnostics = waitForSocketDiagnosticsReady(timeout: 6.0),
+           let expectedSocketPath = diagnostics["socketExpectedPath"],
+           !expectedSocketPath.isEmpty {
             socketPath = expectedSocketPath
         }
-        let ping = waitForCmuxPing(timeout: 6.0)
-        XCTAssertEqual(
-            ping.stdout,
-            "PONG",
-            "Expected the test harness to reach the control socket. stdout=\(ping.stdout ?? "<nil>") " +
-            "stderr=\(ping.stderr ?? "<nil>") diagnostics=\(diagnostics)"
-        )
 
-        let terminalSurfaceId = try XCTUnwrap(
-            ensureReadableTerminalSurface(timeout: 10.0),
-            "Expected a readable terminal surface before opening the notifications popover. " +
-            "workspaces=\(socketCommand("list_workspaces") ?? "<nil>") " +
-            "surfaces=\(currentWorkspaceId().flatMap { socketCommand("list_surfaces \($0)") } ?? "<nil>") " +
+        let marker = "cmux_notif_block_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))"
+        let before = try XCTUnwrap(
+            waitForEmptyNotificationsTerminalSnapshot(timeout: 12.0),
+            "Expected app-side terminal diagnostics before opening the notifications popover. " +
             "diagnostics=\(loadDiagnostics() ?? [:])"
         )
-
-        _ = socketCommand("clear_notifications")
+        XCTAssertFalse(before.text.contains(marker), "Unexpected marker precondition collision")
+        XCTAssertEqual(before.notificationCount, 0, "Expected app-side setup to clear notifications")
 
         app.typeKey("i", modifierFlags: [.command])
         XCTAssertTrue(app.staticTexts["No notifications yet"].waitForExistence(timeout: 6.0), "Expected empty notifications popover state")
@@ -230,23 +218,22 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertTrue(clearAllButton.waitForExistence(timeout: 2.0), "Expected Clear All button in empty notifications popover")
         XCTAssertFalse(clearAllButton.isEnabled, "Expected Clear All button to be disabled with no notifications")
 
-        let marker = "cmux_notif_block_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))"
-        let before = try XCTUnwrap(
-            waitForTerminalText(surfaceId: terminalSurfaceId, timeout: 8.0),
-            "Expected terminal text to become readable before typing. " +
-            "surface=\(terminalSurfaceId) diagnostics=\(loadDiagnostics() ?? [:])"
+        XCTAssertNotNil(
+            waitForEmptyNotificationsTerminalSnapshot(timeout: 3.0) { snapshot in
+                snapshot.popoverShown
+            },
+            "Expected app-side diagnostics to observe the notifications popover. diagnostics=\(loadDiagnostics() ?? [:])"
         )
-        XCTAssertFalse(before.contains(marker), "Unexpected marker precondition collision")
 
         app.typeText(marker)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
 
         let after = try XCTUnwrap(
-            waitForTerminalText(surfaceId: terminalSurfaceId, timeout: 4.0),
-            "Expected terminal text from control socket after typing. " +
-            "surface=\(terminalSurfaceId) diagnostics=\(loadDiagnostics() ?? [:])"
+            waitForEmptyNotificationsTerminalSnapshot(timeout: 4.0) { snapshot in
+                snapshot.captureCount >= before.captureCount + 2
+            },
+            "Expected a fresh app-side terminal snapshot after typing. diagnostics=\(loadDiagnostics() ?? [:])"
         )
-        XCTAssertFalse(after.contains(marker), "Expected typing to be blocked while empty notifications popover is open")
+        XCTAssertFalse(after.text.contains(marker), "Expected typing to be blocked while empty notifications popover is open")
     }
 
     func testNotifyCLIDoesNotStealFocusAcrossWindows() throws {
@@ -1659,6 +1646,53 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return matched != nil
         }
         return matched ?? readTerminalText(surfaceId: surfaceId) ?? readTerminalTextViaCLI(surfaceId: surfaceId)
+    }
+
+    private struct EmptyNotificationsTerminalSnapshot {
+        let diagnostics: [String: String]
+        let surfaceId: String
+        let text: String
+        let captureCount: Int
+        let notificationCount: Int
+        let popoverShown: Bool
+    }
+
+    private func waitForEmptyNotificationsTerminalSnapshot(
+        timeout: TimeInterval,
+        matching predicate: @escaping (EmptyNotificationsTerminalSnapshot) -> Bool = { _ in true }
+    ) -> EmptyNotificationsTerminalSnapshot? {
+        var matched: EmptyNotificationsTerminalSnapshot?
+        _ = waitForCondition(timeout: timeout) {
+            guard let snapshot = self.emptyNotificationsTerminalSnapshot() else { return false }
+            guard predicate(snapshot) else { return false }
+            matched = snapshot
+            return true
+        }
+        return matched
+    }
+
+    private func emptyNotificationsTerminalSnapshot() -> EmptyNotificationsTerminalSnapshot? {
+        guard let diagnostics = loadDiagnostics(),
+              diagnostics["emptyNotificationsTerminalReady"] == "1",
+              let textBase64 = diagnostics["emptyNotificationsTerminalTextBase64"],
+              let textData = Data(base64Encoded: textBase64),
+              let text = String(data: textData, encoding: .utf8),
+              let captureCountText = diagnostics["emptyNotificationsTerminalCaptureCount"],
+              let captureCount = Int(captureCountText),
+              let notificationCountText = diagnostics["emptyNotificationsNotificationCount"],
+              let notificationCount = Int(notificationCountText) else {
+            return nil
+        }
+        let surfaceId = diagnostics["emptyNotificationsTerminalSurfaceId"] ?? ""
+        guard !surfaceId.isEmpty else { return nil }
+        return EmptyNotificationsTerminalSnapshot(
+            diagnostics: diagnostics,
+            surfaceId: surfaceId,
+            text: text,
+            captureCount: captureCount,
+            notificationCount: notificationCount,
+            popoverShown: diagnostics["emptyNotificationsPopoverShown"] == "1"
+        )
     }
 
     private func loadData() -> [String: String]? {

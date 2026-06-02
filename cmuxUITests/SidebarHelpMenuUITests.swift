@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 
 private func sidebarHelpPollUntil(
     timeout: TimeInterval,
@@ -21,6 +22,14 @@ final class SidebarHelpMenuUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
+        resetMenuBarOnlyDefault()
+        XCUIApplication().terminate()
+    }
+
+    override func tearDown() {
+        XCUIApplication().terminate()
+        resetMenuBarOnlyDefault()
+        super.tearDown()
     }
 
     func testHelpMenuCheckForUpdatesTriggersSidebarUpdatePill() {
@@ -42,14 +51,14 @@ final class SidebarHelpMenuUITests: XCTestCase {
             timeout: 6.0,
             description: "sidebar help button"
         )
-        helpButton.click()
+        clickElement(helpButton)
 
         let checkForUpdatesItem = requireElement(
             candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionCheckForUpdates", title: "Check for Updates"),
             timeout: 3.0,
             description: "Check for Updates help menu item"
         )
-        checkForUpdatesItem.click()
+        clickElement(checkForUpdatesItem)
 
         let updatePill = app.buttons["UpdatePill"]
         XCTAssertTrue(updatePill.waitForExistence(timeout: 6.0))
@@ -71,14 +80,14 @@ final class SidebarHelpMenuUITests: XCTestCase {
             timeout: 6.0,
             description: "sidebar help button"
         )
-        helpButton.click()
+        clickElement(helpButton)
 
         let sendFeedbackItem = requireElement(
             candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionSendFeedback", title: "Send Feedback"),
             timeout: 3.0,
             description: "Send Feedback help menu item"
         )
-        sendFeedbackItem.click()
+        clickElement(sendFeedbackItem)
 
         XCTAssertTrue(app.staticTexts["Send Feedback"].waitForExistence(timeout: 3.0))
         XCTAssertTrue(
@@ -149,11 +158,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
     private func waitForSidebarReady(app: XCUIApplication, timeout: TimeInterval) -> Bool {
         sidebarHelpPollUntil(timeout: timeout) {
-            app.windows.count >= 1 &&
-                (
-                    app.otherElements["Sidebar"].exists ||
-                    helpButtonCandidates(in: app).contains { $0.exists }
-                )
+            app.windows.count >= 1 && helpButtonCandidates(in: app).contains { $0.exists }
         }
     }
 
@@ -162,8 +167,14 @@ final class SidebarHelpMenuUITests: XCTestCase {
         return [
             app.buttons["SidebarHelpMenuButton"],
             app.buttons["Help"],
+            app.images["SidebarHelpMenuButton"],
+            app.otherElements["SidebarHelpMenuButton"],
+            app.descendants(matching: .any)["SidebarHelpMenuButton"],
+            app.descendants(matching: .any)["Help"],
             sidebar.buttons["SidebarHelpMenuButton"],
             sidebar.buttons["Help"],
+            sidebar.descendants(matching: .any)["SidebarHelpMenuButton"],
+            sidebar.descendants(matching: .any)["Help"],
         ]
     }
 
@@ -181,6 +192,10 @@ final class SidebarHelpMenuUITests: XCTestCase {
         [
             app.buttons[identifier],
             app.buttons[title],
+            app.menuItems[identifier],
+            app.menuItems[title],
+            app.descendants(matching: .any)[identifier],
+            app.descendants(matching: .any)[title],
         ]
     }
 
@@ -209,6 +224,26 @@ final class SidebarHelpMenuUITests: XCTestCase {
             return candidates[0]
         }
         return element
+    }
+
+    private func clickElement(_ element: XCUIElement) {
+        if element.isHittable {
+            element.click()
+        } else {
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, y: 0.5)).click()
+        }
+    }
+
+    private func resetMenuBarOnlyDefault() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+        process.arguments = ["write", "com.cmuxterm.app.debug", "menuBarOnly", "-bool", "false"]
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return
+        }
     }
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
@@ -324,6 +359,7 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
 
 final class CommandPaletteAllSurfacesUITests: XCTestCase {
     private var socketPath = ""
+    private var diagnosticsPath = ""
     private let debugDefaultsDomain = "com.cmuxterm.app.debug"
     private let hiddenSurfaceToken = "cmux-command-palette-hidden-surface"
     private let visibleSurfaceToken = "cmux-command-palette-visible-surface"
@@ -335,13 +371,16 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         resetMenuBarOnlyDefault()
         XCUIApplication().terminate()
         socketPath = "/tmp/cmux-ui-test-command-palette-\(UUID().uuidString).sock"
+        diagnosticsPath = "/tmp/cmux-ui-test-command-palette-diagnostics-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: socketPath)
+        try? FileManager.default.removeItem(atPath: diagnosticsPath)
     }
 
     override func tearDown() {
         XCUIApplication().terminate()
         resetMenuBarOnlyDefault()
         try? FileManager.default.removeItem(atPath: socketPath)
+        try? FileManager.default.removeItem(atPath: diagnosticsPath)
         super.tearDown()
     }
 
@@ -368,6 +407,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         if showSettingsWindow {
             app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
         }
@@ -384,7 +424,10 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             },
             "Expected the main window to be visible"
         )
-        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 12.0),
+            "Expected control socket at \(socketPath). \(socketReadinessDebug())"
+        )
 
         let mainWindowId = try XCTUnwrap(
             socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -496,7 +539,10 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             },
             "Expected the main window and Settings window to be visible"
         )
-        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 12.0),
+            "Expected control socket at \(socketPath). \(socketReadinessDebug())"
+        )
 
         let mainWindowId = try XCTUnwrap(socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines))
         let secondaryWorkspaceId = try XCTUnwrap(okUUID(from: socketCommand("new_workspace")))
@@ -526,10 +572,10 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         XCTAssertEqual(commandPaletteResultRows(from: disabledSnapshot).count, 0)
         dismissCommandPalette(app: app)
 
-        focusSettingsWindow(app: app)
-        let toggle = try requireSearchAllSurfacesToggle(app: app)
+        let settingsWindow = ensureAppSettingsSection(app: app)
+        let toggle = try requireSearchAllSurfacesToggle(app: app, root: settingsWindow)
         if !toggleIsOn(toggle) {
-            toggle.click()
+            clickElement(toggle)
         }
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 3.0) {
@@ -577,11 +623,11 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             "Expected the main window and Settings window to be visible"
         )
 
-        focusSettingsWindow(app: app)
-        let toggle = try requireMinimalModeToggle(app: app)
+        let settingsWindow = ensureAppSettingsSection(app: app)
+        let toggle = try requireMinimalModeToggle(app: app, root: settingsWindow)
         let initialState = toggleIsOn(toggle)
 
-        toggle.click()
+        clickElement(toggle)
 
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 3.0) {
@@ -653,10 +699,10 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             "Expected the main window and Settings window to be visible"
         )
 
-        focusSettingsWindow(app: app)
-        let toggle = try requireMenuBarOnlyToggle(app: app)
+        let settingsWindow = ensureAppSettingsSection(app: app)
+        let toggle = try requireMenuBarOnlyToggle(app: app, root: settingsWindow)
         if toggleIsOn(toggle) {
-            toggle.click()
+            clickElement(toggle)
             XCTAssertTrue(
                 sidebarHelpPollUntil(timeout: 3.0) {
                     toggle.exists && !toggleIsOn(toggle)
@@ -665,7 +711,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             )
         }
 
-        toggle.click()
+        clickElement(toggle)
 
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 3.0) {
@@ -701,7 +747,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             "Expected the Settings window to stay key after enabling menu-bar-only mode. diagnostics=\(loadDiagnostics(at: diagnosticsPath) ?? [:])"
         )
 
-        toggle.click()
+        clickElement(toggle)
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 3.0) {
                 toggle.exists && !toggleIsOn(toggle)
@@ -722,16 +768,19 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             },
             "Expected the main window and Settings window to be visible"
         )
-        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 12.0),
+            "Expected control socket at \(socketPath). \(socketReadinessDebug())"
+        )
 
         let mainWindowId = try XCTUnwrap(
             socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines)
         )
 
-        focusSettingsWindow(app: app)
-        let toggle = try requireMinimalModeToggle(app: app)
+        let settingsWindow = ensureAppSettingsSection(app: app)
+        let toggle = try requireMinimalModeToggle(app: app, root: settingsWindow)
         if toggleIsOn(toggle) {
-            toggle.click()
+            clickElement(toggle)
             XCTAssertTrue(
                 sidebarHelpPollUntil(timeout: 3.0) {
                     toggle.exists && !toggleIsOn(toggle)
@@ -812,7 +861,10 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             },
             "Expected the main window to be visible"
         )
-        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 12.0),
+            "Expected control socket at \(socketPath). \(socketReadinessDebug())"
+        )
 
         let mainWindowId = try XCTUnwrap(
             socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -938,21 +990,63 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         XCTAssertFalse(searchField.exists, "Expected command palette to dismiss")
     }
 
-    private func focusSettingsWindow(app: XCUIApplication) {
-        app.typeKey(",", modifierFlags: [.command])
+    @discardableResult
+    private func focusSettingsWindow(app: XCUIApplication) -> XCUIElement {
+        let window = settingsWindow(app: app)
+        if !window.exists {
+            app.typeKey(",", modifierFlags: [.command])
+        }
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 6.0) { window.exists },
+            "Expected Settings window to be visible"
+        )
+        if window.exists {
+            clickElement(window)
+        }
+        return window
     }
 
-    private func requireSearchAllSurfacesToggle(app: XCUIApplication) throws -> XCUIElement {
+    private func settingsWindow(app: XCUIApplication) -> XCUIElement {
+        let titledWindow = app.windows["Settings"]
+        if titledWindow.exists {
+            return titledWindow
+        }
+        return app.windows["cmux.settings"]
+    }
+
+    private func ensureAppSettingsSection(app: XCUIApplication) -> XCUIElement {
+        let window = focusSettingsWindow(app: app)
+        let header = window.descendants(matching: .any)["SettingsAppSection"]
+        if header.exists {
+            return window
+        }
+
+        let appRow = window.cells.containing(.staticText, identifier: "App").firstMatch
+        let appText = window.staticTexts["App"]
+        if let target = firstExistingElement(candidates: [appRow, appText], timeout: 3.0) {
+            clickElement(target)
+        }
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 5.0) { header.exists },
+            "Expected Settings App section to render"
+        )
+        return window
+    }
+
+    private func requireSearchAllSurfacesToggle(app: XCUIApplication, root: XCUIElement) throws -> XCUIElement {
         let toggleId = "CommandPaletteSearchAllSurfacesToggle"
-        let scrollView = app.scrollViews.firstMatch
+        let scrollView = root.scrollViews.firstMatch
         let candidates = [
+            root.switches[toggleId],
+            root.checkBoxes[toggleId],
+            root.buttons[toggleId],
+            root.descendants(matching: .any)[toggleId],
             app.switches[toggleId],
             app.checkBoxes[toggleId],
-            app.buttons[toggleId],
-            app.otherElements[toggleId],
+            app.descendants(matching: .any)[toggleId],
         ]
 
-        for _ in 0..<8 {
+        for _ in 0..<10 {
             if let element = firstExistingElement(candidates: candidates, timeout: 0.4), element.isHittable {
                 return element
             }
@@ -967,20 +1061,23 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
     }
 
-    private func requireMinimalModeToggle(app: XCUIApplication) throws -> XCUIElement {
-        let scrollView = app.scrollViews.firstMatch
+    private func requireMinimalModeToggle(app: XCUIApplication, root: XCUIElement) throws -> XCUIElement {
+        let scrollView = root.scrollViews.firstMatch
         let candidates = [
+            root.switches["SettingsMinimalModeToggle"],
+            root.checkBoxes["SettingsMinimalModeToggle"],
+            root.buttons["SettingsMinimalModeToggle"],
+            root.descendants(matching: .any)["SettingsMinimalModeToggle"],
             app.switches["SettingsMinimalModeToggle"],
             app.checkBoxes["SettingsMinimalModeToggle"],
-            app.buttons["SettingsMinimalModeToggle"],
-            app.otherElements["SettingsMinimalModeToggle"],
+            app.descendants(matching: .any)["SettingsMinimalModeToggle"],
             app.switches["Minimal Mode"],
             app.checkBoxes["Minimal Mode"],
             app.buttons["Minimal Mode"],
             app.otherElements["Minimal Mode"],
         ]
 
-        for _ in 0..<8 {
+        for _ in 0..<10 {
             if let element = firstExistingElement(candidates: candidates, timeout: 0.4), element.isHittable {
                 return element
             }
@@ -995,20 +1092,23 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
     }
 
-    private func requireMenuBarOnlyToggle(app: XCUIApplication) throws -> XCUIElement {
-        let scrollView = app.scrollViews.firstMatch
+    private func requireMenuBarOnlyToggle(app: XCUIApplication, root: XCUIElement) throws -> XCUIElement {
+        let scrollView = root.scrollViews.firstMatch
         let candidates = [
+            root.switches["SettingsMenuBarOnlyToggle"],
+            root.checkBoxes["SettingsMenuBarOnlyToggle"],
+            root.buttons["SettingsMenuBarOnlyToggle"],
+            root.descendants(matching: .any)["SettingsMenuBarOnlyToggle"],
             app.switches["SettingsMenuBarOnlyToggle"],
             app.checkBoxes["SettingsMenuBarOnlyToggle"],
-            app.buttons["SettingsMenuBarOnlyToggle"],
-            app.otherElements["SettingsMenuBarOnlyToggle"],
+            app.descendants(matching: .any)["SettingsMenuBarOnlyToggle"],
             app.switches["Menu Bar Only"],
             app.checkBoxes["Menu Bar Only"],
             app.buttons["Menu Bar Only"],
             app.otherElements["Menu Bar Only"],
         ]
 
-        for _ in 0..<8 {
+        for _ in 0..<10 {
             if let element = firstExistingElement(candidates: candidates, timeout: 0.4), element.isHittable {
                 return element
             }
@@ -1043,10 +1143,26 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         return found ? match : nil
     }
 
+    private func clickElement(_ element: XCUIElement) {
+        if element.isHittable {
+            element.click()
+        } else {
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, y: 0.5)).click()
+        }
+    }
+
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
         sidebarHelpPollUntil(timeout: timeout) {
             socketCommand("ping") == "PONG"
         }
+    }
+
+    private func socketReadinessDebug() -> String {
+        let diagnostics = loadDiagnostics(at: diagnosticsPath) ?? [:]
+        let socketExists = FileManager.default.fileExists(atPath: socketPath)
+        let directPing = ControlSocketClient(path: socketPath, responseTimeout: 0.5).sendLine("ping") ?? "<nil>"
+        let netcatPing = socketCommandViaNetcat("ping", responseTimeout: 1.0) ?? "<nil>"
+        return "socketExists=\(socketExists) directPing=\(directPing) netcatPing=\(netcatPing) diagnostics=\(diagnostics)"
     }
 
     private func waitForSurfaceIDs(minimumCount: Int, timeout: TimeInterval) -> [String] {
@@ -1137,7 +1253,46 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     private func socketCommand(_ command: String) -> String? {
-        ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendLine(command)
+        if let response = ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendLine(command) {
+            return response
+        }
+        return socketCommandViaNetcat(command, responseTimeout: 2.0)
+    }
+
+    private func socketCommandViaNetcat(_ command: String, responseTimeout: TimeInterval) -> String? {
+        let nc = "/usr/bin/nc"
+        guard FileManager.default.isExecutableFile(atPath: nc) else { return nil }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        let timeoutSeconds = max(1, Int(ceil(responseTimeout)))
+        process.arguments = [
+            "-lc",
+            "printf '%s\\n' \(shellSingleQuote(command)) | \(nc) -U \(shellSingleQuote(socketPath)) -w \(timeoutSeconds) 2>/dev/null"
+        ]
+
+        let stdout = Pipe()
+        process.standardOutput = stdout
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else { return nil }
+        if let first = output.split(separator: "\n", maxSplits: 1).first {
+            return String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func shellSingleQuote(_ value: String) -> String {
+        if value.isEmpty { return "''" }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
     private func resetMenuBarOnlyDefault() {
@@ -1193,7 +1348,18 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             "method": method,
             "params": params,
         ]
-        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+        if let response = ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request) {
+            return response
+        }
+        guard JSONSerialization.isValidJSONObject(request),
+              let data = try? JSONSerialization.data(withJSONObject: request),
+              let line = String(data: data, encoding: .utf8),
+              let raw = socketCommandViaNetcat(line, responseTimeout: 2.0),
+              let responseData = raw.data(using: .utf8),
+              let response = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            return nil
+        }
+        return response
     }
 
     private func waitForDiagnostics(
