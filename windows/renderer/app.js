@@ -4144,6 +4144,17 @@ function paneFitSignature(workspace, visiblePanels, tree) {
   return parts.join("");
 }
 
+function refreshVisiblePaneSignatures(workspaceId = activeWorkspace()?.id) {
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
+  if (!workspace || workspace.id !== state.data?.activeWorkspaceId) return false;
+  const zoomedPanel = zoomedPanelForWorkspace(workspace);
+  const visiblePanels = zoomedPanel ? [zoomedPanel] : (workspace.panels || []);
+  const tree = zoomedPanel ? paneTreeLeaf(zoomedPanel.id) : paneTreeForWorkspace(workspace, visiblePanels);
+  state.paneRenderSignature = paneRenderSignature(workspace, visiblePanels, tree);
+  state.paneFitSignature = paneFitSignature(workspace, visiblePanels, tree);
+  return true;
+}
+
 function renderPaneTreeNode(node, workspace, panelById, visibleCount) {
   if (!node) return null;
   if (node.type === "pane") {
@@ -4746,6 +4757,7 @@ function finishPaneResize(event) {
   const resize = state.resizing;
   if (!resize || event.pointerId !== resize.pointerId) return;
   const { splitter, splitId, previousPane, nextPane, vertical, workspaceId, direction } = resize;
+  let persistedSplitRatio = null;
   if (resize.frame) {
     cancelAnimationFrame(resize.frame);
     resize.frame = 0;
@@ -4760,6 +4772,7 @@ function finishPaneResize(event) {
     const previousSize = Math.max(1, vertical ? previousRect.height : previousRect.width);
     const nextSize = Math.max(1, vertical ? nextRect.height : nextRect.width);
     const ratio = paneTreeRatio(previousSize / Math.max(1, previousSize + nextSize));
+    persistedSplitRatio = ratio;
     const tree = state.paneTrees.get(workspaceId);
     if (tree) {
       state.paneTrees.set(workspaceId, updatePaneTreeSplit(tree, splitId, (split) => ({
@@ -4778,9 +4791,8 @@ function finishPaneResize(event) {
   refreshLayoutSettings();
   requestAnimationFrame(() => {
     if (splitId) {
-      previousPane.style.flex = "";
-      nextPane.style.flex = "";
-      render();
+      applyVisiblePaneSplitRatio(splitId, persistedSplitRatio);
+      refreshVisiblePaneSignatures(workspaceId);
     } else {
       renderPaneLayoutStylesForVisiblePanes(direction);
       clearVisiblePaneInlineFlex();
