@@ -191,20 +191,41 @@ func shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
     }
 }
 
+/// Whether an arrow keyDown should be forwarded straight to the focused
+/// standalone editable text view instead of falling through to the original
+/// `NSWindow.performKeyEquivalent`, which swallows plain arrows before the
+/// view's `keyDown` runs.
+///
+/// This generalizes the per-surface arrow-forwarding seam (browser, omnibar,
+/// command palette, text-box input) to cover the whole class of standalone
+/// editable `NSTextView`s cmux hosts — the file-preview editor today, any
+/// future one tomorrow. Field editors (the omnibar / command-palette / find
+/// field editors) are excluded by the caller because they have their own
+/// dedicated routing or work through the normal field-editor path.
+///
+/// The accepted modifier set matches ``shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown``:
+/// plain arrows (move), Shift (extend selection), Option (word/paragraph), and
+/// Command (line/document boundary) plus their Shift combos. Cmd+Option+Arrow
+/// is deliberately left out so it still reaches cmux's pane-focus shortcuts.
 func shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
     keyCode: UInt16,
     firstResponderIsEditableTextView: Bool,
     firstResponderHasMarkedText: Bool = false,
     flags: NSEvent.ModifierFlags
 ) -> Bool {
-    // Intentionally unimplemented in this commit so the regression test in
-    // `EditableTextViewArrowKeyForwardingTests` fails (red). The real predicate
-    // and the `cmux_performKeyEquivalent` wiring land in the follow-up commit.
-    _ = keyCode
-    _ = firstResponderIsEditableTextView
-    _ = firstResponderHasMarkedText
-    _ = flags
-    return false
+    guard firstResponderIsEditableTextView else { return false }
+    guard !firstResponderHasMarkedText else { return false }
+    guard (123...126).contains(keyCode) else { return false }
+
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    switch normalizedFlags {
+    case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
+        return true
+    default:
+        return false
+    }
 }
 
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(

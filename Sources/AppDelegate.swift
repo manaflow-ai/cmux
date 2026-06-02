@@ -16186,6 +16186,7 @@ private var cmuxBrowserArrowForwardingDepth = 0
 private var cmuxBrowserOmnibarMarkedTextForwardingDepth = 0
 private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxTextBoxInputArrowForwardingDepth = 0
+private var cmuxEditableTextViewArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
 
@@ -16860,6 +16861,14 @@ private extension NSWindow {
         )
         let firstResponderOmnibarPanelId = browserOmnibarPanelId(for: self.firstResponder)
         let firstResponderIsTextBoxInput = self.firstResponder is TextBoxInputTextView
+        // A standalone editable document text view (e.g. the file-preview
+        // editor's SavingTextView) owns arrow navigation through its own
+        // keyDown. Field editors (omnibar / command palette / find) are
+        // excluded — they route through their dedicated paths above.
+        let firstResponderIsStandaloneEditableTextView: Bool = {
+            guard let textView = self.firstResponder as? NSTextView else { return false }
+            return textView.isEditable && !textView.isFieldEditor
+        }()
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
@@ -17006,6 +17015,25 @@ private extension NSWindow {
             }
             cmuxTextBoxInputArrowForwardingDepth += 1
             defer { cmuxTextBoxInputArrowForwardingDepth = max(0, cmuxTextBoxInputArrowForwardingDepth - 1) }
+            self.firstResponder?.keyDown(with: event)
+            return true
+        }
+
+        // The file-preview editor and any other standalone editable NSTextView
+        // would otherwise lose plain/selection/word/line arrows to the original
+        // NSWindow.performKeyEquivalent. Route them to the text view's keyDown so
+        // arrow navigation works as in any text editor (manaflow-ai/cmux#5227).
+        if shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+            keyCode: event.keyCode,
+            firstResponderIsEditableTextView: firstResponderIsStandaloneEditableTextView,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            if cmuxEditableTextViewArrowForwardingDepth > 0 {
+                return false
+            }
+            cmuxEditableTextViewArrowForwardingDepth += 1
+            defer { cmuxEditableTextViewArrowForwardingDepth = max(0, cmuxEditableTextViewArrowForwardingDepth - 1) }
             self.firstResponder?.keyDown(with: event)
             return true
         }
