@@ -509,6 +509,7 @@
       "metaTitle": "配置",
       "schemaDescriptions": {
         "automation": {
+          "ampIntegration": "启用 cmux 与 Amp 的集成钩子。禁用时，捆绑插件将保持非活动状态，无需移除。",
           "suppressSubagentNotifications": "隐藏嵌套 Codex 或 Claude 子代理的可见完成通知和状态变更，同时将其事件保留在 Feed 遥测中。"
         },
         "app": {

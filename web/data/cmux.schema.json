@@ -874,6 +874,7 @@
         "ampIntegration": {
           "type": "boolean",
           "default": true,
+          "descriptionKey": "schemaDescriptions.automation.ampIntegration",
           "description": "Enable cmux integration hooks for Amp."
         },
         "cursorIntegration": {

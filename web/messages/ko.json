@@ -509,6 +509,7 @@
       "metaTitle": "설정",
       "schemaDescriptions": {
         "automation": {
+          "ampIntegration": "Amp의 cmux 통합 훅을 활성화합니다. 비활성화하면 번들된 플러그인은 제거하지 않고도 비활성 상태로 유지됩니다.",
           "suppressSubagentNotifications": "중첩된 Codex 또는 Claude 하위 에이전트의 표시되는 완료 알림과 상태 변경을 억제하면서 해당 이벤트는 Feed 텔레메트리에 유지합니다."
         },
         "app": {

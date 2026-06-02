@@ -245,13 +245,24 @@ function workspaceArgs(): string[] {
   return ws ? ["--workspace", ws] : [];
 }
 
+// Sanitized environment for fire-and-forget cmux status subprocesses.
+// Strips Amp-provided secrets (`AMP_API_KEY`) so we never propagate them to
+// every spawned `cmux set-status` / `cmux log` / `cmux clear-status` child.
+// Mirrors the secret-stripping done in `hookEnvironment` without the launch-
+// metadata fields, which are only meaningful for lifecycle hook calls.
+function statusEnvironment(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.AMP_API_KEY;
+  return env;
+}
+
 function runCmux(args: string[]): void {
   if (process.env.CMUX_AMP_HOOKS_DISABLED === "1") return;
   if (!process.env.CMUX_SURFACE_ID) return;
   const cmux = process.env.CMUX_AMP_CMUX_BIN || "cmux";
   try {
     const child = spawn(cmux, args, {
-      env: process.env,
+      env: statusEnvironment(),
       stdio: ["ignore", "ignore", "ignore"],
       detached: true,
     });
