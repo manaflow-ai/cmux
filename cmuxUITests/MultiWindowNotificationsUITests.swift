@@ -4,6 +4,7 @@ import CoreGraphics
 
 final class MultiWindowNotificationsUITests: XCTestCase {
     private var dataPath = ""
+    private var diagnosticsPath = ""
     private var socketPath = ""
     private var launchTag = ""
 
@@ -11,14 +12,17 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         dataPath = "/tmp/cmux-ui-test-multi-window-notifs-\(UUID().uuidString).json"
+        diagnosticsPath = "/tmp/cmux-ui-test-multi-window-notifs-diagnostics-\(UUID().uuidString).json"
         socketPath = "/tmp/cmux-ui-test-socket-\(UUID().uuidString).sock"
         launchTag = "ui-tests-multi-window-notifs-\(UUID().uuidString.prefix(8))"
         try? FileManager.default.removeItem(atPath: dataPath)
+        try? FileManager.default.removeItem(atPath: diagnosticsPath)
         try? FileManager.default.removeItem(atPath: socketPath)
     }
 
     override func tearDown() {
         try? FileManager.default.removeItem(atPath: dataPath)
+        try? FileManager.default.removeItem(atPath: diagnosticsPath)
         try? FileManager.default.removeItem(atPath: socketPath)
         super.tearDown()
     }
@@ -178,7 +182,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launch()
         XCTAssertTrue(
@@ -187,15 +193,15 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         )
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0))
-        guard let resolvedPath = resolveSocketPath(timeout: 8.0) else {
-            XCTFail("Control socket unavailable in this test environment. requested=\(socketPath)")
+        guard let diagnostics = waitForSocketDiagnosticsReady(timeout: 12.0) else {
+            XCTFail(
+                "Control socket unavailable in this test environment. requested=\(socketPath) " +
+                "diagnostics=\(loadDiagnostics() ?? [:])"
+            )
             return
         }
-        socketPath = resolvedPath
-        let pingResponse = waitForSocketPong(timeout: 8.0)
-        guard pingResponse == "PONG" else {
-            XCTFail("Control socket did not respond in time. path=\(socketPath) response=\(pingResponse ?? "<nil>")")
-            return
+        if let expectedSocketPath = diagnostics["socketExpectedPath"], !expectedSocketPath.isEmpty {
+            socketPath = expectedSocketPath
         }
 
         _ = socketCommand("clear_notifications")
@@ -686,6 +692,23 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             guard let data = self.loadData() else { return false }
             return predicate(data)
         }
+    }
+
+    private func waitForSocketDiagnosticsReady(timeout: TimeInterval) -> [String: String]? {
+        var matched: [String: String]?
+        _ = waitForCondition(timeout: timeout) {
+            guard let diagnostics = self.loadDiagnostics() else { return false }
+            if let expectedSocketPath = diagnostics["socketExpectedPath"], !expectedSocketPath.isEmpty {
+                self.socketPath = expectedSocketPath
+            }
+            guard diagnostics["socketReady"] == "1",
+                  diagnostics["socketPingResponse"] == "PONG" else {
+                return false
+            }
+            matched = diagnostics
+            return true
+        }
+        return matched
     }
 
     private func waitForNotification(title: String, timeout: TimeInterval) -> [String: Any]? {
@@ -1459,6 +1482,13 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
     private func loadData() -> [String: String]? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: dataPath)) else {
+            return nil
+        }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
+    }
+
+    private func loadDiagnostics() -> [String: String]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: diagnosticsPath)) else {
             return nil
         }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: String]

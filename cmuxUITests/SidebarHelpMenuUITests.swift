@@ -25,7 +25,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
     func testHelpMenuCheckForUpdatesTriggersSidebarUpdatePill() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        configureSidebarHelpLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmux.test/appcast.xml"
         app.launchEnvironment["CMUX_UI_TEST_FEED_MODE"] = "available"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = "9.9.9"
@@ -55,7 +55,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
     func testHelpMenuSendFeedbackOpensComposerSheet() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        configureSidebarHelpLaunch(app)
         launchAndActivate(app)
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
@@ -121,6 +121,18 @@ final class SidebarHelpMenuUITests: XCTestCase {
         messageEditor.click()
         app.typeText("hello")
         XCTAssertTrue(app.staticTexts["5/4000"].waitForExistence(timeout: 2.0))
+    }
+
+    private func configureSidebarHelpLaunch(_ app: XCUIApplication) {
+        app.launchArguments += [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+            "-ApplePersistenceIgnoreState", "YES",
+            "-NSQuitAlwaysKeepsWindows", "NO",
+            "-workspacePresentationMode", "standard",
+            "-menuBarOnly", "false",
+        ]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
     }
 
     private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
