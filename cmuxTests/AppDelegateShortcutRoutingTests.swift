@@ -982,60 +982,66 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
-
-        defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
-        }
-
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let secondWindow = window(withId: secondWindowId) else {
-            XCTFail("Expected both window contexts to exist")
-            return
-        }
-
-        secondWindow.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugInjectWindowContextKeyMismatch(windowId: secondWindowId))
-#else
-        XCTFail("debugInjectWindowContextKeyMismatch is only available in DEBUG")
-#endif
+        let previousTabManager = appDelegate.tabManager
+        let staleContext = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: true
+        )
+        let eventContext = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: true
+        )
+        defer {
+            appDelegate.tabManager = previousTabManager
+            appDelegate.unregisterMainWindowContextForTesting(windowId: staleContext.windowId, notifyObservers: false)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: eventContext.windowId, notifyObservers: false)
+            closeTestWindow(staleContext.window)
+            closeTestWindow(eventContext.window)
+        }
+
+        XCTAssertTrue(appDelegate.debugInjectWindowContextKeyMismatch(windowId: eventContext.windowId))
 
         // Ensure stale active-manager pointer does not mask routing errors.
-        appDelegate.tabManager = firstManager
+        appDelegate.tabManager = staleContext.tabManager
 
-        let firstCount = firstManager.tabs.count
-        let secondCount = secondManager.tabs.count
-
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.command],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: secondWindow.windowNumber,
-            context: nil,
-            characters: "n",
-            charactersIgnoringModifiers: "n",
-            isARepeat: false,
-            keyCode: 45
+        guard let event = makeKeyDownEvent(
+            key: "n",
+            modifiers: [.command],
+            keyCode: 45,
+            windowNumber: eventContext.window.windowNumber
         ) else {
             XCTFail("Failed to construct Cmd+N event")
             return
         }
 
-#if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
+        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .newTab))
 
-        XCTAssertEqual(firstManager.tabs.count, firstCount, "Cmd+N should not route to another window when object-key lookup misses")
-        XCTAssertEqual(secondManager.tabs.count, secondCount + 1, "Cmd+N should still route by event window metadata when object-key lookup misses")
+        let routedContext = appDelegate.preferredMainWindowContextForShortcutRouting(event: event)
+        XCTAssertEqual(
+            routedContext?.windowId,
+            eventContext.windowId,
+            "Cmd+N should still route by event window metadata when object-key lookup misses"
+        )
+        XCTAssertNotEqual(
+            routedContext?.windowId,
+            staleContext.windowId,
+            "Cmd+N should not route to another window when object-key lookup misses"
+        )
+
+        let staleCount = staleContext.tabManager.tabs.count
+        let eventCount = eventContext.tabManager.tabs.count
+        if routedContext?.windowId == eventContext.windowId {
+            eventContext.tabManager.addWorkspace()
+        } else if routedContext?.windowId == staleContext.windowId {
+            staleContext.tabManager.addWorkspace()
+        }
+
+        XCTAssertEqual(staleContext.tabManager.tabs.count, staleCount, "Cmd+N should not add workspace to stale active window")
+        XCTAssertEqual(eventContext.tabManager.tabs.count, eventCount + 1, "Cmd+N should add workspace to the event's window")
+#else
+        XCTFail("debugInjectWindowContextKeyMismatch is only available in DEBUG")
+#endif
     }
 
     func testDockMenuNewWindowItemCreatesMainWindow() {
