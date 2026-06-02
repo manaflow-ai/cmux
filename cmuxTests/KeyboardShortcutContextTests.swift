@@ -127,11 +127,11 @@ final class KeyboardShortcutContextTests: XCTestCase {
         let context = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext
 
         XCTAssertEqual(context, .rightSidebarFocus)
-        XCTAssertFalse(context.isAvailable(focusedBrowserPanel: false, rightSidebarFocused: false))
-        XCTAssertTrue(context.isAvailable(focusedBrowserPanel: false, rightSidebarFocused: true))
+        XCTAssertFalse(context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: false))
+        XCTAssertTrue(context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: true))
         XCTAssertFalse(
             KeyboardShortcutSettings.Action.renameTab.shortcutContext
-                .isAvailable(focusedBrowserPanel: false, rightSidebarFocused: true)
+                .isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: true)
         )
         XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.commandPalette.shortcutContext))
         XCTAssertFalse(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))
@@ -139,6 +139,27 @@ final class KeyboardShortcutContextTests: XCTestCase {
 
     func testReactGrabStaysApplicationScopedForTerminalPastebackRouting() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
+    }
+
+    func testMarkdownZoomIsScopedToFocusedMarkdownPanelAndDoesNotCollideWithBrowserZoom() {
+        for action in [
+            KeyboardShortcutSettings.Action.markdownZoomIn,
+            .markdownZoomOut,
+            .markdownZoomReset,
+        ] {
+            XCTAssertEqual(action.shortcutContext, .markdownPanel)
+        }
+
+        let markdown = KeyboardShortcutSettings.Action.markdownZoomIn.shortcutContext
+        XCTAssertTrue(markdown.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: true, rightSidebarFocused: false))
+        XCTAssertFalse(markdown.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: false))
+        XCTAssertFalse(markdown.isAvailable(focusedBrowserPanel: true, focusedMarkdownPanel: false, rightSidebarFocused: false))
+
+        // Markdown zoom and browser zoom share Cmd-=/-/0 but live in different
+        // contexts, so they must not be treated as conflicting bindings.
+        let browser = KeyboardShortcutSettings.Action.browserZoomIn.shortcutContext
+        XCTAssertFalse(markdown.overlaps(browser))
+        XCTAssertTrue(markdown.overlaps(markdown))
     }
 
     func testFocusHistoryMenuShortcutsSuppressDuplicateBrowserHistoryKeys() throws {
