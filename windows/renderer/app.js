@@ -698,7 +698,9 @@ function normalizeUiColor(value, fallback, palette = accentOptions) {
 
 function colorInputValue(value, fallback = "#5d8cff") {
   const color = String(value || "").trim();
-  return isSafeCustomColor(color) ? color : fallback;
+  const fallbackColor = String(fallback || "").trim();
+  if (isSafeCustomColor(color)) return color;
+  return isSafeCustomColor(fallbackColor) ? fallbackColor : "#5d8cff";
 }
 
 function normalizeCustomPaletteColor(value) {
@@ -11049,6 +11051,7 @@ function quickColorControlRows(workspace = activeWorkspace()) {
       activeColor: workspace.color,
       fallbackColor: state.settings.accent,
       onPick: (color) => setWorkspaceColor(color, workspace.id),
+      saveLabel: "Save",
       searchTerms: "quick setup workspace custom color hex picker"
     }),
     true,
@@ -11068,6 +11071,7 @@ function quickColorControlRows(workspace = activeWorkspace()) {
         onClear: () => updatePanel(panel.id, { color: "" }),
         clearLabel: "Default",
         clearDisabled: !panel.color,
+        saveLabel: "Save",
         searchTerms: "quick setup active pane custom color hex picker reset default clear"
       }),
       true,
@@ -11904,6 +11908,20 @@ function colorPicker(activeColor, onPick, fallback = "#5d8cff") {
   return wrapper;
 }
 
+function colorSummaryLabel(activeColor, fallbackColor = "#5d8cff") {
+  const color = String(activeColor || "").trim();
+  const fallback = String(fallbackColor || "").trim();
+  if (!color) return `Default ${colorSummaryValue(fallback)}`;
+  return colorSummaryValue(color);
+}
+
+function colorSummaryValue(color) {
+  const value = String(color || "").trim();
+  if (!value) return "None";
+  if (isSafeCustomColor(value)) return value.toUpperCase();
+  return "Palette color";
+}
+
 function colorControlPanel({
   colors,
   activeColor,
@@ -11918,6 +11936,18 @@ function colorControlPanel({
   const panel = document.createElement("div");
   panel.className = `settings-color-panel${onClear ? " has-clear" : ""}${saveLabel ? " has-save" : ""}`;
   panel.dataset.settingsSearch = normalizeSettingsQuery(`color palette swatch custom hex picker save ${searchTerms}`);
+  const summary = document.createElement("div");
+  summary.className = "settings-color-summary";
+  summary.style.setProperty("--settings-color-current", activeColor || fallbackColor);
+  summary.innerHTML = `
+    <span class="settings-color-summary-swatch" aria-hidden="true"></span>
+    <span class="settings-color-summary-copy">
+      <span class="settings-color-summary-label">Current</span>
+      <span class="settings-color-summary-value"></span>
+    </span>
+  `;
+  summary.querySelector(".settings-color-summary-value").textContent = colorSummaryLabel(activeColor, fallbackColor);
+  panel.append(summary);
   panel.append(swatchGrid(colors, activeColor, onPick));
 
   const custom = document.createElement("div");

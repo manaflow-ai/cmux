@@ -7819,6 +7819,53 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   gap: var(--space-2);
 }
 
+.settings-color-summary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 80%, var(--color-rail) 20%);
+}
+
+.settings-color-summary-swatch {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-1);
+  background: var(--settings-color-current, var(--color-accent));
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-text) 8%, transparent);
+}
+
+.settings-color-summary-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.settings-color-summary-label,
+.settings-color-summary-value {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.settings-color-summary-label {
+  color: var(--color-faint);
+  font-size: 10px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.settings-color-summary-value {
+  color: var(--color-text);
+  font: 11px/1.15 var(--font-mono);
+}
+
 .settings-color-panel .swatch-grid {
   grid-template-columns: repeat(auto-fit, minmax(26px, 1fr));
 }
