@@ -8033,8 +8033,8 @@ function renderSettingsInspector(options = {}) {
     quickSection.append(quickActionDisclosurePanel());
     quickSection.append(paneShapePanel(workspace));
     quickSection.append(...quickColorControlRows(workspace));
-    quickSection.append(quickSettingsShortcutGrid());
-    quickSection.append(settingsPresetGrid());
+    quickSection.append(quickCategoryDisclosurePanel());
+    quickSection.append(quickPresetDisclosurePanel());
     nodes.push(quickSection);
   }
 
@@ -11224,21 +11224,25 @@ function quickSetupActionGrid() {
 
 function ensureSettingsDisclosureContent(disclosure) {
   if (!disclosure || disclosure.dataset.disclosureMounted === "true") return false;
-  if (disclosure.dataset.disclosureContent !== "quick-actions") return false;
-  disclosure.append(quickSetupActionGrid());
+  const contentBuilder = {
+    "quick-actions": quickSetupActionGrid,
+    "quick-categories": quickSettingsShortcutGrid,
+    "quick-presets": settingsPresetGrid
+  }[disclosure.dataset.disclosureContent];
+  if (!contentBuilder) return false;
+  disclosure.append(contentBuilder());
   disclosure.dataset.disclosureMounted = "true";
   return true;
 }
 
-function quickActionDisclosurePanel() {
-  const actions = quickSetupActionDefinitions();
+function settingsDisclosurePanel({ className, content, searchTerms, title, body, meta }) {
   const shouldMount = Boolean(normalizeSettingsQuery(state.settingsQuery));
   const details = document.createElement("details");
-  details.className = "settings-disclosure quick-action-disclosure";
+  details.className = `settings-disclosure ${className}`.trim();
   details.open = shouldMount;
-  details.dataset.disclosureContent = "quick-actions";
+  details.dataset.disclosureContent = content;
   details.dataset.disclosureMounted = "false";
-  details.dataset.settingsSearch = normalizeSettingsQuery("quick setup all actions terminal browser clean speed focus background layout");
+  details.dataset.settingsSearch = normalizeSettingsQuery(searchTerms);
   const summary = document.createElement("summary");
   summary.className = "settings-disclosure-summary";
   summary.innerHTML = `
@@ -11248,15 +11252,49 @@ function quickActionDisclosurePanel() {
     </span>
     <span class="settings-disclosure-meta"></span>
   `;
-  setTextIfChanged(summary.querySelector(".settings-disclosure-title"), t("quickGuide.allActions"));
-  setTextIfChanged(summary.querySelector(".settings-disclosure-body"), t("quickGuide.allActions.body"));
-  setTextIfChanged(summary.querySelector(".settings-disclosure-meta"), formatMessage("quickGuide.actionCount", { count: actions.length }));
+  setTextIfChanged(summary.querySelector(".settings-disclosure-title"), title);
+  setTextIfChanged(summary.querySelector(".settings-disclosure-body"), body);
+  setTextIfChanged(summary.querySelector(".settings-disclosure-meta"), meta);
   details.append(summary);
   if (shouldMount) ensureSettingsDisclosureContent(details);
   details.addEventListener("toggle", () => {
     if (details.open) ensureSettingsDisclosureContent(details);
   });
   return details;
+}
+
+function quickActionDisclosurePanel() {
+  const actions = quickSetupActionDefinitions();
+  return settingsDisclosurePanel({
+    className: "quick-action-disclosure",
+    content: "quick-actions",
+    searchTerms: "quick setup all actions terminal browser clean speed focus background layout",
+    title: t("quickGuide.allActions"),
+    body: t("quickGuide.allActions.body"),
+    meta: formatMessage("quickGuide.actionCount", { count: actions.length })
+  });
+}
+
+function quickCategoryDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "quick-category-disclosure",
+    content: "quick-categories",
+    searchTerms: "quick setup settings pages shortcuts customize workspace appearance layout terminal browser performance profiles data",
+    title: t("quickGuide.settingsPages"),
+    body: t("quickGuide.settingsPages.body"),
+    meta: formatMessage("quickGuide.pageCount", { count: quickSettingsShortcuts.length })
+  });
+}
+
+function quickPresetDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "quick-preset-disclosure",
+    content: "quick-presets",
+    searchTerms: "quick setup presets theme appearance color layout terminal browser performance focus clean style",
+    title: t("quickGuide.presets"),
+    body: t("quickGuide.presets.body"),
+    meta: formatMessage("quickGuide.presetCount", { count: settingsPresets.length })
+  });
 }
 
 function quickColorControlRows(workspace = activeWorkspace()) {
