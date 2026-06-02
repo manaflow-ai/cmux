@@ -11,12 +11,23 @@ let mainWindow = null;
 let runtimeChild = null;
 let inProcessRuntime = null;
 let trustedRendererOrigin = "";
+let windowResizeSession = null;
 const zoomLockedContents = new WeakSet();
 const navigationGuardedContents = new WeakSet();
 
 const appRoot = path.resolve(__dirname, "..");
 const serverProcessPath = path.join(__dirname, "server-process.cjs");
 const clipboardImageDataUrlLimitBytes = 2 * 1024 * 1024;
+const windowResizeEdges = new Set([
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "top-left",
+  "top-right",
+  "bottom-right",
+  "bottom-left"
+]);
 function log(message) {
   try {
     const logPath = path.join(app.getPath("userData"), "cmux-windows.log");
@@ -155,6 +166,87 @@ function trustedIpcHandler(handler, fallback) {
     }
     return handler(event, ...args);
   };
+}
+
+function trustedIpcListener(listener) {
+  return (event, ...args) => {
+    if (!isTrustedIpcEvent(event)) {
+      log(`blocked ipc ${event?.senderFrame?.url || "unknown"}`);
+      return;
+    }
+    listener(event, ...args);
+  };
+}
+
+function normalizeWindowResizeEdge(edge) {
+  const normalized = String(edge || "").trim().toLowerCase();
+  return windowResizeEdges.has(normalized) ? normalized : "";
+}
+
+function windowResizePoint(point) {
+  const x = Number(point?.x);
+  const y = Number(point?.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return { x, y };
+}
+
+function beginWindowResize(edge, point) {
+  const normalizedEdge = normalizeWindowResizeEdge(edge);
+  const start = windowResizePoint(point);
+  if (!mainWindow || !normalizedEdge || !start || mainWindow.isMaximized() || mainWindow.isFullScreen?.()) {
+    windowResizeSession = null;
+    return;
+  }
+  const minimumSize = typeof mainWindow.getMinimumSize === "function"
+    ? mainWindow.getMinimumSize()
+    : [480, 400];
+  windowResizeSession = {
+    edge: normalizedEdge,
+    start,
+    bounds: mainWindow.getBounds(),
+    minWidth: Math.max(1, Number(minimumSize?.[0]) || 480),
+    minHeight: Math.max(1, Number(minimumSize?.[1]) || 400)
+  };
+}
+
+function windowResizeBoundsForPoint(point) {
+  if (!windowResizeSession) return null;
+  const current = windowResizePoint(point);
+  if (!current) return null;
+  const { edge, start, bounds, minWidth, minHeight } = windowResizeSession;
+  const dx = Math.round(current.x - start.x);
+  const dy = Math.round(current.y - start.y);
+  const next = { ...bounds };
+  if (edge.includes("right")) {
+    next.width = bounds.width + dx;
+  }
+  if (edge.includes("left")) {
+    next.x = bounds.x + dx;
+    next.width = bounds.width - dx;
+  }
+  if (edge.includes("bottom")) {
+    next.height = bounds.height + dy;
+  }
+  if (edge.includes("top")) {
+    next.y = bounds.y + dy;
+    next.height = bounds.height - dy;
+  }
+  if (next.width < minWidth) {
+    if (edge.includes("left")) next.x = bounds.x + bounds.width - minWidth;
+    next.width = minWidth;
+  }
+  if (next.height < minHeight) {
+    if (edge.includes("top")) next.y = bounds.y + bounds.height - minHeight;
+    next.height = minHeight;
+  }
+  return next;
+}
+
+function continueWindowResize(point) {
+  if (!mainWindow || !windowResizeSession || mainWindow.isDestroyed?.()) return;
+  const bounds = windowResizeBoundsForPoint(point);
+  if (!bounds) return;
+  mainWindow.setBounds(bounds, false);
 }
 
 function firstExistingPath(paths) {
@@ -518,6 +610,11 @@ if (!hasLock) {
     return true;
   }, false));
   ipcMain.handle("window:is-maximized", trustedIpcHandler(() => Boolean(mainWindow?.isMaximized()), false));
+  ipcMain.on("window:begin-resize", trustedIpcListener((_event, edge, point) => beginWindowResize(edge, point)));
+  ipcMain.on("window:resize", trustedIpcListener((_event, point) => continueWindowResize(point)));
+  ipcMain.on("window:end-resize", trustedIpcListener(() => {
+    windowResizeSession = null;
+  }));
   ipcMain.handle("open-external", trustedIpcHandler((_event, url, profileId = "system") => openUrlInBrowserProfile(url, profileId), { ok: false, error: "forbidden" }));
   ipcMain.handle("browser:profiles", trustedIpcHandler(() => publicBrowserProfiles(), []));
   ipcMain.handle("open-path", trustedIpcHandler(async (_event, filePath) => {

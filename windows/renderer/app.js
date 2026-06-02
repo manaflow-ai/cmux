@@ -468,6 +468,8 @@ const state = {
   browserTabSnapshotSaveTimer: 0,
   pendingTerminalFontSizeSync: new Map(),
   terminalFontSizeSyncTimer: 0,
+  windowResizing: null,
+  windowMaximized: false,
   resizing: null,
   sidebarResizing: null,
   inspectorResizing: null,
@@ -570,6 +572,7 @@ window.addEventListener("unhandledrejection", (event) => {
 
 const elements = {
   shell: document.getElementById("shell"),
+  topbar: document.querySelector(".topbar"),
   sidebar: document.getElementById("sidebar"),
   workspaceList: document.getElementById("workspaceList"),
   workspaceHeading: document.getElementById("workspaceHeading"),
@@ -590,6 +593,7 @@ const elements = {
   workspaceSwitchHud: document.getElementById("workspaceSwitchHud"),
   paneSwitchHud: document.getElementById("paneSwitchHud"),
   toastRegion: document.getElementById("toastRegion"),
+  windowResizeEdges: Array.from(document.querySelectorAll("[data-window-resize-edge]")),
   maximizeWindowButton: document.getElementById("maximizeWindowButton")
 };
 
@@ -4694,6 +4698,72 @@ function fitWorkspaceTerminals(workspaceId, force = true) {
     const terminal = state.terminals.get(panel.id);
     if (terminal) scheduleFitTerminal(terminal, force);
   }
+}
+
+function windowResizePointFromEvent(event) {
+  return { x: event.screenX, y: event.screenY };
+}
+
+function windowResizeCursorClass(edge) {
+  if (edge === "left" || edge === "right") return "window-resizing-x";
+  if (edge === "top" || edge === "bottom") return "window-resizing-y";
+  return edge === "top-left" || edge === "bottom-right"
+    ? "window-resizing-nwse"
+    : "window-resizing-nesw";
+}
+
+function startWindowResize(event) {
+  if (event.button !== 0 || event.isPrimary === false || state.windowResizing) return;
+  if (state.windowMaximized || !window.cmuxNative?.beginWindowResize) return;
+  const edge = event.currentTarget?.dataset?.windowResizeEdge || "";
+  if (!edge) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const cursorClass = windowResizeCursorClass(edge);
+  const point = windowResizePointFromEvent(event);
+  state.windowResizing = {
+    edge,
+    pointerId: event.pointerId,
+    element: event.currentTarget,
+    point,
+    frame: 0,
+    cursorClass
+  };
+  elements.shell.classList.add("window-resizing", cursorClass);
+  safeSetPointerCapture(event.currentTarget, event.pointerId);
+  window.cmuxNative.beginWindowResize(edge, point);
+}
+
+function continueWindowResize(event) {
+  const resize = state.windowResizing;
+  if (!resize || event.pointerId !== resize.pointerId) return;
+  event.preventDefault();
+  resize.point = windowResizePointFromEvent(event);
+  scheduleWindowResizeFrame(resize);
+}
+
+function scheduleWindowResizeFrame(resize = state.windowResizing) {
+  if (!resize || resize.frame) return;
+  resize.frame = requestAnimationFrame(() => {
+    resize.frame = 0;
+    window.cmuxNative?.resizeWindow?.(resize.point);
+  });
+}
+
+function finishWindowResize(event) {
+  const resize = state.windowResizing;
+  if (!resize || event.pointerId !== resize.pointerId) return;
+  event.preventDefault();
+  if (resize.frame) {
+    cancelAnimationFrame(resize.frame);
+    resize.frame = 0;
+  }
+  window.cmuxNative?.resizeWindow?.(resize.point);
+  window.cmuxNative?.endWindowResize?.();
+  safeReleasePointerCapture(resize.element, event.pointerId);
+  elements.shell.classList.remove("window-resizing", resize.cursorClass);
+  state.windowResizing = null;
+  scheduleDeferredTerminalFitFlush();
 }
 
 function startPaneResize(event, splitter) {
@@ -14961,10 +15031,7 @@ document.getElementById("closeInspectorButton").onclick = () => {
   render();
 };
 document.getElementById("minimizeWindowButton").onclick = () => window.cmuxNative?.minimizeWindow?.();
-document.getElementById("maximizeWindowButton").onclick = async () => {
-  const maximized = await window.cmuxNative?.toggleMaximizeWindow?.();
-  updateMaximizeButton(Boolean(maximized));
-};
+document.getElementById("maximizeWindowButton").onclick = toggleWindowMaximize;
 document.getElementById("closeWindowButton").onclick = () => window.cmuxNative?.closeWindow?.();
 
 elements.paletteInput.addEventListener("input", () => {
@@ -15127,6 +15194,10 @@ window.addEventListener("pagehide", () => {
 
 elements.sidebar.addEventListener("pointerdown", startSidebarResize);
 elements.inspector.addEventListener("pointerdown", startInspectorResize);
+for (const edge of elements.windowResizeEdges) {
+  edge.addEventListener("pointerdown", startWindowResize);
+}
+elements.topbar?.addEventListener("dblclick", handleTopbarDoubleClick);
 elements.paneGrid.addEventListener("dragover", handlePaneGridDragOver);
 elements.paneGrid.addEventListener("dragleave", handlePaneGridDragLeave);
 elements.paneGrid.addEventListener("drop", handlePaneGridDrop);
@@ -15137,18 +15208,21 @@ new MutationObserver(scheduleVisiblePaneLayoutApply).observe(elements.paneGrid, 
   childList: true
 });
 window.addEventListener("pointermove", (event) => {
+  continueWindowResize(event);
   continuePaneResize(event);
   continuePanePointerDrag(event);
   continueSidebarResize(event);
   continueInspectorResize(event);
 });
 window.addEventListener("pointerup", (event) => {
+  finishWindowResize(event);
   finishPaneResize(event);
   finishPanePointerDrag(event);
   finishSidebarResize(event);
   finishInspectorResize(event);
 });
 window.addEventListener("pointercancel", (event) => {
+  finishWindowResize(event);
   finishPaneResize(event);
   cancelPanePointerDrag(event);
   finishSidebarResize(event);
@@ -15168,12 +15242,59 @@ window.addEventListener("beforeunload", () => {
   flushBrowserUrlSync({ keepalive: true });
 });
 
+function isTopbarDoubleClickInteractiveTarget(target) {
+  return Boolean(target?.closest?.([
+    "button",
+    "input",
+    "select",
+    "textarea",
+    "a",
+    "[contenteditable='true']",
+    ".command-strip",
+    ".native-window-controls",
+    ".window-resize-edge",
+    ".palette-dialog"
+  ].join(",")));
+}
+
+function handleTopbarDoubleClick(event) {
+  if (event.button !== 0 || isTopbarDoubleClickInteractiveTarget(event.target)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  toggleWindowMaximize();
+}
+
+async function toggleWindowMaximize() {
+  if (!window.cmuxNative?.toggleMaximizeWindow) return;
+  const previousMaximized = state.windowMaximized;
+  updateMaximizeButton(!previousMaximized);
+  try {
+    const maximized = await window.cmuxNative.toggleMaximizeWindow();
+    if (typeof maximized === "boolean") {
+      updateMaximizeButton(maximized);
+    } else if (window.cmuxNative?.isWindowMaximized) {
+      window.cmuxNative.isWindowMaximized().then(updateMaximizeButton);
+    }
+  } catch (error) {
+    updateMaximizeButton(previousMaximized);
+    console.error(`window maximize failed: ${error?.message || error}`);
+  }
+}
+
 function updateMaximizeButton(maximized) {
   if (!elements.maximizeWindowButton) return;
-  elements.maximizeWindowButton.textContent = maximized ? "❐" : "□";
-  elements.maximizeWindowButton.title = maximized ? "Restore" : "Maximize";
-  elements.maximizeWindowButton.setAttribute("aria-label", maximized ? "Restore window" : "Maximize window");
-  elements.maximizeWindowButton.dataset.windowState = maximized ? "maximized" : "normal";
+  const nextMaximized = Boolean(maximized);
+  state.windowMaximized = nextMaximized;
+  elements.shell?.classList.toggle("window-maximized", nextMaximized);
+  if (nextMaximized && state.windowResizing) {
+    window.cmuxNative?.endWindowResize?.();
+    elements.shell.classList.remove("window-resizing", state.windowResizing.cursorClass);
+    state.windowResizing = null;
+  }
+  elements.maximizeWindowButton.textContent = nextMaximized ? "❐" : "□";
+  elements.maximizeWindowButton.title = nextMaximized ? "Restore" : "Maximize";
+  elements.maximizeWindowButton.setAttribute("aria-label", nextMaximized ? "Restore window" : "Maximize window");
+  elements.maximizeWindowButton.dataset.windowState = nextMaximized ? "maximized" : "normal";
 }
 
 if (window.cmuxNative?.isWindowMaximized) {

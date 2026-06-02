@@ -177,6 +177,110 @@ button {
   background: var(--color-canvas);
 }
 
+.window-resize-edge {
+  position: fixed;
+  z-index: 80;
+  display: block;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+  background: transparent;
+  -webkit-app-region: no-drag;
+}
+
+.shell.window-maximized .window-resize-edge {
+  display: none;
+}
+
+.window-resize-edge-top,
+.window-resize-edge-bottom {
+  left: 14px;
+  right: 14px;
+  height: 5px;
+  cursor: ns-resize;
+}
+
+.window-resize-edge-top {
+  top: 0;
+}
+
+.window-resize-edge-bottom {
+  bottom: 0;
+}
+
+.window-resize-edge-right,
+.window-resize-edge-left {
+  top: 14px;
+  bottom: 14px;
+  width: 5px;
+  cursor: ew-resize;
+}
+
+.window-resize-edge-right {
+  right: 0;
+}
+
+.window-resize-edge-left {
+  left: 0;
+}
+
+.window-resize-corner-top-left,
+.window-resize-corner-top-right,
+.window-resize-corner-bottom-right,
+.window-resize-corner-bottom-left {
+  width: 14px;
+  height: 14px;
+}
+
+.window-resize-corner-top-left {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.window-resize-corner-top-right {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.window-resize-corner-bottom-right {
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+}
+
+.window-resize-corner-bottom-left {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.shell.window-resizing,
+.shell.window-resizing * {
+  user-select: none;
+}
+
+.shell.window-resizing-x,
+.shell.window-resizing-x * {
+  cursor: ew-resize !important;
+}
+
+.shell.window-resizing-y,
+.shell.window-resizing-y * {
+  cursor: ns-resize !important;
+}
+
+.shell.window-resizing-nwse,
+.shell.window-resizing-nwse * {
+  cursor: nwse-resize !important;
+}
+
+.shell.window-resizing-nesw,
+.shell.window-resizing-nesw * {
+  cursor: nesw-resize !important;
+}
+
 .shell::before {
   content: "";
   position: absolute;
@@ -628,7 +732,8 @@ body.reduce-motion *::after {
 .context-action:focus-visible,
 .context-color:focus-visible,
 .rail-button:focus-visible,
-.notification-action:focus-visible {
+.notification-action:focus-visible,
+.window-control:focus-visible {
   outline: 2px solid var(--color-accent-hover);
   outline-offset: 2px;
 }
@@ -663,7 +768,8 @@ body.reduce-motion *::after {
 .settings-page-tab:active,
 .context-action:active,
 .rail-button:active,
-.notification-action:active {
+.notification-action:active,
+.window-control:active {
   transform: translateY(1px);
 }
 
@@ -1109,6 +1215,8 @@ body.reduce-motion *::after {
 .window-control {
   width: 46px;
   height: 44px;
+  display: grid;
+  place-items: center;
   border: 0;
   border-radius: 0;
   color: var(--color-muted);
@@ -1122,6 +1230,14 @@ body.reduce-motion *::after {
 .window-control:hover {
   background: var(--color-pane-active);
   color: var(--color-text);
+}
+
+.window-control:focus-visible {
+  outline-offset: -3px;
+}
+
+.window-control:active {
+  background: color-mix(in oklch, var(--color-pane-active) 78%, var(--color-text) 8%);
 }
 
 .window-control.close:hover {

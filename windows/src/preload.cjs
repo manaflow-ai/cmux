@@ -21,6 +21,15 @@ contextBridge.exposeInMainWorld("cmuxNative", {
   onWindowState(callback) {
     ipcRenderer.on("window-state", (_event, state) => callback(state));
   },
+  beginWindowResize(edge, point) {
+    ipcRenderer.send("window:begin-resize", edge, point);
+  },
+  resizeWindow(point) {
+    ipcRenderer.send("window:resize", point);
+  },
+  endWindowResize() {
+    ipcRenderer.send("window:end-resize");
+  },
   openExternal(url, profileId = "system") {
     return ipcRenderer.invoke("open-external", url, profileId);
   },
