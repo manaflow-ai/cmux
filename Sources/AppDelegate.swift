@@ -12789,7 +12789,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         if isPlainEscape {
-            let activePaletteWindow = activeCommandPaletteWindow()
+            let activePaletteWindow = commandPaletteTargetWindow == nil ? activeCommandPaletteWindow() : nil
             let escapeTargetResolution = commandPaletteEscapeTargetResolution(
                 hasTargetWindow: commandPaletteTargetWindow != nil,
                 targetWindowIsEffective: commandPaletteEffectiveInTargetWindow,
