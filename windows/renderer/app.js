@@ -471,6 +471,7 @@ const state = {
   workspaceBlueprints: loadWorkspaceBlueprints(),
   customColorPalette: loadCustomColorPalette(),
   savedBackgroundImages: loadSavedBackgroundImages(),
+  colorApplyTarget: "accent",
   backgroundApplyTarget: "app",
   closedPanels: [],
   workspaceRows: new Map(),
@@ -2104,6 +2105,105 @@ function backgroundApplyTargetPrimaryLabel(target = state.backgroundApplyTarget)
   if (scope === "pane") return "Apply to pane";
   if (scope === "all") return "Apply to all";
   return "Apply";
+}
+
+function normalizeColorApplyTarget(target) {
+  return ["accent", "workspace", "pane", "all"].includes(target) ? target : "accent";
+}
+
+function colorApplyTargetOptions(workspace = activeWorkspace()) {
+  const panel = focusedPanel() || activePanel();
+  const paneCount = workspace?.panels?.length || 0;
+  return [
+    {
+      id: "accent",
+      label: "Accent",
+      meta: "app UI",
+      disabled: false
+    },
+    {
+      id: "workspace",
+      label: "Workspace",
+      meta: workspace?.title || "no workspace",
+      disabled: !workspace
+    },
+    {
+      id: "pane",
+      label: "Active pane",
+      meta: panel ? panelDisplayTitle(panel, true) : "no pane",
+      disabled: !panel
+    },
+    {
+      id: "all",
+      label: "All panes",
+      meta: paneCount ? `${paneCount} pane${paneCount === 1 ? "" : "s"}` : "no panes",
+      disabled: paneCount === 0
+    }
+  ];
+}
+
+function colorApplyTargetOption(target = state.colorApplyTarget, workspace = activeWorkspace()) {
+  const options = colorApplyTargetOptions(workspace);
+  return options.find((candidate) => candidate.id === normalizeColorApplyTarget(target)) || options[0];
+}
+
+function colorApplyTargetPrimaryLabel(target = state.colorApplyTarget) {
+  const scope = normalizeColorApplyTarget(target);
+  if (scope === "workspace") return "Apply to workspace";
+  if (scope === "pane") return "Apply to pane";
+  if (scope === "all") return "Apply to all";
+  return "Apply";
+}
+
+function activePaneForColorTarget() {
+  return focusedPanel() || activePanel();
+}
+
+async function applySavedColorToTarget(color, target = state.colorApplyTarget) {
+  const normalized = normalizeCustomPaletteColor(color);
+  if (!normalized) {
+    toast("Choose a saved color first.");
+    return false;
+  }
+  const scope = normalizeColorApplyTarget(target);
+  if (scope === "accent") {
+    if (state.settings.accent.toLowerCase() === normalized.toLowerCase()) {
+      toast("Accent already uses this color.");
+      return false;
+    }
+    updateSettings({ accent: normalized });
+    toast("Accent color updated.");
+    return true;
+  }
+  if (scope === "workspace") {
+    const workspace = activeWorkspace();
+    if (!workspace) {
+      toast("Open a workspace before applying workspace color.");
+      return false;
+    }
+    if (String(workspace.color || "").toLowerCase() === normalized.toLowerCase()) {
+      toast("Workspace already uses this color.");
+      return false;
+    }
+    await setWorkspaceColor(normalized, workspace.id);
+    toast("Workspace color updated.");
+    return true;
+  }
+  if (scope === "pane") {
+    const panel = activePaneForColorTarget();
+    if (!panel) {
+      toast("Open a pane before applying pane color.");
+      return false;
+    }
+    if (String(panel.color || "").toLowerCase() === normalized.toLowerCase()) {
+      toast("Pane already uses this color.");
+      return false;
+    }
+    await updatePanel(panel.id, { color: normalized });
+    toast("Pane color updated.");
+    return true;
+  }
+  return setWorkspacePaneColors(normalized);
 }
 
 async function applyBackgroundValueToTarget(value, target = state.backgroundApplyTarget, options = {}) {
@@ -8843,6 +8943,7 @@ function appearanceWorkspaceSettingsSignature(workspace = activeWorkspace()) {
   appendSignatureValue(parts, workspace.color);
   appendSignatureValue(parts, workspace.activePanelId);
   appendSignatureValue(parts, state.focusedPanelId || "");
+  appendSignatureValue(parts, state.colorApplyTarget);
   appendSignatureValue(parts, state.backgroundApplyTarget);
   appendSignatureValue(parts, activeTerminal?.id || "");
   appendSignatureArray(parts, workspace.panels || [], (nextParts, panel) => {
@@ -12563,34 +12664,143 @@ function savedColorPalettePanel() {
     return panel;
   }
 
+  panel.append(activeColorTargetControl());
+
   const list = document.createElement("div");
   list.className = "saved-color-list";
+  const colorTarget = normalizeColorApplyTarget(state.colorApplyTarget);
+  const targetOption = colorApplyTargetOption(colorTarget, workspace);
+  const activePane = activePaneForColorTarget();
   for (const color of state.customColorPalette) {
+    const activeAccent = state.settings.accent.toLowerCase() === color.toLowerCase();
+    const activeWorkspace = String(workspace?.color || "").toLowerCase() === color.toLowerCase();
+    const activePaneColor = String(activePane?.color || "").toLowerCase() === color.toLowerCase();
+    const activeAllPanes = Boolean(workspace?.panels?.length) && workspace.panels.every((panel) => String(panel.color || "").toLowerCase() === color.toLowerCase());
+    const activeTarget = colorTarget === "workspace"
+      ? activeWorkspace
+      : colorTarget === "pane"
+        ? activePaneColor
+        : colorTarget === "all"
+          ? activeAllPanes
+          : activeAccent;
     const card = document.createElement("div");
-    card.className = "saved-color-card";
-    card.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette custom accent workspace ${color}`);
+    card.className = [
+      "saved-color-card",
+      activeTarget ? "is-active-target" : "",
+      activeAccent ? "is-active-accent" : "",
+      activeWorkspace ? "is-active-workspace" : "",
+      activePaneColor ? "is-active-pane" : "",
+      activeAllPanes ? "is-active-all" : ""
+    ].filter(Boolean).join(" ");
+    card.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette custom accent workspace pane all ${color}`);
     const swatch = document.createElement("button");
     swatch.className = "saved-color-swatch";
     swatch.type = "button";
-    swatch.title = `Use ${color} as accent`;
+    swatch.title = `Apply ${color} to ${targetOption.label.toLowerCase()}`;
+    swatch.setAttribute("aria-label", `Apply ${color} to ${targetOption.label}.`);
+    swatch.setAttribute("aria-pressed", activeTarget ? "true" : "false");
+    swatch.disabled = Boolean(targetOption.disabled);
     swatch.style.setProperty("--saved-color", color);
-    swatch.onclick = () => updateSettings({ accent: color });
+    swatch.onclick = () => applySavedColorToTarget(color, colorTarget);
     const value = document.createElement("div");
     value.className = "saved-color-value";
     value.textContent = color;
     const cardActions = document.createElement("div");
     cardActions.className = "saved-color-card-actions";
-    cardActions.append(
-      settingsActionButton("Accent", () => updateSettings({ accent: color }), "", `saved color apply accent ${color}`),
-      settingsActionButton("Workspace", () => setWorkspaceColor(color), "", `saved color apply workspace ${color}`),
-      settingsActionButton("Panes", () => setWorkspacePaneColors(color), "", `saved color apply panes tabs workspace ${color}`),
-      settingsActionButton("Delete", () => deleteCustomColorPalette(color), "danger", `saved color delete ${color}`)
-    );
+    const apply = settingsActionButton(colorApplyTargetPrimaryLabel(colorTarget), () => applySavedColorToTarget(color, colorTarget), "primary", `saved color apply selected target ${targetOption.label} ${color}`);
+    apply.disabled = Boolean(targetOption.disabled);
+    const more = settingsActionButton("More", (event) => showSavedColorMenu(event, color), "", `saved color more actions accent workspace pane all delete ${color}`);
+    cardActions.append(apply, more);
     card.append(swatch, value, cardActions);
     list.append(card);
   }
   panel.append(list);
   return panel;
+}
+
+function activeColorTargetControl() {
+  const control = document.createElement("div");
+  control.className = "background-target-control color-target-control";
+  control.dataset.settingsSearch = normalizeSettingsQuery("saved color target apply accent workspace active pane all panes scope destination");
+
+  const label = document.createElement("span");
+  label.className = "background-target-label";
+  label.textContent = "Target";
+
+  const options = document.createElement("div");
+  options.className = "background-target-options";
+  for (const target of colorApplyTargetOptions()) {
+    const button = document.createElement("button");
+    button.className = "background-target-option";
+    button.type = "button";
+    button.dataset.colorTarget = target.id;
+    button.innerHTML = `
+      <span class="background-target-name"></span>
+      <span class="background-target-meta"></span>
+    `;
+    button.onclick = () => {
+      const nextTarget = normalizeColorApplyTarget(button.dataset.colorTarget);
+      if (state.colorApplyTarget === nextTarget) return;
+      state.colorApplyTarget = nextTarget;
+      renderSettingsInspector();
+    };
+    options.append(button);
+  }
+  control.append(label, options);
+  updateActiveColorTargetControl(control);
+  return control;
+}
+
+function updateActiveColorTargetControl(root) {
+  const options = colorApplyTargetOptions();
+  for (const button of root.querySelectorAll("[data-color-target]")) {
+    const target = options.find((candidate) => candidate.id === button.dataset.colorTarget);
+    if (!target) continue;
+    const active = target.id === normalizeColorApplyTarget(state.colorApplyTarget);
+    setClassNameIfChanged(button, `background-target-option${active ? " is-active" : ""}${target.disabled ? " is-disabled" : ""}`);
+    setDisabledIfChanged(button, target.disabled);
+    setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
+    setTitleIfChanged(button, `${target.label}: ${target.meta}`);
+    setTextIfChanged(button.querySelector(".background-target-name"), target.label);
+    setTextIfChanged(button.querySelector(".background-target-meta"), target.meta);
+  }
+}
+
+function showSavedColorMenu(event, color) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  const normalized = normalizeCustomPaletteColor(color);
+  if (!normalized) return;
+  const workspace = activeWorkspace();
+  const panel = activePaneForColorTarget();
+  const hasPanes = Boolean(workspace?.panels?.length);
+  const menu = ensureContextMenu();
+  menu.className = "context-menu";
+  const title = document.createElement("div");
+  title.className = "context-title";
+  title.textContent = normalized.toUpperCase();
+  const meta = document.createElement("div");
+  meta.className = "context-meta";
+  meta.textContent = "Choose where to apply this saved color.";
+  const applyActions = contextMenuActionGroup(
+    contextMenuButton("Apply to accent", () => applySavedColorToTarget(normalized, "accent")),
+    contextMenuButton("Apply to workspace", () => applySavedColorToTarget(normalized, "workspace"), !workspace),
+    contextMenuButton("Apply to active pane", () => applySavedColorToTarget(normalized, "pane"), !panel),
+    contextMenuButton("Apply to all panes", () => applySavedColorToTarget(normalized, "all"), !hasPanes)
+  );
+  const manageActions = contextMenuActionGroup(
+    contextMenuButton("Delete", () => deleteCustomColorPalette(normalized), false, "danger")
+  );
+  menu.replaceChildren(
+    title,
+    meta,
+    contextMenuSectionTitle("Apply"),
+    applyActions,
+    contextMenuSectionTitle("Manage"),
+    manageActions
+  );
+  const rect = event?.currentTarget?.getBoundingClientRect?.();
+  showContextMenuAt(menu, rect ? rect.left : window.innerWidth / 2, rect ? rect.bottom + 6 : window.innerHeight / 2);
 }
 
 async function setWorkspacePaneColors(color, workspace = activeWorkspace()) {
