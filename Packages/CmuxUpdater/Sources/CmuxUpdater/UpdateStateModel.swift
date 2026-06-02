@@ -91,8 +91,11 @@ public final class UpdateStateModel {
     /// clearing any override. Used when starting a fresh check.
     public func cancelActiveStateForNewCheck() {
         state.cancel()
-        setState(.idle)
-        setOverrideState(nil)
+        // One conceptual transition: update both fields, then emit a single change notification
+        // (avoids two redundant stateChanges() emissions for one logical reset).
+        state = .idle
+        overrideState = nil
+        notifyStateChanged()
     }
 
     // MARK: - Detected background update
@@ -388,7 +391,9 @@ public final class UpdateStateModel {
                 break
             }
         }
-        return nsError.localizedDescription
+        // Catch-all: keep user-facing copy in cmux terms; raw vendor descriptions, domains, and
+        // codes stay in `errorDetails` (the copyable Details block + the update log), not here.
+        return String(localized: "update.error.failed.message", defaultValue: "Something went wrong while checking for updates. Try again, or check the update log for details.")
     }
 
     /// Builds the multi-line technical detail block shown in the error popover.
