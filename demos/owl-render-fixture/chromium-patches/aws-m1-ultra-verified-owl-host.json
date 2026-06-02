@@ -1,0 +1,18 @@
+{
+  "name": "aws-m1-ultra-verified-owl-host",
+  "chromiumBaseCommit": "0bd9366db7ef5eebf3cd6e3927b53b86f7b95899",
+  "chromiumForkRepo": "https://github.com/manaflow-ai/chromium-src.git",
+  "chromiumForkBranch": "feat/owl-fresh-host",
+  "chromiumForkCommit": "7523a3a72320b403d509860f8ffaec9ac20d150e",
+  "patchFile": "chromium-patches/aws-m1-ultra-verified-owl-host.patch",
+  "patchSHA256": "99fc7eaa61a1b389ce017b88618ea54a15440306c23240e7fd9ea2bb8bdcb240",
+  "patchLineCount": 4721,
+  "ninjaTargets": [
+    "content_shell",
+    "owl_fresh_mojo_runtime"
+  ],
+  "requiredBuildOutputs": [
+    "out/Release/Content Shell.app/Contents/MacOS/Content Shell",
+    "out/Release/libowl_fresh_mojo_runtime.dylib"
+  ]
+}
