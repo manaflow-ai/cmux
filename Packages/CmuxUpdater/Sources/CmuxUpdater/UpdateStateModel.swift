@@ -1,5 +1,5 @@
 public import Foundation
-public import Sparkle
+@preconcurrency public import Sparkle
 import Observation
 
 /// The observable source of truth for the custom update UI.

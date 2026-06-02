@@ -1,5 +1,5 @@
 import Foundation
-import Sparkle
+@preconcurrency import Sparkle
 
 /// The `SPUUserDriver` that translates Sparkle's update lifecycle into ``UpdateStateModel``
 /// transitions for cmux's custom (non-Sparkle-UI) update surface.

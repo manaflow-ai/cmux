@@ -1,5 +1,5 @@
 import Foundation
-import Sparkle
+@preconcurrency import Sparkle
 
 extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     func updaterShouldPromptForPermissionToCheck(forUpdates _: SPUUpdater) -> Bool {

@@ -1,5 +1,5 @@
 public import Foundation
-public import Sparkle
+@preconcurrency public import Sparkle
 
 /// The current phase of the custom (non-Sparkle-UI) update flow, with the per-phase payload
 /// needed to advance, cancel, or describe it.

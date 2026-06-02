@@ -1,5 +1,5 @@
 public import Foundation
-import Sparkle
+@preconcurrency import Sparkle
 
 /// Coordinates cmux's custom Sparkle update flow: owns the `SPUUpdater` and its
 /// ``UpdateDriver``, exposes the observable ``UpdateStateModel``, and sequences the

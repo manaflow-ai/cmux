@@ -1,6 +1,6 @@
 #if DEBUG
 import Foundation
-import Sparkle
+@preconcurrency import Sparkle
 
 /// Drives the ``UpdateStateModel`` into specific states for UI tests, and can run a mock feed
 /// check against an in-process appcast (``UpdateTestURLProtocol``).

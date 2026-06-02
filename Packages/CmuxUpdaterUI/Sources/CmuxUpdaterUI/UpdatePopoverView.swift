@@ -1,7 +1,7 @@
 public import SwiftUI
 public import CmuxUpdater
 import AppKit
-import Sparkle
+@preconcurrency import Sparkle
 
 /// Popover view that displays detailed update information and actions.
 public struct UpdatePopoverView: View {
