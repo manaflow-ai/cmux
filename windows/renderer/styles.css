@@ -3105,14 +3105,16 @@ body.reduce-motion *::after {
 .browser-loading {
   grid-area: 1 / 1;
   z-index: 1;
+  align-self: start;
   min-height: 0;
   display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: var(--space-2);
+  align-content: start;
+  justify-items: stretch;
+  gap: 0;
   min-width: 0;
-  padding: var(--space-4);
-  background: var(--color-pane);
+  height: 2px;
+  padding: 0;
+  background: transparent;
   color: var(--color-muted);
   opacity: 0;
   pointer-events: none;
@@ -3123,25 +3125,14 @@ body.reduce-motion *::after {
   opacity: 1;
 }
 
-.browser-content.has-loaded.is-loading .browser-loading {
-  align-self: start;
-  align-content: start;
-  justify-items: stretch;
-  gap: 0;
-  height: 2px;
-  min-height: 0;
-  padding: 0;
-  background: transparent;
-}
-
-.browser-content.has-loaded.is-loading .browser-loading-track {
+.browser-loading-track {
   width: 100%;
   height: 2px;
   border-radius: 0;
 }
 
-.browser-content.has-loaded.is-loading .browser-loading-title,
-.browser-content.has-loaded.is-loading .browser-loading-url {
+.browser-loading-title,
+.browser-loading-url {
   display: none;
 }
 
@@ -3375,10 +3366,6 @@ body.reduce-motion *::after {
   height: 100%;
   border: 0;
   background: var(--color-pane);
-}
-
-.browser-content.is-loading:not(.has-loaded) .browser-view {
-  opacity: 0;
 }
 
 .browser-error {
