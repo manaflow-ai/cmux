@@ -27619,7 +27619,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 cwd: hookCwd ?? mapped?.cwd
             )
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
-            let shouldRestoreRunning = mapped?.runtimeStatus == .needsInput || mapped == nil
+            let shouldRestoreRunning = mapped?.runtimeStatus == .needsInput
             if !sessionId.isEmpty, !suppressVisibleMutations, shouldRestoreRunning {
                 try? store.upsert(
                     sessionId: sessionId,

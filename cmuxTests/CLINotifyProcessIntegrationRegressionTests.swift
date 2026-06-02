@@ -157,6 +157,107 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testPiUIPromptEndWithoutRecordedPromptDoesNotRestoreRunning() throws {
+        let context = try makeClaudeHookContext(name: "pi-ui-end-stale")
+        defer { context.cleanup() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 8)
+        let sessionId = "pi-missing-session"
+        let promptEnd = runAgentHook(
+            context: context,
+            agent: "pi",
+            subcommand: "ui-prompt-end",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"ui_prompt_end","kind":"select"}"#,
+            extraEnvironment: agentLaunchEnvironment(
+                context: context,
+                kind: "pi",
+                executable: "/usr/local/bin/pi",
+                arguments: ["/usr/local/bin/pi", "--model", "gpt-5.1"]
+            )
+        )
+
+        XCTAssertFalse(promptEnd.timedOut, promptEnd.stderr)
+        XCTAssertEqual(promptEnd.status, 0, promptEnd.stderr)
+        XCTAssertEqual(promptEnd.stdout, "{}\n")
+        let commands = context.state.snapshot()
+        XCTAssertFalse(
+            commands.contains { $0.contains("set_agent_lifecycle pi running") },
+            "A stale Pi UI prompt end without a recorded needsInput prompt must not create a phantom running lifecycle, saw \(commands)"
+        )
+        XCTAssertFalse(
+            commands.contains { $0.contains("set_status pi Running") },
+            "A stale Pi UI prompt end without a recorded needsInput prompt must not create a phantom running status, saw \(commands)"
+        )
+    }
+
+    func testPiUIPromptLifecycleSuppressesNestedVisibleMutations() throws {
+        let context = try makeClaudeHookContext(name: "pi-ui-nested")
+        defer { context.cleanup() }
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let sessionId = "pi-nested-session"
+        var launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "pi",
+            executable: "/usr/local/bin/pi",
+            arguments: ["/usr/local/bin/pi", "--model", "gpt-5.1"]
+        )
+        let start = runAgentHook(
+            context: context,
+            agent: "pi",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        launchEnvironment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "1"
+        let promptStartCommandStart = context.state.snapshot().count
+        let promptStart = runAgentHook(
+            context: context,
+            agent: "pi",
+            subcommand: "ui-prompt-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"ui_prompt_start","kind":"confirm","title":"Nested prompt"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(promptStart.timedOut, promptStart.stderr)
+        XCTAssertEqual(promptStart.status, 0, promptStart.stderr)
+        XCTAssertEqual(promptStart.stdout, "{}\n")
+
+        let promptStartCommands = Array(context.state.snapshot().dropFirst(promptStartCommandStart))
+        XCTAssertFalse(
+            promptStartCommands.contains { $0.contains("set_agent_lifecycle pi needsInput") },
+            "Suppressed nested Pi UI prompt start must not mutate visible lifecycle, saw \(promptStartCommands)"
+        )
+        XCTAssertFalse(
+            promptStartCommands.contains { $0.contains("set_status pi Pi needs input") },
+            "Suppressed nested Pi UI prompt start must not mutate visible status, saw \(promptStartCommands)"
+        )
+
+        let promptEndCommandStart = context.state.snapshot().count
+        let promptEnd = runAgentHook(
+            context: context,
+            agent: "pi",
+            subcommand: "ui-prompt-end",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"ui_prompt_end","kind":"confirm"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(promptEnd.timedOut, promptEnd.stderr)
+        XCTAssertEqual(promptEnd.status, 0, promptEnd.stderr)
+        XCTAssertEqual(promptEnd.stdout, "{}\n")
+
+        let promptEndCommands = Array(context.state.snapshot().dropFirst(promptEndCommandStart))
+        XCTAssertFalse(
+            promptEndCommands.contains { $0.contains("set_agent_lifecycle pi running") },
+            "Suppressed nested Pi UI prompt end must not mutate visible lifecycle, saw \(promptEndCommands)"
+        )
+        XCTAssertFalse(
+            promptEndCommands.contains { $0.contains("set_status pi Running") },
+            "Suppressed nested Pi UI prompt end must not mutate visible status, saw \(promptEndCommands)"
+        )
+    }
+
     func testCodexPromptSubmitRefreshesLastTurnDiffBaseline() throws {
         let context = try makeClaudeHookContext(name: "codex-prompt-baseline")
         defer { context.cleanup() }
