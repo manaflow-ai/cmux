@@ -5739,6 +5739,65 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testForkedSplitPersistsForkStartupBindingBeforeLiveScan() throws {
+        try withAgentSessionAutoResumeSetting(true) {
+            let workspace = Workspace()
+            let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+                workingDirectory: "/tmp/fork repo",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "codex",
+                    executablePath: "/Users/example/.bun/bin/codex",
+                    arguments: ["/Users/example/.bun/bin/codex", "--search"],
+                    workingDirectory: "/tmp/fork repo",
+                    environment: nil,
+                    capturedAt: 123,
+                    source: "process"
+                )
+            )
+
+            let forkPanel = try XCTUnwrap(
+                workspace.forkAgentConversation(
+                    fromPanelId: sourcePanelId,
+                    snapshot: snapshot,
+                    direction: .right
+                )
+            )
+            let savedSnapshot = workspace.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: .empty,
+                surfaceResumeBindingIndex: .empty
+            )
+            let forkPanelSnapshot = try XCTUnwrap(
+                savedSnapshot.panels.first { $0.id == forkPanel.id }
+            )
+            let binding = try XCTUnwrap(forkPanelSnapshot.terminal?.resumeBinding)
+
+            XCTAssertNil(forkPanelSnapshot.terminal?.agent)
+            XCTAssertEqual(binding.source, "agent-hook")
+            XCTAssertEqual(binding.kind, "codex")
+            XCTAssertEqual(binding.checkpointId, snapshot.sessionId)
+            XCTAssertEqual(binding.autoResume, true)
+            XCTAssertEqual(binding.command, snapshot.forkCommand)
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(savedSnapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+            let initialCommand = try XCTUnwrap(restoredPanel.surface.debugInitialCommand())
+            XCTAssertTrue(initialCommand.hasPrefix("/bin/zsh '"), initialCommand)
+
+            let scriptPath = String(initialCommand.dropFirst("/bin/zsh '".count).dropLast())
+            defer { try? FileManager.default.removeItem(atPath: scriptPath) }
+            let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+            XCTAssertTrue(scriptContents.contains("codex"), scriptContents)
+            XCTAssertTrue(scriptContents.contains("fork"), scriptContents)
+            XCTAssertTrue(scriptContents.contains(snapshot.sessionId), scriptContents)
+        }
+    }
+
     func testForkAgentConversationUsesWorkspaceDirectoryFallback() throws {
         let workspace = Workspace()
         workspace.currentDirectory = "/tmp/workspace fork repo"
@@ -6994,6 +7053,25 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             1,
             "Configured New Tab default should keep the fork in the source pane"
         )
+    }
+
+    private func withAgentSessionAutoResumeSetting<T>(
+        _ value: Bool,
+        _ body: () throws -> T
+    ) rethrows -> T {
+        let defaults = UserDefaults.standard
+        let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        let previousValue = defaults.object(forKey: key)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+
+        defaults.set(value, forKey: key)
+        return try body()
     }
 }
 
