@@ -94,4 +94,28 @@ struct SidebarProviderMenuRegressionTests {
             }
         }
     }
+
+    /// The hosted-extensions provider belongs to the experimental Extensions
+    /// feature, so the effective selection (which the menu checkmark tracks)
+    /// downgrades it to the default sidebar while the beta is off and honors it
+    /// while the beta is on. Built-in views resolve to themselves either way —
+    /// they are never gated by the flag.
+    @Test
+    func effectiveSelectionGatesHostedExtensionButNotBuiltInViews() {
+        let projectWorktrees = "com.example.cmux.sidebar.project-worktrees"
+        #expect(
+            CmuxExtensionSidebarSelection.effectiveProviderId(projectWorktrees, extensionsEnabled: false) == projectWorktrees
+        )
+        #expect(
+            CmuxExtensionSidebarSelection.effectiveProviderId(projectWorktrees, extensionsEnabled: true) == projectWorktrees
+        )
+
+        let hosted = CmuxExtensionSidebarSelection.hostedExtensionsProviderId
+        #expect(
+            CmuxExtensionSidebarSelection.effectiveProviderId(hosted, extensionsEnabled: true) == hosted
+        )
+        #expect(
+            CmuxExtensionSidebarSelection.effectiveProviderId(hosted, extensionsEnabled: false) == CmuxExtensionSidebarSelection.defaultProviderId
+        )
+    }
 }
