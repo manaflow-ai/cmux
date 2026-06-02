@@ -508,11 +508,17 @@ final class SessionPersistenceTests: XCTestCase {
         let setBackground = "\(esc)]11;rgb:28/2c/34\(esc)\\"
         // A BEL-terminated cursor-color OSC, the other dynamic-color terminator form.
         let setCursor = "\(esc)]12;rgb:c0/c1/b5\u{0007}"
+        // Palette set/reset and a dynamic-color reset are equally theme state that
+        // restored history must not re-impose, so they are stripped too.
+        let setPalette = "\(esc)]4;1;rgb:aa/00/00\(esc)\\"
+        let resetPalette = "\(esc)]104;1\(esc)\\"
+        let resetForeground = "\(esc)]110;\(esc)\\"
         let red = "\(esc)[31m"
         let reset = "\(esc)[0m"
         // OSC 8 hyperlinks are scrollback content, not terminal color config; keep them.
         let hyperlink = "\(esc)]8;;https://example.com\(esc)\\link\(esc)]8;;\(esc)\\"
-        let source = "\(setForeground)\(setBackground)\(setCursor)plain default text\n"
+        let source = "\(setForeground)\(setBackground)\(setCursor)"
+            + "\(setPalette)\(resetPalette)\(resetForeground)plain default text\n"
             + "\(red)RED\(reset) \(hyperlink)\n"
 
         let environment = SessionScrollbackReplayStore.replayEnvironment(
@@ -534,7 +540,11 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(contents.contains("\(esc)]10;"), "OSC 10 (set foreground) must be stripped")
         XCTAssertFalse(contents.contains("\(esc)]11;"), "OSC 11 (set background) must be stripped")
         XCTAssertFalse(contents.contains("\(esc)]12;"), "OSC 12 (set cursor color) must be stripped")
+        XCTAssertFalse(contents.contains("\(esc)]4;"), "OSC 4 (set palette entry) must be stripped")
+        XCTAssertFalse(contents.contains("\(esc)]104;"), "OSC 104 (reset palette entry) must be stripped")
+        XCTAssertFalse(contents.contains("\(esc)]110;"), "OSC 110 (reset foreground) must be stripped")
         XCTAssertFalse(contents.contains("rgb:ff/ff/ff"), "baked default-color payload must be gone")
+        XCTAssertFalse(contents.contains("rgb:aa/00/00"), "baked palette payload must be gone")
 
         // Explicit SGR colors, plain text, and hyperlinks are preserved verbatim.
         XCTAssertTrue(contents.contains("plain default text"))
