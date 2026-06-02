@@ -9136,11 +9136,15 @@ function paneShapePanel(workspace = activeWorkspace()) {
       <span class="pane-shape-title"></span>
       <span class="pane-shape-meta"></span>
     </span>
-    <label class="pane-shape-slider">
+    <div class="pane-shape-slider">
       <span class="pane-shape-slider-label"></span>
       <input class="setting-control pane-shape-range" type="range">
       <span class="pane-shape-slider-value"></span>
-    </label>
+      <span class="pane-shape-number-wrap">
+        <input class="setting-control pane-shape-number" type="number" inputmode="numeric">
+        <span class="pane-shape-number-unit">%</span>
+      </span>
+    </div>
     <span class="pane-shape-actions"></span>
   `;
   const titleNode = wrapper.querySelector(".pane-shape-title");
@@ -9163,37 +9167,65 @@ function paneShapePanel(workspace = activeWorkspace()) {
       : t("paneShape.metaEmpty");
   wrapper.querySelector(".pane-shape-slider-label").textContent = t("paneShape.size");
   const range = wrapper.querySelector(".pane-shape-range");
+  const number = wrapper.querySelector(".pane-shape-number");
+  const syncPercentInputs = (nextPercent) => {
+    range.value = String(nextPercent);
+    number.value = String(nextPercent);
+    updatePercentView(nextPercent);
+  };
   range.min = String(paneLayoutPercentMin);
   range.max = String(paneLayoutPercentMax);
   range.step = "1";
-  range.value = String(percent);
   range.disabled = !multiPane;
   range.setAttribute("aria-label", t("paneShape.sizeAria"));
+  number.min = String(paneLayoutPercentMin);
+  number.max = String(paneLayoutPercentMax);
+  number.step = "1";
+  number.disabled = !multiPane;
+  number.setAttribute("aria-label", t("paneShape.sizeAria"));
   range.oninput = () => {
     const nextPercent = applyActivePaneLayoutPercent(range.value);
-    range.value = String(nextPercent);
-    updatePercentView(nextPercent);
+    syncPercentInputs(nextPercent);
   };
   range.onchange = () => {
     const nextPercent = applyActivePaneLayoutPercent(range.value, { save: true, toast: true });
-    range.value = String(nextPercent);
-    updatePercentView(nextPercent);
+    syncPercentInputs(nextPercent);
   };
-  updatePercentView(percent);
+  number.oninput = () => {
+    if (!number.value.trim()) return;
+    const parsed = Number(number.value);
+    if (!Number.isFinite(parsed)) return;
+    const nextPercent = applyActivePaneLayoutPercent(parsed);
+    syncPercentInputs(nextPercent);
+  };
+  number.onchange = () => {
+    const value = number.value.trim() || String(activePaneLayoutPercent(workspace));
+    const nextPercent = applyActivePaneLayoutPercent(value, { save: true, toast: true });
+    syncPercentInputs(nextPercent);
+  };
+  number.onkeydown = (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      number.blur();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      syncPercentInputs(activePaneLayoutPercent(workspace));
+      number.blur();
+    }
+  };
+  syncPercentInputs(percent);
   const actions = wrapper.querySelector(".pane-shape-actions");
   const smaller = settingsActionButton(t("paneShape.smaller"), () => adjustActivePaneLayoutPercent(-5), "", "pane shape smaller reduce active pane size");
   smaller.disabled = !multiPane || percent <= paneLayoutPercentMin;
   const bigger = settingsActionButton(t("paneShape.bigger"), () => adjustActivePaneLayoutPercent(5), "", "pane shape bigger increase active pane size");
   bigger.disabled = !multiPane || percent >= paneLayoutPercentMax;
-  const exact = settingsActionButton(t("paneShape.exact"), promptActivePaneLayoutPercent, "", "pane shape exact percent active pane size");
-  exact.disabled = !multiPane;
   const equal = settingsActionButton(t("paneShape.equal"), resetActivePaneLayout, "", "pane shape equalize reset split layout");
   equal.disabled = !multiPane;
   const side = settingsActionButton(t("paneShape.columns"), () => applyPaneLayoutPreset("sideBySide"), "", "pane shape side by side columns");
   side.disabled = !multiPane;
   const stack = settingsActionButton(t("paneShape.rows"), () => applyPaneLayoutPreset("stacked"), "", "pane shape stacked rows");
   stack.disabled = !multiPane;
-  actions.append(smaller, bigger, exact, equal, side, stack);
+  actions.append(smaller, bigger, equal, side, stack);
   return wrapper;
 }
 

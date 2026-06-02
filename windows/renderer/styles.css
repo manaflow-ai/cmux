@@ -3913,7 +3913,7 @@ body.reduce-motion *::after {
   grid-column: 1 / -1;
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(34px, auto);
+  grid-template-columns: auto minmax(0, 1fr) minmax(34px, auto) minmax(64px, auto);
   align-items: center;
   gap: var(--space-2);
 }
@@ -3933,6 +3933,26 @@ body.reduce-motion *::after {
 .pane-shape-range {
   width: 100%;
   min-width: 0;
+}
+
+.pane-shape-number-wrap {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(42px, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.pane-shape-number {
+  width: 58px;
+  padding: 0 6px;
+  text-align: right;
+}
+
+.pane-shape-number-unit {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
 }
 
 .pane-shape-actions {
