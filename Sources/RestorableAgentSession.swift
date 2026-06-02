@@ -1122,7 +1122,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: record.workspaceId),
                       let panelId = UUID(uuidString: record.surfaceId),
-                      hookRecordIsRestorable(
+                      let effectiveSessionId = hookRecordResolvableSessionId(
                           record,
                           kind: kind,
                           fileManager: fileManager,
@@ -1133,7 +1133,7 @@ struct RestorableAgentSessionIndex: Sendable {
 
                 let snapshot = SessionRestorableAgentSnapshot(
                     kind: kind,
-                    sessionId: normalizedSessionId,
+                    sessionId: effectiveSessionId,
                     workingDirectory: restorableWorkingDirectory(
                         for: record,
                         kind: kind,
@@ -1220,60 +1220,64 @@ struct RestorableAgentSessionIndex: Sendable {
         normalizedNonEmptyValue(rawValue)
     }
 
-    private static func hookRecordIsRestorable(
+    // Returns the session ID to use for resume (may differ from record.sessionId when the stored ID
+    // is a Workflow container directory), or nil if the session cannot be resumed.
+    private static func hookRecordResolvableSessionId(
         _ record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
         fileManager: FileManager,
         claudeTranscriptLookup: ClaudeTranscriptLookupCache
-    ) -> Bool {
+    ) -> String? {
         guard kind == .claude else {
-            return record.isRestorable != false
+            return record.isRestorable != false ? normalizedNonEmptyValue(record.sessionId) : nil
         }
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
            regularNonEmptyFileExists(
                atPath: (transcriptPath as NSString).expandingTildeInPath,
                fileManager: fileManager
            ) {
-            return true
+            return normalizedNonEmptyValue(record.sessionId)
         }
-        return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
+        return claudeResolvedSessionId(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
     }
 
-    private static func claudeTranscriptExists(
+    // Returns the effective session ID for resume: the stored ID if its .jsonl exists, or the
+    // sibling interactive transcript's ID when the stored ID maps to a Workflow container directory.
+    private static func claudeResolvedSessionId(
         for record: RestorableAgentHookSessionRecord,
         fileManager: FileManager,
         lookup: ClaudeTranscriptLookupCache
-    ) -> Bool {
+    ) -> String? {
         guard let sessionId = normalizedNonEmptyValue(record.sessionId),
               claudeSessionIdIsSafeFilename(sessionId) else {
-            return false
+            return nil
         }
 
         let roots = lookup.configRoots(for: record)
-        guard !roots.isEmpty else { return false }
+        guard !roots.isEmpty else { return nil }
 
         let cwd = normalizedWorkingDirectory(record.cwd)
             ?? normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
         for root in roots {
             if let cwd,
-               claudeTranscriptFileExists(
+               let resolved = claudeResolvedSessionIdInProjectDir(
                    configRoot: root,
                    projectDirName: encodeClaudeProjectDir(cwd),
                    sessionId: sessionId,
                    fileManager: fileManager
                ) {
-                return true
+                return resolved
             }
-            if claudeTranscriptFileExistsInAnyProject(
+            if let resolved = claudeResolvedSessionIdInAnyProject(
                 configRoot: root,
                 sessionId: sessionId,
                 fileManager: fileManager,
                 lookup: lookup
             ) {
-                return true
+                return resolved
             }
         }
-        return false
+        return nil
     }
 
     /// The directory cmux must `cd` into to resume or fork this session.
@@ -1349,6 +1353,92 @@ struct RestorableAgentSessionIndex: Sendable {
             .replacingOccurrences(of: ".", with: "-")
     }
 
+    // Returns the resumable session ID found in a specific project dir: the stored sessionId when
+    // its .jsonl exists, or the sibling interactive transcript's ID when sessionId/ is a Workflow
+    // container directory. Returns nil when neither exists.
+    private static func claudeResolvedSessionIdInProjectDir(
+        configRoot: String,
+        projectDirName: String,
+        sessionId: String,
+        fileManager: FileManager
+    ) -> String? {
+        let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
+        let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDirName)
+        let path = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
+        if regularNonEmptyFileExists(atPath: path, fileManager: fileManager) {
+            return sessionId
+        }
+        // When the stored session ID is a Workflow container directory, find the sibling
+        // interactive transcript (the actual session Claude created for the conversation).
+        var isDirectory: ObjCBool = false
+        let dirPath = (projectRoot as NSString).appendingPathComponent(sessionId)
+        guard fileManager.fileExists(atPath: dirPath, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        return claudeInteractiveSiblingSessionId(
+            inProjectRoot: projectRoot,
+            excludingSessionId: sessionId,
+            fileManager: fileManager
+        )
+    }
+
+    // Scans projectRoot for a .jsonl file that is not the Workflow container's own ID.
+    // When multiple candidates exist, picks the one whose birthtime is closest to the container
+    // directory's birthtime (the interactive session was created at the same time as the Workflow).
+    private static func claudeInteractiveSiblingSessionId(
+        inProjectRoot projectRoot: String,
+        excludingSessionId: String,
+        fileManager: FileManager
+    ) -> String? {
+        guard let contents = try? fileManager.contentsOfDirectory(atPath: projectRoot) else {
+            return nil
+        }
+        let siblings = contents.compactMap { name -> String? in
+            guard name.hasSuffix(".jsonl") else { return nil }
+            let candidate = String(name.dropLast(".jsonl".count))
+            guard candidate != excludingSessionId,
+                  claudeSessionIdIsSafeFilename(candidate) else { return nil }
+            let filePath = (projectRoot as NSString).appendingPathComponent(name)
+            return regularNonEmptyFileExists(atPath: filePath, fileManager: fileManager) ? candidate : nil
+        }
+        guard !siblings.isEmpty else { return nil }
+        if siblings.count == 1 { return siblings[0] }
+        // Pick the sibling whose birthtime is closest to the Workflow container directory.
+        let dirPath = (projectRoot as NSString).appendingPathComponent(excludingSessionId)
+        guard let dirBirth = (try? fileManager.attributesOfItem(atPath: dirPath))?[.creationDate] as? Date else {
+            return siblings.first
+        }
+        return siblings.min { a, b in
+            let pathA = (projectRoot as NSString).appendingPathComponent("\(a).jsonl")
+            let pathB = (projectRoot as NSString).appendingPathComponent("\(b).jsonl")
+            let birthA = ((try? fileManager.attributesOfItem(atPath: pathA))?[.creationDate] as? Date) ?? .distantPast
+            let birthB = ((try? fileManager.attributesOfItem(atPath: pathB))?[.creationDate] as? Date) ?? .distantPast
+            return abs(birthA.timeIntervalSince(dirBirth)) < abs(birthB.timeIntervalSince(dirBirth))
+        }
+    }
+
+    private static func claudeResolvedSessionIdInAnyProject(
+        configRoot: String,
+        sessionId: String,
+        fileManager: FileManager,
+        lookup: ClaudeTranscriptLookupCache
+    ) -> String? {
+        for projectDir in lookup.projectDirs(configRoot: configRoot) {
+            if let resolved = claudeResolvedSessionIdInProjectDir(
+                configRoot: configRoot,
+                projectDirName: projectDir,
+                sessionId: sessionId,
+                fileManager: fileManager
+            ) {
+                return resolved
+            }
+        }
+        return nil
+    }
+
+    // Used by restorableWorkingDirectory to verify which candidate cwd holds the session.
+    // Returns true also for Workflow container directories so cwd resolution works correctly.
     private static func claudeTranscriptFileExists(
         configRoot: String,
         projectDirName: String,
@@ -1358,24 +1448,10 @@ struct RestorableAgentSessionIndex: Sendable {
         let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
         let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDirName)
         let path = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
-        return regularNonEmptyFileExists(atPath: path, fileManager: fileManager)
-    }
-
-    private static func claudeTranscriptFileExistsInAnyProject(
-        configRoot: String,
-        sessionId: String,
-        fileManager: FileManager,
-        lookup: ClaudeTranscriptLookupCache
-    ) -> Bool {
-        let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
-        for projectDir in lookup.projectDirs(configRoot: configRoot) {
-            let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDir)
-            let path = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
-            if regularNonEmptyFileExists(atPath: path, fileManager: fileManager) {
-                return true
-            }
-        }
-        return false
+        if regularNonEmptyFileExists(atPath: path, fileManager: fileManager) { return true }
+        var isDirectory: ObjCBool = false
+        let dirPath = (projectRoot as NSString).appendingPathComponent(sessionId)
+        return fileManager.fileExists(atPath: dirPath, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     private final class ClaudeTranscriptLookupCache {
