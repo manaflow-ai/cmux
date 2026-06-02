@@ -12900,7 +12900,7 @@ function shouldInitCreatedTerminalImmediately(panel, workspace, options = {}) {
   const activeWorkspaceId = options.activeWorkspaceId || state.data?.activeWorkspaceId;
   return panel?.type === "terminal"
     && options.focus !== false
-    && options.immediateTerminalInit !== false
+    && options.immediateTerminalInit === true
     && workspace?.activePanelId === panel.id
     && activeWorkspaceId === workspace.id
     && !state.terminals.has(panel.id)
