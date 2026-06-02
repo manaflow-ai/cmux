@@ -5944,7 +5944,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return false
         }
 #endif
-        portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
+        return portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
     }
 
     private var hasDeferredStartupWork: Bool {
