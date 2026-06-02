@@ -3469,17 +3469,18 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .browser-tab-new {
-  flex: 0 0 66px;
-  min-width: 66px;
-  width: 66px;
+  flex: 0 0 30px;
+  min-width: 30px;
+  width: 30px;
   height: 26px;
   display: grid;
-  grid-template-columns: 15px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
+  justify-content: center;
   justify-items: center;
-  gap: 4px;
+  gap: 0;
   margin-bottom: 0;
-  padding: 0 8px 0 7px;
+  padding: 0;
   border: 1px solid var(--color-line);
   border-bottom: 0;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
@@ -3504,11 +3505,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .browser-tab-new-label {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  letter-spacing: 0;
+  display: none;
 }
 
 .browser-tab-new:hover {
@@ -3550,13 +3547,6 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
     flex-basis: 34px;
     min-width: 34px;
     width: 34px;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0;
-    padding: 0;
-  }
-
-  .browser-tab-new-label {
-    display: none;
   }
 }
 
