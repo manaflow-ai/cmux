@@ -3276,6 +3276,7 @@ const commands = [
   { id: "settings.resetAppearance", label: "Reset Look Settings", shortcut: "", run: () => resetAppearanceSettings() },
   { id: "settings.performance", label: "Open Performance Settings", shortcut: "", run: () => openSettingsCategory("performance") },
   { id: "settings.tunePerformance", label: "Tune Performance Now", shortcut: "", run: () => tunePerformanceNow() },
+  { id: "settings.cleanFast", label: "Apply Clean + Fast Setup", shortcut: "", run: () => applySettingsPresetById("simpleFast") },
   { id: "settings.copyDiagnostics", label: "Copy Performance Diagnostics", shortcut: "", run: () => copyPerformanceDiagnostics() },
   { id: "settings.actions", label: "Open Actions Settings", shortcut: "", run: () => openSettingsCategory("actions") },
   { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
@@ -11480,6 +11481,7 @@ function quickSetupOverviewPanel() {
 }
 
 const quickSetupPresetRailItems = [
+  { id: "simpleFast", label: "Clean + Fast", body: "Simple speed", icon: "speed", search: "clean fast simple minimal ui speed performance lag startup" },
   { id: "simple", label: "Clean", body: "Quiet chrome", icon: "clean", search: "clean simple minimal ui quiet chrome" },
   { id: "performance", label: "Fast", body: "Reduce lag", icon: "speed", search: "fast performance speed lag smooth" },
   { id: "focus", label: "Focus", body: "Hide extras", icon: "focus", search: "focus mode hide chrome workspace" },
@@ -11607,6 +11609,16 @@ function quickSetupActionDefinitions() {
       run: () => renameActiveWorkspace()
     },
     {
+      id: "clean-fast",
+      icon: "speed",
+      label: "Clean + Fast",
+      body: "Apply compact chrome, reduced effects, and fast terminal startup.",
+      meta: activeSettingsPresetLabel,
+      cta: "Apply",
+      search: "clean fast simple speed compact ui chrome terminal startup lag preset",
+      run: () => applySettingsPresetById("simpleFast")
+    },
+    {
       id: "clean-ui",
       icon: "clean",
       label: "Clean UI",
@@ -11732,8 +11744,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
 
   if (!workspace || terminalCount === 0) ids.push("new-terminal");
   if (workspace && browserCount === 0) ids.push("new-browser");
-  if (!isSettingsPresetIdActive("simple")) ids.push("clean-ui");
-  if (!state.settings.performanceMode) ids.push("tune-speed");
+  if (!isSettingsPresetIdActive("simpleFast")) ids.push("clean-fast");
   if (!state.settings.backgroundImage) ids.push("background");
   else if (activeTerminal && !normalizeBackgroundValue(activeTerminal.backgroundImage)) ids.push("pane-background");
   if (workspaceNeedsQuickRename(workspace)) ids.push("rename");
@@ -12702,7 +12713,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     showStatusbar: false,
     terminalPadding: Math.min(state.settings.terminalPadding, 4),
     terminalScrollback: Math.min(state.settings.terminalScrollback, 6000),
-    terminalStartupMode: "balanced",
+    terminalStartupMode: "fast",
     terminalPauseInactiveOutput: true,
     browserSuspendInactive: true
   });
@@ -15082,6 +15093,7 @@ function showToolbarMenu(event) {
       contextMenuButton("Performance settings", () => openSettingsCategory("performance")),
       contextMenuButton("Tune performance now", () => tunePerformanceNow()),
       contextMenuButton("Copy performance diagnostics", copyPerformanceDiagnostics),
+      contextMenuButton("Apply clean + fast preset", () => applySettingsPresetById("simpleFast")),
       contextMenuButton("Apply speed preset", () => applySettingsPresetById("performance")),
       contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
       contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
