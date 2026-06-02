@@ -7073,15 +7073,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent? = nil,
         debugSource: String = "newWorkspace"
     ) -> Bool {
-        let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
-        let livePreferredContext: MainWindowContext? = {
-            guard let preferredContext else { return nil }
-            guard resolvedWindow(for: preferredContext) != nil else {
-                discardOrphanedMainWindowContext(preferredContext)
-                return nil
-            }
-            return preferredContext
-        }()
+        let preferred = preferredNewWorkspaceActionContext(tabManager: preferredTabManager)
+        let preferredContext = preferred.preferredContext
+        let livePreferredContext = preferred.livePreferredContext
 
         if mainWindowContexts.isEmpty && livePreferredContext == nil {
 #if DEBUG
@@ -7192,6 +7186,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func mainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
         mainWindowContexts.values.first(where: { $0.tabManager === tabManager })
     }
+
+    private func preferredNewWorkspaceActionContext(
+        tabManager preferredTabManager: TabManager?
+    ) -> (preferredContext: MainWindowContext?, livePreferredContext: MainWindowContext?) {
+        let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
+        let livePreferredContext: MainWindowContext? = {
+            guard let preferredContext else { return nil }
+            guard resolvedWindow(for: preferredContext) != nil else {
+                discardOrphanedMainWindowContext(preferredContext)
+                return nil
+            }
+            return preferredContext
+        }()
+        return (preferredContext, livePreferredContext)
+    }
+
+#if DEBUG
+    func debugNewWorkspaceActionContextForTesting(
+        tabManager preferredTabManager: TabManager? = nil,
+        event: NSEvent? = nil,
+        debugSource: String = "test"
+    ) -> MainWindowContext? {
+        let preferred = preferredNewWorkspaceActionContext(tabManager: preferredTabManager)
+        return preferred.livePreferredContext
+            ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
+    }
+#endif
 
     private func executeConfiguredNewWorkspaceActionIfAvailable(
         in context: MainWindowContext,
