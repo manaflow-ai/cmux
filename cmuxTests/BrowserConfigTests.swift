@@ -2129,6 +2129,88 @@ final class BrowserNavigationNewTabDecisionTests: XCTestCase {
 }
 
 
+@MainActor
+final class CmuxWebViewMouseNavigationButtonTests: XCTestCase {
+    func testOtherMouseDownButtonThreeUsesPanelBackHistory() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [
+                "https://example.com/a",
+                "https://example.com/b"
+            ],
+            forwardHistoryURLStrings: [
+                "https://example.com/d"
+            ],
+            currentURLString: "https://example.com/c"
+        )
+
+        panel.webView.otherMouseDown(with: makeOtherMouseEvent(type: .otherMouseDown, buttonNumber: 3))
+        panel.webView.otherMouseUp(with: makeOtherMouseEvent(type: .otherMouseUp, buttonNumber: 3))
+
+        let snapshot = panel.sessionNavigationHistorySnapshot()
+        XCTAssertEqual(snapshot.backHistoryURLStrings, ["https://example.com/a"])
+        XCTAssertEqual(
+            snapshot.forwardHistoryURLStrings,
+            ["https://example.com/c", "https://example.com/d"]
+        )
+    }
+
+    func testOtherMouseDownButtonFourUsesPanelForwardHistory() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [
+                "https://example.com/a"
+            ],
+            forwardHistoryURLStrings: [
+                "https://example.com/c",
+                "https://example.com/d"
+            ],
+            currentURLString: "https://example.com/b"
+        )
+
+        panel.webView.otherMouseDown(with: makeOtherMouseEvent(type: .otherMouseDown, buttonNumber: 4))
+        panel.webView.otherMouseUp(with: makeOtherMouseEvent(type: .otherMouseUp, buttonNumber: 4))
+
+        let snapshot = panel.sessionNavigationHistorySnapshot()
+        XCTAssertEqual(
+            snapshot.backHistoryURLStrings,
+            ["https://example.com/a", "https://example.com/b"]
+        )
+        XCTAssertEqual(snapshot.forwardHistoryURLStrings, ["https://example.com/d"])
+    }
+
+    private func makeOtherMouseEvent(type: NSEvent.EventType, buttonNumber: Int) -> NSEvent {
+        let cgEventType: CGEventType
+        switch type {
+        case .otherMouseDown:
+            cgEventType = .otherMouseDown
+        case .otherMouseUp:
+            cgEventType = .otherMouseUp
+        default:
+            fatalError("Unsupported event type \(type)")
+        }
+
+        guard let mouseButton = CGMouseButton(rawValue: UInt32(buttonNumber)),
+              let cgEvent = CGEvent(
+                mouseEventSource: nil,
+                mouseType: cgEventType,
+                mouseCursorPosition: .zero,
+                mouseButton: mouseButton
+              ) else {
+            fatalError("Failed to create other mouse event")
+        }
+        cgEvent.setIntegerValueField(.mouseEventButtonNumber, value: Int64(buttonNumber))
+
+        guard let event = NSEvent(cgEvent: cgEvent) else {
+            fatalError("Failed to bridge CGEvent to NSEvent")
+        }
+        return event
+    }
+}
+
+
 final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
     func testOtherNavigationDoesNotFallbackToNewTab() {
         XCTAssertFalse(
