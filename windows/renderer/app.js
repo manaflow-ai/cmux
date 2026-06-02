@@ -2532,6 +2532,7 @@ const commands = [
   { id: "terminal.reopenClosed", label: "Reopen Closed Pane", shortcut: "Ctrl+Shift+T", run: () => reopenClosedPanel() },
   { id: "terminal.closeOthers", label: "Close Other Panes", shortcut: "", run: () => closeOtherPanes() },
   { id: "terminal.closeRight", label: "Close Panes to Right", shortcut: "", run: () => closePanesToRight() },
+  { id: "terminal.closeAll", label: "Close All Panes", shortcut: "", run: () => closeAllPanes() },
   { id: "terminal.focusPane", label: "Focus Active Pane", shortcut: "Ctrl+Shift+M", run: () => togglePaneZoom() },
   { id: "terminal.minimizePane", label: "Minimize Active Pane", shortcut: "", run: () => minimizeActivePane() },
   { id: "terminal.restoreMinimized", label: "Restore Minimized Panes", shortcut: "", run: () => restoreMinimizedPanes() },
@@ -11265,6 +11266,7 @@ function showPanelContextMenu(event, panel) {
   const closeActions = contextMenuActionGroup(
     contextMenuButton("Close other panes", () => closeOtherPanes(panel.id), found.workspace.panels.length <= 1, "danger"),
     contextMenuButton("Close panes to right", () => closePanelsById(panesToRight.map((candidate) => candidate.id)), panesToRight.length === 0, "danger"),
+    contextMenuButton("Close all panes", () => closeAllPanes(found.workspace), found.workspace.panels.length === 0, "danger"),
     contextMenuButton("Close", () => closePanel(panel.id), false, "danger")
   );
   const colorTitle = document.createElement("div");
@@ -11332,6 +11334,7 @@ function showWorkspaceContextMenu(event, workspace) {
     contextMenuButton("Open browser here", () => openBrowserPrompt(workspace.id)),
     contextMenuButton("New workspace", () => createWorkspace()),
     contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
+    contextMenuButton("Close all panes", () => closeAllPanes(workspace), workspace.panels.length === 0, "danger"),
     contextMenuButton("Close workspace", () => closeWorkspaceById(workspace.id), false, "danger")
   );
   const colors = document.createElement("div");
@@ -11431,7 +11434,8 @@ function showToolbarMenu(event) {
       contextMenuButton("Active pane wide", () => applyPaneLayoutPreset("activeWide"), !multiPane),
       contextMenuButton("Active pane tall", () => applyPaneLayoutPreset("activeTall"), !multiPane),
       contextMenuButton("Set active pane size", promptActivePaneLayoutPercent, !multiPane),
-      contextMenuButton("Close other panes", () => closeOtherPanes(), !multiPane, "danger")
+      contextMenuButton("Close other panes", () => closeOtherPanes(), !multiPane, "danger"),
+      contextMenuButton("Close all panes", () => closeAllPanes(workspace), !workspace?.panels.length, "danger")
     ),
     contextMenuSectionTitle("Terminal"),
     contextMenuActionGroup(
@@ -13064,6 +13068,12 @@ async function closeOtherPanes(panelId = activePanel()?.id) {
   await closePanelsById(found.workspace.panels
     .filter((candidate) => candidate.id !== panelId)
     .map((candidate) => candidate.id));
+}
+
+async function closeAllPanes(workspace = activeWorkspace()) {
+  const panels = workspace?.panels || [];
+  if (panels.length === 0) return;
+  await closePanelsById(panels.map((panel) => panel.id));
 }
 
 async function closePanesToRight(panelId = activePanel()?.id) {
