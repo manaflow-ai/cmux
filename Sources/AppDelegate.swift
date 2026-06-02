@@ -1313,6 +1313,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 options.attachStacktrace = true
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
+                // Drop high-frequency operational noise (socket-listener health,
+                // scroll-lag) that exhausted the project's monthly quota and made
+                // real crashes invisible. Crashes and app-hang reports do not
+                // carry these messages, so they always pass through.
+                options.beforeSend = { event in
+                    SentryEventNoiseFilter.shouldDrop(message: event.message?.formatted) ? nil : event
+                }
             }
             StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.complete")
         }
