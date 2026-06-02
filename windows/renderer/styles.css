@@ -7131,8 +7131,20 @@ body.reduce-motion *::after {
 .saved-background-card-actions {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(74px, 100%), 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.25fr) 58px;
   gap: var(--space-1);
+}
+
+.saved-background-card-actions .settings-action {
+  height: 28px;
+  padding-inline: var(--space-1);
+  font-size: 11px;
+}
+
+@container (max-width: 330px) {
+  .saved-background-card-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .terminal-color-preset-grid {

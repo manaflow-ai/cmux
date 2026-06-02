@@ -10983,7 +10983,8 @@ function savedBackgroundImagesPanel() {
     const preview = document.createElement("button");
     preview.className = "saved-background-preview";
     preview.type = "button";
-    preview.title = `Apply ${background.label}`;
+    preview.title = `Apply ${background.label} as app background`;
+    preview.setAttribute("aria-label", `Apply ${background.label} as app background`);
     preview.style.setProperty("--saved-background-image", backgroundCss(background.url));
     preview.style.setProperty("--saved-background-repeat", backgroundRepeatCss(background.url));
     preview.onclick = () => applySavedBackgroundImage(background.id);
@@ -11000,23 +11001,56 @@ function savedBackgroundImagesPanel() {
     text.append(label, url);
     const cardActions = document.createElement("div");
     cardActions.className = "saved-background-card-actions";
-    const open = settingsActionButton("Open", () => openBackgroundImageSource(background.url), "", `open saved background source ${background.label}`);
-    open.disabled = !canOpenBackgroundImageSource(background.url);
     const allPanes = settingsActionButton("All panes", () => applySavedBackgroundImageToWorkspaceTerminals(background.id), "", `apply saved background to all terminal panes workspace ${background.label}`);
     allPanes.disabled = !(activeWorkspace()?.panels || []).some((candidate) => candidate.type === "terminal");
+    const more = settingsActionButton("More", (event) => showSavedBackgroundImageMenu(event, background), "", `saved background more actions open rename delete copy ${background.label}`);
     cardActions.append(
-      settingsActionButton("Apply", () => applySavedBackgroundImage(background.id), "", `apply saved background ${background.label}`),
+      settingsActionButton("App", () => applySavedBackgroundImage(background.id), "primary", `apply saved background app whole window ${background.label}`),
       settingsActionButton("Pane", () => applySavedBackgroundImageToPanel(background.id), "", `apply saved background to active terminal pane ${background.label}`),
       allPanes,
-      open,
-      settingsActionButton("Rename", () => renameSavedBackgroundImage(background.id), "", `rename saved background ${background.label}`),
-      settingsActionButton("Delete", () => deleteSavedBackgroundImage(background.id), "danger", `delete saved background ${background.label}`)
+      more
     );
     card.append(preview, text, cardActions);
     list.append(card);
   }
   panel.append(list);
   return panel;
+}
+
+function showSavedBackgroundImageMenu(event, background) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  if (!background?.id) return;
+  const menu = ensureContextMenu();
+  menu.className = "context-menu";
+  const title = document.createElement("div");
+  title.className = "context-title";
+  title.textContent = background.label || "Background";
+  const meta = document.createElement("div");
+  meta.className = "context-meta";
+  meta.textContent = background.url || "";
+  const actions = contextMenuActionGroup(
+    contextMenuButton("Open source", () => openBackgroundImageSource(background.url), !canOpenBackgroundImageSource(background.url)),
+    contextMenuButton("Copy source", () => copySavedBackgroundImageSource(background)),
+    contextMenuButton("Rename", () => renameSavedBackgroundImage(background.id)),
+    contextMenuButton("Delete", () => deleteSavedBackgroundImage(background.id), false, "danger")
+  );
+  menu.replaceChildren(title, meta, contextMenuSectionTitle("Background"), actions);
+  const rect = event?.currentTarget?.getBoundingClientRect?.();
+  showContextMenuAt(menu, rect ? rect.left : window.innerWidth / 2, rect ? rect.bottom + 6 : window.innerHeight / 2);
+}
+
+async function copySavedBackgroundImageSource(background) {
+  if (!background?.url) {
+    toast("Background source is unavailable.");
+    return false;
+  }
+  if (await writeClipboardText(background.url)) {
+    toast("Background source copied.");
+    return true;
+  }
+  toast("Clipboard is unavailable.");
+  return false;
 }
 
 function isActiveTerminalColorPreset(preset) {
