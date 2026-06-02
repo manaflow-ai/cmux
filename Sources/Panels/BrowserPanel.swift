@@ -45,10 +45,7 @@ enum GhosttyBackgroundTheme {
     }
 
     static func color(backgroundColor: NSColor, opacity: Double) -> NSColor {
-        WindowAppearanceSnapshot.compositedTerminalColor(
-            backgroundColor: backgroundColor,
-            opacity: opacity
-        )
+        backgroundColor.withAlphaComponent(clampedOpacity(opacity))
     }
 
     static func color(
