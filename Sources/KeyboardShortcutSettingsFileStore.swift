@@ -598,10 +598,12 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        if let value = jsonInt(section["fontSize"]) {
-            if Double(value) >= MarkdownFontSizeSettings.minimumPointSize,
-               Double(value) <= MarkdownFontSizeSettings.maximumPointSize {
-                snapshot.managedUserDefaults[MarkdownFontSizeSettings.key] = .int(value)
+        // Accept numeric doubles (e.g. 15 or 15.0) and round to integer points,
+        // matching the integer `markdown.fontSize` catalog/UI representation.
+        if let value = jsonDouble(section["fontSize"]) {
+            if value >= MarkdownFontSizeSettings.minimumPointSize,
+               value <= MarkdownFontSizeSettings.maximumPointSize {
+                snapshot.managedUserDefaults[MarkdownFontSizeSettings.key] = .int(Int(value.rounded()))
             } else {
                 logInvalid("markdown.fontSize", sourcePath: sourcePath)
             }
