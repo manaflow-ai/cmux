@@ -10307,15 +10307,25 @@ function workspaceCountLabel() {
   return `${count} workspace${count === 1 ? "" : "s"}`;
 }
 
+function setQuickScopeItemState(panel, scopeId, options = {}) {
+  const item = panel.querySelector(`[data-quick-scope-item="${scopeId}"]`);
+  if (!item) return;
+  item.classList.toggle("is-active", Boolean(options.active));
+  item.classList.toggle("is-muted", Boolean(options.muted));
+}
+
 function quickSetupOverviewPanel() {
   const workspace = activeWorkspace();
   const panels = workspace?.panels || [];
   const terminalCount = panels.filter((panel) => panel.type === "terminal").length;
   const browserCount = panels.filter((panel) => panel.type === "browser").length;
   const folder = workspace?.cwdShort || workspace?.cwd || "No folder";
+  const scope = activeBackgroundScopeModel(state.settings.backgroundImage, workspace);
+  const activeTerminal = activeTerminalPanelForSettings();
+  const activeTerminalBackground = activeTerminal ? normalizeBackgroundValue(activeTerminal.backgroundImage) : "";
   const panel = document.createElement("div");
   panel.className = "quick-setup-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup overview current settings workspace panes theme layout terminal browser performance data");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup overview current settings workspace panes theme layout terminal browser performance background image app pane all terminal scope data");
   panel.innerHTML = `
     <div class="quick-overview-heading">
       <span class="quick-overview-title">Current setup</span>
@@ -10329,6 +10339,17 @@ function quickSetupOverviewPanel() {
       <span><b>Terminal</b><em data-quick-terminal></em></span>
       <span><b>Performance</b><em data-quick-performance></em></span>
     </div>
+    <div class="quick-overview-scope" aria-label="Background scope">
+      <span class="quick-overview-scope-item" data-quick-scope-item="app">
+        <b>App image</b><em data-quick-scope-app></em>
+      </span>
+      <span class="quick-overview-scope-item" data-quick-scope-item="pane">
+        <b>Active terminal</b><em data-quick-scope-pane></em>
+      </span>
+      <span class="quick-overview-scope-item" data-quick-scope-item="all">
+        <b>All terminals</b><em data-quick-scope-all></em>
+      </span>
+    </div>
   `;
   panel.querySelector(".quick-overview-subtitle").textContent = folder;
   panel.querySelector("[data-quick-profile]").textContent = activeSettingsPresetLabel();
@@ -10337,6 +10358,22 @@ function quickSetupOverviewPanel() {
   panel.querySelector("[data-quick-look]").textContent = `${optionLabel(themeOptions, state.settings.theme, "cmux")} / ${accentModeLabel()}`;
   panel.querySelector("[data-quick-terminal]").textContent = `${optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono")} ${state.settings.terminalFontSize}px`;
   panel.querySelector("[data-quick-performance]").textContent = performanceModeLabel();
+  panel.querySelector("[data-quick-scope-app]").textContent = scope.hasBackground
+    ? appearanceBackgroundLabel(state.settings.backgroundImage)
+    : "None";
+  panel.querySelector("[data-quick-scope-pane]").textContent = activeTerminal
+    ? activeTerminalPaneBackgroundLabel()
+    : "No terminal";
+  panel.querySelector("[data-quick-scope-all]").textContent = scope.all;
+  setQuickScopeItemState(panel, "app", { active: scope.hasBackground });
+  setQuickScopeItemState(panel, "pane", {
+    active: Boolean(activeTerminalBackground),
+    muted: !activeTerminal
+  });
+  setQuickScopeItemState(panel, "all", {
+    active: scope.allPanesMatch,
+    muted: scope.paneCount === 0
+  });
   return panel;
 }
 
@@ -11572,17 +11609,20 @@ function backgroundPresetGrid() {
   const activeTerminal = activeTerminalPanelForSettings();
   const hasTerminalPanes = workspaceTerminalPanels(workspace).length > 0;
   for (const preset of backgroundPresets) {
+    const activeApp = preset.value === state.settings.backgroundImage;
+    const activePane = Boolean(activeTerminal && panelBackgroundMatches(activeTerminal, preset.value));
+    const activeAll = terminalBackgroundsMatch(workspace, preset.value);
     const card = document.createElement("div");
     card.className = [
       "background-preset-card",
-      preset.value === state.settings.backgroundImage ? "is-active-app" : "",
-      activeTerminal && panelBackgroundMatches(activeTerminal, preset.value) ? "is-active-pane" : "",
-      terminalBackgroundsMatch(workspace, preset.value) ? "is-active-all" : ""
+      activeApp ? "is-active-app" : "",
+      activePane ? "is-active-pane" : "",
+      activeAll ? "is-active-all" : ""
     ].filter(Boolean).join(" ");
     card.dataset.settingsSearch = normalizeSettingsQuery(`background image wallpaper template ${preset.label}`);
 
     const button = document.createElement("button");
-    button.className = `background-preset${preset.value === state.settings.backgroundImage ? " is-active" : ""}`;
+    button.className = `background-preset${activeApp ? " is-active" : ""}`;
     button.type = "button";
     button.title = `Apply ${preset.label} to app background`;
     button.setAttribute("aria-label", `Apply ${preset.label} to app background`);
@@ -11590,6 +11630,23 @@ function backgroundPresetGrid() {
     button.innerHTML = `<span class="background-preset-preview"></span><span class="background-preset-label"></span>`;
     button.querySelector(".background-preset-label").textContent = preset.label;
     button.onclick = () => applyBackgroundPreset(preset, { toast: true });
+
+    const scope = document.createElement("div");
+    scope.className = "background-preset-scope";
+    scope.dataset.settingsSearch = normalizeSettingsQuery(`background template scope app pane all terminals ${preset.label}`);
+    const addScopeChip = (label, active, muted = false) => {
+      const chip = document.createElement("span");
+      chip.className = [
+        "background-preset-scope-chip",
+        active ? "is-active" : "",
+        muted ? "is-muted" : ""
+      ].filter(Boolean).join(" ");
+      chip.textContent = active ? `${label} active` : label;
+      scope.append(chip);
+    };
+    addScopeChip("App", activeApp);
+    addScopeChip("Pane", activePane, !activeTerminal);
+    addScopeChip("All", activeAll, !hasTerminalPanes);
 
     const actions = document.createElement("div");
     actions.className = "background-preset-actions";
@@ -11600,7 +11657,7 @@ function backgroundPresetGrid() {
     allAction.disabled = !hasTerminalPanes;
     actions.append(appAction, paneAction, allAction);
 
-    card.append(button, actions);
+    card.append(button, scope, actions);
     grid.append(card);
   }
   return grid;

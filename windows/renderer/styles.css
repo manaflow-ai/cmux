@@ -6338,6 +6338,73 @@ body.reduce-motion *::after {
   font-size: 12px;
 }
 
+.quick-overview-scope {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.quick-overview-scope-item {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px 7px 19px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 86%, var(--color-rail) 14%);
+}
+
+.quick-overview-scope-item::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 12px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-faint);
+}
+
+.quick-overview-scope-item.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 46%, var(--color-line) 54%);
+  background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane) 90%);
+}
+
+.quick-overview-scope-item.is-active::before {
+  background: var(--color-accent);
+}
+
+.quick-overview-scope-item.is-muted {
+  color: var(--color-faint);
+}
+
+.quick-overview-scope-item b,
+.quick-overview-scope-item em {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-style: normal;
+}
+
+.quick-overview-scope-item b {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.quick-overview-scope-item em {
+  color: var(--color-text);
+  font-size: 11px;
+}
+
+.quick-overview-scope-item.is-muted em {
+  color: var(--color-faint);
+}
+
 .quick-settings-shortcut-grid {
   min-width: 0;
   display: grid;
@@ -6539,6 +6606,10 @@ body.reduce-motion *::after {
 
 @container (max-width: 380px) {
   .quick-settings-shortcut-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .quick-overview-scope {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -8127,11 +8198,68 @@ body.reduce-motion *::after {
   gap: var(--space-1);
 }
 
+.background-preset-scope {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.background-preset-scope-chip {
+  min-width: 0;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 5px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
+  color: var(--color-faint);
+  font-size: 10px;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.background-preset-scope-chip::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-faint);
+}
+
+.background-preset-scope-chip.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 52%, var(--color-line) 48%);
+  background: color-mix(in oklch, var(--color-accent) 11%, var(--color-pane) 89%);
+  color: var(--color-text);
+}
+
+.background-preset-scope-chip.is-active::before {
+  background: var(--color-accent);
+}
+
+.background-preset-scope-chip.is-muted {
+  opacity: .58;
+}
+
 .background-preset-actions .settings-action {
   height: 26px;
   min-width: 0;
   padding: 0 4px;
   font-size: 11px;
+}
+
+@container (max-width: 380px) {
+  .background-preset-grid,
+  .background-preset-scope,
+  .background-preset-actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 .background-preset-preview {
