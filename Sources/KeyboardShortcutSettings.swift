@@ -150,6 +150,7 @@ enum KeyboardShortcutSettings {
         case toggleBrowserDeveloperTools
         case showBrowserJavaScriptConsole
         case toggleReactGrab
+        case openDiffViewer
         case diffViewerScrollDown
         case diffViewerScrollUp
         case diffViewerScrollToBottom
@@ -243,6 +244,7 @@ enum KeyboardShortcutSettings {
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
+            case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
             case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
             case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Diff Viewer: Scroll Up")
             case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Diff Viewer: Scroll to Bottom")
@@ -452,6 +454,14 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+            case .openDiffViewer:
+                // Cmd+Ctrl+D. The natural "D for Diff" chord (Cmd+Shift+D) collides
+                // with Split Down, and the entire Cmd-based "D" family is already
+                // taken by split actions (Cmd+D, Cmd+Shift+D, Cmd+Opt+D,
+                // Cmd+Shift+Opt+D). Cmd+Ctrl+D is free and matches cmux's
+                // Cmd+Ctrl+<letter> app-shortcut family (Close Window = Cmd+Ctrl+W,
+                // Toggle Full Screen = Cmd+Ctrl+F).
+                return StoredShortcut(key: "d", command: true, shift: false, option: false, control: true)
             case .diffViewerScrollDown:
                 return StoredShortcut(key: "j", command: false, shift: false, option: false, control: false)
             case .diffViewerScrollUp:
