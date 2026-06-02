@@ -242,6 +242,22 @@
         "p3": "Eso envía el workspace actual al final del ciclo de no leídos, para que puedas seguir recorriéndolos sin borrar el estado.",
         "p4": "Cmd+Option+U alterna el workspace actual entre leído y no leído.",
         "p5": "Es útil cuando saltas a un nuevo workspace no leído con Cmd+Shift+U pero necesitas cambiar de contexto antes de responder."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Vuelve a abrir terminales, navegadores, workspaces y sesiones de agentes cerrados con Cmd+Shift+T, y vuelve sobre tu foco con Cmd+[ y Cmd+].",
+        "date": "2 de junio de 2026",
+        "p1": "Cierras una pestaña de terminal para ordenar y luego te das cuenta de que la necesitabas. O cierras un workspace entero y pierdes el agente que estaba a mitad de tarea. Ahora cmux guarda un historial de lo que cerraste y enfocaste, así que recuperarlo es cuestión de un atajo.",
+        "reopenTitle": "Vuelve a abrir lo que cerraste",
+        "reopenP": "Pulsa <code>Cmd+Shift+T</code> para volver a abrir lo último que cerraste. Funciona con pestañas de terminal, pestañas del navegador, workspaces y ventanas, y las restaura una a una en el orden en que las cerraste. Cada superficie vuelve a su sitio, con sus paneles intactos.",
+        "agentTitle": "Las sesiones de agentes también vuelven",
+        "agentP": "El historial también vuelve a abrir sesiones de agentes cerradas. Vuelve a abrir una sesión de Claude Code, Codex u OpenCode y se reanuda donde la dejaste. Ejecuta <code>cmux hooks setup</code> una vez para que cmux pueda hacer seguimiento de las sesiones de agentes; después se vuelven a abrir como todo lo demás.",
+        "agentP2": "Esto se apoya en la <link>restauración de sesiones</link> de cmux, que reanuda los agentes compatibles mediante sus propios comandos nativos de reanudación.",
+        "focusTitle": "Vuelve a donde estabas",
+        "focusP": "Los botones de atrás y adelante de la barra de título, o <code>Cmd+[</code> y <code>Cmd+]</code>, saltan al workspace o ventana anterior y siguiente en los que estabas trabajando, igual que atrás y adelante en un navegador.",
+        "fullHistoryTitle": "El panel de historial completo",
+        "fullHistoryP": "Cuando necesitas más que el último elemento, abre el panel de historial completo: una vista buscable y agrupada por día de todo lo que cerraste y enfocaste, con marcas de tiempo y una acción Clear Closed.",
+        "docsCta": "Consulta los <link>atajos de teclado</link> para ver la lista completa, incluido cómo reasignar la navegación del historial."
       }
     },
     "zenOfCmux": {
@@ -367,6 +383,10 @@
         "agentes de codificación con IA",
         "workspace no leído"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: vuelve a abrir terminales y sesiones cerradas",
+      "metaDescription": "cmux guarda un historial de lo que cerraste y enfocaste. Vuelve a abrir terminales, navegadores, workspaces y sesiones de Claude Code, Codex y OpenCode cerrados con Cmd+Shift+T, y mueve el foco hacia atrás y adelante con Cmd+[ y Cmd+]."
     }
   },
   "docs": {
