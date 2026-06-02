@@ -2116,13 +2116,13 @@ function backgroundApplyTargetOptions(workspace = activeWorkspace()) {
   return [
     {
       id: "app",
-      label: "App",
-      meta: "whole window",
+      label: "Whole app",
+      meta: "window image",
       disabled: false
     },
     {
       id: "pane",
-      label: "Active terminal",
+      label: "This terminal",
       meta: activeTerminal ? panelDisplayTitle(activeTerminal, true) : "select a terminal",
       disabled: !activeTerminal
     },
@@ -2137,7 +2137,7 @@ function backgroundApplyTargetOptions(workspace = activeWorkspace()) {
 
 function backgroundApplyTargetActionLabel(target = state.backgroundApplyTarget) {
   const option = backgroundApplyTargetOptions().find((candidate) => candidate.id === normalizeBackgroundApplyTarget(target));
-  return option ? `${option.label} - ${option.meta}` : "App - whole window";
+  return option ? `${option.label} - ${option.meta}` : "Whole app - window image";
 }
 
 function backgroundApplyTargetOption(target = state.backgroundApplyTarget, workspace = activeWorkspace()) {
@@ -2149,7 +2149,7 @@ function backgroundApplyTargetPrimaryLabel(target = state.backgroundApplyTarget)
   const scope = normalizeBackgroundApplyTarget(target);
   if (scope === "pane") return "Apply to pane";
   if (scope === "all") return "Apply to all";
-  return "Apply";
+  return "Apply to app";
 }
 
 function normalizeColorApplyTarget(target) {
@@ -9446,7 +9446,7 @@ function backgroundTuningPanel(onCommit = null) {
 
 function activeBackgroundTargetControl() {
   const control = document.createElement("div");
-  control.className = "background-target-control";
+  control.className = "background-target-control background-image-target-control";
   control.dataset.settingsSearch = normalizeSettingsQuery("background image target apply app active terminal all terminals scope destination");
 
   const label = document.createElement("span");
@@ -9460,9 +9460,17 @@ function activeBackgroundTargetControl() {
     button.className = "background-target-option";
     button.type = "button";
     button.dataset.backgroundTarget = target.id;
+    const icon = target.id === "app"
+      ? quickActionIconMarkup("background")
+      : target.id === "pane"
+        ? quickActionIconMarkup("paneBackground")
+        : quickActionIconMarkup("paneShape");
     button.innerHTML = `
-      <span class="background-target-name"></span>
-      <span class="background-target-meta"></span>
+      <span class="background-target-icon" aria-hidden="true">${icon}</span>
+      <span class="background-target-copy">
+        <span class="background-target-name"></span>
+        <span class="background-target-meta"></span>
+      </span>
     `;
     button.onclick = () => {
       const nextTarget = normalizeBackgroundApplyTarget(button.dataset.backgroundTarget);
@@ -9486,6 +9494,7 @@ function updateActiveBackgroundTargetControl(root) {
     setClassNameIfChanged(button, `background-target-option${active ? " is-active" : ""}${target.disabled ? " is-disabled" : ""}`);
     setDisabledIfChanged(button, target.disabled);
     setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
+    setAttributeIfChanged(button, "aria-label", `${target.label}: ${target.meta}`);
     setTitleIfChanged(button, `${target.label}: ${target.meta}`);
     setTextIfChanged(button.querySelector(".background-target-name"), target.label);
     setTextIfChanged(button.querySelector(".background-target-meta"), target.meta);

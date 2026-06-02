@@ -8613,13 +8613,14 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .active-background-panel {
   min-width: 0;
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  align-items: center;
+  grid-template-columns: minmax(78px, .32fr) minmax(0, 1fr);
+  align-items: stretch;
   gap: var(--space-2);
   padding: var(--space-2);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-2);
-  background: color-mix(in oklch, var(--color-pane) 88%, var(--color-rail) 12%);
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 94%, var(--color-rail) 6%), var(--color-pane));
 }
 
 .active-background-panel.is-drop-target,
@@ -8631,8 +8632,12 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .active-background-preview {
-  width: 72px;
-  height: 50px;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 58px;
+  aspect-ratio: 1.28;
+  overflow: hidden;
   border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-1);
   background-color: var(--color-canvas);
@@ -8644,8 +8649,20 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   background-position: var(--active-background-position, center), center;
 }
 
+.active-background-preview::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--color-text) 7%, transparent), transparent 34%),
+    linear-gradient(135deg, transparent 0 64%, color-mix(in oklch, var(--color-canvas) 36%, transparent));
+}
+
 .active-background-panel:not(.has-image) .active-background-preview {
-  background-image: linear-gradient(135deg, var(--color-pane), var(--color-canvas));
+  background-image:
+    linear-gradient(135deg, var(--color-pane), var(--color-canvas)),
+    radial-gradient(circle at 26% 28%, color-mix(in oklch, var(--color-accent) 32%, transparent) 0 10%, transparent 11%);
 }
 
 .active-background-copy {
@@ -8744,6 +8761,14 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   background: color-mix(in oklch, var(--color-pane) 78%, var(--color-rail) 22%);
 }
 
+.background-image-target-control {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 6px;
+  padding: var(--space-2);
+  background: color-mix(in oklch, var(--color-pane) 86%, var(--color-rail) 14%);
+}
+
 .background-target-label {
   min-width: 0;
   overflow: hidden;
@@ -8761,6 +8786,10 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-1);
+}
+
+.background-image-target-control .background-target-options {
+  grid-template-columns: repeat(auto-fit, minmax(min(124px, 100%), 1fr));
 }
 
 .color-target-control .background-target-options {
@@ -8781,6 +8810,42 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   text-align: left;
 }
 
+.background-image-target-control .background-target-option {
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  align-content: stretch;
+  min-height: 48px;
+  padding: 7px 8px;
+}
+
+.background-target-icon {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-canvas) 36%, transparent);
+  color: var(--color-faint);
+}
+
+.background-target-icon svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.background-target-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
 .background-target-option:hover:not(:disabled) {
   border-color: var(--color-line-strong);
   background: var(--color-pane);
@@ -8790,6 +8855,12 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .background-target-option.is-active {
   border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-line) 42%);
   background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane) 86%);
+  color: var(--color-text);
+}
+
+.background-target-option.is-active .background-target-icon {
+  border-color: color-mix(in oklch, var(--color-accent) 68%, var(--color-line) 32%);
+  background: color-mix(in oklch, var(--color-accent) 18%, var(--color-pane) 82%);
   color: var(--color-text);
 }
 
@@ -8844,10 +8915,10 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
   grid-template-columns: repeat(auto-fit, minmax(min(92px, 100%), 1fr));
   gap: var(--space-1);
   align-items: center;
-  padding: var(--space-1);
+  padding: var(--space-2);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane) 80%, var(--color-rail) 20%);
+  background: color-mix(in oklch, var(--color-pane) 86%, var(--color-rail) 14%);
 }
 
 .background-action-title {
@@ -8864,7 +8935,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 }
 
 .background-action-group .settings-action {
-  height: 28px;
+  height: 30px;
   min-width: 0;
   padding-inline: var(--space-1);
   font-size: 11px;
@@ -8889,7 +8960,7 @@ body.reduce-motion .surface-new-tab:disabled .surface-new-icon {
 .background-tuning-grid {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(112px, 100%), 1fr));
   gap: var(--space-2);
 }
 
