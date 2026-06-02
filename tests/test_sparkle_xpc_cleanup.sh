@@ -14,11 +14,18 @@ mkdir -p "$XPC_DIR/Installer.xpc" "$XPC_DIR/Downloader.xpc" "$VERSION_DIR/Resour
 touch "$XPC_DIR/Installer.xpc/Info.plist"
 touch "$XPC_DIR/Downloader.xpc/Info.plist"
 touch "$VERSION_DIR/Resources/keep.txt"
+ln -s B "$SPARKLE_DIR/Versions/Current"
+ln -s Versions/Current/XPCServices "$SPARKLE_DIR/XPCServices"
 
 "$ROOT_DIR/scripts/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH" >/dev/null
 
 if [[ -e "$XPC_DIR" ]]; then
   echo "FAIL: Sparkle XPCServices directory was not removed" >&2
+  exit 1
+fi
+
+if [[ -e "$SPARKLE_DIR/XPCServices" || -L "$SPARKLE_DIR/XPCServices" ]]; then
+  echo "FAIL: Sparkle XPCServices symlink was not removed" >&2
   exit 1
 fi
 

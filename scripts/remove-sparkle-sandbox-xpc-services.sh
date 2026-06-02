@@ -15,7 +15,7 @@ fi
 
 find "$SPARKLE_FRAMEWORK" \
   -path '*/XPCServices' \
-  -type d \
+  \( -type d -o -type l \) \
   -prune \
   -print |
 while IFS= read -r xpc_dir; do

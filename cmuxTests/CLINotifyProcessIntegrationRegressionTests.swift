@@ -112,6 +112,39 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(String(describing: feedContext).contains("ancient"), "\(feedContext)")
     }
 
+    func testClaudePreToolUseFeedContextKeepsOversizedFinalTranscriptLine() throws {
+        let context = try makeClaudeHookContext(name: "claude-pretool-oversized-final")
+        defer { context.cleanup() }
+
+        let transcriptURL = context.root.appendingPathComponent("oversized-final-claude-session.jsonl")
+        _ = FileManager.default.createFile(atPath: transcriptURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: transcriptURL)
+        defer { try? handle.close() }
+
+        try handle.write(contentsOf: Data(#"{"type":"user","message":{"role":"user","content":"ancient user message"}}"#.utf8))
+        try handle.write(contentsOf: Data("\n".utf8))
+        let longAssistantText = "recent assistant response " + String(repeating: "r", count: 1_100_000)
+        let finalLine = #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"\#(longAssistantText)"},{"type":"tool_use","name":"Bash","input":{"command":"echo huge"}}]}}"#
+        try handle.write(contentsOf: Data(finalLine.utf8))
+        try handle.close()
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"oversized-final-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo huge"}}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let preToolEvent = try XCTUnwrap(
+            feedPushEvents(in: context).last { $0["hook_event_name"] as? String == "PreToolUse" }
+        )
+        let feedContext = try XCTUnwrap(preToolEvent["context"] as? [String: Any])
+        let assistantPreamble = try XCTUnwrap(feedContext["assistantPreamble"] as? String)
+        XCTAssertTrue(assistantPreamble.hasPrefix("recent assistant response"), "\(feedContext)")
+        XCTAssertFalse(String(describing: feedContext).contains("ancient"), "\(feedContext)")
+    }
+
     func testCodexPromptSubmitRefreshesLastTurnDiffBaseline() throws {
         let context = try makeClaudeHookContext(name: "codex-prompt-baseline")
         defer { context.cleanup() }

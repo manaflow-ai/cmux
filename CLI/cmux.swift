@@ -22249,10 +22249,28 @@ struct CMUXCLI {
                 return nil
             }
             var text = String(decoding: data, as: UTF8.self)
-            if start > 0, let newline = text.firstIndex(of: "\n") {
-                text.removeSubrange(...newline)
-            } else if start > 0 {
-                text.removeAll()
+            if start > 0 {
+                var readStart = start
+                let maxWindowBytes = maxBytes > UInt64.max / 8 ? UInt64.max : maxBytes * 8
+
+                while text.firstIndex(of: "\n") == nil, readStart > 0 {
+                    let currentWindowBytes = size - readStart
+                    guard currentWindowBytes < maxWindowBytes else { break }
+                    let remainingWindowBytes = maxWindowBytes - currentWindowBytes
+                    let expansionBytes = min(readStart, maxBytes, remainingWindowBytes)
+                    guard expansionBytes > 0 else { break }
+
+                    readStart -= expansionBytes
+                    try handle.seek(toOffset: readStart)
+                    guard let expandedData = try handle.readToEnd(), !expandedData.isEmpty else {
+                        return nil
+                    }
+                    text = String(decoding: expandedData, as: UTF8.self)
+                }
+
+                if readStart > 0, let newline = text.firstIndex(of: "\n") {
+                    text.removeSubrange(...newline)
+                }
             }
             return text.components(separatedBy: "\n")
         } catch {
