@@ -4671,13 +4671,19 @@ function terminalPanelTitle(panel) {
   return name === cwd ? name : `${name} · ${cwd}`;
 }
 
+function compactSurfaceTabLabel(label) {
+  const normalized = String(label || "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= 42) return normalized;
+  return `${normalized.slice(0, 24).trim()}...${normalized.slice(-14).trim()}`;
+}
+
 function surfaceTabLabel(workspace, panel) {
   const label = panelDisplayTitle(panel, true);
   const duplicates = (workspace?.panels || [])
     .filter((candidate) => panelDisplayTitle(candidate, true) === label);
-  if (duplicates.length <= 1) return label;
+  if (duplicates.length <= 1) return compactSurfaceTabLabel(label);
   const duplicateIndex = duplicates.findIndex((candidate) => candidate.id === panel.id);
-  return duplicateIndex >= 0 ? `${label} ${duplicateIndex + 1}` : label;
+  return compactSurfaceTabLabel(duplicateIndex >= 0 ? `${label} ${duplicateIndex + 1}` : label);
 }
 
 function terminalPanelFolder(panel) {
