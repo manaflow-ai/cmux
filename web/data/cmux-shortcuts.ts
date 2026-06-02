@@ -199,6 +199,30 @@ export const shortcutCategories: ShortcutCategory[] = [
     ],
   },
   {
+    id: "markdown",
+    titleKey: "markdown",
+    shortcuts: [
+      {
+        id: "markdownZoomIn",
+        combos: [["⌘", "="]],
+        description: { en: "Zoom markdown in", ja: "Markdown を拡大" },
+        note: { en: "focused markdown viewer", ja: "フォーカス中の Markdown ビューア" },
+      },
+      {
+        id: "markdownZoomOut",
+        combos: [["⌘", "-"]],
+        description: { en: "Zoom markdown out", ja: "Markdown を縮小" },
+        note: { en: "focused markdown viewer", ja: "フォーカス中の Markdown ビューア" },
+      },
+      {
+        id: "markdownZoomReset",
+        combos: [["⌘", "0"]],
+        description: { en: "Reset markdown size", ja: "Markdown サイズをリセット" },
+        note: { en: "focused markdown viewer", ja: "フォーカス中の Markdown ビューア" },
+      },
+    ],
+  },
+  {
     id: "diff-viewer",
     titleKey: "diffViewer",
     shortcuts: [

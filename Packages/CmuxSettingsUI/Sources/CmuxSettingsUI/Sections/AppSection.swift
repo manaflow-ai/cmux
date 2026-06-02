@@ -18,6 +18,7 @@ import UniformTypeIdentifiers
 @MainActor
 public struct AppSection: View {
     private let catalog: SettingCatalog
+    private let defaultsStore: UserDefaultsSettingsStore
     private let hostActions: SettingsHostActions
 
     // Every bound value-model lives here as view state, constructed once
@@ -35,6 +36,7 @@ public struct AppSection: View {
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
+    @State private var markdownFontSize: DefaultsValueModel<Double>
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<Bool>
     @State private var dockBadge: DefaultsValueModel<Bool>
@@ -62,6 +64,7 @@ public struct AppSection: View {
         hostActions: SettingsHostActions
     ) {
         self.catalog = catalog
+        self.defaultsStore = defaultsStore
         self.hostActions = hostActions
         _language = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.language))
         _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
@@ -75,6 +78,7 @@ public struct AppSection: View {
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
+        _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.markdownViewerFontSize))
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
         _dockBadge = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge))
@@ -96,6 +100,7 @@ public struct AppSection: View {
 
     private static let columnWidth: CGFloat = 196
     private static let notificationSoundControlWidth: CGFloat = 280
+    private static let markdownFontSizeRange: ClosedRange<Double> = 1...96
 
     /// Languages legacy `AppLanguage` exposes (cmuxApp.swift line
     /// 4338). The shared `CmuxSettings.AppLanguage` adds `.vi` for a
@@ -311,6 +316,35 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
+            // Markdown Viewer Font Size
+            SettingsCardRow(
+                configurationReview: .json("app.markdownViewerFontSize"),
+                String(localized: "settings.app.markdownViewerFontSize", defaultValue: "Markdown Viewer Font Size"),
+                subtitle: String(localized: "settings.app.markdownViewerFontSize.subtitle", defaultValue: "Default rendered markdown size for new viewer panels. Panel zoom shortcuts override this per panel until reset."),
+                controlWidth: 140
+            ) {
+                Stepper(
+                    value: Binding(
+                        get: { Self.clampedMarkdownFontSize(markdownFontSize.current) },
+                        set: { setMarkdownFontSize($0) }
+                    ),
+                    in: Self.markdownFontSizeRange,
+                    step: 1
+                ) {
+                    Text(
+                        String.localizedStringWithFormat(
+                            String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"),
+                            Self.formatMarkdownFontSize(markdownFontSize.current)
+                        )
+                    )
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .frame(minWidth: 44, alignment: .trailing)
+                }
+                .accessibilityIdentifier("SettingsMarkdownViewerFontSizeStepper")
+            }
+            SettingsCardDivider()
+
             // iMessage Mode
             SettingsCardRow(
                 configurationReview: .json("app.iMessageMode"),
@@ -369,6 +403,7 @@ public struct AppSection: View {
                 Toggle("", isOn: Binding(get: { showInMenuBar.current }, set: { showInMenuBar.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+                    .accessibilityIdentifier("SettingsShowInMenuBarToggle")
             }
             .disabled(menuBarOnly.current)
             SettingsCardDivider()
@@ -712,6 +747,33 @@ public struct AppSection: View {
                 localized: "settings.app.fileDrop.defaultBehavior.preview.subtitle",
                 defaultValue: "Dragging files opens previews or split panes. Hold Shift over terminals and editors to insert path text."
             )
+        }
+    }
+
+    private static func clampedMarkdownFontSize(_ value: Double) -> Double {
+        guard value.isFinite else { return 15 }
+        return min(max(value, markdownFontSizeRange.lowerBound), markdownFontSizeRange.upperBound)
+    }
+
+    private static func formatMarkdownFontSize(_ value: Double) -> String {
+        let clamped = clampedMarkdownFontSize(value)
+        if clamped.rounded() == clamped {
+            return "\(Int(clamped))"
+        }
+        return String(format: "%.2f", clamped)
+    }
+
+    private func setMarkdownFontSize(_ value: Double) {
+        let clamped = Self.clampedMarkdownFontSize(value)
+        let key = catalog.app.markdownViewerFontSize
+        Task { [defaultsStore] in
+            await defaultsStore.set(clamped, for: key)
+            await MainActor.run {
+                NotificationCenter.default.post(
+                    name: CmuxSettingsRuntimeNotifications.markdownViewerFontSizeDidChange,
+                    object: nil
+                )
+            }
         }
     }
 

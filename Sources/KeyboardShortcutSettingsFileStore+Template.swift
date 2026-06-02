@@ -70,6 +70,7 @@ extension CmuxSettingsFileStore {
                     "preferredEditor": "",
                     "openSupportedFilesInCmux": CmdClickSupportedFileRouteSettings.defaultValue,
                     "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,
+                    "markdownViewerFontSize": MarkdownViewerFontSizeSettings.defaultPoints,
                     "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,
                     "iMessageMode": IMessageModeSettings.defaultValue,
                     "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,

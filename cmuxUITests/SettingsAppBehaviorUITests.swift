@@ -16,7 +16,8 @@ import XCTest
 /// Menu Bar" row. Those rows expose stable accessibility identifiers
 /// (`SettingsMinimalModeToggle`,
 /// `SettingsWorkspaceInheritWorkingDirectoryToggle`,
-/// `SettingsMenuBarOnlyToggle`, `CommandPaletteSearchAllSurfacesToggle`).
+/// `SettingsMenuBarOnlyToggle`, `SettingsShowInMenuBarToggle`,
+/// `CommandPaletteSearchAllSurfacesToggle`).
 /// Each test below flips one of those, then asserts the *effect* — the
 /// new subtitle string appears / the old one disappears, or the gated
 /// control's enabled state flips — not merely that the toggle changed
@@ -232,6 +233,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         )
 
         let palette = toggle(window, id: "CommandPaletteSearchAllSurfacesToggle")
+        scrollElementIntoView(palette, in: window)
         palette.click()
 
         XCTAssertTrue(
@@ -241,6 +243,32 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         XCTAssertTrue(
             poll(timeout: 4.0) { !subtitleText(window, Subtitle.paletteOff).exists },
             "Workspace-rows-only subtitle should disappear once all-surfaces is on"
+        )
+
+        closeSettings(app, window)
+    }
+
+    // MARK: - TIER 1: Markdown Viewer Font Size row renders
+
+    /// The markdown viewer font-size setting must be visible in App
+    /// Settings with the persisted default value, so users can tune it
+    /// without hand-editing cmux.json.
+    func testMarkdownViewerFontSizeStepperRendersDefaultValue() {
+        resetDefaults(["markdownViewerFontSize"])
+
+        let app = makeLaunchedApp()
+        let window = openAppSection(app)
+
+        let stepper = window.steppers["SettingsMarkdownViewerFontSizeStepper"]
+        scrollElementIntoView(stepper, in: window)
+
+        XCTAssertTrue(
+            poll(timeout: 4.0) { stepper.exists },
+            "Markdown Viewer Font Size stepper should render in App Settings"
+        )
+        XCTAssertTrue(
+            poll(timeout: 4.0) { window.staticTexts["15 pt"].exists },
+            "Markdown Viewer Font Size should show its default 15 pt value"
         )
 
         closeSettings(app, window)
@@ -261,44 +289,27 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
 
         let menuBarOnly = toggle(window, id: "SettingsMenuBarOnlyToggle")
 
-        // The "Show in Menu Bar" row has no explicit id; identify it by its
-        // title static text, then find the nearest sibling toggle/checkbox.
-        // Resolve the gated control as the switch/checkbox whose enabled
-        // state we can read. With only the Menu Bar Only toggle carrying an
-        // id, the remaining switches in the card are addressed positionally;
-        // we assert the *aggregate* effect: when Menu Bar Only is on, at
-        // least one previously-enabled switch in the card becomes disabled,
-        // and re-enabling Menu Bar Only restores it.
+        // The row title and explicit toggle id prove the gated row is
+        // present and expose the disabled state directly.
         let showInMenuBarTitle = window.staticTexts["Show in Menu Bar"]
         XCTAssertTrue(
             poll(timeout: 4.0) { showInMenuBarTitle.exists },
             "Show in Menu Bar row should be present"
         )
 
-        // Count enabled toggle controls before turning Menu Bar Only on.
-        // SwiftUI `Toggle(.switch)` surfaces as either a switch or a
-        // checkbox in XCUITest depending on host config, so count both
-        // kinds (matching the harness `toggle()` resolution). The gated
-        // Show-in-Menu-Bar row contributes one enabled control at default.
-        func enabledToggleCount() -> Int {
-            let switches = window.switches.allElementsBoundByIndex
-            let checkboxes = window.checkBoxes.allElementsBoundByIndex
-            return (switches + checkboxes).filter { $0.exists && $0.isEnabled }.count
-        }
-
-        let baselineEnabled = enabledToggleCount()
+        let showInMenuBar = toggle(window, id: "SettingsShowInMenuBarToggle")
+        scrollElementIntoView(showInMenuBar, in: window)
+        XCTAssertTrue(showInMenuBar.isEnabled, "Show in Menu Bar should be enabled by default")
 
         menuBarOnly.click()
-        // Effect: the gated Show-in-Menu-Bar control becomes disabled, so the
-        // count of enabled toggle controls drops by at least one.
         XCTAssertTrue(
-            poll(timeout: 4.0) { enabledToggleCount() < baselineEnabled },
+            poll(timeout: 4.0) { !showInMenuBar.isEnabled },
             "Enabling Menu Bar Only should disable the gated Show in Menu Bar control"
         )
 
         menuBarOnly.click()
         XCTAssertTrue(
-            poll(timeout: 4.0) { enabledToggleCount() >= baselineEnabled },
+            poll(timeout: 4.0) { showInMenuBar.isEnabled },
             "Disabling Menu Bar Only should re-enable the gated control"
         )
 

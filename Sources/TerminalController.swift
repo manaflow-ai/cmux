@@ -12248,6 +12248,17 @@ class TerminalController {
             return .err(code: "internal_error", message: "Failed to resolve file path", data: nil)
         }
 
+        let fontSizePoints: Double?
+        if v2HasNonNullParam(params, "font_size") {
+            guard let rawFontSize = v2Double(params, "font_size"),
+                  MarkdownViewerFontSizeSettings.isUsable(rawFontSize) else {
+                return .err(code: "invalid_params", message: "font_size must be a positive number no larger than 96", data: nil)
+            }
+            fontSizePoints = MarkdownViewerFontSizeSettings.rounded(rawFontSize)
+        } else {
+            fontSizePoints = nil
+        }
+
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create markdown panel", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
@@ -12282,6 +12293,7 @@ class TerminalController {
                 orientation: orientation,
                 insertFirst: insertFirst,
                 filePath: filePath,
+                fontSizePoints: fontSizePoints,
                 focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             )
 
@@ -12307,7 +12319,8 @@ class TerminalController {
                 "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
                 "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
-                "path": filePath
+                "path": filePath,
+                "font_size": createdPanel?.fontSizePoints ?? MarkdownViewerFontSizeSettings.defaultPoints
             ])
         }
         return result

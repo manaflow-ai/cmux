@@ -163,7 +163,7 @@ Environment:
 | `get-url` | Legacy alias for `browser get-url`. |
 | `focus-webview` | Legacy alias for `browser focus-webview`. |
 | `is-webview-focused` | Legacy alias for `browser is-webview-focused`. |
-| `markdown` | Open a markdown file in a formatted viewer panel with live reload. |
+| `markdown` | Open a markdown file in a formatted viewer panel with live reload. Supports `--font-size <points>`. |
 | `vm-pty-attach` | Internal VM PTY attach command. |
 | `vm-ssh-attach` | Hidden compatibility alias for older VM workspaces. |
 | `vm-pty-connect` | Internal helper that connects to a VM PTY from a config file. |
@@ -518,7 +518,7 @@ the expected text without connecting to a cmux socket.
 - `cmux get-url --help` -> `Legacy alias for 'cmux browser get-url'`
 - `cmux focus-webview --help` -> `Legacy alias for 'cmux browser focus-webview'`
 - `cmux is-webview-focused --help` -> `Legacy alias for 'cmux browser is-webview-focused'`
-- `cmux markdown --help` -> `Usage: cmux markdown open <path>`
+- `cmux markdown --help` -> `Usage: cmux markdown open <path> [options]`
 <!-- cli-contract-help-probes:end -->
 
 ## No-Socket Negative Help Probes

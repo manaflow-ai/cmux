@@ -442,6 +442,17 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["openMarkdownInCmuxViewer"]) {
             snapshot.managedUserDefaults[CmdClickMarkdownRouteSettings.key] = .bool(value)
         }
+        if let value = jsonDouble(section["markdownViewerFontSize"]) {
+            if MarkdownViewerFontSizeSettings.isUsable(value) {
+                snapshot.managedUserDefaults[MarkdownViewerFontSizeSettings.key] = .double(
+                    MarkdownViewerFontSizeSettings.rounded(value)
+                )
+            } else {
+                logInvalid("app.markdownViewerFontSize", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("markdownViewerFontSize") {
+            logInvalid("app.markdownViewerFontSize", sourcePath: sourcePath)
+        }
         if let value = jsonBool(section["reorderOnNotification"]) {
             snapshot.managedUserDefaults[WorkspaceAutoReorderSettings.key] = .bool(value)
         }
@@ -1569,6 +1580,10 @@ final class CmuxSettingsFileStore {
 
                 if change.defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey {
                     TerminalCopyOnSelectSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == MarkdownViewerFontSizeSettings.key {
+                    MarkdownViewerFontSizeSettings.notifyDidChange(notificationCenter: notificationCenter)
                 }
 
                 if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {

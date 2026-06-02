@@ -3,6 +3,7 @@ import WebKit
 
 struct ShortcutEventFocusContext {
     let browserPanel: BrowserPanel?
+    let markdownPanel: MarkdownPanel?
     let rightSidebarFocused: Bool
 }
 
@@ -16,13 +17,14 @@ extension KeyboardShortcutSettings.Action {
         case application
         case nonBrowserPanel
         case browserPanel
+        case markdownPanel
         case rightSidebarFocus
 
         var isAlwaysAvailable: Bool {
             self == .application
         }
 
-        func isAvailable(focusedBrowserPanel: Bool, rightSidebarFocused: Bool) -> Bool {
+        func isAvailable(focusedBrowserPanel: Bool, focusedMarkdownPanel: Bool, rightSidebarFocused: Bool) -> Bool {
             switch self {
             case .application:
                 return true
@@ -30,17 +32,29 @@ extension KeyboardShortcutSettings.Action {
                 return !focusedBrowserPanel && !rightSidebarFocused
             case .browserPanel:
                 return focusedBrowserPanel
+            case .markdownPanel:
+                return focusedMarkdownPanel
             case .rightSidebarFocus:
                 return rightSidebarFocused
             }
         }
 
         func isAvailable(_ context: ShortcutEventFocusContext) -> Bool {
-            isAvailable(focusedBrowserPanel: context.browserPanel != nil, rightSidebarFocused: context.rightSidebarFocused)
+            isAvailable(
+                focusedBrowserPanel: context.browserPanel != nil,
+                focusedMarkdownPanel: context.markdownPanel != nil,
+                rightSidebarFocused: context.rightSidebarFocused
+            )
         }
 
         func overlaps(_ other: ShortcutContext) -> Bool {
             if self == .application || other == .application {
+                return true
+            }
+            if self == .nonBrowserPanel && other == .markdownPanel {
+                return true
+            }
+            if self == .markdownPanel && other == .nonBrowserPanel {
                 return true
             }
             return self == other
@@ -62,6 +76,8 @@ extension KeyboardShortcutSettings.Action {
         case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
              .browserZoomIn, .browserZoomOut, .browserZoomReset:
             return .browserPanel
+        case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
+            return .markdownPanel
         default:
             return .application
         }
@@ -84,6 +100,10 @@ extension AppDelegate {
         shortcutEventFocusContext(event).browserPanel
     }
 
+    func shortcutEventMarkdownPanel(_ event: NSEvent) -> MarkdownPanel? {
+        shortcutEventFocusContext(event).markdownPanel
+    }
+
     func shortcutEventFocusContext(_ event: NSEvent) -> ShortcutEventFocusContext {
         if let cache = shortcutEventFocusContextCache, cache.event === event {
             return cache.context
@@ -92,6 +112,7 @@ extension AppDelegate {
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
         let context = ShortcutEventFocusContext(
             browserPanel: shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow),
+            markdownPanel: shortcutEventFocusedMarkdownPanel(event),
             rightSidebarFocused: shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false
         )
         shortcutEventFocusContextCache = ShortcutEventFocusContextCache(event: event, context: context)
@@ -146,6 +167,29 @@ extension AppDelegate {
         }
 
         return tabManager?.focusedBrowserPanel
+    }
+
+    private func shortcutEventFocusedMarkdownPanel(_ event: NSEvent) -> MarkdownPanel? {
+        let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        return shortcutFocusedMarkdownPanel(in: shortcutWindow)
+    }
+
+    private func shortcutFocusedMarkdownPanel(in window: NSWindow?) -> MarkdownPanel? {
+        if let window {
+            guard let context = mainWindowContexts[ObjectIdentifier(window)] ??
+                mainWindowContexts.values.first(where: { $0.window === window }) else {
+                return nil
+            }
+            guard let panelId = context.tabManager.selectedWorkspace?.focusedPanelId else {
+                return nil
+            }
+            return context.tabManager.selectedWorkspace?.markdownPanel(for: panelId)
+        }
+
+        guard let panelId = tabManager?.selectedWorkspace?.focusedPanelId else {
+            return nil
+        }
+        return tabManager?.selectedWorkspace?.markdownPanel(for: panelId)
     }
 
     private func shortcutWebInspectorFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {

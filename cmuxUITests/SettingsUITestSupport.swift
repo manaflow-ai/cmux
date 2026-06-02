@@ -105,6 +105,13 @@ class SettingsUITestCase: XCTestCase {
         )
     }
 
+    func scrollElementIntoView(_ element: XCUIElement, in root: XCUIElement, maxSwipes: Int = 8) {
+        let scrollView = root.scrollViews.firstMatch
+        for _ in 0..<maxSwipes where !element.exists || !element.isHittable {
+            scrollView.swipeUp()
+        }
+    }
+
     /// Deletes UserDefaults keys from the debug suite so a test starts
     /// from the known default. Pass the raw `userDefaultsKey`s.
     func resetDefaults(_ keys: [String], suite: String = "com.cmuxterm.app.debug") {

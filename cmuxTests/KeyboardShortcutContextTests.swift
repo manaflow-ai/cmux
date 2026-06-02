@@ -123,15 +123,24 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .nonBrowserPanel)
     }
 
+    func testMarkdownAndBrowserZoomShareDefaultChordsAcrossFocusedPanelContexts() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.markdownZoomIn.defaultShortcut, KeyboardShortcutSettings.Action.browserZoomIn.defaultShortcut)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.markdownZoomOut.defaultShortcut, KeyboardShortcutSettings.Action.browserZoomOut.defaultShortcut)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.markdownZoomReset.defaultShortcut, KeyboardShortcutSettings.Action.browserZoomReset.defaultShortcut)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.markdownZoomIn.shortcutContext, .markdownPanel)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.browserZoomIn.shortcutContext, .browserPanel)
+        XCTAssertFalse(KeyboardShortcutSettings.Action.markdownZoomIn.shortcutContext.overlaps(.browserPanel))
+    }
+
     func testRightSidebarContextIsOnlyAvailableWhenRightSidebarHasFocus() {
         let context = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext
 
         XCTAssertEqual(context, .rightSidebarFocus)
-        XCTAssertFalse(context.isAvailable(focusedBrowserPanel: false, rightSidebarFocused: false))
-        XCTAssertTrue(context.isAvailable(focusedBrowserPanel: false, rightSidebarFocused: true))
+        XCTAssertFalse(context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: false))
+        XCTAssertTrue(context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: true))
         XCTAssertFalse(
             KeyboardShortcutSettings.Action.renameTab.shortcutContext
-                .isAvailable(focusedBrowserPanel: false, rightSidebarFocused: true)
+                .isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: true)
         )
         XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.commandPalette.shortcutContext))
         XCTAssertFalse(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))

@@ -319,6 +319,13 @@
           "default": true,
           "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
         },
+        "markdownViewerFontSize": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 96,
+          "default": 15,
+          "description": "Default rendered font size, in points, for new cmux markdown viewer panels."
+        },
         "reorderOnNotification": {
           "type": "boolean",
           "default": true,
@@ -1092,6 +1099,9 @@
               "browserZoomIn",
               "browserZoomOut",
               "browserZoomReset",
+              "markdownZoomIn",
+              "markdownZoomOut",
+              "markdownZoomReset",
               "find",
               "findInDirectory",
               "findNext",

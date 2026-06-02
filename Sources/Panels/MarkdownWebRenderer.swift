@@ -12,6 +12,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
+    let fontSizePoints: Double
     let session: MarkdownRendererSession
     let onRequestPanelFocus: () -> Void
 
@@ -64,7 +65,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         applyAppearance(to: webView, isDark: theme.isDark)
 
         context.coordinator.webView = webView
-        context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
+        context.coordinator.loadShell(theme: theme, initialMarkdown: markdown, fontSizePoints: fontSizePoints)
         return webView
     }
 
@@ -75,7 +76,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
         applyBackground(to: nsView)
         applyAppearance(to: nsView, isDark: theme.isDark)
-        context.coordinator.update(markdown: markdown, theme: theme)
+        context.coordinator.update(markdown: markdown, theme: theme, fontSizePoints: fontSizePoints)
     }
 
     static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
@@ -114,8 +115,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         var filePath: String = ""
         private var pendingMarkdown: String = ""
         private var pendingTheme: MarkdownWebTheme = .resolve(backgroundColor: GhosttyBackgroundTheme.currentColor())
+        private var pendingFontSizePoints: Double = MarkdownViewerFontSizeSettings.defaultPoints
         private var lastMarkdown: String? = nil
         private var lastTheme: MarkdownWebTheme? = nil
+        private var lastFontSizePoints: Double? = nil
         private var isLoaded = false
         private var isShellLoading = false
         private var webContentProcessRecoveryAttempts = 0
@@ -169,10 +172,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             requestedLibs.removeAll()
         }
 
-        func loadShell(theme: MarkdownWebTheme, initialMarkdown: String) {
+        func loadShell(theme: MarkdownWebTheme, initialMarkdown: String, fontSizePoints: Double) {
             pendingMarkdown = initialMarkdown
             pendingTheme = theme
+            pendingFontSizePoints = MarkdownViewerFontSizeSettings.normalized(fontSizePoints)
             lastTheme = theme
+            lastFontSizePoints = pendingFontSizePoints
             requestedLibs.removeAll()
             isLoaded = false
             isShellLoading = true
@@ -184,14 +189,17 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             webView?.loadHTMLString(html, baseURL: baseURL)
         }
 
-        func update(markdown: String, theme: MarkdownWebTheme) {
+        func update(markdown: String, theme: MarkdownWebTheme, fontSizePoints: Double) {
             let themeChanged = lastTheme != theme
+            let nextFontSizePoints = MarkdownViewerFontSizeSettings.normalized(fontSizePoints)
+            let fontSizeChanged = lastFontSizePoints != nextFontSizePoints
             let contentChanged = lastMarkdown != markdown
             let shellNeedsReload = !isLoaded && !isShellLoading
-            guard themeChanged || contentChanged || shellNeedsReload else { return }
+            guard themeChanged || fontSizeChanged || contentChanged || shellNeedsReload else { return }
 
             pendingMarkdown = markdown
             pendingTheme = theme
+            pendingFontSizePoints = nextFontSizePoints
 
             if themeChanged {
                 lastTheme = theme
@@ -208,17 +216,24 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 }
             }
 
+            if fontSizeChanged {
+                lastFontSizePoints = nextFontSizePoints
+                if isLoaded {
+                    applyFontSize(nextFontSizePoints)
+                }
+            }
+
             if contentChanged {
                 webContentProcessRecoveryAttempts = 0
                 lastMarkdown = markdown
                 if isLoaded {
                     pushMarkdown(markdown)
                 } else if shellNeedsReload {
-                    loadShell(theme: theme, initialMarkdown: markdown)
+                    loadShell(theme: theme, initialMarkdown: markdown, fontSizePoints: nextFontSizePoints)
                 }
             } else if shellNeedsReload {
                 if webContentProcessRecoveryAttempts < maxWebContentProcessRecoveryAttempts {
-                    loadShell(theme: theme, initialMarkdown: markdown)
+                    loadShell(theme: theme, initialMarkdown: markdown, fontSizePoints: nextFontSizePoints)
                 }
             }
         }
@@ -268,6 +283,27 @@ struct MarkdownWebRenderer: NSViewRepresentable {
               });
               content.style.background = 'transparent';
               if (window.__cmuxApplyTheme) { window.__cmuxApplyTheme(); }
+            })(\(json));
+            """
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
+        private func applyFontSize(_ fontSizePoints: Double) {
+            guard let webView else { return }
+            let bodySize = MarkdownViewerFontSizeSettings.normalized(fontSizePoints)
+            let payload = [
+                "--cmux-markdown-font-size": "\(bodySize)px",
+                "--cmux-markdown-code-font-size": "\(MarkdownViewerFontSizeSettings.rounded(bodySize * 0.9))px",
+                "--cmux-markdown-small-code-font-size": "\(MarkdownViewerFontSizeSettings.rounded(bodySize * (12.5 / 15.0)))px"
+            ]
+            guard let data = try? JSONSerialization.data(withJSONObject: payload),
+                  let json = String(data: data, encoding: .utf8) else { return }
+            let js = """
+            (function(vars) {
+              var root = document.documentElement;
+              Object.keys(vars).forEach(function(name) {
+                root.style.setProperty(name, vars[name]);
+              });
             })(\(json));
             """
             webView.evaluateJavaScript(js, completionHandler: nil)
@@ -596,10 +632,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             isShellLoading = false
             isLoaded = true
             applyTheme(lastTheme ?? pendingTheme)
+            applyFontSize(lastFontSizePoints ?? pendingFontSizePoints)
             // Replay last known markdown after the shell finishes loading.
             // Keep the recovery budget scoped to the current markdown payload:
             // a payload can crash after shell load during the render push.
-            // Content changes reset the budget in `update(markdown:theme:)`.
+            // Content changes reset the budget in `update(markdown:theme:fontSizePoints:)`.
             let md = lastMarkdown ?? pendingMarkdown
             lastMarkdown = md
             pushMarkdown(md)
@@ -631,7 +668,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             webContentProcessRecoveryAttempts += 1
             loadShell(
                 theme: lastTheme ?? pendingTheme,
-                initialMarkdown: lastMarkdown ?? pendingMarkdown
+                initialMarkdown: lastMarkdown ?? pendingMarkdown,
+                fontSizePoints: lastFontSizePoints ?? pendingFontSizePoints
             )
         }
 

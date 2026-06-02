@@ -1,4 +1,5 @@
 import Darwin
+import CmuxSettings
 import Foundation
 
 enum WorkspaceTitlebarSettings {
@@ -89,6 +90,47 @@ enum PaneFirstClickFocusSettings {
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
+    }
+}
+
+enum MarkdownViewerFontSizeSettings {
+    static let key = "markdownViewerFontSize"
+    static let didChangeNotification = CmuxSettingsRuntimeNotifications.markdownViewerFontSizeDidChange
+    static let defaultPoints: Double = 15
+    static let minimumPoints: Double = 1
+    static let maximumPoints: Double = 96
+    static let zoomStepPoints: Double = 1
+
+    static func isUsable(_ points: Double) -> Bool {
+        points.isFinite && points > 0 && points <= maximumPoints
+    }
+
+    static func rounded(_ points: Double) -> Double {
+        (points * 100).rounded() / 100
+    }
+
+    static func normalized(_ points: Double) -> Double {
+        guard points.isFinite else { return defaultPoints }
+        return rounded(min(max(points, minimumPoints), maximumPoints))
+    }
+
+    static func resolved(defaults: UserDefaults = .standard) -> Double {
+        guard let rawValue = defaults.object(forKey: key) else {
+            return defaultPoints
+        }
+        if let number = rawValue as? NSNumber,
+           CFGetTypeID(number) != CFBooleanGetTypeID() {
+            return normalized(number.doubleValue)
+        }
+        if let string = rawValue as? String,
+           let value = Double(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return normalized(value)
+        }
+        return defaultPoints
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
     }
 }
 

@@ -742,6 +742,7 @@
         "surfacesBlurb": "Surfaces are tabs inside a pane.",
         "splitPanes": "Split Panes",
         "browser": "Browser",
+        "markdown": "Markdown Viewer",
         "notifications": "Notifications",
         "find": "Find",
         "terminal": "Terminal",

@@ -42,6 +42,42 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(overlay.alphaComponent, 1, accuracy: 0.0001)
     }
 
+    func testMarkdownPanelFontSizeUsesDefaultOverrideZoomAndReset() throws {
+        let defaults = UserDefaults.standard
+        let key = MarkdownViewerFontSizeSettings.key
+        let previousValue = defaults.object(forKey: key)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+
+        defaults.set(13.0, forKey: key)
+        let fileURL = try Self.makeMarkdownFile(contents: "# Font\n")
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+
+        XCTAssertEqual(panel.fontSizePoints, 13)
+        XCTAssertNil(panel.fontSizeOverridePoints)
+
+        panel.setFontSize(12.345)
+        XCTAssertEqual(panel.fontSizePoints, 12.35)
+        XCTAssertEqual(panel.fontSizeOverridePoints, 12.35)
+
+        panel.zoomOut()
+        XCTAssertEqual(panel.fontSizePoints, 11.35)
+        XCTAssertEqual(panel.fontSizeOverridePoints, 11.35)
+
+        defaults.set(18.0, forKey: key)
+        panel.resetZoom()
+        XCTAssertEqual(panel.fontSizePoints, 18)
+        XCTAssertNil(panel.fontSizeOverridePoints)
+    }
+
     func testFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
@@ -198,6 +234,7 @@ final class MarkdownPanelTests: XCTestCase {
             panelId: panelId,
             workspaceId: workspaceId,
             filePath: filePath,
+            fontSizePoints: MarkdownViewerFontSizeSettings.defaultPoints,
             session: session,
             onRequestPanelFocus: {}
         )
@@ -210,6 +247,7 @@ final class MarkdownPanelTests: XCTestCase {
             panelId: panelId,
             workspaceId: workspaceId,
             filePath: filePath,
+            fontSizePoints: MarkdownViewerFontSizeSettings.defaultPoints,
             session: session,
             onRequestPanelFocus: {}
         )
@@ -259,7 +297,7 @@ final class MarkdownPanelTests: XCTestCase {
         coordinator.webView = webView
         defer { coordinator.close() }
 
-        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n", fontSizePoints: 15)
         coordinator.webViewWebContentProcessDidTerminate(webView)
 
         XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
@@ -278,7 +316,7 @@ final class MarkdownPanelTests: XCTestCase {
         coordinator.webView = webView
         defer { coordinator.close() }
 
-        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n", fontSizePoints: 15)
         for _ in 0...2 {
             coordinator.webViewWebContentProcessDidTerminate(webView)
         }
@@ -286,7 +324,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
 
-        coordinator.update(markdown: "# Replacement\n", theme: theme)
+        coordinator.update(markdown: "# Replacement\n", theme: theme, fontSizePoints: 15)
 
         XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 0)
         XCTAssertTrue(coordinator.isShellLoadingForTesting)
@@ -299,7 +337,7 @@ final class MarkdownPanelTests: XCTestCase {
         coordinator.webView = webView
         defer { coordinator.close() }
 
-        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n", fontSizePoints: 15)
 
         for expectedAttempt in 1...2 {
             coordinator.webViewWebContentProcessDidTerminate(webView)
@@ -315,7 +353,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
 
-        coordinator.update(markdown: "# Existing\n", theme: theme)
+        coordinator.update(markdown: "# Existing\n", theme: theme, fontSizePoints: 15)
 
         XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
@@ -328,7 +366,7 @@ final class MarkdownPanelTests: XCTestCase {
         coordinator.webView = webView
         defer { coordinator.close() }
 
-        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n", fontSizePoints: 15)
         XCTAssertTrue(coordinator.isShellLoadingForTesting)
 
         let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotLoadFromNetwork)
@@ -336,7 +374,7 @@ final class MarkdownPanelTests: XCTestCase {
 
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
 
-        coordinator.update(markdown: "# Replacement\n", theme: theme)
+        coordinator.update(markdown: "# Replacement\n", theme: theme, fontSizePoints: 15)
 
         XCTAssertTrue(coordinator.isShellLoadingForTesting)
     }
@@ -348,17 +386,17 @@ final class MarkdownPanelTests: XCTestCase {
         coordinator.webView = webView
         defer { coordinator.close() }
 
-        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n", fontSizePoints: 15)
         coordinator.webView(webView, didFinish: nil)
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
 
         let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotLoadFromNetwork)
-        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n", fontSizePoints: 15)
         coordinator.webView(webView, didFail: nil, withError: error)
 
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
 
-        coordinator.update(markdown: "# Existing\n", theme: theme)
+        coordinator.update(markdown: "# Existing\n", theme: theme, fontSizePoints: 15)
 
         XCTAssertTrue(coordinator.isShellLoadingForTesting)
     }
@@ -1291,6 +1329,15 @@ final class MarkdownPanelTests: XCTestCase {
             return nil
         }
         return (red, green, blue, alpha)
+    }
+
+    private static func makeMarkdownFile(contents: String) throws -> URL {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-panel-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
     }
 
     private static let onePixelPNG: Data = {

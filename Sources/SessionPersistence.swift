@@ -1553,6 +1553,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
 }
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
+    var fontSizePoints: Double?
 }
 
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {

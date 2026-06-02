@@ -46,6 +46,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Whether the file has been deleted or is unreadable.
     @Published private(set) var isFileUnavailable: Bool = false
 
+    /// Font size in points for the rendered preview.
+    @Published private(set) var fontSizePoints: Double
+
+    /// Non-nil when this panel was opened or zoomed with a panel-scoped override.
+    private(set) var fontSizeOverridePoints: Double?
+
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
@@ -67,16 +73,26 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var pendingSearchNeedle: String?
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
+    private var fontSizeSettingsCancellable: AnyCancellable?
     private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
 
     // MARK: - Init
 
-    init(workspaceId: UUID, filePath: String) {
+    init(workspaceId: UUID, filePath: String, fontSizePoints: Double? = nil) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
         self.displayTitle = (filePath as NSString).lastPathComponent
+        if let fontSizePoints {
+            let normalized = MarkdownViewerFontSizeSettings.normalized(fontSizePoints)
+            self.fontSizePoints = normalized
+            self.fontSizeOverridePoints = normalized
+        } else {
+            self.fontSizePoints = MarkdownViewerFontSizeSettings.resolved()
+            self.fontSizeOverridePoints = nil
+        }
 
+        startFontSizeObservation()
         loadFileContent()
         startFileWatcher()
     }
@@ -98,6 +114,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
+        fontSizeSettingsCancellable?.cancel()
         stopWatching()
     }
 
@@ -113,6 +130,29 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         if mode == .text {
             focus()
         }
+    }
+
+    @discardableResult
+    func setFontSize(_ points: Double) -> Bool {
+        let normalized = MarkdownViewerFontSizeSettings.normalized(points)
+        fontSizeOverridePoints = normalized
+        return updateFontSize(normalized)
+    }
+
+    @discardableResult
+    func zoomIn() -> Bool {
+        setFontSize(fontSizePoints + MarkdownViewerFontSizeSettings.zoomStepPoints)
+    }
+
+    @discardableResult
+    func zoomOut() -> Bool {
+        setFontSize(fontSizePoints - MarkdownViewerFontSizeSettings.zoomStepPoints)
+    }
+
+    @discardableResult
+    func resetZoom() -> Bool {
+        fontSizeOverridePoints = nil
+        return updateFontSize(MarkdownViewerFontSizeSettings.resolved())
     }
 
     func attachTextView(_ textView: NSTextView) {
@@ -264,6 +304,30 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         textView.setSelectedRange(range)
         textView.scrollRangeToVisible(range)
         pendingSearchNeedle = nil
+    }
+
+    private func startFontSizeObservation() {
+        fontSizeSettingsCancellable = NotificationCenter.default
+            .publisher(for: MarkdownViewerFontSizeSettings.didChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshDefaultFontSizeIfNeeded()
+                }
+            }
+    }
+
+    private func refreshDefaultFontSizeIfNeeded() {
+        guard fontSizeOverridePoints == nil else { return }
+        updateFontSize(MarkdownViewerFontSizeSettings.resolved())
+    }
+
+    @discardableResult
+    private func updateFontSize(_ points: Double) -> Bool {
+        let normalized = MarkdownViewerFontSizeSettings.normalized(points)
+        guard fontSizePoints != normalized else { return true }
+        fontSizePoints = normalized
+        return true
     }
 
     // MARK: - File watcher via DispatchSource

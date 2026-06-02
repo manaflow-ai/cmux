@@ -4637,10 +4637,12 @@ struct CMUXCLI {
         let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
         let (directionOpt, argsAfterDirection) = parseOption(argsAfterSurface, name: "--direction")
         let (focusOpt, argsAfterFocus) = parseOption(argsAfterDirection, name: "--focus")
-        args = argsAfterFocus
+        let (fontSizeOpt, argsAfterFontSize) = parseOption(argsAfterFocus, name: "--font-size")
+        args = argsAfterFontSize
 
         // Determine subcommand. Explicit "open" is supported, otherwise treat
         // a single positional argument as shorthand path.
+        let usage = "cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>] [--font-size <points>]"
         let subArgs: [String]
         if let first = args.first, first.lowercased() == "open" {
             subArgs = Array(args.dropFirst())
@@ -4652,7 +4654,7 @@ struct CMUXCLI {
             if let first = args.first, first.hasPrefix("-") {
                 throw CLIError(
                     message:
-                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
+                        "markdown open: unknown flag '\(first)'. Usage: \(usage)"
                 )
             } else if let first = args.first, looksLikePath(first) || first.contains(".") {
                 subArgs = args
@@ -4664,20 +4666,27 @@ struct CMUXCLI {
         }
 
         guard let rawPath = subArgs.first, !rawPath.isEmpty else {
-            throw CLIError(message: "markdown open requires a file path. Usage: cmux markdown open <path>")
+            throw CLIError(message: "markdown open requires a file path. Usage: \(usage)")
         }
         let trailingArgs = Array(subArgs.dropFirst())
         if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
             throw CLIError(
                 message:
-                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
+                    "markdown open: unknown flag '\(unknownFlag)'. Usage: \(usage)"
             )
         }
         if let extraArg = trailingArgs.first {
             throw CLIError(
                 message:
-                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
+                    "markdown open: unexpected argument '\(extraArg)'. Usage: \(usage)"
             )
+        }
+
+        let fontSizePoints: Double?
+        if let fontSizeOpt {
+            fontSizePoints = try parseMarkdownViewerFontSize(fontSizeOpt)
+        } else {
+            fontSizePoints = nil
         }
 
         let absolutePath = resolvePath(rawPath)
@@ -4702,6 +4711,9 @@ struct CMUXCLI {
             }
         }
         try applyFocusOption(focusOpt, defaultValue: false, to: &params)
+        if let fontSizePoints {
+            params["font_size"] = fontSizePoints
+        }
 
         let payload = try client.sendV2(method: "markdown.open", params: params)
 
@@ -4711,7 +4723,9 @@ struct CMUXCLI {
             let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
             let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
             let filePath = (payload["path"] as? String) ?? absolutePath
-            print("OK surface=\(surfaceText) pane=\(paneText) path=\(filePath)")
+            let fontSize = doubleFromAny(payload["font_size"]) ?? fontSizePoints
+            let fontSizeText = fontSize.map { " font_size=\(formatMarkdownViewerFontSize($0))" } ?? ""
+            print("OK surface=\(surfaceText) pane=\(paneText) path=\(filePath)\(fontSizeText)")
         }
     }
 
@@ -14436,12 +14450,14 @@ struct CMUXCLI {
               --window <id|ref|index>      Target window
               --direction <left|right|up|down>  Split direction (default: right)
               --focus <true|false>         Focus the markdown panel (default: false)
+              --font-size <points>         Rendered markdown font size
 
             Examples:
               cmux markdown open plan.md
               cmux markdown ~/project/CHANGELOG.md
               cmux markdown open ./docs/design.md --workspace 0
               cmux markdown open plan.md --direction down
+              cmux markdown open plan.md --font-size 12
             """
         default:
             return nil
@@ -14498,6 +14514,33 @@ struct CMUXCLI {
             remaining.append(arg)
         }
         return (value, remaining)
+    }
+
+    private func parseMarkdownViewerFontSize(_ rawValue: String) throws -> Double {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let size = Double(trimmed),
+              isUsableMarkdownViewerFontSize(size) else {
+            throw CLIError(message: "--font-size must be a positive number no larger than 96")
+        }
+        return roundedMarkdownViewerMetric(size)
+    }
+
+    private func isUsableMarkdownViewerFontSize(_ size: Double) -> Bool {
+        size.isFinite && size > 0 && size <= 96
+    }
+
+    private func roundedMarkdownViewerMetric(_ value: Double) -> Double {
+        (value * 100).rounded() / 100
+    }
+
+    private func formatMarkdownViewerFontSize(_ value: Double) -> String {
+        let rounded = roundedMarkdownViewerMetric(value)
+        if rounded.rounded() == rounded {
+            return String(Int(rounded))
+        }
+        return String(format: "%.2f", rounded)
+            .replacingOccurrences(of: #"0+$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\.$"#, with: "", options: .regularExpression)
     }
 
     private func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {
@@ -31402,7 +31445,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           respawn-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--command <cmd>]
           display-message [-p|--print] <text>
 
-          markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
+          markdown [open] <path> [--focus <true|false>] [--font-size <points>] (open markdown file in formatted viewer panel with live reload)
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
