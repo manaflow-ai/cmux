@@ -7122,13 +7122,14 @@ function renderSettingsInspector(options = {}) {
         const saved = await applyAndSaveCustomBackgroundImage({ url: imageInput.value }, { resetInput: imageInput });
         if (saved) imageInput.value = saved.url;
       }, "", "background image url local path apply save wallpaper"),
+      settingsActionButton("Paste", () => pasteBackgroundImageFromClipboard({ input: imageInput }), "", "background image paste clipboard url local path wallpaper"),
       settingsActionButton("Choose file", chooseBackgroundImage, "", "background image local file wallpaper"),
       settingsActionButton("Clear image", () => {
         updateSettings({ backgroundImage: "" }, { immediate: true });
         renderSettingsInspector();
       }, "danger", "background image local file wallpaper reset remove")
     );
-    imageActions.dataset.settingsSearch = normalizeSettingsQuery("background image local file wallpaper apply clear");
+    imageActions.dataset.settingsSearch = normalizeSettingsQuery("background image local file wallpaper apply clear paste clipboard");
     appearanceSection.append(imageActions);
     appearanceSection.append(settingRow("Saved backgrounds", savedBackgroundImagesPanel(), true, "saved background image wallpaper library apply rename delete save"));
 
@@ -10721,6 +10722,25 @@ async function chooseBackgroundImage(options = {}) {
   const changed = await applyCustomBackgroundImage(url, { render: false, toast: true });
   if (changed === null) return;
   renderSettingsInspector();
+}
+
+async function pasteBackgroundImageFromClipboard(options = {}) {
+  if (!window.cmuxNative?.readClipboard) {
+    toast("Clipboard is unavailable.");
+    return null;
+  }
+  const value = String(await window.cmuxNative.readClipboard() || "").trim();
+  if (!value) {
+    toast("Clipboard does not contain an image URL or path.");
+    return null;
+  }
+  if (options.input) options.input.value = value;
+  if (options.save) {
+    const saved = await applyAndSaveCustomBackgroundImage({ url: value }, { resetInput: options.input });
+    if (saved && options.input) options.input.value = saved.url;
+    return saved;
+  }
+  return applyCustomBackgroundImage(value, { resetInput: options.input, toast: true });
 }
 
 function settingsPresetGrid() {
