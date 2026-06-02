@@ -8,6 +8,7 @@ LOG_PATH="${CMUX_CA_ASSERT_LOG:-/tmp/cmux-ca-main-thread-${TAG}.log}"
 HOLD_SECONDS="${CMUX_CA_ASSERT_HOLD_SECONDS:-8}"
 READY_TIMEOUT_SECONDS="${CMUX_CA_ASSERT_READY_TIMEOUT_SECONDS:-60}"
 APP_PID_FILE="${CMUX_CA_ASSERT_PID_FILE:-/tmp/cmux-ca-main-thread-${TAG}.pid}"
+DIAGNOSTICS_PATH="${CMUX_CA_ASSERT_DIAGNOSTICS:-/tmp/cmux-ca-main-thread-${TAG}.diagnostics.json}"
 
 if [ -z "$APP_PATH" ]; then
   echo "usage: CMUX_APP_PATH=/path/to/cmux.app $0" >&2
@@ -101,6 +102,10 @@ dump_diagnostics() {
     echo "--- startup breadcrumbs ($STARTUP_LOG_PATH) ---" >&2
     tail -80 "$STARTUP_LOG_PATH" >&2 2>/dev/null || true
   fi
+  if [ -f "$DIAGNOSTICS_PATH" ]; then
+    echo "--- ui test diagnostics ($DIAGNOSTICS_PATH) ---" >&2
+    cat "$DIAGNOSTICS_PATH" >&2 2>/dev/null || true
+  fi
   echo "--- matching cmux processes ---" >&2
   ps -ax -o pid=,stat=,command= | grep "/Contents/MacOS/cmux DEV" | grep -v grep >&2 || true
 }
@@ -132,18 +137,20 @@ cleanup() {
     kill "$APP_PID" >/dev/null 2>&1 || true
     wait "$APP_PID" >/dev/null 2>&1 || true
   fi
-  rm -f "$SOCKET_PATH" "$APP_PID_FILE"
+  rm -f "$SOCKET_PATH" "$APP_PID_FILE" "$DIAGNOSTICS_PATH"
 }
 trap cleanup EXIT
 
 kill_recorded_app
 kill_stale_ci_apps
-rm -f "$SOCKET_PATH" "$LOG_PATH" "$STARTUP_LOG_PATH"
+rm -f "$SOCKET_PATH" "$LOG_PATH" "$STARTUP_LOG_PATH" "$DIAGNOSTICS_PATH"
 
 CA_ASSERT_MAIN_THREAD_TRANSACTIONS=1 \
 CA_DEBUG_TRANSACTIONS=1 \
 CMUX_STARTUP_BREADCRUMBS=1 \
 CMUX_UI_TEST_MODE=1 \
+CMUX_UI_TEST_SOCKET_SANITY=1 \
+CMUX_UI_TEST_DIAGNOSTICS_PATH="$DIAGNOSTICS_PATH" \
 CMUX_DISABLE_SESSION_RESTORE=1 \
 CMUX_SOCKET_ENABLE=1 \
 CMUX_SOCKET_MODE=automation \
