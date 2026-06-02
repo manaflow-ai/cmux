@@ -159,6 +159,7 @@ const layoutSettingsPreviewKeys = new Set([
   "toolbarMode",
   "tabSize",
   "titleDetailMode",
+  "paneColorMarkers",
   "focusMode",
   "showTabs",
   "showStatusbar",
@@ -168,6 +169,7 @@ const layoutSettingsPreviewKeys = new Set([
 ]);
 const surfaceTabLayoutKeys = new Set([
   "tabSize",
+  "paneColorMarkers",
   "focusMode",
   "showTabs"
 ]);
@@ -206,6 +208,7 @@ const settingsInspectorSettingKeys = {
     "toolbarMode",
     "tabSize",
     "titleDetailMode",
+    "paneColorMarkers",
     "focusMode",
     "showTabs",
     "showStatusbar",
@@ -709,6 +712,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.terminalCustomShell = String(next.terminalCustomShell || "").trim().slice(0, 512);
   next.showTabs = next.showTabs !== false;
   next.showStatusbar = next.showStatusbar !== false;
+  next.paneColorMarkers = Boolean(next.paneColorMarkers);
   next.focusMode = Boolean(next.focusMode);
   next.showAdvanced = next.toolbarMode === "expanded";
   next.performanceMode = Boolean(next.performanceMode);
@@ -1909,6 +1913,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.toolbarMode,
     settings.tabSize,
     settings.titleDetailMode,
+    settings.paneColorMarkers,
     settings.focusMode,
     settings.showTabs,
     settings.showStatusbar,
@@ -1959,6 +1964,7 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "toolbar-compact", state.settings.toolbarMode === "compact");
   toggleClassIfChanged(elements.shell, "toolbar-standard", state.settings.toolbarMode === "standard");
   toggleClassIfChanged(elements.shell, "toolbar-expanded", state.settings.toolbarMode === "expanded");
+  toggleClassIfChanged(elements.shell, "pane-color-markers", state.settings.paneColorMarkers);
   toggleClassIfChanged(elements.shell, "focus-mode", state.settings.focusMode);
   toggleClassIfChanged(elements.shell, "hide-tabs", !state.settings.showTabs);
   toggleClassIfChanged(elements.shell, "hide-status", !state.settings.showStatusbar);
@@ -7274,6 +7280,12 @@ function renderSettingsInspector(options = {}) {
     titleDetailSelect.value = state.settings.titleDetailMode;
     titleDetailSelect.onchange = () => updateSettings({ titleDetailMode: titleDetailSelect.value });
     layoutSection.append(settingRow("Title detail", titleDetailSelect, false, "pane tab title name folder directory detail label terminal browser"));
+    layoutSection.append(settingRow(
+      "Pane color markers",
+      toggleInput(state.settings.paneColorMarkers, (checked) => updateSettings({ paneColorMarkers: checked })),
+      false,
+      "pane tab color markers colored dots quiet simple terminal chrome"
+    ));
     const sidebarWidthRange = document.createElement("input");
     sidebarWidthRange.className = "setting-control";
     sidebarWidthRange.type = "range";
@@ -13572,6 +13584,7 @@ const workspaceChromeSettings = [
   "toolbarMode",
   "tabSize",
   "titleDetailMode",
+  "paneColorMarkers",
   "focusMode",
   "showTabs",
   "showStatusbar",

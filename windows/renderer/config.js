@@ -22,6 +22,7 @@ export const defaultSettings = {
   toolbarMode: "minimal",
   tabSize: "balanced",
   titleDetailMode: "smart",
+  paneColorMarkers: false,
   focusMode: false,
   showTabs: true,
   showStatusbar: true,

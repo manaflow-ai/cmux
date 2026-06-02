@@ -1291,6 +1291,16 @@ body.reduce-motion *::after {
   animation: cmux-pulse 900ms ease-in-out infinite;
 }
 
+.shell:not(.pane-color-markers) .surface-tab:not(.has-attention):not(.is-zoomed):not(.is-pending):not(.is-minimized) .surface-dot {
+  background: color-mix(in oklch, var(--color-line-strong) 68%, var(--color-pane) 32%);
+  color: var(--color-muted);
+}
+
+.shell:not(.pane-color-markers) .surface-tab.is-active:not(.has-attention):not(.is-zoomed):not(.is-pending):not(.is-minimized) .surface-dot {
+  background: color-mix(in oklch, var(--color-text) 20%, var(--color-line-strong) 80%);
+  color: var(--color-text);
+}
+
 .surface-label {
   min-width: 0;
   overflow: hidden;
