@@ -5046,10 +5046,12 @@ async function workspaceForEmptyAction(workspace) {
 async function createEmptyWorkspacePanel(type, workspace) {
   const targetWorkspace = await workspaceForEmptyAction(workspace);
   if (!targetWorkspace?.id) return null;
-  return createPanel(type, "right", {
+  const options = {
     workspaceId: targetWorkspace.id,
     url: type === "browser" ? state.settings.browserHomeUrl : undefined
-  });
+  };
+  if (type === "terminal") return createTerminalPanel("right", options);
+  return createPanel(type, "right", options);
 }
 
 function emptyWorkspaceLaunchers() {
@@ -15376,7 +15378,7 @@ async function reopenClosedPanel() {
     return;
   }
   try {
-    const created = await createPanel(snapshot.type, "right", {
+    const createOptions = {
       workspaceId: workspace.id,
       title: snapshot.title,
       color: snapshot.color,
@@ -15387,7 +15389,10 @@ async function reopenClosedPanel() {
       terminalFontSize: snapshot.terminalFontSize,
       url: snapshot.url,
       browserTabs: snapshot.browserTabs
-    });
+    };
+    const created = snapshot.type === "terminal"
+      ? await createTerminalPanel("right", createOptions)
+      : await createPanel(snapshot.type, "right", createOptions);
     toast(`Reopened ${created?.type === "browser" ? "browser" : "terminal"} pane.`);
   } catch {
     state.closedPanels.unshift(snapshot);

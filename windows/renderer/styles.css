@@ -1449,6 +1449,7 @@ body.reduce-motion *::after {
   appearance: none;
   height: 29px;
   flex: 0 1 var(--surface-tab-basis, 156px);
+  min-inline-size: 0;
   min-width: var(--surface-tab-min, 100px);
   max-width: var(--surface-tab-max, 210px);
   display: grid;
@@ -1584,6 +1585,7 @@ body.reduce-motion *::after {
 
 .surface-label {
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1595,6 +1597,7 @@ body.reduce-motion *::after {
 .surface-close {
   position: static;
   transform: none;
+  z-index: 1;
   display: grid;
   place-items: center;
   width: 22px;
@@ -2206,6 +2209,7 @@ body.reduce-motion *::after {
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
+  overflow: hidden;
   padding: 0 var(--space-2);
   border-bottom: 1px solid var(--color-line);
   background: var(--color-pane-warm);
@@ -2372,6 +2376,7 @@ body.reduce-motion *::after {
 
 .pane-title {
   min-width: 0;
+  max-width: 100%;
   flex: 1 1 0;
   overflow: hidden;
   white-space: nowrap;
@@ -2382,6 +2387,7 @@ body.reduce-motion *::after {
 
 .pane-toolbar {
   display: flex;
+  align-items: center;
   flex: 0 0 auto;
   justify-self: end;
   min-width: 0;
