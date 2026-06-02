@@ -24,6 +24,7 @@
     "@types/bun": "^1.3.14",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "babel-plugin-react-compiler": "^1.0.0",
     "oxlint": "^1.68.0",
     "react-doctor": "^0.2.4",
     "tailwindcss": "^4.3.0",

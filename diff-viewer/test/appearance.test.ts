@@ -2,12 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { appearanceBackgroundColor, resolveDiffViewerAppearance } from "../src/appearance";
 
 describe("appearanceBackgroundColor", () => {
-  test("applies Ghostty background opacity to hex colors", () => {
-    expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 0.42 })).toBe("rgb(16 32 48 / 0.42)");
+  test("returns transparent for transparent themes so the window backdrop shows", () => {
+    expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 0.42 })).toBe("transparent");
   });
 
-  test("clamps invalid opacity to opaque", () => {
-    expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 2 })).toBe("rgb(16 32 48 / 1)");
+  test("returns a solid fill for opaque themes", () => {
+    expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 1 })).toBe("#102030");
+  });
+
+  test("clamps invalid opacity to opaque and paints a solid fill", () => {
+    expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 2 })).toBe("#102030");
   });
 
   test("normalizes resolved opacity and metrics to rendered CSS values", () => {

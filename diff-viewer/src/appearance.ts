@@ -83,17 +83,14 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
 
   const lightTheme = appearance.themes?.light ?? {};
   const darkTheme = appearance.themes?.dark ?? {};
-  const lightBackground = colorString(lightTheme.background, "#ffffff");
-  const darkBackground = colorString(darkTheme.background, "#000000");
-  const opacity = normalizedOpacity(appearance.backgroundOpacity);
   const rootStyle = document.documentElement.style;
 
-  rootStyle.setProperty("--cmux-diff-bg-opacity", roundedNumber(opacity));
-  rootStyle.setProperty("--cmux-diff-bg-opacity-percent", `${roundedNumber(opacity * 100)}%`);
-  rootStyle.setProperty("--cmux-diff-bg-base-light", lightBackground);
-  rootStyle.setProperty("--cmux-diff-bg-base-dark", darkBackground);
-  rootStyle.setProperty("--cmux-diff-bg-light", backgroundColorWithOpacity(lightBackground, opacity));
-  rootStyle.setProperty("--cmux-diff-bg-dark", backgroundColorWithOpacity(darkBackground, opacity));
+  // `--cmux-diff-bg` stays opaque: it is the base color the page blends against
+  // for text, borders, and floating overlays (menus). Transparency is owned by
+  // the native cmux window backdrop, not the page (matching the markdown and
+  // terminal panels), so the page never bakes opacity into its own fill.
+  rootStyle.setProperty("--cmux-diff-bg-light", colorString(lightTheme.background, "#ffffff"));
+  rootStyle.setProperty("--cmux-diff-bg-dark", colorString(darkTheme.background, "#000000"));
   rootStyle.setProperty("--cmux-diff-fg-light", colorString(lightTheme.foreground, "#000000"));
   rootStyle.setProperty("--cmux-diff-fg-dark", colorString(darkTheme.foreground, "#ffffff"));
   rootStyle.setProperty("--cmux-diff-selection-bg-light", colorString(lightTheme.selectionBackground, "#abd8ff"));
@@ -104,15 +101,12 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
 }
 
 export function appearanceBackgroundColor(color: unknown, appearance?: DiffViewerAppearance) {
-  return backgroundColorWithOpacity(colorString(color, "#000000"), normalizedOpacity(appearance?.backgroundOpacity));
-}
-
-function backgroundColorWithOpacity(color: string, opacity: number) {
-  const rgb = hexRGB(color);
-  if (!rgb) {
-    return `color-mix(in srgb, ${color} ${roundedNumber(opacity * 100)}%, transparent)`;
+  // Transparent terminal themes let the cmux window backdrop show through, so
+  // code surfaces paint no fill. Opaque themes get a solid fill.
+  if (normalizedOpacity(appearance?.backgroundOpacity) < 0.999) {
+    return "transparent";
   }
-  return `rgb(${rgb.red} ${rgb.green} ${rgb.blue} / ${roundedNumber(opacity)})`;
+  return colorString(color, "#000000");
 }
 
 function colorString(value: unknown, fallback: string) {
@@ -124,26 +118,6 @@ function codeFontFamily(fontFamily: unknown) {
   return `${JSON.stringify(family)}, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
 }
 
-function hexRGB(color: string) {
-  let hex = color.trim();
-  if (!hex.startsWith("#")) {
-    return null;
-  }
-  hex = hex.slice(1);
-  if (hex.length === 3) {
-    hex = hex.split("").map((digit) => `${digit}${digit}`).join("");
-  }
-  if (!/^[\da-f]{6}$/i.test(hex)) {
-    return null;
-  }
-  const value = Number.parseInt(hex, 16);
-  return {
-    blue: value & 0xff,
-    green: (value >> 8) & 0xff,
-    red: (value >> 16) & 0xff,
-  };
-}
-
 function metric(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
 }
@@ -153,8 +127,4 @@ function normalizedOpacity(value: unknown) {
     return 1;
   }
   return Math.max(0, Math.min(1, value));
-}
-
-function roundedNumber(value: number) {
-  return Number(value.toFixed(4)).toString();
 }

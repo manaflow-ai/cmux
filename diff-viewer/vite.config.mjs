@@ -8,7 +8,15 @@ export default defineConfig({
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react({
+      babel: {
+        // React Compiler. React 19 ships the required react/compiler-runtime.
+        plugins: [["babel-plugin-react-compiler", { target: "19" }]],
+      },
+    }),
+    tailwindcss(),
+  ],
   build: {
     emptyOutDir: true,
     minify: "esbuild",

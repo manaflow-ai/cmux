@@ -2,10 +2,6 @@
 
 :root {
   color-scheme: light dark;
-  --cmux-diff-bg-opacity: 1;
-  --cmux-diff-bg-opacity-percent: 100%;
-  --cmux-diff-bg-base-light: #fff;
-  --cmux-diff-bg-base-dark: #000;
   --cmux-diff-bg-light: #fff;
   --cmux-diff-bg-dark: #000;
   --cmux-diff-fg-light: #000;
@@ -48,7 +44,10 @@ body {
   margin: 0;
   height: 100vh;
   min-height: 0;
-  background: var(--cmux-diff-bg);
+  /* Transparent so the cmux window backdrop (faded terminal color for
+     transparent themes, solid otherwise) shows through, matching the markdown
+     and terminal panels. `--cmux-diff-bg` is still used opaque for blends. */
+  background: transparent;
   color: var(--cmux-diff-fg);
   display: flex;
   flex-direction: column;
