@@ -2181,6 +2181,52 @@ final class CmuxWebViewMouseNavigationButtonTests: XCTestCase {
         XCTAssertEqual(snapshot.forwardHistoryURLStrings, ["https://example.com/d"])
     }
 
+    func testReplacementWebViewButtonThreeUsesPanelBackHistory() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        panel.reattachToWorkspace(
+            UUID(),
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: UUID(),
+            proxyEndpoint: nil,
+            remoteStatus: nil
+        )
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [
+                "https://example.com/a",
+                "https://example.com/b"
+            ],
+            forwardHistoryURLStrings: [],
+            currentURLString: "https://example.com/c"
+        )
+
+        panel.webView.otherMouseDown(with: makeOtherMouseEvent(type: .otherMouseDown, buttonNumber: 3))
+
+        let snapshot = panel.sessionNavigationHistorySnapshot()
+        XCTAssertEqual(snapshot.backHistoryURLStrings, ["https://example.com/a"])
+        XCTAssertEqual(snapshot.forwardHistoryURLStrings, ["https://example.com/c"])
+    }
+
+    func testSideButtonNavigationPostsBrowserClickNotification() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        var postedObject: AnyObject?
+        let observer = NotificationCenter.default.addObserver(
+            forName: .webViewDidReceiveClick,
+            object: nil,
+            queue: nil
+        ) { notification in
+            postedObject = notification.object as AnyObject?
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+
+        panel.webView.otherMouseDown(with: makeOtherMouseEvent(type: .otherMouseDown, buttonNumber: 3))
+
+        XCTAssertTrue(postedObject === panel.webView)
+    }
+
     private func makeOtherMouseEvent(type: NSEvent.EventType, buttonNumber: Int) -> NSEvent {
         let cgEventType: CGEventType
         switch type {

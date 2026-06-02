@@ -759,10 +759,14 @@ final class CmuxWebView: WKWebView {
             "pointerDepth=\(pointerFocusAllowanceDepth) win=\(windowNumber) fr=\(firstResponderType)"
         )
 #endif
-        NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
-        withPointerFocusAllowance {
+        performBrowserClickFocusHandoff {
             super.mouseDown(with: event)
         }
+    }
+
+    private func performBrowserClickFocusHandoff(_ action: () -> Void) {
+        NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
+        withPointerFocusAllowance(action)
     }
 
     // MARK: - Mouse back/forward buttons
@@ -808,6 +812,11 @@ final class CmuxWebView: WKWebView {
             "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
         )
 #endif
+        if event.buttonNumber == 3 || event.buttonNumber == 4 {
+            performBrowserClickFocusHandoff {
+                _ = window?.makeFirstResponder(self)
+            }
+        }
         if handleMouseNavigationButton(event) {
             return
         }
