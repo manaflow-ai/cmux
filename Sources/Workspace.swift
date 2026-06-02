@@ -11592,8 +11592,23 @@ final class Workspace: Identifiable, ObservableObject {
     /// should target for this workspace: the focused panel's tracked directory, then
     /// its terminal's requested directory, then the workspace's current directory.
     /// Returns `nil` when none is known so callers can apply their own fallback.
+    ///
+    /// This is the focused-panel case of ``configTrackingDirectory(for:)`` (the same
+    /// three-tier order); the tiers are spelled out here so the public entry point is
+    /// self-contained.
     func resolvedWorkingDirectory() -> String? {
-        configTrackingDirectory(for: focusedPanelId)
+        let candidates = [
+            focusedPanelId.flatMap { panelDirectories[$0] },
+            focusedPanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
+            currentDirectory,
+        ]
+        for candidate in candidates {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
     }
 
     private func surfaceKind(for panel: any Panel) -> String {
