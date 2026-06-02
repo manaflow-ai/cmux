@@ -367,10 +367,35 @@ public struct KeyboardShortcutsSection: View {
                 // shortcut changes. Externally-edited cmux.json should
                 // dismiss a stale rejection banner for that action.
                 pruneConflictRejections()
+                pruneNumberedDigitRejections()
             }
         }
         streamTask = task
         await task.value
+    }
+
+    /// Drops the "Use a digit from 1 through 9" banner for any action whose
+    /// binding now reflects a committed state. A numbered action only ever
+    /// persists a valid `1…9` placeholder or an unbound marker, so an external
+    /// `cmux.json` edit (or another settings surface) restoring a usable
+    /// binding must dismiss a stale rejection — matching the legacy
+    /// `rejectedAttempt` clear-on-change behavior.
+    private func pruneNumberedDigitRejections() {
+        guard !numberedDigitRejections.isEmpty else { return }
+        for key in Array(numberedDigitRejections) {
+            guard let action = ShortcutAction(rawValue: key) else {
+                numberedDigitRejections.remove(key)
+                continue
+            }
+            guard let effective = bindings[action.rawValue] else {
+                // No override → the (valid) default applies; banner is stale.
+                numberedDigitRejections.remove(key)
+                continue
+            }
+            if effective.isUnbound || isNumberedDigitKey(effective.first.key) {
+                numberedDigitRejections.remove(key)
+            }
+        }
     }
 
     private func pruneConflictRejections() {
