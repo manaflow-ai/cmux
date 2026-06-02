@@ -937,18 +937,17 @@ class CmuxWindowsRuntime {
       }
     };
     this.pendingTerminalPrewarms.set(panelId, pending);
-    if (response?.writableEnded || response?.destroyed) {
+    if (response?.destroyed) {
       run();
       return;
     }
-    if (typeof response?.once === "function") {
-      pending.handleType = "response";
-      pending.handle = run;
-      pending.response = response;
-      response.once("finish", run);
+    if (typeof setImmediate === "function") {
+      pending.handleType = "immediate";
+      pending.handle = setImmediate(run);
       return;
     }
-    run();
+    pending.handleType = "timeout";
+    pending.handle = setTimeout(run, 0);
   }
 
   createWorkspace(title, runtimeOptions = {}) {
