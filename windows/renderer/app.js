@@ -11,6 +11,7 @@ import {
   paneHeaderOptions,
   settingsCategories,
   settingsPresets,
+  sidebarBranchOptions,
   sidebarDetailOptions,
   sidebarFooterOptions,
   terminalAppearanceKeys,
@@ -203,6 +204,7 @@ const layoutSettingsPreviewKeys = new Set([
   "paneActionMode",
   "paneHeaderMode",
   "sidebarDetailMode",
+  "sidebarBranchMode",
   "sidebarFooterMode",
   "toolbarMode",
   "tabSize",
@@ -252,6 +254,7 @@ const settingsInspectorSettingKeys = {
     "paneActionMode",
     "paneHeaderMode",
     "sidebarDetailMode",
+    "sidebarBranchMode",
     "sidebarFooterMode",
     "toolbarMode",
     "tabSize",
@@ -718,6 +721,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!paneHeaderOptions.some(([id]) => id === next.paneHeaderMode)) next.paneHeaderMode = defaultSettings.paneHeaderMode;
   if (!paneActionOptions.some(([id]) => id === next.paneActionMode)) next.paneActionMode = defaultSettings.paneActionMode;
   if (!sidebarDetailOptions.some(([id]) => id === next.sidebarDetailMode)) next.sidebarDetailMode = defaultSettings.sidebarDetailMode;
+  if (!sidebarBranchOptions.some(([id]) => id === next.sidebarBranchMode)) next.sidebarBranchMode = defaultSettings.sidebarBranchMode;
   if (!sidebarFooterOptions.some(([id]) => id === next.sidebarFooterMode)) next.sidebarFooterMode = defaultSettings.sidebarFooterMode;
   if (!toolbarModeOptions.some(([id]) => id === next.toolbarMode)) {
     next.toolbarMode = parsed.showAdvanced ? "expanded" : defaultSettings.toolbarMode;
@@ -2190,6 +2194,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.paneHeaderMode,
     settings.paneActionMode,
     settings.sidebarDetailMode,
+    settings.sidebarBranchMode,
     settings.sidebarFooterMode,
     settings.sidebarWidth,
     settings.inspectorWidth,
@@ -2224,6 +2229,9 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "workspace-detail-compact", state.settings.sidebarDetailMode === "compact");
   toggleClassIfChanged(elements.shell, "workspace-detail-balanced", state.settings.sidebarDetailMode === "balanced");
   toggleClassIfChanged(elements.shell, "workspace-detail-detailed", state.settings.sidebarDetailMode === "detailed");
+  toggleClassIfChanged(elements.shell, "workspace-branch-hidden", state.settings.sidebarBranchMode === "hidden");
+  toggleClassIfChanged(elements.shell, "workspace-branch-active", state.settings.sidebarBranchMode === "active");
+  toggleClassIfChanged(elements.shell, "workspace-branch-all", state.settings.sidebarBranchMode === "all");
   toggleClassIfChanged(elements.shell, "sidebar-footer-workspace", state.settings.sidebarFooterMode === "workspace");
   toggleClassIfChanged(elements.shell, "sidebar-footer-compact", state.settings.sidebarFooterMode === "compact");
   toggleClassIfChanged(elements.shell, "sidebar-footer-full", state.settings.sidebarFooterMode === "full");
@@ -3758,6 +3766,7 @@ function workspaceListContentSignature() {
   const parts = [];
   appendSignatureValue(parts, paletteColor);
   appendSignatureValue(parts, state.settings.sidebarDetailMode);
+  appendSignatureValue(parts, state.settings.sidebarBranchMode);
   appendSignatureArray(parts, state.data?.workspaces || [], (nextParts, workspace, index) => {
     const attentionTotal = workspace.panels.filter((panel) => panel.needsAttention).length;
     appendSignatureValue(nextParts, workspace.id);
@@ -3921,13 +3930,14 @@ function updateWorkspaceRow(button, workspace, index, activeId) {
   const cwd = isHome ? "home" : workspace.cwdShort || "~";
   const fullCwd = isHome ? "cmux home" : workspace.cwd || cwd;
   const branch = String(workspace.branch || "").trim();
+  const branchVisible = sidebarBranchVisible(workspace, activeId);
   const paneSummary = `${workspace.terminalCount || 0} terminal${workspace.terminalCount === 1 ? "" : "s"} / ${workspace.browserCount || 0} browser${workspace.browserCount === 1 ? "" : "s"}`;
   const compactPaneSummary = `${workspace.terminalCount || 0}T ${workspace.browserCount || 0}B`;
   const parts = workspaceRowParts(button);
   setDatasetIfChanged(button, "workspaceId", workspace.id);
   setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}${branch ? " has-branch" : ""}${state.dragWorkspaceId === workspace.id ? " is-workspace-dragging" : ""}`);
   setStylePropertyIfChanged(button, "--workspace-color", workspace.color || state.data.palette?.[0] || "");
-  const rowHelp = `${title} - ${fullCwd}${branch ? ` - ${branch}` : ""} - ${paneSummary} - drag to reorder, double-click to rename, right-click for workspace options`;
+  const rowHelp = `${title} - ${fullCwd}${branchVisible ? ` - ${branch}` : ""} - ${paneSummary} - drag to reorder, double-click to rename, right-click for workspace options`;
   setTitleIfChanged(button, rowHelp);
   if (button.getAttribute("aria-label") !== rowHelp) button.setAttribute("aria-label", rowHelp);
   setTextIfChanged(parts.name, title);
@@ -3938,6 +3948,13 @@ function updateWorkspaceRow(button, workspace, index, activeId) {
   setTitleIfChanged(parts.branch, branch ? `Git branch: ${branch}` : "");
   setTextIfChanged(parts.counts, compactPaneSummary);
   setTitleIfChanged(parts.counts, paneSummary);
+}
+
+function sidebarBranchVisible(workspace, activeId = state.data?.activeWorkspaceId || "") {
+  if (!String(workspace?.branch || "").trim()) return false;
+  if (state.settings.sidebarDetailMode !== "detailed") return false;
+  if (state.settings.sidebarBranchMode === "all") return true;
+  return state.settings.sidebarBranchMode === "active" && workspace?.id === activeId;
 }
 
 function renderSurfaceTabs(workspace) {
@@ -8099,6 +8116,17 @@ function renderSettingsInspector(options = {}) {
     sidebarDetailSelect.value = state.settings.sidebarDetailMode;
     sidebarDetailSelect.onchange = () => updateSettings({ sidebarDetailMode: sidebarDetailSelect.value });
     layoutSection.append(settingRow("Workspace rows", sidebarDetailSelect, false, "sidebar workspace row detail compact folder counts metadata"));
+    const sidebarBranchSelect = document.createElement("select");
+    sidebarBranchSelect.className = "setting-select";
+    for (const [value, label] of sidebarBranchOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      sidebarBranchSelect.append(option);
+    }
+    sidebarBranchSelect.value = state.settings.sidebarBranchMode;
+    sidebarBranchSelect.onchange = () => updateSettings({ sidebarBranchMode: sidebarBranchSelect.value });
+    layoutSection.append(settingRow("Git branches", sidebarBranchSelect, false, "sidebar workspace git branch branch name hide active all detailed rows"));
     const sidebarFooterSelect = document.createElement("select");
     sidebarFooterSelect.className = "setting-select";
     for (const [value, label] of sidebarFooterOptions) {
@@ -10250,6 +10278,7 @@ function performanceDiagnosticsPayload() {
       paneHeaderMode: state.settings.paneHeaderMode,
       paneActionMode: state.settings.paneActionMode,
       sidebarDetailMode: state.settings.sidebarDetailMode,
+      sidebarBranchMode: state.settings.sidebarBranchMode,
       sidebarFooterMode: state.settings.sidebarFooterMode,
       tabSize: state.settings.tabSize,
       titleDetailMode: state.settings.titleDetailMode,
@@ -15707,6 +15736,7 @@ const workspaceChromeSettings = [
   "paneHeaderMode",
   "paneActionMode",
   "sidebarDetailMode",
+  "sidebarBranchMode",
   "sidebarFooterMode",
   "toolbarMode",
   "tabSize",

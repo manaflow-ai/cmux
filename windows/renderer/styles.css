@@ -1009,7 +1009,8 @@ body.reduce-motion *::after {
   font-family: var(--font-mono);
 }
 
-.shell.workspace-detail-detailed .workspace-row.has-branch .workspace-branch {
+.shell.workspace-detail-detailed.workspace-branch-active .workspace-row.is-active.has-branch .workspace-branch,
+.shell.workspace-detail-detailed.workspace-branch-all .workspace-row.has-branch .workspace-branch {
   display: inline-flex;
 }
 

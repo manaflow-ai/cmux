@@ -18,6 +18,7 @@ export const defaultSettings = {
   paneHeaderMode: "compact",
   paneActionMode: "essential",
   sidebarDetailMode: "compact",
+  sidebarBranchMode: "active",
   sidebarFooterMode: "workspace",
   toolbarMode: "minimal",
   tabSize: "balanced",
@@ -257,6 +258,12 @@ export const sidebarDetailOptions = [
   ["detailed", label("sidebarDetail.detailed", "Full details")]
 ];
 
+export const sidebarBranchOptions = [
+  ["hidden", label("sidebarBranch.hidden", "Hide branches")],
+  ["active", label("sidebarBranch.active", "Active workspace only")],
+  ["all", label("sidebarBranch.all", "All detailed rows")]
+];
+
 export const sidebarFooterOptions = [
   ["workspace", label("sidebarFooter.workspace", "Workspace only")],
   ["compact", label("sidebarFooter.compact", "Compact tools")],
@@ -377,6 +384,7 @@ export const settingsPresets = [
       paneHeaderMode: "compact",
       paneActionMode: "essential",
       sidebarDetailMode: "compact",
+      sidebarBranchMode: "active",
       sidebarFooterMode: "workspace",
       toolbarMode: "minimal",
       tabSize: "balanced",
@@ -420,6 +428,7 @@ export const settingsPresets = [
       paneHeaderMode: "compact",
       paneActionMode: "essential",
       sidebarDetailMode: "compact",
+      sidebarBranchMode: "hidden",
       sidebarFooterMode: "compact",
       toolbarMode: "minimal",
       tabSize: "compact",
@@ -463,6 +472,7 @@ export const settingsPresets = [
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
       sidebarDetailMode: "compact",
+      sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
       toolbarMode: "minimal",
       tabSize: "balanced",
@@ -506,6 +516,7 @@ export const settingsPresets = [
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
       sidebarDetailMode: "compact",
+      sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
       toolbarMode: "minimal",
       tabSize: "compact",
@@ -549,6 +560,7 @@ export const settingsPresets = [
       paneHeaderMode: "full",
       paneActionMode: "full",
       sidebarDetailMode: "detailed",
+      sidebarBranchMode: "all",
       sidebarFooterMode: "compact",
       toolbarMode: "standard",
       tabSize: "roomy",
