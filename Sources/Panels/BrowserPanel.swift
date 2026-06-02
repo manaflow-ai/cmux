@@ -2948,9 +2948,6 @@ final class BrowserPortalAnchorView: NSView {
 
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
-    /// Fallback pool for utility callers that configure copied WebKit configurations outside a live panel.
-    private static let fallbackConfigurationProcessPool = WKProcessPool()
-
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
 
@@ -4035,9 +4032,9 @@ final class BrowserPanel: Panel, ObservableObject {
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
         websiteDataStore: WKWebsiteDataStore,
-        processPool: WKProcessPool = BrowserPanel.fallbackConfigurationProcessPool
+        processPool: WKProcessPool? = nil
     ) {
-        configuration.processPool = processPool
+        configuration.processPool = processPool ?? WKProcessPool()
         configuration.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
