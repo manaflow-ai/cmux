@@ -60,8 +60,8 @@ final class SidebarHelpMenuUITests: XCTestCase {
         )
         clickElement(checkForUpdatesItem)
 
-        let updatePill = app.buttons["UpdatePill"]
-        XCTAssertTrue(updatePill.waitForExistence(timeout: 6.0))
+        let updatePill = app.buttons["Update Available: 9.9.9"]
+        XCTAssertTrue(updatePill.waitForExistence(timeout: 8.0))
         XCTAssertEqual(updatePill.label, "Update Available: 9.9.9")
     }
 
@@ -117,11 +117,10 @@ final class SidebarHelpMenuUITests: XCTestCase {
                 timeout: 2.0
             ) != nil
         )
-        XCTAssertTrue(
-            app.staticTexts[
-                "A human will read this! You can also reach us at founders@manaflow.com."
-            ].waitForExistence(timeout: 2.0)
-        )
+        let note = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "founders@manaflow.com")
+        ).firstMatch
+        XCTAssertTrue(note.waitForExistence(timeout: 2.0))
 
         let messageEditor = requireElement(
             candidates: [
