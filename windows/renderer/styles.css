@@ -430,15 +430,15 @@ body.reduce-motion *::after {
 }
 
 .shell.density-compact .workspace-row {
-  min-height: 64px;
-}
-
-.shell.workspace-detail-compact .workspace-row {
   min-height: 58px;
 }
 
+.shell.workspace-detail-compact .workspace-row {
+  min-height: 54px;
+}
+
 .shell.workspace-detail-compact.density-compact .workspace-row {
-  min-height: 52px;
+  min-height: 50px;
 }
 
 .shell.density-compact .surface-tab {
@@ -669,7 +669,7 @@ body.reduce-motion *::after {
 
 .workspace-row {
   width: 100%;
-  min-height: 80px;
+  min-height: 68px;
   display: grid;
   grid-template-columns: 4px 12px minmax(0, 1fr);
   column-gap: var(--space-2);
@@ -894,20 +894,14 @@ body.reduce-motion *::after {
   display: grid;
 }
 
-.workspace-meta,
 .workspace-detail-line,
-.workspace-path,
-.workspace-branch {
+.workspace-path {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--color-faint);
   font-size: 11px;
-}
-
-.workspace-meta:empty {
-  display: none;
 }
 
 .workspace-detail-line {
@@ -917,42 +911,16 @@ body.reduce-motion *::after {
   gap: var(--space-2);
 }
 
-.workspace-row.has-branch .workspace-detail-line {
-  grid-template-columns: minmax(0, 1fr) minmax(42px, 72px);
-}
-
-.workspace-row.is-active .workspace-meta,
 .workspace-row.is-active .workspace-detail-line,
-.workspace-row.is-active .workspace-path,
-.workspace-row.is-active .workspace-branch {
+.workspace-row.is-active .workspace-path {
   color: var(--color-muted);
-}
-
-.workspace-branch {
-  max-width: 72px;
-  justify-self: end;
-  padding: 1px 5px;
-  border: 1px solid color-mix(in oklch, var(--color-line) 72%, transparent);
-  border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane) 54%, transparent);
-  font-family: var(--font-mono);
 }
 
 .shell.workspace-detail-compact .workspace-card {
   gap: 2px;
 }
 
-.shell.workspace-detail-compact .workspace-meta,
-.shell.workspace-detail-compact .workspace-branch {
-  display: none;
-}
-
-.shell.workspace-detail-compact .workspace-row.has-attention .workspace-meta {
-  display: block;
-}
-
-.shell.workspace-detail-detailed .workspace-path,
-.shell.workspace-detail-detailed .workspace-branch {
+.shell.workspace-detail-detailed .workspace-path {
   font-family: var(--font-mono);
 }
 
