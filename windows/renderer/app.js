@@ -347,7 +347,7 @@ const embeddedGooglePromoDismissScript = `(() => {
 const paneResizeFitThrottleMs = 90;
 const panePointerDragThreshold = 6;
 const closedPanelLimit = 12;
-const maxConcurrentPaneCreations = 4;
+const maxConcurrentPaneCreations = 8;
 const visibleBackgroundOpacity = 24;
 const terminalCursorMigrationStorageKey = "cmux.terminalCursorBarMigration";
 const browserHomeMigrationStorageKey = "cmux.browserHomeGoogleMigration";
@@ -3242,6 +3242,10 @@ function paneCreationButtonsDisabled() {
   return paneCreationOperationCount() >= maxConcurrentPaneCreations;
 }
 
+function paneCreationLimitLabel() {
+  return `Pane startup queue is full (${maxConcurrentPaneCreations}). Wait for one to finish.`;
+}
+
 function paneCreationOperationCount() {
   let count = 0;
   for (const operation of state.uiOperations.values()) {
@@ -3937,7 +3941,7 @@ function getNewSurfaceTab(workspace) {
   }
   setDatasetIfChanged(state.newTabButton, "workspaceId", workspace.id);
   state.newTabButton.disabled = paneCreationButtonsDisabled();
-  setTitleIfChanged(state.newTabButton, state.newTabButton.disabled ? currentUiOperationLabel() || "Pane is being added" : "Add pane");
+  setTitleIfChanged(state.newTabButton, state.newTabButton.disabled ? paneCreationLimitLabel() : "Add pane");
   return state.newTabButton;
 }
 
@@ -4449,7 +4453,7 @@ function renderEmptyWorkspaceLaunchers(node, workspace) {
     button.dataset.emptyLauncher = launcher.id;
     button.disabled = busy;
     const launcherLabel = `${launcher.label}: ${launcher.meta}`;
-    const busyLabel = currentUiOperationLabel() || "Pane is being added";
+    const busyLabel = paneCreationLimitLabel();
     button.title = busy ? busyLabel : launcherLabel;
     button.setAttribute("aria-label", busy ? `${launcherLabel}. ${busyLabel}.` : launcherLabel);
     button.innerHTML = `
@@ -12665,7 +12669,7 @@ async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, op
 
 async function createPanel(type, direction = "right", options = {}) {
   if (options.operation !== false && paneCreationButtonsDisabled()) {
-    toast("Pane is still being added.");
+    toast(paneCreationLimitLabel());
     return null;
   }
   const createStartedAt = performance.now();
