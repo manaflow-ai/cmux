@@ -8110,8 +8110,8 @@ function renderSettingsInspector(options = {}) {
       settingsActionButton("New", () => createWorkspaceFromFolder(), "", "workspace folder new directory new from folder")
     );
     workspaceSection.append(folderActions);
-    workspaceSection.append(recentFoldersSettings());
-    workspaceSection.append(workspaceStarterGrid());
+    workspaceSection.append(recentFoldersDisclosurePanel());
+    workspaceSection.append(workspaceStartersDisclosurePanel());
     workspaceSection.append(settingRow(
       "Color",
       colorControlPanel({
@@ -8143,10 +8143,10 @@ function renderSettingsInspector(options = {}) {
     themeSelect.value = state.settings.theme;
     themeSelect.onchange = () => updateSettings({ theme: themeSelect.value });
     appearanceSection.append(settingRow("Theme", themeSelect));
-    appearanceSection.append(settingRow("Theme gallery", themeChoiceGrid(), true, "theme visual gallery preview"));
+    appearanceSection.append(appearanceThemeGalleryDisclosurePanel());
     appearanceSection.append(settingRow("Accent", swatchGrid(accentColorPalette(), state.settings.accent, (accent) => updateSettings({ accent }))));
     appearanceSection.append(settingRow("Custom accent", colorPicker(state.settings.accent, (accent) => updateSettings({ accent })), false, "custom accent color hex picker"));
-    appearanceSection.append(settingRow("Saved colors", savedColorPalettePanel(), true, "saved color palette custom accent workspace tab pane color"));
+    appearanceSection.append(savedColorsDisclosurePanel());
     const appearanceActions = document.createElement("div");
     appearanceActions.className = "settings-actions appearance-actions";
     appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look reset theme accent background terminal colors default");
@@ -8220,7 +8220,7 @@ function renderSettingsInspector(options = {}) {
       homeInput.value = state.settings.browserHomeUrl;
     });
     browserSection.append(settingRow("Home page", homeInput, true));
-    browserSection.append(settingRow("Home presets", browserHomePresetGrid(), true, "browser home preset quick start localhost github google vite"));
+    browserSection.append(browserHomePresetsDisclosurePanel());
     const launchModeSelect = document.createElement("select");
     launchModeSelect.className = "setting-select";
     launchModeSelect.dataset.settingControl = "browserLaunchMode";
@@ -8267,7 +8267,7 @@ function renderSettingsInspector(options = {}) {
       })
     );
     browserSection.append(homeActions);
-    browserSection.append(recentBrowserPagesSettings());
+    browserSection.append(recentBrowserPagesDisclosurePanel());
     nodes.push(browserSection);
   }
 
@@ -8423,7 +8423,7 @@ function renderSettingsInspector(options = {}) {
       settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", "workspace chrome toolbar sidebar footer inspector tabs status header title reset")
     );
     layoutSection.append(layoutActions);
-    layoutSection.append(settingRow("Pane presets", paneLayoutPresetGrid(), true, "split layout pane presets side by side stacked active wide tall equal"));
+    layoutSection.append(paneLayoutPresetsDisclosurePanel());
     layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
     layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
     layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
@@ -8625,7 +8625,7 @@ function renderSettingsInspector(options = {}) {
     const actionsSection = settingsSection("Settings data");
     actionsSection.append(dataSettingsOverviewPanel());
     actionsSection.append(settingsMetricGrid(settingsDataMetrics(), "data storage local settings metric"));
-    actionsSection.append(dataStorageBreakdownPanel());
+    actionsSection.append(dataStorageBreakdownDisclosurePanel());
     const actions = document.createElement("div");
     actions.className = "settings-actions";
     const clearRecent = settingsActionButton("Clear recent activity", clearRecentActivity, "danger", "clear recent activity folders commands browser pages tabs history");
@@ -8640,7 +8640,7 @@ function renderSettingsInspector(options = {}) {
       settingsActionButton("Reset", resetSettings, "danger")
     );
     actionsSection.append(actions);
-    actionsSection.append(recentCommandsSettings());
+    actionsSection.append(recentCommandsDisclosurePanel());
     nodes.push(actionsSection);
   }
 
@@ -11227,16 +11227,25 @@ function quickSetupActionGrid() {
 function ensureSettingsDisclosureContent(disclosure) {
   if (!disclosure || disclosure.dataset.disclosureMounted === "true") return false;
   const contentBuilder = {
+    "appearance-saved-colors": savedColorPalettePanel,
+    "appearance-theme-gallery": themeChoiceGrid,
     "background-presets": backgroundPresetGrid,
+    "browser-home-presets": browserHomePresetGrid,
+    "browser-recent-pages": recentBrowserPagesSettings,
     "command-snippets": commandSnippetsSettings,
+    "data-recent-commands": recentCommandsSettings,
+    "data-storage-breakdown": dataStorageBreakdownPanel,
+    "layout-pane-presets": paneLayoutPresetGrid,
     "quick-actions": quickSetupActionGrid,
     "quick-categories": quickSettingsShortcutGrid,
     "quick-presets": settingsPresetGrid,
+    "recent-folders": recentFoldersSettings,
     "saved-backgrounds": savedBackgroundImagesPanel,
     "settings-profiles": settingsProfilesPanel,
     "settings-command-list": settingsCommandList,
     "terminal-colors": terminalColorPresetGrid,
     "terminal-fonts": terminalFontChoiceGrid,
+    "workspace-starters": workspaceStarterGrid,
     "workspace-blueprints": workspaceBlueprintsPanel
   }[disclosure.dataset.disclosureContent];
   if (!contentBuilder) return false;
@@ -11400,6 +11409,117 @@ function commandSnippetsDisclosurePanel() {
     meta: formatMessage("commands.snippetCount", {
       count: state.customCommandSnippets.length,
       limit: customCommandSnippetsLimit
+    })
+  });
+}
+
+function recentFoldersDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "recent-folders-disclosure",
+    content: "recent-folders",
+    searchTerms: "workspace recent folders recent workspace folder history directory cwd quick reopen",
+    title: t("workspace.recentFolders"),
+    body: t("workspace.recentFolders.body"),
+    meta: formatMessage("workspace.recentFolderCount", {
+      count: state.recentFolders.length,
+      limit: recentFoldersLimit
+    })
+  });
+}
+
+function workspaceStartersDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "workspace-starters-disclosure",
+    content: "workspace-starters",
+    searchTerms: "workspace starter layout preset split terminal browser dev trio setup",
+    title: t("workspace.starters"),
+    body: t("workspace.starters.body"),
+    meta: formatMessage("workspace.starterCount", { count: workspaceStarters.length })
+  });
+}
+
+function appearanceThemeGalleryDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "appearance-theme-gallery-disclosure",
+    content: "appearance-theme-gallery",
+    searchTerms: "appearance theme visual gallery preview color palette",
+    title: t("appearance.themeGallery"),
+    body: t("appearance.themeGallery.body"),
+    meta: formatMessage("appearance.themeCount", { count: themeOptions.length })
+  });
+}
+
+function savedColorsDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "appearance-saved-colors-disclosure",
+    content: "appearance-saved-colors",
+    searchTerms: "appearance saved color palette custom accent workspace tab pane color",
+    title: t("appearance.savedColors"),
+    body: t("appearance.savedColors.body"),
+    meta: formatMessage("appearance.savedColorCount", {
+      count: state.customColorPalette.length,
+      limit: customColorPaletteLimit
+    })
+  });
+}
+
+function browserHomePresetsDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "browser-home-presets-disclosure",
+    content: "browser-home-presets",
+    searchTerms: "browser home preset quick start localhost github google vite",
+    title: t("browser.homePresets"),
+    body: t("browser.homePresets.body"),
+    meta: formatMessage("browser.homePresetCount", { count: browserHomePresets.length })
+  });
+}
+
+function recentBrowserPagesDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "browser-recent-pages-disclosure",
+    content: "browser-recent-pages",
+    searchTerms: "browser recent pages urls web history open home clear",
+    title: t("browser.recentPages"),
+    body: t("browser.recentPages.body"),
+    meta: formatMessage("browser.recentPageCount", {
+      count: state.recentBrowserPages.length,
+      limit: recentBrowserPagesLimit
+    })
+  });
+}
+
+function paneLayoutPresetsDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "pane-layout-presets-disclosure",
+    content: "layout-pane-presets",
+    searchTerms: "layout split layout pane presets side by side stacked active wide tall equal",
+    title: t("layout.panePresets"),
+    body: t("layout.panePresets.body"),
+    meta: formatMessage("layout.panePresetCount", { count: paneLayoutPresets.length })
+  });
+}
+
+function dataStorageBreakdownDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "data-storage-breakdown-disclosure",
+    content: "data-storage-breakdown",
+    searchTerms: "data storage breakdown local settings metric saved recent cleanup",
+    title: t("data.storageBreakdown"),
+    body: t("data.storageBreakdown.body"),
+    meta: formatMessage("data.storageEntryCount", { count: dataStorageEntries().length })
+  });
+}
+
+function recentCommandsDisclosurePanel() {
+  return settingsDisclosurePanel({
+    className: "data-recent-commands-disclosure",
+    content: "data-recent-commands",
+    searchTerms: "data recent terminal commands shell command history run clear snippets",
+    title: t("data.recentCommands"),
+    body: t("data.recentCommands.body"),
+    meta: formatMessage("data.recentCommandCount", {
+      count: state.recentCommands.length,
+      limit: recentCommandsLimit
     })
   });
 }
