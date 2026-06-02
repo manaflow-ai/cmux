@@ -370,7 +370,8 @@ func resolvedBrowserOmnibarPillBackgroundColor(
         darkenMix = 0.04
     }
 
-    return themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
+    let blendedColor = themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
+    return blendedColor.withAlphaComponent(themeBackgroundColor.alphaComponent)
 }
 
 private struct BrowserChromeStyle {
