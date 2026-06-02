@@ -122,7 +122,9 @@ const controlIconSvg = {
   down: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"></path></svg>`,
   external: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 4h6v6"></path><path d="M10 14 20 4"></path><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"></path></svg>`,
   forward: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 6 6 6-6 6"></path></svg>`,
+  history: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12a8 8 0 1 0 2.34-5.66"></path><path d="M4 5v6h6"></path><path d="M12 8v5l3 2"></path></svg>`,
   home: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m4 11 8-7 8 7"></path><path d="M6 10v10h12V10"></path></svg>`,
+  layout: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14M4 12h16"></path></svg>`,
   plus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"></path></svg>`,
   reload: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 1 1-2.34-5.66"></path><path d="M20 4v6h-6"></path></svg>`,
   browser: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"></circle><path d="M4 12h16M12 4c2.2 2.3 2.2 13.7 0 16M12 4c-2.2 2.3-2.2 13.7 0 16"></path></svg>`,
@@ -4732,7 +4734,7 @@ function emptyWorkspaceLaunchers() {
   const launchers = [
     {
       id: "terminal",
-      icon: "+T",
+      icon: "terminalPlus",
       label: "Terminal",
       meta: "New shell",
       kind: "panel",
@@ -4742,7 +4744,7 @@ function emptyWorkspaceLaunchers() {
     },
     {
       id: "browser",
-      icon: "+W",
+      icon: "browserPlus",
       label: "Browser",
       meta: "Home page",
       kind: "panel",
@@ -4753,7 +4755,7 @@ function emptyWorkspaceLaunchers() {
   if (workspaceStarters.length > 0 || state.workspaceBlueprints.length > 0) {
     launchers.push({
       id: "layouts",
-      icon: "▦",
+      icon: "layout",
       label: "Layouts",
       meta: "settings",
       kind: "layouts"
@@ -4762,7 +4764,7 @@ function emptyWorkspaceLaunchers() {
   if (state.closedPanels.length > 0) {
     launchers.unshift({
       id: "reopen",
-      icon: "↺",
+      icon: "history",
       label: "Reopen",
       meta: "last pane",
       kind: "reopen",
@@ -4810,7 +4812,7 @@ function renderEmptyWorkspaceLaunchers(node, workspace) {
         <span class="empty-workspace-launcher-meta"></span>
       </span>
     `;
-    button.querySelector(".empty-workspace-launcher-icon").textContent = launcher.icon;
+    button.querySelector(".empty-workspace-launcher-icon").innerHTML = controlIconMarkup(launcher.icon);
     button.querySelector(".empty-workspace-launcher-label").textContent = launcher.label;
     button.querySelector(".empty-workspace-launcher-meta").textContent = launcher.meta;
     button.onclick = () => runEmptyWorkspaceLauncher(launcher, workspace);

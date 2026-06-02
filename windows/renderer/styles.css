@@ -3985,6 +3985,12 @@ body.reduce-motion *::after {
   white-space: nowrap;
 }
 
+.empty-workspace-launcher-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+}
+
 .empty-workspace-launcher.is-add .empty-workspace-launcher-icon {
   border-color: color-mix(in oklch, var(--color-accent) 46%, var(--color-line));
   background: color-mix(in oklch, var(--color-accent) 24%, var(--color-pane));
