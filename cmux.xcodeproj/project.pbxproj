@@ -319,6 +319,8 @@
 		D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3664001D3664001D3664001 /* MarkdownPanelTests.swift */; };
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
 		A50014F7 /* MarkdownRemoteImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F6 /* MarkdownRemoteImageLoader.swift */; };
+		F5168A020000000000000001 /* MarkdownTypographyControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A020000000000000002 /* MarkdownTypographyControl.swift */; };
+		F5168A010000000000000001 /* MarkdownTypographySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A010000000000000002 /* MarkdownTypographySettings.swift */; };
 		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
 		A50014F3 /* MarkdownViewerAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F1 /* MarkdownViewerAssets.swift */; };
 		A50014F5 /* MarkdownWebRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F4 /* MarkdownWebRenderer.swift */; };
@@ -946,6 +948,8 @@
 		D3664001D3664001D3664001 /* MarkdownPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPanelTests.swift; sourceTree = "<group>"; };
 		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
 		A50014F6 /* MarkdownRemoteImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownRemoteImageLoader.swift; sourceTree = "<group>"; };
+		F5168A020000000000000002 /* MarkdownTypographyControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownTypographyControl.swift; sourceTree = "<group>"; };
+		F5168A010000000000000002 /* MarkdownTypographySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownTypographySettings.swift; sourceTree = "<group>"; };
 		A50014F1 /* MarkdownViewerAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownViewerAssets.swift; sourceTree = "<group>"; };
 		A50014F4 /* MarkdownWebRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebRenderer.swift; sourceTree = "<group>"; };
 		A50014F8 /* MarkdownWebSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebSupport.swift; sourceTree = "<group>"; };
@@ -1606,6 +1610,8 @@
 				A5007423 /* BrowserWebAuthnSupport.swift */,
 					A5001418 /* MarkdownPanel.swift */,
 					A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
+					F5168A010000000000000002 /* MarkdownTypographySettings.swift */,
+					F5168A020000000000000002 /* MarkdownTypographyControl.swift */,
 					A5001419 /* MarkdownPanelView.swift */,
 					A50014F4 /* MarkdownWebRenderer.swift */,
 					A50014F6 /* MarkdownRemoteImageLoader.swift */,
@@ -2386,6 +2392,8 @@
 					A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */,
 					A5001421 /* MarkdownPanelView.swift in Sources */,
 					A50014F7 /* MarkdownRemoteImageLoader.swift in Sources */,
+					F5168A020000000000000001 /* MarkdownTypographyControl.swift in Sources */,
+					F5168A010000000000000001 /* MarkdownTypographySettings.swift in Sources */,
 					A50014F3 /* MarkdownViewerAssets.swift in Sources */,
 					A50014F5 /* MarkdownWebRenderer.swift in Sources */,
 					A50014F9 /* MarkdownWebSupport.swift in Sources */,
