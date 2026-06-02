@@ -7,6 +7,7 @@ import { cloudDb } from "../../../db/client";
 import { deviceTokens } from "../../../db/schema";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../services/vms/auth";
+import { withApnsApiRoute } from "../../../services/apns/routeHandler";
 import {
   MAX_DEVICE_TOKENS_PER_USER,
   MAX_PUSH_REQUEST_BYTES,
@@ -20,13 +21,17 @@ export const dynamic = "force-dynamic";
 const HEX_TOKEN = /^[0-9a-fA-F]{64,200}$/;
 
 export async function POST(request: Request): Promise<Response> {
+  return withApnsApiRoute(request, "/api/device-tokens", "register", async () => registerDeviceToken(request));
+}
+
+async function registerDeviceToken(request: Request): Promise<Response> {
   const user = await verifyRequest(request, { allowCookie: false });
   if (!user) return unauthorized();
 
   const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);
   if (!body.ok) return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
 
-  const deviceToken = typeof body.value.deviceToken === "string" ? body.value.deviceToken.trim() : "";
+  const deviceToken = typeof body.value.deviceToken === "string" ? body.value.deviceToken.trim().toLowerCase() : "";
   const bundleId = typeof body.value.bundleId === "string" ? body.value.bundleId.trim() : "";
   const platform = typeof body.value.platform === "string" ? body.value.platform.trim() || "ios" : "ios";
   const bundle = normalizeApnsBundle(bundleId);
@@ -93,12 +98,16 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 export async function DELETE(request: Request): Promise<Response> {
+  return withApnsApiRoute(request, "/api/device-tokens", "delete", async () => deleteDeviceToken(request));
+}
+
+async function deleteDeviceToken(request: Request): Promise<Response> {
   const user = await verifyRequest(request, { allowCookie: false });
   if (!user) return unauthorized();
 
   const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);
   if (!body.ok) return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
-  const deviceToken = typeof body.value.deviceToken === "string" ? body.value.deviceToken.trim() : "";
+  const deviceToken = typeof body.value.deviceToken === "string" ? body.value.deviceToken.trim().toLowerCase() : "";
   if (!deviceToken) return jsonResponse({ error: "missing_device_token" }, 400);
   if (!HEX_TOKEN.test(deviceToken)) return jsonResponse({ error: "invalid_device_token" }, 400);
 

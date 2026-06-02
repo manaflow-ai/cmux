@@ -11,6 +11,7 @@ import { deviceTokens } from "../../../../db/schema";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
 import { recordPushSendOrThrow, PushRateLimitExceededError } from "../../../../services/apns/rateLimit";
+import { withApnsApiRoute } from "../../../../services/apns/routeHandler";
 import {
   MAX_DEVICE_TOKENS_PER_USER,
   MAX_PUSH_REQUEST_BYTES,
@@ -44,6 +45,10 @@ function rateLimitResponse(error: PushRateLimitExceededError): Response {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  return withApnsApiRoute(request, "/api/notifications/push", "send", async () => sendPush(request));
+}
+
+async function sendPush(request: Request): Promise<Response> {
   const user = await verifyRequest(request, { allowCookie: false });
   if (!user) return unauthorized();
 

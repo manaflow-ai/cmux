@@ -19,7 +19,7 @@ mock.module("../app/lib/stack", () => ({
   isStackConfigured: () => true,
 }));
 
-const { POST } = await import("../app/api/device-tokens/route");
+const { DELETE, POST } = await import("../app/api/device-tokens/route");
 
 let sql: Sql | null = null;
 
@@ -69,5 +69,50 @@ describe("device token route", () => {
       select count(*)::int as total from device_tokens where user_id = 'push-user-1'
     `;
     expect(stored.total).toBe(10);
+  });
+
+  dbTest("canonicalizes token casing for register and delete", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate device_tokens restart identity cascade`;
+
+    const token = "a".repeat(64);
+    const headers = {
+      authorization: "Bearer access-token",
+      "x-stack-refresh-token": "refresh-token",
+    };
+    const register = (deviceToken: string) =>
+      POST(
+        new Request("https://cmux.test/api/device-tokens", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            deviceToken,
+            bundleId: "dev.cmux.ios.push1",
+            platform: "ios",
+          }),
+        }),
+      );
+
+    expect((await register(token.toUpperCase())).status).toBe(200);
+    expect((await register(token)).status).toBe(200);
+
+    const [stored] = await sql<{ total: number; token: string }[]>`
+      select count(*)::int as total, min(device_token) as token from device_tokens where user_id = 'push-user-1'
+    `;
+    expect(stored).toEqual({ total: 1, token });
+
+    const deleteResponse = await DELETE(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "DELETE",
+        headers,
+        body: JSON.stringify({ deviceToken: token.toUpperCase() }),
+      }),
+    );
+    expect(deleteResponse.status).toBe(200);
+
+    const [remaining] = await sql<{ total: number }[]>`
+      select count(*)::int as total from device_tokens where user_id = 'push-user-1'
+    `;
+    expect(remaining.total).toBe(0);
   });
 });
