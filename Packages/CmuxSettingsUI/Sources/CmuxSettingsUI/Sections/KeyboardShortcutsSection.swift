@@ -158,7 +158,9 @@ public struct KeyboardShortcutsSection: View {
                 // identify which existing shortcut is in the way.
                 let conflictOverride = bindings[conflict.rawValue]
                 let conflictEffective = conflictOverride ?? conflict.defaultStroke.map { StoredShortcut(first: $0) }
-                let conflictShortcutString = conflictEffective.map { format($0) } ?? ""
+                let conflictShortcutString = conflictEffective.map {
+                    format($0, numbered: conflict.usesNumberedDigitMatching)
+                } ?? ""
                 let messageFormat = String(
                     localized: "shortcut.recorder.error.conflictsWithAction",
                     defaultValue: "This shortcut conflicts with %@ (%@)."
@@ -183,7 +185,10 @@ public struct KeyboardShortcutsSection: View {
                 Spacer()
 
                 ShortcutRecorderView(
-                    placeholder: formatPlaceholder(effective: effective),
+                    placeholder: formatPlaceholder(
+                        effective: effective,
+                        numbered: action.usesNumberedDigitMatching
+                    ),
                     chordsEnabled: chordModeActions.contains(action.rawValue),
                     hasPendingRejection: bareKeyRejected,
                     onStroke: { stroke in Task { await assign(stroke: stroke, to: action) } },
@@ -297,11 +302,11 @@ public struct KeyboardShortcutsSection: View {
     /// has per-action overrides (e.g. number-stack actions allow sharing),
     /// but we don't have that catalog data here, so the conservative
     /// "same first stroke && both bound" check is the best we can do.
-    private func formatPlaceholder(effective: StoredShortcut?) -> String {
+    private func formatPlaceholder(effective: StoredShortcut?, numbered: Bool) -> String {
         let unboundLabel = String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
         guard let effective else { return unboundLabel }
         if effective.isUnbound { return unboundLabel }
-        return format(effective)
+        return format(effective, numbered: numbered)
     }
 
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
@@ -314,66 +319,13 @@ public struct KeyboardShortcutsSection: View {
         return nil
     }
 
-    /// Mirrors legacy `StoredShortcut.displayString`: returns localized
-    /// "None" for unbound, formats the first stroke (and optional chord
-    /// second stroke) via ``Self/strokeDisplayString(_:)`` so named keys
-    /// like Tab/Space/arrows/media render with their friendly labels
-    /// instead of raw `"\t"` / `"space"` / `"media.next"`.
-    private func format(_ shortcut: StoredShortcut) -> String {
-        if shortcut.isUnbound {
-            return String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
-        }
-        if let chord = shortcut.second {
-            return Self.strokeDisplayString(shortcut.first)
-                + " "
-                + Self.strokeDisplayString(chord)
-        }
-        return Self.strokeDisplayString(shortcut.first)
-    }
-
-    /// Formats a single ``ShortcutStroke`` with the same symbol order
-    /// and named-key labels as legacy `ShortcutStroke.displayString`
-    /// (modifier symbols ⌃⌥⇧⌘ followed by ``Self/keyDisplayString(_:)``).
-    private static func strokeDisplayString(_ stroke: ShortcutStroke) -> String {
-        var result = ""
-        if stroke.control { result.append("⌃") }
-        if stroke.option { result.append("⌥") }
-        if stroke.shift { result.append("⇧") }
-        if stroke.command { result.append("⌘") }
-        result.append(keyDisplayString(stroke.key))
-        return result
-    }
-
-    /// Mirrors legacy `ShortcutStroke.keyDisplayString` for the common
-    /// named-key tokens we may see in stored shortcuts. Falls back to
-    /// the uppercased raw key for plain letters/digits.
-    private static func keyDisplayString(_ key: String) -> String {
-        switch key {
-        case "\t":
-            return String(localized: "shortcut.key.tab", defaultValue: "Tab")
-        case "space":
-            return String(localized: "shortcut.key.space", defaultValue: "Space")
-        case "\r":
-            return "↩"
-        case "media.brightnessDown":
-            return String(localized: "shortcut.key.mediaBrightnessDown", defaultValue: "Brightness Down")
-        case "media.brightnessUp":
-            return String(localized: "shortcut.key.mediaBrightnessUp", defaultValue: "Brightness Up")
-        case "media.mute":
-            return String(localized: "shortcut.key.mediaMute", defaultValue: "Mute")
-        case "media.next":
-            return String(localized: "shortcut.key.mediaNext", defaultValue: "Next Track")
-        case "media.playPause":
-            return String(localized: "shortcut.key.mediaPlayPause", defaultValue: "Play/Pause")
-        case "media.previous":
-            return String(localized: "shortcut.key.mediaPrevious", defaultValue: "Previous Track")
-        case "media.volumeDown":
-            return String(localized: "shortcut.key.mediaVolumeDown", defaultValue: "Volume Down")
-        case "media.volumeUp":
-            return String(localized: "shortcut.key.mediaVolumeUp", defaultValue: "Volume Up")
-        default:
-            return key.uppercased()
-        }
+    /// Formats a binding for display, delegating to
+    /// ``shortcutDisplayString(_:numbered:)``. Pass `numbered: true` for
+    /// actions whose binding stands in for the whole `1…9` digit range
+    /// (see ``ShortcutAction/usesNumberedDigitMatching``) so the row reads
+    /// `⌃1…9` rather than the literal single digit `⌃1`.
+    private func format(_ shortcut: StoredShortcut, numbered: Bool = false) -> String {
+        shortcutDisplayString(shortcut, numbered: numbered)
     }
 
     private func streamBindings() async {

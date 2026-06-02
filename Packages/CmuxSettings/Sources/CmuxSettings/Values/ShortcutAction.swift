@@ -155,6 +155,24 @@ extension ShortcutAction {
         }
     }
 
+    /// Whether this action binds the whole `1…9` digit range through a
+    /// single stored placeholder.
+    ///
+    /// ``selectSurfaceByNumber`` and ``selectWorkspaceByNumber`` are special:
+    /// one binding (with the digit normalized to `"1"`) stands in for the
+    /// entire `⌘1`–`⌘9` / `⌃1`–`⌃9` family. UI that displays the binding
+    /// should render it as `⌃1…9` (the range) rather than the literal
+    /// single-digit `⌃1`, and recording any digit `1`–`9` rebinds the whole
+    /// range. All other actions match a single concrete keystroke.
+    public var usesNumberedDigitMatching: Bool {
+        switch self {
+        case .selectSurfaceByNumber, .selectWorkspaceByNumber:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// User-facing display name shown in the Settings UI.
     public var displayName: String {
         switch self {
