@@ -448,8 +448,10 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
 
         let workflowContainerId = "d1d1d1d1-d1d1-d1d1-d1d1-d1d1d1d1d1d1"
-        let nearSiblingId = "e2e2e2e2-e2e2-e2e2-e2e2-e2e2e2e2e2e2"
-        let farSiblingId = "f3f3f3f3-f3f3-f3f3-f3f3-f3f3f3f3f3f3"
+        // "near" sorts after "far" alphabetically ("f..." > "e...") and is written second,
+        // so only the pinned birthtimes can make nearSiblingId win.
+        let nearSiblingId = "f3f3f3f3-f3f3-f3f3-f3f3-f3f3f3f3f3f3"
+        let farSiblingId = "e2e2e2e2-e2e2-e2e2-e2e2-e2e2e2e2e2e2"
         let workspaceId = UUID()
         let panelId = UUID()
 
@@ -457,11 +459,11 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let workflowDir = projectDir.appendingPathComponent(workflowContainerId, isDirectory: true)
         try fm.createDirectory(at: workflowDir, withIntermediateDirectories: true)
 
-        // Two sibling transcripts
+        // Two sibling transcripts — far written first so filesystem creation order also favors it.
         let nearURL = projectDir.appendingPathComponent("\(nearSiblingId).jsonl")
         let farURL = projectDir.appendingPathComponent("\(farSiblingId).jsonl")
-        try writeClaudeTranscript(sessionId: nearSiblingId, transcriptURL: nearURL, cwd: cwd)
         try writeClaudeTranscript(sessionId: farSiblingId, transcriptURL: farURL, cwd: cwd)
+        try writeClaudeTranscript(sessionId: nearSiblingId, transcriptURL: nearURL, cwd: cwd)
 
         // Pin birthtimes: container at T, near sibling 5 s after (delta 5), far sibling 60 s after (delta 60).
         let baseDate = Date(timeIntervalSince1970: 1_000_000)
