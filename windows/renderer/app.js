@@ -1574,6 +1574,7 @@ function settingsProfileSummary(settings) {
     normalized.density,
     toolbar,
     `${actions} pane controls`,
+    normalized.paneColorMarkers ? "colored pane markers" : "quiet pane markers",
     `${backgroundEffects.toLowerCase()} background`,
     normalized.performanceMode ? "performance" : normalized.reduceMotion ? "reduced motion" : "balanced",
     normalized.terminalPauseInactiveOutput ? "paused output" : "live output",
