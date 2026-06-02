@@ -38,7 +38,6 @@ enum WorkspacePresentationModeSettings {
             defaults.setVolatileDomain(argumentDomain, forName: UserDefaults.argumentDomain)
         }
         defaults.synchronize()
-        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
     }
 
     static func isMinimal(defaults: UserDefaults = .standard) -> Bool {

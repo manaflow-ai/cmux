@@ -8002,11 +8002,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.enableMinimalMode") {
             WorkspacePresentationModeSettings.setMode(.minimal)
-            workspacePresentationMode = WorkspacePresentationModeSettings.Mode.minimal.rawValue
         }
         registry.register(commandId: "palette.disableMinimalMode") {
             WorkspacePresentationModeSettings.setMode(.standard)
-            workspacePresentationMode = WorkspacePresentationModeSettings.Mode.standard.rawValue
         }
         registerViewCommandHandlers(&registry)
         registry.register(commandId: "palette.showNotifications") {
