@@ -548,6 +548,9 @@ const state = {
   performanceMetricsRefreshTimer: 0,
   performanceMetricsRefreshAt: 0,
   settingsSearchIndex: [],
+  settingsSearchEmpty: null,
+  settingsSearchClear: null,
+  settingsSearchFeedback: null,
   settingsSearchResultText: "",
   settingsSearchFocusPending: false,
   renderStats: {
@@ -8386,7 +8389,7 @@ function renderSettingsInspector(options = {}) {
 
   unmountSettingsChrome();
   elements.inspectorBody.replaceChildren(...nodes);
-  state.settingsSearchIndex = buildSettingsSearchIndex();
+  rebuildSettingsSearchIndex();
   if (resetScroll) resetSettingsScroll();
   renderSettingsChrome(settingsChrome);
   if (searching) scheduleSettingsFilter();
@@ -8407,7 +8410,10 @@ function settingsSearchFeedbackText() {
 
 function setSettingsSearchResultText(text) {
   state.settingsSearchResultText = String(text || "");
-  const feedback = elements.inspectorBody.querySelector("[data-settings-search-feedback]");
+  const feedback = state.settingsSearchFeedback?.isConnected
+    ? state.settingsSearchFeedback
+    : elements.inspectorBody.querySelector("[data-settings-search-feedback]");
+  state.settingsSearchFeedback = feedback || null;
   if (feedback) setTextIfChanged(feedback, settingsSearchFeedbackText());
 }
 
@@ -8566,12 +8572,18 @@ function unmountSettingsChrome() {
   }
 }
 
+function refreshSettingsChromeRefs(root = elements.inspectorBody) {
+  state.settingsSearchClear = root.querySelector(".settings-search-clear");
+  state.settingsSearchFeedback = root.querySelector("[data-settings-search-feedback]");
+}
+
 function renderSettingsChrome(host) {
   const reactSettings = window.CmuxSettingsUi;
   const focusSearchOnMount = state.settingsSearchFocusPending;
   state.settingsSearchFocusPending = false;
   if (!reactSettings?.renderSettingsShell) {
     host.replaceChildren(settingsSearch(), settingsCategoryNav());
+    refreshSettingsChromeRefs(host);
     if (focusSearchOnMount) restoreSettingsSearchFocus();
     return;
   }
@@ -8618,6 +8630,7 @@ function renderSettingsChrome(host) {
       renderSettingsInspector({ resetScroll: true });
     }
   });
+  refreshSettingsChromeRefs(host);
 }
 
 function settingsSearch() {
@@ -9786,6 +9799,12 @@ function buildSettingsSearchIndex() {
   }));
 }
 
+function rebuildSettingsSearchIndex() {
+  state.settingsSearchIndex = buildSettingsSearchIndex();
+  state.settingsSearchEmpty = elements.inspectorBody.querySelector(".settings-empty");
+  return state.settingsSearchIndex;
+}
+
 function updateSettingsSearchIndexItemSearch(target, search) {
   for (const section of state.settingsSearchIndex) {
     const record = section.items.find((item) => item.item === target);
@@ -9842,7 +9861,7 @@ function applySettingsFilter() {
   let visibleSections = 0;
   let matchingItems = 0;
   let bestTarget = null;
-  const sections = state.settingsSearchIndex.length ? state.settingsSearchIndex : buildSettingsSearchIndex();
+  const sections = state.settingsSearchIndex.length ? state.settingsSearchIndex : rebuildSettingsSearchIndex();
   for (const sectionRecord of sections) {
     const { section, sectionSearch, sectionTitle, items, groups } = sectionRecord;
     const sectionMatches = settingsSearchMatchesNormalized(sectionSearch, tokens);
@@ -9875,9 +9894,15 @@ function applySettingsFilter() {
     setHiddenIfChanged(section, !sectionVisible);
     if (sectionVisible) visibleSections += 1;
   }
-  const empty = elements.inspectorBody.querySelector(".settings-empty");
+  const empty = state.settingsSearchEmpty?.isConnected
+    ? state.settingsSearchEmpty
+    : elements.inspectorBody.querySelector(".settings-empty");
+  state.settingsSearchEmpty = empty || null;
   if (empty) setHiddenIfChanged(empty, !query || visibleSections > 0);
-  const clear = elements.inspectorBody.querySelector(".settings-search-clear");
+  const clear = state.settingsSearchClear?.isConnected
+    ? state.settingsSearchClear
+    : elements.inspectorBody.querySelector(".settings-search-clear");
+  state.settingsSearchClear = clear || null;
   if (clear) clear.disabled = !query;
   setSettingsSearchResultText(query ? settingsSearchResultMessage(matchingItems, visibleSections) : "");
   const shouldAutoScroll = query
@@ -10756,7 +10781,7 @@ function refreshPerformanceMetricsGrid() {
   const cards = [...grid.querySelectorAll(".settings-metric")];
   if (cards.length !== metrics.length) {
     replaceChildrenIfChanged(grid, metrics.map(([label, value]) => settingsMetricCard(label, value)));
-    state.settingsSearchIndex = buildSettingsSearchIndex();
+    rebuildSettingsSearchIndex();
     return true;
   }
   let changed = false;
