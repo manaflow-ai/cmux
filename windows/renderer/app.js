@@ -5850,8 +5850,8 @@ async function openBrowserPanelExternally(panel = focusedPanel()) {
     return false;
   }
   focusPanel(browserPanel.id);
-  await openExternalBrowser(browserPanelUrl(browserPanel));
-  return true;
+  const result = await openExternalBrowser(browserPanelUrl(browserPanel), { toast: true });
+  return Boolean(result?.ok);
 }
 
 async function copyBrowserPanelUrl(panel = focusedPanel()) {
