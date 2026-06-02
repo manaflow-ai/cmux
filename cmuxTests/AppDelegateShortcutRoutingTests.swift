@@ -2859,7 +2859,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event, preferredWindow: window))
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -2903,7 +2903,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event, preferredWindow: window))
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -3539,7 +3539,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event, preferredWindow: window))
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -3619,7 +3619,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent))
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent, preferredWindow: window))
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -3725,7 +3725,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent))
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent, preferredWindow: window))
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -3784,7 +3784,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent))
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent, preferredWindow: window))
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -3873,7 +3873,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
 #if DEBUG
         XCTAssertTrue(
-            appDelegate.debugHandleCustomShortcut(event: escapeEvent),
+            appDelegate.debugHandleCustomShortcut(event: escapeEvent, preferredWindow: window),
             "Escape should still be consumed for menu-triggered command palette opens"
         )
 #else
@@ -3926,7 +3926,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: firstEscape))
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: firstEscape, preferredWindow: window))
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -3936,7 +3936,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
 #if DEBUG
         XCTAssertTrue(
-            appDelegate.debugHandleCustomShortcut(event: repeatedEscape),
+            appDelegate.debugHandleCustomShortcut(event: repeatedEscape, preferredWindow: window),
             "Repeated Escape immediately after dismiss should be consumed to prevent terminal passthrough"
         )
 #else
@@ -3987,7 +3987,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleShortcutMonitorEvent(event: escapeKeyDown))
+        XCTAssertTrue(appDelegate.debugHandleShortcutMonitorEvent(event: escapeKeyDown, preferredWindow: window))
 #else
         XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
 #endif
@@ -3997,7 +3997,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
 #if DEBUG
         XCTAssertTrue(
-            appDelegate.debugHandleShortcutMonitorEvent(event: escapeKeyUp),
+            appDelegate.debugHandleShortcutMonitorEvent(event: escapeKeyUp, preferredWindow: window),
             "Escape keyUp after palette dismiss should be consumed to prevent terminal passthrough"
         )
 #else
@@ -9509,7 +9509,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleShortcutMonitorEvent(event: escapeKeyDown), file: file, line: line)
+        XCTAssertTrue(
+            appDelegate.debugHandleShortcutMonitorEvent(event: escapeKeyDown, preferredWindow: window),
+            file: file,
+            line: line
+        )
 #else
         XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG", file: file, line: line)
 #endif
@@ -9518,7 +9522,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
 #if DEBUG
         XCTAssertTrue(
-            appDelegate.debugHandleShortcutMonitorEvent(event: escapeKeyUp),
+            appDelegate.debugHandleShortcutMonitorEvent(event: escapeKeyUp, preferredWindow: window),
             "Escape keyUp should be consumed after dismiss for command palette open requests",
             file: file,
             line: line

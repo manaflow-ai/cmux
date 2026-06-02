@@ -14839,6 +14839,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handleCustomShortcut(event: event)
     }
 
+    func debugHandleCustomShortcut(event: NSEvent, preferredWindow: NSWindow?) -> Bool {
+        withShortcutRoutingPreferredWindow(preferredWindow) {
+            handleCustomShortcut(event: event)
+        }
+    }
+
     // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
     func debugHandleShortcutMonitorEvent(event: NSEvent) -> Bool {
         if event.type == .systemDefined {
@@ -14849,6 +14855,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
         return clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true)
+    }
+
+    func debugHandleShortcutMonitorEvent(event: NSEvent, preferredWindow: NSWindow?) -> Bool {
+        withShortcutRoutingPreferredWindow(preferredWindow) {
+            debugHandleShortcutMonitorEvent(event: event)
+        }
     }
 
     func debugMatchesConfiguredShortcut(
