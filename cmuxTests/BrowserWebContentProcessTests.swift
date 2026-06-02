@@ -103,6 +103,28 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func profileSwitchClearsTerminatedWebViewRecovery() throws {
+        let profile = try #require(
+            BrowserProfileStore.shared.createProfile(
+                named: "WebContent Recovery \(UUID().uuidString)"
+            )
+        )
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
+            initialURL: recoveryURL
+        )
+        defer { panel.close() }
+
+        panel.debugSimulateWebContentProcessTermination()
+        #expect(panel.hasRecoverableWebContentTermination)
+
+        #expect(panel.switchToProfile(profile.id))
+
+        #expect(!panel.hasRecoverableWebContentTermination)
+    }
+
+    @Test
     func webViewReplacementPreservesEmptyNewTabRenderState() {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }
