@@ -532,6 +532,7 @@ const state = {
   performanceMetricsRefreshTimer: 0,
   performanceMetricsRefreshAt: 0,
   settingsSearchIndex: [],
+  settingsSearchResultText: "",
   settingsSearchFocusPending: false,
   renderStats: {
     count: 0,
@@ -8264,7 +8265,7 @@ function renderSettingsInspector(options = {}) {
 
   const empty = document.createElement("div");
   empty.className = "settings-empty";
-  empty.textContent = "No matching settings.";
+  empty.textContent = t("settings.searchNoResults");
   empty.hidden = true;
   nodes.push(empty);
 
@@ -8282,6 +8283,29 @@ function resetSettingsScroll() {
 
 function queueSettingsSearchAutoScroll() {
   state.settingsSearchAutoScrollQuery = normalizeSettingsQuery(state.settingsQuery);
+}
+
+function settingsSearchFeedbackText() {
+  if (!normalizeSettingsQuery(state.settingsQuery)) return t("settings.searchHint");
+  return state.settingsSearchResultText || t("settings.searching");
+}
+
+function setSettingsSearchResultText(text) {
+  state.settingsSearchResultText = String(text || "");
+  const feedback = elements.inspectorBody.querySelector("[data-settings-search-feedback]");
+  if (feedback) setTextIfChanged(feedback, settingsSearchFeedbackText());
+}
+
+function settingsSearchResultMessage(matchCount, sectionCount) {
+  if (sectionCount <= 0) return t("settings.searchNoResults");
+  const count = Math.max(0, Number(matchCount) || 0);
+  const sections = Math.max(1, Number(sectionCount) || 0);
+  return formatMessage("settings.searchResults", {
+    count,
+    matchLabel: t(count === 1 ? "settings.searchMatch" : "settings.searchMatches"),
+    sectionCount: sections,
+    sectionLabel: t(sections === 1 ? "settings.searchPage" : "settings.searchPages")
+  });
 }
 
 function settingsInspectorSignature() {
@@ -8441,10 +8465,12 @@ function renderSettingsChrome(host) {
     categories: settingsCategories,
     focusSearchOnMount,
     query: state.settingsQuery,
+    searchFeedback: settingsSearchFeedbackText(),
     subtitle: elements.inspectorSubtitle.textContent,
     labels: {
       searchPlaceholder: t("settings.searchPlaceholder"),
       clearSearch: t("settings.clearSearch"),
+      searchHint: t("settings.searchHint"),
       pageLabel: t("settings.pageLabel"),
       pageAriaLabel: t("settings.pageAriaLabel"),
       pagesAriaLabel: t("settings.pagesAriaLabel"),
@@ -8453,12 +8479,14 @@ function renderSettingsChrome(host) {
     onCategory: (category) => {
       state.settingsCategory = category;
       state.settingsQuery = "";
+      state.settingsSearchResultText = "";
       renderSettingsInspector({ resetScroll: true });
     },
     onQuery: (query) => {
       const wasSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
       state.settingsQuery = query;
       const isSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+      state.settingsSearchResultText = isSearching ? t("settings.searching") : "";
       if (isSearching) queueSettingsSearchAutoScroll();
       if (wasSearching !== isSearching) {
         state.settingsSearchFocusPending = true;
@@ -8470,6 +8498,7 @@ function renderSettingsChrome(host) {
     },
     onClear: () => {
       state.settingsQuery = "";
+      state.settingsSearchResultText = "";
       state.settingsSearchFocusPending = true;
       renderSettingsInspector({ resetScroll: true });
     }
@@ -8491,6 +8520,8 @@ function settingsSearch() {
     wrapper.classList.toggle("has-query", Boolean(state.settingsQuery));
     clear.disabled = !state.settingsQuery;
     const isSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+    state.settingsSearchResultText = isSearching ? t("settings.searching") : "";
+    setSettingsSearchResultText(state.settingsSearchResultText);
     if (isSearching) queueSettingsSearchAutoScroll();
     if (wasSearching !== isSearching) {
       renderSettingsInspector({ resetScroll: true });
@@ -8508,10 +8539,16 @@ function settingsSearch() {
   clear.disabled = !state.settingsQuery;
   clear.onclick = () => {
     state.settingsQuery = "";
+    state.settingsSearchResultText = "";
     renderSettingsInspector({ resetScroll: true });
     restoreSettingsSearchFocus();
   };
-  wrapper.append(input, clear);
+  const feedback = document.createElement("div");
+  feedback.className = "settings-search-feedback";
+  feedback.dataset.settingsSearchFeedback = "true";
+  feedback.setAttribute("aria-live", "polite");
+  feedback.textContent = settingsSearchFeedbackText();
+  wrapper.append(input, clear, feedback);
   return wrapper;
 }
 
@@ -9567,19 +9604,26 @@ function applySettingsFilter() {
   const query = normalizeSettingsQuery(state.settingsQuery);
   const tokens = settingsSearchTokens(query);
   let visibleSections = 0;
+  let matchingItems = 0;
   let bestTarget = null;
   const sections = state.settingsSearchIndex.length ? state.settingsSearchIndex : buildSettingsSearchIndex();
   for (const sectionRecord of sections) {
     const { section, sectionSearch, sectionTitle, items, groups } = sectionRecord;
     const sectionMatches = settingsSearchMatches(sectionSearch, tokens);
     let sectionVisible = sectionMatches;
-    if (query && sectionMatches) bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, section, sectionTitle);
+    if (query && sectionMatches) {
+      matchingItems += 1;
+      bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, section, sectionTitle);
+    }
     for (const { item, search } of items) {
       const itemMatches = settingsSearchMatches(search, tokens);
       const visible = itemMatches || sectionMatches;
       setHiddenIfChanged(item, !visible);
       sectionVisible ||= visible;
-      if (query && itemMatches) bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, item, sectionTitle);
+      if (query && itemMatches) {
+        matchingItems += 1;
+        bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, item, sectionTitle);
+      }
     }
     for (const { group, search, cards } of groups) {
       const cardVisible = cards.some((card) => !card.hidden);
@@ -9587,7 +9631,10 @@ function applySettingsFilter() {
       const groupVisible = cardVisible || groupMatches || sectionMatches;
       setHiddenIfChanged(group, !groupVisible);
       sectionVisible ||= groupVisible;
-      if (query && groupMatches) bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, group, sectionTitle);
+      if (query && groupMatches) {
+        matchingItems += 1;
+        bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, group, sectionTitle);
+      }
     }
     setHiddenIfChanged(section, !sectionVisible);
     if (sectionVisible) visibleSections += 1;
@@ -9596,6 +9643,7 @@ function applySettingsFilter() {
   if (empty) setHiddenIfChanged(empty, !query || visibleSections > 0);
   const clear = elements.inspectorBody.querySelector(".settings-search-clear");
   if (clear) clear.disabled = !query;
+  setSettingsSearchResultText(query ? settingsSearchResultMessage(matchingItems, visibleSections) : "");
   const shouldAutoScroll = query
     && (state.settingsSearchAutoScrollQuery === query || elements.inspectorBody.scrollTop === 0);
   if (state.settingsSearchAutoScrollQuery === query) state.settingsSearchAutoScrollQuery = "";

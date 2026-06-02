@@ -4,6 +4,7 @@ import { formatMessage, t } from "../../i18n.js";
 const defaultLabels = () => ({
   searchPlaceholder: t("settings.searchPlaceholder"),
   clearSearch: t("settings.clearSearch"),
+  searchHint: t("settings.searchHint"),
   pageLabel: t("settings.pageLabel"),
   pageAriaLabel: t("settings.pageAriaLabel"),
   pagesAriaLabel: t("settings.pagesAriaLabel"),
@@ -23,6 +24,7 @@ export function SettingsShell({
   categories,
   focusSearchOnMount = false,
   query,
+  searchFeedback,
   subtitle,
   onCategory,
   onQuery,
@@ -33,6 +35,7 @@ export function SettingsShell({
   const safeLabels = {
     searchPlaceholder: labels.searchPlaceholder || localizedDefaults.searchPlaceholder,
     clearSearch: labels.clearSearch || localizedDefaults.clearSearch,
+    searchHint: labels.searchHint || localizedDefaults.searchHint,
     pageLabel: labels.pageLabel || localizedDefaults.pageLabel,
     pageAriaLabel: labels.pageAriaLabel || localizedDefaults.pageAriaLabel,
     pagesAriaLabel: labels.pagesAriaLabel || localizedDefaults.pagesAriaLabel,
@@ -59,9 +62,9 @@ export function SettingsShell({
   const clearSearch = () => {
     if (!query) return;
     onClear();
-    searchInputRef.current?.focus({ preventScroll: true });
   };
   const tabTitleTemplate = safeLabels.tabTitle || localizedDefaults.tabTitle;
+  const feedbackText = searchFeedback || safeLabels.searchHint;
 
   return (
     <div className="settings-react-shell" data-react-settings="true">
@@ -85,6 +88,9 @@ export function SettingsShell({
         >
           <CloseIcon />
         </button>
+        <div className="settings-search-feedback" aria-live="polite" data-settings-search-feedback="true">
+          {feedbackText}
+        </div>
       </div>
       <div className="settings-page-switcher">
         <div className="settings-page-head">

@@ -4390,6 +4390,17 @@ body.reduce-motion *::after {
   display: grid;
 }
 
+.settings-search-feedback {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-faint);
+  font-size: 10px;
+  line-height: 1.15;
+}
+
 .settings-search-clear:hover:not(:disabled) {
   border-color: var(--color-line-strong);
   background: var(--color-pane-active);
