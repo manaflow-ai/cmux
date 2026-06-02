@@ -11071,11 +11071,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
 private extension NSScreen {
     var displayID: UInt32? {
-        let key = NSDeviceDescriptionKey("NSScreenNumber")
-        if let v = deviceDescription[key] as? UInt32 { return v }
-        if let v = deviceDescription[key] as? Int { return UInt32(v) }
-        if let v = deviceDescription[key] as? NSNumber { return v.uint32Value }
-        return nil
+        cmuxDisplayID
     }
 }
 
