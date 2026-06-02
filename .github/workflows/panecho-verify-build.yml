@@ -7,9 +7,6 @@ name: Panecho verify build (artifact only)
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - panecho-use-nosentry-ghosttykit
 
 permissions:
   contents: read
