@@ -461,6 +461,28 @@ function tokensMatch(expected, actual) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
+function jsonRpcResponse(id, result) {
+  return JSON.stringify({ jsonrpc: "2.0", id: id ?? null, result });
+}
+
+function jsonRpcErrorResponse(id, code, message) {
+  return JSON.stringify({
+    jsonrpc: "2.0",
+    id: id ?? null,
+    error: {
+      code,
+      message
+    }
+  });
+}
+
+function jsonRpcErrorForException(error, id = null) {
+  if (error instanceof SyntaxError) return jsonRpcErrorResponse(null, -32700, "Parse error");
+  const message = String(error?.message || "Internal error");
+  if (/^unknown method:/i.test(message)) return jsonRpcErrorResponse(id, -32601, "Method not found");
+  return jsonRpcErrorResponse(id, -32603, "Internal error");
+}
+
 function terminalProcessEnv(panel, panelToken, extra = {}) {
   const env = { ...process.env };
   delete env.CMUX_WINDOWS_TOKEN;
@@ -1522,9 +1544,13 @@ class CmuxWindowsRuntime {
     if (!line) return "ERROR empty command";
     if (authContext.scope === "panel") return this.handlePanelPipeLine(line, authContext.panelId);
     if (line.startsWith("{")) {
-      const request = JSON.parse(line);
-      const result = this.handleRpc(request.method, request.params || {});
-      return JSON.stringify({ jsonrpc: "2.0", id: request.id ?? null, result });
+      let request = null;
+      try {
+        request = JSON.parse(line);
+        return jsonRpcResponse(request.id, this.handleRpc(request.method, request.params || {}));
+      } catch (error) {
+        return jsonRpcErrorForException(error, request?.id);
+      }
     }
     const [command, ...args] = line.split(/\s+/);
     switch (command) {
@@ -1553,15 +1579,20 @@ class CmuxWindowsRuntime {
 
   async handlePanelPipeLine(line, panelId) {
     if (line.startsWith("{")) {
-      const request = JSON.parse(line);
-      if (request.method === "system.ping") {
-        return JSON.stringify({ jsonrpc: "2.0", id: request.id ?? null, result: { ok: true } });
+      let request = null;
+      try {
+        request = JSON.parse(line);
+        if (request.method === "system.ping") {
+          return jsonRpcResponse(request.id, { ok: true });
+        }
+        if (request.method === "terminal.send") {
+          const result = { ok: this.sendInput(String(request.params?.text || ""), panelId) };
+          return jsonRpcResponse(request.id, result);
+        }
+        return jsonRpcErrorResponse(request.id, -32601, "Method not found");
+      } catch (error) {
+        return jsonRpcErrorForException(error, request?.id);
       }
-      if (request.method === "terminal.send") {
-        const result = { ok: this.sendInput(String(request.params?.text || ""), panelId) };
-        return JSON.stringify({ jsonrpc: "2.0", id: request.id ?? null, result });
-      }
-      return JSON.stringify({ jsonrpc: "2.0", id: request.id ?? null, error: { code: 403, message: "forbidden" } });
     }
     const [command, ...args] = line.split(/\s+/);
     switch (command) {
