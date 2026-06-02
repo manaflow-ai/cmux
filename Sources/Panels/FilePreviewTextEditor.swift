@@ -184,12 +184,18 @@ extension NSTextView {
         scrollView.hasHorizontalScroller = !wrap
         isHorizontallyResizable = !wrap
         if wrap {
-            let visibleWidth = scrollView.contentSize.width
             textContainer.widthTracksTextView = true
-            textContainer.size = NSSize(width: visibleWidth, height: .greatestFiniteMagnitude)
-            // Snap the view to the visible width so wrapping reflows immediately
-            // instead of waiting for the next layout pass.
-            setFrameSize(NSSize(width: visibleWidth, height: frame.height))
+            // `widthTracksTextView` keeps the container pinned to the text view
+            // width, so wrapping is correct even before the scroll view is laid
+            // out. Only snap the frame/container to a real measured width to
+            // avoid collapsing to a zero-width container during `makeNSView`,
+            // before the clip view has a size; `updateNSView` re-runs once laid
+            // out and reflows.
+            let visibleWidth = scrollView.contentSize.width
+            if visibleWidth > 0 {
+                textContainer.size = NSSize(width: visibleWidth, height: .greatestFiniteMagnitude)
+                setFrameSize(NSSize(width: visibleWidth, height: frame.height))
+            }
         } else {
             textContainer.widthTracksTextView = false
             textContainer.size = NSSize(
