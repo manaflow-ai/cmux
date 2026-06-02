@@ -940,7 +940,11 @@ struct TitlebarControlsView: View {
                 onToggleSidebar()
             },
                 rightClickAction: { anchorView, event in
-                    CmuxExtensionSidebarSelection.showMenu(anchorView: anchorView, event: event)
+                    SidebarScriptLayoutMenuController.showMenu(
+                        scriptStore: .shared,
+                        anchorView: anchorView,
+                        event: event
+                    )
                 }) {
                 sidebarIconLabel(config: config, iconGeometryKeyPrefix: "titlebarControl_toggleSidebarIcon")
             }
