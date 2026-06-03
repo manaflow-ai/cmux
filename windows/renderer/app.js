@@ -7767,15 +7767,22 @@ function renderBrowserTabs(session) {
   const signature = browserTabsSignature(session, tabLabels);
   const layoutSignature = browserTabsLayoutSignature(session, tabLabels);
   const layoutChanged = layoutSignature !== session.tabLayoutSignature;
+  const structureReady = browserTabStructureReady(session);
   if (
     signature === session.tabSignature
-    && session.tabButtons.size === session.tabs.length
-    && session.tabList.children.length === session.tabs.length
-    && session.tabNew
+    && structureReady
   ) {
     updateBrowserTabNewButton(session);
     session.tabLayoutSignature = layoutSignature;
     scheduleActiveBrowserTabIntoView(session, { refreshOverflow: layoutChanged || !session.tabOverflowSignature });
+    return;
+  }
+  if (!layoutChanged && structureReady) {
+    updateBrowserTabNewButton(session);
+    updateBrowserTabSelectionOnly(session);
+    session.tabSignature = signature;
+    session.tabLayoutSignature = layoutSignature;
+    scheduleActiveBrowserTabIntoView(session, { refreshOverflow: !session.tabOverflowSignature });
     return;
   }
   const validTabIds = new Set(session.tabs.map((tab) => tab.id));
@@ -7798,6 +7805,15 @@ function renderBrowserTabs(session) {
   session.tabSignature = signature;
   session.tabLayoutSignature = layoutSignature;
   scheduleActiveBrowserTabIntoView(session, { refreshOverflow: layoutChanged || !session.tabOverflowSignature });
+}
+
+function browserTabStructureReady(session) {
+  const tabCount = Array.isArray(session?.tabs) ? session.tabs.length : 0;
+  return Boolean(
+    session?.tabNew
+    && session.tabButtons?.size === tabCount
+    && session.tabList?.children.length === tabCount
+  );
 }
 
 function browserTabsSignature(session, tabLabels = browserTabLabels(session)) {
@@ -8037,6 +8053,31 @@ function handleBrowserTabKeydown(session, event, tabId) {
   focusBrowserTabButton(session, nextTabId);
 }
 
+function updateBrowserTabSelectionState(button, active) {
+  if (!button) return false;
+  let changed = false;
+  changed = toggleClassIfChanged(button, "is-active", active) || changed;
+  changed = setAttributeIfChanged(button, "aria-selected", active ? "true" : "false") || changed;
+  const nextTabIndex = active ? 0 : -1;
+  if (button.tabIndex !== nextTabIndex) {
+    button.tabIndex = nextTabIndex;
+    changed = true;
+  }
+  return changed;
+}
+
+function updateBrowserTabSelectionOnly(session) {
+  if (!session?.tabList || !session.tabButtons) return false;
+  let changed = false;
+  for (const button of session.tabList.querySelectorAll(".browser-tab.is-active")) {
+    if (button.dataset.browserTabId !== session.activeTabId) {
+      changed = updateBrowserTabSelectionState(button, false) || changed;
+    }
+  }
+  changed = updateBrowserTabSelectionState(session.tabButtons.get(session.activeTabId), true) || changed;
+  return changed;
+}
+
 function updateBrowserTabButton(session, button, tab, label = browserTabLabel(session, tab)) {
   const fullTitle = browserTabBaseLabel(tab);
   const ordinal = Math.max(1, (session?.tabs || []).findIndex((candidate) => candidate.id === tab.id) + 1);
@@ -8048,12 +8089,12 @@ function updateBrowserTabButton(session, button, tab, label = browserTabLabel(se
   };
   const parts = button._browserTabParts;
   const active = tab.id === session.activeTabId;
-  setClassNameIfChanged(button, `browser-tab${active ? " is-active" : ""}`);
+  if (!button.classList.contains("browser-tab")) button.classList.add("browser-tab");
+  toggleClassIfChanged(button, "is-active", active);
   setDatasetIfChanged(button, "browserTabId", tab.id);
   setDatasetIfChanged(button, "tabIndex", String(ordinal));
   setAttributeIfChanged(button, "role", "tab");
-  setAttributeIfChanged(button, "aria-selected", active ? "true" : "false");
-  if (button.tabIndex !== (active ? 0 : -1)) button.tabIndex = active ? 0 : -1;
+  updateBrowserTabSelectionState(button, active);
   setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""} - ${tab.url}`);
   const ariaLabel = `${label}. ${tab.url}. ${closeLabel} with Delete.`;
   setAttributeIfChanged(button, "aria-label", ariaLabel);
