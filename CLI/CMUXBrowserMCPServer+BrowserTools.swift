@@ -385,10 +385,29 @@ extension CMUXBrowserMCPServer {
                 )
             )
         }
-        var params = arguments["params"] as? [String: Any] ?? [:]
+        let paramsObject: [String: Any]
+        if let paramsValue = arguments["params"] {
+            guard let object = paramsValue as? [String: Any] else {
+                throw CLIError(
+                    message: String(localized: "cli.browserMCP.error.invalidRequest", defaultValue: "Invalid Request")
+                )
+            }
+            paramsObject = object
+        } else {
+            paramsObject = [:]
+        }
+        var params = paramsObject
         return try withClient { client in
-            if let rawSurface = params["surface_id"] as? String ?? params["surface"] as? String,
-               let surface = try cli.normalizeSurfaceHandle(rawSurface, client: client) {
+            if let rawSurfaceValue = params["surface_id"] ?? params["surface"] {
+                guard let rawSurface = rawSurfaceValue as? String,
+                      let surface = try cli.normalizeSurfaceHandle(rawSurface, client: client) else {
+                    throw CLIError(
+                        message: String(
+                            localized: "cli.browserMCP.error.invalidSurfaceHandle",
+                            defaultValue: "Invalid browser surface handle"
+                        )
+                    )
+                }
                 params["surface_id"] = surface
                 params.removeValue(forKey: "surface")
                 defaultSurface = surface

@@ -174,7 +174,17 @@ final class CMUXBrowserMCPServer {
                 )
             )
         }
-        let arguments = params["arguments"] as? [String: Any] ?? [:]
+        let arguments: [String: Any]
+        if let argumentsValue = params["arguments"] {
+            guard let argumentsObject = argumentsValue as? [String: Any] else {
+                throw CLIError(
+                    message: String(localized: "cli.browserMCP.error.invalidRequest", defaultValue: "Invalid Request")
+                )
+            }
+            arguments = argumentsObject
+        } else {
+            arguments = [:]
+        }
         do {
             switch name {
             case "cmux_browser_identify":

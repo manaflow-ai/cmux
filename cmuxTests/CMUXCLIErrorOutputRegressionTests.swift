@@ -12,7 +12,25 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     private struct ProcessRunResult {
         let status: Int32
         let stdout: String
+        let stderr: String
         let timedOut: Bool
+
+        var output: String {
+            [stdout, stderr]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        }
+    }
+
+    private enum JSONResponseLineError: Error, CustomStringConvertible {
+        case unexpectedStdoutLine(String)
+
+        var description: String {
+            switch self {
+            case let .unexpectedStdoutLine(line):
+                return "Unexpected non-JSON stdout line: \(line)"
+            }
+        }
     }
 
     private struct BrowserMCPTestEnvironment {
@@ -232,10 +250,10 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stdout.contains(taggedSocketPath), result.stdout)
-        XCTAssertFalse(result.stdout.contains("OK STABLE"), result.stdout)
+        XCTAssertFalse(result.timedOut, result.output)
+        XCTAssertNotEqual(result.status, 0, result.output)
+        XCTAssertTrue(result.output.contains(taggedSocketPath), result.output)
+        XCTAssertFalse(result.output.contains("OK STABLE"), result.output)
         XCTAssertEqual(stableResponder.receivedRequests, [])
     }
 
@@ -1179,6 +1197,17 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertTrue(responses[1]["id"] is NSNull, result.stdout)
     }
 
+    func testBrowserMCPResponseParserRejectsNonJSONStdoutLines() {
+        let output = [
+            "debug log line",
+            #"{"jsonrpc":"2.0","id":1,"result":{}}"#,
+        ].joined(separator: "\n")
+
+        XCTAssertThrowsError(try jsonResponseLines(from: output)) { error in
+            XCTAssertTrue(String(describing: error).contains("Unexpected non-JSON stdout line"))
+        }
+    }
+
     func testBrowserMCPServerHandlesBatchElementsIndividually() throws {
         let cliPath = try bundledCLIPath()
         let testEnvironment = try browserMCPTestEnvironment()
@@ -1236,6 +1265,32 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let error = try XCTUnwrap(responses[0]["error"] as? [String: Any])
         XCTAssertEqual(error["code"] as? Int, -32602)
         XCTAssertTrue((error["message"] as? String)?.contains("tools/call requires a tool name") == true, result.stdout)
+    }
+
+    func testBrowserMCPServerReturnsInvalidParamsForMalformedToolArgumentsEnvelope() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cmux_browser_open","arguments":"oops"}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 1, result.stdout)
+        let error = try XCTUnwrap(responses[0]["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? Int, -32602)
+        XCTAssertTrue((error["message"] as? String)?.contains("Invalid Request") == true, result.stdout)
     }
 
     func testBrowserMCPServerRejectsExplicitEmptyBrowserHandles() throws {
@@ -1347,6 +1402,66 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(callResult["isError"] as? Bool, true, result.stdout)
         let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
         XCTAssertTrue((content.first?["text"] as? String)?.contains("requires selector") == true, result.stdout)
+        XCTAssertEqual(responder.receivedRequests, [])
+    }
+
+    func testBrowserMCPServerRejectsMalformedRawRPCParamsWithoutSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_rpc","arguments":{"method":"system.identify","params":"oops"}}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let callResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        XCTAssertEqual(callResult["isError"] as? Bool, true, result.stdout)
+        let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+        XCTAssertTrue((content.first?["text"] as? String)?.contains("Invalid Request") == true, result.stdout)
+    }
+
+    func testBrowserMCPServerRejectsInvalidRawRPCSurfaceBeforeForwarding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-mcp-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: #"{"ok":true,"result":{}}"#)
+        defer { responder.stop() }
+        let testEnvironment = try browserMCPTestEnvironment(socketPath: socketPath)
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cmux_browser_rpc","arguments":{"method":"browser.get.title","params":{"surface":""}}}}"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let responses = try jsonResponseLines(from: result.stdout)
+        XCTAssertEqual(responses.count, 2, result.stdout)
+        let callResult = try XCTUnwrap(responses[1]["result"] as? [String: Any])
+        XCTAssertEqual(callResult["isError"] as? Bool, true, result.stdout)
+        let content = try XCTUnwrap(callResult["content"] as? [[String: Any]])
+        XCTAssertTrue((content.first?["text"] as? String)?.contains("Invalid browser surface handle") == true, result.stdout)
         XCTAssertEqual(responder.receivedRequests, [])
     }
 
@@ -1930,15 +2045,17 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     private func runShell(_ command: String, timeout: TimeInterval) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", command]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
 
         do {
             try process.run()
         } catch {
-            return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
+            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
@@ -1960,6 +2077,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         return ProcessRunResult(
             status: process.terminationStatus,
             stdout: String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stderr: String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
             timedOut: timedOut
         )
     }
@@ -1974,6 +2092,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     ) -> ProcessRunResult {
         let process = Process()
         let outputPipe = Pipe()
+        let errorPipe = Pipe()
         let inputPipe = stdinText.map { _ in Pipe() }
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
@@ -1985,12 +2104,12 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             process.standardInput = FileHandle.nullDevice
         }
         process.standardOutput = outputPipe
-        process.standardError = outputPipe
+        process.standardError = errorPipe
 
         do {
             try process.run()
         } catch {
-            return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
+            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
         if let stdinText,
            let inputPipe {
@@ -2017,16 +2136,23 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         return ProcessRunResult(
             status: process.terminationStatus,
             stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stderr: String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
             timedOut: timedOut
         )
     }
 
     private func jsonResponseLines(from output: String) throws -> [[String: Any]] {
         try output
-            .split(separator: "\n")
-            .map(String.init)
-            .filter { $0.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") }
-            .map(jsonObject(fromLine:))
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .compactMap { rawLine -> [String: Any]? in
+                let line = String(rawLine)
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return nil }
+                guard trimmed.hasPrefix("{") else {
+                    throw JSONResponseLineError.unexpectedStdoutLine(line)
+                }
+                return try jsonObject(fromLine: line)
+            }
     }
 
     private func jsonObject(fromLine line: String) throws -> [String: Any] {
