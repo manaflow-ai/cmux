@@ -5196,6 +5196,7 @@ const commands = [
   { id: "settings.pasteSavedLibrary", label: "Paste Customization Library", shortcut: "", run: () => pasteSavedLibrary() },
   { id: "settings.clearSavedLibrary", label: "Clear Customization Library", shortcut: "", run: () => clearSavedLibrary() },
   { id: "settings.pane", label: "Open Active Pane Settings", shortcut: "", run: () => openPaneSettings() },
+  { id: "settings.renamePane", label: "Rename Active Pane", shortcut: "", run: () => renameActivePanel() },
   { id: "settings.copyPaneSetup", label: "Copy Active Pane Setup", shortcut: "", run: () => copyActivePaneSetup() },
   { id: "settings.pastePaneSetup", label: "Paste Active Pane Setup", shortcut: "", run: () => pasteActivePaneSetup() },
   { id: "settings.resetAppearance", label: "Reset Look Settings", shortcut: "", run: () => resetAppearanceSettings() },
@@ -20350,6 +20351,7 @@ function showToolbarMenu(event) {
     contextMenuSectionTitle("Pane"),
     contextMenuActionGroup(
       toolbarAction("Customize active pane", () => openPaneSettings(panel), !panel, "Customize the focused pane.", paneRequiredTitle),
+      toolbarAction("Rename active pane", () => renameActivePanel(panel), !panel, "Rename the focused pane tab.", paneRequiredTitle),
       toolbarAction("Active pane appearance", () => openPaneAppearanceSettings(panel), !panel, "Open appearance controls for the focused pane.", paneRequiredTitle),
       toolbarAction("Copy pane setup", () => copyActivePaneSetup(panel), !panel, "Copy the focused pane name, color, and type-specific setup as JSON.", paneRequiredTitle),
       toolbarAction("Paste pane setup", () => pasteActivePaneSetup(panel), !panel, "Apply copied pane setup to the focused pane.", paneRequiredTitle),
@@ -20898,23 +20900,32 @@ function showConfirmDialog({
 }
 
 async function renamePanel(panel) {
+  if (!panel) {
+    toast("Focus or create a pane first.");
+    return false;
+  }
   const title = await showTextDialog({
     title: "Rename tab",
     value: panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal"),
     placeholder: "Tab name",
     confirmLabel: "Rename"
   });
-  if (title === null) return;
+  if (title === null) return false;
   if (!title) {
     if (!panel.titleLocked) {
       toast("Pane already uses the default name.");
-      return;
+      return false;
     }
-    updatePanel(panel.id, { title: "" });
+    await updatePanel(panel.id, { title: "" });
     toast("Pane name reset.");
-    return;
+    return true;
   }
-  updatePanel(panel.id, { title });
+  await updatePanel(panel.id, { title });
+  return true;
+}
+
+function renameActivePanel(panel = focusedPanel() || activePanel()) {
+  return renamePanel(panel);
 }
 
 function splitPanel(panel, direction, type = "terminal", options = {}) {
