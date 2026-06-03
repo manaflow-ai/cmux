@@ -24639,7 +24639,7 @@ function paletteEntryKind(entry) {
   if (id.startsWith("terminal.") || id.startsWith("terminalReadabilityPreset.") || id.startsWith("recentCommand.") || id.startsWith("commandSnippet.")) return "terminal";
   if (id.startsWith("browser.") || id.startsWith("recentBrowser.") || id.startsWith("browserHomePreset.") || id.startsWith("browserWorkflowPreset.")) return "browser";
   if (id.startsWith("workspace.") || id.startsWith("recentFolder.") || id.startsWith("workspaceBlueprint.") || id.startsWith("workspaceStarter.")) return "workspace";
-  if (id.startsWith("quickSetupAction.") || id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.") || id.startsWith("performanceTunePreset.")) return "settings";
+  if (id.startsWith("actionWorkflow.") || id.startsWith("quickSetupAction.") || id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.") || id.startsWith("performanceTunePreset.")) return "settings";
   if (id.startsWith("layout.") || id.startsWith("paneLayoutPreset.") || id.startsWith("paneSetupPreset.") || id.startsWith("workspaceChromePreset.")) return "layout";
   if (id.startsWith("background") || id.startsWith("savedBackground")) return "look";
   if (id.startsWith("lookPack.") || id.startsWith("themeChoice.") || id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("savedColorPalette.") || id.startsWith("terminalColor.")) return "color";
@@ -24721,6 +24721,24 @@ function quickSetupPaletteEntries() {
   });
 }
 
+function actionWorkflowPaletteEntries() {
+  return actionWorkflowDefinitions.flatMap((workflow) => {
+    const workflowCommands = actionWorkflowCommands(workflow);
+    if (!workflowCommands.length) return [];
+    const shortcutSummary = actionWorkflowShortcutSummary(workflowCommands);
+    return [{
+      id: `actionWorkflow.${workflow.id}`,
+      label: `Action workflow: ${workflow.label}`,
+      meta: `${workflowCommands.length} commands / ${shortcutSummary}`,
+      shortcut: "Workflow",
+      icon: "actions",
+      title: `Open the ${workflow.label} workflow in Actions settings.`,
+      search: actionWorkflowSearchText(workflow, workflowCommands),
+      run: () => openSettingsCategory("actions", { query: workflow.label, focusSearch: false })
+    }];
+  });
+}
+
 function paletteEntries() {
   const paletteWorkspace = activeWorkspace();
   const activeLayoutCommandIds = activePaneLayoutCommandIds(paletteWorkspace);
@@ -24742,6 +24760,7 @@ function paletteEntries() {
     };
   });
   entries.push(...quickSetupPaletteEntries());
+  entries.push(...actionWorkflowPaletteEntries());
   for (const preset of workspaceChromePresets) {
     const settings = workspaceChromePresetSettings(preset);
     if (!settings) continue;
