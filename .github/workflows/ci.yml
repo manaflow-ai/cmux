@@ -476,6 +476,11 @@ jobs:
             fi
           fi
 
+          if ! echo "$OUTPUT" | grep -Eq 'Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests'; then
+            echo "Unit test workflow completed without executing any tests" >&2
+            exit 1
+          fi
+
       - name: Run bundled Ghostty theme picker helper regression
         run: |
           set -euo pipefail

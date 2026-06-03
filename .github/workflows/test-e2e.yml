@@ -400,6 +400,16 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
           if [ "$EXIT_CODE" -eq 0 ]; then
+            if ! echo "$OUTPUT" | grep -Eq 'Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests'; then
+              echo "test_result=failed" >> "$GITHUB_OUTPUT"
+              {
+                echo "test_output<<EOFOUT"
+                echo "$OUTPUT" | tail -200
+                echo "EOFOUT"
+              } >> "$GITHUB_OUTPUT"
+              echo "UI test workflow completed without executing any tests" >&2
+              exit 1
+            fi
             echo "test_result=passed" >> "$GITHUB_OUTPUT"
           else
             echo "test_result=failed" >> "$GITHUB_OUTPUT"

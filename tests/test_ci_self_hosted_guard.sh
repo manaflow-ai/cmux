@@ -442,6 +442,57 @@ check_swift_package_tests_require_nonzero_execution() {
   echo "PASS: Swift package unit-test lane rejects zero-test package runs"
 }
 
+check_xcodebuild_unit_step_requires_nonzero_execution() {
+  local file="$1" step="$2" message="$3"
+  if ! awk -v step="$step" -v message="$message" '
+    index($0, "- name: " step) { in_step=1; saw_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_wrapper=1 }
+    in_step && /Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
+    in_step && index($0, message) { saw_message=1 }
+    END { exit(saw_step && saw_wrapper && saw_nonzero_guard && saw_message ? 0 : 1) }
+  ' "$file"; then
+    echo "FAIL: $step in $(basename "$file") must run xcodebuild noninteractively and reject zero-test success"
+    exit 1
+  fi
+
+  echo "PASS: $step in $(basename "$file") rejects zero-test xcodebuild runs"
+}
+
+check_xcodebuild_unit_step_allows_expected_failures() {
+  local file="$1" step="$2"
+  if ! awk -v step="$step" '
+    index($0, "- name: " step) { in_step=1; saw_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /grep "Executed\.\*tests\.\*with\.\*failures"/ { saw_summary=1 }
+    in_step && /\(0 unexpected\)/ { saw_expected_check=1 }
+    in_step && /All failures are expected, treating as pass/ { saw_expected_message=1 }
+    in_step && /Unexpected unit test failures detected|Unexpected test failures detected/ { saw_unexpected_message=1 }
+    END { exit(saw_step && saw_summary && saw_expected_check && saw_expected_message && saw_unexpected_message ? 0 : 1) }
+  ' "$file"; then
+    echo "FAIL: $step in $(basename "$file") must distinguish expected XCTest failures from unexpected failures"
+    exit 1
+  fi
+
+  echo "PASS: $step in $(basename "$file") allows only expected XCTest failures"
+}
+
+check_e2e_ui_tests_require_nonzero_execution() {
+  if ! awk '
+    /^[[:space:]]*- name: Run UI tests$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
+    in_step && /UI test workflow completed without executing any tests/ { saw_message=1 }
+    in_step && /test_result=failed/ { saw_failure_output=1 }
+    END { exit(saw_nonzero_guard && saw_message && saw_failure_output ? 0 : 1) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must reject successful xcodebuild output that executed zero UI tests"
+    exit 1
+  fi
+
+  echo "PASS: test-e2e.yml rejects zero-test UI runs"
+}
+
 check_tests_deriveddata_cache() {
   if ! awk '
     /^  tests:/ { in_job=1; next }
@@ -625,6 +676,7 @@ check_self_hosted_workspace_prep "$COMPAT_FILE" "compat-tests"
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
 check_e2e_recording_preflight
+check_e2e_ui_tests_require_nonzero_execution
 check_self_hosted_workspace_prep "$E2E_FILE" "e2e"
 
 # test-depot.yml is also manual, but it still needs the same self-hosted
@@ -656,6 +708,11 @@ check_split_theme_regression_timeout
 check_command_palette_nucleo_ffi_coverage
 check_web_db_behavior_test_coverage
 check_swift_package_tests_require_nonzero_execution
+check_xcodebuild_unit_step_requires_nonzero_execution "$CI_FILE" "Run unit tests" "Unit test workflow completed without executing any tests"
+check_xcodebuild_unit_step_requires_nonzero_execution "$COMPAT_FILE" "Run unit tests" "Compatibility unit tests completed without executing any tests"
+check_xcodebuild_unit_step_requires_nonzero_execution "$TERMINAL_CORPUS_NIGHTLY_FILE" "Run terminal corpus unit tests" "Terminal corpus unit tests completed without executing any tests"
+check_xcodebuild_unit_step_allows_expected_failures "$CI_FILE" "Run unit tests"
+check_xcodebuild_unit_step_allows_expected_failures "$COMPAT_FILE" "Run unit tests"
 check_tests_deriveddata_cache
 check_ui_regression_budget
 check_build_and_lag_budget

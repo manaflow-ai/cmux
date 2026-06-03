@@ -93,12 +93,27 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            -only-testing:cmuxTests/GhosttyCommandShiftForwardingTests \
-            -only-testing:cmuxTests/GhosttyTerminalStartupEnvironmentTests \
-            -only-testing:cmuxTests/CmuxConfigNamedColorTests \
-            -only-testing:cmuxTests/SessionPersistenceTests \
-            test
+          set +e
+          OUTPUT=$(scripts/ci/xcodebuild_noninteractive.py \
+            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              -only-testing:cmuxTests/GhosttyCommandShiftForwardingTests \
+              -only-testing:cmuxTests/GhosttyTerminalStartupEnvironmentTests \
+              -only-testing:cmuxTests/CmuxConfigNamedColorTests \
+              -only-testing:cmuxTests/SessionPersistenceTests \
+              test 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          echo "$OUTPUT"
+
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            exit "$EXIT_CODE"
+          fi
+
+          if ! echo "$OUTPUT" | grep -Eq 'Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests'; then
+            echo "Terminal corpus unit tests completed without executing any tests" >&2
+            exit 1
+          fi
