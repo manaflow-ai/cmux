@@ -12507,6 +12507,12 @@ function renderSettingsInspector(options = {}) {
     themeSelect.value = state.settings.theme;
     themeSelect.onchange = () => updateSettings({ theme: themeSelect.value });
     appearanceSection.append(settingRow("Theme", themeSelect));
+    appearanceSection.append(settingRow(
+      "Theme accent",
+      themeAccentControl(),
+      true,
+      "theme recommended accent color match sync palette"
+    ));
     appearanceSection.append(appearanceThemeGalleryDisclosurePanel());
     appearanceSection.append(settingRow("Accent", swatchGrid(accentColorPalette(), state.settings.accent, (accent) => updateSettings({ accent }))));
     appearanceSection.append(settingRow("Custom accent", colorPicker(state.settings.accent, (accent) => updateSettings({ accent })), false, "custom accent color hex picker"));
@@ -14282,6 +14288,78 @@ function applyThemeChoice(theme, options = {}) {
   return true;
 }
 
+function currentThemeAccentModel() {
+  const theme = themeChoiceById(state.settings.theme) || themeChoiceById(defaultSettings.theme);
+  const accent = themeChoiceAccent(theme);
+  const label = themeChoiceLabel(theme);
+  return {
+    accent,
+    label,
+    active: colorKey(state.settings.accent) === colorKey(accent)
+  };
+}
+
+function applyCurrentThemeAccent() {
+  const model = currentThemeAccentModel();
+  const changed = updateSettings({ accent: model.accent });
+  if (!changed) {
+    toast(`${model.label} accent already active.`);
+    return false;
+  }
+  refreshAppearanceSettingsForColorChange();
+  toast(`${model.label} accent applied.`);
+  return true;
+}
+
+function themeAccentSearchText(model = currentThemeAccentModel()) {
+  return normalizeSettingsQuery(`theme recommended accent color match sync palette ${model.active ? "active current " : ""}${model.label} ${model.accent}`);
+}
+
+function refreshThemeAccentControl(control = elements.inspectorBody.querySelector("[data-theme-accent-control]")) {
+  if (!control) return false;
+  const model = currentThemeAccentModel();
+  control.style.setProperty("--theme-accent-color", model.accent);
+  setTextIfChanged(control.querySelector(".theme-accent-title"), model.label);
+  setTextIfChanged(control.querySelector(".theme-accent-body"), model.active ? "Accent matches this theme" : "Use the theme's recommended accent");
+  const search = themeAccentSearchText(model);
+  if (control.dataset.settingsSearch !== search) {
+    control.dataset.settingsSearch = search;
+    updateSettingsSearchIndexItemSearch(control, search);
+  }
+  const action = control.querySelector("[data-theme-accent-action]");
+  if (action) {
+    setSettingsActionLabel(action, model.active ? "Matched" : "Use accent");
+    setDisabledIfChanged(action, model.active);
+    setTitleIfChanged(action, model.active ? `${model.label} accent already active.` : `Use ${model.label} theme accent.`);
+    const actionSearch = themeAccentSearchText(model);
+    if (action.dataset.settingsSearch !== actionSearch) {
+      action.dataset.settingsSearch = actionSearch;
+      updateSettingsSearchIndexItemSearch(action, actionSearch);
+    }
+  }
+  return true;
+}
+
+function themeAccentControl() {
+  const control = document.createElement("span");
+  control.className = "theme-accent-control";
+  control.dataset.themeAccentControl = "true";
+  control.innerHTML = `
+    <span class="theme-accent-chip">
+      <span class="theme-accent-swatch" aria-hidden="true"></span>
+      <span class="theme-accent-copy">
+        <span class="theme-accent-title"></span>
+        <span class="theme-accent-body"></span>
+      </span>
+    </span>
+  `;
+  const action = settingsActionButton("Use accent", applyCurrentThemeAccent, "", themeAccentSearchText());
+  action.dataset.themeAccentAction = "true";
+  control.append(action);
+  refreshThemeAccentControl(control);
+  return control;
+}
+
 function lookPackById(packId) {
   return lookPackDefinitions.find((candidate) => candidate.id === packId) || null;
 }
@@ -14399,6 +14477,7 @@ function refreshAppearancePreview() {
   }
   const themeSelect = elements.inspectorBody.querySelector('[data-setting-control="theme"]');
   if (themeSelect && themeSelect.value !== state.settings.theme) themeSelect.value = state.settings.theme;
+  refreshThemeAccentControl();
   for (const button of elements.inspectorBody.querySelectorAll("[data-theme-choice]")) {
     const theme = themeChoiceById(button.dataset.themeChoice);
     const active = isActiveThemeChoice(theme);

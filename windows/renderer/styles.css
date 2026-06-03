@@ -6641,6 +6641,70 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   display: none;
 }
 
+.theme-accent-control {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.theme-accent-chip {
+  min-width: 0;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px 7px;
+  border: 1px solid color-mix(in oklch, var(--theme-accent-color, var(--color-accent)) 36%, var(--color-line) 64%);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--theme-accent-color, var(--color-accent)) 9%, var(--color-pane) 91%);
+}
+
+.theme-accent-swatch {
+  width: 18px;
+  height: 18px;
+  border: 1px solid color-mix(in oklch, var(--theme-accent-color, var(--color-accent)) 62%, var(--color-line) 38%);
+  border-radius: 999px;
+  background: var(--theme-accent-color, var(--color-accent));
+  box-shadow: inset 0 0 0 2px color-mix(in oklch, var(--color-pane) 34%, transparent);
+}
+
+.theme-accent-copy,
+.theme-accent-title,
+.theme-accent-body {
+  min-width: 0;
+}
+
+.theme-accent-copy {
+  display: grid;
+  gap: 1px;
+}
+
+.theme-accent-title,
+.theme-accent-body {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.theme-accent-title {
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.theme-accent-body {
+  color: var(--color-faint);
+  font-size: 10px;
+}
+
+.theme-accent-control .settings-action {
+  min-width: 82px;
+  height: 30px;
+}
+
 .look-pack-grid {
   min-width: 0;
   display: grid;
