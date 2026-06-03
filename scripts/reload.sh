@@ -597,16 +597,14 @@ if [[ -z "$TAG" ]]; then
   XCODEBUILD_ARGS+=(
     INFOPLIST_KEY_CFBundleName="$APP_NAME"
     INFOPLIST_KEY_CFBundleDisplayName="$APP_NAME"
-    PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
   )
 fi
+XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
 # Scope the sidebar ExtensionKit point per build tag so concurrent dev builds (and
-# their tagged sample extensions) don't share one point. Baked at build time via
-# the CMUX_SIDEBAR_EXTENSION_POINT_ID build setting so the bundle declaration and
-# matching Info.plist key stay coherent. The committed default is the base id;
-# tagged builds stamp the generated .appextensionpoint bundle artifact.
+# their tagged sample extensions) don't share one point. The host bundle declares
+# the point under Contents/Extensions, and Info.plist carries the same identifier.
 if [[ -n "$TAG" ]]; then
-  XCODEBUILD_ARGS+=(CMUX_SIDEBAR_EXTENSION_POINT_ID="com.manaflow.cmux.sidebar.${TAG_ID}")
+  XCODEBUILD_ARGS+=(CMUX_SIDEBAR_EXTENSION_POINT_ID="${BUNDLE_ID}.cmux.sidebar")
 fi
 # Forward explicit CMUX_SKIP_ZIG_BUILD to xcodebuild run script phases.
 if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
