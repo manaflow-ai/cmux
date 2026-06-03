@@ -2574,6 +2574,18 @@ struct ContentView: View {
         _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
     }
 
+    func openHistoryPane() {
+        guard let workspace = tabManager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            NSSound.beep()
+            return
+        }
+
+        sidebarSelectionState.selection = .tabs
+        workspace.clearSplitZoom()
+        _ = workspace.newHistorySurface(inPane: paneId, focus: true)
+    }
+
     private func openFilePreviewFromSidebar(filePath: String) {
         guard let workspace = tabManager.selectedWorkspace else { return }
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
@@ -5919,6 +5931,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
         case .project:
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
+        case .history:
+            return String(localized: "history.pane.title", defaultValue: "History")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         }
@@ -5938,6 +5952,8 @@ struct ContentView: View {
             return ["tool", "files", "find", "vault", "sidebar"]
         case .project:
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
+        case .history:
+            return ["history", "session", "sessions", "vault", "agent", "transcript"]
         case .extensionBrowser:
             return ["sidebar", "extensions", "extensionkit", "browser"]
         }
@@ -11410,6 +11426,8 @@ struct VerticalTabsSidebar: View {
             return .rightSidebarTool
         case .project:
             return .project
+        case .history:
+            return .unknown
         case .extensionBrowser:
             return .unknown
         }

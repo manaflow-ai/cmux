@@ -211,6 +211,33 @@ final class SessionIndexStore: ObservableObject {
         currentDirectory = next
     }
 
+    /// Removes a single session from history by moving its transcript file to the
+    /// Trash and dropping it from the in-memory list.
+    ///
+    /// The deletion is recoverable from the Finder Trash until the user empties it,
+    /// and because the file leaves its scanned directory the row does not reappear
+    /// on the next reload. Only sessions where ``SessionEntry/isDeletable`` is true
+    /// are removed; others are rejected with a beep.
+    ///
+    /// - Parameter entry: The session to delete.
+    /// - Returns: `true` when the transcript was moved to Trash and the row removed.
+    @discardableResult
+    func delete(_ entry: SessionEntry) -> Bool {
+        guard let url = entry.deletableFileURL else {
+            NSSound.beep()
+            return false
+        }
+        do {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        } catch {
+            sessionIndexLogger.error("Failed to move session transcript to Trash: \(error.localizedDescription, privacy: .public)")
+            NSSound.beep()
+            return false
+        }
+        entries.removeAll { $0.id == entry.id }
+        return true
+    }
+
     @Published var grouping: SessionGrouping {
         didSet {
             guard grouping != oldValue else { return }

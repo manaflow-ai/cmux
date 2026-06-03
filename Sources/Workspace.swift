@@ -540,6 +540,7 @@ extension Workspace {
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?
+        var historySnapshot: SessionHistoryPanelSnapshot? = nil
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -673,6 +674,15 @@ extension Workspace {
                 selectedSchemeName: projectPanel.selectedSchemeName,
                 selectedConfigurationName: projectPanel.selectedConfigurationName
             )
+        case .history:
+            guard panel is HistoryPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            projectSnapshot = nil
+            historySnapshot = SessionHistoryPanelSnapshot()
         case .extensionBrowser:
             return nil
         }
@@ -696,7 +706,8 @@ extension Workspace {
             markdown: markdownSnapshot,
             filePreview: filePreviewSnapshot,
             rightSidebarTool: rightSidebarToolSnapshot,
-            project: projectSnapshot
+            project: projectSnapshot,
+            history: historySnapshot
         )
     }
 
@@ -1862,6 +1873,13 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: projectPanel.id)
             return projectPanel.id
+        case .history:
+            guard snapshot.history != nil,
+                  let historyPanel = newHistorySurface(inPane: paneId, focus: false) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: historyPanel.id)
+            return historyPanel.id
         case .extensionBrowser:
             return nil
         }
@@ -10659,6 +10677,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let rightSidebarTool = "rightSidebarTool"
         static let project = "project"
         static let extensionBrowser = "extensionBrowser"
+        static let history = "history"
     }
 
     enum PanelShellActivityState: String {
@@ -11643,6 +11662,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.project
         case .extensionBrowser:
             return SurfaceKind.extensionBrowser
+        case .history:
+            return SurfaceKind.history
         }
     }
 
@@ -15175,6 +15196,52 @@ final class Workspace: Identifiable, ObservableObject {
         return toolPanel
     }
 
+    func newHistorySurface(
+        inPane paneId: PaneID,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> HistoryPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let historyPanel = HistoryPanel(workspace: self)
+        panels[historyPanel.id] = historyPanel
+        panelTitles[historyPanel.id] = historyPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: historyPanel.displayTitle,
+            icon: historyPanel.displayIcon,
+            kind: SurfaceKind.history,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: historyPanel.id)
+            panelTitles.removeValue(forKey: historyPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = historyPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(historyPanel.id, paneId: paneId, kind: SurfaceKind.history, origin: "history_tab", focused: shouldFocusNewTab)
+
+        if shouldFocusNewTab {
+            focusPanel(historyPanel.id)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: historyPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return historyPanel
+    }
+
     @discardableResult
     func splitPaneWithFilePreview(
         targetPane paneId: PaneID,
@@ -15848,6 +15915,8 @@ final class Workspace: Identifiable, ObservableObject {
             installBrowserPanelSubscription(browserPanel)
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
+        } else if let historyPanel = detached.panel as? HistoryPanel {
+            historyPanel.reattach(to: self)
         }
         AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
             fromTabId: detached.sourceWorkspaceId,

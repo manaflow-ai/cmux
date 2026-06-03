@@ -109,6 +109,16 @@ struct PanelContentView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        case .history:
+            if let historyPanel = panel as? HistoryPanel {
+                HistoryPanelView(
+                    panel: historyPanel,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         }
     }
 
@@ -126,7 +136,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .project, .extensionBrowser:
+        case .markdown, .filePreview, .rightSidebarTool, .project, .extensionBrowser, .history:
             return true
         case .terminal, .browser:
             return false

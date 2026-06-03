@@ -303,6 +303,27 @@ struct SessionEntry: Identifiable, Hashable {
         resumeCommandWithCwd
     }
 
+    /// Whether this session can be deleted from history by removing a single
+    /// dedicated transcript file. Restricted to agents whose on-disk layout is
+    /// one file per session, so deletion never removes unrelated sessions.
+    /// Database-backed agents (OpenCode, Hermes) and shared-history layouts are
+    /// excluded until per-entry deletion is implemented for them.
+    var isDeletable: Bool {
+        guard fileURL != nil else { return false }
+        switch agent {
+        case .claude, .codex:
+            return true
+        case .grok, .opencode, .rovodev, .hermesAgent, .registered:
+            return false
+        }
+    }
+
+    /// The transcript file to move to Trash when deleting this session, or `nil`
+    /// when the session is not safely deletable. See ``isDeletable``.
+    var deletableFileURL: URL? {
+        isDeletable ? fileURL : nil
+    }
+
     /// Shell command that resumes this session after guarding the launch directory.
     var resumeCommandWithCwd: String? {
         guard let command = resumeCommandWithoutWorkingDirectory else { return nil }

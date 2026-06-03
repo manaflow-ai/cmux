@@ -282,6 +282,9 @@ struct RightSidebarToolPanelView: View {
                 store: panel.sessionIndexStore,
                 onResume: { entry in
                     SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                },
+                onDelete: { [weak panel] entry in
+                    panel?.sessionIndexStore.delete(entry)
                 }
             )
             .background(
