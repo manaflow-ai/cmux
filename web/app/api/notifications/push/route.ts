@@ -53,6 +53,22 @@ async function sendPush(request: Request): Promise<Response> {
   const user = await verifyRequest(request, { allowCookie: false });
   if (!user) return unauthorized();
 
+  if (process.env.VERCEL === "1" && env.CMUX_PUSH_RATE_LIMIT_ID) {
+    const { error, rateLimited } = await checkRateLimit(env.CMUX_PUSH_RATE_LIMIT_ID, {
+      request,
+      rateLimitKey: user.id,
+    });
+    if (rateLimited || error === "blocked") {
+      return new Response(JSON.stringify({ error: "rate_limited" }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (error === "not-found") {
+      console.error("notifications.push.rate_limit_not_found", env.CMUX_PUSH_RATE_LIMIT_ID);
+    }
+  }
+
   const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);
   if (!body.ok) {
     return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
@@ -79,22 +95,6 @@ async function sendPush(request: Request): Promise<Response> {
   const config = apnsConfig();
   if (!config) {
     return jsonResponse({ error: "push_service_not_configured" }, 503);
-  }
-
-  if (process.env.VERCEL === "1" && env.CMUX_PUSH_RATE_LIMIT_ID) {
-    const { error, rateLimited } = await checkRateLimit(env.CMUX_PUSH_RATE_LIMIT_ID, {
-      request,
-      rateLimitKey: user.id,
-    });
-    if (rateLimited || error === "blocked") {
-      return new Response(JSON.stringify({ error: "rate_limited" }), {
-        status: 429,
-        headers: { "content-type": "application/json" },
-      });
-    }
-    if (error === "not-found") {
-      console.error("notifications.push.rate_limit_not_found", env.CMUX_PUSH_RATE_LIMIT_ID);
-    }
   }
 
   try {
