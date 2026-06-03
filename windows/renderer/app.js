@@ -8864,8 +8864,20 @@ function renderSettingsInspector(options = {}) {
     titleInput.placeholder = "Workspace name";
     titleInput.dataset.settingsSearch = normalizeSettingsQuery("workspace name rename title input");
     titleInput.disabled = !workspace;
+    let titleSave = null;
+    let titleUseFolder = null;
+    const currentWorkspaceName = () => activeWorkspace()?.title || workspace?.title || "";
+    const suggestedWorkspaceName = () => workspaceSuggestedTitle(activeWorkspace() || workspace);
+    const updateWorkspaceNameActions = () => {
+      const nextTitle = titleInput.value.trim();
+      const currentTitle = currentWorkspaceName();
+      const suggestedTitle = suggestedWorkspaceName();
+      if (titleSave) titleSave.disabled = !workspace || !nextTitle || nextTitle === currentTitle;
+      if (titleUseFolder) titleUseFolder.disabled = !workspace || !suggestedTitle || suggestedTitle === currentTitle;
+    };
     const revertWorkspaceNameInput = () => {
-      titleInput.value = activeWorkspace()?.title || workspace?.title || "";
+      titleInput.value = currentWorkspaceName();
+      updateWorkspaceNameActions();
     };
     const saveWorkspaceNameInput = async (options = {}) => {
       const changed = await renameWorkspaceTo(titleInput.value);
@@ -8883,19 +8895,19 @@ function renderSettingsInspector(options = {}) {
         titleInput.blur();
       }
     });
-    const titleSave = settingsActionButton("Save", () => saveWorkspaceNameInput({ toast: true }), "primary", "workspace name rename save title");
-    titleSave.disabled = !workspace;
-    const titleUseFolder = settingsActionButton("Use folder", async () => {
-      const suggestedTitle = workspaceSuggestedTitle();
+    titleInput.addEventListener("input", updateWorkspaceNameActions);
+    titleSave = settingsActionButton("Save", () => saveWorkspaceNameInput({ toast: true }), "primary", "workspace name rename save title");
+    titleUseFolder = settingsActionButton("Use folder", async () => {
+      const suggestedTitle = suggestedWorkspaceName();
       titleInput.value = suggestedTitle;
       const changed = await renameWorkspaceTo(suggestedTitle);
       revertWorkspaceNameInput();
       toast(changed ? "Workspace name set from folder." : "Workspace already uses the folder name.");
     }, "", "workspace name rename use folder directory title");
-    titleUseFolder.disabled = !workspace;
     const titleControl = document.createElement("span");
     titleControl.className = "workspace-name-control";
     titleControl.append(titleInput, titleSave, titleUseFolder);
+    updateWorkspaceNameActions();
     workspaceSection.append(settingRow("Name", titleControl, false, "workspace name rename title save use folder"));
     const folderInput = document.createElement("input");
     folderInput.className = "setting-control";
