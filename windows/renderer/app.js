@@ -600,6 +600,23 @@ const lookPackDefinitions = [
       terminalForeground: "#eadfce",
       terminalCursorColor: "#f6bd60"
     }
+  },
+  {
+    id: "readableContrast",
+    label: "Readable contrast",
+    body: "High-contrast chrome, steady yellow accent, and crisp terminal colors.",
+    settings: {
+      theme: "contrast",
+      accent: "oklch(86% 0.11 70)",
+      backgroundImage: "preset:signal-bands",
+      backgroundOpacity: 10,
+      backgroundFit: "cover",
+      backgroundPosition: "center",
+      backgroundEffects: "flat",
+      terminalBackground: "#050608",
+      terminalForeground: "#f4f7fb",
+      terminalCursorColor: "#f6d36b"
+    }
   }
 ];
 
