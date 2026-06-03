@@ -16138,6 +16138,19 @@ const paneSetupPresetDefinitions = [
     }
   },
   {
+    id: "terminalReadable",
+    type: "terminal",
+    icon: "terminal",
+    label: "Readable shell",
+    body: "Larger text, high-contrast marker, and a quiet pane background.",
+    settings: {
+      title: "Shell",
+      color: "#f6d36b",
+      backgroundImage: "preset:signal-bands",
+      terminalFontSize: 15
+    }
+  },
+  {
     id: "browserPreview",
     type: "browser",
     icon: "browser",
@@ -16158,6 +16171,18 @@ const paneSetupPresetDefinitions = [
       title: "Local app",
       color: "#a3be8c",
       url: "http://localhost:3000"
+    }
+  },
+  {
+    id: "browserViteApp",
+    type: "browser",
+    icon: "browserPlus",
+    label: "Vite app",
+    body: "Set the pane up for a local dev server on port 5173.",
+    settings: {
+      title: "Vite app",
+      color: "#88c0d0",
+      url: "http://localhost:5173"
     }
   },
   {
