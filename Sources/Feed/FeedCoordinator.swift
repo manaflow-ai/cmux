@@ -299,7 +299,14 @@ extension FeedCoordinator {
         guard let target = Self.resolveAttentionTarget(event: event),
               let tabManager = AppDelegate.shared?.tabManagerFor(tabId: target.workspaceId),
               let tab = tabManager.tabs.first(where: { $0.id == target.workspaceId })
-        else { return }
+        else {
+            #if DEBUG
+            cmuxDebugLog(
+                "feed.attention.skip session=\(event.sessionId) hook=\(event.hookEventName.rawValue) workspace=\(event.workspaceId ?? "nil")"
+            )
+            #endif
+            return
+        }
 
         let panelId = Self.resolvePanelId(surfaceId: target.surfaceId, tab: tab) ?? tab.focusedPanelId
         let statusKey = Self.lifecycleStatusKey(forSource: event.source)
