@@ -12,6 +12,13 @@ import Testing
 struct WorkspaceGroupTests {
 
     private func makeTabManager() -> TabManager {
+        let defaults = UserDefaults.standard
+        defaults.set(NewWorkspacePlacement.afterCurrent.rawValue, forKey: WorkspacePlacementSettings.placementKey)
+        defaults.set(false, forKey: IMessageModeSettings.key)
+        defaults.set(
+            WorkspaceGroupNewWorkspacePlacementSettings.defaultValue.rawValue,
+            forKey: WorkspaceGroupNewWorkspacePlacementSettings.key
+        )
         let manager = TabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         manager.addWorkspace(autoWelcomeIfNeeded: false)

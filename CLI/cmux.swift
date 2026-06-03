@@ -7567,13 +7567,18 @@ struct CMUXCLI {
         }
         let rawWorkspaceInitialSurfaceId = (workspaceCreate["surface_id"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let workspaceInitialSurfaceId = rawWorkspaceInitialSurfaceId?.isEmpty == false
+        var workspaceInitialSurfaceId = rawWorkspaceInitialSurfaceId?.isEmpty == false
             ? rawWorkspaceInitialSurfaceId
             : nil
         if usesPersistentSSHPTY && workspaceInitialSurfaceId == nil {
-            cliDebugLog(
-                "cli.ssh.workspace.surface.missing workspace=\(String(workspaceId.prefix(8)))"
-            )
+            do {
+                workspaceInitialSurfaceId = try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
+            } catch {
+                cliDebugLog(
+                    "cli.ssh.workspace.surface.resolve.unavailable workspace=\(String(workspaceId.prefix(8))) " +
+                    "error=\(String(describing: error))"
+                )
+            }
         }
         let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -21648,10 +21653,14 @@ struct CMUXCLI {
         _ raw: String?,
         client: SocketClient
     ) throws -> String {
-        if let raw, !raw.isEmpty {
-            return try resolveWorkspaceId(raw, client: client)
+        if let raw,
+           !raw.isEmpty,
+           let candidate = try? resolveWorkspaceId(raw, client: client),
+           (try? client.sendV2(method: "surface.list", params: ["workspace_id": candidate])) != nil {
+            return candidate
         }
-        if let callerWorkspaceId = resolveCallerWorkspaceIdByTTY(client: client) {
+        if let callerWorkspaceId = resolveCallerWorkspaceIdByTTY(client: client),
+           (try? client.sendV2(method: "surface.list", params: ["workspace_id": callerWorkspaceId])) != nil {
             return callerWorkspaceId
         }
         return try resolveWorkspaceId(nil, client: client)
@@ -21662,11 +21671,25 @@ struct CMUXCLI {
         workspaceId: String,
         client: SocketClient
     ) throws -> String {
-        if let raw, !raw.isEmpty {
-            return try resolveSurfaceId(raw, workspaceId: workspaceId, client: client)
+        if let raw,
+           !raw.isEmpty,
+           let candidate = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
+           let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) {
+            let items = listed["surfaces"] as? [[String: Any]] ?? []
+            if items.contains(where: {
+                ($0["id"] as? String) == candidate || ($0["ref"] as? String) == candidate
+            }) {
+                return candidate
+            }
         }
-        if let callerSurfaceId = resolveCallerSurfaceIdByTTY(workspaceId: workspaceId, client: client) {
-            return callerSurfaceId
+        if let callerSurfaceId = resolveCallerSurfaceIdByTTY(workspaceId: workspaceId, client: client),
+           let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) {
+            let items = listed["surfaces"] as? [[String: Any]] ?? []
+            if items.contains(where: {
+                ($0["id"] as? String) == callerSurfaceId || ($0["ref"] as? String) == callerSurfaceId
+            }) {
+                return callerSurfaceId
+            }
         }
         return try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
     }
@@ -27020,22 +27043,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             guard let raw = nonEmptyClaudeHookIdentifier(raw) else {
                 return nil
             }
-            guard let candidate = try? resolveWorkspaceId(raw, client: client),
-                  (try? client.sendV2(method: "surface.list", params: ["workspace_id": candidate])) != nil else {
-                return nil
-            }
-            return candidate
+            return try? resolveWorkspaceId(raw, client: client)
         }
         func resolveAccessibleSurfaceId(_ raw: String?, workspaceId: String) -> String? {
-            guard let raw = nonEmptyClaudeHookIdentifier(raw),
-                  let candidate = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
-                  let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) else {
+            guard let raw = nonEmptyClaudeHookIdentifier(raw) else {
                 return nil
             }
-            let items = listed["surfaces"] as? [[String: Any]] ?? []
-            return items.contains(where: {
-                ($0["id"] as? String) == candidate || ($0["ref"] as? String) == candidate
-            }) ? candidate : nil
+            return try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client)
         }
         func resolveDefaultSurfaceId(workspaceId: String) -> String? {
             try? resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
