@@ -885,6 +885,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var keyboardHeight: CGFloat = 0
+    private var isDismantled = false
     /// Whether the hidden terminal input should become first responder when the surface attaches to a window.
     public var autoFocusOnWindowAttach = true
 
@@ -1065,6 +1066,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         liveAnchormuxLog("surface.didMoveToWindow window=\(window != nil)")
         syncSurfaceVisibility()
         if window != nil {
+            isDismantled = false
+            #if DEBUG
+            accessibilityIdentifier = "MobileTerminalSurface"
+            isAccessibilityElement = true
+            #endif
             setNeedsGeometrySync()
             setFocus(true)
             if autoFocusOnWindowAttach {
@@ -1072,9 +1078,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             startDisplayLink()
         } else {
-            resignInput()
-            stopDisplayLink()
-            setFocus(false)
+            prepareForReuseAfterDetach()
         }
     }
 
@@ -1133,7 +1137,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             #endif
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, !self.isDismantled else { return }
                 self.needsDraw = true
                 if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
                     self.hostCursorVisible = cursorVisibilityDelta
@@ -1249,6 +1253,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard wasFirstResponder, keyboardHeight != 0 else { return }
         keyboardHeight = 0
         setNeedsGeometrySync()
+    }
+
+    /// Stops user-visible and accessibility output from a surface SwiftUI has removed.
+    public func prepareForDismantle() {
+        isDismantled = true
+        prepareForReuseAfterDetach()
+    }
+
+    private func prepareForReuseAfterDetach() {
+        resignInput()
+        stopDisplayLink()
+        setFocus(false)
+        #if DEBUG
+        accessibilityLabel = nil
+        isAccessibilityElement = false
+        #endif
     }
 
     func updateRemotePlatform(_ platform: RemotePlatform) {
