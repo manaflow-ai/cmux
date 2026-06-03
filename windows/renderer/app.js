@@ -1272,10 +1272,15 @@ function rememberRecentFolder(folderPath) {
 }
 
 function clearRecentFolders() {
+  if (state.recentFolders.length === 0) {
+    toast("Recent folders are already clear.");
+    return false;
+  }
   state.recentFolders = [];
   saveRecentFolders();
   renderSettingsInspector();
   toast("Recent folders cleared.");
+  return true;
 }
 
 function normalizeTerminalCommand(command) {
@@ -1318,10 +1323,15 @@ function rememberRecentCommand(command) {
 }
 
 function clearRecentCommands() {
+  if (state.recentCommands.length === 0) {
+    toast("Recent commands are already clear.");
+    return false;
+  }
   state.recentCommands = [];
   saveRecentCommands();
   renderSettingsInspector();
   toast("Recent commands cleared.");
+  return true;
 }
 
 function loadRecentBrowserPages() {
@@ -1367,10 +1377,15 @@ function rememberRecentBrowserPage(value) {
 }
 
 function clearRecentBrowserPages() {
+  if (state.recentBrowserPages.length === 0) {
+    toast("Recent browser pages are already clear.");
+    return false;
+  }
   state.recentBrowserPages = [];
   saveRecentBrowserPages();
   renderSettingsInspector();
   toast("Recent browser pages cleared.");
+  return true;
 }
 
 function cleanupBrowserTabSnapshots() {
@@ -10058,9 +10073,13 @@ function renderSettingsInspector(options = {}) {
     const actions = document.createElement("div");
     actions.className = "settings-actions";
     const clearRecent = settingsActionButton("Clear recent activity", clearRecentActivity, "danger", "clear recent activity folders commands browser pages tabs history");
-    clearRecent.disabled = !hasRecentActivity();
+    const recentActivity = hasRecentActivity();
+    clearRecent.disabled = !recentActivity;
+    clearRecent.title = recentActivity ? "Clear recent folders, commands, browser pages, and saved browser tabs." : "Recent activity is already clear.";
     const closeEmpty = settingsActionButton("Close extra empty workspaces", closeEmptyWorkspaces, "danger", "workspace cleanup empty duplicate close remove");
-    closeEmpty.disabled = !hasEmptyWorkspaceCleanupTargets();
+    const emptyWorkspaceCleanupTargets = hasEmptyWorkspaceCleanupTargets();
+    closeEmpty.disabled = !emptyWorkspaceCleanupTargets;
+    closeEmpty.title = emptyWorkspaceCleanupTargets ? "Close empty workspaces except the active one." : "There are no extra empty workspaces to close.";
     actions.append(
       settingsActionButton("Export", exportSettings),
       settingsActionButton("Import", importSettings),
@@ -15332,6 +15351,7 @@ function recentFoldersSettings() {
   title.textContent = "Recent folders";
   const clear = settingsActionButton("Clear", clearRecentFolders, "danger", "recent folders clear history");
   clear.disabled = state.recentFolders.length === 0;
+  clear.title = clear.disabled ? "Recent folders are already clear." : "Clear recent workspace folders.";
   header.append(title, clear);
   section.append(header);
 
@@ -15388,6 +15408,7 @@ function recentCommandsSettings() {
   title.textContent = "Recent terminal commands";
   const clear = settingsActionButton("Clear", clearRecentCommands, "danger", "recent terminal commands clear history");
   clear.disabled = state.recentCommands.length === 0;
+  clear.title = clear.disabled ? "Recent commands are already clear." : "Clear recent terminal commands.";
   header.append(title, clear);
   section.append(header);
 
@@ -15437,6 +15458,7 @@ function recentBrowserPagesSettings() {
   title.textContent = "Recent browser pages";
   const clear = settingsActionButton("Clear", clearRecentBrowserPages, "danger", "recent browser pages clear history");
   clear.disabled = state.recentBrowserPages.length === 0;
+  clear.title = clear.disabled ? "Recent browser pages are already clear." : "Clear recent browser pages.";
   header.append(title, clear);
   section.append(header);
 
@@ -16942,7 +16964,12 @@ function showToolbarMenu(event) {
         action.title = currentWorkspaceBlueprintSaveTitle(workspace, "Save the current workspace as a reusable blueprint.");
         return action;
       })(),
-      contextMenuButton("Close extra empty workspaces", closeEmptyWorkspaces, !hasEmptyWorkspaceCleanupTargets(), "danger")
+      (() => {
+        const targets = hasEmptyWorkspaceCleanupTargets();
+        const action = contextMenuButton("Close extra empty workspaces", closeEmptyWorkspaces, !targets, "danger");
+        action.title = targets ? "Close empty workspaces except the active one." : "There are no extra empty workspaces to close.";
+        return action;
+      })()
     ),
     contextMenuSectionTitle("Settings"),
     contextMenuActionGroup(
@@ -16955,7 +16982,12 @@ function showToolbarMenu(event) {
       contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
       contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
       contextMenuButton("Settings profiles", () => openSettingsCategory("profiles")),
-      contextMenuButton("Clear recent activity", clearRecentActivity, !hasRecentActivity(), "danger"),
+      (() => {
+        const recentActivity = hasRecentActivity();
+        const action = contextMenuButton("Clear recent activity", clearRecentActivity, !recentActivity, "danger");
+        action.title = recentActivity ? "Clear recent folders, commands, browser pages, and saved browser tabs." : "Recent activity is already clear.";
+        return action;
+      })(),
       contextMenuButton("Color settings", () => openSettingsCategory("appearance", { query: "color", focusSearch: true })),
       (() => {
         const action = contextMenuButton("Save current accent", () => upsertCustomColorPalette(state.settings.accent), !canSaveCustomColor(state.settings.accent));
