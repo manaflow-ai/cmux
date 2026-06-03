@@ -177,6 +177,18 @@ export const backgroundPresets = [
     label: label("background.blueprintLines", "Blueprint lines"),
     preview: "linear-gradient(120deg, color-mix(in oklch, var(--color-accent) 24%, transparent) 1px, transparent 1px), linear-gradient(180deg, color-mix(in oklch, var(--color-text) 8%, transparent), transparent)",
     css: "linear-gradient(120deg, color-mix(in oklch, var(--color-accent) 18%, transparent) 1px, transparent 1px), linear-gradient(180deg, color-mix(in oklch, var(--color-text) 6%, transparent), transparent)"
+  },
+  {
+    value: "preset:focus-weave",
+    label: label("background.focusWeave", "Focus weave"),
+    preview: "repeating-linear-gradient(135deg, color-mix(in oklch, var(--color-accent) 18%, transparent) 0 1px, transparent 1px 18px), repeating-linear-gradient(45deg, color-mix(in oklch, var(--color-line) 22%, transparent) 0 1px, transparent 1px 24px), linear-gradient(135deg, var(--color-pane), var(--color-canvas))",
+    css: "repeating-linear-gradient(135deg, color-mix(in oklch, var(--color-accent) 12%, transparent) 0 1px, transparent 1px 22px), repeating-linear-gradient(45deg, color-mix(in oklch, var(--color-line) 18%, transparent) 0 1px, transparent 1px 28px), linear-gradient(135deg, var(--color-pane), var(--color-canvas))"
+  },
+  {
+    value: "preset:signal-bands",
+    label: label("background.signalBands", "Signal bands"),
+    preview: "repeating-linear-gradient(90deg, color-mix(in oklch, var(--color-accent) 16%, transparent) 0 1px, transparent 1px 32px), linear-gradient(145deg, color-mix(in oklch, var(--color-accent) 18%, transparent), transparent 42%), linear-gradient(180deg, var(--color-pane), var(--color-canvas))",
+    css: "repeating-linear-gradient(90deg, color-mix(in oklch, var(--color-accent) 10%, transparent) 0 1px, transparent 1px 40px), linear-gradient(145deg, color-mix(in oklch, var(--color-accent) 12%, transparent), transparent 46%), linear-gradient(180deg, var(--color-pane), var(--color-canvas))"
   }
 ];
 

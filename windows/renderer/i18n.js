@@ -201,6 +201,8 @@ const windowsMessages = {
     "config.background.terminalGrid": "Terminal grid",
     "config.background.softAurora": "Soft aurora",
     "config.background.blueprintLines": "Blueprint lines",
+    "config.background.focusWeave": "Focus weave",
+    "config.background.signalBands": "Signal bands",
     "config.backgroundFit.cover": "Fill",
     "config.backgroundFit.contain": "Fit",
     "config.backgroundFit.stretch": "Stretch",
