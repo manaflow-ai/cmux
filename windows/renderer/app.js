@@ -12206,9 +12206,10 @@ function quickSetupOverviewPanel() {
   const scope = activeBackgroundScopeModel(state.settings.backgroundImage, workspace);
   const activeTerminal = activeTerminalPanelForSettings();
   const activeTerminalBackground = activeTerminal ? normalizeBackgroundValue(activeTerminal.backgroundImage) : "";
+  const performance = performanceOverviewModel();
   const panel = document.createElement("div");
   panel.className = "quick-setup-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup overview current settings workspace panes theme layout terminal browser performance background image app pane all terminal scope data");
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes theme layout terminal browser performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope data`);
   panel.innerHTML = `
     <div class="quick-overview-heading">
       <span class="quick-overview-copy">
@@ -12231,6 +12232,17 @@ function quickSetupOverviewPanel() {
       <span><b>Terminal</b><em data-quick-terminal></em></span>
       <span><b>Performance</b><em data-quick-performance></em></span>
     </div>
+    <button class="quick-overview-speed" type="button" data-performance-status>
+      <span class="quick-overview-speed-icon" aria-hidden="true"></span>
+      <span class="quick-overview-speed-copy">
+        <b data-quick-speed-title></b>
+        <em data-quick-speed-reason></em>
+      </span>
+      <span class="quick-overview-speed-meta">
+        <span data-quick-speed-render></span>
+        <span data-quick-speed-action></span>
+      </span>
+    </button>
     <div class="quick-overview-scope" aria-label="Background scope">
       <button class="quick-overview-scope-item" type="button" data-quick-scope-item="app">
         <span class="quick-overview-scope-preview" aria-hidden="true"></span>
@@ -12265,6 +12277,25 @@ function quickSetupOverviewPanel() {
   panel.querySelector("[data-quick-look]").textContent = `${optionLabel(themeOptions, state.settings.theme, "cmux")} / ${accentModeLabel()}`;
   panel.querySelector("[data-quick-terminal]").textContent = `${optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono")} ${state.settings.terminalFontSize}px`;
   panel.querySelector("[data-quick-performance]").textContent = performanceModeLabel();
+  const speed = panel.querySelector(".quick-overview-speed");
+  speed.className = `quick-overview-speed is-${performance.status}`;
+  speed.querySelector(".quick-overview-speed-icon").innerHTML = quickActionIconMarkup("speed");
+  speed.querySelector("[data-quick-speed-title]").textContent = performance.title;
+  speed.querySelector("[data-quick-speed-reason]").textContent = performance.reason;
+  speed.querySelector("[data-quick-speed-render]").textContent = performance.output === "Clean"
+    ? performance.render
+    : `${performance.output} / ${performance.render}`;
+  speed.querySelector("[data-quick-speed-action]").textContent = performance.status === "tuned" ? "Details" : "Tune";
+  speed.title = `${performance.title}: ${performance.reason}`;
+  speed.setAttribute("aria-label", `${performance.title}. ${performance.reason}. ${performance.render}.`);
+  speed.onclick = () => {
+    if (performance.status === "tuned") {
+      openSettingsCategory("performance");
+      return;
+    }
+    tunePerformanceNow();
+    if (state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
+  };
   panel.querySelector("[data-quick-scope-app]").textContent = scope.hasBackground
     ? appearanceBackgroundLabel(state.settings.backgroundImage)
     : "None";
