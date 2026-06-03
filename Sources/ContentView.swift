@@ -11042,7 +11042,11 @@ struct VerticalTabsSidebar: View {
                 CustomSidebarView(
                     fileURL: customSidebarURL,
                     dataContext: customSidebarDataContext(now: timeline.date),
-                    dispatch: makeCmuxSidebarActionDispatch()
+                    dispatch: makeCmuxSidebarActionDispatch(),
+                    contentInsets: CustomSidebarContentInsets(
+                        top: SidebarWorkspaceScrollInsets.workspaceList.top,
+                        bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
+                    )
                 )
                     .id(customSidebarURL)
             }

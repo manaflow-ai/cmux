@@ -17,6 +17,7 @@ public struct CustomSidebarView: View {
     @State private var model: CustomSidebarModel
     private let dataContext: [String: SwiftValue]
     private let dispatch: SidebarActionDispatch
+    private let contentInsets: CustomSidebarContentInsets
 
     /// Creates a sidebar bound to a file, a live data context, and an action
     /// dispatch.
@@ -25,15 +26,26 @@ public struct CustomSidebarView: View {
     ///   - fileURL: The `.swift` or `.json` sidebar file to render and watch.
     ///   - dataContext: Live, read-only values the interpreter binds to.
     ///   - dispatch: Runs button/tap actions against the host command surface.
-    public init(fileURL: URL, dataContext: [String: SwiftValue], dispatch: SidebarActionDispatch) {
+    ///   - contentInsets: Top/bottom scroll insets so content rests below the
+    ///     window titlebar accessory and fades into the host's top mask when
+    ///     scrolled, instead of underlapping it. Defaults to
+    ///     ``CustomSidebarContentInsets/zero``.
+    public init(
+        fileURL: URL,
+        dataContext: [String: SwiftValue],
+        dispatch: SidebarActionDispatch,
+        contentInsets: CustomSidebarContentInsets = .zero
+    ) {
         _model = State(initialValue: CustomSidebarModel(fileURL: fileURL))
         self.dataContext = dataContext
         self.dispatch = dispatch
+        self.contentInsets = contentInsets
     }
 
     public var body: some View {
         content
             .environment(\.sidebarActionDispatch, dispatch)
+            .environment(\.customSidebarContentInsets, contentInsets)
             .onAppear { model.start() }
             .onDisappear { model.stop() }
     }
@@ -71,6 +83,11 @@ public struct CustomSidebarView: View {
 
     /// Wraps non-split content in the scrolling container with host-owned
     /// outer insets (authors control inner spacing).
+    ///
+    /// The top/bottom `safeAreaInset`s reserve the titlebar-accessory and
+    /// footer bands so content rests below the chrome and scrolls up into the
+    /// host's edge-fade mask rather than clipping against it. This mirrors the
+    /// default workspace sidebar's scroll treatment.
     private func scrollWrap(_ view: some View) -> some View {
         ScrollView {
             view
@@ -78,6 +95,12 @@ public struct CustomSidebarView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
                 .padding(.bottom, 16)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            Color.clear.frame(height: contentInsets.top).allowsHitTesting(false)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear.frame(height: contentInsets.bottom).allowsHitTesting(false)
         }
     }
 

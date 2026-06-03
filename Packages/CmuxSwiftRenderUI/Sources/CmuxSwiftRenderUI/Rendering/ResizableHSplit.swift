@@ -12,6 +12,7 @@ struct ResizableHSplit: View {
 
     @AppStorage("cmux.customSidebar.splitFraction") private var fraction: Double = 0.5
     @State private var dragStartFraction: Double?
+    @Environment(\.customSidebarContentInsets) private var contentInsets
 
     private let minColumnWidth: CGFloat = 80
     private let handleWidth: CGFloat = 10
@@ -40,6 +41,15 @@ struct ResizableHSplit: View {
                 RenderNodeView(node: node)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(8)
+            }
+            // Reserve the titlebar-accessory and footer bands so each column's
+            // content rests below the chrome and scrolls up into the host's
+            // top fade mask instead of underlapping the accessory bar.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear.frame(height: contentInsets.top).allowsHitTesting(false)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: contentInsets.bottom).allowsHitTesting(false)
             }
         } else {
             Color.clear
