@@ -1,40 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "CMUX_PUSH_REDACTED_BODY": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "An agent needs your attention"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントに確認が必要です"
-          }
-        }
-      }
-    },
-    "CMUX_PUSH_REDACTED_TITLE": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux"
-          }
-        }
-      }
-    },
     "auth.error.apple_config": {
       "extractionState": "manual",
       "localizations": {

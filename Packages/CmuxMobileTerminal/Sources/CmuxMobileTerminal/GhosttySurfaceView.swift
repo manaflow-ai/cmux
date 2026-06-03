@@ -1229,10 +1229,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         inputProxy.becomeFirstResponder()
     }
 
+    /// Resigns the currently focused terminal input proxy, if any.
+    ///
+    /// Use before presenting SwiftUI chrome over the terminal so UIKit releases
+    /// the hidden text input and the terminal can recalculate full-height
+    /// geometry after the keyboard leaves.
     public static func resignActiveInput() {
         activeInputSurface?.resignInput()
     }
 
+    /// Resigns this surface's hidden text input and clears keyboard geometry.
     public func resignInput() {
         let wasFirstResponder = inputProxy.isFirstResponder
         inputProxy.resignFirstResponder()
