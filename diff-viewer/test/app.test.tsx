@@ -5,51 +5,116 @@ import { createRoot, type Root } from "react-dom/client";
 import { App } from "../src/App";
 import { createDiffViewerStatus } from "../src/status";
 
-let root: Root | null = null;
+type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response;
 
-afterEach(() => {
+let root: Root | null = null;
+let dom: JSDOM | null = null;
+const originalGlobals = new Map<string, any>();
+for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLStyleElement", "customElements", "fetch"]) {
+  originalGlobals.set(key, (globalThis as any)[key]);
+}
+
+afterEach(async () => {
   if (root) {
     flushSync(() => root?.unmount());
   }
   root = null;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  dom?.window.close();
+  dom = null;
+  for (const [key, value] of originalGlobals) {
+    if (value === undefined) {
+      delete (globalThis as any)[key];
+    } else {
+      (globalThis as any)[key] = value;
+    }
+  }
 });
 
 test("App renders the React-owned shell without starting a patch fetch for status-only payloads", async () => {
-  const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
-    url: "http://127.0.0.1/diff",
-  });
-  (globalThis as any).window = dom.window;
-  (globalThis as any).document = dom.window.document;
-  (globalThis as any).navigator = dom.window.navigator;
-  (globalThis as any).Element = dom.window.Element;
-  (globalThis as any).HTMLElement = dom.window.HTMLElement;
-  (globalThis as any).HTMLStyleElement = dom.window.HTMLStyleElement;
-  (globalThis as any).customElements = dom.window.customElements;
+  dom = createDom();
   let fetched = false;
-  (globalThis as any).fetch = () => {
+  installDomGlobals(dom, () => {
     fetched = true;
     throw new Error("unexpected fetch");
-  };
-
-  const container = dom.window.document.getElementById("root");
-  expect(container).toBeTruthy();
-  root = createRoot(container!);
-  flushSync(() => {
-    root?.render(
-      <App
-        config={{
-          payload: {
-            statusMessage: "Waiting for diff",
-            title: "Diff",
-          },
-        }}
-        initialStatus={createDiffViewerStatus("Waiting for diff", { loading: false, statusOnly: true })}
-      />,
-    );
   });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          statusMessage: "Waiting for diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Waiting for diff", { loading: false, statusOnly: true })}
+    />,
+  );
 
   expect(dom.window.document.getElementById("toolbar")).toBeTruthy();
   expect(dom.window.document.getElementById("files-sidebar")).toBeTruthy();
   expect(dom.window.document.getElementById("status-text")?.textContent).toBe("Waiting for diff");
   expect(fetched).toBe(false);
 });
+
+test("App still starts diff rendering when statusMessage is an empty string", async () => {
+  dom = createDom();
+  let fetchCount = 0;
+  installDomGlobals(dom, () => {
+    fetchCount += 1;
+    return new Response("", { status: 200 });
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          patchURL: "/patch.diff",
+          statusMessage: "",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("", { loading: true })}
+    />,
+  );
+
+  await waitFor(() => fetchCount > 0);
+  expect(fetchCount).toBe(1);
+});
+
+function createDom(): JSDOM {
+  return new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
+    url: "http://127.0.0.1/diff",
+  });
+}
+
+function installDomGlobals(nextDom: JSDOM, fetchImpl: FetchMock): void {
+  (globalThis as any).window = nextDom.window;
+  (globalThis as any).document = nextDom.window.document;
+  (globalThis as any).navigator = nextDom.window.navigator;
+  (globalThis as any).Element = nextDom.window.Element;
+  (globalThis as any).Node = nextDom.window.Node;
+  (globalThis as any).HTMLElement = nextDom.window.HTMLElement;
+  (globalThis as any).HTMLStyleElement = nextDom.window.HTMLStyleElement;
+  (globalThis as any).customElements = nextDom.window.customElements;
+  (globalThis as any).fetch = fetchImpl;
+}
+
+function renderApp(element: React.ReactNode): void {
+  const container = dom?.window.document.getElementById("root");
+  expect(container).toBeTruthy();
+  root = createRoot(container!);
+  flushSync(() => {
+    root?.render(element);
+  });
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const timeoutAt = Date.now() + 500;
+  while (!predicate()) {
+    if (Date.now() > timeoutAt) {
+      throw new Error("Timed out waiting for app assertion");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}

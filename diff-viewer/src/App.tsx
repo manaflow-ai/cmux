@@ -26,6 +26,8 @@ type ConfigProps = {
   initialStatus: DiffViewerStatus;
 };
 
+type PreparedFileTreeInput = ReturnType<typeof preparePresortedFileTreeInput>;
+
 type AppState = {
   activeItemId: string;
   activeTreePath: string;
@@ -37,6 +39,7 @@ type AppState = {
   options: DiffViewerOptions;
   optionsOpen: boolean;
   status: DiffViewerStatus;
+  treePreparedInput: PreparedFileTreeInput | null;
   treeSource: FileTreeSource | null;
 };
 
@@ -79,6 +82,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     } as DiffViewerOptions,
     optionsOpen: false,
     status: initialStatus,
+    treePreparedInput: null,
     treeSource: null,
   };
 }
@@ -135,7 +139,12 @@ function reducer(state: AppState, action: AppAction): AppState {
     return { ...state, status: action.status };
   case "set-tree-source": {
     const nextPath = state.activeItemId ? action.source.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath : state.activeTreePath;
-    return { ...state, activeTreePath: nextPath, treeSource: action.source };
+    return {
+      ...state,
+      activeTreePath: nextPath,
+      treePreparedInput: preparePresortedFileTreeInput(action.source.paths),
+      treeSource: action.source,
+    };
   }
   }
 }
@@ -560,11 +569,12 @@ function FilesSidebar({
         </span>
       </div>
       <div id="file-list">
-        {state.treeSource ? (
+        {state.treeSource && state.treePreparedInput ? (
           <PierreFileTree
             fileSearchOpen={state.fileSearchOpen}
             label={label}
             onSelectItem={onSelectItem}
+            preparedInput={state.treePreparedInput}
             selectedPath={selectedPath}
             source={state.treeSource}
           />
@@ -594,12 +604,14 @@ function PierreFileTree({
   fileSearchOpen,
   label,
   onSelectItem,
+  preparedInput,
   selectedPath,
   source,
 }: {
   fileSearchOpen: boolean;
   label: DiffViewerLabelResolver;
   onSelectItem: (itemId: string) => void;
+  preparedInput: PreparedFileTreeInput;
   selectedPath: string;
   source: FileTreeSource;
 }) {
@@ -612,7 +624,7 @@ function PierreFileTree({
     initialVisibleRowCount: getInitialFileTreeRowCount(),
     itemHeight: 24,
     overscan: 12,
-    preparedInput: preparePresortedFileTreeInput(source.paths),
+    preparedInput,
     search: true,
     searchBlurBehavior: "retain",
     stickyFolders: true,
@@ -641,7 +653,7 @@ function PierreFileTree({
     },
   });
 
-  usePierreFileTreeSource(model, source);
+  usePierreFileTreeSource(model, source, preparedInput);
   usePierreFileTreeSearch(model, fileSearchOpen);
   usePierreFileTreeSelection(model, selectedPath);
 
@@ -705,7 +717,11 @@ function useSyncedRef<T>(value: T): React.MutableRefObject<T> {
   return ref;
 }
 
-function usePierreFileTreeSource(model: ReturnType<typeof useFileTree>["model"], source: FileTreeSource): void {
+function usePierreFileTreeSource(
+  model: ReturnType<typeof useFileTree>["model"],
+  source: FileTreeSource,
+  preparedInput: ReturnType<typeof preparePresortedFileTreeInput>,
+): void {
   const previousSource = useRef<FileTreeSource | null>(null);
   useEffect(() => {
     const previous = previousSource.current;
@@ -717,12 +733,12 @@ function usePierreFileTreeSource(model: ReturnType<typeof useFileTree>["model"],
         try {
           model.batch(plan.addedPaths.map((path) => ({ type: "add", path })));
         } catch {
-          model.resetPaths(source.paths, { preparedInput: preparePresortedFileTreeInput(source.paths) });
+          model.resetPaths(source.paths, { preparedInput });
           resetTree = true;
         }
       }
     } else {
-      model.resetPaths(source.paths, { preparedInput: preparePresortedFileTreeInput(source.paths) });
+      model.resetPaths(source.paths, { preparedInput });
       resetTree = true;
     }
     if (source.gitStatusPatch && typeof (model as any).applyGitStatusPatch === "function") {
@@ -730,7 +746,7 @@ function usePierreFileTreeSource(model: ReturnType<typeof useFileTree>["model"],
     } else if (resetTree || source.statsChanged === true) {
       model.setGitStatus(source.gitStatus as any);
     }
-  }, [model, source]);
+  }, [model, preparedInput, source]);
 }
 
 function usePierreFileTreeSearch(model: ReturnType<typeof useFileTree>["model"], fileSearchOpen: boolean): void {
@@ -761,7 +777,7 @@ function useRenderDiff(
 ) {
   const started = useRef(false);
   useEffect(() => {
-    if (started.current || config.payload?.pendingReplacement === true || typeof config.payload?.statusMessage === "string") {
+    if (started.current || isStatusOnlyPayload(config.payload)) {
       return;
     }
     started.current = true;
@@ -810,6 +826,11 @@ function useRenderDiff(
       dispatch({ type: "set-status", status: createDiffViewerStatus(label("renderFailed"), { error: true, loading: false, statusOnly: true }) });
     });
   }, [config, dispatch, label, latestState]);
+}
+
+function isStatusOnlyPayload(payload: any): boolean {
+  return payload?.pendingReplacement === true ||
+    (typeof payload?.statusMessage === "string" && payload.statusMessage.length > 0);
 }
 
 function usePendingReplacement(payload: any, label: DiffViewerLabelResolver, dispatch: React.Dispatch<AppAction>) {

@@ -28,7 +28,7 @@ export async function copyGitApplyCommand(
   fallbackTextarea: HTMLTextAreaElement | null,
 ): Promise<string> {
   if (!patchURL) {
-    return label("renderFailed");
+    throw new Error("Missing patch URL");
   }
   const response = await fetch(patchURL, { cache: "no-store" });
   if (!response.ok) {
