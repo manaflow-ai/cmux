@@ -310,6 +310,117 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertEqual(snapshot.workingDirectory, launchCwd.path)
     }
 
+    // The transcript exists but its project directory encodes to neither the launch cwd nor the
+    // drifted cwd (an out-of-tree transcript_path), and the config dir holds no matching project
+    // folder, so neither verifier can confirm a candidate. Resolution must still prefer the launch
+    // cwd (the session namespace) over the drift-prone recorded cwd, instead of falling back to the
+    // drift. This is the exact shape that made a build *with* the #5154 fix still fail to resume.
+    func testClaudeResumePrefersLaunchCwdWhenTranscriptUnverifiable() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-fallback-prefers-launch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        try fm.createDirectory(
+            at: configDir.appendingPathComponent("projects", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let launchCwd = root.appendingPathComponent("repo-main", isDirectory: true)
+        let driftedCwd = root.appendingPathComponent("worktree", isDirectory: true)
+        try fm.createDirectory(at: launchCwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: driftedCwd, withIntermediateDirectories: true)
+
+        // A real transcript whose parent directory name encodes to neither candidate.
+        let sessionId = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        let outOfTreeDir = root.appendingPathComponent("elsewhere", isDirectory: true)
+        try fm.createDirectory(at: outOfTreeDir, withIntermediateDirectories: true)
+        let transcriptURL = outOfTreeDir.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+        try writeClaudeTranscript(sessionId: sessionId, transcriptURL: transcriptURL, cwd: launchCwd)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                sessionId: driftedHookRecord(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedCwd: driftedCwd.path,
+                    launchCwd: launchCwd.path,
+                    configDir: configDir.path,
+                    transcriptPath: transcriptURL.path,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.workingDirectory, launchCwd.path)
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(
+            resumeCommand.contains("cd -- '\(launchCwd.path)'"),
+            "resume must cd into the launch cwd; got: \(resumeCommand)"
+        )
+        XCTAssertFalse(
+            resumeCommand.contains(driftedCwd.path),
+            "resume must not cd into the drifted cwd; got: \(resumeCommand)"
+        )
+    }
+
+    // A directory-namespaced non-Claude agent (Gemini files its session under the launch cwd) whose
+    // hook-reported cwd drifted into a subdirectory must still resume from the launch cwd. Before
+    // the fix the resolver short-circuited every non-Claude kind straight to the drifted recorded
+    // cwd via `guard kind == .claude else { return recordedCwd }`.
+    func testDirectoryNamespacedNonClaudeAgentResolvesDriftToLaunchCwd() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-gemini-drift-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let launchCwd = root.appendingPathComponent("repo-main", isDirectory: true)
+        let driftedCwd = root.appendingPathComponent("worktree", isDirectory: true)
+        try fm.createDirectory(at: launchCwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: driftedCwd, withIntermediateDirectories: true)
+
+        let sessionId = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeHookStore(
+            root: root,
+            storeFilename: "gemini-hook-sessions.json",
+            sessions: [
+                sessionId: driftedAgentHookRecord(
+                    launcher: "gemini",
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedCwd: driftedCwd.path,
+                    launchCwd: launchCwd.path,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.kind, .gemini)
+        XCTAssertEqual(snapshot.workingDirectory, launchCwd.path)
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(
+            resumeCommand.contains("cd -- '\(launchCwd.path)'"),
+            "resume must cd into the launch cwd; got: \(resumeCommand)"
+        )
+        XCTAssertFalse(
+            resumeCommand.contains(driftedCwd.path),
+            "resume must not cd into the drifted cwd; got: \(resumeCommand)"
+        )
+    }
+
     func testClaudeWorkflowDirectorySessionUsesSiblingJsonlSessionForResume() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -409,6 +520,36 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         return record
     }
 
+    // A drifted hook record for an arbitrary (non-Claude) agent: the recorded runtime cwd differs
+    // from the frozen launch working directory, mirroring the production drift in CLI/cmux.swift.
+    private func driftedAgentHookRecord(
+        launcher: String,
+        sessionId: String,
+        workspaceId: UUID,
+        panelId: UUID,
+        recordedCwd: String,
+        launchCwd: String,
+        updatedAt: TimeInterval
+    ) -> [String: Any] {
+        [
+            "sessionId": sessionId,
+            "workspaceId": workspaceId.uuidString,
+            "surfaceId": panelId.uuidString,
+            "cwd": recordedCwd,
+            "pid": NSNull(),
+            "isRestorable": true,
+            "updatedAt": updatedAt,
+            "launchCommand": [
+                "launcher": launcher,
+                "executablePath": "/usr/local/bin/\(launcher)",
+                "arguments": ["/usr/local/bin/\(launcher)"],
+                "workingDirectory": launchCwd,
+                "capturedAt": updatedAt,
+                "source": "test",
+            ],
+        ]
+    }
+
     private func hookRecord(
         sessionId: String,
         workspaceId: UUID,
@@ -501,6 +642,14 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     }
 
     private func writeClaudeHookStore(root: URL, sessions: [String: [String: Any]]) throws {
+        try writeHookStore(root: root, storeFilename: "claude-hook-sessions.json", sessions: sessions)
+    }
+
+    private func writeHookStore(
+        root: URL,
+        storeFilename: String,
+        sessions: [String: [String: Any]]
+    ) throws {
         let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
         try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(
@@ -511,7 +660,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             options: [.prettyPrinted, .sortedKeys]
         )
         try data.write(
-            to: stateDir.appendingPathComponent("claude-hook-sessions.json", isDirectory: false),
+            to: stateDir.appendingPathComponent(storeFilename, isDirectory: false),
             options: .atomic
         )
     }
