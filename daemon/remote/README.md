@@ -61,6 +61,11 @@ Remote slot files:
 3. `~/.cmux/daemon/<version>/<slot>/daemon.lock` single-owner lock.
 4. `~/.cmux/daemon/<version>/<slot>/daemon.log` startup and crash diagnostics.
 
+The `<version>` component is part of the daemon identity. Session snapshots only
+restore a saved persistent PTY when the snapshot's daemon version matches the
+current app's daemon version; version mismatches fall back to a fresh SSH
+terminal instead of requiring a stale in-memory PTY session.
+
 PTY lifecycle:
 1. A local attach creates or reuses a named `pty.*` session in the persistent daemon.
 2. If the local surface closes, the stdio proxy disconnects and its attachment detaches, but the PTY process and bounded scrollback remain in the daemon.
