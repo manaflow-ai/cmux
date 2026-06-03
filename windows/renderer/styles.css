@@ -5069,6 +5069,24 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   text-overflow: ellipsis;
 }
 
+#statusSummary {
+  flex: 1 1 auto;
+}
+
+#statusPipe,
+#statusPty {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border: 1px solid color-mix(in oklch, var(--color-line) 72%, transparent);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 76%, transparent);
+}
+
+.shell.status-detail-compact #statusPipe,
+.shell.status-detail-compact #statusPty {
+  display: none;
+}
+
 #statusSummary.is-busy {
   display: inline-flex;
   align-items: center;
@@ -7515,8 +7533,24 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .layout-preview-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px 38px;
+  gap: 4px;
   margin: 0 8px 5px;
+}
+
+.layout-preview-status span {
+  min-width: 0;
+  border-radius: 2px;
   background: color-mix(in oklch, var(--color-text) 9%, transparent);
+}
+
+.layout-settings-preview.status-detail-compact .layout-preview-status {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.layout-settings-preview.status-detail-compact .layout-preview-status span:nth-child(n+2) {
+  display: none;
 }
 
 .layout-settings-preview.hide-statusbar .layout-preview-status {

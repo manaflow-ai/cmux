@@ -15,6 +15,7 @@ import {
   sidebarBranchOptions,
   sidebarDetailOptions,
   sidebarFooterOptions,
+  statusDetailOptions,
   terminalAppearanceKeys,
   terminalColorDefaults,
   terminalColorPresets,
@@ -267,6 +268,7 @@ const layoutSettingsPreviewKeys = new Set([
   "focusMode",
   "showTabs",
   "showStatusbar",
+  "statusDetailMode",
   "sidebarWidth",
   "inspectorWidth",
   "performanceMode"
@@ -319,6 +321,7 @@ const settingsInspectorSettingKeys = {
     "focusMode",
     "showTabs",
     "showStatusbar",
+    "statusDetailMode",
     "sidebarWidth",
     "inspectorWidth",
     "performanceMode"
@@ -337,6 +340,7 @@ const settingsInspectorSettingKeys = {
     "toolbarMode",
     "paneActionMode",
     "showStatusbar",
+    "statusDetailMode",
     "terminalPadding",
     "browserSuspendInactive"
   ],
@@ -979,6 +983,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!tabSizeOptions.some(([id]) => id === next.tabSize)) next.tabSize = defaultSettings.tabSize;
   if (!addTabStyleOptions.some(([id]) => id === next.addTabStyle)) next.addTabStyle = defaultSettings.addTabStyle;
   if (!titleDetailOptions.some(([id]) => id === next.titleDetailMode)) next.titleDetailMode = defaultSettings.titleDetailMode;
+  if (!statusDetailOptions.some(([id]) => id === next.statusDetailMode)) next.statusDetailMode = defaultSettings.statusDetailMode;
   if (!terminalCursorStyles.some(([id]) => id === next.terminalCursorStyle)) next.terminalCursorStyle = defaultSettings.terminalCursorStyle;
   if (!terminalFontOptions.some(([id]) => id === next.terminalFontFamily)) next.terminalFontFamily = defaultSettings.terminalFontFamily;
   if (!terminalProfiles.some(([id]) => id === next.terminalProfile)) next.terminalProfile = defaultSettings.terminalProfile;
@@ -2976,6 +2981,7 @@ function settingsProfileSummary(settings) {
     theme,
     normalized.density,
     toolbar,
+    `${statusbarSummaryLabel(normalized).toLowerCase()} status`,
     `${addTabs} add tabs`,
     `${actions} pane controls`,
     normalized.paneColorMarkers ? "colored pane markers" : "quiet pane markers",
@@ -5051,6 +5057,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.focusMode,
     settings.showTabs,
     settings.showStatusbar,
+    settings.statusDetailMode,
     settings.showAdvanced,
     settings.performanceMode,
     settings.reduceMotion,
@@ -5109,6 +5116,8 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "focus-mode", state.settings.focusMode);
   toggleClassIfChanged(elements.shell, "hide-tabs", !state.settings.showTabs);
   toggleClassIfChanged(elements.shell, "hide-status", !state.settings.showStatusbar);
+  toggleClassIfChanged(elements.shell, "status-detail-compact", state.settings.statusDetailMode === "compact");
+  toggleClassIfChanged(elements.shell, "status-detail-full", state.settings.statusDetailMode === "full");
   toggleClassIfChanged(elements.shell, "show-advanced", state.settings.showAdvanced);
   toggleClassIfChanged(elements.shell, "performance-mode", state.settings.performanceMode);
   toggleClassIfChanged(elements.shell, "background-effects-flat", state.settings.backgroundEffects === "flat");
@@ -12938,6 +12947,22 @@ function renderSettingsInspector(options = {}) {
     layoutSection.append(paneLayoutPresetsDisclosurePanel());
     layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
     layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
+    const statusDetailSelect = document.createElement("select");
+    statusDetailSelect.className = "setting-select";
+    statusDetailSelect.dataset.settingControl = "statusDetailMode";
+    for (const [value, label] of statusDetailOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      statusDetailSelect.append(option);
+    }
+    statusDetailSelect.value = state.settings.statusDetailMode;
+    statusDetailSelect.disabled = !state.settings.showStatusbar;
+    statusDetailSelect.title = state.settings.showStatusbar
+      ? "Choose how much runtime information the status bar shows."
+      : "Enable the status bar before changing its detail level.";
+    statusDetailSelect.onchange = () => updateSettings({ statusDetailMode: statusDetailSelect.value });
+    layoutSection.append(settingRow("Status detail", statusDetailSelect, false, "status bar compact full runtime pipe shell readiness diagnostics clean"));
     layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
     nodes.push(layoutSection);
   }
@@ -14814,6 +14839,7 @@ function layoutSettingsPreviewPanel() {
     `toolbar-${settings.toolbarMode}`,
     `tab-size-${settings.tabSize}`,
     `add-tabs-${settings.addTabStyle}`,
+    `status-detail-${settings.statusDetailMode}`,
     settings.focusMode ? "focus-mode" : "",
     settings.showTabs ? "show-tabs" : "hide-tabs",
     settings.showStatusbar ? "show-statusbar" : "hide-statusbar",
@@ -14842,7 +14868,7 @@ function layoutSettingsPreviewPanel() {
           <span class="layout-preview-terminal-line"></span>
           <span class="layout-preview-terminal-line short"></span>
         </div>
-        <div class="layout-preview-status"></div>
+        <div class="layout-preview-status"><span></span><span></span><span></span></div>
       </div>
       <div class="layout-preview-inspector">
         <span></span><span></span><span></span>
@@ -14872,7 +14898,7 @@ function layoutSettingsPreviewPanel() {
   panel.querySelector("[data-layout-preview-actions]").textContent = optionLabel(paneActionOptions, settings.paneActionMode, settings.paneActionMode);
   panel.querySelector("[data-layout-preview-sidebar]").textContent = settings.focusMode ? "Hidden" : `${settings.sidebarWidth}px`;
   panel.querySelector("[data-layout-preview-settings]").textContent = `${settings.inspectorWidth}px`;
-  panel.querySelector("[data-layout-preview-status]").textContent = settings.focusMode || !settings.showStatusbar ? "Off" : "On";
+  panel.querySelector("[data-layout-preview-status]").textContent = statusbarSummaryLabel(settings);
   const workspace = activeWorkspace();
   panel.querySelector("[data-layout-preview-active-pane]").textContent = workspace?.panels?.length > 1 ? `${activePaneLayoutPercent(workspace)}%` : "Single";
   panel.querySelector("[data-layout-preview-panes]").textContent = workspace?.panels?.length ? String(workspace.panels.length) : "None";
@@ -17394,6 +17420,7 @@ function performanceDiagnosticsPayload() {
       titleDetailMode: state.settings.titleDetailMode,
       showTabs: state.settings.showTabs,
       showStatusbar: state.settings.showStatusbar,
+      statusDetailMode: state.settings.statusDetailMode,
       performanceMode: state.settings.performanceMode,
       adaptivePerformance: state.settings.adaptivePerformance,
       reduceMotion: state.settings.reduceMotion,
@@ -24540,7 +24567,7 @@ function settingsPresetTags(settings) {
   const tags = [
     optionLabel(toolbarModeOptions, settings.toolbarMode, "Toolbar"),
     settings.performanceMode ? "Speed" : settings.focusMode ? "Focus" : settings.density,
-    settings.showStatusbar ? "Status" : "No status",
+    statusbarSummaryLabel(settings),
     `${settings.terminalScrollback.toLocaleString()} history`
   ];
   return tags.map((tag) => {
@@ -30099,6 +30126,7 @@ const workspaceChromeSettings = [
   "focusMode",
   "showTabs",
   "showStatusbar",
+  "statusDetailMode",
   "sidebarWidth",
   "inspectorWidth"
 ];
@@ -30135,6 +30163,7 @@ const workspaceChromePresets = [
       focusMode: defaultSettings.focusMode,
       showTabs: defaultSettings.showTabs,
       showStatusbar: defaultSettings.showStatusbar,
+      statusDetailMode: defaultSettings.statusDetailMode,
       sidebarWidth: defaultSettings.sidebarWidth,
       inspectorWidth: defaultSettings.inspectorWidth
     }
@@ -30158,6 +30187,7 @@ const workspaceChromePresets = [
       focusMode: false,
       showTabs: true,
       showStatusbar: false,
+      statusDetailMode: "compact",
       sidebarWidth: 212,
       inspectorWidth: 340
     }
@@ -30181,6 +30211,7 @@ const workspaceChromePresets = [
       focusMode: false,
       showTabs: false,
       showStatusbar: false,
+      statusDetailMode: "compact",
       sidebarWidth: 204,
       inspectorWidth: 320
     }
@@ -30204,6 +30235,7 @@ const workspaceChromePresets = [
       focusMode: false,
       showTabs: true,
       showStatusbar: true,
+      statusDetailMode: "full",
       sidebarWidth: 260,
       inspectorWidth: 400
     }
@@ -30227,6 +30259,7 @@ const workspaceChromePresets = [
       focusMode: true,
       showTabs: true,
       showStatusbar: false,
+      statusDetailMode: "compact",
       sidebarWidth: 216,
       inspectorWidth: 328
     }
@@ -30291,6 +30324,11 @@ function optionIdAllowed(options, value) {
   return typeof value === "string" && options.some(([id]) => id === value);
 }
 
+function statusbarSummaryLabel(settings = state.settings) {
+  if (settings.focusMode || !settings.showStatusbar) return "Hidden";
+  return optionLabel(statusDetailOptions, settings.statusDetailMode, "Full");
+}
+
 function workspaceChromeSummaryForSettings(settings) {
   const normalized = {
     ...defaultSettings,
@@ -30304,7 +30342,7 @@ function workspaceChromeSummaryForSettings(settings) {
     paneControls: optionLabel(paneActionOptions, normalized.paneActionMode, normalized.paneActionMode),
     workspaceRows: optionLabel(sidebarDetailOptions, normalized.sidebarDetailMode, normalized.sidebarDetailMode),
     tabs: normalized.showTabs ? optionLabel(tabSizeOptions, normalized.tabSize, normalized.tabSize) : "Hidden",
-    statusbar: normalized.showStatusbar ? "Visible" : "Hidden",
+    statusbar: statusbarSummaryLabel(normalized),
     focusMode: normalized.focusMode ? "On" : "Off",
     widths: `${normalized.sidebarWidth}px sidebar / ${normalized.inspectorWidth}px settings`
   };
@@ -30361,6 +30399,7 @@ function workspaceChromeSettingUpdateFromValue(key, raw) {
   if (key === "tabSize") return optionIdAllowed(tabSizeOptions, raw) ? raw : null;
   if (key === "addTabStyle") return optionIdAllowed(addTabStyleOptions, raw) ? raw : null;
   if (key === "titleDetailMode") return optionIdAllowed(titleDetailOptions, raw) ? raw : null;
+  if (key === "statusDetailMode") return optionIdAllowed(statusDetailOptions, raw) ? raw : null;
   if (workspaceChromeBooleanSettings.has(key)) return typeof raw === "boolean" ? raw : null;
   const range = workspaceChromeWidthSettings[key];
   if (range) {

@@ -28,6 +28,7 @@ export const defaultSettings = {
   focusMode: false,
   showTabs: true,
   showStatusbar: true,
+  statusDetailMode: "full",
   showAdvanced: false,
   performanceMode: false,
   adaptivePerformance: true,
@@ -359,6 +360,11 @@ export const addTabStyleOptions = [
   ["hidden", label("addTabStyle.hidden", "Hidden")]
 ];
 
+export const statusDetailOptions = [
+  ["compact", label("statusDetail.compact", "Compact")],
+  ["full", label("statusDetail.full", "Full")]
+];
+
 export const terminalStartupOptions = [
   ["fast", label("terminalStartup.fast", "Fast")],
   ["balanced", label("terminalStartup.balanced", "Balanced")]
@@ -478,6 +484,7 @@ export const settingsPresets = [
       focusMode: false,
       showTabs: true,
       showStatusbar: true,
+      statusDetailMode: "full",
       showAdvanced: false,
       performanceMode: false,
       adaptivePerformance: true,
@@ -525,6 +532,7 @@ export const settingsPresets = [
       focusMode: false,
       showTabs: true,
       showStatusbar: false,
+      statusDetailMode: "compact",
       showAdvanced: false,
       performanceMode: false,
       adaptivePerformance: true,
@@ -572,6 +580,7 @@ export const settingsPresets = [
       focusMode: false,
       showTabs: true,
       showStatusbar: false,
+      statusDetailMode: "compact",
       showAdvanced: false,
       performanceMode: true,
       adaptivePerformance: true,
@@ -620,6 +629,7 @@ export const settingsPresets = [
       focusMode: true,
       showTabs: true,
       showStatusbar: false,
+      statusDetailMode: "compact",
       showAdvanced: false,
       performanceMode: false,
       adaptivePerformance: true,
@@ -667,6 +677,7 @@ export const settingsPresets = [
       focusMode: false,
       showTabs: true,
       showStatusbar: false,
+      statusDetailMode: "compact",
       showAdvanced: false,
       performanceMode: true,
       adaptivePerformance: true,
@@ -714,6 +725,7 @@ export const settingsPresets = [
       focusMode: false,
       showTabs: true,
       showStatusbar: true,
+      statusDetailMode: "full",
       showAdvanced: false,
       performanceMode: false,
       adaptivePerformance: true,
@@ -761,6 +773,7 @@ export const settingsPresets = [
       focusMode: false,
       showTabs: true,
       showStatusbar: true,
+      statusDetailMode: "full",
       showAdvanced: false,
       performanceMode: false,
       adaptivePerformance: false,
