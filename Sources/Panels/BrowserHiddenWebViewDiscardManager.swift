@@ -66,6 +66,7 @@ final class BrowserHiddenWebViewDiscardManager {
     func blockers(for snapshot: BlockerSnapshot) -> [String] {
         var blockers: [String] = []
         if !BrowserHiddenWebViewDiscardPolicy.isEnabled { blockers.append("policy_disabled") }
+        if isSystemSleeping { blockers.append("system_sleeping") }
         if snapshot.isClosing { blockers.append("closing") }
         if isDiscardedForMemory { blockers.append("already_discarded") }
         if snapshot.isVisibleInUI { blockers.append("visible") }
@@ -90,7 +91,6 @@ final class BrowserHiddenWebViewDiscardManager {
         discardTimer?.cancel()
         discardTimer = nil
 
-        guard !isSystemSleeping else { return }
         guard let delegate else { return }
         guard blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else { return }
 
@@ -139,12 +139,15 @@ final class BrowserHiddenWebViewDiscardManager {
         guard systemSleepObservers.isEmpty else { return }
         systemSleepObserverCenter = center
         systemSleepObservers = [
+            // Synchronous main-actor delivery (no Task hop): a countdown with
+            // milliseconds of mach time left must see isSystemSleeping before
+            // its timer can fire.
             center.addObserver(
                 forName: NSWorkspace.willSleepNotification,
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated {
                     self?.noteSystemWillSleep()
                 }
             },
@@ -153,7 +156,7 @@ final class BrowserHiddenWebViewDiscardManager {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated {
                     self?.noteSystemDidWake()
                 }
             }

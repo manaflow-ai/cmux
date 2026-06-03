@@ -209,6 +209,7 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
 
         manager.noteSystemWillSleep()
         XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(manager.blockers(for: snapshot), ["system_sleeping"])
 
         manager.scheduleIfNeeded(reason: "test.whileSleeping")
         XCTAssertFalse(manager.hasScheduledDiscard)
@@ -216,6 +217,7 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
 
         manager.noteSystemDidWake(now: Date())
         XCTAssertTrue(manager.hasScheduledDiscard)
+        XCTAssertEqual(manager.blockers(for: snapshot), [])
         XCTAssertEqual(delegate.discardRequestCount, 0)
     }
 }
