@@ -232,4 +232,16 @@ import Testing
         let paths = await service.watchedPaths(for: "/nope/\(UUID().uuidString)")
         #expect(paths == nil)
     }
+
+    // MARK: Execution contract
+
+    /// Pins the SE-0338 contract the service relies on: a `nonisolated async`
+    /// method awaited from the main actor runs on the global concurrent executor,
+    /// not the main thread. If CmuxGit ever adopts `NonisolatedNonsendingByDefault`,
+    /// this fails — annotate the reads `@concurrent` to restore off-main execution.
+    @MainActor @Test func nonisolatedAsyncReadsRunOffTheMainThread() async {
+        #expect(pthread_main_np() != 0) // we start on the main actor's thread
+        let hopped = await GitMetadataService().executionHopsOffCallersThread()
+        #expect(hopped, "nonisolated async must hop off the caller's thread (SE-0338)")
+    }
 }

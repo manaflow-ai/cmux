@@ -46,7 +46,7 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: The git metadata for the enclosing repository, or
     ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
-    public func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+    public nonisolated func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
@@ -72,7 +72,7 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: Sorted existing paths to watch, or `nil` when `directory` is
     ///   not inside a git repository.
-    public func watchedPaths(for directory: String) async -> [String]? {
+    public nonisolated func watchedPaths(for directory: String) async -> [String]? {
         Self.workspaceGitMetadataWatchedPaths(for: directory)
     }
 
@@ -86,11 +86,22 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: Ordered, de-duplicated GitHub slugs; empty when there is no
     ///   repository or no GitHub remote.
-    public func repositorySlugs(forDirectory directory: String) async -> [String] {
+    public nonisolated func repositorySlugs(forDirectory directory: String) async -> [String] {
         guard let repository = Self.resolveGitRepository(containing: directory),
               let output = Self.gitRemoteVOutput(repository: repository) else {
             return []
         }
         return Self.githubRepositorySlugs(fromGitRemoteVOutput: output)
+    }
+
+    /// Whether this module's `nonisolated async` methods execute off the calling
+    /// thread. A seam for the test that pins the SE-0338 execution contract the
+    /// reads above rely on (see the `Important` note on the type): if this module
+    /// ever adopts `NonisolatedNonsendingByDefault`, execution moves onto the
+    /// caller's actor, the pinning test fails, and the fix is annotating the
+    /// reads `@concurrent`.
+    nonisolated func executionHopsOffCallersThread() async -> Bool {
+        // Thread.isMainThread is `noasync`; pthread_main_np is the supported probe.
+        pthread_main_np() == 0
     }
 }
