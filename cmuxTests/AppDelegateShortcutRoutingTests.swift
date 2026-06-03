@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Carbon.HIToolbox
+import Combine
 import SwiftUI
 
 #if canImport(cmux_DEV)
@@ -9668,6 +9669,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             remountedTextView.submissionText(),
             expectedImageSubmission(before: "hello ", url: originalURL, after: " world")
         )
+    }
+
+    func testTerminalPanelPreservesTextBoxDraftForUnmountWithoutPublishing() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+        let originalTextView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        originalTextView.string = "preserve this"
+
+        var objectWillChangeCount = 0
+        let cancellable = terminalPanel.objectWillChange.sink {
+            objectWillChangeCount += 1
+        }
+
+        terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)
+
+        let draft = try XCTUnwrap(terminalPanel.sessionTextBoxDraftSnapshot())
+        XCTAssertEqual(textBoxSessionDraftPartSummaries(draft.parts), [.text("preserve this")])
+        XCTAssertEqual(
+            objectWillChangeCount,
+            0,
+            "TextBox unmount preservation runs from NSViewRepresentable.dismantleNSView and must not publish during SwiftUI teardown"
+        )
+        withExtendedLifetime(cancellable) {}
     }
 
     func testTerminalPanelCloseDisposesTextBoxAttachmentDrafts() throws {
