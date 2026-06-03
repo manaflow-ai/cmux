@@ -7,6 +7,7 @@ import {
   backgroundPresets,
   browserHomePresets,
   browserLaunchModeOptions,
+  cornerStyleOptions,
   defaultSettings,
   paneActionOptions,
   paneHeaderOptions,
@@ -123,6 +124,15 @@ const tabSizeMetrics = new Map([
   ["balanced", { min: 104, basis: 160, max: 220 }],
   ["roomy", { min: 136, basis: 210, max: 292 }]
 ]);
+const cornerStyleTokens = new Map([
+  ["crisp", { radius1: "2px", radius2: "3px" }],
+  ["soft", { radius1: "4px", radius2: "6px" }],
+  ["round", { radius1: "8px", radius2: "12px" }]
+]);
+function cornerStyleCssVars(value = state.settings.cornerStyle) {
+  return cornerStyleTokens.get(value) || cornerStyleTokens.get(defaultSettings.cornerStyle);
+}
+
 const workspaceColorOptions = [...new Set([
   ...accentOptions,
   "oklch(62% 0.22 255)",
@@ -265,6 +275,7 @@ const layoutSettingsPreviewKeys = new Set([
   "toolbarMode",
   "tabSize",
   "addTabStyle",
+  "cornerStyle",
   "titleDetailMode",
   "paneColorMarkers",
   "focusMode",
@@ -319,6 +330,7 @@ const settingsInspectorSettingKeys = {
     "toolbarMode",
     "tabSize",
     "addTabStyle",
+    "cornerStyle",
     "titleDetailMode",
     "paneColorMarkers",
     "focusMode",
@@ -993,6 +1005,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   }
   if (!tabSizeOptions.some(([id]) => id === next.tabSize)) next.tabSize = defaultSettings.tabSize;
   if (!addTabStyleOptions.some(([id]) => id === next.addTabStyle)) next.addTabStyle = defaultSettings.addTabStyle;
+  if (!cornerStyleOptions.some(([id]) => id === next.cornerStyle)) next.cornerStyle = defaultSettings.cornerStyle;
   if (!titleDetailOptions.some(([id]) => id === next.titleDetailMode)) next.titleDetailMode = defaultSettings.titleDetailMode;
   if (!statusDetailOptions.some(([id]) => id === next.statusDetailMode)) next.statusDetailMode = defaultSettings.statusDetailMode;
   if (!terminalCursorStyles.some(([id]) => id === next.terminalCursorStyle)) next.terminalCursorStyle = defaultSettings.terminalCursorStyle;
@@ -2984,6 +2997,7 @@ function settingsProfileSummary(settings) {
   const theme = themeOptions.find(([id]) => id === normalized.theme)?.[1] || normalized.theme;
   const toolbar = toolbarModeOptions.find(([id]) => id === normalized.toolbarMode)?.[1] || normalized.toolbarMode;
   const addTabs = optionLabel(addTabStyleOptions, normalized.addTabStyle, normalized.addTabStyle);
+  const corners = optionLabel(cornerStyleOptions, normalized.cornerStyle, normalized.cornerStyle);
   const actions = paneActionOptions.find(([id]) => id === normalized.paneActionMode)?.[1] || normalized.paneActionMode;
   const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, "Flat");
   const startup = optionLabel(terminalStartupOptions, normalized.terminalStartupMode, "Fast");
@@ -2994,6 +3008,7 @@ function settingsProfileSummary(settings) {
     toolbar,
     `${statusbarSummaryLabel(normalized).toLowerCase()} status`,
     `${addTabs} add tabs`,
+    `${corners.toLowerCase()} corners`,
     `${actions} pane controls`,
     normalized.paneColorMarkers ? "colored pane markers" : "quiet pane markers",
     `${browserHomeHost} home`,
@@ -5067,6 +5082,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.toolbarMode,
     settings.tabSize,
     settings.addTabStyle,
+    settings.cornerStyle,
     settings.titleDetailMode,
     settings.paneColorMarkers,
     settings.focusMode,
@@ -5104,6 +5120,9 @@ function applySettings() {
   setStylePropertyIfChanged(elements.shell, "--surface-tab-min", `${tabMetrics.min}px`);
   setStylePropertyIfChanged(elements.shell, "--surface-tab-basis", `${tabMetrics.basis}px`);
   setStylePropertyIfChanged(elements.shell, "--surface-tab-max", `${tabMetrics.max}px`);
+  const cornerStyle = cornerStyleCssVars();
+  setStylePropertyIfChanged(document.documentElement, "--radius-1", cornerStyle.radius1);
+  setStylePropertyIfChanged(document.documentElement, "--radius-2", cornerStyle.radius2);
   toggleClassIfChanged(elements.shell, "density-compact", state.settings.density === "compact");
   toggleClassIfChanged(elements.shell, "pane-header-compact", state.settings.paneHeaderMode === "compact");
   toggleClassIfChanged(elements.shell, "pane-header-full", state.settings.paneHeaderMode === "full");
@@ -12870,6 +12889,12 @@ function renderSettingsInspector(options = {}) {
       true,
       "surface tab add terminal browser plus button labeled compact hidden simple chrome"
     ));
+    layoutSection.append(settingRow(
+      "Corner style",
+      settingSegmentedControl("cornerStyle", cornerStyleOptions, "corner radius shape rounded soft crisp sharp panels controls tabs chrome", { compact: true }),
+      true,
+      "corner radius shape rounded soft crisp sharp panels controls tabs chrome"
+    ));
     const titleDetailSelect = document.createElement("select");
     titleDetailSelect.className = "setting-select";
     for (const [value, label] of titleDetailOptions) {
@@ -12928,21 +12953,21 @@ function renderSettingsInspector(options = {}) {
     pasteLayoutAction.disabled = workspaceBlueprintsFull();
     pasteLayoutAction.title = pasteLayoutAction.disabled ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint into the reusable layout library.";
     const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
-    const copySetupAction = settingsActionButton("Copy setup", copyLayoutSetup, "", "layout setup copy workspace chrome blueprint pane split toolbar sidebar footer inspector tabs status header title focus clipboard json");
+    const copySetupAction = settingsActionButton("Copy setup", copyLayoutSetup, "", "layout setup copy workspace chrome blueprint pane split toolbar sidebar footer inspector tabs status header title corner focus clipboard json");
     copySetupAction.title = workspace?.panels?.length
       ? "Copy the current pane layout and workspace chrome as JSON."
       : "Copy workspace chrome as JSON. Open panes to include a pane layout.";
-    const pasteSetupAction = settingsActionButton("Paste setup", pasteLayoutSetup, "", "layout setup paste workspace chrome blueprint pane split toolbar sidebar footer inspector tabs status header title focus clipboard json");
+    const pasteSetupAction = settingsActionButton("Paste setup", pasteLayoutSetup, "", "layout setup paste workspace chrome blueprint pane split toolbar sidebar footer inspector tabs status header title corner focus clipboard json");
     pasteSetupAction.title = "Apply copied layout setup and save any included pane blueprint.";
-    const copyChromeAction = settingsActionButton("Copy chrome", copyWorkspaceChromeSettings, "", "workspace chrome layout copy toolbar sidebar footer inspector tabs status header title focus mode clipboard json");
-    copyChromeAction.title = "Copy toolbar, sidebar, tabs, status bar, and panel widths as JSON.";
-    const pasteChromeAction = settingsActionButton("Paste chrome", pasteWorkspaceChromeSettings, "", "workspace chrome layout paste toolbar sidebar footer inspector tabs status header title focus mode clipboard json");
+    const copyChromeAction = settingsActionButton("Copy chrome", copyWorkspaceChromeSettings, "", "workspace chrome layout copy toolbar sidebar footer inspector tabs status header title corner focus mode clipboard json");
+    copyChromeAction.title = "Copy toolbar, sidebar, tabs, status bar, corner style, and panel widths as JSON.";
+    const pasteChromeAction = settingsActionButton("Paste chrome", pasteWorkspaceChromeSettings, "", "workspace chrome layout paste toolbar sidebar footer inspector tabs status header title corner focus mode clipboard json");
     pasteChromeAction.title = "Apply copied cmux workspace chrome JSON.";
-    const resetChromeAction = settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", `workspace chrome toolbar sidebar footer inspector tabs status header title reset ${workspaceChromeDefault ? "active current " : ""}`);
+    const resetChromeAction = settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", `workspace chrome toolbar sidebar footer inspector tabs status header title corner reset ${workspaceChromeDefault ? "active current " : ""}`);
     resetChromeAction.disabled = workspaceChromeDefault;
     resetChromeAction.title = workspaceChromeDefault
       ? "Workspace chrome already matches the default setup."
-      : "Reset toolbar, sidebar, tabs, status bar, and panel widths.";
+      : "Reset toolbar, sidebar, tabs, status bar, corner style, and panel widths.";
     const canResetSplitLayout = Boolean(workspace?.panels?.length > 1);
     const resetSplitAction = settingsActionButton("Reset split layout", resetActivePaneLayout, "", `split layout pane splitter resize reset equal ${canResetSplitLayout ? "" : "disabled no panes "}`);
     resetSplitAction.disabled = !canResetSplitLayout;
@@ -14879,13 +14904,13 @@ function workspaceChromePresetGrid() {
     const meta = button.querySelectorAll(".workspace-chrome-preset-meta span");
     meta[0].textContent = summary.toolbar;
     meta[1].textContent = summary.tabs;
-    meta[2].textContent = summary.statusbar;
+    meta[2].textContent = summary.corners;
     button.onclick = () => {
       if (!isActiveWorkspaceChromePreset(preset)) applyWorkspaceChromePreset(preset.id);
     };
     const actions = document.createElement("div");
     actions.className = "workspace-chrome-preset-actions";
-    const copy = settingsActionButton("Copy", () => copyWorkspaceChromePreset(preset.id), "", `workspace chrome preset copy clipboard json ${preset.label} ${preset.body}`);
+    const copy = settingsActionButton("Copy", () => copyWorkspaceChromePreset(preset.id), "", `workspace chrome preset copy clipboard json corner radius ${preset.label} ${preset.body}`);
     copy.title = "Copy this chrome preset as workspace chrome JSON.";
     actions.append(copy);
     card.append(button, actions);
@@ -14905,13 +14930,14 @@ function layoutSettingsPreviewPanel() {
     `toolbar-${settings.toolbarMode}`,
     `tab-size-${settings.tabSize}`,
     `add-tabs-${settings.addTabStyle}`,
+    `corner-style-${settings.cornerStyle}`,
     `status-detail-${settings.statusDetailMode}`,
     settings.focusMode ? "focus-mode" : "",
     settings.showTabs ? "show-tabs" : "hide-tabs",
     settings.showStatusbar ? "show-statusbar" : "hide-statusbar",
     settings.performanceMode ? "performance-preview" : ""
   ].filter(Boolean).join(" ");
-  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs status pane header density settings panel active pane percent resize focus mode simple clean panes split shape preset current");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs status pane header density settings panel active pane percent resize focus mode simple clean panes split shape corner radius rounded preset current");
   panel.style.setProperty("--layout-preview-sidebar", `${Math.max(24, Math.round((settings.sidebarWidth / 304) * 72))}px`);
   panel.style.setProperty("--layout-preview-inspector", `${Math.max(42, Math.round((settings.inspectorWidth / 480) * 76))}px`);
   panel.innerHTML = `
@@ -14945,6 +14971,7 @@ function layoutSettingsPreviewPanel() {
       <span><b>Mode</b><em data-layout-preview-mode></em></span>
       <span><b>Tabs</b><em data-layout-preview-tabs></em></span>
       <span><b>Add tabs</b><em data-layout-preview-add-tabs></em></span>
+      <span><b>Corners</b><em data-layout-preview-corners></em></span>
       <span><b>Header</b><em data-layout-preview-header></em></span>
       <span><b>Controls</b><em data-layout-preview-actions></em></span>
       <span><b>Sidebar</b><em data-layout-preview-sidebar></em></span>
@@ -14960,6 +14987,7 @@ function layoutSettingsPreviewPanel() {
   panel.querySelector("[data-layout-preview-mode]").textContent = settings.focusMode ? "Focus" : "Standard";
   panel.querySelector("[data-layout-preview-tabs]").textContent = settings.focusMode || !settings.showTabs ? "Hidden" : optionLabel(tabSizeOptions, settings.tabSize, settings.tabSize);
   panel.querySelector("[data-layout-preview-add-tabs]").textContent = settings.focusMode || !settings.showTabs ? "Hidden" : optionLabel(addTabStyleOptions, settings.addTabStyle, settings.addTabStyle);
+  panel.querySelector("[data-layout-preview-corners]").textContent = optionLabel(cornerStyleOptions, settings.cornerStyle, settings.cornerStyle);
   panel.querySelector("[data-layout-preview-header]").textContent = settings.focusMode ? "Hidden" : optionLabel(paneHeaderOptions, settings.paneHeaderMode, settings.paneHeaderMode);
   panel.querySelector("[data-layout-preview-actions]").textContent = optionLabel(paneActionOptions, settings.paneActionMode, settings.paneActionMode);
   panel.querySelector("[data-layout-preview-sidebar]").textContent = settings.focusMode ? "Hidden" : `${settings.sidebarWidth}px`;
@@ -18635,29 +18663,29 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
       title: workspace?.panels?.length
         ? "Copy the current pane layout and workspace chrome as JSON."
         : "Copy workspace chrome as JSON. Open panes to include a pane layout.",
-      search: "quick setup layout copy setup workspace chrome pane split blueprint clipboard json"
+      search: "quick setup layout copy setup workspace chrome pane split blueprint corner radius clipboard json"
     }),
     quickOverviewControlButton("Paste setup", pasteLayoutSetup, {
       title: "Apply copied layout setup and save any included pane blueprint.",
-      search: "quick setup layout paste setup workspace chrome pane split blueprint clipboard json"
+      search: "quick setup layout paste setup workspace chrome pane split blueprint corner radius clipboard json"
     }),
     quickOverviewControlButton("Reset chrome", () => refreshQuick(resetWorkspaceChrome()), {
       disabled: workspaceChromeDefault,
       title: workspaceChromeDefault
         ? "Workspace chrome already matches the default setup."
-        : "Reset toolbar, sidebar, tabs, status bar, and panel widths.",
-      search: `quick setup layout reset workspace chrome toolbar sidebar tabs status ${workspaceChromeDefault ? "default current" : ""}`
+        : "Reset toolbar, sidebar, tabs, status bar, corner style, and panel widths.",
+      search: `quick setup layout reset workspace chrome toolbar sidebar tabs status corner radius ${workspaceChromeDefault ? "default current" : ""}`
     }),
     quickOverviewControlButton("Layout", () => openSettingsCategory("layout"), {
       title: "Open full layout and workspace chrome settings.",
-      search: "quick setup layout full settings workspace chrome toolbar sidebar tabs pane header density"
+      search: "quick setup layout full settings workspace chrome toolbar sidebar tabs pane header density corner radius"
     })
   ];
   return quickOverviewControlsPanel({
     className: "quick-overview-layout",
     title: "Layout controls",
-    meta: `${activePreset} / ${summary.toolbar} / ${summary.tabs}`,
-    search: `quick setup layout controls workspace chrome display simple compact focus density toolbar tabs status sidebar ${activePreset} ${summary.density} ${summary.toolbar} ${summary.paneHeaders} ${summary.paneControls} ${summary.tabs} ${summary.statusbar} ${summary.focusMode} ${summary.widths}`,
+    meta: `${activePreset} / ${summary.toolbar} / ${summary.corners}`,
+    search: `quick setup layout controls workspace chrome display simple compact focus density toolbar tabs status sidebar corner radius rounded crisp soft ${activePreset} ${summary.density} ${summary.toolbar} ${summary.paneHeaders} ${summary.paneControls} ${summary.tabs} ${summary.corners} ${summary.statusbar} ${summary.focusMode} ${summary.widths}`,
     actions
   });
 }
@@ -27189,7 +27217,7 @@ function paletteEntries() {
     entries.push({
       id: `workspaceChromePreset.${preset.id}`,
       label: `Chrome preset: ${preset.label}`,
-      meta: active ? `Active / ${summary.toolbar}` : `${summary.toolbar} / ${summary.tabs}`,
+      meta: active ? `Active / ${summary.toolbar}` : `${summary.toolbar} / ${summary.corners}`,
       shortcut: active ? "Active" : "Layout",
       active,
       disabled: active,
@@ -27200,10 +27228,10 @@ function paletteEntries() {
     entries.push({
       id: `workspaceChromePreset.copy.${preset.id}`,
       label: `Copy chrome preset: ${preset.label}`,
-      meta: `${summary.density} / ${summary.widths}`,
+      meta: `${summary.density} / ${summary.corners}`,
       shortcut: "Copy",
       title: "Copy this chrome preset as workspace chrome JSON.",
-      search: normalizeSettingsQuery(`workspace chrome layout display preset copy clipboard json ${preset.label} ${preset.body} ${summary.density} ${summary.toolbar} ${summary.tabs} ${summary.statusbar} ${summary.widths}`),
+      search: normalizeSettingsQuery(`workspace chrome layout display preset copy clipboard json corner radius rounded crisp soft ${preset.label} ${preset.body} ${summary.density} ${summary.toolbar} ${summary.tabs} ${summary.corners} ${summary.statusbar} ${summary.widths}`),
       run: () => copyWorkspaceChromePreset(preset.id)
     });
   }
@@ -30206,6 +30234,7 @@ const workspaceChromeSettings = [
   "toolbarMode",
   "tabSize",
   "addTabStyle",
+  "cornerStyle",
   "titleDetailMode",
   "paneColorMarkers",
   "focusMode",
@@ -30243,6 +30272,7 @@ const workspaceChromePresets = [
       toolbarMode: defaultSettings.toolbarMode,
       tabSize: defaultSettings.tabSize,
       addTabStyle: defaultSettings.addTabStyle,
+      cornerStyle: defaultSettings.cornerStyle,
       titleDetailMode: defaultSettings.titleDetailMode,
       paneColorMarkers: defaultSettings.paneColorMarkers,
       focusMode: defaultSettings.focusMode,
@@ -30267,6 +30297,7 @@ const workspaceChromePresets = [
       toolbarMode: "minimal",
       tabSize: "compact",
       addTabStyle: "compact",
+      cornerStyle: "crisp",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: false,
@@ -30291,6 +30322,7 @@ const workspaceChromePresets = [
       toolbarMode: "minimal",
       tabSize: "compact",
       addTabStyle: "hidden",
+      cornerStyle: "crisp",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: false,
@@ -30315,6 +30347,7 @@ const workspaceChromePresets = [
       toolbarMode: "standard",
       tabSize: "roomy",
       addTabStyle: "labeled",
+      cornerStyle: "round",
       titleDetailMode: "detailed",
       paneColorMarkers: true,
       focusMode: false,
@@ -30339,6 +30372,7 @@ const workspaceChromePresets = [
       toolbarMode: "minimal",
       tabSize: "balanced",
       addTabStyle: "compact",
+      cornerStyle: "crisp",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: true,
@@ -30428,6 +30462,7 @@ function workspaceChromeSummaryForSettings(settings) {
     paneControls: optionLabel(paneActionOptions, normalized.paneActionMode, normalized.paneActionMode),
     workspaceRows: optionLabel(sidebarDetailOptions, normalized.sidebarDetailMode, normalized.sidebarDetailMode),
     tabs: normalized.showTabs ? optionLabel(tabSizeOptions, normalized.tabSize, normalized.tabSize) : "Hidden",
+    corners: optionLabel(cornerStyleOptions, normalized.cornerStyle, normalized.cornerStyle),
     statusbar: statusbarSummaryLabel(normalized),
     focusMode: normalized.focusMode ? "On" : "Off",
     widths: `${normalized.sidebarWidth}px sidebar / ${normalized.inspectorWidth}px settings`
@@ -30484,6 +30519,7 @@ function workspaceChromeSettingUpdateFromValue(key, raw) {
   if (key === "toolbarMode") return optionIdAllowed(toolbarModeOptions, raw) ? raw : null;
   if (key === "tabSize") return optionIdAllowed(tabSizeOptions, raw) ? raw : null;
   if (key === "addTabStyle") return optionIdAllowed(addTabStyleOptions, raw) ? raw : null;
+  if (key === "cornerStyle") return optionIdAllowed(cornerStyleOptions, raw) ? raw : null;
   if (key === "titleDetailMode") return optionIdAllowed(titleDetailOptions, raw) ? raw : null;
   if (key === "statusDetailMode") return optionIdAllowed(statusDetailOptions, raw) ? raw : null;
   if (workspaceChromeBooleanSettings.has(key)) return typeof raw === "boolean" ? raw : null;
@@ -30551,7 +30587,7 @@ function workspaceChromePresetSettings(preset) {
 function workspaceChromePresetSearchText(preset, settings = workspaceChromePresetSettings(preset)) {
   const summary = workspaceChromeSummaryForSettings(settings || {});
   return normalizeSettingsQuery([
-    "workspace chrome layout display preset apply copy simple clean compact focus toolbar sidebar tabs status pane header controls",
+    "workspace chrome layout display preset apply copy simple clean compact focus toolbar sidebar tabs status pane header controls corner radius rounded crisp soft",
     preset?.label,
     preset?.body,
     summary.density,
@@ -30560,6 +30596,7 @@ function workspaceChromePresetSearchText(preset, settings = workspaceChromePrese
     summary.paneControls,
     summary.workspaceRows,
     summary.tabs,
+    summary.corners,
     summary.statusbar,
     summary.focusMode,
     summary.widths

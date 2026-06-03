@@ -24,6 +24,7 @@ export const defaultSettings = {
   toolbarMode: "minimal",
   tabSize: "balanced",
   addTabStyle: "compact",
+  cornerStyle: "soft",
   titleDetailMode: "smart",
   paneColorMarkers: false,
   focusMode: false,
@@ -361,6 +362,12 @@ export const addTabStyleOptions = [
   ["hidden", label("addTabStyle.hidden", "Hidden")]
 ];
 
+export const cornerStyleOptions = [
+  ["crisp", label("cornerStyle.crisp", "Crisp"), label("cornerStyle.crisp.body", "Sharper utility edges")],
+  ["soft", label("cornerStyle.soft", "Soft"), label("cornerStyle.soft.body", "Balanced cmux shape")],
+  ["round", label("cornerStyle.round", "Round"), label("cornerStyle.round.body", "Softer panels and controls")]
+];
+
 export const statusDetailOptions = [
   ["compact", label("statusDetail.compact", "Compact")],
   ["full", label("statusDetail.full", "Full")]
@@ -481,6 +488,7 @@ export const settingsPresets = [
       toolbarMode: "minimal",
       tabSize: "balanced",
       addTabStyle: "compact",
+      cornerStyle: "soft",
       titleDetailMode: "smart",
       paneColorMarkers: false,
       focusMode: false,
@@ -530,6 +538,7 @@ export const settingsPresets = [
       toolbarMode: "minimal",
       tabSize: "compact",
       addTabStyle: "compact",
+      cornerStyle: "crisp",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: false,
@@ -579,6 +588,7 @@ export const settingsPresets = [
       toolbarMode: "minimal",
       tabSize: "compact",
       addTabStyle: "compact",
+      cornerStyle: "crisp",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: false,
@@ -629,6 +639,7 @@ export const settingsPresets = [
       toolbarMode: "minimal",
       tabSize: "balanced",
       addTabStyle: "compact",
+      cornerStyle: "crisp",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: true,
@@ -678,6 +689,7 @@ export const settingsPresets = [
       toolbarMode: "minimal",
       tabSize: "compact",
       addTabStyle: "hidden",
+      cornerStyle: "crisp",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: false,
@@ -727,6 +739,7 @@ export const settingsPresets = [
       toolbarMode: "minimal",
       tabSize: "balanced",
       addTabStyle: "compact",
+      cornerStyle: "soft",
       titleDetailMode: "compact",
       paneColorMarkers: true,
       focusMode: false,
@@ -776,6 +789,7 @@ export const settingsPresets = [
       toolbarMode: "standard",
       tabSize: "roomy",
       addTabStyle: "labeled",
+      cornerStyle: "round",
       titleDetailMode: "detailed",
       paneColorMarkers: true,
       focusMode: false,
