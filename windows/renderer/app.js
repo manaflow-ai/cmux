@@ -12715,6 +12715,10 @@ function saveQuickSetupProfile() {
 }
 
 async function applyAndSaveCleanFastProfile() {
+  if (savedSettingsProfilesFull()) {
+    toast(settingsProfileLimitTitle());
+    return null;
+  }
   const preset = settingsPresetById("simpleFast");
   const changed = preset ? updateSettings(preset.settings) : false;
   const label = await showTextDialog({
@@ -17207,6 +17211,9 @@ function showToolbarMenu(event) {
   const terminalActive = panel?.type === "terminal";
   const browserActive = panel?.type === "browser";
   const latestBrowserPage = state.recentBrowserPages[0] || "";
+  const cleanFastActive = isSettingsPresetIdActive("simpleFast");
+  const speedPresetActive = isSettingsPresetIdActive("performance");
+  const profilesFull = savedSettingsProfilesFull();
   const title = document.createElement("div");
   title.className = "context-title";
   title.textContent = workspace?.title || "Workspace tools";
@@ -17293,9 +17300,29 @@ function showToolbarMenu(event) {
       contextMenuButton("Performance settings", () => openSettingsCategory("performance")),
       contextMenuButton("Tune performance now", () => tunePerformanceNow()),
       contextMenuButton("Copy performance diagnostics", copyPerformanceDiagnostics),
-      contextMenuButton("Apply clean + fast preset", () => applySettingsPresetById("simpleFast")),
-      contextMenuButton("Save clean + fast profile", () => applyAndSaveCleanFastProfile()),
-      contextMenuButton("Apply speed preset", () => applySettingsPresetById("performance")),
+      (() => {
+        const action = contextMenuButton(
+          cleanFastActive ? "Clean + fast active" : "Apply clean + fast preset",
+          () => applySettingsPresetById("simpleFast"),
+          cleanFastActive
+        );
+        action.title = cleanFastActive ? "Clean + Fast is already active." : "Apply compact chrome, reduced effects, and fast terminal startup.";
+        return action;
+      })(),
+      (() => {
+        const action = contextMenuButton("Save clean + fast profile", () => applyAndSaveCleanFastProfile(), profilesFull);
+        action.title = profilesFull ? settingsProfileLimitTitle() : "Apply Clean + Fast and save it as a reusable profile.";
+        return action;
+      })(),
+      (() => {
+        const action = contextMenuButton(
+          speedPresetActive ? "Speed preset active" : "Apply speed preset",
+          () => applySettingsPresetById("performance"),
+          speedPresetActive
+        );
+        action.title = speedPresetActive ? "Fast performance settings are already active." : "Apply the fast performance preset.";
+        return action;
+      })(),
       contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
       contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
       contextMenuButton("Settings profiles", () => openSettingsCategory("profiles")),
