@@ -34,6 +34,9 @@ public struct RenderNode: Sendable, Equatable {
         /// drop is persisted via ``ReorderSpec``.
         case reorderable
         case text
+        /// `Label(title, systemImage:)`: ``text`` is the title, ``systemName``
+        /// the SF Symbol.
+        case label
         case button
         case image
         case spacer

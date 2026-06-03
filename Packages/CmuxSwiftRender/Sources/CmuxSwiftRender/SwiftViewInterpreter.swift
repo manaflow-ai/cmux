@@ -130,6 +130,12 @@ public struct SwiftViewInterpreter: Sendable {
             let name = call.arguments.first(where: { $0.label?.text == "systemName" })?.expression
                 ?? call.arguments.first?.expression
             return RenderNode(kind: .image, systemName: name.flatMap { exprString($0, env) })
+        case "Label":
+            return RenderNode(
+                kind: .label,
+                text: stringArgument(call.arguments, env) ?? labeledStringArgument("title", call.arguments, env) ?? "",
+                systemName: labeledStringArgument("systemImage", call.arguments, env)
+            )
         case "Spacer":
             return RenderNode(kind: .spacer)
         case "Divider":

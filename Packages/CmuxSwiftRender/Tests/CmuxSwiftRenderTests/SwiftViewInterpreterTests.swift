@@ -480,6 +480,31 @@ import Testing
         #expect(node?.children.map(\.text) == ["2", "1", "42"])
     }
 
+    @Test func labelCapturesTitleAndIcon() {
+        let node = interp.evaluate("""
+        VStack {
+            Label("Repos", systemImage: "folder.fill")
+        }
+        """)
+        let label = node?.children.first
+        #expect(label?.kind == .label)
+        #expect(label?.text == "Repos")
+        #expect(label?.systemName == "folder.fill")
+    }
+
+    @Test func textTypographyModifiersCaptured() {
+        let node = interp.evaluate("""
+        Text("hi")
+            .italic()
+            .monospaced()
+            .textCase(.uppercase)
+            .multilineTextAlignment(.center)
+        """)
+        #expect(node?.kind == .text)
+        let names = Set((node?.modifiers ?? []).map(\.name))
+        #expect(names.isSuperset(of: ["italic", "monospaced", "textCase", "multilineTextAlignment"]))
+    }
+
     @Test func emptyViewLowersToEmptyGroup() {
         let node = interp.evaluate("""
         VStack {

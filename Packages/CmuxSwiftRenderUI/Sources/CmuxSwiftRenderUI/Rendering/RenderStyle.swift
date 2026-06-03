@@ -97,3 +97,42 @@ func dslVAlignment(_ token: String?) -> VerticalAlignment {
     default: return .center
     }
 }
+
+/// Resolves a `Font.Design` token (`.monospaced`/`.rounded`/`.serif`/`.default`).
+/// Returns `nil` for unknown tokens so the system design is kept.
+func dslFontDesign(_ token: String?) -> Font.Design? {
+    switch token?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) {
+    case "monospaced": return .monospaced
+    case "rounded": return .rounded
+    case "serif": return .serif
+    case "default": return .default
+    default: return nil
+    }
+}
+
+/// Resolves a `TextAlignment` token (default `.leading`).
+func dslTextAlignment(_ token: String?) -> TextAlignment {
+    switch token?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) {
+    case "center": return .center
+    case "trailing": return .trailing
+    default: return .leading
+    }
+}
+
+/// Resolves a `Text.Case` token; `nil` (the default) applies no transform.
+func dslTextCase(_ token: String?) -> Text.Case? {
+    switch token?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) {
+    case "uppercase": return .uppercase
+    case "lowercase": return .lowercase
+    default: return nil
+    }
+}
+
+/// Resolves a `Text.TruncationMode` token (default `.tail`).
+func dslTruncationMode(_ token: String?) -> Text.TruncationMode {
+    switch token?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) {
+    case "head": return .head
+    case "middle": return .middle
+    default: return .tail
+    }
+}

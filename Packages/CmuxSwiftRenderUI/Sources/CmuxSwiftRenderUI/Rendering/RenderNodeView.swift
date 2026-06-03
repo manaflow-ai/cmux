@@ -67,6 +67,8 @@ struct RenderNodeView: View {
             ReorderableList(rows: node.children, spec: node.reorder)
         case .text:
             Text(node.text ?? "")
+        case .label:
+            Label(node.text ?? "", systemImage: node.systemName ?? "circle")
         case .image:
             Image(systemName: node.systemName ?? "questionmark.square.dashed")
         case .button:
@@ -123,8 +125,24 @@ struct RenderNodeView: View {
             return AnyView(view.fontWeight(.bold))
         case "strikethrough":
             return AnyView(view.strikethrough())
+        case "underline":
+            return AnyView(view.underline())
+        case "italic":
+            return AnyView(view.italic())
+        case "monospaced":
+            return AnyView(view.monospaced())
+        case "monospacedDigit":
+            return AnyView(view.monospacedDigit())
         case "fontWeight":
             return AnyView(view.fontWeight(dslFontWeight(token)))
+        case "fontDesign":
+            return AnyView(view.fontDesign(dslFontDesign(token)))
+        case "multilineTextAlignment":
+            return AnyView(view.multilineTextAlignment(dslTextAlignment(token)))
+        case "textCase":
+            return AnyView(view.textCase(dslTextCase(token)))
+        case "truncationMode":
+            return AnyView(view.truncationMode(dslTruncationMode(token)))
         case "foregroundColor", "foregroundStyle", "fill", "tint":
             if let color = dslColor(token) { return AnyView(view.foregroundStyle(color)) }
             return view
