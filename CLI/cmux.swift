@@ -7953,10 +7953,13 @@ struct CMUXCLI {
             let variableName = String(trimmed.dropFirst())
             return normalizedSSHAgentSocketPath(ProcessInfo.processInfo.environment[variableName])
         }
-        guard Self.isSSHYesValue(trimmed) else {
+        if Self.isSSHYesValue(trimmed) {
+            return normalizedSSHAgentSocketPath(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"])
+        }
+        guard !Self.isSSHNoValue(trimmed) else {
             return nil
         }
-        return normalizedSSHAgentSocketPath(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"])
+        return normalizedSSHAgentSocketPath(trimmed)
     }
 
     private func normalizedSSHAgentSocketPath(_ value: String?) -> String? {

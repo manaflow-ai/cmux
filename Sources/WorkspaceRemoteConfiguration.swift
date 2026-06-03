@@ -399,7 +399,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         let normalizedIdentity = WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile) ?? ""
         let normalizedLocalProxyPort = localProxyPort.map(String.init) ?? ""
         let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
-        let normalizedAgentSocketPath = WorkspaceRemoteSSHOptionFilter.normalizedOptional(agentSocketPath) ?? ""
+        let normalizedAgentSocketPath = self.agentSocketPath ?? ""
         let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
         let normalizedRequiredCapabilities = preserveAfterTerminalExit ? "pty.session" : ""
         let normalizedPersistentDaemonSlot = persistentDaemonSlot ?? ""
@@ -440,8 +440,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
             && WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile)
                 == WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(other.identityFile)
             && Self.proxyBrokerSSHOptions(sshOptions) == Self.proxyBrokerSSHOptions(other.sshOptions)
-            && WorkspaceRemoteSSHOptionFilter.normalizedOptional(agentSocketPath)
-                == WorkspaceRemoteSSHOptionFilter.normalizedOptional(other.agentSocketPath)
+            && self.agentSocketPath == other.agentSocketPath
             && daemonWebSocketEndpoint?.proxyBrokerKeyComponent == other.daemonWebSocketEndpoint?.proxyBrokerKeyComponent
     }
 }
@@ -594,14 +593,14 @@ extension SessionRemoteWorkspaceSnapshot {
 
 extension WorkspaceRemoteConfiguration {
     var sshTerminalStartupEnvironment: [String: String]? {
-        guard let agentSocketPath = WorkspaceRemoteSSHOptionFilter.normalizedOptional(agentSocketPath) else {
+        guard let agentSocketPath = self.agentSocketPath else {
             return nil
         }
         return ["SSH_AUTH_SOCK": agentSocketPath]
     }
 
     var sshProcessEnvironment: [String: String]? {
-        guard let agentSocketPath = WorkspaceRemoteSSHOptionFilter.normalizedOptional(agentSocketPath) else {
+        guard let agentSocketPath = self.agentSocketPath else {
             return nil
         }
         var environment = ProcessInfo.processInfo.environment
