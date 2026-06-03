@@ -5664,16 +5664,22 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(dollarSkillQuery?.range, NSRange(location: 4, length: 12))
 
         let bareSlashPrompt = "cd /"
-        XCTAssertNil(TextBoxMentionCompletionDetector.query(
+        let bareSlashQuery = TextBoxMentionCompletionDetector.query(
             in: bareSlashPrompt,
             selectedRange: NSRange(location: (bareSlashPrompt as NSString).length, length: 0)
-        ))
+        )
+        XCTAssertEqual(bareSlashQuery?.kind, .skill)
+        XCTAssertEqual(bareSlashQuery?.trigger, "/")
+        XCTAssertEqual(bareSlashQuery?.query, "")
 
         let bareDollarPrompt = "echo $"
-        XCTAssertNil(TextBoxMentionCompletionDetector.query(
+        let bareDollarQuery = TextBoxMentionCompletionDetector.query(
             in: bareDollarPrompt,
             selectedRange: NSRange(location: (bareDollarPrompt as NSString).length, length: 0)
-        ))
+        )
+        XCTAssertEqual(bareDollarQuery?.kind, .skill)
+        XCTAssertEqual(bareDollarQuery?.trigger, "$")
+        XCTAssertEqual(bareDollarQuery?.query, "")
 
         let emailPrompt = "mail lawrence@example.com"
         XCTAssertNil(TextBoxMentionCompletionDetector.query(
@@ -5904,7 +5910,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(suggestions.first?.title, "$sample-dollar-skill")
         XCTAssertEqual(suggestions.first?.systemImageName, "sparkle.magnifyingglass")
-        XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[$sample-dollar-skill](") == true)
+        XCTAssertEqual(suggestions.first?.insertionText, "$sample-dollar-skill")
     }
 
     private nonisolated func makeTextBoxMentionSkillCandidate(
@@ -5914,36 +5920,48 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         TextBoxMentionCandidate(
             title: "/\(skillName)",
             subtitle: skillPath,
-            insertionText: "[$\(skillName)](\(skillPath))",
+            targetPath: skillPath,
             systemImageName: "sparkle.magnifyingglass",
             searchKey: "\(skillName) \(skillPath)".lowercased(),
             priority: 0
         )
     }
 
-    func testTextBoxMentionRefreshClearsStaleSuggestionsBeforeLookup() {
+    func testTextBoxMentionRefreshKeepsRowsOnSameTriggerEditButClearsOnTriggerChange() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "@a"
         textView.setSelectedRange(NSRange(location: 2, length: 0))
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "alpha",
+            title: "@alpha.txt",
+            subtitle: "alpha.txt",
+            insertionText: "[@alpha.txt](/tmp/alpha.txt)",
+            systemImageName: "doc"
+        )
 
         textView.debugSetMentionCompletionState(
             query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 2), query: "a"),
-            suggestions: [
-                TextBoxMentionSuggestion(
-                    id: "alpha",
-                    title: "@alpha.txt",
-                    subtitle: "alpha.txt",
-                    insertionText: "[@alpha.txt](/tmp/alpha.txt)",
-                    systemImageName: "doc"
-                )
-            ]
+            suggestions: [staleSuggestion]
         )
         XCTAssertEqual(textView.debugMentionSuggestionCount(), 1)
 
         textView.string = "@z"
         textView.setSelectedRange(NSRange(location: 2, length: 0))
         textView.refreshMentionCompletions()
+        XCTAssertEqual(textView.debugMentionSuggestionCount(), 1)
+        XCTAssertFalse(textView.debugMentionSuggestionsAreCurrent())
+        XCTAssertFalse(textView.debugAcceptMentionCompletion())
+        XCTAssertFalse(textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
+        XCTAssertEqual(textView.string, "@z")
+        var submitCount = 0
+        textView.onSubmit = { submitCount += 1 }
+        textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        XCTAssertEqual(submitCount, 1)
+        XCTAssertEqual(textView.string, "@z")
 
+        textView.string = "/z"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.refreshMentionCompletions()
         XCTAssertEqual(textView.debugMentionSuggestionCount(), 0)
     }
 
