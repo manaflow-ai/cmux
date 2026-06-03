@@ -48,97 +48,23 @@ public struct CustomSidebarView: View {
     }
 
     public var body: some View {
-        content
-            .environment(\.sidebarActionDispatch, dispatch)
-            .environment(\.customSidebarContentInsets, contentInsets)
-            .onAppear { model.start() }
-            .onDisappear { model.stop() }
-            // Re-interpret whenever the live data changes or the source
-            // reloads. `.task(id:)` cancels the prior render, so a superseded
-            // tick's result is discarded rather than published stale.
-            .task(id: SwiftRenderTrigger(sourceRevision: model.sourceRevision, dataContext: dataContext)) {
-                await model.renderSwift(dataContext: dataContext)
-            }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch model.state {
-        case .missing:
-            scrollWrap(
-                Text(String(localized: "sidebar.custom.missing", defaultValue: "Sidebar file is empty or missing."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            )
-        case let .json(document):
-            // Route JSON node actions through the same host dispatch the
-            // interpreted path uses, so taps in a declarative sidebar run
-            // instead of being silently dropped.
-            scrollWrap(DSLSidebarRenderer(node: document.root) { action in
-                dispatch.run(action.buttonAction)
-            })
-        case .swiftSource:
-            // The render runs through the injected interpreter (out-of-process
-            // in the app) and is published to `model.swiftRender` by the
-            // `.task(id:)` above; keep showing the last result until the next
-            // one lands so live re-renders don't flicker.
-            if let node = model.swiftRender {
-                // A split root owns its own per-column scrolling and fills the
-                // sidebar height, so it is not wrapped in the outer ScrollView.
-                if node.kind == .hsplit {
-                    RenderNodeView(node: node)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    scrollWrap(RenderNodeView(node: node))
-                }
-            } else if model.hasRenderedSwift {
-                scrollWrap(errorView(String(localized: "sidebar.custom.noView", defaultValue: "No supported SwiftUI view found.")))
-            } else {
-                // First render in flight; an empty placeholder avoids flashing
-                // the error state before the interpreter has answered.
-                scrollWrap(Color.clear.frame(height: 1))
-            }
-        case let .failed(message):
-            scrollWrap(errorView(message))
+        // The pure presentation is shared with the out-of-process render
+        // worker (see CustomSidebarContentView), so the two paths can't drift.
+        CustomSidebarContentView(
+            state: model.state,
+            swiftRender: model.swiftRender,
+            hasRenderedSwift: model.hasRenderedSwift,
+            dispatch: dispatch,
+            contentInsets: contentInsets
+        )
+        .onAppear { model.start() }
+        .onDisappear { model.stop() }
+        // Re-interpret whenever the live data changes or the source
+        // reloads. `.task(id:)` cancels the prior render, so a superseded
+        // tick's result is discarded rather than published stale.
+        .task(id: SwiftRenderTrigger(sourceRevision: model.sourceRevision, dataContext: dataContext)) {
+            await model.renderSwift(dataContext: dataContext)
         }
-    }
-
-    /// Wraps non-split content in the scrolling container with host-owned
-    /// outer insets (authors control inner spacing).
-    ///
-    /// The top/bottom `safeAreaInset`s reserve the titlebar-accessory and
-    /// footer bands so content rests below the chrome and scrolls up into the
-    /// host's edge-fade mask rather than clipping against it. This mirrors the
-    /// default workspace sidebar's scroll treatment.
-    private func scrollWrap(_ view: some View) -> some View {
-        ScrollView {
-            view
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 16)
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            Color.clear.frame(height: contentInsets.top).allowsHitTesting(false)
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            Color.clear.frame(height: contentInsets.bottom).allowsHitTesting(false)
-        }
-    }
-
-    private func errorView(_ message: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(
-                String(localized: "sidebar.custom.error", defaultValue: "Sidebar error"),
-                systemImage: "exclamationmark.triangle.fill"
-            )
-            .font(.caption.bold())
-            .foregroundStyle(.orange)
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

@@ -11,17 +11,23 @@ import Foundation
 /// live data context, not only on file save.
 @MainActor
 @Observable
-final class CustomSidebarModel {
+public final class CustomSidebarModel {
     /// The loaded state of the sidebar file.
-    enum State: Equatable {
+    public enum State: Equatable, Sendable {
+        /// The file does not exist (or is empty).
         case missing
+        /// A declarative JSON sidebar document.
         case json(DSLDocument)
+        /// Raw interpreted-Swift sidebar source.
         case swiftSource(String)
+        /// The file exists but could not be loaded/decoded.
         case failed(String)
     }
 
-    private(set) var state: State = .missing
-    let fileURL: URL
+    /// The current loaded state of the watched file.
+    public private(set) var state: State = .missing
+    /// The sidebar file being loaded and watched.
+    public let fileURL: URL
 
     private var watchTask: Task<Void, Never>?
     private var watcher: FileWatcher?
@@ -34,15 +40,16 @@ final class CustomSidebarModel {
 
     /// Latest interpreted view for `.swiftSource`, updated only when a render
     /// completes so live re-renders don't flash empty between ticks.
-    private(set) var swiftRender: RenderNode?
+    public private(set) var swiftRender: RenderNode?
     /// True once the first `.swiftSource` render completes, letting the view
     /// distinguish "still rendering" from "rendered, no view" (error state).
-    private(set) var hasRenderedSwift = false
+    public private(set) var hasRenderedSwift = false
     /// Bumps when the loaded source changes, so the view's render trigger
     /// re-fires on file reload even when the data context is unchanged.
-    private(set) var sourceRevision = 0
+    public private(set) var sourceRevision = 0
 
-    init(fileURL: URL, interpreter: any SidebarInterpreting = InProcessSidebarInterpreter()) {
+    /// Creates a model for `fileURL` rendering through `interpreter`.
+    public init(fileURL: URL, interpreter: any SidebarInterpreting = InProcessSidebarInterpreter()) {
         self.fileURL = fileURL
         self.interpreter = interpreter
     }
@@ -53,7 +60,7 @@ final class CustomSidebarModel {
     /// Drive this from the view's `.task(id:)` so it re-runs on each data-
     /// context change and on source reload; cancellation (a newer trigger
     /// superseding this one) discards the stale result instead of publishing it.
-    func renderSwift(dataContext: [String: SwiftValue]) async {
+    public func renderSwift(dataContext: [String: SwiftValue]) async {
         guard case let .swiftSource(source) = state else { return }
         let node = await interpreter.render(source: source, state: dataContext)
         if Task.isCancelled { return }
@@ -62,7 +69,7 @@ final class CustomSidebarModel {
     }
 
     /// Loads the file once and starts watching it. Idempotent.
-    func start() {
+    public func start() {
         reload()
         guard watchTask == nil else { return }
         // Leading-edge throttle coalesces the burst of kqueue events an atomic
@@ -77,7 +84,8 @@ final class CustomSidebarModel {
         }
     }
 
-    func stop() {
+    /// Stops watching the file. Safe to call repeatedly.
+    public func stop() {
         watchTask?.cancel()
         watchTask = nil
         if let watcher {
@@ -87,7 +95,7 @@ final class CustomSidebarModel {
     }
 
     /// Re-reads the file: stores `.swift` source verbatim, decodes `.json`.
-    func reload() {
+    public func reload() {
         defer { sourceRevision += 1 } // re-fire the view's render trigger
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             state = .missing
