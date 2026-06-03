@@ -138,6 +138,28 @@ check_e2e_recording_preflight() {
   echo "PASS: test-e2e.yml preflights screen recording permission before ffmpeg"
 }
 
+check_virtual_display_step_waits_for_readiness() {
+  local file="$1" job="$2"
+  if ! awk -v job="$job" '
+    $0 ~ "^  "job":" { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /^[[:space:]]*- name: Create virtual display$/ { in_step=1; saw_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /--ready-path "\$VDISPLAY_READY"/ { saw_ready_arg=1 }
+    in_step && /--display-id-path "\$VDISPLAY_ID_PATH"/ { saw_id_arg=1 }
+    in_step && /\[ -s "\$VDISPLAY_READY" \] && \[ -s "\$VDISPLAY_ID_PATH" \]/ { saw_ready_poll=1 }
+    in_step && /Virtual display helper exited before readiness/ { saw_exit_message=1 }
+    in_step && /Timed out waiting for virtual display readiness/ { saw_timeout_message=1 }
+    in_step && /^[[:space:]]*sleep 3$/ { saw_fixed_sleep=1 }
+    END { exit(saw_step && saw_ready_arg && saw_id_arg && saw_ready_poll && saw_exit_message && saw_timeout_message && !saw_fixed_sleep ? 0 : 1) }
+  ' "$file"; then
+    echo "FAIL: $job in $(basename "$file") must wait for virtual display readiness files instead of using a fixed sleep"
+    exit 1
+  fi
+
+  echo "PASS: $job in $(basename "$file") waits for virtual display readiness"
+}
+
 check_test_depot_fails_closed() {
   if ! awk '
     /^[[:space:]]*- name: Validate suite selection$/ { in_step=1; next }
@@ -535,7 +557,13 @@ check_build_and_lag_budget() {
     exit 1
   fi
 
+  check_virtual_display_step_waits_for_readiness "$CI_FILE" "tests-build-and-lag"
+
   echo "PASS: tests-build-and-lag keeps enough time and restores source-fingerprinted DerivedData for cold builds"
+}
+
+check_compat_virtual_display_readiness() {
+  check_virtual_display_step_waits_for_readiness "$COMPAT_FILE" "compat-tests"
 }
 
 check_ca_regression_launches_in_gui_bootstrap() {
@@ -631,6 +659,7 @@ check_swift_package_tests_require_nonzero_execution
 check_tests_deriveddata_cache
 check_ui_regression_budget
 check_build_and_lag_budget
+check_compat_virtual_display_readiness
 check_ca_regression_launches_in_gui_bootstrap
 check_zig_helper_build_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_zig_helper_build_runner "$RELEASE_FILE" "build-ghostty-cli-helper"
