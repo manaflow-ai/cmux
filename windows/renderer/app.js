@@ -147,6 +147,7 @@ const controlIconSvg = {
   plus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"></path></svg>`,
   reload: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 1 1-2.34-5.66"></path><path d="M20 4v6h-6"></path></svg>`,
   rename: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5h12M12 5v14M9 19h6"></path></svg>`,
+  save: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 4h10l2 2v14H6z"></path><path d="M8 4v6h8M9 17h6"></path></svg>`,
   search: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6"></circle><path d="m16 16 4 4"></path></svg>`,
   browser: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"></circle><path d="M4 12h16M12 4c2.2 2.3 2.2 13.7 0 16M12 4c-2.2 2.3-2.2 13.7 0 16"></path></svg>`,
   terminal: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="m8 10 3 3-3 3"></path><path d="M13 16h4"></path></svg>`,
@@ -16852,6 +16853,17 @@ function paletteQuickActions() {
       run: () => applySettingsPresetById("simpleFast")
     });
   }
+  if (!activeSavedSettingsProfile() && state.savedSettingsProfiles.length < savedSettingsProfilesLimit) {
+    actions.splice(Math.min(actions.length, 3), 0, {
+      id: "quick.saveSetup",
+      label: t("palette.quickSaveSetup"),
+      meta: activeSettingsSetupLabel(),
+      shortcut: "",
+      icon: "save",
+      disabled: false,
+      run: () => saveQuickSetupProfile()
+    });
+  }
   return actions;
 }
 
@@ -16973,6 +16985,9 @@ function paletteQuickActionsSignature() {
   appendSignatureValue(parts, active?.url || "");
   appendSignatureValue(parts, state.settings.browserHomeUrl);
   appendSignatureValue(parts, isSettingsPresetIdActive("simpleFast"));
+  appendSignatureValue(parts, Boolean(activeSavedSettingsProfile()));
+  appendSignatureValue(parts, activeSettingsSetupLabel());
+  appendSignatureValue(parts, state.savedSettingsProfiles.length);
   appendSignatureValue(parts, paneCreationButtonsDisabled());
   return parts.join("");
 }

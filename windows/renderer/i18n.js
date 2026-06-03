@@ -101,6 +101,7 @@ const windowsMessages = {
     "palette.quickSplit": "Split",
     "palette.quickFastSetup": "Fast setup",
     "palette.quickFastSetupMeta": "Clean UI, lower lag",
+    "palette.quickSaveSetup": "Save setup",
     "palette.quickSettings": "Settings",
     "palette.quickSettingsMeta": "Customize cmux",
     "palette.quickWorkspace": "Workspace",
