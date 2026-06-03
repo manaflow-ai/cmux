@@ -1,3 +1,4 @@
+import CmuxInboxCore
 import SwiftUI
 
 struct UnifiedInboxRow: View {

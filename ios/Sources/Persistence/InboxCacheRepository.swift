@@ -1,3 +1,4 @@
+import CmuxInboxCore
 import Foundation
 
 final class InboxCacheRepository {

@@ -1,3 +1,4 @@
+import CmuxInboxCore
 import OSLog
 import SwiftUI
 import Sentry

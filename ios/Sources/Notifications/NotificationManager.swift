@@ -1,4 +1,5 @@
 import CmuxDaemonProtocol
+import CmuxInboxCore
 import CmuxMobileContract
 import Foundation
 import OSLog

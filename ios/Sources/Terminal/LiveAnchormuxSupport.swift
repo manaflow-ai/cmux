@@ -1,3 +1,4 @@
+import CmuxInboxCore
 import CmuxTerminalCore
 import Foundation
 import Network

@@ -1,4 +1,5 @@
 import Combine
+import CmuxInboxCore
 import CmuxMobileContract
 import Foundation
 import OSLog

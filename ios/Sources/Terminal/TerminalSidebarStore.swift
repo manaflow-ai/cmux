@@ -1,4 +1,5 @@
 import CmuxDaemonProtocol
+import CmuxInboxCore
 import CmuxTerminalCore
 import Combine
 import CmuxMobileContract

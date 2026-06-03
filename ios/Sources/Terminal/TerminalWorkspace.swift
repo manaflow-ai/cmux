@@ -1,3 +1,4 @@
+import CmuxInboxCore
 import Foundation
 
 // The pure terminal value model (TerminalWorkspace, TerminalPane, the TerminalWorkspaceDeviceSection

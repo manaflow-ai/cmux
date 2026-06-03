@@ -23,6 +23,9 @@
          location = "group:CmuxDaemonProtocol">
       </FileRef>
       <FileRef
+         location = "group:CmuxInboxCore">
+      </FileRef>
+      <FileRef
          location = "group:CMUXDebugLog">
       </FileRef>
       <FileRef
