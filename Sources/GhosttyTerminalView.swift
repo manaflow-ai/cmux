@@ -1762,18 +1762,14 @@ private actor TerminalSurfaceRuntimeTeardownCoordinator {
         if !isWorkerRunning {
             isWorkerRunning = true
             Task.detached(priority: .utility) {
-                await self.runSerialWorker()
+                while let request = await self.nextRequestForWorker() {
+                    Task {
+                        await self.observeTimeout(id: request.id)
+                    }
+                    await Self.free(request)
+                    await self.complete(id: request.id)
+                }
             }
-        }
-        Task {
-            await observeTimeout(id: request.id)
-        }
-    }
-
-    private nonisolated func runSerialWorker() async {
-        while let request = await nextRequestForWorker() {
-            await Self.free(request)
-            await complete(id: request.id)
         }
     }
 
