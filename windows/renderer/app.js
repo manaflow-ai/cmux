@@ -18106,6 +18106,69 @@ function quickLayoutControlsPanel(workspace = activeWorkspace()) {
   });
 }
 
+function quickBlueprintControlsPanel(workspace = activeWorkspace()) {
+  const paneCount = workspace?.panels?.length || 0;
+  const blueprintsFull = workspaceBlueprintsFull();
+  const starter = workspaceStarterById("devTrio") || workspaceStarters[0] || null;
+  const savedStarterBlueprint = starter ? workspaceStarterSavedBlueprint(starter) : null;
+  const starterLabel = starter?.label || "Starter";
+  const starterSearch = starter
+    ? `${starter.label} ${starter.body} ${starter.panels.join(" ")}`
+    : "";
+  const saveStarterDisabled = !starter || Boolean(savedStarterBlueprint) || blueprintsFull;
+  const creationDisabled = paneCreationButtonsDisabled();
+  const actions = [
+    quickOverviewControlButton("Save layout", saveCurrentWorkspaceBlueprint, {
+      disabled: !canSaveCurrentWorkspaceBlueprint(workspace),
+      title: currentWorkspaceBlueprintSaveTitle(workspace, "Save the current workspace pane layout as a reusable blueprint."),
+      search: "quick setup workspace blueprint save current pane layout reusable"
+    }),
+    quickOverviewControlButton("Copy layout", copyCurrentWorkspaceBlueprint, {
+      disabled: paneCount === 0,
+      title: paneCount ? "Copy the current workspace pane layout as JSON." : "Open panes before copying a blueprint.",
+      search: "quick setup workspace blueprint copy current pane layout clipboard json"
+    }),
+    quickOverviewControlButton("Paste", pasteWorkspaceBlueprint, {
+      disabled: blueprintsFull,
+      title: blueprintsFull ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint.",
+      search: "quick setup workspace blueprint paste import clipboard json reusable"
+    }),
+    quickOverviewControlButton(`New ${starterLabel}`, () => {
+      if (starter) createWorkspaceFromStarter(starter.id);
+    }, {
+      disabled: !starter || creationDisabled,
+      title: !starter
+        ? "No starter layout is available."
+        : paneCreationActionTitle(`Create a new ${starter.label} workspace.`, starter.body),
+      search: `quick setup workspace starter new layout create ${starterSearch}`
+    }),
+    quickOverviewControlButton("Save starter", () => {
+      if (starter) saveWorkspaceStarterBlueprint(starter.id);
+    }, {
+      disabled: saveStarterDisabled,
+      title: savedStarterBlueprint
+        ? `${savedStarterBlueprint.label} blueprint is already saved.`
+        : blueprintsFull
+          ? workspaceBlueprintLimitTitle()
+          : starter
+            ? `Save ${starter.label} as a reusable workspace blueprint.`
+            : "No starter layout is available.",
+      search: `quick setup workspace starter save blueprint reusable ${savedStarterBlueprint ? "saved active current " : ""}${starterSearch}`
+    }),
+    quickOverviewControlButton("Blueprints", () => openSettingsCategory("blueprints"), {
+      title: "Open saved workspace blueprints and starter layouts.",
+      search: "quick setup workspace blueprints settings starter layouts saved reusable"
+    })
+  ];
+  return quickOverviewControlsPanel({
+    className: "quick-overview-blueprints",
+    title: "Blueprint controls",
+    meta: `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} blueprints / ${paneCount} pane${paneCount === 1 ? "" : "s"} / ${workspaceStarters.length} starters`,
+    search: `quick setup workspace blueprint controls saved reusable pane layout starter layouts copy paste new save ${starterSearch}`,
+    actions
+  });
+}
+
 function quickPaneControlsPanel(panel) {
   const hasPane = Boolean(panel);
   const pending = isPendingPanel(panel);
@@ -18632,7 +18695,7 @@ function quickSetupOverviewPanel() {
   const librarySummary = quickCustomizationLibrarySummary(libraryEntries);
   const panel = document.createElement("div");
   panel.className = "quick-setup-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls theme layout terminal browser commands actions workflows shortcuts palette performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints colors backgrounds snippets packs data`);
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls theme layout terminal browser commands actions workflows shortcuts palette performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints starter layouts reusable colors backgrounds snippets packs data`);
   panel.innerHTML = `
     <div class="quick-overview-heading">
       <span class="quick-overview-copy">
@@ -18674,6 +18737,7 @@ function quickSetupOverviewPanel() {
     <div data-quick-profile-data-controls></div>
     <div data-quick-workspace-controls></div>
     <div data-quick-layout-controls></div>
+    <div data-quick-blueprint-controls></div>
     <div data-quick-pane-controls></div>
     <div data-quick-terminal-controls></div>
     <div data-quick-command-controls></div>
@@ -18755,6 +18819,7 @@ function quickSetupOverviewPanel() {
   panel.querySelector("[data-quick-profile-data-controls]").replaceWith(quickProfileDataControlsPanel());
   panel.querySelector("[data-quick-workspace-controls]").replaceWith(quickWorkspaceControlsPanel(workspace, terminalCount, browserCount));
   panel.querySelector("[data-quick-layout-controls]").replaceWith(quickLayoutControlsPanel(workspace));
+  panel.querySelector("[data-quick-blueprint-controls]").replaceWith(quickBlueprintControlsPanel(workspace));
   panel.querySelector("[data-quick-pane-controls]").replaceWith(quickPaneControlsPanel(activePane));
   panel.querySelector("[data-quick-terminal-controls]").replaceWith(quickTerminalControlsPanel(workspace, terminalCount));
   panel.querySelector("[data-quick-command-controls]").replaceWith(quickCommandActionControlsPanel());
