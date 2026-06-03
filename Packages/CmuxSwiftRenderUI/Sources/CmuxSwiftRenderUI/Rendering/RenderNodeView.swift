@@ -282,6 +282,9 @@ struct RenderNodeView: View {
         case "help":
             if let token { return AnyView(view.help(LocalizedStringKey(token))) }
             return view
+        case "keyboardShortcut":
+            guard let key = dslKeyEquivalent(token) else { return view }
+            return AnyView(view.keyboardShortcut(key, modifiers: dslEventModifiers(modifier.value("modifiers"))))
         case "disabled":
             return AnyView(view.disabled(token != "false"))
         case "redacted":

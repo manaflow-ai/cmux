@@ -189,3 +189,33 @@ func dslUnitPoint(_ token: String?, default fallback: UnitPoint) -> UnitPoint {
     default: return fallback
     }
 }
+
+/// Resolves a `KeyEquivalent` token (`.return`/`.escape`/arrows/…) or a single
+/// character; nil for unrecognized input.
+func dslKeyEquivalent(_ token: String?) -> KeyEquivalent? {
+    guard let raw = token?.trimmingCharacters(in: CharacterSet(charactersIn: ".\" ")), !raw.isEmpty else { return nil }
+    switch raw.lowercased() {
+    case "return": return .return
+    case "escape": return .escape
+    case "space": return .space
+    case "tab": return .tab
+    case "delete": return .delete
+    case "uparrow": return .upArrow
+    case "downarrow": return .downArrow
+    case "leftarrow": return .leftArrow
+    case "rightarrow": return .rightArrow
+    default: return raw.first.map { KeyEquivalent($0) }
+    }
+}
+
+/// Resolves an `EventModifiers` set from a source token like
+/// `[.command, .shift]`.
+func dslEventModifiers(_ source: String?) -> EventModifiers {
+    guard let source = source?.lowercased() else { return [] }
+    var modifiers: EventModifiers = []
+    if source.contains("command") { modifiers.insert(.command) }
+    if source.contains("shift") { modifiers.insert(.shift) }
+    if source.contains("option") { modifiers.insert(.option) }
+    if source.contains("control") { modifiers.insert(.control) }
+    return modifiers
+}

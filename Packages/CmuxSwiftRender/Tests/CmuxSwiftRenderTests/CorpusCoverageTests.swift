@@ -47,7 +47,7 @@ import Testing
             "overlay", "mask", "safeAreaInset",
             "imageScale", "symbolRenderingMode", "symbolVariant",
             "stroke", "strokeBorder", "trim",
-            "contextMenu", "help", "disabled",
+            "contextMenu", "help", "disabled", "keyboardShortcut",
             "redacted", "unredacted", "accessibilityLabel", "accessibilityHint",
             "accessibilityValue", "accessibilityHidden", "scrollIndicators",
             "scrollContentBackground", "aspectRatio", "scaledToFit", "scaledToFill",
