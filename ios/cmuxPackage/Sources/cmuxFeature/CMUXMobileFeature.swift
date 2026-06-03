@@ -2,8 +2,10 @@ import Foundation
 @preconcurrency import AVFoundation
 import CMUXMobileCore
 import CmuxMobileAuth
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import CmuxMobileWorkspace
 import Observation
 import OSLog
 import StackAuth
@@ -247,55 +249,12 @@ struct CMUXMobileRootView: View {
     }
 }
 
-enum MobileRootAuthGate {
-    static func isAuthenticated(
-        stackAuthenticated: Bool,
-        attachTicketAuthenticated: Bool = false
-    ) -> Bool {
-        stackAuthenticated || attachTicketAuthenticated
-    }
-
-    static func shouldShowRestoringSession(
-        stackAuthenticated: Bool,
-        attachTicketAuthenticated: Bool = false,
-        isRestoringSession: Bool
-    ) -> Bool {
-        isRestoringSession && !isAuthenticated(
-            stackAuthenticated: stackAuthenticated,
-            attachTicketAuthenticated: attachTicketAuthenticated
-        )
-    }
-
-    static func isAttachURL(_ url: URL) -> Bool {
-        guard url.scheme?.caseInsensitiveCompare("cmux-ios") == .orderedSame else {
-            return false
-        }
-        return url.host?.caseInsensitiveCompare("attach") == .orderedSame
-    }
-
-    static func shouldClearAttachTicketAuthentication(
-        pairingResult: MobilePairingURLConnectionResult,
-        connectionState: MobileConnectionState,
-        hasActiveUnexpiredTicket: Bool
-    ) -> Bool {
-        switch pairingResult {
-        case .connected:
-            return connectionState != .connected || !hasActiveUnexpiredTicket
-        case .failed:
-            return true
-        case .superseded:
-            return connectionState != .connected || !hasActiveUnexpiredTicket
-        }
-    }
-
-    static func shouldReconnectStoredMac(
-        stackAuthenticated: Bool,
-        attachTicketAuthenticated: Bool,
-        connectionState: MobileConnectionState
-    ) -> Bool {
-        stackAuthenticated && !attachTicketAuthenticated && connectionState != .connected
-    }
-
+extension MobileRootAuthGate {
+    /// Reflects Stack auth state into the legacy shell store's sign-in lifecycle.
+    ///
+    /// This bridge lives in the feature target because it reaches into the
+    /// `CMUXMobileShellStore` god object, which sits above the pure
+    /// ``MobileRootAuthGate`` policy in ``CmuxMobileWorkspace``.
     @MainActor
     static func syncShellAuthentication(
         stackAuthenticated: Bool,

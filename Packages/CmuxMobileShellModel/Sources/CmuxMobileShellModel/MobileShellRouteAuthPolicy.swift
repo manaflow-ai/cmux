@@ -1,11 +1,19 @@
-import CMUXMobileCore
-import CmuxMobileAuth
+public import CMUXMobileCore
 import Foundation
-import Observation
-import OSLog
 
-enum MobileShellRouteAuthPolicy {
-    static func normalizedManualHost(_ rawHost: String) -> String? {
+/// Pure routing/trust policy that decides which attach routes may carry Stack auth
+/// and how a manually typed host maps to a transport kind.
+///
+/// All members are pure functions of their inputs so the trust decisions (loopback
+/// vs Tailscale vs LAN vs arbitrary host) can be exhaustively tested without a live
+/// connection. The host classification is intentionally conservative: only loopback,
+/// Tailscale, private-LAN, and `.local`/`.ts.net` DNS hosts are treated as trusted.
+public enum MobileShellRouteAuthPolicy {
+    /// Normalizes a raw, user-entered host string, stripping IPv6 brackets and
+    /// rejecting anything that contains scheme/path/whitespace characters.
+    /// - Parameter rawHost: The raw host string typed by the user.
+    /// - Returns: The normalized bare host, or `nil` when it is not a valid host.
+    public static func normalizedManualHost(_ rawHost: String) -> String? {
         let trimmed = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return nil
@@ -33,7 +41,10 @@ enum MobileShellRouteAuthPolicy {
         return host
     }
 
-    static func manualRouteKind(for host: String) -> CmxAttachTransportKind {
+    /// Maps a manually typed host to the transport kind that should be used.
+    /// - Parameter host: The host to classify.
+    /// - Returns: `.debugLoopback` for loopback hosts, otherwise `.tailscale`.
+    public static func manualRouteKind(for host: String) -> CmxAttachTransportKind {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if isLoopbackHost(normalizedHost) {
             return .debugLoopback
@@ -41,7 +52,10 @@ enum MobileShellRouteAuthPolicy {
         return .tailscale
     }
 
-    static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
+    /// Whether the given route is trusted enough to carry Stack auth credentials.
+    /// - Parameter route: The candidate attach route.
+    /// - Returns: `true` only for loopback, Tailscale/LAN/local-DNS, and iroh peer routes.
+    public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
@@ -54,7 +68,11 @@ enum MobileShellRouteAuthPolicy {
         }
     }
 
-    static func routeAllowsImplicitPairLinkStackAuth(_ route: CmxAttachRoute) -> Bool {
+    /// Whether the given route may carry Stack auth when reached via an implicit
+    /// pair-link (no explicit attach token), restricted to loopback only.
+    /// - Parameter route: The candidate attach route.
+    /// - Returns: `true` only for loopback host/port routes.
+    public static func routeAllowsImplicitPairLinkStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
@@ -63,7 +81,10 @@ enum MobileShellRouteAuthPolicy {
         }
     }
 
-    static func manualHostNeedsTrustWarning(_ host: String) -> Bool {
+    /// Whether a manual host should warn the user that it is neither loopback nor Tailscale.
+    /// - Parameter host: The manually typed host.
+    /// - Returns: `true` when the host is valid but outside the loopback/Tailscale trust set.
+    public static func manualHostNeedsTrustWarning(_ host: String) -> Bool {
         guard let normalizedHost = normalizedManualNetworkHost(host) else {
             return false
         }

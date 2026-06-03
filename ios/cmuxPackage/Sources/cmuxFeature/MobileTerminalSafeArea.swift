@@ -3,6 +3,7 @@ import Foundation
 import CMUXMobileCore
 import CmuxMobileAuth
 import CmuxMobileTerminal
+import CmuxMobileWorkspace
 import Observation
 import OSLog
 import StackAuth
@@ -51,124 +52,6 @@ enum PlatformPalette {
     }
 }
 
-
-enum MobileTerminalSafeAreaContext: Equatable, Sendable {
-    case fullWidth
-    case splitSidebarVisible
-}
-
-struct MobileTerminalSafeAreaExpansionEdges: Equatable, Sendable {
-    var horizontal: Bool
-    var bottom: Bool
-
-    var hasEdges: Bool {
-        horizontal || bottom
-    }
-
-    var edgeSet: Edge.Set {
-        var edges: Edge.Set = []
-        if horizontal {
-            edges.formUnion(.horizontal)
-        }
-        if bottom {
-            edges.formUnion(.bottom)
-        }
-        return edges
-    }
-}
-
-enum MobileTerminalSafeAreaExpansionPolicy {
-    static func edges(
-        context: MobileTerminalSafeAreaContext,
-        hasCompactVerticalSize: Bool,
-        includesBottom: Bool = true
-    ) -> MobileTerminalSafeAreaExpansionEdges {
-        switch context {
-        case .fullWidth:
-            return MobileTerminalSafeAreaExpansionEdges(
-                horizontal: hasCompactVerticalSize,
-                bottom: includesBottom
-            )
-        case .splitSidebarVisible:
-            return MobileTerminalSafeAreaExpansionEdges(
-                horizontal: false,
-                bottom: includesBottom
-            )
-        }
-    }
-}
-
-struct MobileTerminalContentInsets: Equatable, Sendable {
-    static let zero = MobileTerminalContentInsets(leading: 0, trailing: 0)
-
-    var leading: CGFloat
-    var trailing: CGFloat
-}
-
-enum MobileTerminalContentSafeAreaPolicy {
-    private static let landscapeCameraInsetThreshold: CGFloat = 32
-    private static let landscapeCameraInsetDeltaThreshold: CGFloat = 8
-
-    static func horizontalInsets(
-        context: MobileTerminalSafeAreaContext,
-        hasCompactVerticalSize: Bool,
-        safeAreaInsets: EdgeInsets,
-        symmetricCameraEdge: MobileTerminalLandscapeCameraEdge = .trailing
-    ) -> MobileTerminalContentInsets {
-        guard context == .fullWidth, hasCompactVerticalSize else {
-            return .zero
-        }
-        let leading = max(0, safeAreaInsets.leading)
-        let trailing = max(0, safeAreaInsets.trailing)
-        let largestInset = max(leading, trailing)
-        guard largestInset >= landscapeCameraInsetThreshold else {
-            return .zero
-        }
-        let insetDelta = abs(leading - trailing)
-        if insetDelta >= landscapeCameraInsetDeltaThreshold {
-            if leading > trailing {
-                return MobileTerminalContentInsets(leading: insetDelta, trailing: 0)
-            }
-            return MobileTerminalContentInsets(leading: 0, trailing: insetDelta)
-        }
-
-        switch symmetricCameraEdge {
-        case .leading:
-            return MobileTerminalContentInsets(leading: largestInset, trailing: 0)
-        case .trailing:
-            return MobileTerminalContentInsets(leading: 0, trailing: largestInset)
-        case .none:
-            return .zero
-        }
-    }
-}
-
-enum MobileTerminalLandscapeCameraEdge: Equatable, Sendable {
-    case leading
-    case trailing
-    case none
-}
-
-enum MobileTerminalWindowOrientation: Equatable, Sendable {
-    case portrait
-    case portraitUpsideDown
-    case landscapeLeft
-    case landscapeRight
-    case unknown
-}
-
-enum MobileTerminalLandscapeCameraEdgeResolver {
-    static func edge(for orientation: MobileTerminalWindowOrientation) -> MobileTerminalLandscapeCameraEdge {
-        switch orientation {
-        case .landscapeLeft:
-            return .trailing
-        case .landscapeRight:
-            return .leading
-        case .portrait, .portraitUpsideDown, .unknown:
-            return .trailing
-        }
-    }
-}
 
 #if os(iOS)
 private struct MobileCompactLandscapeTerminalSafeAreaCompensation: ViewModifier {

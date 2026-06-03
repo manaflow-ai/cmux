@@ -3,8 +3,10 @@ import Foundation
 import CMUXMobileCore
 import CmuxMobileAuth
 import CmuxMobileDiagnostics
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import CmuxMobileWorkspace
 import Observation
 import OSLog
 import StackAuth
@@ -179,49 +181,6 @@ struct WorkspaceShellView: View {
             createWorkspace: createWorkspace,
             safeAreaContext: safeAreaContext
         )
-    }
-}
-
-enum WorkspaceShellCompactNavigationPolicy {
-    static func pathForSelectionChange<ID: Hashable>(
-        currentPath: [ID],
-        selectedWorkspaceID: ID?
-    ) -> [ID] {
-        guard !currentPath.isEmpty else {
-            return currentPath
-        }
-        guard let selectedWorkspaceID else {
-            return []
-        }
-        guard currentPath.last != selectedWorkspaceID else {
-            return currentPath
-        }
-        return [selectedWorkspaceID]
-    }
-
-    static func pathForCreatedWorkspaceSelection<ID: Hashable>(
-        currentPath: [ID],
-        selectedWorkspaceID: ID?,
-        existingWorkspaceIDs: Set<ID>?
-    ) -> [ID]? {
-        guard let existingWorkspaceIDs,
-              let selectedWorkspaceID,
-              !existingWorkspaceIDs.contains(selectedWorkspaceID) else {
-            return nil
-        }
-        guard currentPath.last != selectedWorkspaceID else {
-            return currentPath
-        }
-        return [selectedWorkspaceID]
-    }
-}
-
-enum MobileWorkspaceShellLayoutPolicy {
-    static func usesCompactStack(
-        horizontalSizeClass: UserInterfaceSizeClass?,
-        verticalSizeClass: UserInterfaceSizeClass?
-    ) -> Bool {
-        horizontalSizeClass == .compact || verticalSizeClass == .compact
     }
 }
 

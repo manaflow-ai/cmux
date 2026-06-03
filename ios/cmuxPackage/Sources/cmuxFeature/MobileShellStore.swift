@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxMobileAuth
 import CmuxMobileDiagnostics
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation

@@ -48,6 +48,9 @@
          location = "group:CmuxMobileDiagnostics">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileShellModel">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileSupport">
       </FileRef>
       <FileRef
@@ -55,6 +58,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxMobileTransport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileWorkspace">
       </FileRef>
       <FileRef
          location = "group:CMUXPasteboardFidelity">

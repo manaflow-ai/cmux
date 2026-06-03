@@ -4,6 +4,7 @@ import CMUXMobileCore
 import CmuxMobileAuth
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import CmuxMobileWorkspace
 import Observation
 import OSLog
 import StackAuth
@@ -418,32 +419,6 @@ struct SignInView: View {
         }
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         #endif
-    }
-}
-
-enum SignInCodeInputChangeAction: Equatable {
-    case assign(String)
-    case verify
-    case none
-}
-
-enum SignInCodeInputPolicy {
-    static let maximumCodeLength = 6
-
-    static func action(for value: String) -> SignInCodeInputChangeAction {
-        let normalized = normalizedCode(value)
-        guard normalized == value else {
-            return .assign(normalized)
-        }
-        return shouldVerifyAfterChange(normalized) ? .verify : .none
-    }
-
-    static func normalizedCode(_ value: String) -> String {
-        String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maximumCodeLength))
-    }
-
-    static func shouldVerifyAfterChange(_ normalizedCode: String) -> Bool {
-        normalizedCode.count == maximumCodeLength
     }
 }
 

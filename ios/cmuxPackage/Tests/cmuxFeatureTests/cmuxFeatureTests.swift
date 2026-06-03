@@ -1,8 +1,9 @@
 import CMUXMobileCore
 @testable import CmuxMobileAuth
+import CmuxMobileShellModel
+import CmuxMobileWorkspace
 import Foundation
 import StackAuth
-import SwiftUI
 import Testing
 #if canImport(UIKit)
 import UIKit
@@ -47,13 +48,6 @@ import UIKit
     ]) == "cmux-dev-token")
 }
 #endif
-
-@Test func signInCodeInputPolicyNormalizesPastedCodesBeforeVerifying() {
-    #expect(SignInCodeInputPolicy.action(for: "12345") == .none)
-    #expect(SignInCodeInputPolicy.action(for: "123456") == .verify)
-    #expect(SignInCodeInputPolicy.action(for: "123456\n") == .assign("123456"))
-    #expect(SignInCodeInputPolicy.action(for: "1234567") == .assign("123456"))
-}
 
 @Test func authDisplaySafeErrorPreservesUserFacingStackErrors() throws {
     let userFacingCodes = [
@@ -238,29 +232,6 @@ import UIKit
     #expect(runtime.pairingRequestTimeoutNanoseconds == 8 * 1_000_000_000)
 }
 
-@Test func manualRouteAuthPolicyAllowsStackAuthOnlyForTrustedManualHostPortRoutes() throws {
-    let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
-    let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
-    let lanIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
-    let localDNS = try hostPortRoute(kind: .tailscale, host: "devbox.local", port: CmxMobileDefaults.defaultHostPort)
-    let tailscaleMagicDNS = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
-    let pretendLoopback = try hostPortRoute(kind: .debugLoopback, host: "127.attacker.example", port: CmxMobileDefaults.defaultHostPort)
-
-    #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
-    #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .tailscale)
-    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
-    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
-    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
-    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
-    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
-    #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
-    #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.0.0.1"))
-    #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("100.71.210.41"))
-    #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
-    #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("192.168.1.77"))
-    #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
-}
-
 @Test func pairedMacStorePersistsActiveMacsScopedByStackUser() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -307,27 +278,6 @@ import UIKit
     #expect(route?.1 == CmxMobileDefaults.defaultHostPort)
 }
 
-@Test func compactHeightUsesStackWorkspaceNavigation() {
-    #expect(
-        MobileWorkspaceShellLayoutPolicy.usesCompactStack(
-            horizontalSizeClass: .regular,
-            verticalSizeClass: .compact
-        )
-    )
-    #expect(
-        MobileWorkspaceShellLayoutPolicy.usesCompactStack(
-            horizontalSizeClass: .compact,
-            verticalSizeClass: .regular
-        )
-    )
-    #expect(
-        !MobileWorkspaceShellLayoutPolicy.usesCompactStack(
-            horizontalSizeClass: .regular,
-            verticalSizeClass: .regular
-        )
-    )
-}
-
 @MainActor
 @Test func rootAuthGateIgnoresLegacyShellSignInState() {
     let store = CMUXMobileShellStore.preview()
@@ -336,48 +286,6 @@ import UIKit
 
     #expect(store.isSignedIn)
     #expect(!MobileRootAuthGate.isAuthenticated(stackAuthenticated: false))
-}
-
-@Test func rootAuthGateAllowsAttachTicketAuthenticationWithoutStackAuth() throws {
-    #expect(MobileRootAuthGate.isAuthenticated(
-        stackAuthenticated: false,
-        attachTicketAuthenticated: true
-    ))
-    #expect(!MobileRootAuthGate.isAuthenticated(
-        stackAuthenticated: false,
-        attachTicketAuthenticated: false
-    ))
-
-    let attachURL = try #require(URL(string: "cmux-ios://attach?v=1&payload=test"))
-    let authURL = try #require(URL(string: "stack-auth-mobile-oauth-url://callback?code=test"))
-    let otherURL = try #require(URL(string: "cmux-ios://oauth?v=1"))
-
-    #expect(MobileRootAuthGate.isAttachURL(attachURL))
-    #expect(!MobileRootAuthGate.isAttachURL(authURL))
-    #expect(!MobileRootAuthGate.isAttachURL(otherURL))
-}
-
-@Test func rootAuthGateShowsRestoringSessionOnlyBeforeAuthentication() {
-    #expect(MobileRootAuthGate.shouldShowRestoringSession(
-        stackAuthenticated: false,
-        attachTicketAuthenticated: false,
-        isRestoringSession: true
-    ))
-    #expect(!MobileRootAuthGate.shouldShowRestoringSession(
-        stackAuthenticated: true,
-        attachTicketAuthenticated: false,
-        isRestoringSession: true
-    ))
-    #expect(!MobileRootAuthGate.shouldShowRestoringSession(
-        stackAuthenticated: false,
-        attachTicketAuthenticated: true,
-        isRestoringSession: true
-    ))
-    #expect(!MobileRootAuthGate.shouldShowRestoringSession(
-        stackAuthenticated: false,
-        attachTicketAuthenticated: false,
-        isRestoringSession: false
-    ))
 }
 
 @MainActor
@@ -406,49 +314,6 @@ import UIKit
     )
 
     #expect(store.isSignedIn)
-}
-
-@Test func rootAuthGateClearsOnlyStaleTemporaryAttachAuthentication() {
-    #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
-        pairingResult: .failed,
-        connectionState: .disconnected,
-        hasActiveUnexpiredTicket: false
-    ))
-    #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
-        pairingResult: .superseded,
-        connectionState: .disconnected,
-        hasActiveUnexpiredTicket: false
-    ))
-    #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
-        pairingResult: .superseded,
-        connectionState: .connected,
-        hasActiveUnexpiredTicket: true
-    ))
-    #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
-        pairingResult: .connected,
-        connectionState: .connected,
-        hasActiveUnexpiredTicket: true
-    ))
-    #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
-        pairingResult: .connected,
-        connectionState: .connected,
-        hasActiveUnexpiredTicket: false
-    ))
-    #expect(MobileRootAuthGate.shouldReconnectStoredMac(
-        stackAuthenticated: true,
-        attachTicketAuthenticated: false,
-        connectionState: .disconnected
-    ))
-    #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
-        stackAuthenticated: true,
-        attachTicketAuthenticated: true,
-        connectionState: .disconnected
-    ))
-    #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
-        stackAuthenticated: false,
-        attachTicketAuthenticated: true,
-        connectionState: .disconnected
-    ))
 }
 
 @MainActor
@@ -1902,118 +1767,6 @@ import UIKit
     #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
 }
 
-@Test func compactNavigationDoesNotAutoPushWhenAttachSelectsWorkspace() {
-    let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
-        currentPath: [MobileWorkspacePreview.ID](),
-        selectedWorkspaceID: .init(rawValue: "workspace-a")
-    )
-
-    #expect(path.isEmpty)
-}
-
-@Test func compactNavigationPushesNewlyCreatedWorkspaceFromList() {
-    let path = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
-        currentPath: [MobileWorkspacePreview.ID](),
-        selectedWorkspaceID: .init(rawValue: "workspace-created"),
-        existingWorkspaceIDs: [
-            .init(rawValue: "workspace-a"),
-            .init(rawValue: "workspace-b"),
-        ]
-    )
-
-    #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-created")])
-}
-
-@Test func compactNavigationDoesNotTreatExistingSelectionAsCreatedWorkspace() {
-    let path = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
-        currentPath: [MobileWorkspacePreview.ID](),
-        selectedWorkspaceID: .init(rawValue: "workspace-a"),
-        existingWorkspaceIDs: [
-            .init(rawValue: "workspace-a"),
-            .init(rawValue: "workspace-b"),
-        ]
-    )
-
-    #expect(path == nil)
-}
-
-@Test func compactNavigationIgnoresCreatedWorkspaceSelectionWhenNoCreateIsPending() {
-    let path = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
-        currentPath: [MobileWorkspacePreview.ID](),
-        selectedWorkspaceID: .init(rawValue: "workspace-created"),
-        existingWorkspaceIDs: nil
-    )
-
-    #expect(path == nil)
-}
-
-@Test func compactNavigationTracksSelectionAfterUserOpenedWorkspace() {
-    let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
-        currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
-        selectedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-b")
-    )
-
-    #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-b")])
-}
-
-@Test func compactNavigationClearsWhenSelectedWorkspaceDisappears() {
-    let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
-        currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
-        selectedWorkspaceID: nil
-    )
-
-    #expect(path.isEmpty)
-}
-
-@Test func rawTerminalInputSendBufferBatchesPendingInputInOrder() {
-    var buffer = MobileTerminalInputSendBuffer()
-    let workspaceA = MobileWorkspacePreview.ID(rawValue: "workspace-a")
-    let terminalA = MobileTerminalPreview.ID(rawValue: "terminal-a")
-    let terminalB = MobileTerminalPreview.ID(rawValue: "terminal-b")
-
-    let startsDrain = buffer.enqueue("p", workspaceID: workspaceA, terminalID: terminalA)
-    let appendsWhileDraining = buffer.enqueue("rint", workspaceID: workspaceA, terminalID: terminalA)
-    let appendsFinalCharacter = buffer.enqueue("f", workspaceID: workspaceA, terminalID: terminalA)
-    #expect(startsDrain == .startDraining)
-    #expect(appendsWhileDraining == .queued)
-    #expect(appendsFinalCharacter == .queued)
-    let firstBatch = buffer.nextBatch()
-    #expect(firstBatch?.workspaceID == workspaceA)
-    #expect(firstBatch?.terminalID == terminalA)
-    #expect(firstBatch?.text == "printf")
-
-    let appendsSecondBatch = buffer.enqueue(" 'one'", workspaceID: workspaceA, terminalID: terminalA)
-    #expect(appendsSecondBatch == .queued)
-    #expect(buffer.nextBatch()?.text == " 'one'")
-    #expect(buffer.nextBatch() == nil)
-
-    let restartsDrain = buffer.enqueue("\r", workspaceID: workspaceA, terminalID: terminalB)
-    #expect(restartsDrain == .startDraining)
-    let terminalBBatch = buffer.nextBatch()
-    #expect(terminalBBatch?.terminalID == terminalB)
-    #expect(terminalBBatch?.text == "\r")
-}
-
-@Test func rawTerminalInputSendBufferRejectsOverflowUntilPendingInputDrains() {
-    var buffer = MobileTerminalInputSendBuffer()
-    let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
-    let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
-    let fullBufferText = String(repeating: "a", count: MobileTerminalInputSendBuffer.maximumPendingByteCount)
-
-    #expect(buffer.enqueue(fullBufferText, workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
-    #expect(buffer.pendingByteCount == MobileTerminalInputSendBuffer.maximumPendingByteCount)
-    #expect(buffer.enqueue("b", workspaceID: workspaceID, terminalID: terminalID) == .rejected)
-    #expect(buffer.pendingByteCount == MobileTerminalInputSendBuffer.maximumPendingByteCount)
-
-    let batch = buffer.nextBatch()
-    #expect(batch?.text == fullBufferText)
-    #expect(buffer.pendingByteCount == 0)
-    #expect(buffer.enqueue("b", workspaceID: workspaceID, terminalID: terminalID) == .queued)
-    #expect(buffer.nextBatch()?.text == "b")
-    #expect(buffer.nextBatch() == nil)
-    #expect(buffer.enqueue("c", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
-}
-
 @MainActor
 @Test func submittedTerminalInputIncludesClientViewportAndCarriageReturn() async throws {
     let route = try CmxAttachRoute(
@@ -2239,109 +1992,6 @@ import UIKit
     #expect(deliveredText == [liveText])
     #expect(liveText.contains("\u{1B}[0;1;4;38;2;255;0;0;48;2;0;0;255mlive"))
     #expect(liveText.contains("\u{1B}[6 q\u{1B}[?25h\u{1B}[2;3H"))
-}
-
-@Test func terminalSafeAreaExpansionAccountsForIPadSidebarVisibility() {
-    #expect(
-        MobileTerminalSafeAreaExpansionPolicy.edges(
-            context: .fullWidth,
-            hasCompactVerticalSize: true
-        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: true, bottom: true)
-    )
-    #expect(
-        MobileTerminalSafeAreaExpansionPolicy.edges(
-            context: .fullWidth,
-            hasCompactVerticalSize: false
-        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: true)
-    )
-    #expect(
-        MobileTerminalSafeAreaExpansionPolicy.edges(
-            context: .splitSidebarVisible,
-            hasCompactVerticalSize: true
-        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: true)
-    )
-    #expect(
-        MobileTerminalSafeAreaExpansionPolicy.edges(
-            context: .fullWidth,
-            hasCompactVerticalSize: true,
-            includesBottom: false
-        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: true, bottom: false)
-    )
-}
-
-@Test func terminalContentSafeAreaInsetsProtectLandscapeCameraArea() {
-    let landscapeInsets = SwiftUI.EdgeInsets(top: 0, leading: 54, bottom: 0, trailing: 21)
-
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .fullWidth,
-            hasCompactVerticalSize: true,
-            safeAreaInsets: landscapeInsets
-        ) == MobileTerminalContentInsets(leading: 33, trailing: 0)
-    )
-
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .fullWidth,
-            hasCompactVerticalSize: true,
-            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59)
-        ) == MobileTerminalContentInsets(leading: 0, trailing: 59)
-    )
-
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .fullWidth,
-            hasCompactVerticalSize: true,
-            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59),
-            symmetricCameraEdge: .leading
-        ) == MobileTerminalContentInsets(leading: 59, trailing: 0)
-    )
-
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .fullWidth,
-            hasCompactVerticalSize: true,
-            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59),
-            symmetricCameraEdge: .none
-        ) == .zero
-    )
-
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .fullWidth,
-            hasCompactVerticalSize: true,
-            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 21, bottom: 0, trailing: 54)
-        ) == MobileTerminalContentInsets(leading: 0, trailing: 33)
-    )
-
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .fullWidth,
-            hasCompactVerticalSize: true,
-            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 8)
-        ) == .zero
-    )
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .fullWidth,
-            hasCompactVerticalSize: false,
-            safeAreaInsets: landscapeInsets
-        ) == .zero
-    )
-    #expect(
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
-            context: .splitSidebarVisible,
-            hasCompactVerticalSize: true,
-            safeAreaInsets: landscapeInsets
-        ) == .zero
-    )
-}
-
-@Test func terminalLandscapeCameraEdgeFollowsWindowOrientation() {
-    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .landscapeLeft) == .trailing)
-    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .landscapeRight) == .leading)
-    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .portrait) == .trailing)
-    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .unknown) == .trailing)
 }
 
 private struct MissingTestStackAccessToken: Error {}

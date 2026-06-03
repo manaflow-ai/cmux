@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAuth
+import CmuxMobileShellModel
 import Foundation
 import UIKit
 import UserNotifications
