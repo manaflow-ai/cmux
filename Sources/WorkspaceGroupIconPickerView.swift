@@ -24,6 +24,11 @@ struct WorkspaceGroupIconPickerView: View {
         RenderableSystemSymbol.normalizedEmoji(searchText)
     }
 
+    private var typedSystemSymbol: String? {
+        guard typedEmoji == nil else { return nil }
+        return RenderableSystemSymbol.normalizedWorkspaceGroupIcon(searchText)
+    }
+
     private var emojiSuggestions: [String] {
         emojiMatches.emojis
     }
@@ -58,6 +63,34 @@ struct WorkspaceGroupIconPickerView: View {
                         }
                     }
 
+                    if let typedSystemSymbol {
+                        WorkspaceGroupIconPickerSectionTitle(
+                            title: String(localized: "workspaceGroup.icon.section.symbols", defaultValue: "Symbols")
+                        )
+                        Button {
+                            onSelect(typedSystemSymbol)
+                        } label: {
+                            HStack(spacing: 8) {
+                                WorkspaceGroupIconPreview(icon: .systemSymbol(typedSystemSymbol))
+                                    .frame(width: 22, height: 22)
+                                Text(typedSystemSymbol)
+                                    .font(.system(size: 12))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 8)
+                            .frame(height: 32)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(selectedIcon == typedSystemSymbol ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.08))
+                        )
+                        .help(typedSystemSymbol)
+                    }
+
                     if !emojiSuggestions.isEmpty {
                         WorkspaceGroupIconPickerSectionTitle(
                             title: String(localized: "workspaceGroup.icon.section.emoji", defaultValue: "Emoji")
@@ -81,7 +114,7 @@ struct WorkspaceGroupIconPickerView: View {
                                 }
                             }
                         }
-                    } else if typedEmoji == nil {
+                    } else if typedEmoji == nil && typedSystemSymbol == nil {
                         Text(String(localized: "workspaceGroup.icon.noResults", defaultValue: "No icons found"))
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
