@@ -541,6 +541,7 @@ jobs:
           python3 tests/test_shell_git_config_remote_url_parsing.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_default_surface_resolution.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
 
   tests-build-and-lag:
