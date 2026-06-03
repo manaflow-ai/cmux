@@ -242,6 +242,22 @@
         "p3": "이렇게 하면 현재 워크스페이스가 읽지 않음 순환의 뒤로 가므로 상태를 지우지 않고 계속 순환할 수 있습니다.",
         "p4": "Cmd+Option+U는 현재 워크스페이스의 읽음 또는 읽지 않음 상태를 전환합니다.",
         "p5": "Cmd+Shift+U로 새 읽지 않은 워크스페이스에 갔지만 답하기 전에 다른 작업으로 전환해야 할 때 유용합니다."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Cmd+Shift+T로 닫은 터미널, 브라우저, 워크스페이스, 에이전트 세션을 다시 열고, Cmd+[와 Cmd+]로 포커스를 되짚어 보세요.",
+        "date": "2026년 6월 2일",
+        "p1": "정리하려고 터미널 탭을 닫았다가 다시 필요해지는 경우가 있습니다. 또는 워크스페이스를 통째로 닫아 작업 중이던 에이전트를 잃기도 합니다. 이제 cmux는 닫은 항목과 포커스한 항목의 기록을 남겨, 단축키 하나로 되돌릴 수 있습니다.",
+        "reopenTitle": "닫은 항목 다시 열기",
+        "reopenP": "<code>Cmd+Shift+T</code>를 누르면 마지막으로 닫은 항목을 다시 엽니다. 터미널 탭, 브라우저 탭, 워크스페이스, 창에 적용되며 닫은 순서대로 하나씩 복원합니다. 각 화면은 원래 위치로, 분할 구성도 그대로 돌아옵니다.",
+        "agentTitle": "에이전트 세션도 돌아옵니다",
+        "agentP": "기록은 닫은 에이전트 세션도 다시 엽니다. Claude Code, Codex, OpenCode 세션을 다시 열면 중단된 지점부터 이어집니다. <code>cmux hooks setup</code>을 한 번 실행하면 cmux가 에이전트 세션을 추적할 수 있어, 다른 항목처럼 다시 열 수 있습니다.",
+        "agentP2": "이는 cmux <link>세션 복원</link>을 기반으로 하며, 지원되는 에이전트를 각자의 기본 재개 명령으로 복원합니다.",
+        "focusTitle": "있던 곳으로 되돌아가기",
+        "focusP": "제목 표시줄의 뒤로/앞으로 버튼, 또는 <code>Cmd+[</code>와 <code>Cmd+]</code>로 이전과 다음에 작업하던 워크스페이스나 창으로 이동합니다. 브라우저의 뒤로/앞으로와 같은 방식입니다.",
+        "fullHistoryTitle": "전체 기록 패널",
+        "fullHistoryP": "마지막 항목 이상이 필요할 때는 전체 기록 패널을 여세요. 닫은 항목과 포커스한 항목을 날짜별로 묶어 검색할 수 있고, 타임스탬프와 Clear Closed 동작도 제공합니다.",
+        "docsCta": "기록 탐색 단축키 재지정 방법을 포함한 전체 목록은 <link>키보드 단축키</link>를 참고하세요."
       }
     },
     "zenOfCmux": {
@@ -367,6 +383,10 @@
         "AI 코딩 에이전트",
         "워크스페이스 읽지 않음"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: 닫은 터미널과 세션 다시 열기",
+      "metaDescription": "cmux는 닫은 항목과 포커스한 항목의 기록을 남깁니다. Cmd+Shift+T로 닫은 터미널, 브라우저, 워크스페이스와 Claude Code, Codex, OpenCode 세션을 다시 열고, Cmd+[와 Cmd+]로 포커스를 앞뒤로 이동하세요."
     }
   },
   "docs": {
@@ -499,14 +519,31 @@
           "forkConversationDefaultDestination": "탭 컨텍스트 메뉴의 기본 Fork Conversation 동작에 사용할 기본 대상입니다. 하위 메뉴에는 여전히 모든 대상이 표시됩니다."
         },
         "terminal": {
-          "copyOnSelect": "선택이 확정되면 더블 클릭 및 트리플 클릭으로 선택한 단어와 줄을 포함해 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다."
+          "copyOnSelect": "선택이 확정되면 더블 클릭 및 트리플 클릭으로 선택한 단어와 줄을 포함해 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다.",
+          "showTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력을 기본으로 표시합니다.",
+          "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다."
         },
         "browser": {
           "defaultSearchEngine": "브라우저 주소 표시줄에서 URL이 아닌 입력에 사용할 기본 검색 엔진입니다. 다른 제공자는 custom과 customSearchEngineURLTemplate을 사용하세요.",
           "customSearchEngineName": "defaultSearchEngine이 custom일 때 사용할 표시 이름입니다.",
           "customSearchEngineURLTemplate": "defaultSearchEngine이 custom일 때 사용할 검색 URL입니다. 인코딩된 검색어에는 쿼리 자리표시자 또는 %s를 포함하세요. 자리표시자가 없으면 cmux가 URL에 q=를 추가합니다."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "그룹 안에서 Cmd-N, 그룹 헤더의 + 버튼, 구성된 그룹 액션이 새 workspace를 배치할 위치의 전역 기본값입니다: `afterCurrent` (활성 그룹 내 workspace 바로 뒤, 없으면 top), `top` (앵커 바로 뒤의 두 번째 위치), `end` (마지막 멤버 뒤).",
+          "byCwd": {
+            "newWorkspacePlacement": "그룹 안에서 Cmd-N, 그룹 헤더의 + 버튼, 구성된 그룹 액션이 새 workspace를 배치할 위치의 cwd별 재정의입니다: `afterCurrent` (활성 그룹 내 workspace 바로 뒤, 없으면 top), `top` (앵커 바로 뒤의 두 번째 위치), `end` (마지막 멤버 뒤). 생략하면 전역 기본값을 사용합니다."
+          }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "사용자 정의 명령어",
@@ -627,7 +664,8 @@
         "notifications": "알림",
         "find": "찾기",
         "terminal": "터미널",
-        "window": "창"
+        "window": "창",
+        "diffViewer": "Diff 뷰어"
       },
       "sc": {
         "ws-new": "새 워크스페이스",
@@ -920,7 +958,8 @@
       "changelog": "변경 로그",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox(베타)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1054,6 +1093,21 @@
       "daemonSession": "세션 관리",
       "daemonSessionHow": "재연결 시 세션을 유지하고 여러 첨부 파일에 걸쳐 PTY 크기 조정을 조정합니다.",
       "daemonPath": "데몬 바이너리는 원격 호스트의 ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote에 저장되며 앱에 포함된 SHA-256 매니페스트에 대해 확인됩니다."
+    },
+    "textBox": {
+      "title": "TextBox(베타)",
+      "metaTitle": "TextBox(베타)",
+      "metaDescription": "새 터미널 탭, 분할, 작업공간에 사용할 cmux 베타 TextBox 입력을 설정합니다.",
+      "intro": "TextBox는 터미널로 보내기 전에 프롬프트를 작성하는 cmux의 리치 터미널 입력 화면입니다.",
+      "betaCallout": "TextBox는 베타 기능입니다. 테스트 중에는 기본값과 동작이 변경될 수 있습니다.",
+      "defaultsTitle": "기본값",
+      "defaultsDesc": "TextBox 설정은 Settings > TextBox에 있습니다.",
+      "showSetting": "Show TextBox on New Terminals는 새 작업공간, 터미널 탭, 터미널 분할을 TextBox가 보이는 상태로 열고 포커스는 터미널에 유지합니다.",
+      "focusSetting": "Focus TextBox on New Terminals는 키보드 포커스를 TextBox에 둡니다. 포커스하면 TextBox도 표시됩니다.",
+      "maxLinesSetting": "TextBox Max Lines는 내용이 스크롤되기 전 TextBox의 최대 높이를 제한합니다.",
+      "configTitle": "cmux.json",
+      "configDesc": "동일한 기본값을 ~/.config/cmux/cmux.json의 terminal 아래에 설정할 수 있습니다.",
+      "focusNote": "복원된 세션은 저장된 TextBox 표시 및 포커스 상태를 유지합니다. 이 기본값은 새로 생성된 터미널 화면에만 적용됩니다."
     }
   },
   "legal": {

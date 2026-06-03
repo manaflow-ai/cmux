@@ -216,6 +216,8 @@ extension Workspace {
             return "right_sidebar_tool"
         case .project:
             return "project"
+        case .extensionBrowser:
+            return "extension_browser"
         }
     }
 }

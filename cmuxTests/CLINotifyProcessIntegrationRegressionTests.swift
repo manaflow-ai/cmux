@@ -73,6 +73,111 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
+        let context = try makeClaudeHookContext(name: "claude-pretool-tail")
+        defer { context.cleanup() }
+
+        let transcriptURL = context.root.appendingPathComponent("large-claude-session.jsonl")
+        _ = FileManager.default.createFile(atPath: transcriptURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: transcriptURL)
+
+        func writeLine(_ line: String) throws {
+            try handle.write(contentsOf: Data((line + "\n").utf8))
+        }
+
+        try writeLine(#"{"type":"user","message":{"role":"user","content":"ancient user message"}}"#)
+        try writeLine(#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ancient assistant response"},{"type":"tool_use","name":"Bash","input":{"command":"echo old"}}]}}"#)
+        let fillerPayload = String(repeating: "x", count: 1_200)
+        for _ in 0..<1_200 {
+            try writeLine(#"{"type":"user","message":{"role":"user","content":"\#(fillerPayload)"}}"#)
+        }
+        try writeLine(#"{"type":"user","message":{"role":"user","content":"recent user message"}}"#)
+        try writeLine(#"{"type":"assistant","message":{"role":"assistant","content":"recent assistant response"}}"#)
+        try handle.close()
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"tail-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo recent"}}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let preToolEvent = try XCTUnwrap(
+            feedPushEvents(in: context).last { $0["hook_event_name"] as? String == "PreToolUse" }
+        )
+        let feedContext = try XCTUnwrap(preToolEvent["context"] as? [String: Any])
+        XCTAssertEqual(feedContext["lastUserMessage"] as? String, "recent user message")
+        XCTAssertEqual(feedContext["assistantPreamble"] as? String, "recent assistant response")
+        XCTAssertFalse(String(describing: feedContext).contains("ancient"), "\(feedContext)")
+    }
+
+    func testClaudePreToolUseFeedContextKeepsOversizedFinalTranscriptLine() throws {
+        let context = try makeClaudeHookContext(name: "claude-pretool-oversized-final")
+        defer { context.cleanup() }
+
+        let transcriptURL = context.root.appendingPathComponent("oversized-final-claude-session.jsonl")
+        _ = FileManager.default.createFile(atPath: transcriptURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: transcriptURL)
+        defer { try? handle.close() }
+
+        try handle.write(contentsOf: Data(#"{"type":"user","message":{"role":"user","content":"ancient user message"}}"#.utf8))
+        try handle.write(contentsOf: Data("\n".utf8))
+        let longAssistantText = "recent assistant response " + String(repeating: "r", count: 1_100_000)
+        let finalLine = #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"\#(longAssistantText)"},{"type":"tool_use","name":"Bash","input":{"command":"echo huge"}}]}}"#
+        try handle.write(contentsOf: Data(finalLine.utf8))
+        try handle.close()
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"oversized-final-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo huge"}}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let preToolEvent = try XCTUnwrap(
+            feedPushEvents(in: context).last { $0["hook_event_name"] as? String == "PreToolUse" }
+        )
+        let feedContext = try XCTUnwrap(preToolEvent["context"] as? [String: Any])
+        let assistantPreamble = try XCTUnwrap(feedContext["assistantPreamble"] as? String)
+        XCTAssertTrue(assistantPreamble.hasPrefix("recent assistant response"), "\(feedContext)")
+    }
+
+    func testCodexStopReadsOversizedFinalTranscriptLine() throws {
+        let context = try makeClaudeHookContext(name: "codex-oversized-final-transcript")
+        defer { context.cleanup() }
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let turnId = "oversized-final-turn"
+        let transcriptURL = context.root.appendingPathComponent("oversized-final-codex-session.jsonl")
+        _ = FileManager.default.createFile(atPath: transcriptURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: transcriptURL)
+        defer { try? handle.close() }
+
+        try handle.write(contentsOf: Data(#"{"type":"session_meta","payload":{"id":"codex-oversized-final-session"}}"#.utf8))
+        try handle.write(contentsOf: Data("\n".utf8))
+        let padding = String(repeating: "p", count: 600_000)
+        let finalLine = #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"\#(turnId)","padding":"\#(padding)"}}"#
+        try handle.write(contentsOf: Data(finalLine.utf8))
+        try handle.close()
+
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"codex-oversized-final-session","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":null}"#
+        )
+
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains { command in
+                command.contains("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|Error|Codex ended before sending a final response")
+            },
+            "Expected Codex to parse the oversized final transcript line, saw \(context.state.commands)"
+        )
+    }
+
     func testCodexPromptSubmitRefreshesLastTurnDiffBaseline() throws {
         let context = try makeClaudeHookContext(name: "codex-prompt-baseline")
         defer { context.cleanup() }
@@ -2381,18 +2486,24 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let run = try runMockedSSH(arguments: [], jsonOutput: true)
         let payload = try jsonPayload(from: run.stdout)
         let sessionID = try XCTUnwrap(payload["ssh_pty_session_id"] as? String)
+        let persistentDaemonSlot = try XCTUnwrap(payload["persistent_daemon_slot"] as? String)
 
         XCTAssertEqual(sessionID, "ssh-\(run.workspaceId)-\(run.surfaceId)")
         XCTAssertFalse(sessionID.contains("$"), sessionID)
         XCTAssertFalse(sessionID.contains("{"), sessionID)
+        XCTAssertTrue(persistentDaemonSlot.hasPrefix("ssh-"), persistentDaemonSlot)
+        XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
     }
 
     func testSSHPersistentPTYJSONResolvesSessionIDWhenWorkspaceCreateOmitsSurfaceID() throws {
         let run = try runMockedSSH(arguments: [], jsonOutput: true, omitWorkspaceCreateSurfaceID: true)
         let payload = try jsonPayload(from: run.stdout)
         let sessionID = try XCTUnwrap(payload["ssh_pty_session_id"] as? String)
+        let persistentDaemonSlot = try XCTUnwrap(payload["persistent_daemon_slot"] as? String)
 
         XCTAssertEqual(sessionID, "ssh-\(run.workspaceId)-\(run.surfaceId)")
+        XCTAssertTrue(persistentDaemonSlot.hasPrefix("ssh-"), persistentDaemonSlot)
+        XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
     }
 
     private func assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(
@@ -2465,6 +2576,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
         XCTAssertNotNil(configureParams["foreground_auth_token"] as? String)
         XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)
+        let persistentDaemonSlot = try XCTUnwrap(configureParams["persistent_daemon_slot"] as? String)
+        XCTAssertTrue(persistentDaemonSlot.hasPrefix("ssh-"), persistentDaemonSlot)
+        XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
     }
 
     func testSSHPersistentPTYFallsBackWhenForegroundAuthCannotBeReused() throws {
@@ -2498,6 +2612,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(configureParams["auto_connect"] as? Bool, true, testCase.name)
             XCTAssertNil(configureParams["foreground_auth_token"], testCase.name)
             XCTAssertNil(configureParams["preserve_after_terminal_exit"], testCase.name)
+            XCTAssertNil(configureParams["persistent_daemon_slot"], testCase.name)
         }
     }
 
@@ -3363,6 +3478,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(params["remote_pty_session_id"] as? String, sessionId)
             XCTAssertEqual(params["focus"] as? Bool, true)
             let initialCommand = params["initial_command"] as? String ?? ""
+            XCTAssertTrue(initialCommand.hasPrefix("/bin/sh -c "), initialCommand)
             XCTAssertTrue(initialCommand.contains("ssh-pty-attach"), initialCommand)
             XCTAssertTrue(initialCommand.contains("--require-existing"), initialCommand)
             XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
@@ -7595,6 +7711,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
         return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+    }
+
+    private func feedPushEvents(in context: ClaudeHookContext) -> [[String: Any]] {
+        context.state.snapshot().compactMap { line in
+            guard let payload = jsonObject(line),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event
+        }
     }
 
     func testBrowserImportDefaultsNonInteractiveInCodingAgent() throws {

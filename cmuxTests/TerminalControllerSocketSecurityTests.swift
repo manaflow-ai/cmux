@@ -202,6 +202,81 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(payload["has_ssh_options"] as? Bool, true)
     }
 
+    func testRemoteConfigureRejectsInvalidPersistentDaemonSlot() throws {
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": UUID().uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "persistent_daemon_slot": "../bad",
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        XCTAssertEqual(
+            error["message"] as? String,
+            "persistent_daemon_slot must contain only letters, numbers, '.', '_' or '-'"
+        )
+    }
+
+    func testRemoteConfigureDefaultsPersistentDaemonSlotForBootstrapSSH() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "preserve_after_terminal_exit": true,
+                "auto_connect": false,
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(workspace.remoteConfiguration?.preserveAfterTerminalExit, true)
+        XCTAssertEqual(
+            workspace.remoteConfiguration?.persistentDaemonSlot,
+            "ssh-\(workspace.id.uuidString.lowercased())"
+        )
+    }
+
+    func testRemoteConfigureRejectsPersistentDaemonSlotWithoutPreserve() throws {
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": UUID().uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "persistent_daemon_slot": "ssh-test-slot",
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        XCTAssertEqual(
+            error["message"] as? String,
+            "preserve_after_terminal_exit is required when persistent_daemon_slot is set"
+        )
+    }
+
     func testRemotePTYResizeRunsOnSocketWorker() async throws {
         let socketPath = makeSocketPath("pty-worker")
         let tabManager = TabManager()
@@ -238,6 +313,34 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertNotEqual(workerError["code"] as? String, "invalid_dispatch")
         XCTAssertNotEqual(workerError["code"] as? String, "method_not_found")
         XCTAssertEqual(workerError["code"] as? String, "not_found")
+    }
+
+    func testWorkspaceWorkerMethodRejectsWindowAliasInsteadOfDefaultWindowFallback() async throws {
+        let socketPath = makeSocketPath("alias-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let params: [String: Any] = ["window": "window:2"]
+        let requestLine = try makeV2RequestLine(
+            method: "workspace.remote.pty_sessions",
+            params: params
+        )
+
+        let mainEnvelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+        let mainError = try XCTUnwrap(mainEnvelope["error"] as? [String: Any])
+        XCTAssertEqual(mainError["code"] as? String, "invalid_dispatch")
+
+        let workerEnvelope = try await sendV2RequestAsync(
+            method: "workspace.remote.pty_sessions",
+            params: params,
+            to: socketPath
+        )
+        try assertUnsupportedWorkspaceWindowAlias(workerEnvelope)
     }
 
     func testHeartbeatMethodsSupportInProcessAndSocketDispatch() async throws {
@@ -1296,6 +1399,19 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
     ) throws -> [String: Any] {
         let requestLine = try makeV2RequestLine(method: method, params: params)
         return try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+    }
+
+    private func assertUnsupportedWorkspaceWindowAlias(
+        _ envelope: [String: Any],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertEqual(envelope["ok"] as? Bool, false, file: file, line: line)
+        let error = try XCTUnwrap(envelope["error"] as? [String: Any], file: file, line: line)
+        XCTAssertEqual(error["code"] as? String, "invalid_params", file: file, line: line)
+        let data = try XCTUnwrap(error["data"] as? [String: Any], file: file, line: line)
+        XCTAssertEqual(data["unsupported_param"] as? String, "window", file: file, line: line)
+        XCTAssertEqual(data["supported_param"] as? String, "window_id", file: file, line: line)
     }
 
     private nonisolated func sendV2Request(

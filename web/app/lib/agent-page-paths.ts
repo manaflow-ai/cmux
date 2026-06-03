@@ -32,6 +32,7 @@ const englishOnlyPages = [
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/blog", title: "Blog" },
+  { path: "/blog/cmux-history", title: "cmux history" },
   { path: "/blog/cmux-finder", title: "Introducing cmux Finder" },
   { path: "/blog/cmux-vault", title: "cmux Vault" },
   { path: "/blog/passkey-auth", title: "Passkey auth in the cmux browser" },
@@ -57,6 +58,7 @@ export const agentReadablePages = [
   { path: "/docs/getting-started", title: "Getting Started" },
   { path: "/docs/concepts", title: "Concepts" },
   { path: "/docs/configuration", title: "Configuration" },
+  { path: "/docs/textbox", title: "TextBox" },
   { path: "/docs/custom-commands", title: "Custom Commands" },
   { path: "/docs/dock", title: "Dock" },
   { path: "/docs/keyboard-shortcuts", title: "Keyboard Shortcuts" },

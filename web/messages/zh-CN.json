@@ -242,6 +242,22 @@
         "p3": "这样会把当前工作区送到未读循环末尾，你可以继续查看未读工作区而不清除状态。",
         "p4": "Cmd+Option+U 会切换当前工作区的已读或未读状态。",
         "p5": "当你用 Cmd+Shift+U 跳到新的未读工作区，但想在回复前先切换上下文时很有用。"
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "用 Cmd+Shift+T 重新打开已关闭的终端、浏览器、工作区和 agent 会话，并用 Cmd+[ 和 Cmd+] 回溯你的聚焦。",
+        "date": "2026年6月2日",
+        "p1": "你为了清理而关掉一个终端标签，随后却发现还需要它。或者你关掉了整个工作区，丢失了正在工作的 agent。cmux 现在会记录你关闭和聚焦过的内容，一个快捷键就能找回来。",
+        "reopenTitle": "重新打开你关闭的内容",
+        "reopenP": "按 <code>Cmd+Shift+T</code> 即可重新打开你最后关闭的内容。它适用于终端标签、浏览器标签、工作区和窗口，并按你关闭的顺序逐个恢复。每个界面都会回到原来的位置，窗格布局也保持不变。",
+        "agentTitle": "agent 会话也会回来",
+        "agentP": "历史记录也会重新打开已关闭的 agent 会话。重新打开一个 Claude Code、Codex 或 OpenCode 会话，它会从中断处继续。运行一次 <code>cmux hooks setup</code>，让 cmux 能够跟踪 agent 会话，之后它们就能像其他内容一样被重新打开。",
+        "agentP2": "这建立在 cmux <link>会话恢复</link>之上，它通过受支持 agent 各自的原生恢复命令来恢复会话。",
+        "focusTitle": "回到你刚才所在的位置",
+        "focusP": "标题栏中的前进和后退按钮，或者 <code>Cmd+[</code> 和 <code>Cmd+]</code>，可以跳转到你之前和之后所在的工作区或窗口，就像浏览器中的前进和后退一样。",
+        "fullHistoryTitle": "完整的历史记录面板",
+        "fullHistoryP": "当你需要的不止最后一项时，打开完整的历史记录面板：它按天分组、可搜索，列出你关闭和聚焦过的所有内容，带有时间戳，还有 Clear Closed 操作。",
+        "docsCta": "查看<link>键盘快捷键</link>了解完整列表，包括如何重新绑定历史记录导航。"
       }
     },
     "zenOfCmux": {
@@ -367,6 +383,10 @@
         "AI 编程代理",
         "工作区未读"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history：重新打开已关闭的终端和会话",
+      "metaDescription": "cmux 会记录你关闭和聚焦过的内容。用 Cmd+Shift+T 重新打开已关闭的终端、浏览器、工作区，以及 Claude Code、Codex 和 OpenCode 会话，并用 Cmd+[ 和 Cmd+] 在聚焦之间前后切换。"
     }
   },
   "docs": {
@@ -499,14 +519,31 @@
           "forkConversationDefaultDestination": "标签页上下文菜单中主要 Fork Conversation 操作的默认目标。子菜单仍会显示所有目标。"
         },
         "terminal": {
-          "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。"
+          "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。",
+          "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",
+          "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。"
         },
         "browser": {
           "defaultSearchEngine": "浏览器地址栏输入不是 URL 时使用的默认搜索引擎。对于任意提供商，请使用 custom 和 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 为 custom 时使用的显示名称。",
           "customSearchEngineURLTemplate": "defaultSearchEngine 为 custom 时使用的搜索 URL。使用查询占位符或 %s 表示已编码的查询。如果没有占位符，cmux 会向 URL 添加 q=。"
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "组内 Cmd-N、组标题中的 + 按钮以及已配置的组操作放置新 workspace 的全局默认位置：`afterCurrent`（在当前活动的组内 workspace 后面，没有时回退到 top）、`top`（第二个位置，紧跟锚点之后）或 `end`（最后一个成员之后）。",
+          "byCwd": {
+            "newWorkspacePlacement": "按 cwd 覆盖组内 Cmd-N、组标题中的 + 按钮以及已配置的组操作放置新 workspace 的位置：`afterCurrent`（在当前活动的组内 workspace 后面，没有时回退到 top）、`top`（第二个位置，紧跟锚点之后）或 `end`（最后一个成员之后）。省略时回退到全局默认值。"
+          }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "自定义命令",
@@ -627,7 +664,8 @@
         "notifications": "通知",
         "find": "查找",
         "terminal": "终端",
-        "window": "窗口"
+        "window": "窗口",
+        "diffViewer": "差异查看器"
       },
       "sc": {
         "ws-new": "新建工作区",
@@ -920,7 +958,8 @@
       "changelog": "更新日志",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox（测试版）"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1054,6 +1093,21 @@
       "daemonSession": "会话管理",
       "daemonSessionHow": "在重新连接时保留会话，协调跨多个附件的 PTY 大小调整",
       "daemonPath": "守护程序二进制文件存储在远程主机上的 ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote 中，并根据应用程序中嵌入的 SHA-256 清单进行验证。"
+    },
+    "textBox": {
+      "title": "TextBox（测试版）",
+      "metaTitle": "TextBox（测试版）",
+      "metaDescription": "为新的终端标签页、分屏和工作区配置 cmux 的测试版 TextBox 输入。",
+      "intro": "TextBox 是 cmux 的富文本终端输入界面，可在发送到终端前编写提示。",
+      "betaCallout": "TextBox 是测试版功能。在测试期间，默认值和行为可能会变化。",
+      "defaultsTitle": "默认值",
+      "defaultsDesc": "TextBox 设置位于 Settings > TextBox：",
+      "showSetting": "Show TextBox on New Terminals 会让新的工作区、终端标签页和终端分屏在打开时显示 TextBox，同时将焦点保留在终端中。",
+      "focusSetting": "Focus TextBox on New Terminals 会将键盘焦点放入 TextBox。启用焦点也会显示 TextBox。",
+      "maxLinesSetting": "TextBox Max Lines 会限制 TextBox 在内容滚动前的最大高度。",
+      "configTitle": "cmux.json",
+      "configDesc": "也可以在 ~/.config/cmux/cmux.json 的 terminal 下设置相同默认值：",
+      "focusNote": "恢复的会话会保留已保存的 TextBox 可见性和焦点状态。这些默认值只适用于新建的终端界面。"
     }
   },
   "legal": {

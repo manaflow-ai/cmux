@@ -3,6 +3,7 @@ import WebKit
 
 struct ShortcutEventFocusContext {
     let browserPanel: BrowserPanel?
+    let markdownPanel: MarkdownPanel?
     let rightSidebarFocused: Bool
 }
 
@@ -16,13 +17,14 @@ extension KeyboardShortcutSettings.Action {
         case application
         case nonBrowserPanel
         case browserPanel
+        case markdownPanel
         case rightSidebarFocus
 
         var isAlwaysAvailable: Bool {
             self == .application
         }
 
-        func isAvailable(focusedBrowserPanel: Bool, rightSidebarFocused: Bool) -> Bool {
+        func isAvailable(focusedBrowserPanel: Bool, focusedMarkdownPanel: Bool, rightSidebarFocused: Bool) -> Bool {
             switch self {
             case .application:
                 return true
@@ -30,32 +32,57 @@ extension KeyboardShortcutSettings.Action {
                 return !focusedBrowserPanel && !rightSidebarFocused
             case .browserPanel:
                 return focusedBrowserPanel
+            case .markdownPanel:
+                return focusedMarkdownPanel
             case .rightSidebarFocus:
                 return rightSidebarFocused
             }
         }
 
         func isAvailable(_ context: ShortcutEventFocusContext) -> Bool {
-            isAvailable(focusedBrowserPanel: context.browserPanel != nil, rightSidebarFocused: context.rightSidebarFocused)
+            isAvailable(
+                focusedBrowserPanel: context.browserPanel != nil,
+                focusedMarkdownPanel: context.markdownPanel != nil,
+                rightSidebarFocused: context.rightSidebarFocused
+            )
         }
 
         func overlaps(_ other: ShortcutContext) -> Bool {
             if self == .application || other == .application {
                 return true
             }
-            return self == other
+            if self == other {
+                return true
+            }
+            // A focused markdown viewer also satisfies `.nonBrowserPanel`, so the
+            // two contexts can be active at the same time. Treat them as
+            // overlapping so shortcut conflict detection rejects a chord bound to
+            // both a markdown-zoom action and a non-browser action.
+            if (self == .markdownPanel && other == .nonBrowserPanel) ||
+                (self == .nonBrowserPanel && other == .markdownPanel) {
+                return true
+            }
+            return false
         }
     }
 
     var shortcutContext: ShortcutContext {
         switch self {
+        case .diffViewerScrollDown,
+             .diffViewerScrollUp,
+             .diffViewerScrollToBottom,
+             .diffViewerScrollToTop,
+             .diffViewerOpenFileSearch:
+            return .browserPanel
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .rightSidebarFocus
-        case .renameTab, .renameWorkspace:
+        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal:
             return .nonBrowserPanel
         case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
-             .browserZoomIn, .browserZoomOut, .browserZoomReset:
+             .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode:
             return .browserPanel
+        case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
+            return .markdownPanel
         default:
             return .application
         }
@@ -78,18 +105,40 @@ extension AppDelegate {
         shortcutEventFocusContext(event).browserPanel
     }
 
+    func shortcutEventMarkdownPanel(_ event: NSEvent) -> MarkdownPanel? {
+        shortcutEventFocusContext(event).markdownPanel
+    }
+
     func shortcutEventFocusContext(_ event: NSEvent) -> ShortcutEventFocusContext {
         if let cache = shortcutEventFocusContextCache, cache.event === event {
             return cache.context
         }
 
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let browserPanel = shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
         let context = ShortcutEventFocusContext(
-            browserPanel: shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow),
+            browserPanel: browserPanel,
+            // Only treat a markdown panel as focused when no browser panel owns
+            // the event, so a focused browser never routes markdown shortcuts.
+            markdownPanel: browserPanel == nil ? shortcutFocusedMarkdownPanel(in: shortcutWindow) : nil,
             rightSidebarFocused: shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false
         )
         shortcutEventFocusContextCache = ShortcutEventFocusContextCache(event: event, context: context)
         return context
+    }
+
+    private func shortcutFocusedMarkdownPanel(in window: NSWindow?) -> MarkdownPanel? {
+        // `focusedMarkdownPanel` is already gated to preview mode, where the
+        // rendered viewer responds to zoom (the raw text editor does not).
+        if let window {
+            guard let context = mainWindowContexts[ObjectIdentifier(window)] ??
+                mainWindowContexts.values.first(where: { $0.window === window }) else {
+                return nil
+            }
+            return context.tabManager.focusedMarkdownPanel
+        }
+
+        return tabManager?.focusedMarkdownPanel
     }
 
     func clearShortcutEventFocusContextCache(for event: NSEvent) {
