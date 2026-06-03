@@ -2644,6 +2644,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
 
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
         process.arguments = Self.daemonArguments(configuration: configuration, remotePath: remotePath)
+        process.environment = configuration.sshProcessEnvironment
         process.standardInput = stdinPipe
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -2712,6 +2713,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
             localPort: localPort,
             remoteSocketPath: Self.bakedVMDaemonSocketPath
         )
+        process.environment = configuration.sshProcessEnvironment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = stderrPipe
@@ -6949,6 +6951,7 @@ final class WorkspaceRemoteSessionController {
             let stderrPipe = Pipe()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
             process.arguments = reverseRelayArguments(relayPort: relayPort, localRelayPort: localRelayPort)
+            process.environment = configuration.sshProcessEnvironment
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = FileHandle.nullDevice
             process.standardError = stderrPipe
@@ -7567,6 +7570,7 @@ final class WorkspaceRemoteSessionController {
         try runProcess(
             executable: "/usr/bin/ssh",
             arguments: arguments,
+            environment: configuration.sshProcessEnvironment,
             stdin: stdin,
             timeout: timeout
         )
@@ -7580,6 +7584,7 @@ final class WorkspaceRemoteSessionController {
         try runProcess(
             executable: "/usr/bin/scp",
             arguments: arguments,
+            environment: configuration.sshProcessEnvironment,
             stdin: nil,
             timeout: timeout,
             operation: operation
@@ -13277,6 +13282,21 @@ final class Workspace: Identifiable, ObservableObject {
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
     }
 
+    private func terminalStartupEnvironment(
+        base: [String: String],
+        remoteStartupCommand: String?
+    ) -> [String: String] {
+        guard remoteStartupCommand != nil,
+              let remoteEnvironment = remoteConfiguration?.sshTerminalStartupEnvironment else {
+            return base
+        }
+        var environment = base
+        for (key, value) in remoteEnvironment {
+            environment[key] = value
+        }
+        return environment
+    }
+
     private func normalizedRemotePTYSessionID(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -13777,6 +13797,7 @@ final class Workspace: Identifiable, ObservableObject {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
             process.arguments = arguments
+            process.environment = configuration.sshProcessEnvironment
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
@@ -14217,6 +14238,11 @@ final class Workspace: Identifiable, ObservableObject {
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
+        let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
+        let effectiveStartupEnvironment = terminalStartupEnvironment(
+            base: startupEnvironment,
+            remoteStartupCommand: remoteStartupCommandForEnvironment
+        )
         // Hold the pane open after the remote session ends so the user can read the
         // "ssh exited …" message the startup script prints. Otherwise Ghostty silently
         // respawns a local login shell when the command exits (the PTY falls through
@@ -14271,7 +14297,7 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
-            additionalEnvironment: startupEnvironment
+            additionalEnvironment: effectiveStartupEnvironment
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -14395,6 +14421,11 @@ final class Workspace: Identifiable, ObservableObject {
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
+        let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
+        let effectiveStartupEnvironment = terminalStartupEnvironment(
+            base: startupEnvironment,
+            remoteStartupCommand: remoteStartupCommandForEnvironment
+        )
         // See the comment at the other call site: hold the PTY open after the remote
         // command exits so the user sees the error rather than a silently-respawned
         // local login shell.
@@ -14414,7 +14445,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
-            additionalEnvironment: startupEnvironment
+            additionalEnvironment: effectiveStartupEnvironment
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -17525,6 +17556,10 @@ final class Workspace: Identifiable, ObservableObject {
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
+        let effectiveStartupEnvironment = terminalStartupEnvironment(
+            base: [:],
+            remoteStartupCommand: startupCommand
+        )
         if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
@@ -17538,7 +17573,8 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
-            initialInput: initialInput
+            initialInput: initialInput,
+            additionalEnvironment: effectiveStartupEnvironment
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -17581,6 +17617,7 @@ final class Workspace: Identifiable, ObservableObject {
         var terminalWorkingDirectory: String?
         var initialTerminalCommand: String?
         var initialTerminalInput: String
+        var initialTerminalEnvironment: [String: String]
         var remoteConfiguration: WorkspaceRemoteConfiguration?
         var autoConnectRemoteConfiguration: Bool
     }
@@ -17611,6 +17648,7 @@ final class Workspace: Identifiable, ObservableObject {
             terminalWorkingDirectory: isRemoteFork ? nil : workingDirectory,
             initialTerminalCommand: remoteConfiguration?.terminalStartupCommand ?? remoteStartupCommand,
             initialTerminalInput: startupInput,
+            initialTerminalEnvironment: isRemoteFork ? (remoteConfiguration?.sshTerminalStartupEnvironment ?? [:]) : [:],
             remoteConfiguration: remoteConfiguration,
             autoConnectRemoteConfiguration: remoteConfiguration != nil
         )
@@ -17768,7 +17806,8 @@ final class Workspace: Identifiable, ObservableObject {
         return remoteConfiguration?.sessionSnapshot(sshOptionsOverride: forkedSSHOptions)?.workspaceConfiguration(
             localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
             allowPersistentPTYRestore: false,
-            preserveSSHOptions: true
+            preserveSSHOptions: true,
+            agentSocketPath: remoteConfiguration?.agentSocketPath
         ) ?? remoteConfiguration
     }
 
@@ -19229,6 +19268,7 @@ extension Workspace: BonsplitDelegate {
             workingDirectory: launch.terminalWorkingDirectory,
             initialTerminalCommand: launch.initialTerminalCommand,
             initialTerminalInput: launch.initialTerminalInput,
+            initialTerminalEnvironment: launch.initialTerminalEnvironment,
             inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
             autoWelcomeIfNeeded: false
         )
