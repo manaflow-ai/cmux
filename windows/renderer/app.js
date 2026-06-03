@@ -17393,13 +17393,17 @@ function paletteEntries() {
       run: () => applySavedSettingsProfile(profile.id)
     });
   }
+  const currentPaletteBlueprint = state.workspaceBlueprints.length > 0 ? currentWorkspaceBlueprintSnapshot("Current setup") : null;
   for (const blueprint of state.workspaceBlueprints) {
+    const summary = workspaceBlueprintSummary(blueprint);
+    const active = workspaceBlueprintMatchesSnapshot(blueprint, currentPaletteBlueprint);
     entries.push({
       id: `workspaceBlueprint.${blueprint.id}`,
       label: `Blueprint: ${blueprint.label}`,
-      meta: workspaceBlueprintSummary(blueprint),
-      shortcut: "Blueprint",
-      search: normalizeSettingsQuery(`workspace blueprint layout template new add apply ${blueprint.label} ${workspaceBlueprintSummary(blueprint)}`),
+      meta: active ? `Active / ${summary}` : summary,
+      shortcut: active ? "Active" : "Blueprint",
+      active,
+      search: normalizeSettingsQuery(`workspace blueprint layout template new add apply ${active ? "active current " : ""}${blueprint.label} ${summary}`),
       run: () => createWorkspaceFromBlueprint(blueprint.id)
     });
   }
