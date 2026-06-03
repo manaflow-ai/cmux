@@ -32,7 +32,7 @@ export interface ApnsNotificationInput {
 export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
   const hidden = input.hideContent === true;
   const title = hidden ? "cmux" : input.title.trim() || "cmux";
-  const body = hidden ? "An agent needs your attention" : input.body;
+  const body = hidden ? "" : input.body;
   const subtitle = hidden ? undefined : input.subtitle?.trim() || undefined;
 
   const alert: Record<string, string> = { title };

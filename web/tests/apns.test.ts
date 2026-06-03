@@ -36,7 +36,7 @@ describe("apns payload", () => {
     expect("cmux" in payload).toBe(false);
   });
 
-  test("hideContent redacts title/subtitle/body but keeps display-compatible copy and deep-link", () => {
+  test("hideContent redacts title/subtitle/body but keeps a language-neutral alert and deep-link", () => {
     const payload = buildApnsPayload({
       title: "secret-host",
       subtitle: "secret",
@@ -46,7 +46,7 @@ describe("apns payload", () => {
     }) as { aps: { alert: Record<string, string> }; cmux: Record<string, string> };
 
     expect(payload.aps.alert.title).toBe("cmux");
-    expect(payload.aps.alert.body).toBe("An agent needs your attention");
+    expect(payload.aps.alert.body).toBeUndefined();
     expect(payload.aps.alert.subtitle).toBeUndefined();
     expect(payload.cmux).toEqual({ workspaceId: "ws-9" });
   });
