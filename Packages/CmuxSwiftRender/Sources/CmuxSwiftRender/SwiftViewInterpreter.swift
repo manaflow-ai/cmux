@@ -191,6 +191,19 @@ public struct SwiftViewInterpreter: Sendable {
                 text: stringArgument(call.arguments, env),
                 children: call.trailingClosure.map { evalItems($0.statements, env) } ?? []
             )
+        case "Grid":
+            return RenderNode(kind: .grid, spacing: doubleArgument(named: "spacing", call.arguments, env),
+                              children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "GridRow":
+            return RenderNode(kind: .gridRow, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "LazyVGrid":
+            return RenderNode(kind: .lazyVGrid, spacing: doubleArgument(named: "spacing", call.arguments, env),
+                              children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "LazyHGrid":
+            return RenderNode(kind: .lazyHGrid, spacing: doubleArgument(named: "spacing", call.arguments, env),
+                              children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "ViewThatFits":
+            return RenderNode(kind: .viewThatFits, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
         case "HSplitView":
             return RenderNode(kind: .hsplit, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
         case "ScrollView":

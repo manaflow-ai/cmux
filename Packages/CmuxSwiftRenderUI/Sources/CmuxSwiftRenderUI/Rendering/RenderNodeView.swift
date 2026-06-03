@@ -61,6 +61,19 @@ struct RenderNodeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: node.spacing.map { CGFloat($0) }) { children }
             }
+        case .grid:
+            Grid(alignment: .leading, horizontalSpacing: node.spacing.map { CGFloat($0) },
+                 verticalSpacing: node.spacing.map { CGFloat($0) }) { children }
+        case .gridRow:
+            GridRow { children }
+        case .lazyVGrid:
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 60), spacing: node.spacing.map { CGFloat($0) })],
+                      spacing: node.spacing.map { CGFloat($0) }) { children }
+        case .lazyHGrid:
+            LazyHGrid(rows: [GridItem(.adaptive(minimum: 40), spacing: node.spacing.map { CGFloat($0) })],
+                      spacing: node.spacing.map { CGFloat($0) }) { children }
+        case .viewThatFits:
+            ViewThatFits { children }
         case .hsplit:
             ResizableHSplit(columns: node.children)
         case .reorderable:

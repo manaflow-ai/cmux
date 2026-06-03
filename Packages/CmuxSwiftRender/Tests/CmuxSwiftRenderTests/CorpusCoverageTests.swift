@@ -27,6 +27,7 @@ import Testing
             "LazyVStack", "LazyHStack", "Group", "EmptyView", "List", "Section",
             "Label", "Array", "Int", "Double", "String", "Ellipse", "UnevenRoundedRectangle",
             "min", "max", "abs",
+            "Grid", "GridRow", "LazyVGrid", "LazyHGrid", "ViewThatFits", "GridItem",
         ]
         let supportedMembers: Set<String> = [
             "font", "bold", "fontWeight", "foregroundColor", "foregroundStyle", "fill",

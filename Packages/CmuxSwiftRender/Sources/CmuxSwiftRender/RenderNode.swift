@@ -27,6 +27,15 @@ public struct RenderNode: Sendable, Equatable {
         /// `HStack`. Vertical scroll views stay passthrough (the sidebar host
         /// already scrolls vertically) and lower to ``vstack``.
         case hscroll
+        /// `Grid { GridRow { ... } ... }` for aligned columns.
+        case grid
+        /// `GridRow { ... }`, a row within a ``grid``.
+        case gridRow
+        /// `LazyVGrid` / `LazyHGrid`, rendered with adaptive columns/rows.
+        case lazyVGrid
+        case lazyHGrid
+        /// `ViewThatFits`: children are candidates; SwiftUI picks the first fit.
+        case viewThatFits
         /// A horizontally resizable split: children are columns separated by
         /// a draggable divider. The host owns the split fraction.
         case hsplit

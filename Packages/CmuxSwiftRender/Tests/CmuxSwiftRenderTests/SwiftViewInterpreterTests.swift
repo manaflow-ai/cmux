@@ -480,6 +480,33 @@ import Testing
         #expect(node?.children.map(\.text) == ["2", "1", "42"])
     }
 
+    @Test func gridRowsAndViewThatFits() {
+        let node = interp.evaluate("""
+        Grid {
+            GridRow {
+                Text("a")
+                Text("b")
+            }
+            GridRow {
+                Text("c")
+                Text("d")
+            }
+        }
+        """)
+        #expect(node?.kind == .grid)
+        #expect(node?.children.map(\.kind) == [.gridRow, .gridRow])
+        #expect(node?.children.first?.children.map(\.text) == ["a", "b"])
+
+        let fits = interp.evaluate("""
+        ViewThatFits {
+            Text("wide label")
+            Text("x")
+        }
+        """)
+        #expect(fits?.kind == .viewThatFits)
+        #expect(fits?.children.count == 2)
+    }
+
     @Test func numericBuiltinsMinMaxAbs() {
         let node = interp.evaluate("""
         HStack {
