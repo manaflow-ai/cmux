@@ -3388,6 +3388,7 @@ const commands = [
   { id: "settings.clearRecentActivity", label: "Clear Recent Activity", shortcut: "", run: () => clearRecentActivity() },
   { id: "settings.terminal", label: "Open Terminal Settings", shortcut: "", run: () => openSettingsCategory("terminal") },
   { id: "settings.terminalColors", label: "Reset Terminal Colors", shortcut: "", run: () => applyTerminalColorPresetById("cmux") },
+  { id: "settings.saveTerminalProfile", label: "Save Terminal Profile", shortcut: "", run: () => saveCurrentTerminalProfile() },
   { id: "settings.colors", label: "Open Color Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "color", focusSearch: true }) },
   { id: "settings.saveAccentColor", label: "Save Current Accent Color", shortcut: "", run: () => upsertCustomColorPalette(state.settings.accent) },
   { id: "settings.saveWorkspaceColor", label: "Save Current Workspace Color", shortcut: "", run: () => upsertCustomColorPalette(activeWorkspace()?.color) },
@@ -9813,8 +9814,9 @@ function renderSettingsInspector(options = {}) {
     ));
     const colorActions = document.createElement("div");
     colorActions.className = "settings-actions";
-    colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color reset default background foreground cursor");
+    colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color reset default background foreground cursor save terminal profile setup reusable");
     colorActions.append(
+      settingsActionButton("Save terminal profile", saveCurrentTerminalProfile, "primary", "terminal save profile setup font color cursor shell reusable"),
       settingsActionButton("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), "", "terminal color reset default background foreground cursor")
     );
     terminalSection.append(colorActions);
@@ -14974,7 +14976,7 @@ function terminalColorPresetGrid() {
     button.type = "button";
     button.title = preset.body;
     button.setAttribute("aria-pressed", String(active));
-    button.dataset.settingsSearch = normalizeSettingsQuery(`terminal color preset theme ${preset.label} ${preset.body}`);
+    button.dataset.settingsSearch = normalizeSettingsQuery(`terminal color preset theme ${active ? "active current " : ""}${preset.label} ${preset.body}`);
     button.style.setProperty("--terminal-preset-background", preset.background || terminalColorDefaults.background);
     button.style.setProperty("--terminal-preset-foreground", preset.foreground || terminalColorDefaults.foreground);
     button.style.setProperty("--terminal-preset-cursor", preset.cursor || state.settings.accent || terminalColorDefaults.cursor);
@@ -14984,13 +14986,21 @@ function terminalColorPresetGrid() {
         <span class="terminal-color-preset-prompt"></span>
       </span>
       <span class="terminal-color-preset-text">
-        <span class="terminal-color-preset-title"></span>
+        <span class="terminal-color-preset-title-row">
+          <span class="terminal-color-preset-title"></span>
+        </span>
         <span class="terminal-color-preset-body"></span>
       </span>
     `;
     button.querySelector(".terminal-color-preset-line").textContent = "> cmux";
     button.querySelector(".terminal-color-preset-prompt").textContent = "_";
     button.querySelector(".terminal-color-preset-title").textContent = preset.label;
+    if (active) {
+      const status = document.createElement("span");
+      status.className = "terminal-color-preset-status";
+      status.textContent = "Active";
+      button.querySelector(".terminal-color-preset-title-row").append(status);
+    }
     button.querySelector(".terminal-color-preset-body").textContent = preset.body;
     button.onclick = () => applyTerminalColorPreset(preset);
     grid.append(button);
@@ -15770,6 +15780,14 @@ function saveCurrentLookProfile() {
     title: "Save appearance profile",
     message: "Save this look together with the current layout, terminal, and performance settings.",
     baseName: "Look profile"
+  });
+}
+
+function saveCurrentTerminalProfile() {
+  return saveCurrentSettingsProfile({
+    title: "Save terminal profile",
+    message: "Save the current terminal font, colors, cursor, shell, and supporting app settings.",
+    baseName: "Terminal profile"
   });
 }
 
