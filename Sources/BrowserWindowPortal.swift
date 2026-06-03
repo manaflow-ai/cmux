@@ -109,6 +109,10 @@ private extension WKWebView {
 #endif
     }
 
+    func browserPortalMarkNeedsRenderingStateReattach() {
+        browserPortalNeedsRenderingStateReattach = true
+    }
+
     func browserPortalReattachRenderingState(reason: String) {
         guard browserPortalNeedsRenderingStateReattach else { return }
         guard window != nil else { return }
@@ -3345,6 +3349,8 @@ final class WindowBrowserPortal: NSObject {
                     primaryWebView: webView,
                     reason: reason
                 )
+            } else if !entry.visibleInUI, webView.superview === containerView {
+                webView.browserPortalMarkNeedsRenderingStateReattach()
             }
             containerView.isHidden = true
         }
@@ -3400,6 +3406,13 @@ final class WindowBrowserPortal: NSObject {
             return
         }
         guard anchorView.window === window else {
+            if entry.visibleInUI,
+               anchorView.window == nil,
+               anchorView.superview == nil {
+                _ = scheduleTransientDetachRecovery(reason: "anchorRemoved")
+                hideContainerView(reason: "anchorRemoved")
+                return
+            }
             let isOffWindowReparent =
                 entry.visibleInUI &&
                 anchorView.window == nil &&

@@ -2662,6 +2662,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
     private func waitForBrowserPanel(
         _ panel: BrowserPanel,
         url: URL,
+        title: String? = nil,
         timeout: TimeInterval = 5.0,
         file: StaticString = #filePath,
         line: UInt = #line
@@ -2669,16 +2670,35 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-            if panel.preferredURLStringForOmnibar() == url.absoluteString && !panel.isLoading {
+            let didReachURL = panel.preferredURLStringForOmnibar() == url.absoluteString &&
+                panel.currentURL == url &&
+                panel.webView.url == url
+            let didReachTitle = title.map { panel.pageTitle == $0 } ?? true
+            if didReachURL && didReachTitle && !panel.isLoading && !panel.webView.isLoading {
                 return
             }
         }
 
         XCTFail(
-            "Timed out waiting for browser panel to load \(url.absoluteString). Current=\(panel.preferredURLStringForOmnibar() ?? "nil") loading=\(panel.isLoading)",
+            "Timed out waiting for browser panel to load \(url.absoluteString). Current=\(panel.preferredURLStringForOmnibar() ?? "nil") webViewURL=\(panel.webView.url?.absoluteString ?? "nil") title=\(panel.pageTitle) loading=\(panel.isLoading)/\(panel.webView.isLoading)",
             file: file,
             line: line
         )
+    }
+
+    private func hostBrowserPanelWebView(_ panel: BrowserPanel) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        panel.webView.frame = window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 640, height: 480)
+        panel.webView.autoresizingMask = [.width, .height]
+        window.contentView?.addSubview(panel.webView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        return window
     }
 
     func testSessionNavigationHistorySnapshotUsesRestoredStacks() {
@@ -2764,7 +2784,9 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             initialURL: pageB
         )
         defer { panel.close() }
-        waitForBrowserPanel(panel, url: pageB)
+        let window = hostBrowserPanelWebView(panel)
+        defer { window.close() }
+        waitForBrowserPanel(panel, url: pageB, title: "B")
 
         panel.restoreSessionNavigationHistory(
             backHistoryURLStrings: [pageA.absoluteString],
@@ -2773,7 +2795,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         )
 
         _ = browserLoadRequest(URLRequest(url: pageC), in: panel.webView)
-        waitForBrowserPanel(panel, url: pageC)
+        waitForBrowserPanel(panel, url: pageC, title: "C")
 
         let snapshot = panel.sessionNavigationHistorySnapshot()
         XCTAssertEqual(
@@ -2782,10 +2804,10 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         )
 
         panel.goBack()
-        waitForBrowserPanel(panel, url: pageB)
+        waitForBrowserPanel(panel, url: pageB, title: "B")
 
         panel.goBack()
-        waitForBrowserPanel(panel, url: pageA)
+        waitForBrowserPanel(panel, url: pageA, title: "A")
     }
 
     func testBackDuringProvisionalNavigationDoesNotDesyncPublishedURLFromRenderedPage() throws {
@@ -2796,8 +2818,10 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         let pageB = server.url(path: "/b")
         let panel = BrowserPanel(workspaceId: UUID(), initialURL: pageA)
         defer { panel.close() }
+        let window = hostBrowserPanelWebView(panel)
+        defer { window.close() }
 
-        waitForBrowserPanel(panel, url: pageA)
+        waitForBrowserPanel(panel, url: pageA, title: "Race A")
         XCTAssertEqual(panel.pageTitle, "Race A")
 
         panel.navigate(to: pageB)

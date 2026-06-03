@@ -3741,6 +3741,10 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.blockers(for: hiddenWebViewDiscardSnapshot)
     }
 
+    func hiddenWebViewDiscardBlockersForTesting() -> [String] {
+        hiddenWebViewDiscardBlockers()
+    }
+
     private func scheduleHiddenWebViewDiscardIfNeeded(reason: String) {
         hiddenWebViewDiscardManager.scheduleIfNeeded(reason: reason)
     }

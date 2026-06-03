@@ -2059,6 +2059,26 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         try body()
     }
 
+    private func waitForHiddenDiscardEligibility(
+        _ panel: BrowserPanel,
+        timeout: TimeInterval = 2.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if panel.hiddenWebViewDiscardBlockersForTesting().isEmpty {
+                return
+            }
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        XCTFail(
+            "Timed out waiting for hidden WebView discard eligibility. Blockers=\(panel.hiddenWebViewDiscardBlockersForTesting())",
+            file: file,
+            line: line
+        )
+    }
+
     func testHiddenDiscardPolicyReadsUserDefaults() throws {
         let suiteName = "cmux.browserHiddenDiscardPolicyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -2262,8 +2282,14 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
                   Date() < deadline {}
             XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
 
+            panel.restoreSessionNavigationHistory(
+                backHistoryURLStrings: [],
+                forwardHistoryURLStrings: [],
+                currentURLString: "about:blank"
+            )
             panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
             let originalWebView = panel.webView
+            waitForHiddenDiscardEligibility(panel)
 
             XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
             XCTAssertFalse(panel.webView === originalWebView)
@@ -2316,6 +2342,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             XCTAssertTrue(panel.canGoBack)
 
             panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+            waitForHiddenDiscardEligibility(panel)
             XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
             XCTAssertEqual(panel.webViewLifecycleState, .discarded)
 
@@ -2372,25 +2399,28 @@ final class BrowserNewTabNavigationSeedTests: XCTestCase {
 @MainActor
 final class BrowserPanelRemoteStoreTests: XCTestCase {
     func testRemoteWorkspacePanelsShareWorkspaceScopedWebsiteDataStore() {
-        let localPanel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
+        let localPanel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
+            isRemoteWorkspace: false
+        )
         let remoteWorkspaceId = UUID()
         let firstRemotePanel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
         let secondRemotePanel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
 
-        XCTAssertTrue(localPanel.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
-        XCTAssertFalse(firstRemotePanel.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
-        XCTAssertTrue(
-            firstRemotePanel.webView.configuration.websiteDataStore ===
-                secondRemotePanel.webView.configuration.websiteDataStore
-        )
+        XCTAssertNil(localPanel.webView.configuration.websiteDataStore.identifier)
+        XCTAssertEqual(firstRemotePanel.webView.configuration.websiteDataStore.identifier, remoteWorkspaceId)
+        XCTAssertEqual(secondRemotePanel.webView.configuration.websiteDataStore.identifier, remoteWorkspaceId)
     }
 
     func testRemoteWorkspaceDefersInitialNavigationUntilProxyEndpointIsReady() {
@@ -2513,9 +2543,15 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
     func testBrowserMoveIntoRemoteWorkspaceRebuildsWebsiteDataStoreScope() throws {
         let source = Workspace()
         let sourcePaneId = try XCTUnwrap(source.bonsplitController.allPaneIds.first)
-        let sourceBrowser = try XCTUnwrap(source.newBrowserSurface(inPane: sourcePaneId, focus: false))
+        let sourceBrowser = try XCTUnwrap(
+            source.newBrowserSurface(
+                inPane: sourcePaneId,
+                focus: false,
+                preferredProfileID: BrowserProfileStore.shared.builtInDefaultProfileID
+            )
+        )
         let localStore = sourceBrowser.webView.configuration.websiteDataStore
-        XCTAssertTrue(localStore === WKWebsiteDataStore.default())
+        XCTAssertNil(localStore.identifier)
 
         let destination = Workspace()
         destination.configureRemoteConnection(
@@ -2534,9 +2570,15 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
             autoConnect: false
         )
         let destinationPaneId = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
-        let destinationBrowser = try XCTUnwrap(destination.newBrowserSurface(inPane: destinationPaneId, focus: false))
+        let destinationBrowser = try XCTUnwrap(
+            destination.newBrowserSurface(
+                inPane: destinationPaneId,
+                focus: false,
+                preferredProfileID: BrowserProfileStore.shared.builtInDefaultProfileID
+            )
+        )
         let destinationStore = destinationBrowser.webView.configuration.websiteDataStore
-        XCTAssertFalse(destinationStore === WKWebsiteDataStore.default())
+        XCTAssertEqual(destinationStore.identifier, destination.id)
 
         let detached = try XCTUnwrap(source.detachSurface(panelId: sourceBrowser.id))
         let attachedPanelId = try XCTUnwrap(
@@ -2544,8 +2586,8 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         )
         let movedBrowser = try XCTUnwrap(destination.panels[attachedPanelId] as? BrowserPanel)
 
-        XCTAssertTrue(movedBrowser.webView.configuration.websiteDataStore === destinationStore)
-        XCTAssertFalse(movedBrowser.webView.configuration.websiteDataStore === localStore)
+        XCTAssertEqual(movedBrowser.webView.configuration.websiteDataStore.identifier, destinationStore.identifier)
+        XCTAssertNotEqual(movedBrowser.webView.configuration.websiteDataStore.identifier, localStore.identifier)
     }
 
     func testBrowserMoveOutOfRemoteWorkspaceRestoresDefaultWebsiteDataStore() throws {
@@ -2566,10 +2608,22 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
             autoConnect: false
         )
         let sourcePaneId = try XCTUnwrap(source.bonsplitController.allPaneIds.first)
-        let movedBrowser = try XCTUnwrap(source.newBrowserSurface(inPane: sourcePaneId, focus: false))
-        let remainingRemoteBrowser = try XCTUnwrap(source.newBrowserSurface(inPane: sourcePaneId, focus: false))
+        let movedBrowser = try XCTUnwrap(
+            source.newBrowserSurface(
+                inPane: sourcePaneId,
+                focus: false,
+                preferredProfileID: BrowserProfileStore.shared.builtInDefaultProfileID
+            )
+        )
+        let remainingRemoteBrowser = try XCTUnwrap(
+            source.newBrowserSurface(
+                inPane: sourcePaneId,
+                focus: false,
+                preferredProfileID: BrowserProfileStore.shared.builtInDefaultProfileID
+            )
+        )
         let remoteStore = remainingRemoteBrowser.webView.configuration.websiteDataStore
-        XCTAssertFalse(remoteStore === WKWebsiteDataStore.default())
+        XCTAssertEqual(remoteStore.identifier, source.id)
 
         let destination = Workspace()
         let destinationPaneId = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
@@ -2579,9 +2633,12 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         )
         let attachedBrowser = try XCTUnwrap(destination.panels[attachedPanelId] as? BrowserPanel)
 
-        XCTAssertTrue(attachedBrowser.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
-        XCTAssertTrue(remainingRemoteBrowser.webView.configuration.websiteDataStore === remoteStore)
-        XCTAssertFalse(remainingRemoteBrowser.webView.configuration.websiteDataStore === attachedBrowser.webView.configuration.websiteDataStore)
+        XCTAssertNil(attachedBrowser.webView.configuration.websiteDataStore.identifier)
+        XCTAssertEqual(remainingRemoteBrowser.webView.configuration.websiteDataStore.identifier, remoteStore.identifier)
+        XCTAssertNotEqual(
+            remainingRemoteBrowser.webView.configuration.websiteDataStore.identifier,
+            attachedBrowser.webView.configuration.websiteDataStore.identifier
+        )
     }
 
     func testNewTerminalSurfaceStaysRemoteWhileBrowserPanelsKeepWorkspaceRemote() throws {

@@ -2502,7 +2502,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             initialScript
         )
         XCTAssertTrue(initialScript.contains("254|255"), initialScript)
-        XCTAssertFalse(initialScript.contains("--surface"), initialScript)
+        assertSSHPersistentPTYAttachUsesWorkspaceOnly(initialScript)
         XCTAssertTrue(
             initialScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             initialScript
@@ -2529,7 +2529,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             terminalStartupScript
         )
         XCTAssertTrue(terminalStartupScript.contains("254|255"), terminalStartupScript)
-        XCTAssertFalse(terminalStartupScript.contains("--surface"), terminalStartupScript)
+        assertSSHPersistentPTYAttachUsesWorkspaceOnly(terminalStartupScript)
         XCTAssertTrue(
             terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             terminalStartupScript
@@ -2545,6 +2545,26 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let persistentDaemonSlot = try XCTUnwrap(configureParams["persistent_daemon_slot"] as? String)
         XCTAssertTrue(persistentDaemonSlot.hasPrefix("ssh-"), persistentDaemonSlot)
         XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
+    }
+
+    private func assertSSHPersistentPTYAttachUsesWorkspaceOnly(
+        _ script: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let attachLines = script
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { $0.contains("ssh-pty-attach") }
+        XCTAssertFalse(attachLines.isEmpty, script, file: file, line: line)
+        for lineText in attachLines {
+            XCTAssertFalse(
+                lineText.contains("--surface"),
+                "ssh-pty-attach should inherit CMUX_SURFACE_ID from the terminal environment, not a stale argv flag: \(lineText)",
+                file: file,
+                line: line
+            )
+        }
     }
 
     func testSSHPersistentPTYFallsBackWhenForegroundAuthCannotBeReused() throws {
