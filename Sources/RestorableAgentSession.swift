@@ -1350,7 +1350,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 }
                 let modifiedAt = ((try? fileManager.attributesOfItem(atPath: path)[.modificationDate]) as? Date)?
                     .timeIntervalSince1970 ?? 0
-                if best == nil || modifiedAt >= best!.modifiedAt {
+                if best == nil || modifiedAt > best!.modifiedAt {
                     best = (sessionId, path, modifiedAt)
                 }
             }
