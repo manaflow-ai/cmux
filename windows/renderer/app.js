@@ -12683,8 +12683,15 @@ function quickSetupActionDefinitions() {
       body: "Reduce effects, pause hidden output, and lighten history.",
       meta: performanceModeLabel,
       cta: "Tune",
+      active: () => state.settings.performanceMode,
+      activeCta: "Details",
+      activeDisabled: false,
       search: "performance tune speed lag smooth reduce effects",
       run: () => {
+        if (state.settings.performanceMode) {
+          openSettingsCategory("performance");
+          return;
+        }
         tunePerformanceNow();
         if (state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
       }
@@ -12892,13 +12899,14 @@ function quickSetupActionGrid() {
   grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions new terminal browser add pane clean ui speed tune focus mode background image wallpaper pane shape resize split rows columns");
   for (const action of actions) {
     const active = Boolean(action.active?.());
+    const disabled = Boolean(action.disabled?.()) || (active && action.activeDisabled !== false);
     const button = document.createElement("button");
     button.className = `quick-settings-shortcut quick-action${active ? " is-active" : ""}`;
     button.type = "button";
-    button.disabled = active || Boolean(action.disabled?.());
+    button.disabled = disabled;
     button.title = `${action.label}: ${action.body}`;
     button.dataset.quickAction = action.id;
-    button.dataset.settingsSearch = normalizeSettingsQuery(`quick action ${action.label} ${action.body} ${action.search}`);
+    button.dataset.settingsSearch = normalizeSettingsQuery(`quick action ${action.label} ${action.body} ${action.search} ${active ? "active details" : ""}`);
     button.setAttribute("aria-label", `${action.label}. ${action.body} Current: ${action.meta()}.${active ? " Active." : ""}`);
     button.innerHTML = `
       <span class="quick-action-icon" aria-hidden="true"></span>
@@ -12915,7 +12923,7 @@ function quickSetupActionGrid() {
     button.querySelector(".quick-settings-shortcut-title").textContent = action.label;
     button.querySelector(".quick-settings-shortcut-body").textContent = action.body;
     button.querySelector(".quick-settings-shortcut-meta").textContent = action.meta();
-    button.querySelector(".quick-action-cta").textContent = active ? "Active" : action.cta;
+    button.querySelector(".quick-action-cta").textContent = active ? action.activeCta || "Active" : action.cta;
     button.onclick = () => {
       if (button.disabled) return;
       action.run();
