@@ -1292,14 +1292,23 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     func testVimKeysResolveUnderNonASCIIKeyboardLayout() {
         // Korean 2-set (두벌식) reports "ㅓ" for the physical 'j' key (keyCode 38)
         // and "ㅏ" for 'k' (keyCode 40). Copy-mode vim keys must still resolve to a
-        // scroll action via the ASCII-capable layout fallback, exactly as they do on
-        // an ASCII layout — without forcing the user to switch input sources.
+        // scroll action via the ASCII-capable layout fallback, without forcing the
+        // user to switch input sources. The character provider is injected so this
+        // test is deterministic and independent of the CI runner's input source.
+        let asciiProvider: (UInt16, NSEvent.ModifierFlags) -> String? = { keyCode, _ in
+            switch keyCode {
+            case 38: return "j"
+            case 40: return "k"
+            default: return nil
+            }
+        }
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
                 keyCode: 38,
                 charactersIgnoringModifiers: "ㅓ",
                 modifierFlags: [],
-                hasSelection: false
+                hasSelection: false,
+                asciiCharacterProvider: asciiProvider
             ),
             .scrollLines(1)
         )
@@ -1308,7 +1317,8 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 keyCode: 40,
                 charactersIgnoringModifiers: "ㅏ",
                 modifierFlags: [],
-                hasSelection: false
+                hasSelection: false,
+                asciiCharacterProvider: asciiProvider
             ),
             .scrollLines(-1)
         )
