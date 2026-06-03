@@ -980,7 +980,7 @@
       "tabsAndLogs": "Tabs and logs",
       "targetingSurface": "Targeting a browser surface",
       "targetingDesc": "Most subcommands require a target surface. You can pass it positionally or with --surface.",
-      "mcpRegisterComment": "# Register cmux browser MCP tools once",
+      "mcpRegisterComment": "Register cmux browser MCP tools once",
       "mcpPrereq": "Real browser MCP tool calls work only from a Codex or Claude session running inside cmux, where CMUX_SOCKET_PATH is injected.",
       "navigation": "Navigation",
       "waitingSection": "Waiting",

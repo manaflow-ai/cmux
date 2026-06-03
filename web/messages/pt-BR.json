@@ -870,7 +870,7 @@
       "tabsAndLogs": "Abas e logs",
       "targetingSurface": "Direcionando uma superfície de navegador",
       "targetingDesc": "A maioria dos subcomandos requer uma superfície alvo. Você pode passá-la posicionalmente ou com --surface.",
-      "mcpRegisterComment": "# Registre as ferramentas MCP do navegador cmux uma vez",
+      "mcpRegisterComment": "Registre as ferramentas MCP do navegador cmux uma vez",
       "mcpPrereq": "Chamadas reais às ferramentas MCP do navegador funcionam somente em uma sessão do Codex ou Claude em execução dentro do cmux, onde CMUX_SOCKET_PATH é injetado.",
       "navigation": "Navegação",
       "waitingSection": "Espera",

@@ -2,7 +2,6 @@ import Foundation
 
 private let cmuxBrowserMCPAllowedRawRPCMethods: Set<String> = [
     "system.identify",
-    "browser.open_split",
     "browser.navigate",
     "browser.snapshot",
     "browser.click",
@@ -37,8 +36,25 @@ extension CMUXBrowserMCPServer {
     }
 
     func resolveSurface(_ arguments: [String: Any], client: SocketClient) throws -> String {
-        let raw = stringArgument(arguments, keys: ["surface", "surface_id"]) ??
-            defaultSurface ??
+        let surfaceKeys = ["surface", "surface_id"]
+        let hasExplicitSurface = surfaceKeys.contains { arguments.keys.contains($0) }
+        let rawArgument = stringArgument(arguments, keys: surfaceKeys)
+        if hasExplicitSurface {
+            guard let rawArgument,
+                  hasText(rawArgument),
+                  let surface = try cli.normalizeSurfaceHandle(rawArgument, client: client) else {
+                throw CLIError(
+                    message: String(
+                        localized: "cli.browserMCP.error.invalidSurfaceHandle",
+                        defaultValue: "Invalid browser surface handle"
+                    )
+                )
+            }
+            defaultSurface = surface
+            return surface
+        }
+
+        let raw = defaultSurface ??
             ProcessInfo.processInfo.environment["CMUX_BROWSER_SURFACE_ID"]
         guard let raw,
               let surface = try cli.normalizeSurfaceHandle(raw, client: client) else {

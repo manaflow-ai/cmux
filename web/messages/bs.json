@@ -870,7 +870,7 @@
       "tabsAndLogs": "Tabovi i dnevnici",
       "targetingSurface": "Ciljanje browser površine",
       "targetingDesc": "Većina podkomandi zahtijeva ciljnu površinu. Možete je proslijediti poziciono ili sa --surface.",
-      "mcpRegisterComment": "# Registruj cmux browser MCP alate jednom",
+      "mcpRegisterComment": "Registruj cmux browser MCP alate jednom",
       "mcpPrereq": "Stvarni MCP pozivi alata preglednika rade samo iz Codex ili Claude sesije pokrenute unutar cmux-a, gdje se ubrizgava CMUX_SOCKET_PATH.",
       "navigation": "Navigacija",
       "waitingSection": "Čekanje",

@@ -870,7 +870,7 @@
       "tabsAndLogs": "标签页和日志",
       "targetingSurface": "指定浏览器 surface",
       "targetingDesc": "大多数子命令需要指定目标 surface。可以通过位置参数或 --surface 传入。",
-      "mcpRegisterComment": "# 只需注册一次 cmux 浏览器 MCP 工具",
+      "mcpRegisterComment": "只需注册一次 cmux 浏览器 MCP 工具",
       "mcpPrereq": "实际的浏览器 MCP 工具调用只能在 cmux 内运行的 Codex 或 Claude 会话中工作，因为其中会注入 CMUX_SOCKET_PATH。",
       "navigation": "导航",
       "waitingSection": "等待",

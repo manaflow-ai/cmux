@@ -870,7 +870,7 @@
       "tabsAndLogs": "Onglets et journaux",
       "targetingSurface": "Cibler une surface navigateur",
       "targetingDesc": "La plupart des sous-commandes nécessitent une surface cible. Vous pouvez la passer en position ou avec --surface.",
-      "mcpRegisterComment": "# Enregistrer une seule fois les outils MCP du navigateur cmux",
+      "mcpRegisterComment": "Enregistrer une seule fois les outils MCP du navigateur cmux",
       "mcpPrereq": "Les vrais appels aux outils MCP du navigateur fonctionnent uniquement depuis une session Codex ou Claude exécutée dans cmux, où CMUX_SOCKET_PATH est injecté.",
       "navigation": "Navigation",
       "waitingSection": "Attente",

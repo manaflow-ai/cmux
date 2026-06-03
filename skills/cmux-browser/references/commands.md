@@ -28,7 +28,7 @@ claude mcp add cmux-browser -- cmux browser mcp-server
 cmux browser mcp-server
 ```
 
-The server exposes focused/open/navigate/snapshot/click/fill/type/wait/get/eval/screenshot/console/errors tools plus a restricted `cmux_browser_rpc` fallback for `browser.*` socket methods.
+The server exposes focused/open/navigate/snapshot/click/fill/type/wait/get/eval/screenshot/console/errors tools plus a restricted `cmux_browser_rpc` fallback for reviewed browser automation socket methods. Use `cmux_browser_open` for opening new browser surfaces so workspace scoping is applied.
 
 ### Navigation
 

@@ -870,7 +870,7 @@
       "tabsAndLogs": "Karty i logi",
       "targetingSurface": "Celowanie w surface przeglądarki",
       "targetingDesc": "Większość podpoleceń wymaga surface'a docelowego. Możesz go podać pozycyjnie lub z --surface.",
-      "mcpRegisterComment": "# Zarejestruj narzędzia MCP przeglądarki cmux jednorazowo",
+      "mcpRegisterComment": "Zarejestruj narzędzia MCP przeglądarki cmux jednorazowo",
       "mcpPrereq": "Rzeczywiste wywołania narzędzi MCP przeglądarki działają tylko z sesji Codex lub Claude uruchomionej wewnątrz cmux, gdzie wstrzykiwany jest CMUX_SOCKET_PATH.",
       "navigation": "Nawigacja",
       "waitingSection": "Oczekiwanie",

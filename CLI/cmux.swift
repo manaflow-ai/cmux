@@ -14517,7 +14517,9 @@ struct CMUXCLI {
     /// Dispatch help for a subcommand. Returns true if help was printed.
     private func dispatchSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
         guard containsHelpFlag(beforeArgumentTerminator: commandArgs) else { return false }
-        let preTerminatorArgs = commandArgs.prefix(while: { $0 != "--" })
+        let preTerminatorArgs = commandArgs
+            .prefix(while: { $0 != "--" })
+            .filter { $0 != "--json" }
         if command == "browser",
            let browserSubcommand = preTerminatorArgs.first?.lowercased(),
            browserSubcommand == "mcp-server" || browserSubcommand == "mcp" {

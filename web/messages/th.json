@@ -870,7 +870,7 @@
       "tabsAndLogs": "แท็บและ log",
       "targetingSurface": "การ target browser surface",
       "targetingDesc": "คำสั่งย่อยส่วนใหญ่ต้องการ target surface คุณสามารถส่งแบบ positional หรือด้วย --surface",
-      "mcpRegisterComment": "# ลงทะเบียนเครื่องมือ MCP ของเบราว์เซอร์ cmux เพียงครั้งเดียว",
+      "mcpRegisterComment": "ลงทะเบียนเครื่องมือ MCP ของเบราว์เซอร์ cmux เพียงครั้งเดียว",
       "mcpPrereq": "การเรียกใช้เครื่องมือ MCP ของเบราว์เซอร์จริงจะทำงานได้เฉพาะจากเซสชัน Codex หรือ Claude ที่รันอยู่ภายใน cmux ซึ่งมีการใส่ CMUX_SOCKET_PATH เท่านั้น",
       "navigation": "Navigation",
       "waitingSection": "Waiting",
