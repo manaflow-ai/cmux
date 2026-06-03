@@ -8879,6 +8879,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background: color-mix(in oklch, var(--color-pane) 80%, var(--color-rail) 20%);
 }
 
+.settings-color-summary.has-target {
+  grid-template-columns: 26px minmax(0, 1fr) minmax(86px, auto);
+}
+
 .settings-color-summary-swatch {
   width: 24px;
   height: 24px;
@@ -8914,6 +8918,36 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   font: 11px/1.15 var(--font-mono);
 }
 
+.settings-color-target {
+  min-width: 0;
+  max-width: 148px;
+  display: grid;
+  gap: 1px;
+  padding: 5px 7px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 70%, var(--color-canvas) 30%);
+}
+
+.settings-color-target-label,
+.settings-color-target-meta {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.settings-color-target-label {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.settings-color-target-meta {
+  color: var(--color-faint);
+  font-size: 10px;
+}
+
 .settings-color-panel .swatch-grid {
   grid-template-columns: repeat(auto-fit, minmax(26px, 1fr));
 }
@@ -8941,6 +8975,15 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 @container (max-width: 330px) {
+  .settings-color-summary.has-target {
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+
+  .settings-color-target {
+    grid-column: 1 / -1;
+    max-width: none;
+  }
+
   .settings-color-custom {
     grid-template-columns: 1fr;
   }

@@ -9250,6 +9250,8 @@ function renderSettingsInspector(options = {}) {
         fallbackColor: state.settings.accent,
         onPick: (color) => setWorkspaceColor(color),
         saveLabel: "Save",
+        targetLabel: "Workspace",
+        targetMeta: workspace ? workspaceDisplayTitle(workspace) : "No workspace selected",
         searchTerms: "workspace custom color hex picker"
       }),
       true,
@@ -11384,6 +11386,8 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
       clearLabel: "Default",
       clearDisabled: !panel.color,
       saveLabel: "Save",
+      targetLabel: panel.type === "browser" ? "Browser pane" : "Terminal pane",
+      targetMeta: panelDisplayTitle(panel, true),
       searchTerms: "active pane custom color hex picker reset default clear"
     }),
     true,
@@ -12945,6 +12949,8 @@ function quickColorControlRows(workspace = activeWorkspace()) {
       fallbackColor: state.settings.accent,
       onPick: (color) => setWorkspaceColor(color, workspace.id),
       saveLabel: "Save",
+      targetLabel: "Workspace",
+      targetMeta: workspaceDisplayTitle(workspace),
       searchTerms: "quick setup workspace custom color hex picker"
     }),
     true,
@@ -12965,6 +12971,8 @@ function quickColorControlRows(workspace = activeWorkspace()) {
         clearLabel: "Default",
         clearDisabled: !panel.color,
         saveLabel: "Save",
+        targetLabel: panel.type === "browser" ? "Browser pane" : "Terminal pane",
+        targetMeta: panelDisplayTitle(panel, true),
         searchTerms: "quick setup active pane custom color hex picker reset default clear"
       }),
       true,
@@ -13854,13 +13862,15 @@ function colorControlPanel({
   clearLabel = "Default",
   clearDisabled = false,
   saveLabel = "",
+  targetLabel = "",
+  targetMeta = "",
   searchTerms = ""
 }) {
   const panel = document.createElement("div");
   panel.className = `settings-color-panel${onClear ? " has-clear" : ""}${saveLabel ? " has-save" : ""}`;
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`color palette swatch custom hex picker save ${searchTerms}`);
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`color palette swatch custom hex picker save ${targetLabel} ${targetMeta} ${searchTerms}`);
   const summary = document.createElement("div");
-  summary.className = "settings-color-summary";
+  summary.className = `settings-color-summary${targetLabel ? " has-target" : ""}`;
   summary.style.setProperty("--settings-color-current", activeColor || fallbackColor);
   summary.innerHTML = `
     <span class="settings-color-summary-swatch" aria-hidden="true"></span>
@@ -13870,6 +13880,18 @@ function colorControlPanel({
     </span>
   `;
   summary.querySelector(".settings-color-summary-value").textContent = colorSummaryLabel(activeColor, fallbackColor);
+  if (targetLabel) {
+    const target = document.createElement("span");
+    target.className = "settings-color-target";
+    target.innerHTML = `
+      <span class="settings-color-target-label"></span>
+      <span class="settings-color-target-meta"></span>
+    `;
+    target.querySelector(".settings-color-target-label").textContent = targetLabel;
+    target.querySelector(".settings-color-target-meta").textContent = targetMeta || "selected target";
+    target.title = targetMeta ? `${targetLabel}: ${targetMeta}` : targetLabel;
+    summary.append(target);
+  }
   panel.append(summary);
   panel.append(swatchGrid(colors, activeColor, onPick));
 
