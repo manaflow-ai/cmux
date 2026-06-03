@@ -5720,7 +5720,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[@Sources/TextBoxInput.swift](") == true)
     }
 
-    func testTextBoxMentionFileSuggestionsRefreshCachedMisses() {
+    func testTextBoxMentionFileSuggestionsDoNotRescanFreshMisses() {
         var cache = TextBoxMentionFileIndexCache()
         let root = "/tmp/cmux-textbox-mentions-refresh"
         let rootURL = URL(fileURLWithPath: root, isDirectory: true)
@@ -5768,8 +5768,111 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             now: now.addingTimeInterval(0.1),
             scanFiles: scanFiles
         )
-        XCTAssertEqual(newSuggestions.first?.title, "@new-file.txt")
+        XCTAssertTrue(newSuggestions.isEmpty)
+        XCTAssertEqual(scanCount, 1)
+
+        let refreshedSuggestions = cache.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 8),
+                query: "new-file",
+                trigger: "@"
+            ),
+            rootDirectory: root,
+            now: now.addingTimeInterval(2.1),
+            scanFiles: scanFiles
+        )
+        XCTAssertEqual(refreshedSuggestions.first?.title, "@new-file.txt")
         XCTAssertEqual(scanCount, 2)
+    }
+
+    func testTextBoxMentionFileSuggestionsEvictLeastRecentlyUsedRoots() {
+        var cache = TextBoxMentionFileIndexCache()
+        let now = Date(timeIntervalSince1970: 200)
+        let roots = (0...TextBoxMentionFileIndexCache.maxRootIndexes).map { index in
+            "/tmp/cmux-textbox-mentions-root-\(index)"
+        }
+        var scanCounts: [String: Int] = [:]
+
+        let scanFiles: (URL) -> [TextBoxMentionCandidate] = { scannedRootURL in
+            let root = scannedRootURL.path
+            scanCounts[root, default: 0] += 1
+            let rootIndex = roots.firstIndex(of: root) ?? -1
+            return [
+                self.makeTextBoxMentionFileCandidate(
+                    relativePath: "file-\(rootIndex).txt",
+                    rootDirectory: root
+                )
+            ]
+        }
+
+        for rootIndex in 0..<TextBoxMentionFileIndexCache.maxRootIndexes {
+            _ = cache.suggestions(
+                for: TextBoxMentionQuery(
+                    kind: .file,
+                    range: NSRange(location: 0, length: 6),
+                    query: "file-\(rootIndex)",
+                    trigger: "@"
+                ),
+                rootDirectory: roots[rootIndex],
+                now: now.addingTimeInterval(Double(rootIndex) * 0.01),
+                scanFiles: scanFiles
+            )
+        }
+
+        _ = cache.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 6),
+                query: "file-0",
+                trigger: "@"
+            ),
+            rootDirectory: roots[0],
+            now: now.addingTimeInterval(0.5),
+            scanFiles: scanFiles
+        )
+
+        _ = cache.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 6),
+                query: "file-\(TextBoxMentionFileIndexCache.maxRootIndexes)",
+                trigger: "@"
+            ),
+            rootDirectory: roots[TextBoxMentionFileIndexCache.maxRootIndexes],
+            now: now.addingTimeInterval(0.6),
+            scanFiles: scanFiles
+        )
+
+        let evictedRootScanCount = scanCounts[roots[1]] ?? 0
+        let retainedRootScanCount = scanCounts[roots[0]] ?? 0
+
+        _ = cache.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 6),
+                query: "file-1",
+                trigger: "@"
+            ),
+            rootDirectory: roots[1],
+            now: now.addingTimeInterval(0.7),
+            scanFiles: scanFiles
+        )
+        XCTAssertEqual(scanCounts[roots[1]], evictedRootScanCount + 1)
+
+        let retainedSuggestions = cache.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 6),
+                query: "file-0",
+                trigger: "@"
+            ),
+            rootDirectory: roots[0],
+            now: now.addingTimeInterval(0.8),
+            scanFiles: scanFiles
+        )
+        XCTAssertEqual(retainedSuggestions.first?.title, "@file-0.txt")
+        XCTAssertEqual(scanCounts[roots[0]], retainedRootScanCount)
     }
 
     private nonisolated func makeTextBoxMentionFileCandidate(

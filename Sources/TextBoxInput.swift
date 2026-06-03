@@ -1658,9 +1658,15 @@ struct TextBoxMentionFileIndexCache {
     private struct CachedIndex {
         let index: TextBoxMentionCandidateIndex
         let createdAt: Date
+        var lastAccessedAt: Date
+
+        func isFresh(now: Date) -> Bool {
+            now.timeIntervalSince(createdAt) < TextBoxMentionFileIndexCache.fileIndexTTL
+        }
     }
 
     private static let fileIndexTTL: TimeInterval = 2
+    static let maxRootIndexes = 8
     private static let suggestionLimit = 8
 
     private var indexesByRoot: [String: CachedIndex] = [:]
@@ -1671,13 +1677,9 @@ struct TextBoxMentionFileIndexCache {
         now: Date = Date(),
         scanFiles: (URL) -> [TextBoxMentionCandidate]
     ) -> [TextBoxMentionSuggestion] {
+        pruneExpired(now: now)
         let index = fileIndex(rootDirectory: rootDirectory, now: now, scanFiles: scanFiles)
-        var matches = index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
-        if matches.isEmpty, !query.query.isEmpty {
-            let refreshed = refreshFileIndex(rootDirectory: rootDirectory, now: now, scanFiles: scanFiles)
-            matches = refreshed.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
-        }
-        return matches
+        return index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
             .map { $0.suggestion(trigger: query.trigger) }
     }
 
@@ -1686,8 +1688,9 @@ struct TextBoxMentionFileIndexCache {
         now: Date,
         scanFiles: (URL) -> [TextBoxMentionCandidate]
     ) -> TextBoxMentionCandidateIndex {
-        if let cached = indexesByRoot[rootDirectory],
-           now.timeIntervalSince(cached.createdAt) < Self.fileIndexTTL {
+        if var cached = indexesByRoot[rootDirectory], cached.isFresh(now: now) {
+            cached.lastAccessedAt = now
+            indexesByRoot[rootDirectory] = cached
             return cached.index
         }
         return refreshFileIndex(rootDirectory: rootDirectory, now: now, scanFiles: scanFiles)
@@ -1700,8 +1703,33 @@ struct TextBoxMentionFileIndexCache {
     ) -> TextBoxMentionCandidateIndex {
         let rootURL = URL(fileURLWithPath: rootDirectory, isDirectory: true)
         let index = TextBoxMentionCandidateIndex(candidates: scanFiles(rootURL))
-        indexesByRoot[rootDirectory] = CachedIndex(index: index, createdAt: now)
+        indexesByRoot[rootDirectory] = CachedIndex(index: index, createdAt: now, lastAccessedAt: now)
+        pruneOverflow()
         return index
+    }
+
+    private mutating func pruneExpired(now: Date) {
+        indexesByRoot = indexesByRoot.filter { _, cached in
+            cached.isFresh(now: now)
+        }
+    }
+
+    private mutating func pruneOverflow() {
+        guard indexesByRoot.count > Self.maxRootIndexes else { return }
+        let overflowCount = indexesByRoot.count - Self.maxRootIndexes
+        let rootsToRemove = indexesByRoot
+            .sorted { lhs, rhs in
+                if lhs.value.lastAccessedAt == rhs.value.lastAccessedAt {
+                    return lhs.key < rhs.key
+                }
+                return lhs.value.lastAccessedAt < rhs.value.lastAccessedAt
+            }
+            .prefix(overflowCount)
+            .map(\.key)
+
+        for root in rootsToRemove {
+            indexesByRoot.removeValue(forKey: root)
+        }
     }
 }
 
