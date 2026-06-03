@@ -27029,37 +27029,51 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let directSurfaceArg = optionValue(hookArgs, name: "--surface")
             ?? (hookWsFlag == nil ? normalizedHookValue(env["CMUX_SURFACE_ID"]) : nil)
-        var successfulSurfaceListCache: [String: [[String: Any]]] = [:]
-        var failedSurfaceListWorkspaces: Set<String> = []
-        func listedSurfaces(workspaceId: String) -> [[String: Any]]? {
-            if let cached = successfulSurfaceListCache[workspaceId] {
+        enum SurfaceListLookup {
+            case found([[String: Any]])
+            case unavailable
+            case unknown
+        }
+        var surfaceListCache: [String: SurfaceListLookup] = [:]
+        func listedSurfaces(workspaceId: String) -> SurfaceListLookup {
+            if let cached = surfaceListCache[workspaceId] {
                 return cached
             }
-            if failedSurfaceListWorkspaces.contains(workspaceId) {
-                return nil
-            }
+            let lookup: SurfaceListLookup
             do {
                 let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
-                guard let surfaces = listed["surfaces"] as? [[String: Any]] else {
-                    failedSurfaceListWorkspaces.insert(workspaceId)
-                    return nil
+                if let surfaces = listed["surfaces"] as? [[String: Any]] {
+                    lookup = .found(surfaces)
+                } else {
+                    lookup = .unknown
                 }
-                successfulSurfaceListCache[workspaceId] = surfaces
-                return surfaces
             } catch {
-                failedSurfaceListWorkspaces.insert(workspaceId)
-                return nil
+                let message = String(describing: error)
+                lookup = message.hasPrefix("not_found:") || message.hasPrefix("workspace_not_found:")
+                    ? .unavailable
+                    : .unknown
             }
+            surfaceListCache[workspaceId] = lookup
+            return lookup
         }
         func workspaceIsAccessible(_ workspaceId: String) -> Bool {
-            listedSurfaces(workspaceId: workspaceId) != nil
+            switch listedSurfaces(workspaceId: workspaceId) {
+            case .found, .unknown:
+                return true
+            case .unavailable:
+                return false
+            }
         }
         func surfaceIsAccessible(_ surfaceId: String, workspaceId: String) -> Bool {
-            guard let surfaces = listedSurfaces(workspaceId: workspaceId) else {
+            switch listedSurfaces(workspaceId: workspaceId) {
+            case .found(let surfaces):
+                return surfaces.contains {
+                    ($0["id"] as? String) == surfaceId || ($0["ref"] as? String) == surfaceId
+                }
+            case .unknown:
                 return true
-            }
-            return surfaces.contains {
-                ($0["id"] as? String) == surfaceId || ($0["ref"] as? String) == surfaceId
+            case .unavailable:
+                return false
             }
         }
         func resolveAccessibleWorkspaceId(_ raw: String?) -> String? {
@@ -27083,7 +27097,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return surfaceId
         }
         func resolveDefaultSurfaceId(workspaceId: String) -> String? {
-            guard let surfaces = listedSurfaces(workspaceId: workspaceId) else {
+            guard case .found(let surfaces) = listedSurfaces(workspaceId: workspaceId) else {
                 return nil
             }
             if let focused = surfaces.first(where: { ($0["focused"] as? Bool) == true }),

@@ -1675,7 +1675,7 @@ final class WindowTerminalPortal: NSObject {
         let deadHostedIds = entriesByHostedId.compactMap { hostedId, entry -> ObjectIdentifier? in
             guard entry.hostedView != nil else { return hostedId }
             guard let anchor = entry.anchorView else {
-                return entry.visibleInUI ? nil : hostedId
+                return hostedId
             }
 
             if anchor.superview == nil {
