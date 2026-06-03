@@ -538,6 +538,9 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "shortcuts": {
+          "when": "Predicados de foco opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre las claves de contexto de foco sidebarFocus, browserFocus, markdownFocus y terminalFocus, combinada con !, &&, || y paréntesis. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplo: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } hace que Ctrl+1–9 seleccione espacios de trabajo en todas partes excepto cuando la barra lateral derecha tiene el foco, dejando Ctrl+1–5 libre para la barra lateral."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

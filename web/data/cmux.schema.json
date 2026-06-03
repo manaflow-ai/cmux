@@ -1183,6 +1183,7 @@
           "type": "object",
           "default": {},
           "description": "Optional per-action focus predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over the focus context keys sidebarFocus, browserFocus, markdownFocus, and terminalFocus, combined with !, &&, ||, and parentheses. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Example: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused, leaving Ctrl+1–5 free for the sidebar.",
+          "descriptionKey": "schemaDescriptions.shortcuts.when",
           "additionalProperties": {
             "type": "string"
           }

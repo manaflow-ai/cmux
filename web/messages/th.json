@@ -538,6 +538,9 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "shortcuts": {
+          "when": "เพรดิเคตโฟกัสแบบไม่บังคับสำหรับแต่ละแอ็กชัน (คลอส `when` แบบ VS Code) โดยใช้ id แอ็กชันของ cmux เป็นคีย์ แต่ละค่าเป็นนิพจน์บูลีนเหนือคีย์บริบทโฟกัส sidebarFocus, browserFocus, markdownFocus และ terminalFocus รวมด้วย !, &&, || และวงเล็บ ทางลัดของแอ็กชันจะทำงาน (และจะชนกับทางลัดอื่น) เฉพาะเมื่อคลอสเป็นจริงเท่านั้น ตัวอย่าง: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ทำให้ Ctrl+1–9 เลือกเวิร์กสเปซได้ทุกที่ยกเว้นเมื่อแถบด้านขวาอยู่ในโฟกัส จึงเหลือ Ctrl+1–5 ให้แถบด้านข้างใช้"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

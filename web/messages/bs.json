@@ -538,6 +538,9 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "shortcuts": {
+          "when": "Opcionalni predikati fokusa po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta fokusa sidebarFocus, browserFocus, markdownFocus i terminalFocus, kombinovan sa !, &&, || i zagradama. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjer: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } čini da Ctrl+1–9 bira radne prostore svuda osim kada je fokusiran desni bočni panel, ostavljajući Ctrl+1–5 slobodno za bočni panel."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

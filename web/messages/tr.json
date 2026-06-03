@@ -538,6 +538,9 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "shortcuts": {
+          "when": "Her eylem için isteğe bağlı odak koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, sidebarFocus, browserFocus, markdownFocus ve terminalFocus odak bağlamı anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnek: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } Ctrl+1–9'un sağ kenar çubuğu odaktayken hariç her yerde çalışma alanlarını seçmesini sağlar ve Ctrl+1–5'i kenar çubuğu için boş bırakır."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

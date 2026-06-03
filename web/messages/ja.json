@@ -601,6 +601,9 @@
         },
         "fileEditor": {
           "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
+        },
+        "shortcuts": {
+          "when": "アクションごとの任意のフォーカス述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、フォーカスコンテキストキー sidebarFocus、browserFocus、markdownFocus、terminalFocus を !、&&、||、括弧で組み合わせた boolean 式です。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択し、Ctrl+1–5 をサイドバー用に空けます。"
         }
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",

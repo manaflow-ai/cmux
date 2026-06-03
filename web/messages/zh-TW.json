@@ -538,6 +538,9 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
+        },
+        "shortcuts": {
+          "when": "每個動作可選的焦點述詞（VS Code 風格的 `when` 子句），依 cmux 動作 id 建立索引。每個值都是基於焦點內容鍵 sidebarFocus、browserFocus、markdownFocus 和 terminalFocus 的布林運算式，可用 !、&&、|| 與括號組合。只有在子句成立時，該動作的快捷鍵才會觸發，也只會在這種情況下與其他快捷鍵衝突。範例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 會讓 Ctrl+1–9 在右側邊欄未聚焦時選取工作區，因而將 Ctrl+1–5 留給側邊欄。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
