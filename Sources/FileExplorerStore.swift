@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFileWatch
 import Combine
 import Foundation
 import QuartzCore
@@ -752,7 +753,9 @@ final class FileExplorerStore: ObservableObject {
     var showHiddenFiles: Bool = false
 
     /// Watches the root directory for filesystem changes (local only).
-    private var directoryWatcher: FileExplorerDirectoryWatcher?
+    private var directoryWatcher: FileWatcher?
+    private var directoryWatchTask: Task<Void, Never>?
+    private var directoryWatchPath: String?
 
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
@@ -893,16 +896,32 @@ final class FileExplorerStore: ObservableObject {
 
     private func updateDirectoryWatcher() {
         if provider is LocalFileExplorerProvider, !rootPath.isEmpty {
-            if directoryWatcher == nil {
-                directoryWatcher = FileExplorerDirectoryWatcher { [weak self] in
-                    self?.reload()
-                    self?.refreshGitStatus()
+            guard directoryWatchPath != rootPath || directoryWatcher == nil else { return }
+            stopDirectoryWatcher()
+            // Preserve the previous 0.3s coalescing as a leading-edge throttle.
+            let watcher = FileWatcher(path: rootPath, throttle: .milliseconds(300))
+            directoryWatcher = watcher
+            directoryWatchPath = rootPath
+            let events = watcher.events
+            directoryWatchTask = Task { @MainActor [weak self] in
+                for await _ in events {
+                    guard let self else { break }
+                    self.reload()
+                    self.refreshGitStatus()
                 }
             }
-            directoryWatcher?.watch(path: rootPath)
         } else {
-            directoryWatcher?.stop()
+            stopDirectoryWatcher()
         }
+    }
+
+    /// Cancels the directory-watch consumer and drops the watcher; the watcher's
+    /// deinit cancels its `DispatchSource`s synchronously.
+    private func stopDirectoryWatcher() {
+        directoryWatchTask?.cancel()
+        directoryWatchTask = nil
+        directoryWatcher = nil
+        directoryWatchPath = nil
     }
 
     private func setProvider(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
@@ -1288,69 +1307,7 @@ final class FileExplorerStore: ObservableObject {
 
     deinit {
         cancelRemoteHomeResolution()
-    }
-}
-
-// MARK: - Directory Watcher
-
-/// Watches a local directory for filesystem changes and calls back on the main thread.
-/// Debounces events to avoid rapid-fire reloads during bulk operations (e.g., git checkout).
-final class FileExplorerDirectoryWatcher {
-    private var fileDescriptor: Int32 = -1
-    private var watchSource: DispatchSourceFileSystemObject?
-    private let watchQueue = DispatchQueue(label: "com.cmux.fileExplorerWatcher", qos: .utility)
-    private var debounceWorkItem: DispatchWorkItem?
-    private let onChange: () -> Void
-
-    init(onChange: @escaping () -> Void) {
-        self.onChange = onChange
-    }
-
-    func watch(path: String) {
-        stop()
-        let fd = open(path, O_EVTONLY)
-        guard fd >= 0 else { return }
-        fileDescriptor = fd
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .link, .rename, .delete],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            self?.scheduleReload()
-        }
-
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-
-        source.resume()
-        watchSource = source
-    }
-
-    func stop() {
-        debounceWorkItem?.cancel()
-        debounceWorkItem = nil
-        watchSource?.cancel()
-        watchSource = nil
-        fileDescriptor = -1
-    }
-
-    private func scheduleReload() {
-        debounceWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            DispatchQueue.main.async {
-                self?.onChange()
-            }
-        }
-        debounceWorkItem = work
-        watchQueue.asyncAfter(deadline: .now() + 0.3, execute: work)
-    }
-
-    deinit {
-        stop()
+        directoryWatchTask?.cancel()
     }
 }
 
