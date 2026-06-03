@@ -53,6 +53,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
+        private var outputTask: Task<Void, Never>?
 
         init(surfaceID: String, store: CMUXMobileShellStore) {
             self.surfaceID = surfaceID
@@ -62,13 +63,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
 
         func attach(surfaceView: GhosttySurfaceView) {
             self.surfaceView = surfaceView
-            store?.registerTerminalByteSink(surfaceID: surfaceID) { [weak surfaceView] data in
-                surfaceView?.processOutput(data)
+            guard let store else { return }
+            let surfaceID = surfaceID
+            // Drive every output chunk into the libghostty surface. Ending this
+            // task terminates the stream, which unregisters the surface and
+            // clears its viewport pin on the Mac (see `terminalOutputStream`).
+            outputTask = Task { @MainActor [weak surfaceView] in
+                for await data in store.terminalOutputStream(surfaceID: surfaceID) {
+                    guard !Task.isCancelled else { return }
+                    surfaceView?.processOutput(data)
+                }
             }
         }
 
         func detach() {
-            store?.unregisterTerminalByteSink(surfaceID: surfaceID)
+            outputTask?.cancel()
+            outputTask = nil
         }
 
         // MARK: - GhosttySurfaceViewDelegate

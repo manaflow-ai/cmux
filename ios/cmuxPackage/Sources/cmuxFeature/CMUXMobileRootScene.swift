@@ -1,4 +1,6 @@
+import CmuxMobileAuth
 import CmuxMobilePairedMac
+import CmuxMobileTransport
 import Foundation
 import OSLog
 import SwiftUI
@@ -24,11 +26,17 @@ private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mo
 public struct CMUXMobileRootScene: View {
     private let runtime: CMUXMobileRuntime
     private let pairedMacStore: (any MobilePairedMacStoring)?
+    // TRANSITIONAL (iOS refactor): one process-wide reachability monitor
+    // constructed at the composition root and injected into the shell store,
+    // replacing the store's reach-in to `NetworkReachability.shared`. Becomes a
+    // fully app-owned concrete once the app shell stops depending on this scene.
+    private let reachability: any ReachabilityProviding
 
     /// Creates the root scene.
     /// - Parameter runtime: The mobile runtime that backs the shell store.
     public init(runtime: CMUXMobileRuntime) {
         self.runtime = runtime
+        self.reachability = ReachabilityService()
         // TRANSITIONAL (iOS refactor): open the SQLite paired-mac store at the
         // composition root and inject it as `any MobilePairedMacStoring`,
         // replacing the deleted `MobileShellStorePairedMacStoreFactory`
@@ -56,7 +64,17 @@ public struct CMUXMobileRootScene: View {
         #endif
     }
 
+    @MainActor
     private func makeStore() -> CMUXMobileShellStore {
-        CMUXMobileShellStore(runtime: runtime, pairedMacStore: pairedMacStore)
+        // TRANSITIONAL (iOS refactor): bridge the still-singleton AuthManager into
+        // the store's injected identity seam. Wave 3 deletes AuthManager.shared and
+        // constructs the manager here, passing it to this provider directly.
+        let identityProvider = AuthManagerIdentityProvider(authManager: AuthManager.shared)
+        return CMUXMobileShellStore(
+            runtime: runtime,
+            pairedMacStore: pairedMacStore,
+            identityProvider: identityProvider,
+            reachability: reachability
+        )
     }
 }

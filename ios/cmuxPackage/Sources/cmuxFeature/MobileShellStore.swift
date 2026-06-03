@@ -1,5 +1,4 @@
 import CMUXMobileCore
-import CmuxMobileAuth
 import CmuxMobileDiagnostics
 import CmuxMobilePairedMac
 import CmuxMobileRPC
@@ -18,7 +17,7 @@ private let mobileShellLog = Logger(
 
 @MainActor
 @Observable
-public final class CMUXMobileShellStore {
+public final class CMUXMobileShellStore: MobileTerminalOutputSinking {
     private enum TerminalOutputTransport: Equatable {
         case renderGrid
         case rawBytes
@@ -74,6 +73,8 @@ public final class CMUXMobileShellStore {
 
     private let runtime: CMUXMobileRuntime?
     private let pairedMacStore: (any MobilePairedMacStoring)?
+    private let identityProvider: (any MobileIdentityProviding)?
+    private let reachability: any ReachabilityProviding
     private let clientID: String
     private var remoteClient: MobileCoreRPCClient? {
         didSet {
@@ -149,10 +150,14 @@ public final class CMUXMobileShellStore {
         pairingCode: String = "",
         workspaces: [MobileWorkspacePreview] = [],
         pairedMacStore: (any MobilePairedMacStoring)? = nil,
-        clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard)
+        clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
+        identityProvider: (any MobileIdentityProviding)? = nil,
+        reachability: any ReachabilityProviding = ReachabilityService()
     ) {
         self.runtime = runtime
         self.pairedMacStore = pairedMacStore
+        self.identityProvider = identityProvider
+        self.reachability = reachability
         self.clientID = clientIDRepository.clientID
         self.isSignedIn = isSignedIn
         self.connectionState = connectionState
@@ -185,6 +190,7 @@ public final class CMUXMobileShellStore {
     }
 
     isolated deinit {
+        networkPathObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
         renderGridLivenessTimer?.cancel()
         terminalSubscriptionRefreshTask?.cancel()
@@ -240,6 +246,7 @@ public final class CMUXMobileShellStore {
     public private(set) var connectionRecoveryFailed: Bool = false
 
     private var networkPathObservationStarted = false
+    private var networkPathObservationTask: Task<Void, Never>?
     private var recoveryInFlight = false
     private var recoveryTask: Task<Void, Never>?
     private var lastReconnectStackUserID: String?
@@ -261,16 +268,13 @@ public final class CMUXMobileShellStore {
     func startObservingNetworkPathChanges() {
         guard !networkPathObservationStarted else { return }
         networkPathObservationStarted = true
-        observeNetworkPathGeneration()
-    }
-
-    private func observeNetworkPathGeneration() {
-        withObservationTracking {
-            _ = NetworkReachability.shared.pathChangeGeneration
-        } onChange: { [weak self] in
-            Task { @MainActor in
-                guard let self else { return }
-                self.observeNetworkPathGeneration()
+        let reachability = reachability
+        networkPathObservationTask = Task { @MainActor [weak self] in
+            // Each yield marks a meaningful path change (offline->online or a
+            // primary-interface switch while online); recover the live
+            // connection so a moving network repaints instead of going stale.
+            for await _ in reachability.pathChanges() {
+                guard let self, !Task.isCancelled else { return }
                 self.recoverMobileConnection(trigger: .networkChange)
             }
         }
@@ -436,7 +440,7 @@ public final class CMUXMobileShellStore {
         // (manual-workspace routes have no real macDeviceID and aren't useful).
         guard ticket.macDeviceID != "manual-ticket-request",
               !ticket.macDeviceID.hasPrefix("manual-") else { return }
-        let stackUserID = AuthManager.shared.currentUser?.id
+        let stackUserID = identityProvider?.currentUserID
         do {
             try await pairedMacStore.upsert(
                 macDeviceID: ticket.macDeviceID,
@@ -1472,7 +1476,7 @@ public final class CMUXMobileShellStore {
             refreshTerminalEventSubscription(reason: reason)
         }
 
-        let surfaceIDs = requestedSurfaceIDs ?? Array(terminalByteSinksBySurfaceID.keys)
+        let surfaceIDs = requestedSurfaceIDs ?? Array(terminalByteContinuationsBySurfaceID.keys)
         liveAnchormuxLog(
             "sync.resync reason=\(reason) restart=\(restartEventStream) surfaces=\(surfaceIDs.count)"
         )
@@ -1482,7 +1486,7 @@ public final class CMUXMobileShellStore {
     }
 
     private func handleTerminalInputResponse(_ data: Data, surfaceID: String) {
-        guard terminalByteSinksBySurfaceID[surfaceID] != nil,
+        guard hasTerminalOutputSink(surfaceID: surfaceID),
               let payload = try? MobileTerminalInputResponse.decode(data),
               let remoteSeq = payload.terminalSeq else {
             return
@@ -1532,17 +1536,28 @@ public final class CMUXMobileShellStore {
         return bytes
     }
 
-    /// Per-surface byte sinks for the libghostty render path. A mounted
-    /// `GhosttySurfaceView` registers itself here and receives VT patch bytes
-    /// derived from render-grid frames. Raw PTY bytes still use the same sink as
-    /// a compatibility fallback for older Mac hosts.
-    private var terminalByteSinksBySurfaceID: [String: (Data) -> Void] = [:]
+    /// Per-surface output continuations for the libghostty render path. A mounted
+    /// `GhosttySurfaceView` obtains a stream via ``terminalOutputStream(surfaceID:)``
+    /// and receives VT patch bytes derived from render-grid frames. Raw PTY bytes
+    /// flow through the same continuation as a compatibility fallback for older
+    /// Mac hosts.
+    private var terminalByteContinuationsBySurfaceID: [String: AsyncStream<Data>.Continuation] = [:]
 
-    public func registerTerminalByteSink(
+    /// Yield a chunk of output bytes to the surface's stream, if one is attached.
+    private func deliverTerminalBytes(_ bytes: Data, surfaceID: String) {
+        terminalByteContinuationsBySurfaceID[surfaceID]?.yield(bytes)
+    }
+
+    /// Whether a surface currently has an attached output stream consumer.
+    private func hasTerminalOutputSink(surfaceID: String) -> Bool {
+        terminalByteContinuationsBySurfaceID[surfaceID] != nil
+    }
+
+    private func registerTerminalOutput(
         surfaceID: String,
-        sink: @escaping (Data) -> Void
+        continuation: AsyncStream<Data>.Continuation
     ) {
-        terminalByteSinksBySurfaceID[surfaceID] = sink
+        terminalByteContinuationsBySurfaceID[surfaceID] = continuation
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         #if DEBUG
@@ -1551,13 +1566,31 @@ public final class CMUXMobileShellStore {
         requestTerminalReplay(surfaceID: surfaceID)
     }
 
-    public func unregisterTerminalByteSink(surfaceID: String) {
-        terminalByteSinksBySurfaceID.removeValue(forKey: surfaceID)
+    private func unregisterTerminalOutput(surfaceID: String) {
+        terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
         // pinning the shared grid to our viewport and clears the macOS border.
         clearTerminalViewport(surfaceID: surfaceID)
+    }
+
+    /// The output byte stream for a terminal surface.
+    ///
+    /// Obtaining the stream arms a cold-attach replay so the surface catches up
+    /// to current state; ending iteration (or cancelling the consuming task)
+    /// unregisters the surface and clears its viewport pin on the Mac.
+    /// - Parameter surfaceID: The terminal surface identifier.
+    /// - Returns: An `AsyncStream` of output byte chunks.
+    public func terminalOutputStream(surfaceID: String) -> AsyncStream<Data> {
+        AsyncStream { continuation in
+            registerTerminalOutput(surfaceID: surfaceID, continuation: continuation)
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in
+                    self?.unregisterTerminalOutput(surfaceID: surfaceID)
+                }
+            }
+        }
     }
 
     /// Report this device's natural terminal grid to the Mac and return the
@@ -1670,7 +1703,7 @@ public final class CMUXMobileShellStore {
                 let seq = replaySeq ?? 0
                 let cols = payload?.columns ?? -1
                 let rows = payload?.rows ?? -1
-                mobileShellLog.info("CMUX_REPLAY response surface=\(surfaceID, privacy: .public) byteCount=\(bytes?.count ?? -1, privacy: .public) snapshotBytes=\(snapshotBytes?.count ?? -1, privacy: .public) renderGrid=\(renderGrid != nil, privacy: .public) seq=\(seq, privacy: .public) macGrid=\(cols, privacy: .public)x\(rows, privacy: .public) hasSink=\(self.terminalByteSinksBySurfaceID[surfaceID] != nil, privacy: .public)")
+                mobileShellLog.info("CMUX_REPLAY response surface=\(surfaceID, privacy: .public) byteCount=\(bytes?.count ?? -1, privacy: .public) snapshotBytes=\(snapshotBytes?.count ?? -1, privacy: .public) renderGrid=\(renderGrid != nil, privacy: .public) seq=\(seq, privacy: .public) macGrid=\(cols, privacy: .public)x\(rows, privacy: .public) hasSink=\(self.hasTerminalOutputSink(surfaceID: surfaceID), privacy: .public)")
                 #endif
                 if let replaySeq,
                    let deliveredSeq = self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID],
@@ -1695,7 +1728,7 @@ public final class CMUXMobileShellStore {
                 guard let deliverBytes, !deliverBytes.isEmpty else {
                     return
                 }
-                self.terminalByteSinksBySurfaceID[surfaceID]?(deliverBytes)
+                self.deliverTerminalBytes(deliverBytes, surfaceID: surfaceID)
             } catch {
                 mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
             }
@@ -1719,7 +1752,7 @@ public final class CMUXMobileShellStore {
         // try the wrapper first, then fall back to decoding the whole payload.
         let renderGridDTO = try? MobileTerminalRenderGridEvent.decode(json)
         guard let renderGrid = renderGridDTO?.frame ?? (try? MobileTerminalRenderGridFrame.decode(json)),
-              terminalByteSinksBySurfaceID[renderGrid.surfaceID] != nil else {
+              hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
         if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
@@ -1735,7 +1768,7 @@ public final class CMUXMobileShellStore {
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif
         guard !bytes.isEmpty else { return }
-        terminalByteSinksBySurfaceID[renderGrid.surfaceID]?(bytes)
+        deliverTerminalBytes(bytes, surfaceID: renderGrid.surfaceID)
     }
 
     private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {
@@ -1749,10 +1782,10 @@ public final class CMUXMobileShellStore {
         let bytes = payload.bytes
         #if DEBUG
         let debugSeq = payload.sequence ?? 0
-        mobileShellLog.info("CMUX_REPLAY live bytes surface=\(surfaceID, privacy: .public) byteCount=\(bytes.count, privacy: .public) seq=\(debugSeq, privacy: .public) hasSink=\(self.terminalByteSinksBySurfaceID[surfaceID] != nil, privacy: .public)")
+        mobileShellLog.info("CMUX_REPLAY live bytes surface=\(surfaceID, privacy: .public) byteCount=\(bytes.count, privacy: .public) seq=\(debugSeq, privacy: .public) hasSink=\(self.hasTerminalOutputSink(surfaceID: surfaceID), privacy: .public)")
         #endif
         guard let seq = payload.sequence else {
-            terminalByteSinksBySurfaceID[surfaceID]?(bytes)
+            deliverTerminalBytes(bytes, surfaceID: surfaceID)
             return
         }
         let endSeq = seq &+ UInt64(bytes.count)
@@ -1772,11 +1805,11 @@ public final class CMUXMobileShellStore {
             }
             let overlap = deliveredSeq - seq
             let deliverBytes = Data(bytes.dropFirst(Int(overlap)))
-            terminalByteSinksBySurfaceID[surfaceID]?(deliverBytes)
+            deliverTerminalBytes(deliverBytes, surfaceID: surfaceID)
             markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
             return
         }
-        terminalByteSinksBySurfaceID[surfaceID]?(bytes)
+        deliverTerminalBytes(bytes, surfaceID: surfaceID)
         markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
     }
 

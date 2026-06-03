@@ -12,6 +12,30 @@ import UIKit
 #endif
 @testable import cmuxFeature
 
+/// Test collector that mounts a surface's ``CMUXMobileShellStore`` output stream
+/// and accumulates each chunk's UTF-8 text, mirroring what a mounted
+/// `GhosttySurfaceView` would feed into libghostty.
+@MainActor
+final class TerminalOutputCollector {
+    private(set) var lines: [String] = []
+    private var task: Task<Void, Never>?
+
+    /// Begin consuming the surface's output stream into ``lines``.
+    func mount(store: CMUXMobileShellStore, surfaceID: String) {
+        task = Task { @MainActor [weak self] in
+            for await data in store.terminalOutputStream(surfaceID: surfaceID) {
+                self?.lines.append(String(data: data, encoding: .utf8) ?? "")
+            }
+        }
+    }
+
+    /// Stop consuming the stream, unregistering the surface from the store.
+    func unmount() {
+        task?.cancel()
+        task = nil
+    }
+}
+
 @MainActor
 @Test func startsAtSignInWithoutConnection() {
     let store = CMUXMobileShellStore.preview()
@@ -1734,18 +1758,16 @@ import UIKit
         supportsServerPushEvents: true
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
-    var deliveredText: [String] = []
+    let collector = TerminalOutputCollector()
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    store.registerTerminalByteSink(surfaceID: "live-terminal") { data in
-        deliveredText.append(String(data: data, encoding: .utf8) ?? "")
-    }
+    collector.mount(store: store, surfaceID: "live-terminal")
     let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    for _ in 0..<200 where deliveredText.count < 1 {
+    for _ in 0..<200 where collector.lines.count < 1 {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 
@@ -1753,14 +1775,15 @@ import UIKit
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    for _ in 0..<200 where deliveredText.isEmpty {
+    for _ in 0..<200 where collector.lines.isEmpty {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 
-    #expect(deliveredText == [
+    #expect(collector.lines == [
         oldGridText,
         currentGridText,
     ])
+    collector.unmount()
 }
 
 @MainActor
@@ -1785,14 +1808,12 @@ import UIKit
         supportsServerPushEvents: true
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
-    var deliveredText: [String] = []
+    let collector = TerminalOutputCollector()
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
-    store.registerTerminalByteSink(surfaceID: "live-terminal") { data in
-        deliveredText.append(String(data: data, encoding: .utf8) ?? "")
-    }
+    collector.mount(store: store, surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
 
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
@@ -1804,10 +1825,11 @@ import UIKit
 
     let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
-    #expect(deliveredText == [
+    #expect(collector.lines == [
         oldGridText,
         currentGridText,
     ])
+    collector.unmount()
 }
 
 @MainActor
@@ -1832,7 +1854,7 @@ import UIKit
         supportsServerPushEvents: true
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
-    var deliveredText: [String] = []
+    let collector = TerminalOutputCollector()
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
@@ -1840,18 +1862,17 @@ import UIKit
     let subscribeRequests = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
     #expect(subscribeRequests.first?.topics == ["workspace.updated", "terminal.render_grid"])
 
-    store.registerTerminalByteSink(surfaceID: "live-terminal") { data in
-        deliveredText.append(String(data: data, encoding: .utf8) ?? "")
-    }
+    collector.mount(store: store, surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    for _ in 0..<200 where deliveredText.count < 2 {
+    for _ in 0..<200 where collector.lines.count < 2 {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 
     let liveText = try terminalRenderGridStyledReplacementText(seq: 2, text: "live")
-    #expect(deliveredText == [liveText])
+    #expect(collector.lines == [liveText])
     #expect(liveText.contains("\u{1B}[0;1;4;38;2;255;0;0;48;2;0;0;255mlive"))
     #expect(liveText.contains("\u{1B}[6 q\u{1B}[?25h\u{1B}[2;3H"))
+    collector.unmount()
 }
 
 private struct MissingTestStackAccessToken: Error {}
