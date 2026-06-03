@@ -2063,6 +2063,52 @@ function saveSavedBackgroundImages() {
   localStorage.setItem(savedBackgroundImagesStorageKey, JSON.stringify(state.savedBackgroundImages));
 }
 
+function savedBackgroundImagesFull() {
+  return state.savedBackgroundImages.length >= savedBackgroundImagesLimit;
+}
+
+function savedBackgroundImageLimitTitle() {
+  return `Background limit is ${savedBackgroundImagesLimit}. Delete one first.`;
+}
+
+function savedBackgroundImageKey(value) {
+  const url = normalizedImageUrl(value);
+  return url ? url.toLowerCase() : "";
+}
+
+function savedBackgroundImageExists(value) {
+  const key = savedBackgroundImageKey(value);
+  if (!key) return false;
+  return state.savedBackgroundImages.some((candidate) => savedBackgroundImageKey(candidate.url) === key);
+}
+
+function canSaveBackgroundImage(value) {
+  const key = savedBackgroundImageKey(value);
+  return Boolean(key && (savedBackgroundImageExists(key) || !savedBackgroundImagesFull()));
+}
+
+function savedBackgroundImageSaveTitle(value, availableTitle = "Save this image to the reusable background library.") {
+  const key = savedBackgroundImageKey(value);
+  if (!key) return "Choose a custom background image first.";
+  if (savedBackgroundImagesFull() && !savedBackgroundImageExists(key)) return savedBackgroundImageLimitTitle();
+  return availableTitle;
+}
+
+function applySavedBackgroundImageSaveLimit(button, value, availableTitle = "Save this image to the reusable background library.") {
+  if (!button) return button;
+  button.disabled = !canSaveBackgroundImage(value);
+  button.title = savedBackgroundImageSaveTitle(value, availableTitle);
+  return button;
+}
+
+function applySavedBackgroundImageCapacityLimit(button, availableTitle = "Save an image to the reusable background library.") {
+  if (!button) return button;
+  const full = savedBackgroundImagesFull();
+  button.disabled = full;
+  button.title = full ? savedBackgroundImageLimitTitle() : availableTitle;
+  return button;
+}
+
 function upsertSavedBackgroundImage(background, options = {}) {
   const normalized = normalizeSavedBackgroundImage(background);
   if (!normalized) {
@@ -2073,8 +2119,8 @@ function upsertSavedBackgroundImage(background, options = {}) {
   const replacing = state.savedBackgroundImages.some((candidate) => (
     candidate.id === normalized.id || candidate.url.toLowerCase() === urlKey
   ));
-  if (!replacing && state.savedBackgroundImages.length >= savedBackgroundImagesLimit) {
-    toast(`Background limit is ${savedBackgroundImagesLimit}. Delete one first.`);
+  if (!replacing && savedBackgroundImagesFull()) {
+    if (options.toast !== false) toast(savedBackgroundImageLimitTitle());
     return null;
   }
   state.savedBackgroundImages = [
@@ -2119,7 +2165,10 @@ async function applyAndSaveCustomBackgroundImage(background, options = {}) {
   }
   const wasSaved = state.savedBackgroundImages.some((candidate) => candidate.url.toLowerCase() === validated.url.toLowerCase());
   const saved = upsertSavedBackgroundImage({ ...input, url: validated.url }, { render: false, toast: false });
-  if (!saved) return null;
+  if (!saved) {
+    if (options.toast !== false) toast(savedBackgroundImageLimitTitle());
+    return null;
+  }
   const changed = updateSettings(backgroundImageSettings(validated.url), { immediate: true });
   if (options.render !== false) renderSettingsInspector();
   if (options.toast !== false) {
@@ -2153,7 +2202,10 @@ async function applyAndSaveBackgroundImageToTarget(background, target = state.ba
   const urlKey = validated.url.toLowerCase();
   const wasSaved = state.savedBackgroundImages.some((candidate) => candidate.url.toLowerCase() === urlKey);
   const saved = upsertSavedBackgroundImage({ ...input, url: validated.url }, { render: false, toast: false });
-  if (!saved) return null;
+  if (!saved) {
+    if (options.toast !== false) toast(savedBackgroundImageLimitTitle());
+    return null;
+  }
   const changed = await applyBackgroundValueToTarget(validated.url, scope, { render: false, toast: false });
   if (changed !== null && options.render !== false) renderSettingsInspector();
   if (options.toast !== false) {
@@ -10846,8 +10898,7 @@ function activeBackgroundPanel(options = {}) {
   paste.disabled = !targetStatus.canTarget;
   const save = settingsActionButton("Save image", () => saveCustomBackgroundImage({ url: activeBackgroundPanelViewModel().background }), "", "active background save current");
   save.dataset.backgroundAction = "save";
-  save.title = "Save the selected background";
-  save.disabled = !isCustomBackgroundImage(model.background);
+  applySavedBackgroundImageSaveLimit(save, model.background, "Save the selected background image.");
   const open = settingsActionButton("Open", () => openBackgroundImageSource(activeBackgroundPanelViewModel().background), "", "active background open local file url source reveal");
   open.dataset.backgroundAction = "open";
   open.title = "Open the selected background source";
@@ -11007,8 +11058,7 @@ function refreshBackgroundPreviewNodes() {
       setTitleIfChanged(paste, `Paste an image for ${targetLabel}`);
     }
     if (save) {
-      setDisabledIfChanged(save, !isCustomBackgroundImage(model.background));
-      setTitleIfChanged(save, "Save the selected background");
+      applySavedBackgroundImageSaveLimit(save, model.background, "Save the selected background image.");
     }
     if (applyCurrent) {
       setDisabledIfChanged(applyCurrent, !state.settings.backgroundImage || !targetStatus.canTarget || targetStatus.scope === "app");
@@ -11528,7 +11578,7 @@ function paneBackgroundControlPanel(panel) {
   const useApp = settingsActionButton("Use app", () => applyPanelBackgroundImage(state.settings.backgroundImage, panel), "", "active pane terminal background use app global image");
   useApp.disabled = !state.settings.backgroundImage;
   const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: background }), "", "active pane terminal background save image wallpaper library");
-  save.disabled = !isCustomBackgroundImage(background);
+  applySavedBackgroundImageSaveLimit(save, background, "Save this pane background image.");
   const open = settingsActionButton("Open", () => openBackgroundImageSource(background), "", "active pane terminal background open source file url");
   open.disabled = !canOpenBackgroundImageSource(background);
   const clear = settingsActionButton("Clear", () => applyPanelBackgroundImage("", panel), "danger", "active pane terminal background clear remove");
@@ -14953,7 +15003,6 @@ function savedBackgroundImagesPanel() {
   const addCopy = document.createElement("button");
   addCopy.className = "saved-background-add-copy";
   addCopy.type = "button";
-  addCopy.disabled = !targetStatus.canTarget;
   addCopy.title = `Choose and save an image for ${targetLabel}`;
   addCopy.setAttribute("aria-label", `Choose and save an image for ${targetLabel}.`);
   addCopy.innerHTML = `
@@ -14976,6 +15025,15 @@ function savedBackgroundImagesPanel() {
   addCopy.querySelector(".saved-background-add-target-label").textContent = targetLabel;
   addCopy.querySelector(".saved-background-add-body").textContent = `Apply to ${addTargetOption.label.toLowerCase()}. Drop, paste, choose, or enter an image path.`;
   addCopy.onclick = () => chooseBackgroundImageForTarget({ save: true });
+  const applyUnknownBackgroundSaveLimit = (button, availableTitle) => {
+    applySavedBackgroundImageCapacityLimit(button, availableTitle);
+    if (!targetStatus.canTarget) {
+      button.disabled = true;
+      button.title = `${addTargetOption.label} cannot use a background right now.`;
+    }
+    return button;
+  };
+  applyUnknownBackgroundSaveLimit(addCopy, `Choose and save an image for ${targetLabel}`);
 
   const addRow = document.createElement("div");
   addRow.className = "saved-background-add";
@@ -15006,19 +15064,25 @@ function savedBackgroundImagesPanel() {
   actions.className = "settings-actions saved-background-actions";
   actions.dataset.settingsSearch = normalizeSettingsQuery("saved background current choose local file wallpaper apply save");
   const applyAndSave = settingsActionButton(backgroundApplyTargetSaveLabel(targetStatus.scope), applyAndSaveTypedImage, "primary", "saved background image apply save selected target url local path file wallpaper");
-  applyAndSave.disabled = !targetStatus.canTarget;
-  applyAndSave.title = `Apply and save the typed image to ${targetLabel}`;
+  const refreshTypedSaveState = () => {
+    applySavedBackgroundImageSaveLimit(saveUrl, input.value, "Save the typed image to the reusable background library.");
+    applySavedBackgroundImageSaveLimit(applyAndSave, input.value, `Apply and save the typed image to ${targetLabel}`);
+    if (!targetStatus.canTarget) {
+      applyAndSave.disabled = true;
+      applyAndSave.title = `${addTargetOption.label} cannot use a background right now.`;
+    }
+  };
+  refreshTypedSaveState();
+  input.addEventListener("input", refreshTypedSaveState);
+  input.addEventListener("change", refreshTypedSaveState);
   const saveCurrent = settingsActionButton("Save selected", () => saveCustomBackgroundImage({
     url: activeBackgroundPanelViewModel().background
   }), "", "saved background image current selected target");
-  saveCurrent.disabled = !isCustomBackgroundImage(activeBackgroundPanelViewModel().background);
-  saveCurrent.title = "Save the currently selected background without changing the target.";
+  applySavedBackgroundImageSaveLimit(saveCurrent, activeBackgroundPanelViewModel().background, "Save the currently selected background without changing the target.");
   const pasteSave = settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input, target: () => state.backgroundApplyTarget, save: true }), "", "saved background image paste clipboard copied image apply save selected target wallpaper");
-  pasteSave.disabled = !targetStatus.canTarget;
-  pasteSave.title = `Paste, apply, and save an image to ${targetLabel}`;
+  applyUnknownBackgroundSaveLimit(pasteSave, `Paste, apply, and save an image to ${targetLabel}`);
   const chooseSave = settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "saved background image choose local file selected target wallpaper");
-  chooseSave.disabled = !targetStatus.canTarget;
-  chooseSave.title = `Choose, apply, and save an image to ${targetLabel}`;
+  applyUnknownBackgroundSaveLimit(chooseSave, `Choose, apply, and save an image to ${targetLabel}`);
   actions.append(
     applyAndSave,
     saveCurrent,
@@ -16579,7 +16643,11 @@ function showPanelContextMenu(event, panel) {
       contextMenuButton("Restart terminal", () => restartPanel(panel.id), false, "", { icon: "reload" }),
       contextMenuButton("Choose pane background", () => choosePanelBackgroundImage(panel), false, "", { icon: "image" }),
       contextMenuButton("Use app background", () => applyPanelBackgroundImage(state.settings.backgroundImage, panel), !state.settings.backgroundImage, "", { icon: "image" }),
-      contextMenuButton("Save pane background", () => saveCustomBackgroundImage({ url: panel.backgroundImage }), !isCustomBackgroundImage(panel.backgroundImage), "", { icon: "plus" }),
+      (() => {
+        const action = contextMenuButton("Save pane background", () => saveCustomBackgroundImage({ url: panel.backgroundImage }), !canSaveBackgroundImage(panel.backgroundImage), "", { icon: "plus" });
+        action.title = savedBackgroundImageSaveTitle(panel.backgroundImage, "Save this pane background image.");
+        return action;
+      })(),
       contextMenuButton("Clear pane background", () => applyPanelBackgroundImage("", panel), !panel.backgroundImage, "", { icon: "close" }),
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal"), false, "", { icon: "settings" })
     );
@@ -16864,7 +16932,11 @@ function showToolbarMenu(event) {
         return action;
       })(),
       contextMenuButton("Background settings", () => openSettingsCategory("appearance", { query: "background", focusSearch: true })),
-      contextMenuButton("Save current background", () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }), !isCustomBackgroundImage(state.settings.backgroundImage)),
+      (() => {
+        const action = contextMenuButton("Save current background", () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }), !canSaveBackgroundImage(state.settings.backgroundImage));
+        action.title = savedBackgroundImageSaveTitle(state.settings.backgroundImage, "Save the current background image.");
+        return action;
+      })(),
       contextMenuButton("Workspace blueprints", () => openSettingsCategory("blueprints"))
     ),
     contextMenuSectionTitle("Session"),
