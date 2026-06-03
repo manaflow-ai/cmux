@@ -585,6 +585,23 @@ const lookPackDefinitions = [
     }
   },
   {
+    id: "solarizedNight",
+    label: "Solarized night",
+    body: "Blue-green workspace chrome, dotted depth, and classic Solarized terminal colors.",
+    settings: {
+      theme: "harbor",
+      accent: "oklch(66% 0.13 175)",
+      backgroundImage: "preset:dot-matrix",
+      backgroundOpacity: 14,
+      backgroundFit: "cover",
+      backgroundPosition: "center",
+      backgroundEffects: "flat",
+      terminalBackground: "#002b36",
+      terminalForeground: "#839496",
+      terminalCursorColor: "#b58900"
+    }
+  },
+  {
     id: "warmDemo",
     label: "Warm demo",
     body: "Richer presentation look with warm terminal contrast and soft background.",
