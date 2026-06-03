@@ -300,4 +300,73 @@ describe("apns sender transport", () => {
     ]);
     expect(closed).toEqual([productionHost, sandboxHost]);
   });
+
+  test("keeps healthy host results when another host cannot connect", async () => {
+    const sandboxHost = apnsHostForEnvironment("sandbox");
+    const productionHost = apnsHostForEnvironment("production");
+    const closed: string[] = [];
+
+    class FakeRequest extends EventEmitter {
+      constructor(private readonly host: string) {
+        super();
+      }
+
+      setTimeout() {
+        return this;
+      }
+
+      close() {
+        return this;
+      }
+
+      end() {
+        this.emit("response", { ":status": 200 });
+        this.emit("end");
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      constructor(private readonly host: string) {
+        super();
+      }
+
+      request() {
+        return new FakeRequest(this.host);
+      }
+
+      close() {
+        closed.push(this.host);
+      }
+    }
+
+    const transport = {
+      connect: (host: string) => {
+        if (host === sandboxHost) {
+          throw new Error("connect failed");
+        }
+        return new FakeSession(host);
+      },
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+
+    const results = await sendApnsNotification(
+      { keyP8: p8, keyId: "KID-PARTIAL", teamId: "TEAM456" },
+      [
+        { deviceToken: "a".repeat(64), bundleId: "dev.cmux.ios.push1", environment: "sandbox" },
+        { deviceToken: "b".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" },
+      ],
+      { title: "agent", body: "done" },
+      1000,
+      transport,
+    );
+
+    expect(results).toEqual([
+      { deviceToken: "a".repeat(64), status: 0, reason: "connection_error", prune: false },
+      { deviceToken: "b".repeat(64), status: 200, reason: undefined, prune: false },
+    ]);
+    expect(closed).toEqual([productionHost]);
+  });
 });

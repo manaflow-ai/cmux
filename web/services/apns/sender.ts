@@ -127,15 +127,24 @@ async function sendHostGroup(
   body: Buffer,
   timeoutMs: number,
 ): Promise<ApnsSendResult[]> {
-  const client = transport.connect(host);
-  // A connection-level error fails every in-flight request for this host.
-  const connError: Promise<null> = new Promise((resolve) => {
-    client.once("error", () => resolve(null));
-  });
+  let client: ApnsHttp2Session | null = null;
   try {
-    return await Promise.all(hostTargets.map((t) => sendOne(client, jwt, t, body, timeoutMs, connError)));
+    const connectedClient = transport.connect(host);
+    client = connectedClient;
+    // A connection-level error fails every in-flight request for this host.
+    const connError: Promise<null> = new Promise((resolve) => {
+      connectedClient.once("error", () => resolve(null));
+    });
+    return await Promise.all(hostTargets.map((t) => sendOne(connectedClient, jwt, t, body, timeoutMs, connError)));
+  } catch {
+    return hostTargets.map((target) => ({
+      deviceToken: target.deviceToken,
+      status: 0,
+      reason: "connection_error",
+      prune: false,
+    }));
   } finally {
-    client.close();
+    client?.close();
   }
 }
 
