@@ -135,12 +135,67 @@ final class FeedCoordinatorTests: XCTestCase {
         )
     }
 
+    func testBlockingIngestSurfacesNeedsInputAttentionForPermissionRequest() async {
+        addTeardownBlock {
+            Self.resetFeedCoordinatorTestHooks()
+        }
+
+        let attention = AttentionSurfaceRecorder()
+        let requestId = "needs-input-attention-request"
+
+        await MainActor.run {
+            let store = WorkstreamStore(ringCapacity: 10)
+            FeedCoordinator.shared.install(store: store)
+            FeedCoordinatorTestHooks.attentionSurfaceObserver = { event in
+                attention.record(event)
+            }
+            // Resolve the blocking wait as soon as the item is ingested so
+            // the worker thread does not park for the full timeout.
+            FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
+                guard ingestedRequestId == requestId else { return }
+                FeedCoordinator.shared.deliverReply(
+                    requestId: ingestedRequestId,
+                    decision: .permission(.once)
+                )
+            }
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "claude-needs-input-test",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"true"}"#,
+            requestId: requestId
+        )
+
+        let done = expectation(description: "blocking ingest resolved")
+        let resultBox = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 1
+            )
+            done.fulfill()
+        }
+        await fulfillment(of: [done], timeout: 2)
+        await MainActor.run {}
+
+        XCTAssertEqual(
+            attention.events.count, 1,
+            "a blocking PermissionRequest must request in-app needs-input attention surfacing"
+        )
+        XCTAssertEqual(attention.events.first?.hookEventName, .permissionRequest)
+    }
+
     private static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
                 FeedCoordinatorTestHooks.afterBlockingEventIngested = nil
                 FeedCoordinatorTestHooks.isAppActiveOverride = nil
                 FeedCoordinatorTestHooks.notificationPostObserver = nil
+                FeedCoordinatorTestHooks.attentionSurfaceObserver = nil
             }
         }
         if Thread.isMainThread {
@@ -153,6 +208,23 @@ final class FeedCoordinatorTests: XCTestCase {
 
 private final class IngestResultBox: @unchecked Sendable {
     var value: FeedCoordinator.IngestBlockingResult?
+}
+
+private final class AttentionSurfaceRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedEvents: [WorkstreamEvent] = []
+
+    var events: [WorkstreamEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedEvents
+    }
+
+    func record(_ event: WorkstreamEvent) {
+        lock.lock()
+        recordedEvents.append(event)
+        lock.unlock()
+    }
 }
 
 private final class NotificationRequestRecorder: @unchecked Sendable {
