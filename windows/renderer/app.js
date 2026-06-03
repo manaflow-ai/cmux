@@ -529,6 +529,77 @@ const commandSnippetPackDefinitions = [
   }
 ];
 
+const lookPackDefinitions = [
+  {
+    id: "quietGraphite",
+    label: "Quiet graphite",
+    body: "Low-glare chrome, calm teal accent, and neutral terminal colors.",
+    settings: {
+      theme: "graphite",
+      accent: "oklch(66% 0.13 175)",
+      backgroundImage: "",
+      backgroundOpacity: 10,
+      backgroundFit: "cover",
+      backgroundPosition: "center",
+      backgroundEffects: "flat",
+      terminalBackground: "#111318",
+      terminalForeground: "#d8dee9",
+      terminalCursorColor: "#88c0d0"
+    }
+  },
+  {
+    id: "forestFocus",
+    label: "Forest focus",
+    body: "Green-tinted workspace with a quiet pane surface for long terminal sessions.",
+    settings: {
+      theme: "forest",
+      accent: "oklch(70% 0.16 145)",
+      backgroundImage: "",
+      backgroundOpacity: 10,
+      backgroundFit: "cover",
+      backgroundPosition: "center",
+      backgroundEffects: "flat",
+      terminalBackground: "#111318",
+      terminalForeground: "#d8dee9",
+      terminalCursorColor: "#88c0d0"
+    }
+  },
+  {
+    id: "blueprintReview",
+    label: "Blueprint review",
+    body: "Structured blue chrome with subtle line background for code and PR review.",
+    settings: {
+      theme: "blueprint",
+      accent: "oklch(72% 0.17 230)",
+      backgroundImage: "preset:blueprint-lines",
+      backgroundOpacity: 18,
+      backgroundFit: "cover",
+      backgroundPosition: "center",
+      backgroundEffects: "flat",
+      terminalBackground: "#111318",
+      terminalForeground: "#d8dee9",
+      terminalCursorColor: "#88c0d0"
+    }
+  },
+  {
+    id: "warmDemo",
+    label: "Warm demo",
+    body: "Richer presentation look with warm terminal contrast and soft background.",
+    settings: {
+      theme: "ember",
+      accent: "oklch(74% 0.12 35)",
+      backgroundImage: "preset:soft-aurora",
+      backgroundOpacity: 22,
+      backgroundFit: "cover",
+      backgroundPosition: "center",
+      backgroundEffects: "glass",
+      terminalBackground: "#1c1714",
+      terminalForeground: "#eadfce",
+      terminalCursorColor: "#f6bd60"
+    }
+  }
+];
+
 const initialSettings = loadSettings();
 
 const state = {
@@ -11688,6 +11759,7 @@ function renderSettingsInspector(options = {}) {
   if (shouldBuildSection("appearance")) {
     const appearanceSection = settingsSection("Appearance");
     appearanceSection.append(appearancePreviewPanel());
+    appearanceSection.append(lookPackGrid());
     const themeSelect = document.createElement("select");
     themeSelect.className = "setting-select";
     themeSelect.dataset.settingControl = "theme";
@@ -12786,13 +12858,13 @@ function optionLabel(options, value, fallback = "") {
   return options.find(([id]) => id === value)?.[1] || fallback || String(value || "");
 }
 
-function appearanceBackgroundLabel(value) {
+function appearanceBackgroundLabel(value, settingsSource = state.settings) {
   const normalized = normalizeBackgroundValue(value);
   if (!normalized) return t("config.background.none");
   const preset = backgroundPresetMap.get(normalized);
   const label = preset ? preset.label : defaultBackgroundLabel(normalized);
-  const fit = optionLabel(backgroundFitOptions, state.settings.backgroundFit, t("config.backgroundFit.cover"));
-  const effects = optionLabel(backgroundEffectsOptions, state.settings.backgroundEffects, t("config.backgroundEffects.flat"));
+  const fit = optionLabel(backgroundFitOptions, settingsSource?.backgroundFit, t("config.backgroundFit.cover"));
+  const effects = optionLabel(backgroundEffectsOptions, settingsSource?.backgroundEffects, t("config.backgroundEffects.flat"));
   return `${label} / ${fit} / ${effects}`;
 }
 
@@ -13455,6 +13527,113 @@ function applyThemeChoice(theme, options = {}) {
   return true;
 }
 
+function lookPackById(packId) {
+  return lookPackDefinitions.find((candidate) => candidate.id === packId) || null;
+}
+
+function lookPackSettings(pack) {
+  if (!pack) return null;
+  return normalizeSettings({
+    ...state.settings,
+    ...pack.settings
+  });
+}
+
+function lookPackThemePreview(pack) {
+  const settings = lookPackSettings(pack);
+  return settingsPresetThemePreview(settings?.theme || defaultSettings.theme);
+}
+
+function lookPackSummary(pack) {
+  const settings = lookPackSettings(pack);
+  if (!settings) return "";
+  return [
+    optionLabel(themeOptions, settings.theme, settings.theme),
+    appearanceBackgroundLabel(settings.backgroundImage, settings),
+    settings.terminalBackground ? "custom terminal" : "default terminal"
+  ].join(" / ");
+}
+
+function isActiveLookPack(pack) {
+  if (!pack?.settings) return false;
+  return Object.entries(pack.settings).every(([key, value]) => {
+    const current = state.settings[key];
+    if (key === "accent" || key.startsWith("terminal")) return colorKey(current) === colorKey(value);
+    return current === value;
+  });
+}
+
+function savedSettingsProfileForLookPack(pack) {
+  const settings = lookPackSettings(pack);
+  if (!settings) return null;
+  return state.savedSettingsProfiles.find((profile) => settingsProfileMatchesSettings(profile, settings)) || null;
+}
+
+function lookPackProfileSaveTitle(pack, savedProfile = savedSettingsProfileForLookPack(pack)) {
+  if (!pack) return "Choose a look pack first.";
+  if (savedProfile) return `${savedProfile.label} already saves ${pack.label}.`;
+  if (savedSettingsProfilesFull()) return settingsProfileLimitTitle();
+  return "Save this look pack as a reusable Settings profile.";
+}
+
+function applyLookPack(packId) {
+  const pack = lookPackById(packId);
+  if (!pack) {
+    toast("Look pack not found.");
+    return false;
+  }
+  const changed = updateSettings(pack.settings);
+  if (!changed) {
+    toast(`${pack.label} look already active.`);
+    return false;
+  }
+  renderSettingsInspector();
+  toast(`${pack.label} look applied.`);
+  return true;
+}
+
+function saveLookPackProfile(packId) {
+  const pack = lookPackById(packId);
+  const settings = lookPackSettings(pack);
+  if (!pack || !settings) {
+    toast("Look pack not found.");
+    return null;
+  }
+  const existing = savedSettingsProfileForLookPack(pack);
+  if (existing) {
+    toast(`${existing.label} profile already saves ${pack.label}.`);
+    return existing;
+  }
+  if (savedSettingsProfilesFull()) {
+    toast(settingsProfileLimitTitle());
+    return null;
+  }
+  const saved = upsertSavedSettingsProfile({
+    id: createSettingsProfileId(),
+    label: defaultSettingsProfileName(`${pack.label} look`),
+    settings,
+    createdAt: Date.now()
+  });
+  if (!saved) return null;
+  renderSettingsInspector();
+  toast(`${saved.label} profile saved.`);
+  return saved;
+}
+
+function copyLookPackProfile(packId) {
+  const pack = lookPackById(packId);
+  const settings = lookPackSettings(pack);
+  if (!pack || !settings) {
+    toast("Look pack not found.");
+    return false;
+  }
+  return copySettingsProfilePayload({
+    label: `${pack.label} look`,
+    settings,
+    createdAt: Date.now()
+  }, `${pack.label} look profile copied.`);
+}
+
 function refreshAppearancePreview() {
   const preview = elements.inspectorBody.querySelector(".appearance-preview");
   if (preview) preview.replaceWith(appearancePreviewPanel());
@@ -13481,6 +13660,10 @@ function refreshAppearancePreview() {
         updateSettingsSearchIndexItemSearch(button, search);
       }
     }
+  }
+  for (const card of elements.inspectorBody.querySelectorAll("[data-look-pack]")) {
+    const pack = lookPackById(card.dataset.lookPack);
+    updateLookPackCard(card, pack);
   }
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
@@ -13541,6 +13724,80 @@ function themeChoiceGrid() {
     grid.append(card);
   }
   return grid;
+}
+
+function lookPackGrid() {
+  const grid = document.createElement("div");
+  grid.className = "look-pack-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("look pack appearance theme accent background terminal color profile apply save copy");
+  for (const pack of lookPackDefinitions) {
+    const card = document.createElement("div");
+    card.className = "look-pack-card";
+    card.dataset.lookPack = pack.id;
+    card.innerHTML = `
+      <span class="look-pack-preview" aria-hidden="true">
+        <span class="look-pack-rail"></span>
+        <span class="look-pack-pane"></span>
+        <span class="look-pack-terminal"></span>
+        <span class="look-pack-accent"></span>
+      </span>
+      <span class="look-pack-copy">
+        <span class="look-pack-title-row">
+          <span class="look-pack-title"></span>
+          <span class="look-pack-status"></span>
+        </span>
+        <span class="look-pack-body"></span>
+        <span class="look-pack-meta"></span>
+      </span>
+      <span class="look-pack-actions"></span>
+    `;
+    card.querySelector(".look-pack-title").textContent = pack.label;
+    card.querySelector(".look-pack-body").textContent = pack.body;
+    const actions = card.querySelector(".look-pack-actions");
+    actions.append(
+      settingsActionButton("Apply", () => applyLookPack(pack.id), "", `look pack apply theme accent background terminal color ${pack.label}`),
+      settingsActionButton("Save", () => saveLookPackProfile(pack.id), "", `look pack save settings profile reusable ${pack.label}`),
+      settingsActionButton("Copy", () => copyLookPackProfile(pack.id), "", `look pack copy settings profile clipboard json ${pack.label}`)
+    );
+    updateLookPackCard(card, pack);
+    grid.append(card);
+  }
+  return grid;
+}
+
+function updateLookPackCard(card, pack) {
+  if (!card || !pack) return;
+  const settings = lookPackSettings(pack);
+  const preview = lookPackThemePreview(pack);
+  const active = isActiveLookPack(pack);
+  const savedProfile = savedSettingsProfileForLookPack(pack);
+  const summary = lookPackSummary(pack);
+  card.classList.toggle("is-active", active);
+  const search = normalizeSettingsQuery(`look pack appearance theme accent background terminal color profile apply save copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${pack.label} ${pack.body} ${summary}`);
+  if (card.dataset.settingsSearch !== search) {
+    card.dataset.settingsSearch = search;
+    updateSettingsSearchIndexItemSearch(card, search);
+  }
+  card.style.setProperty("--look-pack-canvas", preview.canvas);
+  card.style.setProperty("--look-pack-pane", preview.pane);
+  card.style.setProperty("--look-pack-rail", preview.rail);
+  card.style.setProperty("--look-pack-line", preview.line);
+  card.style.setProperty("--look-pack-accent", settings.accent);
+  card.style.setProperty("--look-pack-terminal", settings.terminalBackground || terminalColorDefaults.background);
+  setTextIfChanged(card.querySelector(".look-pack-status"), active ? "Active" : savedProfile ? "Saved" : "");
+  setTextIfChanged(card.querySelector(".look-pack-meta"), summary);
+  const [apply, save] = card.querySelectorAll(".look-pack-actions .settings-action");
+  if (apply) {
+    setSettingsActionLabel(apply, active ? "Active" : "Apply");
+    setDisabledIfChanged(apply, active);
+    setTitleIfChanged(apply, active ? `${pack.label} look already active.` : `Apply ${pack.label} look.`);
+  }
+  if (save) {
+    setSettingsActionLabel(save, savedProfile ? "Saved" : "Save");
+    save.classList.toggle("primary", Boolean(savedProfile));
+    setDisabledIfChanged(save, Boolean(savedProfile) || savedSettingsProfilesFull());
+    setTitleIfChanged(save, lookPackProfileSaveTitle(pack, savedProfile));
+  }
 }
 
 function workspaceChromePresetGrid() {
