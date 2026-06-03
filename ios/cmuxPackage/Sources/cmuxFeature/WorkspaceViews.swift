@@ -3,6 +3,7 @@ import Foundation
 import CMUXMobileCore
 import CmuxMobileAuth
 import CmuxMobileDiagnostics
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal

@@ -2,6 +2,7 @@ import CMUXMobileCore
 @testable import CmuxMobileAuth
 import CmuxMobilePairedMac
 import CmuxMobileRPC
+@testable import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileWorkspace
 import Foundation

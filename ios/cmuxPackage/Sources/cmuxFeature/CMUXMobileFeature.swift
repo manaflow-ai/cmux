@@ -2,6 +2,7 @@ import Foundation
 @preconcurrency import AVFoundation
 import CMUXMobileCore
 import CmuxMobileAuth
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal

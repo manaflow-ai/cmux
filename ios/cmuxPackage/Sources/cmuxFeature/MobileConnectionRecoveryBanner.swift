@@ -1,3 +1,4 @@
+import CmuxMobileShell
 import CmuxMobileSupport
 import SwiftUI
 

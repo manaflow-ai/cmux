@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAuth
+import CmuxMobileShell
 import CmuxMobileShellModel
 import Foundation
 import UIKit

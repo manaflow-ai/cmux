@@ -1,23 +1,38 @@
-import CMUXMobileCore
-import CmuxMobileDiagnostics
-import CmuxMobilePairedMac
-import CmuxMobileRPC
-import CmuxMobileShellModel
-import CmuxMobileSupport
-import CmuxMobileTransport
-import Foundation
+public import CMUXMobileCore
+internal import CmuxMobileDiagnostics
+public import CmuxMobilePairedMac
+public import CmuxMobileRPC
+public import CmuxMobileShellModel
+internal import CmuxMobileSupport
+public import CmuxMobileTransport
+public import Foundation
 import Observation
-import OSLog
+internal import OSLog
 
 private let mobileShellLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "mobile-shell"
 )
 
+/// Transitional alias for the decomposed shell facade.
+///
+/// The iOS views and push coordinator still bind to `CMUXMobileShellStore`;
+/// this keeps those call sites compiling while the god store is dissolved into
+/// composed coordinators behind ``MobileShellComposite``. Remove once every
+/// consumer binds to ``MobileShellComposite`` directly.
+public typealias CMUXMobileShellStore = MobileShellComposite
 
+/// The decomposed home object the iOS shell views bind to.
+///
+/// Holds the connection lifecycle, network-recovery state machine,
+/// workspace/terminal list state, and the render-grid-vs-raw-bytes terminal
+/// output pipeline behind one `@Observable` read surface. Constructed at the
+/// app composition root with its collaborators injected as protocol seams
+/// (``MobileSyncRuntime``, ``MobilePairedMacStoring``, ``MobileIdentityProviding``,
+/// ``ReachabilityProviding``, ``MobileClientIDRepository``).
 @MainActor
 @Observable
-public final class CMUXMobileShellStore: MobileTerminalOutputSinking {
+public final class MobileShellComposite: MobileTerminalOutputSinking {
     private enum TerminalOutputTransport: Equatable {
         case renderGrid
         case rawBytes
@@ -96,7 +111,7 @@ public final class CMUXMobileShellStore: MobileTerminalOutputSinking {
     // A `DispatchSourceTimer` ticks independently of the (potentially wedged)
     // stream and compares "now" against the last received event to detect
     // prolonged silence, then tears down + re-subscribes + replays.
-    private var renderGridLivenessTimer: DispatchSourceTimer?
+    private var renderGridLivenessTimer: (any DispatchSourceTimer)?
     private var renderGridLivenessListenerID: UUID?
     private var lastTerminalEventAt: Date?
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
@@ -572,7 +587,7 @@ public final class CMUXMobileShellStore: MobileTerminalOutputSinking {
         )
     }
 
-    private static func shouldFallbackToSyntheticManualTicket(after error: Error) -> Bool {
+    private static func shouldFallbackToSyntheticManualTicket(after error: any Error) -> Bool {
         guard case let MobileShellConnectionError.rpcError(code, message) = error else {
             return false
         }
@@ -842,7 +857,7 @@ public final class CMUXMobileShellStore: MobileTerminalOutputSinking {
         let workspaceListRequests = try Self.initialWorkspaceListRequests(for: ticket)
         let routeAllowsStackAuthFallback = allowsStackAuthFallback
             ?? supportedRoutes.allSatisfy(MobileShellRouteAuthPolicy.routeAllowsImplicitPairLinkStackAuth)
-        var lastError: Error?
+        var lastError: (any Error)?
         for route in supportedRoutes {
             activeRoute = route
             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
@@ -1916,7 +1931,7 @@ public final class CMUXMobileShellStore: MobileTerminalOutputSinking {
         return true
     }
 
-    private func disconnectForAuthorizationFailureIfNeeded(_ error: Error) -> Bool {
+    private func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
         guard Self.shouldDisconnectForAuthorizationFailure(error) else {
             return false
         }
@@ -1926,7 +1941,7 @@ public final class CMUXMobileShellStore: MobileTerminalOutputSinking {
         return true
     }
 
-    private static func shouldDisconnectForAuthorizationFailure(_ error: Error) -> Bool {
+    private static func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
         guard let connectionError = error as? MobileShellConnectionError else {
             return false
         }
@@ -1950,7 +1965,7 @@ public final class CMUXMobileShellStore: MobileTerminalOutputSinking {
         }
     }
 
-    private static func localizedConnectionError(for error: Error, route: CmxAttachRoute? = nil) -> String {
+    private static func localizedConnectionError(for error: any Error, route: CmxAttachRoute? = nil) -> String {
         let hostPort = route.flatMap(Self.hostPortDescription(for:))
         if let networkError = error as? CmxNetworkByteTransportError {
             switch networkError {

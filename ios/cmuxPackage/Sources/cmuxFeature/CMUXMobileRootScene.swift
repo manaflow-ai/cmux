@@ -1,5 +1,6 @@
 import CmuxMobileAuth
 import CmuxMobilePairedMac
+import CmuxMobileShell
 import CmuxMobileTransport
 import Foundation
 import OSLog
