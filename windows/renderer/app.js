@@ -10268,9 +10268,14 @@ function activeBackgroundTargetControl() {
   control.className = "background-target-control background-image-target-control";
   control.dataset.settingsSearch = normalizeSettingsQuery("background image target apply app active terminal all terminals scope destination");
 
+  const header = document.createElement("span");
+  header.className = "background-target-header";
   const label = document.createElement("span");
   label.className = "background-target-label";
-  label.textContent = "Background target";
+  label.textContent = "Image target";
+  const current = document.createElement("span");
+  current.className = "background-target-current";
+  header.append(label, current);
 
   const options = document.createElement("div");
   options.className = "background-target-options";
@@ -10292,13 +10297,15 @@ function activeBackgroundTargetControl() {
     };
     options.append(button);
   }
-  control.append(label, options);
+  control.append(header, options);
   updateActiveBackgroundTargetControl(control);
   return control;
 }
 
 function updateActiveBackgroundTargetControl(root) {
   const options = backgroundApplyTargetOptions();
+  const selected = backgroundApplyTargetOption(state.backgroundApplyTarget);
+  setTextIfChanged(root.querySelector(".background-target-current"), `${selected.label} / ${selected.meta}`);
   for (const button of root.querySelectorAll("[data-background-target]")) {
     const target = options.find((candidate) => candidate.id === button.dataset.backgroundTarget);
     if (!target) continue;
@@ -10451,7 +10458,6 @@ function activeBackgroundPanel(options = {}) {
     </span>
     <span class="active-background-actions"></span>
   `;
-  panel.querySelector(".active-background-preview").onclick = () => chooseBackgroundImageForTarget();
   panel.querySelector(".active-background-kicker").textContent = model.kicker;
   panel.querySelector(".active-background-title").textContent = model.label;
   panel.querySelector(".active-background-title").title = model.label;
@@ -10462,6 +10468,10 @@ function activeBackgroundPanel(options = {}) {
   panel.insertBefore(activeBackgroundTargetControl(), actions);
   const targetStatus = activeBackgroundTargetStatus();
   const targetLabel = backgroundApplyTargetActionLabel(targetStatus.scope);
+  const preview = panel.querySelector(".active-background-preview");
+  preview.onclick = () => chooseBackgroundImageForTarget();
+  preview.title = `Choose image for ${targetLabel}`;
+  preview.setAttribute("aria-label", `Choose image for ${targetLabel}.`);
 
   const imageInput = document.createElement("input");
   imageInput.className = "setting-control active-background-input";
@@ -10497,7 +10507,7 @@ function activeBackgroundPanel(options = {}) {
   panel.insertBefore(inputRow, actions);
   installBackgroundDropTarget(panel, { input: imageInput, applyTarget: () => state.backgroundApplyTarget });
 
-  const choose = settingsActionButton("Choose", () => chooseBackgroundImageForTarget(), "", "active background choose local file apply wallpaper");
+  const choose = settingsActionButton("Choose file", () => chooseBackgroundImageForTarget(), "", "active background choose local file apply wallpaper");
   choose.dataset.backgroundAction = "choose";
   choose.title = `Choose an image for ${targetLabel}`;
   choose.disabled = !targetStatus.canTarget;
@@ -10505,7 +10515,7 @@ function activeBackgroundPanel(options = {}) {
   paste.dataset.backgroundAction = "paste";
   paste.title = `Paste an image for ${targetLabel}`;
   paste.disabled = !targetStatus.canTarget;
-  const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: activeBackgroundPanelViewModel().background }), "", "active background save current");
+  const save = settingsActionButton("Save image", () => saveCustomBackgroundImage({ url: activeBackgroundPanelViewModel().background }), "", "active background save current");
   save.dataset.backgroundAction = "save";
   save.title = "Save the selected background";
   save.disabled = !isCustomBackgroundImage(model.background);
@@ -10513,7 +10523,7 @@ function activeBackgroundPanel(options = {}) {
   open.dataset.backgroundAction = "open";
   open.title = "Open the selected background source";
   open.disabled = !canOpenBackgroundImageSource(model.background);
-  const imageGroup = backgroundActionGroup("Image source", "active background image choose paste save open", [choose, paste, save, open]);
+  const imageGroup = backgroundActionGroup("Image", "active background image choose paste save open", [choose, paste, save, open]);
   imageGroup.classList.add("background-action-group-image");
 
   const applyCurrent = settingsActionButton("Use app image", applyCurrentBackgroundToTarget, "", "active background apply current app image to selected target pane all terminals");
@@ -10524,7 +10534,7 @@ function activeBackgroundPanel(options = {}) {
   clear.dataset.backgroundAction = "clear";
   clear.title = `Clear ${targetLabel}`;
   clear.disabled = !targetStatus.canTarget || !targetStatus.hasValue;
-  const scopeGroup = backgroundActionGroup("Selected target", "active background selected target app pane all terminals use app clear", [applyCurrent, clear]);
+  const scopeGroup = backgroundActionGroup("Target", "active background selected target app pane all terminals use app clear", [applyCurrent, clear]);
   scopeGroup.classList.add("background-action-group-scope");
   actions.append(imageGroup, scopeGroup);
   if (options.tuning) {

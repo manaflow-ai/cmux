@@ -668,6 +668,7 @@ body.reduce-motion *::after {
 .empty-workspace-starter,
 .empty-workspace-launcher,
 .background-preset,
+.background-target-option,
 .settings-page-tab,
 .context-action,
 .context-color,
@@ -786,6 +787,7 @@ body.reduce-motion *::after {
 .empty-workspace-launcher:focus-visible,
 .settings-command-run:focus-visible,
 .background-preset:focus-visible,
+.background-target-option:focus-visible,
 .settings-page-tab:focus-visible,
 .context-action:focus-visible,
 .context-color:focus-visible,
@@ -825,6 +827,7 @@ body.reduce-motion *::after {
 .empty-workspace-launcher:active,
 .settings-command-run:active,
 .background-preset:active,
+.background-target-option:active,
 .settings-page-tab:active,
 .context-action:active,
 .palette-quick-action:active,
@@ -9149,27 +9152,32 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .background-preset-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(146px, 100%), 1fr));
   gap: var(--space-2);
 }
 
 .background-preset-card {
   min-width: 0;
   display: grid;
-  gap: var(--space-1);
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 88%, var(--color-rail) 12%);
 }
 
 .active-background-panel {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(78px, .32fr) minmax(0, 1fr);
+  grid-template-columns: minmax(108px, .34fr) minmax(0, 1fr);
   align-items: stretch;
   gap: var(--space-2);
-  padding: var(--space-2);
+  padding: 10px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-2);
   background:
-    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 94%, var(--color-rail) 6%), var(--color-pane));
+    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 92%, var(--color-rail) 8%), var(--color-pane));
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 5%, transparent);
 }
 
 .active-background-panel.is-drop-target,
@@ -9185,8 +9193,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   position: relative;
   width: 100%;
   min-width: 0;
-  min-height: 58px;
-  aspect-ratio: 1.28;
+  min-height: 72px;
+  aspect-ratio: 1.34;
   overflow: hidden;
   border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-1);
@@ -9197,6 +9205,11 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background-size: var(--active-background-size, cover), cover;
   background-repeat: var(--active-background-repeat, repeat), no-repeat;
   background-position: var(--active-background-position, center), center;
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-text) 5%, transparent);
+}
+
+.active-background-preview:hover {
+  border-color: color-mix(in oklch, var(--color-accent) 60%, var(--color-line-strong) 40%);
 }
 
 .active-background-preview::after {
@@ -9218,7 +9231,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .active-background-copy {
   min-width: 0;
   display: grid;
-  gap: 3px;
+  align-content: center;
+  gap: 4px;
 }
 
 .active-background-kicker {
@@ -9252,22 +9266,22 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   min-width: 0;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-  padding-top: 2px;
+  gap: 5px;
+  padding-top: 3px;
 }
 
 .active-background-snapshot-item {
   min-width: 0;
-  height: 34px;
+  height: 38px;
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
+  grid-template-columns: 30px minmax(0, 1fr);
   align-items: center;
   gap: 5px;
-  padding: 3px 5px 3px 3px;
+  padding: 3px 6px 3px 3px;
   overflow: hidden;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane) 82%, var(--color-rail) 18%);
+  background: color-mix(in oklch, var(--color-pane) 88%, var(--color-rail) 12%);
   color: var(--color-muted);
   text-align: left;
   cursor: pointer;
@@ -9292,8 +9306,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .active-background-snapshot-preview {
   position: relative;
-  width: 26px;
-  height: 24px;
+  width: 30px;
+  height: 28px;
   display: block;
   overflow: hidden;
   border: 1px solid var(--color-line);
@@ -9365,9 +9379,17 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .background-image-target-control {
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
-  gap: 6px;
+  gap: 7px;
   padding: var(--space-2);
-  background: color-mix(in oklch, var(--color-pane) 90%, var(--color-rail) 10%);
+  background: color-mix(in oklch, var(--color-pane) 88%, var(--color-rail) 12%);
+}
+
+.background-target-header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
 .background-target-label {
@@ -9380,6 +9402,16 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   font-weight: 760;
   letter-spacing: 0;
   text-transform: uppercase;
+}
+
+.background-target-current {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 650;
 }
 
 .background-target-options {
@@ -9405,13 +9437,18 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background: color-mix(in oklch, var(--color-canvas) 24%, transparent);
   color: var(--color-muted);
   text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .background-image-target-control .background-target-option {
   grid-template-columns: 22px minmax(0, 1fr);
   align-items: center;
   align-content: stretch;
-  min-height: 48px;
+  min-height: 46px;
   padding: 7px 8px;
 }
 
@@ -9503,6 +9540,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .background-target-option:disabled {
   color: var(--color-faint);
   cursor: default;
+}
+
+.background-target-option.is-disabled {
+  opacity: .62;
 }
 
 .background-target-name,
@@ -9655,9 +9696,9 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .background-preset {
   width: 100%;
   min-width: 0;
-  height: 48px;
+  height: 54px;
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
+  grid-template-columns: 52px minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1);
@@ -9689,7 +9730,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .background-preset-actions {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 58px;
+  grid-template-columns: minmax(0, 1fr) 54px;
   gap: var(--space-1);
 }
 
@@ -9757,8 +9798,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .background-preset-preview {
-  width: 40px;
-  height: 34px;
+  width: 48px;
+  height: 40px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
   background-image: var(--preset-background);
@@ -9784,11 +9825,12 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   min-width: 0;
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-2);
+  padding: 10px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-2);
   background:
     linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 94%, var(--color-rail) 6%), var(--color-pane));
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 5%, transparent);
 }
 
 .saved-background-add-copy {
@@ -9926,13 +9968,13 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .saved-background-card {
   min-width: 0;
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-columns: 74px minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1);
+  padding: 6px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
-  background: var(--color-pane);
+  background: color-mix(in oklch, var(--color-pane) 90%, var(--color-rail) 10%);
 }
 
 .saved-background-card.is-active {
@@ -9946,8 +9988,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .saved-background-preview {
-  width: 54px;
-  height: 38px;
+  width: 70px;
+  height: 48px;
   border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-1);
   background-color: var(--color-canvas);
