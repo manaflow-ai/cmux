@@ -10001,7 +10001,9 @@ class TerminalController {
             includeScrollback = true
         }
 
-        var result: V2CallResult = .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
+        var rawSnapshot: TerminalTextRawSnapshot?
+        var resolvedContext: (workspaceId: UUID, surfaceId: UUID, windowId: UUID?)?
+        var result: V2CallResult?
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -10027,35 +10029,74 @@ class TerminalController {
                 return
             }
 
-            let response = readTerminalTextBase64(
+            rawSnapshot = readTerminalTextRawSnapshot(
                 terminalPanel: terminalPanel,
-                includeScrollback: includeScrollback,
-                lineLimit: lineLimit
+                includeScrollback: includeScrollback
             )
-            guard response.hasPrefix("OK ") else {
-                result = .err(code: "internal_error", message: response, data: nil)
-                return
-            }
-            let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-            let decoded = Data(base64Encoded: base64).flatMap { String(data: $0, encoding: .utf8) }
-            guard let text = decoded ?? (base64.isEmpty ? "" : nil) else {
-                result = .err(code: "internal_error", message: "Failed to decode terminal text", data: nil)
-                return
-            }
-
-            let windowId = v2ResolveWindowId(tabManager: tabManager)
-            result = .ok([
-                "text": text,
-                "base64": base64,
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "window_id": v2OrNull(windowId?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: windowId)
-            ])
+            resolvedContext = (ws.id, surfaceId, v2ResolveWindowId(tabManager: tabManager))
         }
-        return result
+        if let result {
+            return result
+        }
+        guard let rawSnapshot, let resolvedContext else {
+            return .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
+        }
+        switch Self.terminalTextPayload(
+            from: rawSnapshot,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        ) {
+        case .success(let payload):
+            return .ok([
+                "text": payload.text,
+                "base64": payload.base64,
+                "workspace_id": resolvedContext.workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: resolvedContext.workspaceId),
+                "surface_id": resolvedContext.surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: resolvedContext.surfaceId),
+                "window_id": v2OrNull(resolvedContext.windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: resolvedContext.windowId)
+            ])
+        case .failure(let error):
+            return .err(code: "internal_error", message: error.message, data: nil)
+        }
+    }
+
+    struct TerminalTextRawSnapshot {
+        var viewport: String?
+        var screen: String?
+        var history: String?
+        var active: String?
+    }
+
+    struct TerminalTextPayload: Equatable {
+        let text: String
+        let base64: String
+    }
+
+    struct TerminalTextPayloadError: Error, Equatable {
+        let message: String
+    }
+
+    private func readTerminalTextRawSnapshot(
+        terminalPanel: TerminalPanel,
+        includeScrollback: Bool
+    ) -> TerminalTextRawSnapshot? {
+        guard terminalPanel.surface.surface != nil else { return nil }
+        if includeScrollback {
+            return TerminalTextRawSnapshot(
+                viewport: nil,
+                screen: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SCREEN),
+                history: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SURFACE),
+                active: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_ACTIVE)
+            )
+        }
+        return TerminalTextRawSnapshot(
+            viewport: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_VIEWPORT),
+            screen: nil,
+            history: nil,
+            active: nil
+        )
     }
 
     private func readTerminalSelectionText(terminalPanel: TerminalPanel, pointTag: ghostty_point_tag_e) -> String? {
@@ -10094,64 +10135,84 @@ class TerminalController {
     }
 
     private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
-        guard terminalPanel.surface.surface != nil else { return "ERROR: Terminal surface not found" }
-        func readSelectionText(pointTag: ghostty_point_tag_e) -> String? {
-            readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: pointTag)
+        guard let snapshot = readTerminalTextRawSnapshot(
+            terminalPanel: terminalPanel,
+            includeScrollback: includeScrollback
+        ) else {
+            return "ERROR: Terminal surface not found"
         }
+        switch Self.terminalTextPayload(
+            from: snapshot,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        ) {
+        case .success(let payload):
+            return "OK \(payload.base64)"
+        case .failure(let error):
+            return "ERROR: \(error.message)"
+        }
+    }
 
-        var output: String
+    nonisolated static func terminalTextPayload(
+        from snapshot: TerminalTextRawSnapshot,
+        includeScrollback: Bool,
+        lineLimit: Int?
+    ) -> Result<TerminalTextPayload, TerminalTextPayloadError> {
+        let output: String
         if includeScrollback {
-            func candidateScore(_ text: String) -> (lines: Int, bytes: Int) {
-                let lines = text.isEmpty ? 0 : text.split(separator: "\n", omittingEmptySubsequences: false).count
-                return (lines, text.utf8.count)
-            }
-
-            // Read all available regions and pick the most complete candidate.
-            // Different point tags can lose different rows around resize/reflow boundaries.
-            let screen = readSelectionText(pointTag: GHOSTTY_POINT_SCREEN)
-            let history = readSelectionText(pointTag: GHOSTTY_POINT_SURFACE)
-            let active = readSelectionText(pointTag: GHOSTTY_POINT_ACTIVE)
-
             var candidates: [String] = []
-            if let screen {
-                candidates.append(screen)
+            if let screen = snapshot.screen {
+                candidates.append(lineLimit.map { Self.tailTerminalLines(screen, maxLines: $0) } ?? screen)
             }
-            if history != nil || active != nil {
-                var merged = history ?? ""
-                if let active {
+            if snapshot.history != nil || snapshot.active != nil {
+                var merged = lineLimit.map {
+                    Self.tailTerminalLines(snapshot.history ?? "", maxLines: $0)
+                } ?? (snapshot.history ?? "")
+                if let active = snapshot.active {
                     if !merged.isEmpty, !merged.hasSuffix("\n"), !active.isEmpty {
                         merged.append("\n")
                     }
-                    merged.append(active)
+                    merged.append(lineLimit.map { Self.tailTerminalLines(active, maxLines: $0) } ?? active)
                 }
-                candidates.append(merged)
+                candidates.append(lineLimit.map { Self.tailTerminalLines(merged, maxLines: $0) } ?? merged)
             }
 
-            if let best = candidates.max(by: { lhs, rhs in
-                let left = candidateScore(lhs)
-                let right = candidateScore(rhs)
+            guard let best = candidates.max(by: { lhs, rhs in
+                let left = terminalTextCandidateScore(lhs)
+                let right = terminalTextCandidateScore(rhs)
                 if left.lines != right.lines {
                     return left.lines < right.lines
                 }
                 return left.bytes < right.bytes
-            }) {
-                output = best
-            } else {
-                return "ERROR: Failed to read terminal text"
+            }) else {
+                return .failure(TerminalTextPayloadError(message: "Failed to read terminal text"))
             }
+            output = best
         } else {
-            guard let viewport = readSelectionText(pointTag: GHOSTTY_POINT_VIEWPORT) else {
-                return "ERROR: Failed to read terminal text"
+            guard var viewport = snapshot.viewport else {
+                return .failure(TerminalTextPayloadError(message: "Failed to read terminal text"))
+            }
+            if let lineLimit {
+                viewport = Self.tailTerminalLines(viewport, maxLines: lineLimit)
             }
             output = viewport
         }
 
-        if let lineLimit {
-            output = tailTerminalLines(output, maxLines: lineLimit)
-        }
-
         let base64 = output.data(using: .utf8)?.base64EncodedString() ?? ""
-        return "OK \(base64)"
+        return .success(TerminalTextPayload(text: output, base64: base64))
+    }
+
+    nonisolated private static func terminalTextCandidateScore(_ text: String) -> (lines: Int, bytes: Int) {
+        if text.isEmpty { return (0, 0) }
+        var newlineCount = 0
+        var byteCount = 0
+        for byte in text.utf8 {
+            byteCount += 1
+            if byte == 0x0A {
+                newlineCount += 1
+            }
+        }
+        return (newlineCount + 1, byteCount)
     }
 
     private struct PasteboardItemSnapshot {
@@ -10236,7 +10297,7 @@ class TerminalController {
             return nil
         }
         if let lineLimit {
-            output = tailTerminalLines(output, maxLines: lineLimit)
+            output = Self.tailTerminalLines(output, maxLines: lineLimit)
         }
         return output
     }
@@ -16983,11 +17044,21 @@ class TerminalController {
         )
     }
 
-    private func tailTerminalLines(_ text: String, maxLines: Int) -> String {
+    nonisolated static func tailTerminalLines(_ text: String, maxLines: Int) -> String {
         guard maxLines > 0 else { return "" }
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        guard lines.count > maxLines else { return text }
-        return lines.suffix(maxLines).joined(separator: "\n")
+        var newlineCount = 0
+        var index = text.endIndex
+        while index > text.startIndex {
+            let previous = text.index(before: index)
+            if text[previous] == "\n" {
+                newlineCount += 1
+                if newlineCount == maxLines {
+                    return String(text[index...])
+                }
+            }
+            index = previous
+        }
+        return text
     }
 
     private func readTerminalTextBase64(surfaceArg: String, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
