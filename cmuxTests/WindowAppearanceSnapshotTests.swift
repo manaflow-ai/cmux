@@ -114,6 +114,80 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testRapidWindowBackdropSchedulesOnlyApplyLatestPlan() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let firstPlan = makeSnapshot(
+            unifySurfaceBackdrops: true,
+            backgroundHex: "#101820",
+            backgroundOpacity: 0.6
+        ).backdropPlan(glassEffectAvailable: false)
+        let latestPlan = makeSnapshot(
+            unifySurfaceBackdrops: false,
+            backgroundHex: "#F8F8F2",
+            backgroundOpacity: 1.0
+        ).backdropPlan(glassEffectAvailable: false)
+        var queued: [() -> Void] = []
+        var appliedMutationIDs: [String] = []
+        var completionMutationIDs: [String] = []
+
+        let firstScheduled = WindowBackdropApplyScheduler.schedule(
+            plan: firstPlan,
+            to: window,
+            enqueue: { queued.append($0) },
+            apply: { plan, _ in
+                appliedMutationIDs.append(plan.appKitMutationID)
+                return WindowBackdropApplicationResult(
+                    didChangeGlassRoot: false,
+                    usesWindowGlass: plan.usesWindowGlass
+                )
+            },
+            completion: { _ in completionMutationIDs.append(firstPlan.appKitMutationID) }
+        )
+        let latestScheduled = WindowBackdropApplyScheduler.schedule(
+            plan: latestPlan,
+            to: window,
+            enqueue: { queued.append($0) },
+            apply: { plan, _ in
+                appliedMutationIDs.append(plan.appKitMutationID)
+                return WindowBackdropApplicationResult(
+                    didChangeGlassRoot: false,
+                    usesWindowGlass: plan.usesWindowGlass
+                )
+            },
+            completion: { _ in completionMutationIDs.append(latestPlan.appKitMutationID) }
+        )
+
+        XCTAssertTrue(firstScheduled)
+        XCTAssertTrue(latestScheduled)
+        XCTAssertEqual(queued.count, 2)
+        XCTAssertTrue(appliedMutationIDs.isEmpty)
+
+        queued.forEach { $0() }
+
+        XCTAssertEqual(appliedMutationIDs, [latestPlan.appKitMutationID])
+        XCTAssertEqual(completionMutationIDs, [latestPlan.appKitMutationID])
+        XCTAssertFalse(
+            WindowBackdropApplyScheduler.schedule(
+                plan: latestPlan,
+                to: window,
+                enqueue: { queued.append($0) },
+                apply: { plan, _ in
+                    appliedMutationIDs.append(plan.appKitMutationID)
+                    return WindowBackdropApplicationResult(
+                        didChangeGlassRoot: false,
+                        usesWindowGlass: plan.usesWindowGlass
+                    )
+                }
+            )
+        )
+    }
+
     func testChromeColorSchemeFollowsTerminalBackground() {
         XCTAssertEqual(
             makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#F8F8F2").chromeColorScheme,

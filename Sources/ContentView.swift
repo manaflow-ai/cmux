@@ -3384,24 +3384,8 @@ struct ContentView: View {
                 AppDelegate.shared?.updateLog.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
             }
 #endif
-            let backdropResult = WindowBackdropController.apply(plan: backdropPlan, to: window)
-            if backdropResult.didChangeGlassRoot {
-                let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
-                tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
-                commandPaletteWindowOverlayController(for: window)
-                    .update(isVisible: isCommandPalettePresented) { AnyView(commandPaletteOverlay) }
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
-                BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
-            }
             AppDelegate.shared?.attachUpdateAccessory(to: window)
             AppDelegate.shared?.applyWindowDecorations(to: window)
-            // Let cmux supply the translucent titlebar fills. AppKit's native
-            // material otherwise blends a lighter strip over the terminal area.
-            syncNativeTitlebarBackdrop(
-                in: window,
-                enabled: true,
-                usesGlassStyle: backdropResult.usesWindowGlass
-            )
             AppDelegate.shared?.registerMainWindow(
                 window,
                 windowId: windowId,
@@ -3412,6 +3396,23 @@ struct ContentView: View {
                 cmuxConfigStore: cmuxConfigStore
             )
             installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
+            WindowBackdropApplyScheduler.schedule(plan: backdropPlan, to: window, completion: { backdropResult in
+                if backdropResult.didChangeGlassRoot {
+                    let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
+                    tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
+                    commandPaletteWindowOverlayController(for: window)
+                        .update(isVisible: isCommandPalettePresented) { AnyView(commandPaletteOverlay) }
+                    TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+                    BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+                }
+                // Let cmux supply the translucent titlebar fills. AppKit's native
+                // material otherwise blends a lighter strip over the terminal area.
+                syncNativeTitlebarBackdrop(
+                    in: window,
+                    enabled: true,
+                    usesGlassStyle: backdropResult.usesWindowGlass
+                )
+            })
         }))
 
         return AnyView(view.cmuxAppearanceColorScheme(appearanceMode))

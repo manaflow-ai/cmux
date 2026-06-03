@@ -4960,11 +4960,12 @@ class GhosttyApp {
         }
     }
 
+    @MainActor
     private func applyBackgroundToKeyWindow() {
         guard let window = activeMainWindow() else { return }
         let snapshot = WindowAppearanceSnapshot.currentFromUserDefaults(app: self)
         let plan = snapshot.backdropPlan()
-        _ = WindowBackdropController.apply(plan: plan, to: window)
+        WindowBackdropApplyScheduler.schedule(plan: plan, to: window)
         if backgroundLogEnabled {
             logBackground(
                 "applied window backdrop phase=\(plan.hostingPhase.rawValue) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur)"
@@ -7808,7 +7809,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             .currentFromUserDefaults(app: GhosttyApp.shared)
             .replacingTerminalBackgroundColor(backgroundColor ?? GhosttyApp.shared.defaultBackgroundColor)
         let plan = snapshot.backdropPlan()
-        _ = WindowBackdropController.apply(plan: plan, to: window)
+        WindowBackdropApplyScheduler.schedule(plan: plan, to: window)
         if GhosttyApp.shared.backgroundLogEnabled {
             let signature = "\(plan.hostingPhase.rawValue):\(color.hexString()):\(String(format: "%.3f", color.alphaComponent)):\(GhosttyApp.shared.defaultBackgroundBlur)"
             if signature != lastLoggedWindowBackgroundSignature {
