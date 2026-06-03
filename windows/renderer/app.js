@@ -10208,10 +10208,12 @@ function renderSettingsInspector(options = {}) {
     ));
     const colorActions = document.createElement("div");
     colorActions.className = "settings-actions";
-    colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color reset default background foreground cursor save copy terminal profile setup reusable clipboard json");
+    colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color reset default background foreground cursor save copy paste terminal profile setup reusable clipboard json");
     const terminalColorsReset = isTerminalColorPresetIdActive("cmux");
     const copyTerminalColors = settingsActionButton("Copy colors", copyTerminalColorPalette, "", "terminal color copy palette json clipboard background foreground cursor");
     copyTerminalColors.title = "Copy the current terminal background, text, and cursor color setup.";
+    const pasteTerminalColors = settingsActionButton("Paste colors", pasteTerminalColorPalette, "", "terminal color paste palette json clipboard background foreground cursor");
+    pasteTerminalColors.title = "Apply terminal colors copied from cmux.";
     const resetTerminalColors = settingsActionButton("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), "", `terminal color reset default background foreground cursor ${terminalColorsReset ? "active current " : ""}`);
     resetTerminalColors.disabled = terminalColorsReset;
     resetTerminalColors.title = terminalColorsReset
@@ -10223,6 +10225,7 @@ function renderSettingsInspector(options = {}) {
         "Save this terminal setup as a reusable Settings profile."
       ),
       copyTerminalColors,
+      pasteTerminalColors,
       resetTerminalColors
     );
     terminalSection.append(colorActions);
@@ -15763,6 +15766,62 @@ async function copyTerminalColorPalette() {
   return false;
 }
 
+function terminalColorUpdatesFromPayload(payload) {
+  const parsed = payload && typeof payload === "object" && !Array.isArray(payload) ? payload : null;
+  const source = parsed?.settings && typeof parsed.settings === "object" && !Array.isArray(parsed.settings)
+    ? parsed.settings
+    : parsed;
+  if (!source) return null;
+  const updates = {};
+  const fields = [
+    ["terminalBackground", "background"],
+    ["terminalForeground", "foreground"],
+    ["terminalCursorColor", "cursor"]
+  ];
+  for (const [settingKey, shortKey] of fields) {
+    if (!Object.prototype.hasOwnProperty.call(source, settingKey) && !Object.prototype.hasOwnProperty.call(source, shortKey)) continue;
+    const raw = Object.prototype.hasOwnProperty.call(source, settingKey) ? source[settingKey] : source[shortKey];
+    if (raw === "" || raw === null) {
+      updates[settingKey] = "";
+      continue;
+    }
+    const normalized = normalizeTerminalColor(raw);
+    if (!normalized) return null;
+    updates[settingKey] = normalized;
+  }
+  return Object.keys(updates).length ? updates : null;
+}
+
+function applyTerminalColorUpdates(updates, toastText = "Terminal colors applied.") {
+  if (!updates) {
+    toast("Clipboard does not contain terminal colors.");
+    return false;
+  }
+  const changed = updateSettings(updates);
+  if (!changed) {
+    toast("Terminal colors already match.");
+    return false;
+  }
+  renderSettingsInspector();
+  toast(toastText);
+  return true;
+}
+
+async function pasteTerminalColorPalette() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(clipboard);
+    return applyTerminalColorUpdates(terminalColorUpdatesFromPayload(parsed));
+  } catch {
+    toast("Clipboard does not contain terminal colors.");
+    return false;
+  }
+}
+
 function applyTerminalColorPreset(preset) {
   if (!preset) return;
   const changed = updateSettings({
@@ -16241,7 +16300,8 @@ function settingsActionIconMarkup(label, tone = "") {
   if (text.startsWith("save") || text.includes("+ save")) return quickActionIconMarkup("saveLayout");
   if (text.startsWith("add") || text.startsWith("new")) return controlIconMarkup("plus");
   if (text.startsWith("apply") || text === "use" || text.startsWith("use ")) return controlIconMarkup("arrowRight");
-  if (text.startsWith("choose") || text.startsWith("paste")) return quickActionIconMarkup("background");
+  if (text.startsWith("paste")) return controlIconMarkup("clipboard");
+  if (text.startsWith("choose")) return quickActionIconMarkup("background");
   if (text.startsWith("open external") || text === "external") return controlIconMarkup("external");
   if (text.startsWith("open")) return controlIconMarkup("external");
   if (text.startsWith("refresh") || text.startsWith("restart")) return controlIconMarkup("reload");
@@ -17659,6 +17719,7 @@ function showToolbarMenu(event) {
       toolbarAction("Clear terminal background", () => applyPanelBackgroundImage("", panel), !terminalActive || !terminalBackground, "Clear the focused terminal background.", terminalActive ? "Focused terminal background is already clear." : terminalRequiredTitle),
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
       toolbarAction("Copy terminal colors", copyTerminalColorPalette, false, "Copy the current terminal color setup."),
+      toolbarAction("Paste terminal colors", pasteTerminalColorPalette, false, "Apply terminal colors copied from cmux."),
       toolbarAction("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), terminalColorsDefault, "Reset background, text, and cursor colors to the cmux default.", "Terminal colors already match the cmux default.")
     ),
     contextMenuSectionTitle("Browser"),
@@ -18605,6 +18666,15 @@ function paletteEntries() {
     title: "Copy the current terminal color setup.",
     search: normalizeSettingsQuery("terminal colors copy current palette json clipboard background foreground text cursor settings"),
     run: copyTerminalColorPalette
+  });
+  entries.push({
+    id: "terminalColor.pasteCurrent",
+    label: "Paste terminal colors",
+    meta: "Apply copied terminal color JSON",
+    shortcut: "Paste",
+    title: "Apply terminal colors copied from cmux.",
+    search: normalizeSettingsQuery("terminal colors paste apply palette json clipboard background foreground text cursor settings"),
+    run: pasteTerminalColorPalette
   });
   for (const preset of terminalColorPresets) {
     const active = isActiveTerminalColorPreset(preset);
