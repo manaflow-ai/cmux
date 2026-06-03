@@ -29891,6 +29891,29 @@ const workspaceChromePresets = [
     }
   },
   {
+    id: "minimal",
+    label: "Minimal",
+    body: "Hide tabs, status, and pane chrome for the cleanest workspace.",
+    settings: {
+      density: "compact",
+      paneHeaderMode: "hidden",
+      paneActionMode: "essential",
+      sidebarDetailMode: "compact",
+      sidebarBranchMode: "hidden",
+      sidebarFooterMode: "compact",
+      toolbarMode: "minimal",
+      tabSize: "compact",
+      addTabStyle: "hidden",
+      titleDetailMode: "compact",
+      paneColorMarkers: false,
+      focusMode: false,
+      showTabs: false,
+      showStatusbar: false,
+      sidebarWidth: 204,
+      inspectorWidth: 320
+    }
+  },
+  {
     id: "control",
     label: "Control room",
     body: "More visible controls, roomier tabs, details, and pane markers.",
