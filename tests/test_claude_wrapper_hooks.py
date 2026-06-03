@@ -578,6 +578,75 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     )
 
 
+def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> None:
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--settings", '{"ultracode": true, "effortLevel": "max"}', "-p", "hi"],
+    )
+    expect(code == 0, f"merge user settings: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv.count("--settings") == 1,
+        f"merge user settings: expected one merged --settings, got {real_argv}",
+        failures,
+    )
+    settings = parse_settings_arg(real_argv)
+    expect(
+        settings.get("preferredNotifChannel") == "notifications_disabled",
+        f"merge user settings: cmux hook settings lost, got {settings}",
+        failures,
+    )
+    expected_hooks = {
+        "SessionStart", "Stop", "SubagentStop", "SessionEnd",
+        "Notification", "UserPromptSubmit", "PreToolUse", "PermissionRequest",
+    }
+    expect(
+        set(settings.get("hooks", {}).keys()) == expected_hooks,
+        f"merge user settings: cmux hooks missing after merge, got {settings.get('hooks', {}).keys()}",
+        failures,
+    )
+    expect(
+        settings.get("ultracode") is True,
+        f"merge user settings: user 'ultracode' dropped, got {settings}",
+        failures,
+    )
+    expect(
+        settings.get("effortLevel") == "max",
+        f"merge user settings: user 'effortLevel' dropped, got {settings}",
+        failures,
+    )
+    expect(
+        '{"ultracode": true, "effortLevel": "max"}' not in real_argv,
+        f"merge user settings: raw user --settings should be folded in, got {real_argv}",
+        failures,
+    )
+    expect(
+        "-p" in real_argv and "hi" in real_argv,
+        f"merge user settings: user args dropped, got {real_argv}",
+        failures,
+    )
+
+
+def test_live_socket_merges_inline_settings_form(failures: list[str]) -> None:
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=['--settings={"ultracode": true}', "hello"],
+    )
+    expect(code == 0, f"inline settings: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv.count("--settings") == 1,
+        f"inline settings: expected one merged --settings, got {real_argv}",
+        failures,
+    )
+    settings = parse_settings_arg(real_argv)
+    expect(settings.get("ultracode") is True, f"inline settings: user key dropped, got {settings}", failures)
+    expect(
+        settings.get("preferredNotifChannel") == "notifications_disabled",
+        f"inline settings: cmux hooks lost, got {settings}",
+        failures,
+    )
+    expect(real_argv[-1] == "hello", f"inline settings: positional arg dropped, got {real_argv}", failures)
+
+
 def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> None:
     code, _, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
         socket_state="live",
@@ -1166,6 +1235,8 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
+    test_live_socket_merges_user_settings_into_hooks(failures)
+    test_live_socket_merges_inline_settings_form(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
