@@ -7,7 +7,9 @@ public import Foundation
 /// last applied state so the cursor overlay matches a TUI that hides the
 /// cursor. The last occurrence in the chunk wins. Extracted verbatim from the
 /// iOS surface view's `lastCursorVisibility(in:)` so the byte scan is testable.
-public enum TerminalDECTCEMCursorScanner {
+public struct TerminalDECTCEMCursorScanner {
+    private init() {}
+
     /// Returns the final cursor-visibility state in `data`, or `nil` when the
     /// chunk contains no DECTCEM show/hide sequence.
     ///

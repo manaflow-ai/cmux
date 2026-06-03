@@ -9,7 +9,9 @@ import Foundation
 /// grid pin, and the decision of whether to letterbox and at what point size.
 /// The arithmetic is byte-for-byte identical to the legacy path so the surface
 /// converges on the exact same grid; this layer just makes it testable.
-public enum TerminalLetterboxGeometry {
+public struct TerminalLetterboxGeometry {
+    private init() {}
+
     /// The drawable container size after subtracting the keyboard overlap.
     ///
     /// Mirrors the legacy `containerW`/`containerH`/`bottomInset` computation:

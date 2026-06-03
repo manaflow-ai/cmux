@@ -6,7 +6,9 @@ import Foundation
 /// the buffer keeps the in-progress text. Once composition ends, the full text
 /// commits and the buffer clears. Extracted verbatim from the iOS input view
 /// so the commit policy is testable without a `UITextView`.
-public enum TerminalTextInputPipeline {
+public struct TerminalTextInputPipeline {
+    private init() {}
+
     /// The outcome of processing a text change.
     public struct Result: Equatable, Sendable {
         /// Text to send to the terminal, or `nil` when nothing commits.

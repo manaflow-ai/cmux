@@ -9,7 +9,9 @@ public import Foundation
 /// home. The produced bytes are identical to the legacy UIKit path.
 ///
 /// All methods are pure and `static`; the encoder holds no state.
-public enum TerminalKeyEncoder {
+public struct TerminalKeyEncoder {
+    private init() {}
+
     private static let supportedModifierFlags: TerminalKeyModifier = [.shift, .control, .alternate]
 
     /// Encodes a special (non-character) key with the given modifiers.
