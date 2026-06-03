@@ -6095,13 +6095,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func auxiliaryWindowForFocusedCloseShortcut(event: NSEvent) -> NSWindow? {
-        [
-            NSApp.keyWindow,
-            NSApp.mainWindow,
-            resolvedShortcutEventWindow(event),
-        ]
-        .compactMap { $0 }
-        .first { cmuxWindowShouldOwnCloseShortcut($0) }
+        // Only an auxiliary window that is actually the key window may own the focused Close shortcut.
+        // A stale event window or a lingering closed auxiliary scene must not absorb Cmd+W (#5321).
+        auxiliaryCloseShortcutTarget(
+            candidates: [
+                NSApp.keyWindow,
+                NSApp.mainWindow,
+                resolvedShortcutEventWindow(event),
+            ],
+            isAuxiliary: { cmuxWindowShouldOwnCloseShortcut($0) },
+            isKey: { $0.isKeyWindow }
+        )
     }
 
     /// Re-sync app-level active window pointers from the currently focused main terminal window.
