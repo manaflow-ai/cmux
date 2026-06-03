@@ -18613,6 +18613,56 @@ function quickProfileDataControlsPanel() {
   });
 }
 
+function quickDataMaintenanceControlsPanel() {
+  const savedItems = savedDataItemCount();
+  const recentItems = recentDataItemCount();
+  const emptyTargets = emptyWorkspaceCleanupTargets();
+  const hasRecent = hasRecentActivity();
+  const hasSaved = savedItems > 0;
+  const actions = [
+    quickOverviewControlButton("Backup", copyAppSetup, {
+      title: "Copy settings, profiles, blueprints, saved colors, backgrounds, snippets, and recent data as JSON.",
+      search: "quick setup data maintenance backup export copy app setup settings profiles blueprints snippets colors backgrounds recent clipboard json"
+    }),
+    quickOverviewControlButton("Restore", pasteAppSetup, {
+      title: "Paste exported cmux Windows app setup JSON.",
+      search: "quick setup data maintenance restore import paste app setup settings profiles blueprints snippets colors backgrounds recent clipboard json"
+    }),
+    quickOverviewControlButton("Clear recent", clearRecentActivity, {
+      disabled: !hasRecent,
+      title: hasRecent
+        ? "Clear recent folders, commands, browser pages, and saved browser tabs."
+        : "Recent activity is already clear.",
+      search: "quick setup data maintenance clear recent activity privacy folders commands browser pages tabs history"
+    }),
+    quickOverviewControlButton("Clear saved", clearSavedLibrary, {
+      disabled: !hasSaved,
+      title: hasSaved
+        ? "Clear saved snippets, profiles, blueprints, colors, and backgrounds."
+        : "Customization library is already clear.",
+      search: "quick setup data maintenance clear saved customization library snippets profiles blueprints colors backgrounds"
+    }),
+    quickOverviewControlButton("Close empty", closeEmptyWorkspaces, {
+      disabled: emptyTargets.length === 0,
+      title: emptyTargets.length
+        ? "Close extra empty workspaces. Workspaces with panes stay open."
+        : "There are no extra empty workspaces to close.",
+      search: "quick setup data maintenance cleanup close empty workspaces"
+    }),
+    quickOverviewControlButton("Storage", () => openSettingsCategory("data", { query: "storage", focusSearch: false }), {
+      title: "Open local data storage and cleanup settings.",
+      search: "quick setup data maintenance storage breakdown bytes cleanup settings"
+    })
+  ];
+  return quickOverviewControlsPanel({
+    className: "quick-overview-maintenance",
+    title: "Data maintenance controls",
+    meta: `${formatBytes(totalDataStorageBytes())} / ${recentItems} recent / ${savedItems} saved / ${emptyTargets.length} empty`,
+    search: `quick setup data maintenance controls backup restore clear recent saved cleanup privacy storage ${recentItems} recent ${savedItems} saved ${emptyTargets.length} empty`,
+    actions
+  });
+}
+
 function quickCommandSnippetPackCandidate() {
   const remainingSlots = customCommandSnippetsLimit - state.customCommandSnippets.length;
   const candidates = commandSnippetPackDefinitions
@@ -18695,7 +18745,7 @@ function quickSetupOverviewPanel() {
   const librarySummary = quickCustomizationLibrarySummary(libraryEntries);
   const panel = document.createElement("div");
   panel.className = "quick-setup-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls theme layout terminal browser commands actions workflows shortcuts palette performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints starter layouts reusable colors backgrounds snippets packs data`);
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls theme layout terminal browser commands actions workflows shortcuts palette performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints starter layouts reusable colors backgrounds snippets packs data maintenance backup restore cleanup privacy storage`);
   panel.innerHTML = `
     <div class="quick-overview-heading">
       <span class="quick-overview-copy">
@@ -18735,6 +18785,7 @@ function quickSetupOverviewPanel() {
       <span><b>Performance</b><em data-quick-performance></em></span>
     </div>
     <div data-quick-profile-data-controls></div>
+    <div data-quick-data-maintenance-controls></div>
     <div data-quick-workspace-controls></div>
     <div data-quick-layout-controls></div>
     <div data-quick-blueprint-controls></div>
@@ -18817,6 +18868,7 @@ function quickSetupOverviewPanel() {
   panel.querySelector("[data-quick-terminal]").textContent = `${optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono")} ${state.settings.terminalFontSize}px`;
   panel.querySelector("[data-quick-performance]").textContent = performanceModeLabel();
   panel.querySelector("[data-quick-profile-data-controls]").replaceWith(quickProfileDataControlsPanel());
+  panel.querySelector("[data-quick-data-maintenance-controls]").replaceWith(quickDataMaintenanceControlsPanel());
   panel.querySelector("[data-quick-workspace-controls]").replaceWith(quickWorkspaceControlsPanel(workspace, terminalCount, browserCount));
   panel.querySelector("[data-quick-layout-controls]").replaceWith(quickLayoutControlsPanel(workspace));
   panel.querySelector("[data-quick-blueprint-controls]").replaceWith(quickBlueprintControlsPanel(workspace));
