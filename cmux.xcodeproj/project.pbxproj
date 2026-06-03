@@ -2922,7 +2922,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Debug";
 				CMUX_AUTH_CALLBACK_SCHEME = "cmux-dev";
-				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.manaflow.cmux.sidebar;
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = "$(PRODUCT_BUNDLE_IDENTIFIER).cmux.sidebar";
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -2963,7 +2963,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CMUX_AUTH_CALLBACK_SCHEME = cmux;
-				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.manaflow.cmux.sidebar;
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = "$(PRODUCT_BUNDLE_IDENTIFIER).cmux.sidebar";
 				CODE_SIGN_ENTITLEMENTS = Resources/cmux.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;

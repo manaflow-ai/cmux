@@ -3,8 +3,8 @@ set -euo pipefail
 
 # reload-extension.sh — build a CMUX sample sidebar extension scoped to a dev build tag.
 #
-# A tagged cmux dev app (built by reload.sh --tag <t>) declares a per-tag sidebar
-# extension point com.manaflow.cmux.sidebar.<TAG_ID> (baked at build time via the
+# A tagged cmux dev app (built by reload.sh --tag <t>) declares a host-scoped
+# extension point com.cmuxterm.app.debug.<TAG_ID>.cmux.sidebar (baked at build time via the
 # CMUX_SIDEBAR_EXTENSION_POINT_ID build setting; see CMUXSidebarExtensionPoint). For
 # that host to have something to host, the sample extension must register against the
 # SAME tagged point and carry per-tag bundle ids so it can coexist with other tags'
@@ -26,7 +26,7 @@ set -euo pipefail
 # and extension always agree on the point id.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BASE_POINT_ID="com.manaflow.cmux.sidebar"
+SIDEBAR_POINT_NAME="cmux.sidebar"
 
 TAG=""
 EXAMPLE="both"
@@ -81,7 +81,8 @@ sanitize_bundle() {
 
 TAG_ID="$(sanitize_bundle "$TAG")"
 [[ -z "$TAG_ID" ]] && { echo "error: --tag must contain at least one alphanumeric character" >&2; exit 1; }
-TAGGED_POINT_ID="${BASE_POINT_ID}.${TAG_ID}"
+HOST_BUNDLE_ID="com.cmuxterm.app.debug.${TAG_ID}"
+TAGGED_POINT_ID="${HOST_BUNDLE_ID}.${SIDEBAR_POINT_NAME}"
 
 # Each entry: project_path | scheme | app_name | app_bundle_id | appex_relpath | appex_bundle_id
 example_specs() {
