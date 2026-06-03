@@ -171,6 +171,12 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @State private var deferredThemeRefresh: DeferredThemeRefresh?
+    // Bumped when the cmux-config pane divider changes. A pane-divider-only edit
+    // leaves `config` (the Ghostty appearance) untouched, so `body` would not
+    // otherwise re-evaluate; reading this nonce in `body` forces it to rebuild
+    // `BonsplitView`, which makes SwiftUI re-run the split view's `updateNSView`
+    // so the new thickness/color reaches the live NSSplitViews.
+    @State private var paneDividerRefreshNonce = 0
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @Environment(\.colorScheme) private var colorScheme
@@ -192,6 +198,8 @@ struct WorkspaceContentView: View {
     }
 
     var body: some View {
+        // Establish a dependency so a pane-divider config change re-evaluates body.
+        let _ = paneDividerRefreshNonce
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
@@ -332,6 +340,15 @@ struct WorkspaceContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .cmuxPaneDividerConfigDidChange)) { _ in
+            // The cmux-config pane-divider override changed; force a chrome
+            // re-apply so the divider color/thickness updates in place even when
+            // the Ghostty appearance signature is otherwise unchanged.
+            // Force body to rebuild BonsplitView so SwiftUI re-runs the split
+            // view's updateNSView (nested appearance mutation alone is unreliable).
+            paneDividerRefreshNonce &+= 1
+            refreshGhosttyAppearanceConfig(reason: "cmuxPaneDividerConfigDidChange", forceInitialApply: true)
         }
         .onChange(of: colorScheme) { oldValue, newValue in
             // Keep split overlay color/opacity in sync with light/dark theme transitions.

@@ -28,7 +28,29 @@
       "title": "ui",
       "description": "UI action wiring, including surface tab bar buttons and plus-button behavior.",
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": true,
+      "properties": {
+        "paneDivider": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Appearance of the separator bar drawn between split panes. Overrides the Ghostty split-divider-color (which it still respects when no color is set here) and the built-in default.",
+          "properties": {
+            "color": {
+              "type": "string",
+              "pattern": "^#?([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+              "description": "Divider color as a #RRGGBB or #RRGGBBAA hex string. When omitted, the divider falls back to the Ghostty split-divider-color, then to a theme-derived default.",
+              "examples": ["#3478f6", "#80808066"]
+            },
+            "thickness": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 12,
+              "default": 1,
+              "description": "Divider thickness in points. Defaults to a thin 1pt hairline; raise it to make the separator more visible, or set 0 to hide the painted bar."
+            }
+          }
+        }
+      }
     },
     "commands": {
       "title": "commands",

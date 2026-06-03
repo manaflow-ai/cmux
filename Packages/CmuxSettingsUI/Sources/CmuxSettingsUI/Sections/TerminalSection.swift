@@ -20,11 +20,17 @@ public struct TerminalSection: View {
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
     @State private var maxLive: DefaultsValueModel<Int>
+    @State private var paneDividerColor: JSONValueModel<String>
+    @State private var paneDividerThickness: JSONValueModel<Double>
+    // Slider draft so dragging updates the label live and only persists (one
+    // cmux.json write + one divider re-apply) when the drag ends.
+    @State private var paneDividerThicknessDraft: Double = 1
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
+        errorLog: SettingsErrorLog,
         hostActions: SettingsHostActions
     ) {
         self.jsonStore = jsonStore
@@ -37,12 +43,15 @@ public struct TerminalSection: View {
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
         _maxLive = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationMaxLiveTerminals))
+        _paneDividerColor = State(initialValue: JSONValueModel(store: jsonStore, key: catalog.ui.paneDividerColor, errorLog: errorLog))
+        _paneDividerThickness = State(initialValue: JSONValueModel(store: jsonStore, key: catalog.ui.paneDividerThickness, errorLog: errorLog))
     }
 
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
+            paneDividerCard
             resumeCommandsCard
         }
     }
@@ -55,6 +64,107 @@ public struct TerminalSection: View {
         fontSaveTask = Task {
             let saved = await hostActions.setSurfaceTabBarFontSize(points)
             if !Task.isCancelled { fontSaveFailed = !saved }
+        }
+    }
+
+    /// Maximum divider thickness offered in the UI. Matches the clamp in
+    /// `PaneDividerStyle`/Bonsplit so the slider never produces a rejected
+    /// value; advanced fractional values remain editable in cmux.json.
+    private static let maxDividerThickness: Double = 12
+
+    /// Resolves the color-well swatch for a stored pane-divider hex string.
+    ///
+    /// `Color(cmuxHex:)` only parses 6-digit `#RRGGBB`, but the stored value may
+    /// be 8-digit `#RRGGBBAA` (set via cmux.json). Drop the alpha byte for the
+    /// opaque swatch, and fall back to the theme separator when empty/invalid.
+    private static func swatchColor(for stored: String) -> Color {
+        var hex = stored.hasPrefix("#") ? String(stored.dropFirst()) : stored
+        if hex.count == 8 { hex = String(hex.prefix(6)) }
+        return Color(cmuxHex: hex) ?? Color(nsColor: .separatorColor)
+    }
+
+    /// Formats a divider thickness for the value label: whole numbers show no
+    /// decimal (`2`), half steps show one (`2.5`).
+    private func formattedThickness(_ value: Double) -> String {
+        let snapped = (value * 2).rounded() / 2
+        return snapped == snapped.rounded()
+            ? String(Int(snapped))
+            : String(format: "%.1f", snapped)
+    }
+
+    @ViewBuilder
+    private var paneDividerCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("ui.paneDivider.thickness"),
+                String(localized: "settings.terminal.paneDividerThickness", defaultValue: "Pane Separator Thickness"),
+                subtitle: String(
+                    localized: "settings.terminal.paneDividerThickness.subtitle",
+                    defaultValue: "Thickness, in points, of the bar between split panes. Defaults to a thin 1pt hairline; increase it to make the separator more visible."
+                ),
+                controlWidth: 250
+            ) {
+                HStack(spacing: 8) {
+                    Slider(
+                        value: $paneDividerThicknessDraft,
+                        in: 0...Self.maxDividerThickness,
+                        step: 0.5
+                    ) { editing in
+                        if !editing {
+                            paneDividerThickness.set(paneDividerThicknessDraft)
+                        }
+                    }
+                    .frame(width: 130)
+                    .accessibilityIdentifier("SettingsPaneDividerThicknessSlider")
+
+                    Text(String.localizedStringWithFormat(
+                        String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"),
+                        formattedThickness(paneDividerThicknessDraft)
+                    ))
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .trailing)
+
+                    Button(String(localized: "settings.terminal.paneDividerThickness.reset", defaultValue: "Reset")) {
+                        paneDividerThicknessDraft = 1
+                        paneDividerThickness.reset()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(abs(paneDividerThicknessDraft - 1) < 0.001)
+                }
+            }
+            .task { paneDividerThicknessDraft = paneDividerThickness.current }
+            .onChange(of: paneDividerThickness.current) { _, newValue in
+                paneDividerThicknessDraft = newValue
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("ui.paneDivider.color"),
+                String(localized: "settings.terminal.paneDividerColor", defaultValue: "Pane Separator Color"),
+                subtitle: paneDividerColor.current.isEmpty
+                    ? String(localized: "settings.terminal.paneDividerColor.subtitleDefault", defaultValue: "Following the terminal theme (and the Ghostty split-divider-color). Pick a color to override it.")
+                    : String(localized: "settings.terminal.paneDividerColor.subtitleCustom", defaultValue: "Using a custom separator color. Reset to follow the terminal theme.")
+            ) {
+                HStack(spacing: 8) {
+                    ColorPicker(
+                        "",
+                        selection: Binding(
+                            get: { Self.swatchColor(for: paneDividerColor.current) },
+                            set: { paneDividerColor.set($0.cmuxHexString) }
+                        ),
+                        supportsOpacity: false
+                    )
+                    .labelsHidden()
+                    .frame(width: 38)
+                    .accessibilityIdentifier("SettingsPaneDividerColorPicker")
+                    Button(String(localized: "settings.terminal.paneDividerColor.reset", defaultValue: "Default")) {
+                        paneDividerColor.reset()
+                    }
+                    .controlSize(.small)
+                    .disabled(paneDividerColor.current.isEmpty)
+                }
+            }
         }
     }
 

@@ -151,6 +151,7 @@
 		2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C07000000000000000001 /* CmuxMainWindow.swift */; };
 		CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */; };
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
+		F1A0DE0000000000000000B1 /* CmuxPaneDividerConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0DE0000000000000000B2 /* CmuxPaneDividerConfig.swift */; };
 		3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */ = {isa = PBXBuildFile; productRef = 3069F1D10000000000000006 /* CMUXPasteboardFidelity */; };
 		C8000303C8000303C8000303 /* CmuxProcess in Frameworks */ = {isa = PBXBuildFile; productRef = C8000302C8000302C8000302 /* CmuxProcess */; };
 		C8000304C8000304C8000304 /* CmuxProcess in Frameworks */ = {isa = PBXBuildFile; productRef = C8000302C8000302C8000302 /* CmuxProcess */; };
@@ -359,6 +360,8 @@
 		D1BEF00002A1B2C3D4E5F719 /* open in Copy CLI */ = {isa = PBXBuildFile; fileRef = D1BEF00001A1B2C3D4E5F719 /* open */; };
 		FEED0000000000000000F007 /* opencode-plugin.js in Resources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F006 /* opencode-plugin.js */; };
 		A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E01204A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift */; };
+		F1A0DE0000000000000000A1 /* PaneDividerStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0DE0000000000000000A2 /* PaneDividerStyle.swift */; };
+		F1A0DE0000000000000000C1 /* PaneDividerStyleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0DE0000000000000000C2 /* PaneDividerStyleTests.swift */; };
 		D0B1001CA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */; };
 		A5001400 /* Panel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001410 /* Panel.swift */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
@@ -799,6 +802,7 @@
 		2F0C07000000000000000001 /* CmuxMainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxMainWindow.swift; sourceTree = "<group>"; };
 		CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxModalAlertPresentation.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenCommandTests.swift; sourceTree = "<group>"; };
+		F1A0DE0000000000000000B2 /* CmuxPaneDividerConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxPaneDividerConfig.swift; sourceTree = "<group>"; };
 		D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSettingsJSONPathSupport.swift; sourceTree = "<group>"; };
 		DC5DC5DC0000000000000002 /* CmuxSidebarActionDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSidebarActionDispatch.swift; sourceTree = "<group>"; };
 		C0DE46030000000000000002 /* CMUXSidebarExtensionBrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXSidebarExtensionBrowserPanel.swift; sourceTree = "<group>"; };
@@ -991,6 +995,8 @@
 		D1BEF00001A1B2C3D4E5F719 /* open */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/bin/open; sourceTree = SOURCE_ROOT; };
 		FEED0000000000000000F006 /* opencode-plugin.js */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.javascript; path = "opencode-plugin.js"; sourceTree = "<group>"; };
 		A5E01204A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeHookRegressionTests.swift; sourceTree = "<group>"; };
+		F1A0DE0000000000000000A2 /* PaneDividerStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDividerStyle.swift; sourceTree = "<group>"; };
+		F1A0DE0000000000000000C2 /* PaneDividerStyleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDividerStyleTests.swift; sourceTree = "<group>"; };
 		D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDropRoutingSupport.swift; sourceTree = "<group>"; };
 		A5001410 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/Panel.swift; sourceTree = "<group>"; };
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
@@ -1697,6 +1703,8 @@
 				A5001651 /* CmuxConfig.swift */,
 				C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */,
 				C0DEF0A10000000000000002 /* CmuxConfigUI.swift */,
+				F1A0DE0000000000000000A2 /* PaneDividerStyle.swift */,
+				F1A0DE0000000000000000B2 /* CmuxPaneDividerConfig.swift */,
 				E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */,
 				A5001653 /* CmuxConfigExecutor.swift */,
 				A5001655 /* CmuxActionTrust.swift */,
@@ -1864,6 +1872,7 @@
 				2907A0042907A0042907A004 /* AppDelegateIssue2907RoutingTests.swift */,
 				E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */,
 				C0DE49950000000000000002 /* FilePreviewKindResolverTests.swift */,
+				F1A0DE0000000000000000C2 /* PaneDividerStyleTests.swift */,
 				C0DEFB300000000000000002 /* FocusSurfaceBroadcasterTests.swift */,
 				A5001435A5001435A5001435 /* FilePreviewPDFThumbnailSidebarTests.swift */,
 				D3664001D3664001D3664001 /* MarkdownPanelTests.swift */,
@@ -2333,6 +2342,7 @@
 					E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */,
 				2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */,
 				CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */,
+				F1A0DE0000000000000000B1 /* CmuxPaneDividerConfig.swift in Sources */,
 				D3610C010000000000000001 /* CmuxSettingsJSONPathSupport.swift in Sources */,
 				DC5DC5DC0000000000000001 /* CmuxSidebarActionDispatch.swift in Sources */,
 				C0DE46030000000000000001 /* CMUXSidebarExtensionBrowserPanel.swift in Sources */,
@@ -2457,6 +2467,7 @@
 				C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */,
 					A5001094 /* NotificationsPage.swift in Sources */,
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
+				F1A0DE0000000000000000A1 /* PaneDividerStyle.swift in Sources */,
 				D0B1001CA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift in Sources */,
 				A5001400 /* Panel.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
@@ -2775,6 +2786,7 @@
 					734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,
 					4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */,
 					A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */,
+				F1A0DE0000000000000000C1 /* PaneDividerStyleTests.swift in Sources */,
 				C44550000000000000000001 /* PanelOwnedNativeViewSessionTests.swift in Sources */,
 					B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */,
 					D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */,
