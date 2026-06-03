@@ -13,7 +13,7 @@ export CMUX_DB_TEST=1
 
 test_files=()
 while IFS= read -r test_file; do
-  if grep -q "CMUX_DB_TEST" "$test_file"; then
+  if grep -q "process\\.env\\.CMUX_DB_TEST" "$test_file"; then
     test_files+=("$test_file")
   fi
 done < <(find tests -name "*.test.ts" -print | sort)

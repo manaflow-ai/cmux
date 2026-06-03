@@ -13550,7 +13550,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
-        let allowsFocusedCloseShortcutFallback = isFocusedCloseShortcutEvent(event)
+        let allowsFocusedCloseShortcutFallback = hasEventWindowContext
+            && !didSynchronizeShortcutContext
+            && isFocusedCloseShortcutEvent(event)
         if shouldBypassShortcutRoutingForUnresolvedEventWindow(
             hasEventWindowContext: hasEventWindowContext,
             didSynchronizeShortcutContext: didSynchronizeShortcutContext,
@@ -13964,7 +13966,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
                     cmuxDebugLog("shortcut.closeTab route=noManager")
 #endif
-                    return true
+                    return false
                 }
             }
             return true

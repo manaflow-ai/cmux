@@ -3014,6 +3014,8 @@ private final class TextBoxSubmitEventRunner {
     ) {
         waitTimeoutTimer?.cancel()
         guard timeoutSeconds > 0 else {
+            waitTimeoutTimer = nil
+            observationToken = UUID()
 #if DEBUG
             cmuxDebugLog("textbox.submit.wait.timeout.immediate id=\(id.uuidString.prefix(5))")
 #endif

@@ -5122,6 +5122,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.append(microphoneCaptureObserver)
 
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] notification in
                 guard let self else { return }
                 self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))

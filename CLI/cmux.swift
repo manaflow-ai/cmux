@@ -27058,9 +27058,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         func workspaceIsAccessible(_ workspaceId: String) -> Bool {
             switch listedSurfaces(workspaceId: workspaceId) {
-            case .found, .unknown:
+            case .found:
                 return true
-            case .unavailable:
+            case .unavailable, .unknown:
                 return false
             }
         }
@@ -27070,9 +27070,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return surfaces.contains {
                     ($0["id"] as? String) == surfaceId || ($0["ref"] as? String) == surfaceId
                 }
-            case .unknown:
-                return true
-            case .unavailable:
+            case .unavailable, .unknown:
                 return false
             }
         }

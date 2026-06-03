@@ -138,7 +138,7 @@ jobs:
             "/tmp/cmux-debug-${PERF_TAG}.sock" \
             "/tmp/cmux-debug-${PERF_TAG}.log" \
             "/tmp/cmux-dev-${PERF_TAG}-last-socket-path" \
-            "/tmp/cmux-launch-${PERF_TAG}.out"
+            "/tmp/cmux-launch-${PERF_TAG}.out" || true
           CMUX_SKIP_ZIG_BUILD=1 \
             CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=1 \
@@ -265,4 +265,4 @@ jobs:
             "/tmp/cmux-debug-${PERF_TAG}.sock" \
             "/tmp/cmux-debug-${PERF_TAG}.log" \
             "/tmp/cmux-dev-${PERF_TAG}-last-socket-path" \
-            "/tmp/cmux-launch-${PERF_TAG}.out"
+            "/tmp/cmux-launch-${PERF_TAG}.out" || true

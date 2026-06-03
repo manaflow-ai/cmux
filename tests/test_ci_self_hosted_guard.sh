@@ -325,7 +325,7 @@ check_web_db_behavior_test_coverage() {
     exit 1
   fi
 
-  if ! grep -Fq 'grep -q "CMUX_DB_TEST" "$test_file"' "$script"; then
+  if ! grep -Fq 'grep -q "process\\.env\\.CMUX_DB_TEST" "$test_file"' "$script"; then
     echo "FAIL: run-db-behavior-tests.sh must select every CMUX_DB_TEST-gated web test file"
     exit 1
   fi
