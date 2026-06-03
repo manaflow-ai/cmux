@@ -197,7 +197,7 @@ export function App({ config, initialStatus }: ConfigProps) {
             const message = await copyGitApplyCommand(payload.patchURL, label, copyFallbackRef.current);
             dispatch({ type: "set-copy-feedback", message });
           } catch {
-            setStatus(createDiffViewerStatus(label("renderFailed"), { error: true, loading: false, statusOnly: true }));
+            dispatch({ type: "set-copy-feedback", message: label("copyFailedGitApplyCommand") });
           }
         }}
         onJump={scrollToItem}

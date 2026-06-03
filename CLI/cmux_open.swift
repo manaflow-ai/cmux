@@ -402,6 +402,7 @@ extension CMUXCLI {
                 "commit": CMUXDiffViewerLocalization.string("about.commit", defaultValue: "Commit"),
                 "collapseAllDiffs": CMUXDiffViewerLocalization.string("diffViewer.collapseAllDiffs", defaultValue: "Collapse all diffs"),
                 "collapseUnchangedContext": CMUXDiffViewerLocalization.string("diffViewer.collapseUnchangedContext", defaultValue: "Collapse unchanged context"),
+                "copyFailedGitApplyCommand": CMUXDiffViewerLocalization.string("diffViewer.copyFailedGitApplyCommand", defaultValue: "Could not copy git apply command."),
                 "copiedGitApplyCommand": CMUXDiffViewerLocalization.string("diffViewer.copiedGitApplyCommand", defaultValue: "Copied git apply command"),
                 "copyGitApplyCommand": CMUXDiffViewerLocalization.string("diffViewer.copyGitApplyCommand", defaultValue: "Copy git apply command"),
                 "deletions": CMUXDiffViewerLocalization.string("diffViewer.deletions", defaultValue: "Deletions"),
