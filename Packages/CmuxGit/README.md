@@ -4,7 +4,9 @@ Reads a directory's git metadata directly from the on-disk repository, with no
 `git` subprocess. This is the data behind the workspace sidebar's branch label,
 dirty indicator, and (in a later stage) the GitHub pull-request badge.
 
-It is a Layer-2 service package: a stateless `actor` over pure parsing helpers,
+It is a Layer-2 service package: a stateless `Sendable` value over pure parsing
+helpers (its `async` reads run off the caller's actor on the global executor and
+in parallel — no actor serialization, since there is no shared state to protect),
 with zero AppKit/SwiftUI dependencies, fully testable against temp directories.
 
 ## What it does

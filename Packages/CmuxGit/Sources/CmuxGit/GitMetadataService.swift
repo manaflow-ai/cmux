@@ -9,18 +9,23 @@ import Foundation
 /// of paths a filesystem watcher should observe to know when that metadata
 /// becomes stale.
 ///
-/// It is a stateless `actor` so that this work runs off the caller's actor (the
-/// reads are pure functions of the paths passed in), and so callers `await` a
-/// single seam instead of hand-rolling `Task.detached` offloading. Every read
-/// is a pure function of the directory argument; the actor holds no cached
-/// state.
+/// It is a stateless `Sendable` value, not an `actor`, because it has no mutable
+/// shared state for an actor to protect — every read is a pure function of the
+/// `directory` argument. Its methods are `async` (not actor-isolated): a
+/// `nonisolated async` method runs on the global concurrent executor rather than
+/// the caller's actor (SE-0338), so `await git.workspaceMetadata(...)` from the
+/// main actor offloads the filesystem work off the main thread *and* lets reads
+/// for independent repositories run in parallel. An `actor` would instead funnel
+/// every read through one serial executor, serializing independent reads for no
+/// benefit. (If this ever gains an in-memory cache, promote it to an `actor`
+/// then — the mutable state would justify the serialization.)
 ///
 /// ```swift
 /// let git = GitMetadataService()
 /// let meta = await git.workspaceMetadata(for: "/path/to/checkout")
 /// if meta.isRepository, meta.isDirty { showDirtyIndicator() }
 /// ```
-public actor GitMetadataService {
+public struct GitMetadataService: Sendable {
     /// Creates a git-metadata service.
     public init() {}
 
@@ -33,7 +38,7 @@ public actor GitMetadataService {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: The git metadata for the enclosing repository, or
     ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
-    public func workspaceMetadata(for directory: String) -> GitWorkspaceMetadata {
+    public func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
@@ -59,7 +64,7 @@ public actor GitMetadataService {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: Sorted existing paths to watch, or `nil` when `directory` is
     ///   not inside a git repository.
-    public func watchedPaths(for directory: String) -> [String]? {
+    public func watchedPaths(for directory: String) async -> [String]? {
         Self.workspaceGitMetadataWatchedPaths(for: directory)
     }
 
@@ -73,7 +78,7 @@ public actor GitMetadataService {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: Ordered, de-duplicated GitHub slugs; empty when there is no
     ///   repository or no GitHub remote.
-    public func repositorySlugs(forDirectory directory: String) -> [String] {
+    public func repositorySlugs(forDirectory directory: String) async -> [String] {
         guard let repository = Self.resolveGitRepository(containing: directory),
               let output = Self.gitRemoteVOutput(repository: repository) else {
             return []
