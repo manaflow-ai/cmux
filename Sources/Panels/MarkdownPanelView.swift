@@ -26,13 +26,6 @@ struct MarkdownPanelView: View {
 
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashAnimationGeneration: Int = 0
-    @State private var copyConfirmation: CopyConfirmation? = nil
-    @State private var copyConfirmationGeneration: Int = 0
-
-    private enum CopyConfirmation: Equatable {
-        case markdown
-        case html
-    }
 
     var body: some View {
         Group {
@@ -99,11 +92,13 @@ struct MarkdownPanelView: View {
 
     private var filePathHeader: some View {
         PanelFilePathHeader(
-            iconSystemName: panel.displayIcon ?? "doc.text",
+            iconSystemName: nil,
             filePath: panel.filePath,
             foregroundColor: themeForegroundColor
         ) {
-            if panel.displayMode == .text, panel.isDirty || panel.isSaving {
+            // Notes auto-save, so the Save control only appears for plain
+            // Markdown files (which still save explicitly).
+            if panel.displayMode == .text, !panel.isProjectNote, panel.isDirty || panel.isSaving {
                 PanelHeaderIconButton(
                     systemName: "square.and.arrow.down",
                     label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
@@ -112,34 +107,21 @@ struct MarkdownPanelView: View {
                 )
             }
             markdownModeButton
-            MarkdownPanelMoreMenu(
-                isTextMode: panel.displayMode == .text,
-                canRevert: panel.displayMode == .text && panel.isDirty,
-                markdownCopied: copyConfirmation == .markdown,
-                htmlCopied: copyConfirmation == .html,
-                fileURL: URL(fileURLWithPath: panel.filePath),
-                isFileUnavailable: panel.isFileUnavailable,
-                onRevert: { panel.loadTextContent() },
-                onCopyMarkdown: { copyAsMarkdown() },
-                onCopyHTML: { copyAsHTML() }
-            )
         }
     }
 
     private var markdownModeButton: some View {
         switch panel.displayMode {
         case .preview:
-            MarkdownModeButton(
+            PanelHeaderIconButton(
                 systemName: "doc.plaintext",
-                title: String(localized: "markdown.mode.edit", defaultValue: "Edit"),
-                accessibilityLabel: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
+                label: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
                 action: { panel.setDisplayMode(.text) }
             )
         case .text:
-            MarkdownModeButton(
+            PanelHeaderIconButton(
                 systemName: "eye",
-                title: String(localized: "markdown.mode.preview", defaultValue: "Preview"),
-                accessibilityLabel: String(localized: "markdown.mode.showPreview", defaultValue: "Show Preview"),
+                label: String(localized: "markdown.mode.showPreview", defaultValue: "Show Preview"),
                 action: { panel.setDisplayMode(.preview) }
             )
         }
@@ -185,42 +167,6 @@ struct MarkdownPanelView: View {
         themeBackgroundColor.isLightColor ? .light : .dark
     }
 
-    // MARK: - Copy actions
-
-    private func copyAsMarkdown() {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(panel.content, forType: .string)
-        flashCopyConfirmation(.markdown)
-    }
-
-    private func copyAsHTML() {
-        Task { @MainActor in
-            guard let html = await panel.rendererSession.renderedHTML(markdown: panel.content) else { return }
-            let text = await panel.rendererSession.renderedText() ?? panel.content
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            // public.html for rich-text-aware targets (Notes, Mail, Pages, ...)
-            // and a plain-text fallback so plain editors still receive content.
-            pb.setString(html, forType: .html)
-            pb.setString(text, forType: .string)
-            flashCopyConfirmation(.html)
-        }
-    }
-
-    private func flashCopyConfirmation(_ kind: CopyConfirmation) {
-        copyConfirmationGeneration &+= 1
-        let generation = copyConfirmationGeneration
-        copyConfirmation = kind
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_600_000_000)
-            guard copyConfirmationGeneration == generation else { return }
-            if copyConfirmation == kind {
-                copyConfirmation = nil
-            }
-        }
-    }
-
     // MARK: - Focus Flash
 
     private func triggerFocusFlashAnimation() {
@@ -248,86 +194,3 @@ struct MarkdownPanelView: View {
     }
 }
 
-// MARK: - Toolbar
-
-private struct MarkdownModeButton: View {
-    let systemName: String
-    let title: String
-    let accessibilityLabel: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: systemName)
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 14, height: 14)
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
-                    .lineLimit(1)
-            }
-            .frame(height: 20)
-            .padding(.horizontal, 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundColor(.secondary)
-        .help(accessibilityLabel)
-        .accessibilityLabel(accessibilityLabel)
-    }
-}
-
-private struct MarkdownPanelMoreMenu: View {
-    let isTextMode: Bool
-    let canRevert: Bool
-    let markdownCopied: Bool
-    let htmlCopied: Bool
-    let fileURL: URL
-    let isFileUnavailable: Bool
-    let onRevert: () -> Void
-    let onCopyMarkdown: () -> Void
-    let onCopyHTML: () -> Void
-
-    var body: some View {
-        Menu {
-            if isTextMode {
-                Button(action: onRevert) {
-                    Label(
-                        String(localized: "markdown.toolbar.revert", defaultValue: "Revert"),
-                        systemImage: "arrow.counterclockwise"
-                    )
-                }
-                .disabled(!canRevert)
-
-                Divider()
-            }
-
-            Button(action: onCopyMarkdown) {
-                Label(
-                    String(localized: "markdown.toolbar.copyMarkdown", defaultValue: "Copy as Markdown"),
-                    systemImage: markdownCopied ? "checkmark" : "doc.on.doc"
-                )
-            }
-
-            Button(action: onCopyHTML) {
-                Label(
-                    String(localized: "markdown.toolbar.copyHTML", defaultValue: "Copy as HTML"),
-                    systemImage: htmlCopied ? "checkmark" : "chevron.left.forwardslash.chevron.right"
-                )
-            }
-
-            Divider()
-
-            Button(action: { _ = FileExternalOpenAction.openDefault(fileURL: fileURL) }) {
-                Label(FileExternalOpenText.openExternally, systemImage: "square.and.arrow.up")
-            }
-            .disabled(isFileUnavailable)
-        } label: {
-            PanelHeaderIconGlyph(systemName: "ellipsis.circle")
-        }
-        .buttonStyle(.plain)
-        .foregroundColor(.secondary)
-        .help(String(localized: "markdown.toolbar.more", defaultValue: "More Actions"))
-        .accessibilityLabel(String(localized: "markdown.toolbar.more", defaultValue: "More Actions"))
-    }
-}

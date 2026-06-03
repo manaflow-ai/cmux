@@ -73,6 +73,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
+    private var autoSaveTask: Task<Void, Never>?
     private var pendingSearchNeedle: String?
     private var pendingTextViewFocus = false
     private weak var textView: NSTextView?
@@ -112,6 +113,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func close() {
         isClosed = true
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
@@ -174,12 +177,29 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         applyPendingSearchNeedleIfPossible()
     }
 
+    /// True when this panel is a project note (opened through the note path).
+    /// Notes auto-save; plain Markdown files keep the explicit Save control.
+    var isProjectNote: Bool { noteSlug != nil }
+
     func updateTextContent(_ nextContent: String) {
         guard textContent != nextContent else { return }
         textContent = nextContent
         content = nextContent
         isDirty = nextContent != originalTextContent
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+        scheduleAutoSaveIfNeeded()
+    }
+
+    /// Debounced auto-save for notes: write to disk shortly after the last
+    /// keystroke so a note never needs a manual Save. No-op for plain Markdown.
+    private func scheduleAutoSaveIfNeeded() {
+        guard isProjectNote, isDirty else { return }
+        autoSaveTask?.cancel()
+        autoSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            guard let self, !Task.isCancelled, self.isDirty, !self.isClosed else { return }
+            self.saveTextContent()
+        }
     }
 
     @discardableResult
