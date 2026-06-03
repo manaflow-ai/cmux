@@ -1739,6 +1739,98 @@ function upsertCustomCommandSnippet(snippet) {
   return state.customCommandSnippets[0];
 }
 
+function commandSnippetPayload(snippet) {
+  const normalized = normalizeCustomCommandSnippet(snippet);
+  if (!normalized) return null;
+  return {
+    version: 1,
+    type: "cmux-command-snippet",
+    summary: {
+      label: normalized.label,
+      command: normalized.command
+    },
+    snippet: {
+      label: normalized.label,
+      command: normalized.command
+    }
+  };
+}
+
+async function copyCommandSnippetPayload(snippet, toastText = "Command snippet copied.") {
+  const payloadModel = commandSnippetPayload(snippet);
+  if (!payloadModel) {
+    toast("Choose a command snippet first.");
+    return false;
+  }
+  const payload = JSON.stringify(payloadModel, null, 2);
+  if (await writeClipboardText(payload)) {
+    toast(toastText);
+    return true;
+  }
+  await showTextDialog({
+    title: "Command snippet",
+    message: "Clipboard access is unavailable. The command snippet is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function copyCommandSnippet(snippetId) {
+  const snippet = findTerminalCommandSnippet(snippetId);
+  if (!snippet) {
+    toast("Command snippet not found.");
+    return false;
+  }
+  return copyCommandSnippetPayload(snippet, `${snippet.label} snippet copied.`);
+}
+
+function commandSnippetSourceFromPayload(payload) {
+  if (typeof payload === "string") return { command: payload };
+  const parsed = importedObject(payload);
+  if (!parsed) return null;
+  if (importedObject(parsed.snippet)) return parsed.snippet;
+  if (importedObject(parsed.commandSnippet)) return parsed.commandSnippet;
+  if (Array.isArray(parsed.commandSnippets) && parsed.commandSnippets.length > 0) return parsed.commandSnippets[0];
+  if (typeof parsed.command === "string") return parsed;
+  return null;
+}
+
+function commandSnippetFromPayload(payload) {
+  const source = commandSnippetSourceFromPayload(payload);
+  if (!source) return null;
+  return normalizeCustomCommandSnippet({
+    id: createCustomCommandSnippetId(),
+    label: source.label || source.name,
+    command: source.command
+  });
+}
+
+async function pasteCommandSnippet() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return null;
+  }
+  let snippet = null;
+  try {
+    snippet = commandSnippetFromPayload(JSON.parse(clipboard));
+  } catch {
+    snippet = commandSnippetFromPayload(clipboard);
+  }
+  if (!snippet) {
+    toast("Clipboard does not contain a command snippet.");
+    return null;
+  }
+  const saved = upsertCustomCommandSnippet(snippet);
+  if (!saved) return null;
+  renderSettingsInspector();
+  toast(`${saved.label} snippet saved.`);
+  return saved;
+}
+
 function normalizeSettingsProfileLabel(label) {
   return String(label || "").replace(/\s+/g, " ").trim().slice(0, 48);
 }
@@ -4210,6 +4302,7 @@ const commands = [
   { id: "settings.copyDiagnostics", label: "Copy Performance Diagnostics", shortcut: "", run: () => copyPerformanceDiagnostics() },
   { id: "settings.actions", label: "Open Actions Settings", shortcut: "", run: () => openSettingsCategory("actions") },
   { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
+  { id: "settings.pasteCommandSnippet", label: "Paste Command Snippet", shortcut: "", run: () => pasteCommandSnippet() },
   { id: "settings.profiles", label: "Open Settings Profiles", shortcut: "", run: () => openSettingsCategory("profiles") },
   { id: "settings.saveProfile", label: "Save Current Settings Profile", shortcut: "", run: () => saveCurrentSettingsProfile() },
   { id: "settings.copyCurrentProfile", label: "Copy Current Settings Profile", shortcut: "", run: () => copyCurrentSettingsProfile() },
@@ -10652,7 +10745,7 @@ function renderSettingsInspector(options = {}) {
   }
 
   if (shouldBuildSection("commands")) {
-    const snippetsSection = settingsSection("Command snippets", "terminal command snippets saved custom git github gh cli run add edit delete palette");
+    const snippetsSection = settingsSection("Command snippets", "terminal command snippets saved custom git github gh cli run add copy paste edit delete palette clipboard json");
     snippetsSection.append(commandSnippetsDisclosurePanel());
     nodes.push(snippetsSection);
   }
@@ -14764,7 +14857,7 @@ function commandSnippetsDisclosurePanel() {
   return settingsDisclosurePanel({
     className: "command-snippets-disclosure",
     content: "command-snippets",
-    searchTerms: "commands snippets terminal launcher saved built in custom git github gh cli add edit delete run",
+    searchTerms: "commands snippets terminal launcher saved built in custom git github gh cli add copy paste edit delete run clipboard json",
     title: t("commands.snippets"),
     body: t("commands.snippets.body"),
     meta: formatMessage("commands.snippetCount", {
@@ -17296,7 +17389,7 @@ function refreshRecentBrowserHomeActions() {
 function commandSnippetsSettings() {
   const wrapper = document.createElement("div");
   wrapper.className = "command-snippet-list";
-  wrapper.dataset.settingsSearch = normalizeSettingsQuery("command snippets terminal launcher saved built in custom git github gh cli add edit delete run");
+  wrapper.dataset.settingsSearch = normalizeSettingsQuery("command snippets terminal launcher saved built in custom git github gh cli add copy paste edit delete run clipboard json");
 
   const customHeader = document.createElement("div");
   customHeader.className = "recent-folder-header";
@@ -17305,7 +17398,12 @@ function commandSnippetsSettings() {
   const add = settingsActionButton("Add", addCustomCommandSnippet, "", "custom terminal command snippet add create");
   add.disabled = customCommandSnippetsFull();
   add.title = add.disabled ? commandSnippetLimitTitle() : "Add a saved terminal command snippet.";
-  customHeader.append(customTitle, add);
+  const paste = settingsActionButton("Paste", pasteCommandSnippet, "", "custom terminal command snippet paste clipboard json command");
+  paste.title = "Paste a copied command snippet or command.";
+  const headerActions = document.createElement("div");
+  headerActions.className = "recent-folder-header-actions";
+  headerActions.append(add, paste);
+  customHeader.append(customTitle, headerActions);
   wrapper.append(customHeader);
 
   if (state.customCommandSnippets.length === 0) {
@@ -17334,7 +17432,7 @@ function commandSnippetCard(snippet) {
   const savedBuiltIn = Boolean(snippet.builtIn && isBuiltInCommandSnippetSaved(snippet));
   const card = document.createElement("div");
   card.className = `recent-folder-card command-snippet-card${savedBuiltIn ? " is-active" : ""}`;
-  card.dataset.settingsSearch = normalizeSettingsQuery(`command snippet terminal shell run ${snippet.builtIn ? "built in" : "custom saved"} ${savedBuiltIn ? "saved active current " : ""}${snippet.label} ${snippet.command}`);
+  card.dataset.settingsSearch = normalizeSettingsQuery(`command snippet terminal shell run copy paste clipboard json ${snippet.builtIn ? "built in" : "custom saved"} ${savedBuiltIn ? "saved active current " : ""}${snippet.label} ${snippet.command}`);
 
   const text = document.createElement("div");
   text.className = "recent-folder-text";
@@ -17350,7 +17448,10 @@ function commandSnippetCard(snippet) {
 
   const actions = document.createElement("div");
   actions.className = `recent-folder-actions command-snippet-actions${snippet.builtIn ? " is-built-in" : ""}`;
-  actions.append(settingsActionButton("Run", () => runTerminalCommand(snippet.command), "", `run command snippet ${snippet.label} ${snippet.command}`));
+  actions.append(
+    settingsActionButton("Run", () => runTerminalCommand(snippet.command), "", `run command snippet ${snippet.label} ${snippet.command}`),
+    settingsActionButton("Copy", () => copyCommandSnippet(snippet.id), "", `copy command snippet clipboard json ${snippet.label} ${snippet.command}`)
+  );
   if (snippet.builtIn) {
     const limitReached = !savedBuiltIn && customCommandSnippetsFull();
     const save = settingsActionButton(
@@ -19021,6 +19122,7 @@ function showToolbarMenu(event) {
       })(),
       contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
       contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
+      contextMenuButton("Paste command snippet", pasteCommandSnippet),
       contextMenuButton("Settings profiles", () => openSettingsCategory("profiles")),
       contextMenuButton("Copy current profile", copyCurrentSettingsProfile),
       (() => {
@@ -19895,6 +19997,15 @@ function paletteEntries() {
       run: () => createPanel("browser", "right", { url })
     });
   }
+  entries.push({
+    id: "commandSnippet.paste",
+    label: "Paste command snippet",
+    meta: `${state.customCommandSnippets.length}/${customCommandSnippetsLimit} saved snippets`,
+    shortcut: "Paste",
+    title: "Paste a copied command snippet or command.",
+    search: normalizeSettingsQuery("terminal command snippet paste import clipboard json saved custom shell"),
+    run: pasteCommandSnippet
+  });
   for (const snippet of allTerminalCommandSnippets()) {
     entries.push({
       id: `commandSnippet.${snippet.id}`,
@@ -19903,6 +20014,15 @@ function paletteEntries() {
       shortcut: "Snippet",
       search: normalizeSettingsQuery(`terminal command snippet shell run ${snippet.builtIn ? "built in" : "custom saved"} ${snippet.label} ${snippet.command}`),
       run: () => runTerminalCommandSnippet(snippet.id)
+    });
+    entries.push({
+      id: `commandSnippet.copy.${snippet.id}`,
+      label: `Copy snippet: ${snippet.label}`,
+      meta: snippet.command,
+      shortcut: "Copy",
+      title: `Copy ${snippet.label} as a command snippet JSON.`,
+      search: normalizeSettingsQuery(`terminal command snippet shell copy clipboard json ${snippet.builtIn ? "built in" : "custom saved"} ${snippet.label} ${snippet.command}`),
+      run: () => copyCommandSnippet(snippet.id)
     });
   }
   entries.push({
