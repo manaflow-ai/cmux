@@ -50,7 +50,7 @@ import Testing
             "contextMenu", "help", "disabled", "keyboardShortcut",
             "redacted", "unredacted", "accessibilityLabel", "accessibilityHint",
             "accessibilityValue", "accessibilityHidden", "scrollIndicators",
-            "scrollContentBackground", "aspectRatio", "scaledToFit", "scaledToFill",
+            "scrollContentBackground", "aspectRatio", "scaledToFit", "scaledToFill", "resizable",
         ]
 
         var unsupportedCalls: [String: Int] = [:]

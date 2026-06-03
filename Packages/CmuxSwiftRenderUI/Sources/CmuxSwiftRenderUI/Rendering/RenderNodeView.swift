@@ -83,7 +83,7 @@ struct RenderNodeView: View {
         case .label:
             Label(node.text ?? "", systemImage: node.systemName ?? "circle")
         case .image:
-            Image(systemName: node.systemName ?? "questionmark.square.dashed")
+            styledImage(Image(systemName: node.systemName ?? "questionmark.square.dashed"))
         case .button:
             if node.children.isEmpty {
                 Button(node.text ?? "") {
@@ -321,6 +321,16 @@ struct RenderNodeView: View {
         default:
             return view
         }
+    }
+
+    /// Renders an image, applying `.resizable()` on the concrete `Image` before
+    /// erasure (it's an `Image` method, unavailable on `AnyView`). `.scaledToFit`/
+    /// `.aspectRatio` from the generic modifier pass then apply on top.
+    private func styledImage(_ image: Image) -> AnyView {
+        if node.modifiers.contains(where: { $0.name == "resizable" }) {
+            return AnyView(image.resizable())
+        }
+        return AnyView(image)
     }
 
     /// Resolves a gradient node's color stops, falling back to two clear stops
