@@ -12317,9 +12317,9 @@ function renderSettingsInspector(options = {}) {
   state.settingsInspectorSignature = signature;
   const workspace = activeWorkspace();
   const settingsChrome = document.createElement("div");
-  settingsChrome.className = "settings-react-host";
   const nodes = [settingsChrome];
   const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+  settingsChrome.className = `settings-react-host${searching ? " is-searching" : ""}`;
   const shouldBuildSection = (id) => state.settingsCategory === id || searching;
 
   if (shouldBuildSection("quick")) {
