@@ -2131,10 +2131,14 @@ function commandSnippetCommandKey(command) {
   return normalizeTerminalCommand(command).toLowerCase();
 }
 
-function isBuiltInCommandSnippetSaved(snippet) {
-  const commandKey = commandSnippetCommandKey(snippet?.command);
+function isCommandSavedAsCustomSnippet(command) {
+  const commandKey = commandSnippetCommandKey(command);
   if (!commandKey) return false;
   return state.customCommandSnippets.some((candidate) => commandSnippetCommandKey(candidate.command) === commandKey);
+}
+
+function isBuiltInCommandSnippetSaved(snippet) {
+  return isCommandSavedAsCustomSnippet(snippet?.command);
 }
 
 function customCommandSnippetsFull() {
@@ -2255,6 +2259,25 @@ async function pasteCommandSnippet() {
   const saved = upsertCustomCommandSnippet(snippet);
   if (!saved) return null;
   renderSettingsInspector();
+  toast(`${saved.label} snippet saved.`);
+  return saved;
+}
+
+function saveRecentCommandAsSnippet(command = state.recentCommands[0]) {
+  const normalized = normalizeTerminalCommand(command);
+  if (!normalized) {
+    toast("Choose a recent command first.");
+    return null;
+  }
+  const saved = upsertCustomCommandSnippet({
+    id: createCustomCommandSnippetId(),
+    label: normalizeSnippetLabel("", normalized),
+    command: normalized
+  });
+  if (!saved) return null;
+  renderSettingsInspector();
+  state.paletteEntriesCache = null;
+  state.paletteEntriesCacheSignature = "";
   toast(`${saved.label} snippet saved.`);
   return saved;
 }
@@ -18572,9 +18595,11 @@ function recentCommandsSettings() {
   }
 
   for (const command of state.recentCommands) {
+    const savedSnippet = isCommandSavedAsCustomSnippet(command);
+    const limitReached = !savedSnippet && customCommandSnippetsFull();
     const card = document.createElement("div");
-    card.className = "recent-folder-card";
-    card.dataset.settingsSearch = normalizeSettingsQuery(`recent terminal command shell run ${command}`);
+    card.className = `recent-folder-card${savedSnippet ? " is-active" : ""}`;
+    card.dataset.settingsSearch = normalizeSettingsQuery(`recent terminal command shell run save snippet ${savedSnippet ? "saved active current " : ""}${command}`);
     const text = document.createElement("div");
     text.className = "recent-folder-text";
     const name = document.createElement("div");
@@ -18590,7 +18615,19 @@ function recentCommandsSettings() {
     actions.className = "recent-folder-actions recent-command-actions";
     const run = settingsActionButton("Run", () => runTerminalCommand(command), "", `recent terminal command run ${command}`);
     run.dataset.recentCommandAction = "run";
-    actions.append(run);
+    const save = settingsActionButton(
+      savedSnippet ? "Saved" : "Save",
+      () => saveRecentCommandAsSnippet(command),
+      savedSnippet ? "primary" : "",
+      `recent terminal command save snippet ${savedSnippet ? "saved active current " : ""}${limitReached ? "limit full " : ""}${command}`
+    );
+    save.disabled = savedSnippet || limitReached;
+    save.title = savedSnippet
+      ? "This recent command is already saved as a snippet."
+      : limitReached
+        ? commandSnippetLimitTitle()
+        : "Save this recent command as a reusable snippet.";
+    actions.append(run, save);
     card.append(text, actions);
     section.append(card);
   }
@@ -20325,6 +20362,16 @@ function showToolbarMenu(event) {
   const zoomedPanelId = zoomedPanelIdForWorkspace(workspace);
   const terminalActive = panel?.type === "terminal";
   const browserActive = panel?.type === "browser";
+  const latestRecentCommand = state.recentCommands[0] || "";
+  const latestRecentCommandSaved = isCommandSavedAsCustomSnippet(latestRecentCommand);
+  const saveRecentCommandDisabled = !latestRecentCommand || latestRecentCommandSaved || (!latestRecentCommandSaved && customCommandSnippetsFull());
+  const saveRecentCommandTitle = !latestRecentCommand
+    ? "There are no recent terminal commands yet."
+    : latestRecentCommandSaved
+      ? "The latest recent command is already saved as a snippet."
+      : customCommandSnippetsFull()
+        ? commandSnippetLimitTitle()
+        : "Save the latest recent terminal command as a reusable snippet.";
   const latestBrowserPage = state.recentBrowserPages[0] || "";
   const browserSessionEntries = browserTabSessionEntries();
   const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
@@ -20408,6 +20455,7 @@ function showToolbarMenu(event) {
       toolbarAction("Run command...", promptRunTerminalCommand, !terminalActive, "Run a command in the focused terminal.", terminalRequiredTitle),
       toolbarAction("Copy recent commands", copyRecentCommands, state.recentCommands.length === 0, "Copy recent terminal commands as JSON.", "Recent commands are empty."),
       toolbarAction("Paste recent commands", pasteRecentCommands, false, "Merge copied terminal commands into recent commands."),
+      toolbarAction("Save latest command as snippet", () => saveRecentCommandAsSnippet(latestRecentCommand), saveRecentCommandDisabled, saveRecentCommandTitle),
       toolbarAction("Git status", () => runTerminalCommandSnippet("gitStatus"), !terminalActive, "Run git status in the focused terminal.", terminalRequiredTitle),
       toolbarAction("GH PR status", () => runTerminalCommandSnippet("ghPrStatus"), !terminalActive, "Run GitHub PR status in the focused terminal.", terminalRequiredTitle),
       toolbarAction("Find in terminal", openTerminalSearch, !terminalActive, "Search the focused terminal.", terminalRequiredTitle),
@@ -21483,6 +21531,8 @@ function paletteEntries() {
     run: pasteRecentCommands
   });
   for (const [commandIndex, command] of state.recentCommands.entries()) {
+    const savedSnippet = isCommandSavedAsCustomSnippet(command);
+    const limitReached = !savedSnippet && customCommandSnippetsFull();
     entries.push({
       id: `recentCommand.${commandIndex}`,
       label: `Run recent: ${command}`,
@@ -21490,6 +21540,20 @@ function paletteEntries() {
       shortcut: "Recent",
       search: normalizeSettingsQuery(`recent terminal command shell run ${commandIndex + 1} ${command}`),
       run: () => runTerminalCommand(command)
+    });
+    entries.push({
+      id: `recentCommand.save.${commandIndex}`,
+      label: `Save recent as snippet: ${command}`,
+      meta: savedSnippet ? "Already saved" : "Reusable terminal snippet",
+      shortcut: "Save",
+      disabled: savedSnippet || limitReached,
+      title: savedSnippet
+        ? "This recent command is already saved as a snippet."
+        : limitReached
+          ? commandSnippetLimitTitle()
+          : "Save this recent terminal command as a reusable snippet.",
+      search: normalizeSettingsQuery(`recent terminal command shell save snippet ${commandIndex + 1} ${savedSnippet ? "saved active current " : ""}${limitReached ? "limit full " : ""}${command}`),
+      run: () => saveRecentCommandAsSnippet(command)
     });
   }
   entries.push({
