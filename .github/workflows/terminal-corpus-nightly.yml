@@ -20,8 +20,11 @@ jobs:
       - name: Prepare self-hosted workspace
         run: |
           set -euo pipefail
-          sudo -n chown -R "$(id -un):$(id -gn)" "$GITHUB_WORKSPACE"
-          chmod -R u+rwX "$GITHUB_WORKSPACE"
+          mkdir -p "$GITHUB_WORKSPACE"
+          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+            sudo -n chown -R "$(id -un):$(id -gn)" "$GITHUB_WORKSPACE"
+          fi
+          chmod -R u+rwX "$GITHUB_WORKSPACE" || true
           find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout

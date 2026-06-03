@@ -57,11 +57,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref || github.ref }}
           submodules: false
 
       - name: Initialize submodules with retry
         run: ./scripts/ci/init-submodules-with-retry.sh
+
+      - name: Validate workflow inputs
+        run: |
+          set -euo pipefail
+          WORKSPACE_COUNT="${{ inputs.workspace_count || '12' }}"
+          HEAVY_SCROLLBACK_LINES="${{ inputs.heavy_scrollback_lines || '2400' }}"
+          OTHER_SCROLLBACK_LINES="${{ inputs.other_scrollback_lines || '1400' }}"
+
+          for name in WORKSPACE_COUNT HEAVY_SCROLLBACK_LINES OTHER_SCROLLBACK_LINES; do
+            value="${!name}"
+            if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+              echo "$name must be numeric, got '$value'" >&2
+              exit 1
+            fi
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
 
       - name: Select Xcode
         run: |
@@ -147,10 +164,6 @@ jobs:
       - name: Run activation session benchmark
         run: |
           set -euo pipefail
-          WORKSPACE_COUNT="${{ inputs.workspace_count || '12' }}"
-          HEAVY_SCROLLBACK_LINES="${{ inputs.heavy_scrollback_lines || '2400' }}"
-          OTHER_SCROLLBACK_LINES="${{ inputs.other_scrollback_lines || '1400' }}"
-
           CONSOLE_USER="$(stat -f %Su /dev/console)"
           CONSOLE_UID="$(id -u "$CONSOLE_USER")"
           sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
