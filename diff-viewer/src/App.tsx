@@ -1,4 +1,4 @@
-import { CodeView, WorkerPoolContextProvider, type CodeViewHandle } from "@pierre/diffs/react";
+import { CodeView, WorkerPoolContextProvider, type CodeViewHandle, useWorkerPool } from "@pierre/diffs/react";
 import { getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
@@ -161,6 +161,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
+  const highlighterOptions = workerHighlighterOptions(state.options, appearance);
 
   usePageDataAttributes(state);
   usePendingReplacement(payload, label, dispatch);
@@ -220,8 +221,9 @@ export function App({ config, initialStatus }: ConfigProps) {
           {state.items.length > 0 ? (
             <WorkerPoolContextProvider
               poolOptions={{ workerFactory: () => new Worker(workerModuleURL, { type: "module" }) }}
-              highlighterOptions={workerHighlighterOptions(state.options, appearance)}
+              highlighterOptions={highlighterOptions}
             >
+              <WorkerRenderOptionsSync highlighterOptions={highlighterOptions} />
               <CodeView
                 ref={codeViewRef}
                 containerRef={viewerContainerRef}
@@ -246,6 +248,11 @@ export function App({ config, initialStatus }: ConfigProps) {
 
 function resolveDiffViewerAssetURL(rawURL: string | undefined): URL {
   return new URL(rawURL || defaultWorkerModuleURL, window.location.href);
+}
+
+function WorkerRenderOptionsSync({ highlighterOptions }: { highlighterOptions: ReturnType<typeof workerHighlighterOptions> }) {
+  useWorkerRenderOptionsSync(highlighterOptions);
+  return null;
 }
 
 function Toolbar({
@@ -729,6 +736,31 @@ function useSyncedRef<T>(value: T): React.MutableRefObject<T> {
     ref.current = value;
   }, [value]);
   return ref;
+}
+
+function useWorkerRenderOptionsSync(highlighterOptions: ReturnType<typeof workerHighlighterOptions>): void {
+  const workerPool = useWorkerPool();
+  const syncedOptions = useRef<ReturnType<typeof workerHighlighterOptions> | null>(null);
+  useEffect(() => {
+    if (!workerPool || sameWorkerHighlighterOptions(syncedOptions.current, highlighterOptions)) {
+      return;
+    }
+    syncedOptions.current = highlighterOptions;
+    workerPool.setRenderOptions(highlighterOptions)
+      .catch((error: unknown) => console.warn("cmux diff worker render options update failed", error));
+  }, [highlighterOptions, workerPool]);
+}
+
+function sameWorkerHighlighterOptions(
+  previous: ReturnType<typeof workerHighlighterOptions> | null,
+  next: ReturnType<typeof workerHighlighterOptions>,
+): boolean {
+  return previous?.lineDiffType === next.lineDiffType &&
+    previous?.maxLineDiffLength === next.maxLineDiffLength &&
+    previous?.preferredHighlighter === next.preferredHighlighter &&
+    previous?.theme === next.theme &&
+    previous?.tokenizeMaxLineLength === next.tokenizeMaxLineLength &&
+    previous?.useTokenTransformer === next.useTokenTransformer;
 }
 
 function usePierreFileTreeSource(
