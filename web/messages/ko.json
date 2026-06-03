@@ -1205,22 +1205,13 @@
   },
   "brandAssets": {
     "metaTitle": "브랜드 애셋",
-    "metaDescription": "cmux 로고, 아이콘, 배지와 라이트/다크 브랜드 애셋을 다운로드하세요.",
+    "metaDescription": "macOS 앱에서 사용하는 cmux 라이트 및 다크 앱 아이콘을 다운로드하세요.",
     "title": "브랜드 애셋",
-    "description": "cmux 로고, 아이콘, 배지, 라이트 및 다크 배경용 SVG 변형을 다운로드하세요.",
-    "logoSection": "로고 파일",
-    "usageSection": "사용법",
+    "description": "macOS 앱에서 사용하는 cmux 라이트 및 다크 앱 아이콘을 다운로드하세요.",
+    "iconSection": "macOS 앱 아이콘",
     "download": "다운로드",
     "assetAlt": "{name} 미리보기",
-    "lightPreview": "밝은 배경에 가장 적합합니다.",
-    "darkPreview": "어두운 배경에 가장 적합합니다.",
-    "usage": {
-      "iconTitle": "아이콘",
-      "iconBody": "공간이 정사각형이거나 좁을 때는 아이콘을 사용하세요.",
-      "wordmarkTitle": "워드마크",
-      "wordmarkBody": "cmux 이름을 또렷하게 보여줄 공간이 있을 때는 워드마크를 사용하세요.",
-      "themeTitle": "테마",
-      "themeBody": "표시될 배경에 맞춰 라이트 또는 다크 SVG를 선택하세요."
-    }
+    "lightPreview": "라이트 모드 앱 아이콘.",
+    "darkPreview": "다크 모드 앱 아이콘."
   }
 }

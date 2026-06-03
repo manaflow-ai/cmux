@@ -1205,22 +1205,13 @@
   },
   "brandAssets": {
     "metaTitle": "Merkeressurser",
-    "metaDescription": "Last ned cmux-logoer, ikoner, merker og ressurser for lys og mørk modus.",
+    "metaDescription": "Last ned de lyse og mørke cmux-appikonene som macOS-appen bruker.",
     "title": "Merkeressurser",
-    "description": "Last ned cmux-logoer, ikoner, merker og SVG-varianter for lyse og mørke bakgrunner.",
-    "logoSection": "Logofiler",
-    "usageSection": "Bruk",
+    "description": "Last ned de lyse og mørke cmux-appikonene som macOS-appen bruker.",
+    "iconSection": "macOS-appikoner",
     "download": "Last ned",
     "assetAlt": "Forhåndsvisning av {name}",
-    "lightPreview": "Best for lyse bakgrunner.",
-    "darkPreview": "Best for mørke bakgrunner.",
-    "usage": {
-      "iconTitle": "Ikon",
-      "iconBody": "Bruk ikonet når plassen er kvadratisk eller kompakt.",
-      "wordmarkTitle": "Ordbilde",
-      "wordmarkBody": "Bruk ordbildet når det er plass til å vise cmux-navnet tydelig.",
-      "themeTitle": "Tema",
-      "themeBody": "Velg lys eller mørk SVG etter bakgrunnen den skal vises på."
-    }
+    "lightPreview": "Appikon for lys modus.",
+    "darkPreview": "Appikon for mørk modus."
   }
 }

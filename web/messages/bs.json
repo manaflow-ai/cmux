@@ -1205,22 +1205,13 @@
   },
   "brandAssets": {
     "metaTitle": "Brend materijali",
-    "metaDescription": "Preuzmite cmux logotipe, ikone, bedževe i materijale za svijetli i tamni način.",
+    "metaDescription": "Preuzmite svijetlu i tamnu cmux ikonu koju koristi macOS aplikacija.",
     "title": "Brend materijali",
-    "description": "Preuzmite cmux logotipe, ikone, bedževe i SVG varijante za svijetle i tamne pozadine.",
-    "logoSection": "Logo datoteke",
-    "usageSection": "Upotreba",
+    "description": "Preuzmite svijetlu i tamnu cmux ikonu koju koristi macOS aplikacija.",
+    "iconSection": "Ikone macOS aplikacije",
     "download": "Preuzmi",
     "assetAlt": "Pregled za {name}",
-    "lightPreview": "Najbolje za svijetle pozadine.",
-    "darkPreview": "Najbolje za tamne pozadine.",
-    "usage": {
-      "iconTitle": "Ikona",
-      "iconBody": "Koristite ikonu kada je prostor kvadratan ili uzak.",
-      "wordmarkTitle": "Wordmark",
-      "wordmarkBody": "Koristite wordmark kada ima prostora da se ime cmux jasno prikaže.",
-      "themeTitle": "Tema",
-      "themeBody": "Odaberite svijetli ili tamni SVG prema pozadini na kojoj će se pojaviti."
-    }
+    "lightPreview": "Ikona aplikacije za svijetli način.",
+    "darkPreview": "Ikona aplikacije za tamni način."
   }
 }

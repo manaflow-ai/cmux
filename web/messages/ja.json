@@ -1445,22 +1445,13 @@
   },
   "brandAssets": {
     "metaTitle": "ブランドアセット",
-    "metaDescription": "cmux のロゴ、アイコン、バッジ、ライト/ダーク用ブランドアセットをダウンロードできます。",
+    "metaDescription": "macOS アプリで使われている cmux のライト/ダーク用アプリアイコンをダウンロードできます。",
     "title": "ブランドアセット",
-    "description": "cmux のロゴ、アイコン、バッジ、ライト背景とダーク背景向けの SVG バリエーションをダウンロードできます。",
-    "logoSection": "ロゴファイル",
-    "usageSection": "使い方",
+    "description": "macOS アプリで使われている cmux のライト/ダーク用アプリアイコンをダウンロードできます。",
+    "iconSection": "macOS アプリアイコン",
     "download": "ダウンロード",
     "assetAlt": "{name} のプレビュー",
-    "lightPreview": "ライト背景に最適です。",
-    "darkPreview": "ダーク背景に最適です。",
-    "usage": {
-      "iconTitle": "アイコン",
-      "iconBody": "正方形または小さなスペースではアイコンを使ってください。",
-      "wordmarkTitle": "ワードマーク",
-      "wordmarkBody": "cmux の名前をはっきり表示できる余白がある場合はワードマークを使ってください。",
-      "themeTitle": "テーマ",
-      "themeBody": "配置する背景に合わせてライトまたはダークの SVG を選んでください。"
-    }
+    "lightPreview": "ライトモード用アプリアイコン。",
+    "darkPreview": "ダークモード用アプリアイコン。"
   }
 }

@@ -1205,22 +1205,13 @@
   },
   "brandAssets": {
     "metaTitle": "Brand-Assets",
-    "metaDescription": "Lade cmux Logos, Icons, Badges und Brand-Assets für helle und dunkle Hintergründe herunter.",
+    "metaDescription": "Lade die hellen und dunklen cmux App-Icons herunter, die die macOS-App verwendet.",
     "title": "Brand-Assets",
-    "description": "Lade cmux Logos, Icons, Badges und SVG-Varianten für helle und dunkle Hintergründe herunter.",
-    "logoSection": "Logo-Dateien",
-    "usageSection": "Verwendung",
+    "description": "Lade die hellen und dunklen cmux App-Icons herunter, die die macOS-App verwendet.",
+    "iconSection": "macOS App-Icons",
     "download": "Herunterladen",
     "assetAlt": "Vorschau von {name}",
-    "lightPreview": "Am besten für helle Hintergründe.",
-    "darkPreview": "Am besten für dunkle Hintergründe.",
-    "usage": {
-      "iconTitle": "Icon",
-      "iconBody": "Nutze das Icon, wenn der verfügbare Platz quadratisch oder knapp ist.",
-      "wordmarkTitle": "Wortmarke",
-      "wordmarkBody": "Nutze die Wortmarke, wenn genug Platz ist, um den Namen cmux klar zu zeigen.",
-      "themeTitle": "Theme",
-      "themeBody": "Wähle das helle oder dunkle SVG passend zum Hintergrund."
-    }
+    "lightPreview": "App-Icon für den hellen Modus.",
+    "darkPreview": "App-Icon für den dunklen Modus."
   }
 }

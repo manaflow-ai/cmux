@@ -1499,22 +1499,13 @@
   },
   "brandAssets": {
     "metaTitle": "Brand assets",
-    "metaDescription": "Download cmux logos, icons, badges, and light and dark brand assets.",
+    "metaDescription": "Download the light and dark cmux app icons used by the macOS app.",
     "title": "Brand assets",
-    "description": "Download cmux logos, icons, badges, and SVG variants for light and dark backgrounds.",
-    "logoSection": "Logo files",
-    "usageSection": "Usage",
+    "description": "Download the light and dark cmux app icons used by the macOS app.",
+    "iconSection": "macOS app icons",
     "download": "Download",
     "assetAlt": "{name} preview",
-    "lightPreview": "Best for light backgrounds.",
-    "darkPreview": "Best for dark backgrounds.",
-    "usage": {
-      "iconTitle": "Icon",
-      "iconBody": "Use the icon when the available space is square or compact.",
-      "wordmarkTitle": "Wordmark",
-      "wordmarkBody": "Use the wordmark when there is room to show the cmux name clearly.",
-      "themeTitle": "Theme",
-      "themeBody": "Choose the light or dark SVG for the background it will appear on."
-    }
+    "lightPreview": "Light mode app icon.",
+    "darkPreview": "Dark mode app icon."
   }
 }

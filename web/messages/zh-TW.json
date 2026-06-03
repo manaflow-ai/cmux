@@ -1205,22 +1205,13 @@
   },
   "brandAssets": {
     "metaTitle": "品牌素材",
-    "metaDescription": "下載 cmux 標誌、圖示、徽章，以及明暗模式品牌素材。",
+    "metaDescription": "下載 macOS 應用程式使用的 cmux 淺色和深色應用程式圖示。",
     "title": "品牌素材",
-    "description": "下載 cmux 標誌、圖示、徽章，以及適用於淺色和深色背景的 SVG 版本。",
-    "logoSection": "標誌檔案",
-    "usageSection": "用法",
+    "description": "下載 macOS 應用程式使用的 cmux 淺色和深色應用程式圖示。",
+    "iconSection": "macOS 應用程式圖示",
     "download": "下載",
     "assetAlt": "{name} 預覽",
-    "lightPreview": "最適合淺色背景。",
-    "darkPreview": "最適合深色背景。",
-    "usage": {
-      "iconTitle": "圖示",
-      "iconBody": "空間為正方形或較緊湊時使用圖示。",
-      "wordmarkTitle": "字標",
-      "wordmarkBody": "有足夠空間清楚顯示 cmux 名稱時使用字標。",
-      "themeTitle": "主題",
-      "themeBody": "依素材所在背景選擇淺色或深色 SVG。"
-    }
+    "lightPreview": "淺色模式應用程式圖示。",
+    "darkPreview": "深色模式應用程式圖示。"
   }
 }

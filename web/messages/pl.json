@@ -1205,22 +1205,13 @@
   },
   "brandAssets": {
     "metaTitle": "Zasoby marki",
-    "metaDescription": "Pobierz logotypy, ikony, odznaki i zasoby cmux do trybu jasnego i ciemnego.",
+    "metaDescription": "Pobierz jasną i ciemną ikonę aplikacji cmux używaną przez aplikację macOS.",
     "title": "Zasoby marki",
-    "description": "Pobierz logotypy, ikony, odznaki i warianty SVG cmux do jasnych i ciemnych teł.",
-    "logoSection": "Pliki logo",
-    "usageSection": "Użycie",
+    "description": "Pobierz jasną i ciemną ikonę aplikacji cmux używaną przez aplikację macOS.",
+    "iconSection": "Ikony aplikacji macOS",
     "download": "Pobierz",
     "assetAlt": "Podgląd {name}",
-    "lightPreview": "Najlepsze na jasne tła.",
-    "darkPreview": "Najlepsze na ciemne tła.",
-    "usage": {
-      "iconTitle": "Ikona",
-      "iconBody": "Użyj ikony, gdy dostępne miejsce jest kwadratowe lub małe.",
-      "wordmarkTitle": "Wordmark",
-      "wordmarkBody": "Użyj wordmarku, gdy jest miejsce, aby wyraźnie pokazać nazwę cmux.",
-      "themeTitle": "Motyw",
-      "themeBody": "Wybierz jasny lub ciemny SVG zgodnie z tłem."
-    }
+    "lightPreview": "Ikona aplikacji dla trybu jasnego.",
+    "darkPreview": "Ikona aplikacji dla trybu ciemnego."
   }
 }

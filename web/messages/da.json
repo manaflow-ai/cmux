@@ -1205,22 +1205,13 @@
   },
   "brandAssets": {
     "metaTitle": "Brandassets",
-    "metaDescription": "Download cmux-logoer, ikoner, badges og brandassets til lys og mørk tilstand.",
+    "metaDescription": "Download de lyse og mørke cmux-appikoner, som macOS-appen bruger.",
     "title": "Brandassets",
-    "description": "Download cmux-logoer, ikoner, badges og SVG-varianter til lyse og mørke baggrunde.",
-    "logoSection": "Logofiler",
-    "usageSection": "Brug",
+    "description": "Download de lyse og mørke cmux-appikoner, som macOS-appen bruger.",
+    "iconSection": "macOS-appikoner",
     "download": "Download",
     "assetAlt": "Forhåndsvisning af {name}",
-    "lightPreview": "Bedst til lyse baggrunde.",
-    "darkPreview": "Bedst til mørke baggrunde.",
-    "usage": {
-      "iconTitle": "Ikon",
-      "iconBody": "Brug ikonet, når pladsen er kvadratisk eller kompakt.",
-      "wordmarkTitle": "Wordmark",
-      "wordmarkBody": "Brug wordmarken, når der er plads til tydeligt at vise navnet cmux.",
-      "themeTitle": "Tema",
-      "themeBody": "Vælg lys eller mørk SVG efter den baggrund, den skal vises på."
-    }
+    "lightPreview": "Appikon til lys tilstand.",
+    "darkPreview": "Appikon til mørk tilstand."
   }
 }

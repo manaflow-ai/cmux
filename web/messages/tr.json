@@ -1205,22 +1205,13 @@
   },
   "brandAssets": {
     "metaTitle": "Marka varlıkları",
-    "metaDescription": "cmux logolarını, ikonlarını, rozetlerini ve açık/koyu mod marka varlıklarını indirin.",
+    "metaDescription": "macOS uygulamasının kullandığı açık ve koyu cmux uygulama ikonlarını indirin.",
     "title": "Marka varlıkları",
-    "description": "cmux logolarını, ikonlarını, rozetlerini ve açık ya da koyu arka planlar için SVG çeşitlerini indirin.",
-    "logoSection": "Logo dosyaları",
-    "usageSection": "Kullanım",
+    "description": "macOS uygulamasının kullandığı açık ve koyu cmux uygulama ikonlarını indirin.",
+    "iconSection": "macOS uygulama ikonları",
     "download": "İndir",
     "assetAlt": "{name} önizlemesi",
-    "lightPreview": "Açık arka planlar için en uygunu.",
-    "darkPreview": "Koyu arka planlar için en uygunu.",
-    "usage": {
-      "iconTitle": "İkon",
-      "iconBody": "Alan kare veya dar olduğunda ikonu kullanın.",
-      "wordmarkTitle": "Wordmark",
-      "wordmarkBody": "cmux adını net gösterecek yer olduğunda wordmark kullanın.",
-      "themeTitle": "Tema",
-      "themeBody": "Görüneceği arka plana göre açık veya koyu SVG seçin."
-    }
+    "lightPreview": "Açık mod uygulama ikonu.",
+    "darkPreview": "Koyu mod uygulama ikonu."
   }
 }

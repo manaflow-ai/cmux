@@ -1205,22 +1205,13 @@
   },
   "brandAssets": {
     "metaTitle": "Recursos de marca",
-    "metaDescription": "Descarga logotipos, iconos, insignias y recursos de cmux para modo claro y oscuro.",
+    "metaDescription": "Descarga los iconos claro y oscuro de cmux que usa la app de macOS.",
     "title": "Recursos de marca",
-    "description": "Descarga logotipos, iconos, insignias y variantes SVG de cmux para fondos claros y oscuros.",
-    "logoSection": "Archivos de logotipo",
-    "usageSection": "Uso",
+    "description": "Descarga los iconos claro y oscuro de cmux que usa la app de macOS.",
+    "iconSection": "Iconos de la app macOS",
     "download": "Descargar",
     "assetAlt": "Vista previa de {name}",
-    "lightPreview": "Ideal para fondos claros.",
-    "darkPreview": "Ideal para fondos oscuros.",
-    "usage": {
-      "iconTitle": "Icono",
-      "iconBody": "Usa el icono cuando el espacio sea cuadrado o compacto.",
-      "wordmarkTitle": "Logotipo textual",
-      "wordmarkBody": "Usa el logotipo textual cuando haya espacio para mostrar claramente el nombre cmux.",
-      "themeTitle": "Tema",
-      "themeBody": "Elige el SVG claro u oscuro según el fondo donde aparecerá."
-    }
+    "lightPreview": "Icono de app para modo claro.",
+    "darkPreview": "Icono de app para modo oscuro."
   }
 }
