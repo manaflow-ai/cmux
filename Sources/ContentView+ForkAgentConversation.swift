@@ -41,7 +41,7 @@ extension ContentView {
             panelId: panelId
         )
 
-        let fallbackSnapshot = currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
+        let fallbackSnapshot = currentContext.workspace.forkableAgentSnapshot(forPanelId: panelId)
         let isRemoteContext = currentContext.workspace.isRemoteTerminalSurface(panelId)
         let selection = Self.commandPaletteImmediateForkExecutionSnapshotSelection(
             workspaceId: workspaceId,
@@ -118,6 +118,12 @@ extension ContentView {
                    launch.terminalWorkingDirectory == nil,
                    let forkPanelId = forkWorkspace.focusedPanelId {
                     forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
+                }
+                if let forkPanelId = forkWorkspace.focusedPanelId {
+                    forkWorkspace.recordForkedAgentFallbackSnapshot(
+                        launch.forkedAgentSnapshot,
+                        panelId: forkPanelId
+                    )
                 }
                 didFork = true
             case .right, .left, .top, .bottom:
@@ -209,17 +215,16 @@ extension ContentView {
                 isRemoteTerminal: isRemoteTerminal
             ) {
             case .supportedWithoutProbe:
-                guard commandPaletteForkableAgentProbeResultMatches(
+                let probeResultMatches = commandPaletteForkableAgentProbeResultMatches(
                     panelKey: panelKey,
                     supportedPanelKeys: supportedPanelKeys,
                     supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
                     snapshotFingerprintsByPanelKey: snapshotFingerprintsByPanelKey,
                     expectedSnapshotFingerprint: fallbackFingerprint,
                     isRemoteTerminal: isRemoteTerminal
-                ) else {
-                    return nil
-                }
-                if let cachedSnapshot = verifiedCachedSnapshot(expectedFingerprint: fallbackFingerprint) {
+                )
+                if probeResultMatches,
+                   let cachedSnapshot = verifiedCachedSnapshot(expectedFingerprint: fallbackFingerprint) {
                     return CommandPaletteForkSnapshotSelection(
                         snapshot: cachedSnapshot,
                         usedFallbackSnapshot: false

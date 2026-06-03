@@ -269,6 +269,7 @@ extension Workspace {
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
 #endif
         restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
+        forkedAgentFallbackSnapshotsByPanelId.removeAll(keepingCapacity: false)
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
@@ -10513,6 +10514,7 @@ final class Workspace: Identifiable, ObservableObject {
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
+    var forkedAgentFallbackSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable
@@ -12661,6 +12663,9 @@ final class Workspace: Identifiable, ObservableObject {
             refreshTrackedAgentPorts()
         }
         restoredAgentSnapshotsByPanelId = restoredAgentSnapshotsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        forkedAgentFallbackSnapshotsByPanelId = forkedAgentFallbackSnapshotsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
@@ -17576,11 +17581,12 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
-    struct AgentConversationForkWorkspaceLaunch: Equatable {
+    struct AgentConversationForkWorkspaceLaunch {
         var workingDirectory: String?
         var terminalWorkingDirectory: String?
         var initialTerminalCommand: String?
         var initialTerminalInput: String
+        var forkedAgentSnapshot: SessionRestorableAgentSnapshot
         var remoteConfiguration: WorkspaceRemoteConfiguration?
         var autoConnectRemoteConfiguration: Bool
     }
@@ -17611,6 +17617,7 @@ final class Workspace: Identifiable, ObservableObject {
             terminalWorkingDirectory: isRemoteFork ? nil : workingDirectory,
             initialTerminalCommand: remoteConfiguration?.terminalStartupCommand ?? remoteStartupCommand,
             initialTerminalInput: startupInput,
+            forkedAgentSnapshot: launchSnapshot,
             remoteConfiguration: remoteConfiguration,
             autoConnectRemoteConfiguration: remoteConfiguration != nil
         )
@@ -17655,6 +17662,9 @@ final class Workspace: Identifiable, ObservableObject {
            let workingDirectory {
             updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
         }
+        if let forkedPanel {
+            recordForkedAgentFallbackSnapshot(launchSnapshot, panelId: forkedPanel.id)
+        }
         if forkedPanel == nil, let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
         }
@@ -17677,7 +17687,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// whether to surface the Fork Conversation item for a given anchor tab. Restricted to
     /// `.supportedWithoutProbe` so we never offer an item that may quietly fail; agents
     /// requiring a probe (e.g. shell-launched OpenCode) stay reachable from the command
-    /// palette path that performs that probe first.
+    /// palette after that probe succeeds.
     func canForkAgentConversationFromPanel(_ panelId: UUID) -> Bool {
         guard panels[panelId] is TerminalPanel else { return false }
         guard let snapshot = forkableAgentSnapshot(forPanelId: panelId) else {
@@ -17704,7 +17714,31 @@ final class Workspace: Identifiable, ObservableObject {
         if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
             return snapshot
         }
-        return SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId)
+        if let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId) {
+            return snapshot
+        }
+        return forkedAgentFallbackSnapshotsByPanelId[panelId]
+    }
+
+    func recordForkedAgentFallbackSnapshot(_ snapshot: SessionRestorableAgentSnapshot, panelId: UUID) {
+        guard panels[panelId] is TerminalPanel else { return }
+        forkedAgentFallbackSnapshotsByPanelId[panelId] = snapshot
+        if let binding = forkedAgentStartupBinding(snapshot) {
+            surfaceResumeBindingsByPanelId[panelId] = binding
+        }
+    }
+
+    private func forkedAgentStartupBinding(_ snapshot: SessionRestorableAgentSnapshot) -> SurfaceResumeBindingSnapshot? {
+        guard let command = snapshot.forkCommand else { return nil }
+        return SurfaceResumeBindingSnapshot(
+            name: snapshot.agentDisplayName,
+            kind: snapshot.kind.rawValue,
+            command: command,
+            cwd: snapshot.workingDirectory,
+            checkpointId: snapshot.sessionId,
+            source: "agent-hook",
+            autoResume: true
+        )
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
@@ -17750,6 +17784,7 @@ final class Workspace: Identifiable, ObservableObject {
             if remoteStartupCommand != nil, let workingDirectory {
                 updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
             }
+            recordForkedAgentFallbackSnapshot(launchSnapshot, panelId: forkedPanel.id)
         } else if let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
         }
@@ -19242,6 +19277,12 @@ extension Workspace: BonsplitDelegate {
            launch.terminalWorkingDirectory == nil,
            let forkPanelId = forkWorkspace.focusedPanelId {
             forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
+        }
+        if let forkPanelId = forkWorkspace.focusedPanelId {
+            forkWorkspace.recordForkedAgentFallbackSnapshot(
+                launch.forkedAgentSnapshot,
+                panelId: forkPanelId
+            )
         }
         return true
     }
