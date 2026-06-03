@@ -28,7 +28,7 @@ import Testing
             "Label", "Array", "Int", "Double", "String", "Ellipse", "UnevenRoundedRectangle",
             "min", "max", "abs",
             "Grid", "GridRow", "LazyVGrid", "LazyHGrid", "ViewThatFits", "GridItem",
-            "ProgressView", "Gauge", "Menu",
+            "ProgressView", "Gauge", "Menu", "AnyView",
         ]
         let supportedMembers: Set<String> = [
             "font", "bold", "fontWeight", "foregroundColor", "foregroundStyle", "fill",

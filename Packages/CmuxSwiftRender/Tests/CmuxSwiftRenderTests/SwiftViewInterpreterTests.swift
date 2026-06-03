@@ -584,6 +584,12 @@ import Testing
         #expect(background?.children.first?.kind == .roundedRectangle)
     }
 
+    @Test func anyViewPassthrough() {
+        let node = interp.evaluate(#"VStack { AnyView(Text("wrapped")) }"#)
+        #expect(node?.children.first?.kind == .text)
+        #expect(node?.children.first?.text == "wrapped")
+    }
+
     @Test func shapeStrokeAndTrimCaptured() {
         let node = interp.evaluate("""
         Circle().stroke("#7AA2F7", lineWidth: 2).trim(from: 0.0, to: 0.75)

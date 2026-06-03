@@ -220,6 +220,12 @@ public struct SwiftViewInterpreter: Sendable {
             }
             let children = call.trailingClosure.map { evalItems($0.statements, env) } ?? []
             return RenderNode(kind: kind, spacing: doubleArgument(named: "spacing", call.arguments, env), children: children)
+        case "AnyView":
+            // Type-erasure wrapper: render the wrapped view.
+            if let inner = call.arguments.first(where: { $0.label == nil })?.expression {
+                return evalView(inner, env)
+            }
+            return call.trailingClosure.flatMap { evalItems($0.statements, env).first }
         case "Group":
             return RenderNode(kind: .group, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
         case "EmptyView":
