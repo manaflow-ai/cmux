@@ -17262,37 +17262,49 @@ function paletteEntries() {
       run: () => applyBrowserHomePreset(preset)
     });
   }
+  const paletteActivePane = activePaneForColorTarget();
   for (const color of state.customColorPalette) {
+    const colorValue = colorKey(color);
+    const activeAccent = colorKey(state.settings.accent) === colorValue;
+    const activeWorkspaceColor = colorKey(paletteWorkspace?.color) === colorValue;
+    const activePaneColor = colorKey(paletteActivePane?.color) === colorValue;
+    const activeAllPaneColors = Boolean(paletteWorkspace?.panels?.length)
+      && paletteWorkspace.panels.every((panel) => colorKey(panel.color) === colorValue);
+    const workspaceMeta = paletteWorkspace?.title || "Active workspace";
     entries.push({
       id: `savedColor.accent.${color.slice(1)}`,
       label: `Accent color: ${color}`,
-      meta: "Saved color",
-      shortcut: "Color",
-      search: normalizeSettingsQuery(`saved color palette custom accent ${color}`),
+      meta: activeAccent ? "Active / Saved color" : "Saved color",
+      shortcut: activeAccent ? "Active" : "Color",
+      active: activeAccent,
+      search: normalizeSettingsQuery(`saved color palette custom accent active ${color}`),
       run: () => updateSettings({ accent: color })
     });
     entries.push({
       id: `savedColor.workspace.${color.slice(1)}`,
       label: `Workspace color: ${color}`,
-      meta: activeWorkspace()?.title || "Active workspace",
-      shortcut: "Color",
-      search: normalizeSettingsQuery(`saved color palette custom workspace pane tab ${color}`),
+      meta: activeWorkspaceColor ? `Active / ${workspaceMeta}` : workspaceMeta,
+      shortcut: activeWorkspaceColor ? "Active" : "Color",
+      active: activeWorkspaceColor,
+      search: normalizeSettingsQuery(`saved color palette custom workspace pane tab active ${color}`),
       run: () => setWorkspaceColor(color)
     });
     entries.push({
       id: `savedColor.pane.${color.slice(1)}`,
       label: `Pane color: ${color}`,
-      meta: "Active pane",
-      shortcut: "Color",
+      meta: activePaneColor ? "Active / Active pane" : "Active pane",
+      shortcut: activePaneColor ? "Active" : "Color",
+      active: activePaneColor,
       search: normalizeSettingsQuery(`saved color palette custom active pane tab ${color}`),
       run: () => applySavedColorToTarget(color, "pane")
     });
     entries.push({
       id: `savedColor.all.${color.slice(1)}`,
       label: `All pane colors: ${color}`,
-      meta: "Current workspace",
-      shortcut: "Color",
-      search: normalizeSettingsQuery(`saved color palette custom all panes workspace ${color}`),
+      meta: activeAllPaneColors ? "Active / Current workspace" : "Current workspace",
+      shortcut: activeAllPaneColors ? "Active" : "Color",
+      active: activeAllPaneColors,
+      search: normalizeSettingsQuery(`saved color palette custom active all panes workspace ${color}`),
       run: () => applySavedColorToTarget(color, "all")
     });
   }
