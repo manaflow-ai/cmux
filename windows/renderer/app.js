@@ -3879,6 +3879,8 @@ const commands = [
   { id: "session.tools", label: "Show Session Tools", shortcut: "", run: () => openInspector("session") },
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
   { id: "settings.pane", label: "Open Active Pane Settings", shortcut: "", run: () => openPaneSettings() },
+  { id: "settings.copyPaneSetup", label: "Copy Active Pane Setup", shortcut: "", run: () => copyActivePaneSetup() },
+  { id: "settings.pastePaneSetup", label: "Paste Active Pane Setup", shortcut: "", run: () => pasteActivePaneSetup() },
   { id: "settings.resetAppearance", label: "Reset Look Settings", shortcut: "", run: () => resetAppearanceSettings() },
   { id: "settings.copyLook", label: "Copy Look Settings", shortcut: "", run: () => copyLookSettings() },
   { id: "settings.pasteLook", label: "Paste Look Settings", shortcut: "", run: () => pasteLookSettings() },
@@ -12117,6 +12119,213 @@ function paneBackgroundControlPanel(panel) {
   return control;
 }
 
+function paneSetupTarget(panel = focusedPanel() || activePanel()) {
+  const found = findPanelState(panel?.id);
+  return found?.panel || panel || null;
+}
+
+function paneSetupPayload(panel = focusedPanel() || activePanel()) {
+  const target = paneSetupTarget(panel);
+  if (!target) return null;
+  const titleLocked = Boolean(target.titleLocked);
+  const settings = {
+    type: target.type,
+    title: titleLocked ? target.title || "" : "",
+    titleLocked,
+    color: target.color || ""
+  };
+  if (target.type === "terminal") {
+    settings.backgroundImage = normalizeBackgroundValue(target.backgroundImage);
+    settings.terminalFontSize = normalizeTerminalFontSize(target.terminalFontSize, 0);
+  } else if (target.type === "browser") {
+    settings.url = browserPanelUrl(target) || target.url || state.settings.browserHomeUrl;
+  }
+  return {
+    version: 1,
+    type: "cmux-pane-setup",
+    summary: {
+      kind: target.type === "browser" ? "Browser" : "Terminal",
+      name: titleLocked ? settings.title : "Automatic",
+      color: settings.color || "Default",
+      background: target.type === "terminal" ? appearanceBackgroundLabel(settings.backgroundImage) : "",
+      text: target.type === "terminal"
+        ? (settings.terminalFontSize ? `${settings.terminalFontSize}px` : "Default")
+        : "",
+      url: target.type === "browser" ? settings.url : ""
+    },
+    settings
+  };
+}
+
+async function copyActivePaneSetup(panel = focusedPanel() || activePanel()) {
+  const payloadModel = paneSetupPayload(panel);
+  if (!payloadModel) {
+    toast("Open a pane to copy its setup.");
+    return false;
+  }
+  const payload = JSON.stringify(payloadModel, null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Pane setup copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Pane setup",
+    message: "Clipboard access is unavailable. The active pane setup is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function paneSetupTitleUpdateFromSource(source) {
+  const hasTitle = Object.prototype.hasOwnProperty.call(source, "title");
+  const hasTitleLocked = Object.prototype.hasOwnProperty.call(source, "titleLocked");
+  if (!hasTitle && !hasTitleLocked) return undefined;
+  if (hasTitleLocked) {
+    if (typeof source.titleLocked !== "boolean") return null;
+    if (!source.titleLocked) return "";
+    if (!hasTitle || typeof source.title !== "string") return null;
+    const title = source.title.trim();
+    return title ? title : null;
+  }
+  if (source.title === null) return "";
+  if (typeof source.title !== "string") return null;
+  return source.title.trim();
+}
+
+function paneSetupColorUpdateFromValue(raw) {
+  if (raw === null || raw === "") return "";
+  if (typeof raw !== "string") return null;
+  const color = raw.trim();
+  return isAllowedUiColor(color, state.data?.palette || accentOptions) ? color : null;
+}
+
+function paneSetupBackgroundUpdateFromValue(raw) {
+  if (raw === null || raw === "") return "";
+  if (typeof raw !== "string") return null;
+  const trimmed = stripWrappingQuotes(raw);
+  const normalized = normalizeBackgroundValue(raw);
+  return trimmed && !normalized ? null : normalized;
+}
+
+function paneSetupTerminalFontSizeUpdateFromValue(raw) {
+  if (raw === null || raw === "") return 0;
+  if (typeof raw === "boolean" || typeof raw === "object") return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return null;
+  return value <= 0 ? 0 : normalizeTerminalFontSize(value, state.settings.terminalFontSize);
+}
+
+function paneSetupUrlUpdateFromValue(raw) {
+  if (raw === null || raw === "") return state.settings.browserHomeUrl;
+  if (typeof raw !== "string") return null;
+  return normalizeUrl(raw || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+}
+
+function paneSetupUpdatesFromPayload(payload, panel = focusedPanel() || activePanel()) {
+  const target = paneSetupTarget(panel);
+  if (!target) return null;
+  const parsed = importedObject(payload);
+  const source = importedObject(parsed?.settings) || parsed;
+  if (!source) return null;
+  const updates = {};
+  const title = paneSetupTitleUpdateFromSource(source);
+  if (title === null) return null;
+  if (title !== undefined) updates.title = title;
+  if (Object.prototype.hasOwnProperty.call(source, "color")) {
+    const color = paneSetupColorUpdateFromValue(source.color);
+    if (color === null) return null;
+    updates.color = color;
+  }
+  if (target.type === "terminal") {
+    if (Object.prototype.hasOwnProperty.call(source, "backgroundImage")) {
+      const backgroundImage = paneSetupBackgroundUpdateFromValue(source.backgroundImage);
+      if (backgroundImage === null) return null;
+      updates.backgroundImage = backgroundImage;
+    }
+    if (Object.prototype.hasOwnProperty.call(source, "terminalFontSize")) {
+      const terminalFontSize = paneSetupTerminalFontSizeUpdateFromValue(source.terminalFontSize);
+      if (terminalFontSize === null) return null;
+      updates.terminalFontSize = terminalFontSize;
+    }
+  } else if (target.type === "browser" && Object.prototype.hasOwnProperty.call(source, "url")) {
+    const url = paneSetupUrlUpdateFromValue(source.url);
+    if (url === null) return null;
+    updates.url = url;
+  }
+  return Object.keys(updates).length ? updates : null;
+}
+
+function syncBrowserPanelUrlView(panel, url) {
+  if (panel?.type !== "browser") return;
+  const session = state.browserViews.get(panel.id);
+  if (!session) return;
+  if (session.address.value !== url) session.address.value = url;
+  updateActiveBrowserTabUrl(session, url);
+  const sourceUrl = browserViewSourceUrl(url, state.settings.browserHomeUrl);
+  if (session.view.src !== sourceUrl) {
+    session.content?.classList?.remove("has-loaded");
+    session.setLoading?.(true);
+    session.view.src = sourceUrl;
+    session.setStatus?.(browserLoadingStatusText);
+  }
+}
+
+async function applyPaneSetupUpdates(updates, panel = focusedPanel() || activePanel()) {
+  const target = paneSetupTarget(panel);
+  if (!target) {
+    toast("Open a pane to paste setup.");
+    return false;
+  }
+  if (!updates) {
+    toast("Clipboard does not contain pane setup.");
+    return false;
+  }
+  const panelUpdates = { ...updates };
+  const hasTerminalFontSize = Object.prototype.hasOwnProperty.call(panelUpdates, "terminalFontSize");
+  const terminalFontSize = panelUpdates.terminalFontSize;
+  delete panelUpdates.terminalFontSize;
+  let changed = false;
+  if (Object.prototype.hasOwnProperty.call(panelUpdates, "url")) {
+    syncBrowserPanelUrlView(target, panelUpdates.url);
+  }
+  if (Object.keys(panelUpdates).length && panelUpdateReconcileNeeded(target.id, panelUpdates)) {
+    await updatePanel(target.id, panelUpdates);
+    changed = true;
+  }
+  if (hasTerminalFontSize && target.type === "terminal") {
+    const expected = normalizeTerminalFontSize(terminalFontSize, 0);
+    if (normalizeTerminalFontSize(target.terminalFontSize, 0) !== expected) {
+      setPaneTerminalFontSizeOverride(target.id, expected, { toast: false });
+      changed = true;
+    }
+  }
+  if (!changed) {
+    toast("Pane setup already matches.");
+    return false;
+  }
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast("Pane setup applied.");
+  return true;
+}
+
+async function pasteActivePaneSetup(panel = focusedPanel() || activePanel()) {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(clipboard);
+    return applyPaneSetupUpdates(paneSetupUpdatesFromPayload(parsed, panel), panel);
+  } catch {
+    toast("Clipboard does not contain pane setup.");
+    return false;
+  }
+}
+
 function editablePaneTitle(panel) {
   return panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal");
 }
@@ -12396,9 +12605,11 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
 
   const actions = document.createElement("div");
   actions.className = "settings-actions active-pane-actions";
-  actions.dataset.settingsSearch = normalizeSettingsQuery("active pane focus duplicate split reset color text browser terminal actions");
+  actions.dataset.settingsSearch = normalizeSettingsQuery("active pane focus duplicate split reset color text browser terminal actions copy paste setup clipboard json");
   actions.append(
     settingsActionButton("Focus pane", () => focusPanel(panel.id), "", "active pane focus"),
+    settingsActionButton("Copy setup", () => copyActivePaneSetup(panel), "", "active pane setup copy title color background text url clipboard json"),
+    settingsActionButton("Paste setup", () => pasteActivePaneSetup(panel), "", "active pane setup paste title color background text url clipboard json"),
     settingsActionButton("Duplicate", () => duplicatePanel(panel), "", "active pane duplicate"),
     settingsActionButton("Split right", () => splitPanel(panel, "right"), "", "active pane split right"),
     settingsActionButton("Split down", () => splitPanel(panel, "down"), "", "active pane split down")
@@ -17907,6 +18118,8 @@ function showToolbarMenu(event) {
     contextMenuActionGroup(
       toolbarAction("Customize active pane", () => openPaneSettings(panel), !panel, "Customize the focused pane.", paneRequiredTitle),
       toolbarAction("Active pane appearance", () => openPaneAppearanceSettings(panel), !panel, "Open appearance controls for the focused pane.", paneRequiredTitle),
+      toolbarAction("Copy pane setup", () => copyActivePaneSetup(panel), !panel, "Copy the focused pane name, color, and type-specific setup as JSON.", paneRequiredTitle),
+      toolbarAction("Paste pane setup", () => pasteActivePaneSetup(panel), !panel, "Apply copied pane setup to the focused pane.", paneRequiredTitle),
       contextMenuButton("Split right", () => splitActivePanel("right")),
       contextMenuButton("Split down", () => splitActivePanel("down")),
       toolbarAction("Duplicate active pane", duplicateActivePanel, !panel, "Duplicate the focused pane.", paneRequiredTitle),
