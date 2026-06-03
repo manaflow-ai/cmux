@@ -163,6 +163,7 @@
 		C5A1FED200000000000000E1 /* CmuxSidebarInterpreterClient in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */; };
 		C5A1FED200000000000000E2 /* CmuxSidebarInterpreterClient in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */; };
 		C0DE4A000000000000000001 /* CmuxSidebarProviderKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE4A000000000000000002 /* CmuxSidebarProviderKit */; };
+		C5A1FED200000000000000E5 /* CmuxSidebarRemoteRender in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED200000000000000E6 /* CmuxSidebarRemoteRender */; };
 		A5354303A5354303A5354303 /* CmuxSocketControl in Frameworks */ = {isa = PBXBuildFile; productRef = A5354305A5354305A5354305 /* CmuxSocketControl */; };
 		B900004CA1B2C3D4E5F60719 /* CmuxSocketControl in Frameworks */ = {isa = PBXBuildFile; productRef = A5354305A5354305A5354305 /* CmuxSocketControl */; };
 		E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000A /* CmuxSocketEventMapper.swift */; };
@@ -1238,6 +1239,7 @@
 				CD0CFE5600000000CD0CFE56 /* CmuxSettingsUI in Frameworks */,
 				C5A1FED200000000000000E1 /* CmuxSidebarInterpreterClient in Frameworks */,
 				C0DE4A000000000000000001 /* CmuxSidebarProviderKit in Frameworks */,
+				C5A1FED200000000000000E5 /* CmuxSidebarRemoteRender in Frameworks */,
 				A5354303A5354303A5354303 /* CmuxSocketControl in Frameworks */,
 				C5A1FED000000000000000C1 /* CmuxSwiftRender in Frameworks */,
 				C5A1FED100000000000000D1 /* CmuxSwiftRenderUI in Frameworks */,
@@ -1968,6 +1970,7 @@
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
 				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
+				C5A1FED200000000000000E6 /* CmuxSidebarRemoteRender */,
 				C8000302C8000302C8000302 /* CmuxProcess */,
 				C8000312C8000312C8000312 /* CmuxFileWatch */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
@@ -3438,6 +3441,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C5A1FED200000000000000E4 /* XCLocalSwiftPackageReference "CmuxSidebarInterpreterService" */;
 			productName = CmuxSidebarInterpreterClient;
+		};
+		C5A1FED200000000000000E6 /* CmuxSidebarRemoteRender */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C5A1FED200000000000000E4 /* XCLocalSwiftPackageReference "CmuxSidebarInterpreterService" */;
+			productName = CmuxSidebarRemoteRender;
 		};
 		C8000312C8000312C8000312 /* CmuxFileWatch */ = {
 			isa = XCSwiftPackageProductDependency;
