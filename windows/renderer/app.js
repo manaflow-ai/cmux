@@ -371,6 +371,7 @@ const deferredTerminalInitIdleTimeoutMs = 70;
 const browserLoadTimeoutMs = 15000;
 const browserSuspendStopDelayMs = 1200;
 const embeddedGooglePolishMinIntervalMs = 750;
+const paneCreationBusyAnimationDelayMs = 2000;
 const browserLoadingStatusText = t("browser.loadingStatus");
 const browserPausedStatusText = t("browser.pausedStatus");
 const paneResizeFitThrottleMs = 90;
@@ -4058,10 +4059,13 @@ function paneCreationButtonBaseTitle(button) {
 function updatePaneCreationButtonState(button) {
   if (!button) return;
   const disabled = paneCreationButtonsDisabled();
-  const creating = paneCreationOperationCount(paneCreationButtonType(button)) > 0;
+  const buttonType = paneCreationButtonType(button);
+  const creating = paneCreationOperationCount(buttonType) > 0;
+  const waiting = creating && paneCreationOperationWaiting(buttonType);
   const title = paneCreationActionTitle(paneCreationButtonBaseTitle(button));
   setDisabledIfChanged(button, disabled);
   toggleClassIfChanged(button, "is-creating", creating && !disabled);
+  toggleClassIfChanged(button, "is-waiting", waiting && !disabled);
   setTitleIfChanged(button, title);
   setAttributeIfChanged(button, "aria-label", title);
 }
@@ -4082,6 +4086,22 @@ function paneCreationOperationCount(type = "") {
     count += 1;
   }
   return count;
+}
+
+function paneCreationOperationWaiting(type = "") {
+  const requestedType = String(type || "");
+  const now = performance.now();
+  for (const operation of state.uiOperations.values()) {
+    if (operation.kind !== "create-panel") continue;
+    if (requestedType && operation.paneType && operation.paneType !== requestedType) continue;
+    if (now - Number(operation.startedAt || 0) >= paneCreationBusyAnimationDelayMs) return true;
+  }
+  const wallNow = Date.now();
+  for (const panel of state.pendingPanels.values()) {
+    if (requestedType && panel.type !== requestedType) continue;
+    if (wallNow - Number(panel.pendingStartedAt || wallNow) >= paneCreationBusyAnimationDelayMs) return true;
+  }
+  return false;
 }
 
 function paneCreationElapsedSeconds() {
@@ -5023,10 +5043,13 @@ function updateSurfaceAddButtonState(button, config) {
   if (!button || !config) return;
   const parts = surfaceAddTabParts(button);
   const disabled = paneCreationButtonsDisabled();
-  const creating = paneCreationOperationCount(button.dataset.addKind || "") > 0;
+  const addKind = button.dataset.addKind || "";
+  const creating = paneCreationOperationCount(addKind) > 0;
+  const waiting = creating && paneCreationOperationWaiting(addKind);
   setTextIfChanged(parts.label, config.label);
   setDisabledIfChanged(button, disabled);
   toggleClassIfChanged(button, "is-creating", creating && !disabled);
+  toggleClassIfChanged(button, "is-waiting", waiting && !disabled);
   const title = paneCreationActionTitle(config.title, "Right-click to choose right or below.");
   setTitleIfChanged(button, title);
   setAttributeIfChanged(button, "aria-label", title);

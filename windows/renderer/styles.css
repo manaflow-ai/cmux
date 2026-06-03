@@ -1299,11 +1299,11 @@ body.reduce-motion *::after {
   transform: scale(.94);
 }
 
-.tool-button.add-tool.is-creating .tool-add-mark {
+.tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
   animation: cmux-pulse 900ms var(--ease-in-out) infinite;
 }
 
-body.reduce-motion .tool-button.add-tool.is-creating .tool-add-mark {
+body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
   animation: none;
 }
 
@@ -1454,11 +1454,7 @@ body.reduce-motion .tool-button.add-tool.is-creating .tool-add-mark {
   background: var(--color-pane);
 }
 
-.surface-new-tab:disabled .surface-new-icon {
-  animation: cmux-pulse 900ms var(--ease-in-out) infinite;
-}
-
-.surface-new-tab.is-creating:not(:disabled) .surface-new-icon {
+.surface-new-tab.is-creating.is-waiting:not(:disabled) .surface-new-icon {
   animation: cmux-pulse 900ms var(--ease-in-out) infinite;
 }
 
@@ -1466,8 +1462,7 @@ body.reduce-motion .tool-button.add-tool.is-creating .tool-add-mark {
   border-color: color-mix(in oklch, currentcolor 42%, var(--color-line-strong) 58%);
 }
 
-body.reduce-motion .surface-new-tab:disabled .surface-new-icon,
-body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon {
+body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surface-new-icon {
   animation: none;
 }
 
