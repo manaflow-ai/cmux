@@ -30,13 +30,18 @@ public struct CustomSidebarView: View {
     ///     window titlebar accessory and fades into the host's top mask when
     ///     scrolled, instead of underlapping it. Defaults to
     ///     ``CustomSidebarContentInsets/zero``.
+    ///   - interpreter: The interpreter the `.swift` source renders through.
+    ///     Defaults to the in-process implementation; the app injects an
+    ///     out-of-process, crash-isolating ``SidebarInterpreting`` so an
+    ///     interpreter fault from an untrusted sidebar can't crash the host.
     public init(
         fileURL: URL,
         dataContext: [String: SwiftValue],
         dispatch: SidebarActionDispatch,
-        contentInsets: CustomSidebarContentInsets = .zero
+        contentInsets: CustomSidebarContentInsets = .zero,
+        interpreter: any SidebarInterpreting = InProcessSidebarInterpreter()
     ) {
-        _model = State(initialValue: CustomSidebarModel(fileURL: fileURL))
+        _model = State(initialValue: CustomSidebarModel(fileURL: fileURL, interpreter: interpreter))
         self.dataContext = dataContext
         self.dispatch = dispatch
         self.contentInsets = contentInsets
@@ -48,6 +53,12 @@ public struct CustomSidebarView: View {
             .environment(\.customSidebarContentInsets, contentInsets)
             .onAppear { model.start() }
             .onDisappear { model.stop() }
+            // Re-interpret whenever the live data changes or the source
+            // reloads. `.task(id:)` cancels the prior render, so a superseded
+            // tick's result is discarded rather than published stale.
+            .task(id: SwiftRenderTrigger(sourceRevision: model.sourceRevision, dataContext: dataContext)) {
+                await model.renderSwift(dataContext: dataContext)
+            }
     }
 
     @ViewBuilder
@@ -67,10 +78,11 @@ public struct CustomSidebarView: View {
                 dispatch.run(action.buttonAction)
             })
         case .swiftSource:
-            // The model caches the parsed AST and re-evaluates only against
-            // `dataContext`, so live workspace state still drives re-renders
-            // without re-parsing the source on every tick.
-            if let node = model.renderNode(dataContext: dataContext) {
+            // The render runs through the injected interpreter (out-of-process
+            // in the app) and is published to `model.swiftRender` by the
+            // `.task(id:)` above; keep showing the last result until the next
+            // one lands so live re-renders don't flicker.
+            if let node = model.swiftRender {
                 // A split root owns its own per-column scrolling and fills the
                 // sidebar height, so it is not wrapped in the outer ScrollView.
                 if node.kind == .hsplit {
@@ -79,8 +91,12 @@ public struct CustomSidebarView: View {
                 } else {
                     scrollWrap(RenderNodeView(node: node))
                 }
-            } else {
+            } else if model.hasRenderedSwift {
                 scrollWrap(errorView(String(localized: "sidebar.custom.noView", defaultValue: "No supported SwiftUI view found.")))
+            } else {
+                // First render in flight; an empty placeholder avoids flashing
+                // the error state before the interpreter has answered.
+                scrollWrap(Color.clear.frame(height: 1))
             }
         case let .failed(message):
             scrollWrap(errorView(message))
@@ -124,4 +140,12 @@ public struct CustomSidebarView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
+
+/// The value the sidebar's interpret `.task(id:)` keys on. It changes when the
+/// loaded source reloads (`sourceRevision`) or the live `dataContext` changes,
+/// re-running the render. `Equatable` is enough for `.task(id:)`.
+private struct SwiftRenderTrigger: Equatable {
+    let sourceRevision: Int
+    let dataContext: [String: SwiftValue]
 }

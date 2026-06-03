@@ -26,35 +26,39 @@ final class CustomSidebarModel {
     private var watchTask: Task<Void, Never>?
     private var watcher: FileWatcher?
 
-    private let interpreter = SwiftViewInterpreter()
-    // Cache the parsed Swift program so re-rendering against live data (the
-    // host re-evaluates each `TimelineView` tick) does not re-parse unchanged
-    // source. Keyed by the source string; `reload()` swaps in new source on
-    // file change, which invalidates the cache on the next `renderNode` call.
-    private var cachedSource: String?
-    private var cachedProgram: ParsedProgram?
+    /// The interpreter the source is rendered through. Defaults to the
+    /// in-process implementation; the app injects an out-of-process,
+    /// crash-isolating ``SidebarInterpreting`` so an interpreter fault from an
+    /// untrusted sidebar can't take down the host.
+    private let interpreter: any SidebarInterpreting
 
-    init(fileURL: URL) {
+    /// Latest interpreted view for `.swiftSource`, updated only when a render
+    /// completes so live re-renders don't flash empty between ticks.
+    private(set) var swiftRender: RenderNode?
+    /// True once the first `.swiftSource` render completes, letting the view
+    /// distinguish "still rendering" from "rendered, no view" (error state).
+    private(set) var hasRenderedSwift = false
+    /// Bumps when the loaded source changes, so the view's render trigger
+    /// re-fires on file reload even when the data context is unchanged.
+    private(set) var sourceRevision = 0
+
+    init(fileURL: URL, interpreter: any SidebarInterpreting = InProcessSidebarInterpreter()) {
         self.fileURL = fileURL
+        self.interpreter = interpreter
     }
 
-    /// Interprets the current Swift source against `dataContext`, reusing a
-    /// cached parse so the expensive AST parse/fold runs only when the source
-    /// changes (not on every render).
+    /// Interprets the current `.swiftSource` against `dataContext` through the
+    /// injected interpreter and publishes the result. No-op for other states.
     ///
-    /// Returns `nil` when the current state is not `.swiftSource` or the source
-    /// produces no supported view. The view layer maps `nil` to its error UI.
-    func renderNode(dataContext: [String: SwiftValue]) -> RenderNode? {
-        guard case let .swiftSource(source) = state else { return nil }
-        let program: ParsedProgram
-        if cachedSource == source, let cached = cachedProgram {
-            program = cached
-        } else {
-            program = interpreter.parse(source)
-            cachedSource = source
-            cachedProgram = program
-        }
-        return interpreter.evaluate(program, state: dataContext)
+    /// Drive this from the view's `.task(id:)` so it re-runs on each data-
+    /// context change and on source reload; cancellation (a newer trigger
+    /// superseding this one) discards the stale result instead of publishing it.
+    func renderSwift(dataContext: [String: SwiftValue]) async {
+        guard case let .swiftSource(source) = state else { return }
+        let node = await interpreter.render(source: source, state: dataContext)
+        if Task.isCancelled { return }
+        swiftRender = node
+        hasRenderedSwift = true
     }
 
     /// Loads the file once and starts watching it. Idempotent.
@@ -84,6 +88,7 @@ final class CustomSidebarModel {
 
     /// Re-reads the file: stores `.swift` source verbatim, decodes `.json`.
     func reload() {
+        defer { sourceRevision += 1 } // re-fire the view's render trigger
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             state = .missing
             return
