@@ -242,6 +242,22 @@
         "p3": "វាផ្ញើ workspace បច្ចុប្បន្នទៅខាងក្រោយវដ្តមិនទាន់អាន ដូច្នេះអ្នកអាចបន្តបង្វិលដោយមិនលុបស្ថានភាព។",
         "p4": "Cmd+Option+U ប្ដូរ workspace បច្ចុប្បន្នរវាងបានអាន និងមិនទាន់អាន។",
         "p5": "វាមានប្រយោជន៍នៅពេលអ្នកលោតទៅ workspace មិនទាន់អានថ្មីដោយ Cmd+Shift+U ប៉ុន្តែត្រូវប្ដូរបរិបទមុនឆ្លើយ។"
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "បើកឡើងវិញនូវ terminal កម្មវិធីរុករក workspace និង session របស់ agent ដែលបានបិទ ដោយប្រើ Cmd+Shift+T ហើយតាមដានការផ្ដោតរបស់អ្នកវិញ ដោយប្រើ Cmd+[ និង Cmd+]។",
+        "date": "2 មិថុនា 2026",
+        "p1": "អ្នកបិទ tab terminal មួយដើម្បីរៀបចំ រួចទើបដឹងថាអ្នកនៅត្រូវការវា។ ឬអ្នកបិទ workspace ទាំងមូល ហើយបាត់ agent ដែលកំពុងធ្វើការពាក់កណ្ដាល។ ឥឡូវនេះ cmux រក្សាប្រវត្តិនៃអ្វីដែលអ្នកបានបិទ និងផ្ដោត ដូច្នេះការយកវាមកវិញត្រូវការតែ shortcut មួយប៉ុណ្ណោះ។",
+        "reopenTitle": "បើកឡើងវិញនូវអ្វីដែលអ្នកបានបិទ",
+        "reopenP": "ចុច <code>Cmd+Shift+T</code> ដើម្បីបើកឡើងវិញនូវរបស់ចុងក្រោយដែលអ្នកបានបិទ។ វាដំណើរការសម្រាប់ tab terminal, tab កម្មវិធីរុករក, workspace និងបង្អួច ហើយស្ដារវាមកវិញម្ដងមួយៗតាមលំដាប់ដែលអ្នកបានបិទ។ ផ្ទៃនីមួយៗត្រឡប់មកកន្លែងដើមវិញ ដោយ pane នៅដដែល។",
+        "agentTitle": "session របស់ agent ក៏ត្រឡប់មកវិញដែរ",
+        "agentP": "ប្រវត្តិក៏បើកឡើងវិញនូវ session របស់ agent ដែលបានបិទផងដែរ។ បើក session របស់ Claude Code, Codex ឬ OpenCode ឡើងវិញ នោះវានឹងបន្តពីកន្លែងដែលវាបានឈប់។ ដំណើរការ <code>cmux hooks setup</code> ម្ដង ដើម្បីឲ្យ cmux អាចតាមដាន session របស់ agent បាន បន្ទាប់មកវាបើកឡើងវិញ ដូចអ្វីៗផ្សេងទៀត។",
+        "agentP2": "នេះផ្អែកលើ <link>ការស្ដារ session</link> របស់ cmux ដែលបន្ត agent ដែលគាំទ្រ តាមរយៈ command ស្ដារ native រៀងៗខ្លួន។",
+        "focusTitle": "ត្រឡប់ទៅកន្លែងដែលអ្នកធ្លាប់នៅ",
+        "focusP": "ប៊ូតុងថយក្រោយ និងទៅមុខនៅរបារចំណងជើង ឬ <code>Cmd+[</code> និង <code>Cmd+]</code> លោតទៅ workspace ឬបង្អួចមុន និងបន្ទាប់ដែលអ្នកកំពុងធ្វើការ ដូចគ្នានឹងថយក្រោយ និងទៅមុខនៅក្នុងកម្មវិធីរុករក។",
+        "fullHistoryTitle": "panel ប្រវត្តិពេញលេញ",
+        "fullHistoryP": "ពេលអ្នកត្រូវការច្រើនជាងធាតុចុងក្រោយ សូមបើក panel ប្រវត្តិពេញលេញ៖ ទិដ្ឋភាពដែលអាចស្វែងរក និងដាក់ជាក្រុមតាមថ្ងៃ នៃអ្វីៗទាំងអស់ដែលអ្នកបានបិទ និងផ្ដោត ជាមួយ timestamp និងសកម្មភាព Clear Closed។",
+        "docsCta": "សូមមើល <link>ផ្លូវកាត់ក្ដារចុច</link> សម្រាប់បញ្ជីពេញលេញ រួមទាំងវិធីកំណត់ការរុករកប្រវត្តិឡើងវិញ។"
       }
     },
     "zenOfCmux": {
@@ -367,6 +383,10 @@
         "AI coding agents",
         "workspace មិនទាន់អាន"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: បើកឡើងវិញនូវ terminal និង session ដែលបានបិទ",
+      "metaDescription": "cmux រក្សាប្រវត្តិនៃអ្វីដែលអ្នកបានបិទ និងផ្ដោត។ បើកឡើងវិញនូវ terminal កម្មវិធីរុករក workspace និង session របស់ Claude Code, Codex និង OpenCode ដែលបានបិទ ដោយប្រើ Cmd+Shift+T ហើយផ្លាស់ទីការផ្ដោតទៅមុខ និងថយក្រោយ ដោយប្រើ Cmd+[ និង Cmd+]។"
     }
   },
   "docs": {
@@ -513,8 +533,17 @@
           "byCwd": {
             "newWorkspacePlacement": "ការកំណត់ជំនួសតាម cwd សម្រាប់ទីតាំងដែល Cmd-N នៅក្នុងក្រុម ប៊ូតុង + ក្នុងក្បាលក្រុម និងសកម្មភាពក្រុមដែលបានកំណត់ ដាក់ workspace ថ្មី: `afterCurrent` (បន្ទាប់ពី workspace សកម្មក្នុងក្រុម ហើយត្រឡប់ទៅ top ប្រសិនបើគ្មាន), `top` (ទីតាំងទីពីរ បន្ទាប់ពី anchor ភ្លាមៗ) ឬ `end` (បន្ទាប់ពីសមាជិកចុងក្រោយ). បើមិនកំណត់ វានឹងប្រើតម្លៃលំនាំដើមសកល។"
           }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "ពាក្យបញ្ជាផ្ទាល់ខ្លួន",

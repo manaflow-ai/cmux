@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Foundation
 import Bonsplit
+import CmuxFileWatch
 import CmuxProcess
 import CoreVideo
 import Combine
@@ -14,118 +15,6 @@ import OSLog
 typealias Tab = Workspace
 
 private let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "TabManager")
-
-private final class WorkspaceGitMetadataWatcherCallbackBox: @unchecked Sendable {
-    let handleEvent: @Sendable () -> Void
-
-    init(handleEvent: @escaping @Sendable () -> Void) {
-        self.handleEvent = handleEvent
-    }
-}
-
-private let workspaceGitMetadataWatcherCallback: FSEventStreamCallback = { _, info, _, _, _, _ in
-    guard let info else { return }
-    let box = Unmanaged<WorkspaceGitMetadataWatcherCallbackBox>.fromOpaque(info).takeUnretainedValue()
-    box.handleEvent()
-}
-
-private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
-    struct Descriptor: Equatable, Sendable {
-        let directory: String
-        let watchedPaths: [String]
-    }
-
-    let descriptor: Descriptor
-
-    private let queue = DispatchQueue(label: "com.cmux.workspace-git-metadata-watcher", qos: .utility)
-    private let queueSpecificKey = DispatchSpecificKey<UInt8>()
-    private var callbackBox: WorkspaceGitMetadataWatcherCallbackBox?
-    private let onChange: @Sendable () -> Void
-    private var stream: FSEventStreamRef?
-    private var debounceWorkItem: DispatchWorkItem?
-
-    init?(descriptor: Descriptor, onChange: @escaping @Sendable () -> Void) {
-        guard !descriptor.watchedPaths.isEmpty else { return nil }
-        self.descriptor = descriptor
-        self.onChange = onChange
-        queue.setSpecific(key: queueSpecificKey, value: 1)
-        let callbackBox = WorkspaceGitMetadataWatcherCallbackBox { [weak self] in
-            self?.scheduleChange()
-        }
-        self.callbackBox = callbackBox
-
-        var context = FSEventStreamContext(
-            version: 0,
-            info: Unmanaged.passUnretained(callbackBox).toOpaque(),
-            retain: nil,
-            release: nil,
-            copyDescription: nil
-        )
-        let flags = FSEventStreamCreateFlags(
-            kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer
-        )
-        guard let stream = FSEventStreamCreate(
-            nil,
-            workspaceGitMetadataWatcherCallback,
-            &context,
-            descriptor.watchedPaths as CFArray,
-            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            0.25,
-            flags
-        ) else {
-            return nil
-        }
-        self.stream = stream
-        FSEventStreamSetDispatchQueue(stream, queue)
-        guard FSEventStreamStart(stream) else {
-            stop()
-            return nil
-        }
-    }
-
-    func stop() {
-        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
-            stopOnQueue()
-        } else {
-            queue.sync {
-                stopOnQueue()
-            }
-        }
-    }
-
-    private func stopOnQueue() {
-        debounceWorkItem?.cancel()
-        debounceWorkItem = nil
-        guard let stream else { return }
-        FSEventStreamStop(stream)
-        FSEventStreamInvalidate(stream)
-        FSEventStreamRelease(stream)
-        self.stream = nil
-    }
-
-    private func scheduleChange() {
-        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
-            scheduleChangeOnQueue()
-        } else {
-            queue.async { [weak self] in
-                self?.scheduleChangeOnQueue()
-            }
-        }
-    }
-
-    private func scheduleChangeOnQueue() {
-        debounceWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.onChange()
-        }
-        debounceWorkItem = workItem
-        queue.asyncAfter(deadline: .now() + 0.25, execute: workItem)
-    }
-
-    deinit {
-        stop()
-    }
-}
 
 enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
     case top
@@ -1409,7 +1298,8 @@ class TabManager: ObservableObject {
     private var workspaceGitCleanIndexSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitCleanIndexContentSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitHeadSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
-    private var workspaceGitMetadataWatchersByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcher] = [:]
+    private var workspaceGitMetadataWatchersByKey: [WorkspaceGitProbeKey: RecursivePathWatcher] = [:]
+    private var workspaceGitMetadataWatcherRefreshTasksByKey: [WorkspaceGitProbeKey: Task<Void, Never>] = [:]
     private var workspaceGitMetadataWatcherSourceDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
     private var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
@@ -1762,12 +1652,12 @@ class TabManager: ObservableObject {
         workspaceGitMetadataWatcherDescriptorRequestsByKey[key] = request
 
         Task { [weak self] in
-            let descriptor = await Task.detached(priority: .utility) {
-                Self.workspaceGitMetadataWatcherDescriptor(for: directory)
+            let watchedPaths = await Task.detached(priority: .utility) {
+                Self.workspaceGitMetadataWatchedPaths(for: directory)
             }.value
             await MainActor.run { [weak self] in
                 self?.applyWorkspaceGitMetadataWatcherDescriptor(
-                    descriptor,
+                    watchedPaths,
                     for: key,
                     request: request
                 )
@@ -1776,7 +1666,7 @@ class TabManager: ObservableObject {
     }
 
     private func applyWorkspaceGitMetadataWatcherDescriptor(
-        _ descriptor: WorkspaceGitMetadataWatcher.Descriptor?,
+        _ watchedPaths: [String]?,
         for key: WorkspaceGitProbeKey,
         request: WorkspaceGitMetadataWatcherDescriptorRequest
     ) {
@@ -1787,27 +1677,29 @@ class TabManager: ObservableObject {
 
         guard sidebarGitMetadataWatchEnabled,
               workspaceGitTrackedDirectoryByKey[key] == request.directory,
-              let descriptor else {
+              let watchedPaths else {
             stopWorkspaceGitMetadataWatcher(for: key)
             return
         }
 
-        if workspaceGitMetadataWatchersByKey[key]?.descriptor == descriptor {
+        if workspaceGitMetadataWatchersByKey[key]?.watchedPaths == watchedPaths {
             workspaceGitMetadataWatcherSourceDirectoryByKey[key] = request.directory
             return
         }
 
         stopWorkspaceGitMetadataWatcher(for: key)
-        workspaceGitMetadataWatchersByKey[key] = WorkspaceGitMetadataWatcher(
-            descriptor: descriptor
-        ) { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.scheduleWorkspaceGitMetadataRefreshIfPossible(
-                    workspaceId: key.workspaceId,
-                    panelId: key.panelId,
-                    reason: "filesystemEvent"
-                )
+        if let watcher = RecursivePathWatcher(paths: watchedPaths) {
+            workspaceGitMetadataWatchersByKey[key] = watcher
+            let events = watcher.events
+            workspaceGitMetadataWatcherRefreshTasksByKey[key] = Task { @MainActor [weak self] in
+                for await _ in events {
+                    guard let self else { break }
+                    self.scheduleWorkspaceGitMetadataRefreshIfPossible(
+                        workspaceId: key.workspaceId,
+                        panelId: key.panelId,
+                        reason: "filesystemEvent"
+                    )
+                }
             }
         }
         workspaceGitMetadataWatcherSourceDirectoryByKey[key] = request.directory
@@ -1816,7 +1708,12 @@ class TabManager: ObservableObject {
     private func stopWorkspaceGitMetadataWatcher(for key: WorkspaceGitProbeKey) {
         workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
         workspaceGitMetadataWatcherSourceDirectoryByKey.removeValue(forKey: key)
-        workspaceGitMetadataWatchersByKey.removeValue(forKey: key)?.stop()
+        workspaceGitMetadataWatcherRefreshTasksByKey.removeValue(forKey: key)?.cancel()
+        // Dropping the last reference runs the watcher's deinit synchronously,
+        // which invalidates the FSEventStream on its shared queue before this
+        // returns. The consumer task captures the events stream (not the watcher),
+        // so removal here is the last reference.
+        workspaceGitMetadataWatchersByKey.removeValue(forKey: key)
     }
 
     private func stopWorkspaceGitMetadataWatchers(workspaceId: UUID) {
@@ -1827,9 +1724,12 @@ class TabManager: ObservableObject {
     }
 
     private func stopAllWorkspaceGitMetadataWatchers() {
-        for watcher in workspaceGitMetadataWatchersByKey.values {
-            watcher.stop()
+        for task in workspaceGitMetadataWatcherRefreshTasksByKey.values {
+            task.cancel()
         }
+        workspaceGitMetadataWatcherRefreshTasksByKey.removeAll()
+        // Dropping the references runs each watcher's deinit synchronously,
+        // invalidating its FSEventStream.
         workspaceGitMetadataWatchersByKey.removeAll()
         workspaceGitMetadataWatcherSourceDirectoryByKey.removeAll()
         workspaceGitMetadataWatcherDescriptorRequestsByKey.removeAll()
@@ -3465,9 +3365,9 @@ class TabManager: ObservableObject {
             .path
     }
 
-    private nonisolated static func workspaceGitMetadataWatcherDescriptor(
+    private nonisolated static func workspaceGitMetadataWatchedPaths(
         for directory: String
-    ) -> WorkspaceGitMetadataWatcher.Descriptor? {
+    ) -> [String]? {
         guard let repository = resolveGitRepository(containing: directory) else {
             return nil
         }
@@ -3488,10 +3388,7 @@ class TabManager: ObservableObject {
             watchedPaths.append(normalized)
         }
 
-        return WorkspaceGitMetadataWatcher.Descriptor(
-            directory: repository.workTreeRoot,
-            watchedPaths: watchedPaths.sorted()
-        )
+        return watchedPaths.sorted()
     }
 
     private nonisolated static func gitRepositoryMetadataWatchPaths(
@@ -4989,7 +4886,7 @@ class TabManager: ObservableObject {
 
 #if DEBUG
     nonisolated static func workspaceGitMetadataWatchedPathsForTesting(directory: String) -> [String] {
-        workspaceGitMetadataWatcherDescriptor(for: directory)?.watchedPaths ?? []
+        workspaceGitMetadataWatchedPaths(for: directory) ?? []
     }
 
     nonisolated static func githubRepositorySlugs(fromGitConfigForTesting config: String) -> [String] {
@@ -7348,55 +7245,38 @@ class TabManager: ObservableObject {
     }
 
     private func runCloseConfirmationAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
-        if NSApp.activationPolicy() == .regular {
-            NSApp.activate(ignoringOtherApps: true)
-        }
-
-        let presentingWindow = closeConfirmationPresentingWindow()
-        let hasAttachedSheet = presentingWindow?.attachedSheet != nil
-        guard let presentingWindow, !hasAttachedSheet else {
+        // Presentation (activate + sheet-on-main-window, else app-modal) is
+        // shared with every other cmux dialog via `runCmuxModalAlert`. This
+        // wrapper only adds the close-confirmation-specific UITest telemetry,
+        // recorded from the presenter's actual path so the label can never
+        // disagree with how the alert was really shown.
+        return runCmuxModalAlert(
+            alert,
+            presentingWindow: closeConfirmationPresentingWindow()
+        ) { presentation in
             #if DEBUG
-            UITestRecorder.record([
-                "closeConfirmationPresentation": "appModal",
-                "closeConfirmationAttachedSheet": hasAttachedSheet ? "1" : "0",
-            ])
+            switch presentation {
+            case .sheet(let hostWindow):
+                // The sheet attaches after this hook returns, so read the
+                // attachment on the next runloop turn (during the modal loop).
+                DispatchQueue.main.async {
+                    UITestRecorder.record([
+                        "closeConfirmationPresentation": "sheet",
+                        "closeConfirmationAttachedSheet": hostWindow.attachedSheet == nil ? "0" : "1",
+                    ])
+                }
+            case .appModal(let hostWindowHadAttachedSheet):
+                UITestRecorder.record([
+                    "closeConfirmationPresentation": "appModal",
+                    "closeConfirmationAttachedSheet": hostWindowHadAttachedSheet ? "1" : "0",
+                ])
+            }
             #endif
-
-            return alert.runModal()
         }
-
-        alert.beginSheetModal(for: presentingWindow) { result in
-            NSApp.stopModal(withCode: result)
-        }
-        #if DEBUG
-        DispatchQueue.main.async {
-            UITestRecorder.record([
-                "closeConfirmationPresentation": "sheet",
-                "closeConfirmationAttachedSheet": presentingWindow.attachedSheet == nil ? "0" : "1",
-            ])
-        }
-        #endif
-        return NSApp.runModal(for: alert.window)
     }
 
     private func closeConfirmationPresentingWindow() -> NSWindow? {
-        if let window, window.isVisible, isCloseConfirmationMainWindow(window) {
-            return window
-        }
-        if let keyWindow = NSApp.keyWindow, keyWindow.isVisible, isCloseConfirmationMainWindow(keyWindow) {
-            return keyWindow
-        }
-        if let mainWindow = NSApp.mainWindow, mainWindow.isVisible, isCloseConfirmationMainWindow(mainWindow) {
-            return mainWindow
-        }
-        return NSApp.windows.first { candidate in
-            candidate.isVisible && isCloseConfirmationMainWindow(candidate)
-        }
-    }
-
-    private func isCloseConfirmationMainWindow(_ candidate: NSWindow) -> Bool {
-        guard let raw = candidate.identifier?.rawValue else { return false }
-        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+        cmuxMainWindowForModalPresentation(preferring: window)
     }
 
     private struct CloseOtherTabsInFocusedPanePlan {
@@ -7873,6 +7753,17 @@ class TabManager: ObservableObject {
         return tab.panels[panelId] as? BrowserPanel
     }
 
+    /// Returns the focused panel if it's a MarkdownPanel showing the rendered
+    /// preview, nil otherwise. Zoom applies to the preview WKWebView, so the raw
+    /// text-edit mode is deliberately excluded.
+    var focusedMarkdownPanel: MarkdownPanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId,
+              let panel = tab.panels[panelId] as? MarkdownPanel,
+              panel.displayMode == .preview else { return nil }
+        return panel
+    }
+
     @discardableResult
     func zoomInFocusedBrowser() -> Bool {
         focusedBrowserPanel?.zoomIn() ?? false
@@ -7886,6 +7777,37 @@ class TabManager: ObservableObject {
     @discardableResult
     func resetZoomFocusedBrowser() -> Bool {
         focusedBrowserPanel?.resetZoom() ?? false
+    }
+
+    var canToggleBrowserFocusModeForFocusedBrowser: Bool {
+        focusedBrowserPanel?.canToggleBrowserFocusMode == true
+    }
+
+    @discardableResult
+    func toggleBrowserFocusModeForFocusedBrowser(reason: String) -> Bool {
+        guard let browserPanel = focusedBrowserPanel else { return false }
+        return browserPanel.toggleBrowserFocusMode(reason: reason, focusWebView: true)
+    }
+
+    @discardableResult
+    func setFocusedBrowserFocusModeActive(_ active: Bool, reason: String) -> Bool {
+        guard let browserPanel = focusedBrowserPanel else { return false }
+        return browserPanel.setBrowserFocusModeActive(active, reason: reason, focusWebView: active)
+    }
+
+    @discardableResult
+    func zoomInFocusedMarkdown() -> Bool {
+        focusedMarkdownPanel?.zoomIn() ?? false
+    }
+
+    @discardableResult
+    func zoomOutFocusedMarkdown() -> Bool {
+        focusedMarkdownPanel?.zoomOut() ?? false
+    }
+
+    @discardableResult
+    func resetZoomFocusedMarkdown() -> Bool {
+        focusedMarkdownPanel?.resetZoom() ?? false
     }
 
     @discardableResult
@@ -11570,6 +11492,7 @@ extension Notification.Name {
     static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
     static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
     static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
+    static let browserFocusModeStateDidChange = Notification.Name("cmux.browserFocusModeStateDidChange")
     static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")

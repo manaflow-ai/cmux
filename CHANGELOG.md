@@ -2,6 +2,43 @@
 
 All notable changes to cmux are documented here.
 
+## [0.64.12] - 2026-06-02
+
+### Added
+- Configurable keyboard shortcut to open the diff viewer, editable in Settings ([#5178](https://github.com/manaflow-ai/cmux/pull/5178))
+- Font size and zoom controls in the Markdown viewer ([#5163](https://github.com/manaflow-ai/cmux/pull/5163))
+
+### Changed
+- Gate the Feed behind Beta Features (mirroring Dock), off by default ([#5174](https://github.com/manaflow-ai/cmux/pull/5174))
+- Improve the terminal text context menu ([#5135](https://github.com/manaflow-ai/cmux/pull/5135)) -- thanks @azooz2003-bit!
+- Rank visible title matches above hidden metadata in the workspace switcher ([#5148](https://github.com/manaflow-ai/cmux/pull/5148))
+- Build the release app with the macOS 26 SDK ([#5042](https://github.com/manaflow-ai/cmux/pull/5042))
+
+### Fixed
+- Fix Starship and other custom prompts going static in bash by composing the prompt bootstrap with the user's existing `PROMPT_COMMAND` ([#5187](https://github.com/manaflow-ai/cmux/pull/5187)) -- thanks @xzjncu for the report!
+- Report remote PTY allocation failures loudly so `cmux ssh` no longer fails silently when remote PTY attach fails ([#5186](https://github.com/manaflow-ai/cmux/pull/5186)) -- thanks @windyslow for the report!
+- Fix a main-thread hang from focus-surface broadcast re-entrancy triggered by custom shortcuts ([#5108](https://github.com/manaflow-ai/cmux/pull/5108)) -- thanks @wzh4464 for the report!
+- Restore the right-click sidebar view switcher and built-in views (Default Workspaces, Project Worktrees, and others) ([#5182](https://github.com/manaflow-ai/cmux/pull/5182))
+- Strip terminal-color OSC sequences from restored scrollback so old sessions no longer keep a previous theme's colors (white-on-white after a theme change) ([#5175](https://github.com/manaflow-ai/cmux/pull/5175))
+- Fix the browser Web Inspector reopening by itself after manual close and navigation ([#5180](https://github.com/manaflow-ai/cmux/pull/5180))
+- Honor the Settings rebinding of Global Search by parsing package object-form `cmux.json` shortcut bindings ([#5143](https://github.com/manaflow-ai/cmux/pull/5143))
+- Fix Claude fork and resume failing when the session had changed directories ([#5154](https://github.com/manaflow-ai/cmux/pull/5154))
+- Fix titlebar shortcut-hint pills clipped at the bottom on macOS 26.5 ([#5145](https://github.com/manaflow-ai/cmux/pull/5145))
+- Fall back to the default sidebar when extensions are disabled ([#5127](https://github.com/manaflow-ai/cmux/pull/5127)) -- thanks @azooz2003-bit!
+- Stabilize the git metadata FSEvents watcher to stop an event storm ([#5131](https://github.com/manaflow-ai/cmux/pull/5131)) -- thanks @azooz2003-bit! and @randybias for the report!
+- Avoid E2BIG when the SSH startup script exceeds `MAX_ARG_STRLEN` ([#5133](https://github.com/manaflow-ai/cmux/pull/5133)) -- thanks @lauzierj!
+
+### Thanks to 8 contributors!
+
+- [@austinywang](https://github.com/austinywang)
+- [@azooz2003-bit](https://github.com/azooz2003-bit)
+- [@lauzierj](https://github.com/lauzierj)
+- [@lawrencecchen](https://github.com/lawrencecchen)
+- [@randybias](https://github.com/randybias)
+- [@windyslow](https://github.com/windyslow)
+- [@wzh4464](https://github.com/wzh4464)
+- [@xzjncu](https://github.com/xzjncu)
+
 ## [0.64.11] - 2026-06-01
 
 ### Added
