@@ -17799,6 +17799,10 @@ function renderPalette() {
     .sort((left, right) => paletteEntryScore(right, query, tokens) - paletteEntryScore(left, query, tokens));
   const matches = allMatches.slice(0, paletteVisibleResultLimit);
   state.paletteIndex = Math.min(state.paletteIndex, Math.max(0, matches.length - 1));
+  if (matches[state.paletteIndex]?.disabled) {
+    const firstEnabled = matches.findIndex((entry) => !entry.disabled);
+    if (firstEnabled >= 0) state.paletteIndex = firstEnabled;
+  }
   const signature = paletteListSignature(query, matches, allMatches.length);
   if (signature === state.paletteListSignature) {
     updatePaletteSelection();
@@ -17810,10 +17814,14 @@ function renderPalette() {
   nodes.push(...matches.map((entry, index) => {
     const button = document.createElement("button");
     const kind = paletteEntryKind(entry);
+    const disabled = Boolean(entry.disabled);
     button.type = "button";
-    button.className = `palette-item palette-kind-${kind}${entry.active ? " is-active-entry" : ""}${index === state.paletteIndex ? " is-selected" : ""}`;
+    button.disabled = disabled;
+    button.title = entry.title || `${entry.label}${entry.meta ? ` - ${entry.meta}` : ""}`;
+    button.className = `palette-item palette-kind-${kind}${entry.active ? " is-active-entry" : ""}${disabled ? " is-disabled-entry" : ""}${index === state.paletteIndex ? " is-selected" : ""}`;
     button.setAttribute("aria-selected", String(index === state.paletteIndex));
     if (entry.active) button.setAttribute("aria-current", "true");
+    if (disabled) button.setAttribute("aria-disabled", "true");
     button.innerHTML = `
       <span class="palette-icon" aria-hidden="true"></span>
       <span class="palette-main">
@@ -17857,6 +17865,8 @@ function paletteListSignature(query, entries, totalCount = entries.length) {
     appendSignatureValue(nextParts, entry.label);
     appendSignatureValue(nextParts, entry.meta);
     appendSignatureValue(nextParts, entry.shortcut);
+    appendSignatureValue(nextParts, Boolean(entry.disabled));
+    appendSignatureValue(nextParts, entry.title || "");
   });
   return parts.join("");
 }
@@ -17916,10 +17926,15 @@ function updatePaletteSelection() {
 }
 
 function movePaletteSelection(delta) {
-  const count = elements.paletteList.querySelectorAll(".palette-item").length;
-  if (!count) return;
-  const nextIndex = Math.max(0, Math.min(count - 1, state.paletteIndex + delta));
-  if (nextIndex === state.paletteIndex) return;
+  const items = [...elements.paletteList.querySelectorAll(".palette-item")];
+  if (!items.length) return;
+  let nextIndex = state.paletteIndex;
+  while (true) {
+    const candidate = Math.max(0, Math.min(items.length - 1, nextIndex + delta));
+    if (candidate === nextIndex) return;
+    nextIndex = candidate;
+    if (!items[nextIndex]?.disabled) break;
+  }
   state.paletteIndex = nextIndex;
   updatePaletteSelection();
 }
@@ -17941,15 +17956,21 @@ function paletteEntryScore(entry, query, tokens) {
 }
 
 function paletteEntries() {
-  const activeLayoutCommandIds = activePaneLayoutCommandIds();
+  const paletteWorkspace = activeWorkspace();
+  const activeLayoutCommandIds = activePaneLayoutCommandIds(paletteWorkspace);
+  const layoutUnavailable = !paletteWorkspace || paletteWorkspace.panels.length <= 1 || !activePanel();
   const entries = commands.map((command) => {
     const active = activeLayoutCommandIds.has(command.id);
+    const layoutPreset = paneLayoutPresets.find((preset) => preset.id === paneLayoutCommandPresetIds.get(command.id));
+    const unavailable = Boolean(layoutPreset && layoutUnavailable);
     return {
       id: command.id,
       label: command.label,
       meta: active ? "Active layout command" : "Command",
       shortcut: active ? "Active" : command.shortcut,
       active,
+      disabled: active || unavailable,
+      title: layoutPreset ? paneLayoutPresetTitle(layoutPreset, active, unavailable) : command.label,
       search: normalizeSettingsQuery(`${command.label} ${command.shortcut} command ${active ? "active current layout" : ""}`),
       run: command.run
     };
@@ -18054,6 +18075,8 @@ function paletteEntries() {
       meta: active ? `Active / ${preset.body}` : preset.body,
       shortcut: active ? "Active" : "Theme",
       active,
+      disabled: active,
+      title: terminalColorPresetTitle(preset, active),
       search: normalizeSettingsQuery(`terminal colors theme preset apply active ${preset.label} ${preset.body}`),
       run: () => applyTerminalColorPreset(preset)
     });
@@ -18067,12 +18090,16 @@ function paletteEntries() {
       meta: active ? `Active / ${preset.body || summary}` : preset.body || summary,
       shortcut: active ? "Active" : "Preset",
       active,
+      disabled: active,
+      title: active ? `${preset.label} settings already active.` : `Apply ${preset.label} settings.`,
       search: normalizeSettingsQuery(`settings preset profile setup apply active ${preset.label} ${preset.body} ${summary}`),
       run: () => applySettingsPreset(preset)
     });
   }
-  const paletteWorkspace = activeWorkspace();
   const paletteActiveTerminal = activeTerminalPanelForSettings();
+  const backgroundAppTargetOption = backgroundApplyTargetOption("app", paletteWorkspace);
+  const backgroundPaneTargetOption = backgroundApplyTargetOption("pane", paletteWorkspace);
+  const backgroundAllTargetOption = backgroundApplyTargetOption("all", paletteWorkspace);
   for (const preset of backgroundPresets) {
     const presetId = preset.value || "none";
     const activeApp = normalizeBackgroundValue(state.settings.backgroundImage) === normalizeBackgroundValue(preset.value);
@@ -18085,6 +18112,8 @@ function paletteEntries() {
       meta: activeApp ? `Active / ${appMeta}` : appMeta,
       shortcut: activeApp ? "Active" : "Look",
       active: activeApp,
+      disabled: activeApp || backgroundAppTargetOption.disabled,
+      title: backgroundPresetApplyTitle(preset, backgroundAppTargetOption, activeApp),
       search: normalizeSettingsQuery(`background preset template image wallpaper look apply active app whole window ${preset.label} ${preset.value}`),
       run: () => applyBackgroundPreset(preset, { toast: true })
     });
@@ -18094,6 +18123,8 @@ function paletteEntries() {
       meta: activePane ? "Active / Active terminal pane" : "Active terminal pane",
       shortcut: activePane ? "Active" : "Look",
       active: activePane,
+      disabled: activePane || backgroundPaneTargetOption.disabled,
+      title: backgroundPresetApplyTitle(preset, backgroundPaneTargetOption, activePane),
       search: normalizeSettingsQuery(`background preset template image wallpaper apply active terminal pane ${preset.label} ${preset.value}`),
       run: () => applyPanelBackgroundImage(preset.value, activeTerminalPanelForSettings())
     });
@@ -18103,6 +18134,8 @@ function paletteEntries() {
       meta: activeAll ? "Active / All terminal panes in workspace" : "All terminal panes in workspace",
       shortcut: activeAll ? "Active" : "Look",
       active: activeAll,
+      disabled: activeAll || backgroundAllTargetOption.disabled,
+      title: backgroundPresetApplyTitle(preset, backgroundAllTargetOption, activeAll),
       search: normalizeSettingsQuery(`background preset template image wallpaper apply active all terminal panes workspace ${preset.label} ${preset.value}`),
       run: () => applyWorkspaceBackgroundImageToTerminals(preset.value)
     });
@@ -18115,11 +18148,17 @@ function paletteEntries() {
       meta: active ? `Active / ${preset.url}` : preset.url,
       shortcut: active ? "Active" : "Browser",
       active,
+      disabled: active,
+      title: active ? `${preset.label} is already the browser home.` : `Use ${preset.label} as the browser home.`,
       search: normalizeSettingsQuery(`browser home preset start page homepage apply active ${preset.label} ${preset.body} ${preset.url}`),
       run: () => applyBrowserHomePreset(preset)
     });
   }
   const paletteActivePane = activePaneForColorTarget();
+  const colorAccentTargetOption = colorApplyTargetOption("accent", paletteWorkspace);
+  const colorWorkspaceTargetOption = colorApplyTargetOption("workspace", paletteWorkspace);
+  const colorPaneTargetOption = colorApplyTargetOption("pane", paletteWorkspace);
+  const colorAllTargetOption = colorApplyTargetOption("all", paletteWorkspace);
   for (const color of state.customColorPalette) {
     const colorValue = colorKey(color);
     const activeAccent = colorKey(state.settings.accent) === colorValue;
@@ -18134,8 +18173,10 @@ function paletteEntries() {
       meta: activeAccent ? "Active / Saved color" : "Saved color",
       shortcut: activeAccent ? "Active" : "Color",
       active: activeAccent,
+      disabled: activeAccent || colorAccentTargetOption.disabled,
+      title: savedColorApplyTitle(color, colorAccentTargetOption, activeAccent),
       search: normalizeSettingsQuery(`saved color palette custom accent active ${color}`),
-      run: () => updateSettings({ accent: color })
+      run: () => applySavedColorToTarget(color, "accent")
     });
     entries.push({
       id: `savedColor.workspace.${color.slice(1)}`,
@@ -18143,8 +18184,10 @@ function paletteEntries() {
       meta: activeWorkspaceColor ? `Active / ${workspaceMeta}` : workspaceMeta,
       shortcut: activeWorkspaceColor ? "Active" : "Color",
       active: activeWorkspaceColor,
+      disabled: activeWorkspaceColor || colorWorkspaceTargetOption.disabled,
+      title: savedColorApplyTitle(color, colorWorkspaceTargetOption, activeWorkspaceColor),
       search: normalizeSettingsQuery(`saved color palette custom workspace pane tab active ${color}`),
-      run: () => setWorkspaceColor(color)
+      run: () => applySavedColorToTarget(color, "workspace")
     });
     entries.push({
       id: `savedColor.pane.${color.slice(1)}`,
@@ -18152,6 +18195,8 @@ function paletteEntries() {
       meta: activePaneColor ? "Active / Active pane" : "Active pane",
       shortcut: activePaneColor ? "Active" : "Color",
       active: activePaneColor,
+      disabled: activePaneColor || colorPaneTargetOption.disabled,
+      title: savedColorApplyTitle(color, colorPaneTargetOption, activePaneColor),
       search: normalizeSettingsQuery(`saved color palette custom active pane tab ${color}`),
       run: () => applySavedColorToTarget(color, "pane")
     });
@@ -18161,20 +18206,24 @@ function paletteEntries() {
       meta: activeAllPaneColors ? "Active / Current workspace" : "Current workspace",
       shortcut: activeAllPaneColors ? "Active" : "Color",
       active: activeAllPaneColors,
+      disabled: activeAllPaneColors || colorAllTargetOption.disabled,
+      title: savedColorApplyTitle(color, colorAllTargetOption, activeAllPaneColors),
       search: normalizeSettingsQuery(`saved color palette custom active all panes workspace ${color}`),
       run: () => applySavedColorToTarget(color, "all")
     });
   }
   for (const background of state.savedBackgroundImages) {
-    const activeApp = normalizeBackgroundValue(state.settings.backgroundImage) === normalizeBackgroundValue(background.url);
-    const activePane = Boolean(paletteActiveTerminal && panelBackgroundMatches(paletteActiveTerminal, background.url));
-    const activeAll = terminalBackgroundsMatch(paletteWorkspace, background.url);
+    const activeApp = savedBackgroundImageActiveForTarget(background, "app", paletteWorkspace);
+    const activePane = Boolean(paletteActiveTerminal && savedBackgroundImageActiveForTarget(background, "pane", paletteWorkspace));
+    const activeAll = savedBackgroundImageActiveForTarget(background, "all", paletteWorkspace);
     entries.push({
       id: `savedBackground.${background.id}`,
       label: `Background: ${background.label}`,
       meta: activeApp ? `Active / ${background.url}` : background.url,
       shortcut: activeApp ? "Active" : "Look",
       active: activeApp,
+      disabled: activeApp || backgroundAppTargetOption.disabled,
+      title: savedBackgroundImageApplyTitle(background, backgroundAppTargetOption, activeApp),
       search: normalizeSettingsQuery(`saved background image wallpaper apply active app whole window ${background.label} ${background.url}`),
       run: () => {
         if (!savedBackgroundImageActiveForTarget(background, "app")) return applySavedBackgroundImage(background.id);
@@ -18188,6 +18237,8 @@ function paletteEntries() {
       meta: activePane ? "Active / Active terminal pane" : "Active terminal pane",
       shortcut: activePane ? "Active" : "Look",
       active: activePane,
+      disabled: activePane || backgroundPaneTargetOption.disabled,
+      title: savedBackgroundImageApplyTitle(background, backgroundPaneTargetOption, activePane),
       search: normalizeSettingsQuery(`saved background image wallpaper apply active terminal pane ${background.label} ${background.url}`),
       run: () => {
         if (!savedBackgroundImageActiveForTarget(background, "pane")) return applySavedBackgroundImageToPanel(background.id);
@@ -18201,6 +18252,8 @@ function paletteEntries() {
       meta: activeAll ? "Active / All terminal panes in workspace" : "All terminal panes in workspace",
       shortcut: activeAll ? "Active" : "Look",
       active: activeAll,
+      disabled: activeAll || backgroundAllTargetOption.disabled,
+      title: savedBackgroundImageApplyTitle(background, backgroundAllTargetOption, activeAll),
       search: normalizeSettingsQuery(`saved background image wallpaper apply active all terminal panes workspace ${background.label} ${background.url}`),
       run: () => {
         if (!savedBackgroundImageActiveForTarget(background, "all")) return applySavedBackgroundImageToWorkspaceTerminals(background.id);
@@ -18218,6 +18271,8 @@ function paletteEntries() {
       meta: active ? `Active / ${summary}` : summary,
       shortcut: active ? "Active" : "Profile",
       active,
+      disabled: active,
+      title: active ? `${profile.label} profile already active.` : `Apply ${profile.label} settings profile.`,
       search: normalizeSettingsQuery(`settings profile preset saved apply active ${profile.label} ${summary}`),
       run: () => applySavedSettingsProfile(profile.id)
     });
@@ -18286,6 +18341,7 @@ function closePalette() {
 }
 
 function runPaletteCommand(entry) {
+  if (entry?.disabled) return;
   closePalette();
   elements.paletteInput.value = "";
   entry.run();

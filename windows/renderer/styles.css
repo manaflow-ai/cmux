@@ -11631,11 +11631,19 @@ textarea.dialog-input {
   font-size: 11px;
 }
 
-.palette-item:hover,
+.palette-item:hover:not(:disabled),
 .palette-item.is-selected {
   border-color: var(--color-line);
   background: var(--color-pane);
   color: var(--color-text);
+}
+
+.palette-item.is-disabled-entry {
+  cursor: default;
+}
+
+.palette-item.is-disabled-entry:not(.is-active-entry) {
+  opacity: .54;
 }
 
 .palette-shortcut {
