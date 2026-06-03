@@ -323,10 +323,10 @@ jobs:
                   -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
                   /tmp/test-recording-raw.mp4 </dev/null >/tmp/ffmpeg.log 2>&1 &
                 RECORD_PID=$!
-                echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
                 sleep 2
 
                 if kill -0 "$RECORD_PID" 2>/dev/null; then
+                  echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
                   echo "Recording started (PID $RECORD_PID)"
                 else
                   echo "::warning::ffmpeg screen recording failed to start"
@@ -464,12 +464,12 @@ jobs:
             | xargs -I{} echo "Duration: {}s"
 
       - name: Upload recording artifact
-        if: ${{ always() && inputs.record_video }}
+        if: ${{ always() && inputs.record_video && env.RECORD_PID != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-recording
           path: /tmp/test-recording.mp4
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Post results to cmux-dev-artifacts
         if: always()

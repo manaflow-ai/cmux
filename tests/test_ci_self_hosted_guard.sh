@@ -129,13 +129,18 @@ check_e2e_recording_preflight() {
     /skipping recording to avoid blocking UI tests with a privacy prompt/ { saw_prompt_warning=1 }
     /No AVFoundation screen capture device found; skipping recording/ { saw_no_device=1 }
     /grep -E "AVFoundation\|Capture screen" \|\| true/ { saw_nonfatal_grep=1 }
-    END { exit(saw_source && saw_preflight && saw_warning && saw_prompt_warning && saw_no_device && saw_nonfatal_grep ? 0 : 1) }
+    /^[[:space:]]*- name: Upload recording artifact$/ { in_upload=1; next }
+    in_upload && /^[[:space:]]*- name:/ { in_upload=0 }
+    in_upload && /env\.RECORD_PID != '\'''\''/ { saw_conditional_upload=1 }
+    in_upload && /if-no-files-found:[[:space:]]*error/ { saw_upload_error=1 }
+    in_upload && /if-no-files-found:[[:space:]]*warn/ { saw_upload_warn=1 }
+    END { exit(saw_source && saw_preflight && saw_warning && saw_prompt_warning && saw_no_device && saw_nonfatal_grep && saw_conditional_upload && saw_upload_error && !saw_upload_warn ? 0 : 1) }
   ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must preflight screen-capture permission and skip optional recording instead of triggering macOS privacy prompts"
+    echo "FAIL: test-e2e.yml must preflight recording, skip upload when no recorder starts, and fail when a started recording artifact is missing"
     exit 1
   fi
 
-  echo "PASS: test-e2e.yml preflights screen recording permission before ffmpeg"
+  echo "PASS: test-e2e.yml preflights screen recording and requires artifacts after recording starts"
 }
 
 check_virtual_display_step_waits_for_readiness() {
