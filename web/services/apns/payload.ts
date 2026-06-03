@@ -31,18 +31,13 @@ export interface ApnsNotificationInput {
  */
 export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
   const hidden = input.hideContent === true;
-  const title = input.title.trim() || "cmux";
-  const body = input.body;
+  const title = hidden ? "cmux" : input.title.trim() || "cmux";
+  const body = hidden ? "An agent needs your attention" : input.body;
   const subtitle = hidden ? undefined : input.subtitle?.trim() || undefined;
 
-  const alert: Record<string, string> = hidden
-    ? {
-        "title-loc-key": "CMUX_PUSH_REDACTED_TITLE",
-        "loc-key": "CMUX_PUSH_REDACTED_BODY",
-      }
-    : { title };
+  const alert: Record<string, string> = { title };
   if (subtitle) alert.subtitle = subtitle;
-  if (!hidden && body) alert.body = body;
+  if (body) alert.body = body;
 
   const aps: Record<string, unknown> = {
     alert,
