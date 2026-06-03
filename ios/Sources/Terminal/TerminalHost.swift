@@ -1,3 +1,4 @@
+import CmuxMobileContract
 import Foundation
 
 enum TerminalHostPalette: String, Codable, CaseIterable, Sendable {

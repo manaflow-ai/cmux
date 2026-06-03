@@ -1,3 +1,4 @@
+import CmuxMobileContract
 import Foundation
 @testable import cmux_DEV
 

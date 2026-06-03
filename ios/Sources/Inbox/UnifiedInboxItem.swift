@@ -1,3 +1,4 @@
+import CmuxMobileContract
 import Foundation
 
 enum UnifiedInboxKind: String, Codable, Equatable, Sendable {

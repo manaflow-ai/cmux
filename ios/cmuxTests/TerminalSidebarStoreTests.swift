@@ -1,3 +1,4 @@
+import CmuxMobileContract
 import Combine
 import XCTest
 @testable import cmux_DEV

@@ -1,4 +1,5 @@
 import Combine
+import CmuxMobileContract
 import Foundation
 import Network
 import OSLog
@@ -148,7 +149,15 @@ struct LiveTerminalRemoteWorkspaceReadMarker: TerminalRemoteWorkspaceReadMarking
     }
 
     func markRead(item: UnifiedInboxItem) async throws {
-        try await routeClient.markRead(item: item)
+        guard let teamID = item.teamID,
+              let workspaceID = item.workspaceID else {
+            return
+        }
+        try await routeClient.markRead(
+            teamID: teamID,
+            workspaceID: workspaceID,
+            latestEventSeq: item.latestEventSeq
+        )
     }
 }
 

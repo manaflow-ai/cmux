@@ -1,3 +1,4 @@
+import CmuxMobileContract
 import UserNotifications
 import XCTest
 @testable import cmux_DEV
