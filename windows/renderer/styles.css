@@ -787,7 +787,6 @@ body.reduce-motion *::after {
 .saved-background-add-copy:focus-visible,
 .saved-background-preview:focus-visible,
 .active-background-preview:focus-visible,
-.workspace-starter:focus-visible,
 .empty-workspace-starter:focus-visible,
 .empty-workspace-launcher:focus-visible,
 .settings-command-run:focus-visible,
@@ -828,7 +827,6 @@ body.reduce-motion *::after {
 .saved-background-add-copy:active,
 .saved-background-preview:active,
 .active-background-preview:active,
-.workspace-starter:active,
 .empty-workspace-starter:active,
 .empty-workspace-launcher:active,
 .settings-command-run:active,
@@ -8580,20 +8578,19 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .workspace-starter {
   min-width: 0;
-  min-height: 58px;
+  min-height: 84px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
+  grid-template-rows: auto auto auto;
   align-items: center;
   column-gap: var(--space-2);
-  row-gap: 3px;
+  row-gap: var(--space-2);
   padding: var(--space-2);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
   background: var(--color-pane);
   color: var(--color-text);
   text-align: left;
-  cursor: pointer;
 }
 
 .workspace-starter:hover {
@@ -8642,6 +8639,13 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   color: var(--color-faint);
   font: 10px/1 var(--font-mono);
   white-space: nowrap;
+}
+
+.workspace-starter-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
 }
 
 .settings-metric-grid {

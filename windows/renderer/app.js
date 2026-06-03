@@ -3324,6 +3324,9 @@ const commands = [
   { id: "workspace.starterTerminalBrowser", label: "Add Terminal + Browser Starter", shortcut: "", run: () => applyWorkspaceStarter("terminalBrowser") },
   { id: "workspace.starterTwoTerminals", label: "Add Two-Terminal Starter", shortcut: "", run: () => applyWorkspaceStarter("twoTerminals") },
   { id: "workspace.starterDevTrio", label: "Add Dev Trio Starter", shortcut: "", run: () => applyWorkspaceStarter("devTrio") },
+  { id: "workspace.newStarterTerminalBrowser", label: "New Workspace With Terminal + Browser", shortcut: "", run: () => createWorkspaceFromStarter("terminalBrowser") },
+  { id: "workspace.newStarterTwoTerminals", label: "New Workspace With Two Terminals", shortcut: "", run: () => createWorkspaceFromStarter("twoTerminals") },
+  { id: "workspace.newStarterDevTrio", label: "New Workspace With Dev Trio", shortcut: "", run: () => createWorkspaceFromStarter("devTrio") },
   { id: "workspace.saveBlueprint", label: "Save Workspace Blueprint", shortcut: "", run: () => saveCurrentWorkspaceBlueprint() },
   { id: "settings.blueprints", label: "Open Workspace Blueprints", shortcut: "", run: () => openSettingsCategory("blueprints") },
   { id: "workspace.closeEmpty", label: "Close Empty Workspaces", shortcut: "", run: () => closeEmptyWorkspaces() },
@@ -15423,23 +15426,28 @@ function workspaceStarterGrid() {
   const grid = document.createElement("div");
   grid.className = "workspace-starter-grid";
   for (const starter of workspaceStarters) {
-    const button = document.createElement("button");
-    button.className = "workspace-starter";
-    button.type = "button";
-    button.dataset.workspaceStarter = starter.id;
-    button.dataset.settingsSearch = normalizeSettingsQuery(`workspace starter layout preset ${starter.label} ${starter.body} ${starter.panels.join(" ")}`);
-    button.innerHTML = `
+    const card = document.createElement("div");
+    card.className = "workspace-starter";
+    card.dataset.workspaceStarter = starter.id;
+    card.dataset.settingsSearch = normalizeSettingsQuery(`workspace starter layout preset new add current ${starter.label} ${starter.body} ${starter.panels.join(" ")}`);
+    card.innerHTML = `
       <span class="workspace-starter-title-text"></span>
       <span class="workspace-starter-body"></span>
       <span class="workspace-starter-panes"></span>
     `;
-    button.querySelector(".workspace-starter-title-text").textContent = starter.label;
-    button.querySelector(".workspace-starter-body").textContent = starter.body;
-    button.querySelector(".workspace-starter-panes").textContent = starter.panels
+    card.querySelector(".workspace-starter-title-text").textContent = starter.label;
+    card.querySelector(".workspace-starter-body").textContent = starter.body;
+    card.querySelector(".workspace-starter-panes").textContent = starter.panels
       .map((type) => type === "browser" ? "web" : "term")
       .join(" + ");
-    button.onclick = () => applyWorkspaceStarter(starter.id);
-    grid.append(button);
+    const actions = document.createElement("div");
+    actions.className = "workspace-starter-actions";
+    actions.append(
+      settingsActionButton("New", () => createWorkspaceFromStarter(starter.id), "", `new workspace from starter ${starter.label}`),
+      settingsActionButton("Add", () => applyWorkspaceStarter(starter.id), "", `add starter to current workspace ${starter.label}`)
+    );
+    card.append(actions);
+    grid.append(card);
   }
   section.append(grid);
   return section;
@@ -17838,7 +17846,7 @@ async function setWorkspaceFolderFromRecent(folder) {
   }
 }
 
-async function applyWorkspaceStarter(starterId, workspaceId = activeWorkspace()?.id) {
+async function applyWorkspaceStarter(starterId, workspaceId = activeWorkspace()?.id, options = {}) {
   const starter = workspaceStarters.find((candidate) => candidate.id === starterId);
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!starter || !workspace) {
@@ -17860,12 +17868,32 @@ async function applyWorkspaceStarter(starterId, workspaceId = activeWorkspace()?
       }
       await loadState();
       if (workspace.id !== state.data?.activeWorkspaceId) await focusWorkspace(workspace.id);
-      toast(`${starter.label} added.`);
+      toast(options.newWorkspace ? `${starter.label} workspace created.` : `${starter.label} added.`);
     } catch {
       await loadState();
       toast("Workspace starter could not be added.");
     }
   });
+}
+
+async function createWorkspaceFromStarter(starterId) {
+  const starter = workspaceStarters.find((candidate) => candidate.id === starterId);
+  if (!starter) return;
+  try {
+    const workspace = await createWorkspace({
+      title: starter.label,
+      cwd: activeWorkspace()?.cwd
+    });
+    const createdWorkspace = state.data?.workspaces.find((candidate) => candidate.id === workspace.id);
+    const defaultPanels = createdWorkspace?.panels.map((panel) => panel.id) || [];
+    for (const panelId of defaultPanels) {
+      await api(`/api/panels/${panelId}`, { method: "DELETE" });
+    }
+    await applyWorkspaceStarter(starterId, workspace.id, { newWorkspace: true });
+  } catch {
+    await loadState();
+    toast("Starter workspace could not be created.");
+  }
 }
 
 async function setWorkspaceColor(color, workspaceId = activeWorkspace()?.id) {
