@@ -9,6 +9,16 @@ extension cmuxApp {
             let recentlyFocusedSnapshot = recentlyFocusedMenuSnapshot(manager: historyTabManager)
             let recentlyClosedSnapshot = recentlyClosedMenuSnapshot
 
+            Button {
+                if historyTabManager.openHistoryPaneInSelectedWorkspace() == nil {
+                    NSSound.beep()
+                }
+            } label: {
+                Text(String(localized: "command.openHistoryPane.title", defaultValue: "Open History"))
+            }
+
+            Divider()
+
             splitCommandButton(title: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"), shortcut: menuShortcut(for: .focusHistoryBack)) {
                 historyTabManager.navigateBack()
             }

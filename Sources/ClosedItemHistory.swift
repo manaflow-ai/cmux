@@ -305,6 +305,14 @@ final class ClosedItemHistoryStore: ObservableObject {
         return false
     }
 
+    /// Returns the record with the given id without mutating the log. Used for
+    /// non-destructive reopen (the History pane and Recently Closed menu): the
+    /// closed-item history is an immutable, append-only log, so reopening an
+    /// entry leaves it in place and a later close simply appends a new entry.
+    func record(id: UUID) -> ClosedItemHistoryRecord? {
+        records.first(where: { $0.id == id })
+    }
+
     func removeRecord(id: UUID) -> (record: ClosedItemHistoryRecord, index: Int)? {
         guard let index = records.firstIndex(where: { $0.id == id }) else {
             return nil

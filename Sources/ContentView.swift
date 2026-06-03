@@ -2575,15 +2575,10 @@ struct ContentView: View {
     }
 
     func openHistoryPane() {
-        guard let workspace = tabManager.selectedWorkspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            NSSound.beep()
-            return
-        }
-
         sidebarSelectionState.selection = .tabs
-        workspace.clearSplitZoom()
-        _ = workspace.newHistorySurface(inPane: paneId, focus: true)
+        if tabManager.openHistoryPaneInSelectedWorkspace() == nil {
+            NSSound.beep()
+        }
     }
 
     private func openFilePreviewFromSidebar(filePath: String) {

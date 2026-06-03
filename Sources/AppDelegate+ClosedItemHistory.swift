@@ -160,26 +160,27 @@ extension AppDelegate {
         }
     }
 
+    /// Reopens a specific history entry without removing it. The closed-item
+    /// history is an immutable, append-only log (browser-history style): reopening
+    /// leaves the entry in place, and closing the reopened item later appends a
+    /// fresh entry. Use the explicit "Remove from History" action to delete an
+    /// entry, or Cmd+Z (``reopenMostRecentlyClosedItem(preferredTabManager:shouldActivate:)``)
+    /// for the consuming undo-stack behavior.
     @discardableResult
     func reopenClosedHistoryItem(
         id: UUID,
         preferredTabManager: TabManager? = nil,
         shouldActivate: Bool = true
     ) -> Bool {
-        guard let removed = ClosedItemHistoryStore.shared.removeRecord(id: id) else {
+        guard let record = ClosedItemHistoryStore.shared.record(id: id) else {
             return false
         }
 
-        if restoreClosedItem(
-            removed.record.entry,
+        return restoreClosedItem(
+            record.entry,
             preferredTabManager: preferredTabManager,
             shouldActivate: shouldActivate
-        ) {
-            return true
-        }
-
-        ClosedItemHistoryStore.shared.insert(removed.record, at: removed.index)
-        return false
+        )
     }
 
     /// Re-closes the item most recently reopened from history ("redo" of an

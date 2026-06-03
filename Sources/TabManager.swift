@@ -9418,24 +9418,33 @@ class TabManager: ObservableObject {
             return appDelegate.reopenClosedHistoryItem(id: id, preferredTabManager: self)
         }
 
-        guard let removed = ClosedItemHistoryStore.shared.removeRecord(id: id) else {
+        // Non-destructive: the closed-item history is an immutable log, so the
+        // entry stays after reopening.
+        guard let record = ClosedItemHistoryStore.shared.record(id: id) else {
             return false
         }
 
-        let didRestore: Bool
-        switch removed.record.entry {
+        switch record.entry {
         case .panel(let panelEntry):
-            didRestore = restoreClosedPanel(panelEntry) != nil
+            return restoreClosedPanel(panelEntry) != nil
         case .workspace(let workspaceEntry):
-            didRestore = restoreClosedWorkspace(workspaceEntry) != nil
+            return restoreClosedWorkspace(workspaceEntry) != nil
         case .window:
-            didRestore = false
+            return false
         }
+    }
 
-        if !didRestore {
-            ClosedItemHistoryStore.shared.insert(removed.record, at: removed.index)
+    /// Opens a History pane (closed-item browser) in the selected workspace's
+    /// focused pane. Shared by the command palette, the History menu, and the
+    /// CLI so every entrypoint uses one path.
+    @discardableResult
+    func openHistoryPaneInSelectedWorkspace() -> HistoryPanel? {
+        guard let workspace = selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return nil
         }
-        return didRestore
+        _ = workspace.clearSplitZoom()
+        return workspace.newHistorySurface(inPane: paneId, focus: true)
     }
 
     @discardableResult

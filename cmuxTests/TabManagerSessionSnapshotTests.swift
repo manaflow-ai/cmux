@@ -650,6 +650,27 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotNil(restoredWorkspace.focusedPanelId.flatMap { restoredWorkspace.panels[$0] })
     }
 
+    func testReopenClosedHistoryItemByIdLeavesImmutableLogIntact() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        workspace.markCloseHistoryEligible(panelId: panelId)
+        XCTAssertTrue(workspace.closePanel(panelId, force: true))
+        drainMainQueue()
+        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount, 1)
+
+        let recordId = try XCTUnwrap(ClosedItemHistoryStore.shared.menuSnapshot().items.first?.id)
+
+        // Reopening a specific entry is non-destructive: the closed-item history
+        // is an immutable, append-only log, so the entry stays after reopening.
+        XCTAssertTrue(manager.reopenClosedHistoryItem(id: recordId))
+        drainMainQueue()
+        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount, 1)
+        XCTAssertNotNil(ClosedItemHistoryStore.shared.record(id: recordId))
+    }
+
     func testReopenClosedBrowserSplitFromClosedItemHistoryRestoresCollapsedPane() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
