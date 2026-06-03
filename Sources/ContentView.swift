@@ -9908,10 +9908,13 @@ struct ContentView: View {
             ?? tabManager.tabs.first?.id
             ?? tabManager.addWorkspace(select: true).id
         return authorizeDirectoryToolIfNeeded(tool) {
+            let progressController = DirectoryToolLaunchProgressController(tool: tool)
+            progressController.show(presentingWindow: NSApp.keyWindow ?? NSApp.mainWindow)
             DirectoryToolWebServerController.shared.ensureWebServerURL(
                 tool: tool,
                 directoryURL: directoryURL.standardizedFileURL
             ) { result in
+                progressController.close()
                 switch result {
                 case .opened(let webServerURL):
                     guard tabManager.openBrowser(
@@ -9929,6 +9932,57 @@ struct ContentView: View {
                         directoryURL: directoryURL
                     )
                 }
+            }
+        }
+    }
+
+    private final class DirectoryToolLaunchProgressController {
+        private let alert: NSAlert
+        private var isClosed = false
+
+        init(tool: CmuxResolvedDirectoryTool) {
+            alert = NSAlert()
+            alert.alertStyle = .informational
+            let titleFormat = String(
+                localized: "directoryTool.launchProgress.title",
+                defaultValue: "Starting %@"
+            )
+            alert.messageText = String(format: titleFormat, tool.subtitle ?? tool.title)
+            alert.informativeText = String(
+                localized: "directoryTool.launchProgress.message",
+                defaultValue: "Waiting for the tool to print a local URL."
+            )
+
+            let spinner = NSProgressIndicator(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+            spinner.style = .spinning
+            spinner.controlSize = .regular
+            spinner.isIndeterminate = true
+            spinner.startAnimation(nil)
+            alert.accessoryView = spinner
+            alert.addButton(withTitle: String(
+                localized: "directoryTool.launchProgress.hide",
+                defaultValue: "Hide"
+            ))
+        }
+
+        func show(presentingWindow: NSWindow?) {
+            guard !isClosed else { return }
+            if let presentingWindow {
+                alert.beginSheetModal(for: presentingWindow) { [weak self] _ in
+                    self?.isClosed = true
+                }
+            } else {
+                alert.window.makeKeyAndOrderFront(nil)
+            }
+        }
+
+        func close() {
+            guard !isClosed else { return }
+            isClosed = true
+            if let sheetParent = alert.window.sheetParent {
+                sheetParent.endSheet(alert.window)
+            } else {
+                alert.window.close()
             }
         }
     }
