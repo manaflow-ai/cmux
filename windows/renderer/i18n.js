@@ -287,6 +287,8 @@ const windowsMessages = {
     "config.terminalColor.powershell.body": "Classic Windows console blue.",
     "config.terminalColor.graphite": "Graphite",
     "config.terminalColor.graphite.body": "Low-glare dark neutral.",
+    "config.terminalColor.solarizedDark": "Solarized dark",
+    "config.terminalColor.solarizedDark.body": "Classic low-contrast blue terminal palette.",
     "config.terminalColor.contrast": "High contrast",
     "config.terminalColor.contrast.body": "Sharper text and cursor visibility.",
     "config.terminalColor.warm": "Warm",

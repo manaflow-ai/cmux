@@ -392,6 +392,14 @@ export const terminalColorPresets = [
     cursor: "#88c0d0"
   },
   {
+    id: "solarizedDark",
+    label: label("terminalColor.solarizedDark", "Solarized dark"),
+    body: label("terminalColor.solarizedDark.body", "Classic low-contrast blue terminal palette."),
+    background: "#002b36",
+    foreground: "#839496",
+    cursor: "#b58900"
+  },
+  {
     id: "contrast",
     label: label("terminalColor.contrast", "High contrast"),
     body: label("terminalColor.contrast.body", "Sharper text and cursor visibility."),

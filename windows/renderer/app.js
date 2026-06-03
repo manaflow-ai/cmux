@@ -19969,7 +19969,7 @@ function terminalColorDisclosurePanel() {
   return settingsDisclosurePanel({
     className: "terminal-color-disclosure",
     content: "terminal-colors",
-    searchTerms: "terminal color theme preset powershell high contrast light warm graphite default foreground background cursor",
+    searchTerms: "terminal color theme preset powershell high contrast solarized light warm graphite default foreground background cursor",
     title: t("terminal.colorPresets"),
     body: t("terminal.colorPresets.body"),
     meta: formatMessage("terminal.colorPresetCount", { count: terminalColorPresets.length })
@@ -23244,7 +23244,7 @@ function applyTerminalColorPresetById(presetId) {
 function terminalColorPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "terminal-color-preset-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("terminal color theme preset powershell high contrast light warm graphite default save profile copy");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("terminal color theme preset powershell high contrast solarized light warm graphite default save profile copy");
   for (const preset of terminalColorPresets) {
     const active = isActiveTerminalColorPreset(preset);
     const savedProfile = savedSettingsProfileForTerminalColorPreset(preset);
