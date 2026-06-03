@@ -9418,10 +9418,16 @@ function renderSettingsInspector(options = {}) {
     const appearanceActions = document.createElement("div");
     appearanceActions.className = "settings-actions appearance-actions";
     appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look save profile reset theme accent background terminal colors default profiles");
+    const lookSettingsDefault = appearanceSettingsAreDefault();
+    const lookReset = settingsActionButton("Reset look", resetAppearanceSettings, "", `appearance look reset theme accent background terminal colors default ${lookSettingsDefault ? "active current " : ""}`);
+    lookReset.disabled = lookSettingsDefault;
+    lookReset.title = lookReset.disabled
+      ? "Look settings already match the default setup."
+      : "Reset theme, accent, app background, and terminal colors.";
     appearanceActions.append(
       settingsActionButton("Save profile", saveCurrentLookProfile, "primary", "appearance look save current settings profile theme accent background terminal layout performance"),
       settingsActionButton("Profiles", () => openSettingsCategory("profiles"), "", "appearance look settings profiles saved apply update"),
-      settingsActionButton("Reset look", resetAppearanceSettings, "", "appearance look reset theme accent background terminal colors default")
+      lookReset
     );
     appearanceSection.append(appearanceActions);
     appearanceSection.append(activeBackgroundPanel({ tuning: true }));
@@ -9847,9 +9853,15 @@ function renderSettingsInspector(options = {}) {
     const colorActions = document.createElement("div");
     colorActions.className = "settings-actions";
     colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color reset default background foreground cursor save terminal profile setup reusable");
+    const terminalColorsReset = isTerminalColorPresetIdActive("cmux");
+    const resetTerminalColors = settingsActionButton("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), "", `terminal color reset default background foreground cursor ${terminalColorsReset ? "active current " : ""}`);
+    resetTerminalColors.disabled = terminalColorsReset;
+    resetTerminalColors.title = terminalColorsReset
+      ? "Terminal colors already match the cmux default."
+      : "Reset background, text, and cursor colors to the cmux default.";
     colorActions.append(
       settingsActionButton("Save terminal profile", saveCurrentTerminalProfile, "primary", "terminal save profile setup font color cursor shell reusable"),
-      settingsActionButton("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), "", "terminal color reset default background foreground cursor")
+      resetTerminalColors
     );
     terminalSection.append(colorActions);
     const profileSelect = document.createElement("select");
@@ -15011,6 +15023,11 @@ function isActiveTerminalColorPreset(preset) {
     && state.settings.terminalCursorColor === preset.cursor;
 }
 
+function isTerminalColorPresetIdActive(presetId) {
+  const preset = terminalColorPresets.find((candidate) => candidate.id === presetId);
+  return Boolean(preset && isActiveTerminalColorPreset(preset));
+}
+
 function applyTerminalColorPreset(preset) {
   if (!preset) return;
   const changed = updateSettings({
@@ -16636,7 +16653,7 @@ function showToolbarMenu(event) {
       contextMenuButton("Restart terminal", restartActiveTerminal, !terminalActive),
       contextMenuButton("Choose terminal background", () => choosePanelBackgroundImage(panel), !terminalActive),
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
-      contextMenuButton("Reset terminal colors", () => applyTerminalColorPresetById("cmux"))
+      contextMenuButton("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), isTerminalColorPresetIdActive("cmux"))
     ),
     contextMenuSectionTitle("Browser"),
     contextMenuActionGroup(
@@ -19508,6 +19525,14 @@ const appearanceResetSettings = [
   "terminalForeground",
   "terminalCursorColor"
 ];
+
+function settingsKeysMatchDefaults(keys) {
+  return keys.every((key) => state.settings[key] === defaultSettings[key]);
+}
+
+function appearanceSettingsAreDefault() {
+  return settingsKeysMatchDefaults(appearanceResetSettings);
+}
 
 function toggleFocusMode(nextValue = !state.settings.focusMode, options = {}) {
   const enabled = Boolean(nextValue);
