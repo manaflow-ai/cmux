@@ -15679,7 +15679,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func browserPanelOwning(_ webView: CmuxWebView) -> BrowserPanel? {
+    fileprivate func browserPanelOwning(_ webView: CmuxWebView) -> BrowserPanel? {
         var candidateManagers: [TabManager] = []
         var seenManagers = Set<ObjectIdentifier>()
 
