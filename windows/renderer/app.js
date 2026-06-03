@@ -17479,7 +17479,11 @@ function quickSetupOverviewPanel() {
           <b>Saved customization</b>
           <em data-quick-library-summary></em>
         </span>
-        <button class="quick-overview-library-action" type="button" data-quick-library-action="data">Manage</button>
+        <span class="quick-overview-library-actions">
+          <button class="quick-overview-library-action" type="button" data-quick-library-action="copy">Copy</button>
+          <button class="quick-overview-library-action" type="button" data-quick-library-action="paste">Paste</button>
+          <button class="quick-overview-library-action" type="button" data-quick-library-action="data">Manage</button>
+        </span>
       </div>
       <div class="quick-overview-library-grid" data-quick-library-grid></div>
     </div>
@@ -17555,8 +17559,24 @@ function quickSetupOverviewPanel() {
   const library = panel.querySelector("[data-quick-library]");
   library.dataset.settingsSearch = normalizeSettingsQuery(`quick setup saved customization library ${librarySummary} profiles blueprints command snippets saved colors saved backgrounds copy paste export import`);
   library.querySelector("[data-quick-library-summary]").textContent = librarySummary;
+  const hasSavedLibrary = savedDataItemCount() > 0;
+  const copyLibraryAction = library.querySelector('[data-quick-library-action="copy"]');
+  copyLibraryAction.title = hasSavedLibrary
+    ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON."
+    : "Customization library is empty.";
+  copyLibraryAction.setAttribute("aria-label", copyLibraryAction.title);
+  copyLibraryAction.disabled = !hasSavedLibrary;
+  copyLibraryAction.dataset.settingsSearch = normalizeSettingsQuery("quick setup saved customization library copy export snippets profiles blueprints colors backgrounds clipboard json");
+  copyLibraryAction.onclick = () => copySavedLibrary();
+  const pasteLibraryAction = library.querySelector('[data-quick-library-action="paste"]');
+  pasteLibraryAction.title = "Merge copied saved snippets, profiles, blueprints, colors, and backgrounds.";
+  pasteLibraryAction.setAttribute("aria-label", pasteLibraryAction.title);
+  pasteLibraryAction.dataset.settingsSearch = normalizeSettingsQuery("quick setup saved customization library paste import snippets profiles blueprints colors backgrounds clipboard json");
+  pasteLibraryAction.onclick = () => pasteSavedLibrary();
   const libraryAction = library.querySelector('[data-quick-library-action="data"]');
   libraryAction.title = "Open Settings data for import, export, and cleanup.";
+  libraryAction.setAttribute("aria-label", libraryAction.title);
+  libraryAction.dataset.settingsSearch = normalizeSettingsQuery("quick setup saved customization library manage data import export cleanup");
   libraryAction.onclick = () => openSettingsCategory("data", { query: "saved customization", focusSearch: false });
   library.querySelector("[data-quick-library-grid]").append(...libraryEntries.map(quickCustomizationLibraryItem));
   return panel;

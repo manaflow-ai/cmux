@@ -8496,6 +8496,15 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   padding: 2px 2px 3px 4px;
 }
 
+.quick-overview-library-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 .quick-overview-library-copy {
   min-width: 0;
   display: grid;
@@ -8540,6 +8549,11 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border-color: var(--color-line-strong);
   background: var(--color-pane-warm);
   color: var(--color-text);
+}
+
+.quick-overview-library-action:disabled {
+  cursor: default;
+  opacity: 0.48;
 }
 
 .quick-overview-library-grid {
@@ -9311,6 +9325,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
   .quick-overview-library-head {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .quick-overview-library-actions {
+    justify-content: flex-start;
   }
 
   .quick-overview-library-action {
