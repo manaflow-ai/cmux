@@ -2761,6 +2761,13 @@ function canOpenBackgroundImageSource(value) {
   return Boolean(backgroundFilePath(url) || /^https?:\/\//i.test(url));
 }
 
+function backgroundImageOpenTitle(value, availableTitle = "Open this background source.") {
+  const url = normalizedImageUrl(value);
+  if (!url) return "Choose a custom background image first.";
+  if (canOpenBackgroundImageSource(value)) return availableTitle;
+  return "This background source cannot be opened directly.";
+}
+
 async function openBackgroundImageSource(value = state.settings.backgroundImage) {
   const url = normalizedImageUrl(value);
   if (!url) {
@@ -11006,7 +11013,7 @@ function activeBackgroundPanel(options = {}) {
   applySavedBackgroundImageSaveLimit(save, model.background, "Save the selected background image.");
   const open = settingsActionButton("Open", () => openBackgroundImageSource(activeBackgroundPanelViewModel().background), "", "active background open local file url source reveal");
   open.dataset.backgroundAction = "open";
-  open.title = "Open the selected background source";
+  open.title = backgroundImageOpenTitle(model.background, "Open the selected background source.");
   open.disabled = !canOpenBackgroundImageSource(model.background);
   const imageGroup = backgroundActionGroup("Image", "active background image choose paste save open", [choose, paste, save, open]);
   imageGroup.classList.add("background-action-group-image");
@@ -11171,7 +11178,7 @@ function refreshBackgroundPreviewNodes() {
     }
     if (open) {
       setDisabledIfChanged(open, !canOpenBackgroundImageSource(model.background));
-      setTitleIfChanged(open, "Open the selected background source");
+      setTitleIfChanged(open, backgroundImageOpenTitle(model.background, "Open the selected background source."));
     }
     if (clear) {
       setDisabledIfChanged(clear, !targetStatus.canTarget || !targetStatus.hasValue);
@@ -11702,6 +11709,7 @@ function paneBackgroundControlPanel(panel) {
   const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: background }), "", "active pane terminal background save image wallpaper library");
   applySavedBackgroundImageSaveLimit(save, background, "Save this pane background image.");
   const open = settingsActionButton("Open", () => openBackgroundImageSource(background), "", "active pane terminal background open source file url");
+  open.title = backgroundImageOpenTitle(background, "Open this pane background source.");
   open.disabled = !canOpenBackgroundImageSource(background);
   const clear = settingsActionButton("Clear", () => applyPanelBackgroundImage("", panel), "danger", "active pane terminal background clear remove");
   clear.disabled = !hasBackground;
@@ -15513,8 +15521,14 @@ function showSavedBackgroundImageMenu(event, background) {
     contextMenuButton(activePane ? "Terminal active" : "Apply to active terminal", () => applySavedBackgroundImageToPanel(background.id), !activeTerminal || activePane),
     contextMenuButton(activeAll ? "All terminals active" : "Apply to all terminals", () => applySavedBackgroundImageToWorkspaceTerminals(background.id), !hasTerminalPanes || activeAll)
   );
+  const openSource = contextMenuButton(
+    "Open source",
+    () => openBackgroundImageSource(background.url),
+    !canOpenBackgroundImageSource(background.url)
+  );
+  openSource.title = backgroundImageOpenTitle(background.url, "Open this saved background source.");
   const manageActions = contextMenuActionGroup(
-    contextMenuButton("Open source", () => openBackgroundImageSource(background.url), !canOpenBackgroundImageSource(background.url)),
+    openSource,
     contextMenuButton("Copy source", () => copySavedBackgroundImageSource(background)),
     contextMenuButton("Rename", () => renameSavedBackgroundImage(background.id)),
     contextMenuButton("Delete", () => deleteSavedBackgroundImage(background.id), false, "danger")
@@ -17006,6 +17020,14 @@ function showPanelContextMenu(event, panel) {
     choosePaneBackground.title = "Choose an image for this pane background.";
     const pastePaneBackground = contextMenuButton("Paste pane background", () => pastePanelBackgroundImageFromClipboard(panel), false, "", { icon: "clipboard" });
     pastePaneBackground.title = "Paste an image URL, path, or copied image as this pane background.";
+    const openPaneBackground = contextMenuButton(
+      "Open pane background",
+      () => openBackgroundImageSource(panel.backgroundImage),
+      !canOpenBackgroundImageSource(panel.backgroundImage),
+      "",
+      { icon: "external" }
+    );
+    openPaneBackground.title = backgroundImageOpenTitle(panel.backgroundImage, "Open this pane background source.");
     surfaceActions.push(
       contextMenuButton("Find", () => openTerminalSearch(panel), false, "", { icon: "search" }),
       contextMenuButton("Find next", () => findNextInTerminal(panel), false, "", { icon: "arrowRight" }),
@@ -17032,6 +17054,7 @@ function showPanelContextMenu(event, panel) {
         action.title = savedBackgroundImageSaveTitle(panel.backgroundImage, "Save this pane background image.");
         return action;
       })(),
+      openPaneBackground,
       clearPaneBackground,
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal"), false, "", { icon: "settings" })
     );
@@ -17331,6 +17354,9 @@ function showToolbarMenu(event) {
   const terminalBackgroundSaveTitle = terminalActive
     ? savedBackgroundImageSaveTitle(panel.backgroundImage, "Save the focused terminal background image.")
     : terminalRequiredTitle;
+  const terminalBackgroundOpenTitle = terminalActive
+    ? backgroundImageOpenTitle(panel.backgroundImage, "Open the focused terminal background source.")
+    : terminalRequiredTitle;
   const toolbarAction = (label, action, disabled, availableTitle, unavailableTitle, tone = "", options = {}) => {
     const button = contextMenuButton(label, action, disabled, tone, options);
     const titleText = disabled ? (unavailableTitle || availableTitle) : (availableTitle || unavailableTitle);
@@ -17399,6 +17425,13 @@ function showToolbarMenu(event) {
         !terminalActive || !canSaveBackgroundImage(panel.backgroundImage),
         "Save the focused terminal background image.",
         terminalBackgroundSaveTitle
+      ),
+      toolbarAction(
+        "Open terminal background",
+        () => openBackgroundImageSource(panel.backgroundImage),
+        !terminalActive || !canOpenBackgroundImageSource(panel.backgroundImage),
+        "Open the focused terminal background source.",
+        terminalBackgroundOpenTitle
       ),
       toolbarAction("Clear terminal background", () => applyPanelBackgroundImage("", panel), !terminalActive || !terminalBackground, "Clear the focused terminal background.", terminalActive ? "Focused terminal background is already clear." : terminalRequiredTitle),
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
