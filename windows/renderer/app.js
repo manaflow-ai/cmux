@@ -7681,6 +7681,7 @@ function updateBrowserTabNewButton(session) {
   const label = atLimit
     ? browserTabLimitMessage()
     : `${t("browser.newTab")} (${tabCount}/${browserTabLimit})`;
+  setDisabledIfChanged(session.tabNew, atLimit);
   toggleClassIfChanged(session.tabNew, "is-disabled", atLimit);
   setAttributeIfChanged(session.tabNew, "aria-disabled", String(atLimit));
   setAttributeIfChanged(session.tabNew, "aria-label", label);
