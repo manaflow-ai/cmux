@@ -2367,6 +2367,11 @@ function colorApplyTargetPrimaryLabel(target = state.colorApplyTarget) {
   return "Apply to accent";
 }
 
+function colorApplyTargetActionLabel(target = state.colorApplyTarget, workspace = activeWorkspace()) {
+  const option = colorApplyTargetOption(target, workspace);
+  return option ? `${option.label} - ${option.meta}` : "Accent - app chrome";
+}
+
 function colorTargetIconMarkup(target = state.colorApplyTarget) {
   const scope = normalizeColorApplyTarget(target);
   if (scope === "workspace") return quickActionIconMarkup("workspace");
@@ -13522,6 +13527,10 @@ function savedColorPalettePanel() {
   const panel = document.createElement("div");
   panel.className = "saved-color-panel";
   panel.dataset.settingsSearch = normalizeSettingsQuery("saved color palette custom accent workspace tab pane color save delete");
+  const workspace = activeWorkspace();
+  const colorTarget = normalizeColorApplyTarget(state.colorApplyTarget);
+  const targetOption = colorApplyTargetOption(colorTarget, workspace);
+  const targetLabel = colorApplyTargetActionLabel(colorTarget, workspace);
 
   const addRow = document.createElement("div");
   addRow.className = "saved-color-add";
@@ -13530,16 +13539,20 @@ function savedColorPalettePanel() {
   colorInput.type = "color";
   colorInput.value = colorInputValue(state.settings.accent);
   colorInput.dataset.settingsSearch = normalizeSettingsQuery("saved color custom color picker hex");
+  const applyPicked = settingsActionButton(colorApplyTargetPrimaryLabel(colorTarget), () => applySavedColorToTarget(colorInput.value, state.colorApplyTarget), "primary", "saved color custom picker apply selected target accent workspace pane all");
+  applyPicked.disabled = Boolean(targetOption.disabled);
+  applyPicked.title = `Apply picked color to ${targetLabel}`;
   const savePicked = settingsActionButton("Save color", () => upsertCustomColorPalette(colorInput.value), "", "saved color custom palette add");
-  addRow.append(colorInput, savePicked);
+  savePicked.title = "Save the picked color to the reusable palette.";
+  addRow.append(colorInput, applyPicked, savePicked);
   panel.append(addRow);
+  panel.append(activeColorTargetControl());
 
   const actions = document.createElement("div");
   actions.className = "settings-actions saved-color-actions";
   actions.dataset.settingsSearch = normalizeSettingsQuery("saved color palette save current accent workspace");
   const saveAccent = settingsActionButton("Save accent", () => upsertCustomColorPalette(state.settings.accent), "", "saved color save current accent");
   saveAccent.disabled = !normalizeCustomPaletteColor(state.settings.accent);
-  const workspace = activeWorkspace();
   const saveWorkspace = settingsActionButton("Save workspace", () => upsertCustomColorPalette(workspace?.color), "", "saved color save workspace");
   saveWorkspace.disabled = !normalizeCustomPaletteColor(workspace?.color);
   const pane = focusedPanel();
@@ -13553,17 +13566,13 @@ function savedColorPalettePanel() {
   if (state.customColorPalette.length === 0) {
     const empty = document.createElement("div");
     empty.className = "saved-color-empty";
-    empty.textContent = "Saved custom colors appear in accent, workspace, and pane color pickers.";
+    empty.textContent = "Pick a color above to apply it now, or save it so it appears in accent, workspace, and pane color pickers.";
     panel.append(empty);
     return panel;
   }
 
-  panel.append(activeColorTargetControl());
-
   const list = document.createElement("div");
   list.className = "saved-color-list";
-  const colorTarget = normalizeColorApplyTarget(state.colorApplyTarget);
-  const targetOption = colorApplyTargetOption(colorTarget, workspace);
   const activePane = activePaneForColorTarget();
   for (const color of state.customColorPalette) {
     const colorValue = colorKey(color);
