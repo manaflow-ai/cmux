@@ -12563,6 +12563,17 @@ function quickSetupActionDefinitions() {
       run: () => applySettingsPresetById("simpleFast")
     },
     {
+      id: "save-clean-fast-profile",
+      icon: "profiles",
+      label: "Save fast setup",
+      body: "Apply Clean + Fast and keep it as a reusable profile.",
+      meta: savedSettingsProfileCountLabel,
+      cta: "Save",
+      search: "save clean fast simple speed settings profile reusable setup performance lag preset",
+      disabled: () => state.savedSettingsProfiles.length >= savedSettingsProfilesLimit,
+      run: () => applyAndSaveCleanFastProfile()
+    },
+    {
       id: "clean-ui",
       icon: "clean",
       label: "Clean UI",
@@ -12699,10 +12710,12 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
 
   if (!workspace || terminalCount === 0) ids.push("new-terminal");
   if (workspace && browserCount === 0) ids.push("new-browser");
-  if (!isSettingsPresetIdActive("simpleFast")) ids.push("clean-fast");
+  if (!isSettingsPresetIdActive("simpleFast")) {
+    ids.push(state.savedSettingsProfiles.length === 0 ? "save-clean-fast-profile" : "clean-fast");
+  }
   if (!state.settings.backgroundImage) ids.push("background");
   else if (activeTerminal && !normalizeBackgroundValue(activeTerminal.backgroundImage)) ids.push("pane-background");
-  if (state.savedSettingsProfiles.length === 0 && ids.length < 4) ids.push("save-profile");
+  if (state.savedSettingsProfiles.length === 0 && !ids.includes("save-clean-fast-profile") && ids.length < 4) ids.push("save-profile");
   if (workspaceNeedsQuickRename(workspace)) ids.push("rename");
   if (workspace && panels.length > 1 && state.workspaceBlueprints.length < workspaceBlueprintsLimit) ids.push("save-layout");
   if (workspace && panels.length > 0 && ids.length < 4) ids.push("pane-settings");
@@ -12718,7 +12731,7 @@ function quickSetupGuidePanel() {
     .filter(Boolean);
   const panel = document.createElement("div");
   panel.className = "quick-setup-guide";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup recommended simple speed background terminal browser rename layout");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup recommended simple speed background terminal browser rename layout profile save");
   panel.innerHTML = `
     <div class="quick-guide-heading">
       <span class="quick-guide-title"></span>

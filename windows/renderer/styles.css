@@ -7924,6 +7924,16 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   color: color-mix(in oklch, var(--color-success) 62%, var(--color-text) 38%);
 }
 
+.quick-action[data-quick-action="clean-fast"] .quick-action-icon,
+.quick-action[data-quick-action="clean-fast"] .quick-action-cta,
+.quick-action[data-quick-action="save-clean-fast-profile"] .quick-action-icon,
+.quick-action[data-quick-action="save-clean-fast-profile"] .quick-action-cta,
+.quick-action[data-quick-action="tune-speed"] .quick-action-icon,
+.quick-action[data-quick-action="tune-speed"] .quick-action-cta {
+  border-color: color-mix(in oklch, var(--color-warning) 48%, var(--color-line) 52%);
+  color: color-mix(in oklch, var(--color-warning) 56%, var(--color-text) 44%);
+}
+
 .quick-action:disabled .quick-action-icon,
 .quick-action:disabled .quick-action-cta {
   border-color: var(--color-line);
