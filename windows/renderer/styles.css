@@ -7159,6 +7159,14 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .quick-overview-heading {
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.quick-overview-copy {
+  min-width: 0;
+  display: grid;
   gap: 2px;
 }
 
@@ -7175,6 +7183,73 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   text-overflow: ellipsis;
   color: var(--color-faint);
   font: 10px/1.2 var(--font-mono);
+}
+
+.quick-overview-save {
+  min-width: 0;
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px 7px 4px 5px;
+  border: 1px solid color-mix(in oklch, var(--color-accent) 42%, var(--color-line) 58%);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane) 90%);
+  color: var(--color-text);
+  text-align: left;
+}
+
+.quick-overview-save:hover:not(:disabled),
+.quick-overview-save:focus-visible {
+  border-color: color-mix(in oklch, var(--color-accent) 62%, var(--color-line-strong) 38%);
+  background: color-mix(in oklch, var(--color-accent) 16%, var(--color-pane-warm) 84%);
+}
+
+.quick-overview-save:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.quick-overview-save-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in oklch, var(--color-accent) 34%, var(--color-line) 66%);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 80%, var(--color-rail) 20%);
+  color: color-mix(in oklch, var(--color-accent) 68%, var(--color-text) 32%);
+}
+
+.quick-overview-save-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.quick-overview-save-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.quick-overview-save-copy b,
+.quick-overview-save-copy em {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-style: normal;
+}
+
+.quick-overview-save-copy b {
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.quick-overview-save-copy em {
+  color: var(--color-faint);
+  font-size: 10px;
 }
 
 .quick-overview-grid {
@@ -7794,6 +7869,14 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   .quick-guide-heading {
     display: grid;
     justify-content: stretch;
+  }
+
+  .quick-overview-heading {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .quick-overview-save {
+    justify-self: start;
   }
 
   .quick-guide-subtitle {

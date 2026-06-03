@@ -12127,6 +12127,19 @@ function activeSettingsPresetLabel() {
   return settingsPresets.find((preset) => isActiveSettingsPreset(preset))?.label || "Custom";
 }
 
+function savedSettingsProfileCountLabel() {
+  return `${state.savedSettingsProfiles.length}/${savedSettingsProfilesLimit}`;
+}
+
+function saveQuickSetupProfile() {
+  const presetLabel = activeSettingsPresetLabel();
+  return saveCurrentSettingsProfile({
+    title: "Save current setup",
+    message: "Save the current colors, layout, terminal, browser, and performance settings as a reusable profile.",
+    baseName: presetLabel === "Custom" ? "Custom setup" : `${presetLabel} setup`
+  });
+}
+
 function settingsPresetById(presetId) {
   return settingsPresets.find((preset) => preset.id === presetId) || null;
 }
@@ -12198,8 +12211,17 @@ function quickSetupOverviewPanel() {
   panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup overview current settings workspace panes theme layout terminal browser performance background image app pane all terminal scope data");
   panel.innerHTML = `
     <div class="quick-overview-heading">
-      <span class="quick-overview-title">Current setup</span>
-      <span class="quick-overview-subtitle"></span>
+      <span class="quick-overview-copy">
+        <span class="quick-overview-title">Current setup</span>
+        <span class="quick-overview-subtitle"></span>
+      </span>
+      <button class="quick-overview-save" type="button">
+        <span class="quick-overview-save-icon" aria-hidden="true"></span>
+        <span class="quick-overview-save-copy">
+          <b>Save setup</b>
+          <em data-quick-profile-count></em>
+        </span>
+      </button>
     </div>
     <div class="quick-overview-grid">
       <span><b>Profile</b><em data-quick-profile></em></span>
@@ -12225,6 +12247,18 @@ function quickSetupOverviewPanel() {
     </div>
   `;
   panel.querySelector(".quick-overview-subtitle").textContent = folder;
+  const saveSetup = panel.querySelector(".quick-overview-save");
+  saveSetup.querySelector(".quick-overview-save-icon").innerHTML = quickActionIconMarkup("profiles");
+  saveSetup.querySelector("[data-quick-profile-count]").textContent = `${savedSettingsProfileCountLabel()} profiles`;
+  saveSetup.disabled = state.savedSettingsProfiles.length >= savedSettingsProfilesLimit;
+  saveSetup.dataset.settingsSearch = normalizeSettingsQuery("quick setup save current settings profile look layout terminal browser performance");
+  saveSetup.title = saveSetup.disabled
+    ? `Profile limit is ${savedSettingsProfilesLimit}. Delete one first.`
+    : "Save the current setup as a reusable profile.";
+  saveSetup.setAttribute("aria-label", saveSetup.title);
+  saveSetup.onclick = () => {
+    if (!saveSetup.disabled) saveQuickSetupProfile();
+  };
   panel.querySelector("[data-quick-profile]").textContent = activeSettingsPresetLabel();
   panel.querySelector("[data-quick-workspace]").textContent = workspace?.title || "No workspace";
   panel.querySelector("[data-quick-panes]").textContent = `${terminalCount} term / ${browserCount} web`;
@@ -12300,7 +12334,7 @@ const quickSettingsShortcuts = [
   ["blueprints", "Blueprints", "Saved pane layouts.", () => `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit}`, "blueprints"],
   ["actions", "Actions", "Shortcuts and runnable actions.", () => `${commands.length} actions`, "actions"],
   ["commands", "Commands", "Saved shell and GitHub CLI snippets.", () => `${state.customCommandSnippets.length}/${customCommandSnippetsLimit}`, "commands"],
-  ["profiles", "Profiles", "Save and reuse setups.", () => `${state.savedSettingsProfiles.length}/${savedSettingsProfilesLimit}`, "profiles"],
+  ["profiles", "Profiles", "Save and reuse setups.", savedSettingsProfileCountLabel, "profiles"],
   ["data", "Data", "Import, export, cleanup.", () => `${state.recentFolders.length + state.recentCommands.length + state.recentBrowserPages.length} recent`, "data"]
 ];
 
@@ -12401,6 +12435,17 @@ function quickSetupActionDefinitions() {
       cta: "Apply",
       search: "simple clean minimal compact ui chrome pane controls preset",
       run: () => applySettingsPresetById("simple")
+    },
+    {
+      id: "save-profile",
+      icon: "profiles",
+      label: "Save setup",
+      body: "Keep this look, layout, terminal, browser, and speed setup.",
+      meta: savedSettingsProfileCountLabel,
+      cta: "Save",
+      search: "save current settings profile setup look layout terminal browser performance",
+      disabled: () => state.savedSettingsProfiles.length >= savedSettingsProfilesLimit,
+      run: () => saveQuickSetupProfile()
     },
     {
       id: "tune-speed",
@@ -12521,6 +12566,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   if (!isSettingsPresetIdActive("simpleFast")) ids.push("clean-fast");
   if (!state.settings.backgroundImage) ids.push("background");
   else if (activeTerminal && !normalizeBackgroundValue(activeTerminal.backgroundImage)) ids.push("pane-background");
+  if (state.savedSettingsProfiles.length === 0 && ids.length < 4) ids.push("save-profile");
   if (workspaceNeedsQuickRename(workspace)) ids.push("rename");
   if (workspace && panels.length > 1 && state.workspaceBlueprints.length < workspaceBlueprintsLimit) ids.push("save-layout");
   if (workspace && panels.length > 0 && ids.length < 4) ids.push("pane-settings");
