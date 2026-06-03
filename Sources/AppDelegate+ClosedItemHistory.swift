@@ -96,9 +96,12 @@ extension AppDelegate {
                 tabManagerFor(tabId: panelEntry.workspaceId)
                 ?? preferredTabManager
                 ?? tabManager
-            guard let manager, manager.restoreClosedPanel(panelEntry) else {
+            guard let manager, let panelId = manager.restoreClosedPanel(panelEntry) else {
                 return false
             }
+            ClosedItemHistoryStore.shared.noteReopened(
+                .panel(workspaceId: panelEntry.workspaceId, panelId: panelId)
+            )
             activateMainWindowIfNeeded(for: manager, shouldActivate: shouldActivate)
             return true
         case .workspace(let workspaceEntry):
@@ -106,9 +109,10 @@ extension AppDelegate {
                 workspaceEntry.windowId.flatMap { tabManagerFor(windowId: $0) }
                 ?? preferredTabManager
                 ?? tabManager
-            guard let manager, manager.restoreClosedWorkspace(workspaceEntry) else {
+            guard let manager, let restoredWorkspaceId = manager.restoreClosedWorkspace(workspaceEntry) else {
                 return false
             }
+            ClosedItemHistoryStore.shared.noteReopened(.workspace(workspaceId: restoredWorkspaceId))
             activateMainWindowIfNeeded(for: manager, shouldActivate: shouldActivate)
             return true
         case .window(let windowEntry):
@@ -176,6 +180,34 @@ extension AppDelegate {
 
         ClosedItemHistoryStore.shared.insert(removed.record, at: removed.index)
         return false
+    }
+
+    /// Re-closes the item most recently reopened from history ("redo" of an
+    /// undo-close). Re-closing records the close again, so the item returns to
+    /// history and can be reopened once more. Best-effort: if the reopened item
+    /// is already gone, the redo target is cleared and this returns false.
+    /// Panels and workspaces only; window reopens are not redoable.
+    @discardableResult
+    func redoLastReopen(preferredTabManager: TabManager? = nil) -> Bool {
+        guard let target = ClosedItemHistoryStore.shared.redoTarget else { return false }
+        switch target {
+        case .panel(let workspaceId, let panelId):
+            guard let manager = tabManagerFor(tabId: workspaceId) ?? preferredTabManager ?? tabManager,
+                  let workspace = manager.tabs.first(where: { $0.id == workspaceId }),
+                  workspace.panels[panelId] != nil else {
+                ClosedItemHistoryStore.shared.clearRedoTarget()
+                return false
+            }
+            return workspace.closePanel(panelId)
+        case .workspace(let workspaceId):
+            guard let manager = tabManagerFor(tabId: workspaceId) ?? preferredTabManager ?? tabManager,
+                  let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else {
+                ClosedItemHistoryStore.shared.clearRedoTarget()
+                return false
+            }
+            manager.closeWorkspace(workspace, recordHistory: true)
+            return true
+        }
     }
 
     private func activateMainWindowIfNeeded(for manager: TabManager, shouldActivate: Bool) {

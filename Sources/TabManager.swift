@@ -9399,9 +9399,9 @@ class TabManager: ObservableObject {
         if ClosedItemHistoryStore.shared.restoreFirstRestorable(using: { entry in
             switch entry {
             case .panel(let panelEntry):
-                return restoreClosedPanel(panelEntry)
+                return restoreClosedPanel(panelEntry) != nil
             case .workspace(let workspaceEntry):
-                return restoreClosedWorkspace(workspaceEntry)
+                return restoreClosedWorkspace(workspaceEntry) != nil
             case .window:
                 return false
             }
@@ -9425,9 +9425,9 @@ class TabManager: ObservableObject {
         let didRestore: Bool
         switch removed.record.entry {
         case .panel(let panelEntry):
-            didRestore = restoreClosedPanel(panelEntry)
+            didRestore = restoreClosedPanel(panelEntry) != nil
         case .workspace(let workspaceEntry):
-            didRestore = restoreClosedWorkspace(workspaceEntry)
+            didRestore = restoreClosedWorkspace(workspaceEntry) != nil
         case .window:
             didRestore = false
         }
@@ -9439,9 +9439,9 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> Bool {
+    func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> UUID? {
         guard let workspace = tabs.first(where: { $0.id == entry.workspaceId }) else {
-            return false
+            return nil
         }
 
         let preRestoreFocus = currentFocusHistoryEntry
@@ -9449,7 +9449,7 @@ class TabManager: ObservableObject {
             workspace.restoreClosedPanel(entry)
         }
 
-        guard let panelId else { return false }
+        guard let panelId else { return nil }
         ClosedItemHistoryStore.shared.remapPanelAnchorIds(from: entry.snapshot.id, to: panelId)
         withFocusHistoryRecordingSuppressed {
             if selectedTabId != workspace.id {
@@ -9459,11 +9459,11 @@ class TabManager: ObservableObject {
         recordFocusInHistory(preRestoreFocus, preservingForwardBranch: true)
         rememberFocusedSurface(tabId: workspace.id, surfaceId: panelId)
         recordFocusInHistory(workspaceId: workspace.id, panelId: panelId, preservingForwardBranch: true)
-        return true
+        return panelId
     }
 
     @discardableResult
-    func restoreClosedWorkspace(_ entry: ClosedWorkspaceHistoryEntry) -> Bool {
+    func restoreClosedWorkspace(_ entry: ClosedWorkspaceHistoryEntry) -> UUID? {
         let preRestoreFocus = currentFocusHistoryEntry
         let workspace = addWorkspace(
             title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
@@ -9474,11 +9474,11 @@ class TabManager: ObservableObject {
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot)
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
-            return false
+            return nil
         }
         guard !workspace.panels.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
-            return false
+            return nil
         }
         // The snapshot may carry a groupId for a group that no longer exists
         // in this TabManager (e.g. the group was dissolved between close and
@@ -9519,7 +9519,7 @@ class TabManager: ObservableObject {
         } else {
             recordFocusInHistory(workspaceId: workspace.id, panelId: nil, preservingForwardBranch: true)
         }
-        return true
+        return workspace.id
     }
 
     private func enforceReopenedBrowserFocus(

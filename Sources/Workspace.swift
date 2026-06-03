@@ -15205,7 +15205,7 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        let historyPanel = HistoryPanel(workspace: self)
+        let historyPanel = HistoryPanel()
         panels[historyPanel.id] = historyPanel
         panelTitles[historyPanel.id] = historyPanel.displayTitle
 
@@ -15915,8 +15915,6 @@ final class Workspace: Identifiable, ObservableObject {
             installBrowserPanelSubscription(browserPanel)
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
-        } else if let historyPanel = detached.panel as? HistoryPanel {
-            historyPanel.reattach(to: self)
         }
         AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
             fromTabId: detached.sourceWorkspaceId,

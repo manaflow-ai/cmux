@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// SwiftUI host for ``HistoryPanel``. Renders the shared ``SessionIndexView`` and
-/// wires its resume and delete actions to the workspace's tab manager and the
-/// pane's session store.
+/// SwiftUI host for ``HistoryPanel``. Renders the closed-item history and wires
+/// reopen / delete / clear to the shared ``ClosedItemHistoryStore`` and the
+/// app's reopen path.
 struct HistoryPanelView: View {
     @ObservedObject var panel: HistoryPanel
     @EnvironmentObject private var tabManager: TabManager
@@ -12,22 +12,20 @@ struct HistoryPanelView: View {
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
-        SessionIndexView(
-            store: panel.sessionIndexStore,
-            onResume: { entry in
-                SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+        ClosedItemsHistoryView(
+            store: ClosedItemHistoryStore.shared,
+            onReopen: { [weak tabManager] id in
+                _ = AppDelegate.shared?.reopenClosedHistoryItem(id: id, preferredTabManager: tabManager)
             },
-            onDelete: { [weak panel] entry in
-                panel?.sessionIndexStore.delete(entry)
+            onDelete: { id in
+                _ = ClosedItemHistoryStore.shared.removeRecord(id: id)
+            },
+            onClearAll: { [weak tabManager] in
+                AppDelegate.shared?.clearRecentlyClosedHistory(preferredTabManager: tabManager)
             }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: appearance.backgroundColor))
-        .simultaneousGesture(TapGesture().onEnded { requestPanelFocusIfNeeded() })
-    }
-
-    private func requestPanelFocusIfNeeded() {
-        guard !panel.isFocusedInWorkspace else { return }
-        onRequestPanelFocus()
+        .simultaneousGesture(TapGesture().onEnded { onRequestPanelFocus() })
     }
 }

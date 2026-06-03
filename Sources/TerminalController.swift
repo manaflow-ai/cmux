@@ -282,7 +282,10 @@ class TerminalController {
         "debug.notification.focus",
         "debug.app.activate",
         "debug.right_sidebar.focus",
-        "feed.jump"
+        "feed.jump",
+        "history.reopen",
+        "history.undo",
+        "history.redo"
     ]
 
     enum V2HandleKind: String, CaseIterable {
@@ -3497,6 +3500,16 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceRemoteTerminalSessionEnd(params: params))
         case "session.restore_previous":
             return v2Result(id: id, self.v2SessionRestorePrevious())
+        case "history.list":
+            return v2Result(id: id, self.v2HistoryList(params: params))
+        case "history.reopen":
+            return v2Result(id: id, self.v2HistoryReopen(params: params))
+        case "history.undo":
+            return v2Result(id: id, self.v2HistoryUndo(params: params))
+        case "history.redo":
+            return v2Result(id: id, self.v2HistoryRedo(params: params))
+        case "history.clear":
+            return v2Result(id: id, self.v2HistoryClear(params: params))
 
         // Settings
         case "settings.open":
@@ -11416,6 +11429,83 @@ class TerminalController {
             )
         }
         return .ok(["restored": true])
+    }
+
+    private func v2HistoryList(params: [String: Any]) -> V2CallResult {
+        var entries: [[String: Any]] = []
+        v2MainSync {
+            let snapshot = ClosedItemHistoryStore.shared.menuSnapshot(maxItemCount: nil)
+            entries = snapshot.items.map { item in
+                [
+                    "id": item.id.uuidString,
+                    "kind": item.kind.rawValue,
+                    "title": item.title,
+                    "detail": item.detail,
+                    "closed_at": Int(item.closedAt.timeIntervalSince1970 * 1000)
+                ]
+            }
+        }
+        return .ok(["entries": entries, "count": entries.count])
+    }
+
+    private func v2HistoryReopen(params: [String: Any]) -> V2CallResult {
+        guard let historyId = v2UUID(params, "history_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid history_id", data: nil)
+        }
+        let tabManager = v2ResolveTabManager(params: params)
+        var reopened = false
+        v2MainSync {
+            reopened = AppDelegate.shared?.reopenClosedHistoryItem(
+                id: historyId,
+                preferredTabManager: tabManager,
+                shouldActivate: false
+            ) ?? false
+        }
+        guard reopened else {
+            return .err(
+                code: "not_found",
+                message: "History entry not found or not restorable",
+                data: ["history_id": historyId.uuidString]
+            )
+        }
+        return .ok(["reopened": true, "history_id": historyId.uuidString])
+    }
+
+    private func v2HistoryUndo(params: [String: Any]) -> V2CallResult {
+        let tabManager = v2ResolveTabManager(params: params)
+        var reopened = false
+        v2MainSync {
+            reopened = AppDelegate.shared?.reopenMostRecentlyClosedItem(
+                preferredTabManager: tabManager,
+                shouldActivate: false
+            ) ?? false
+        }
+        guard reopened else {
+            return .err(code: "not_found", message: "Nothing to reopen", data: nil)
+        }
+        return .ok(["reopened": true])
+    }
+
+    private func v2HistoryRedo(params: [String: Any]) -> V2CallResult {
+        let tabManager = v2ResolveTabManager(params: params)
+        var didRedo = false
+        v2MainSync {
+            didRedo = AppDelegate.shared?.redoLastReopen(preferredTabManager: tabManager) ?? false
+        }
+        guard didRedo else {
+            return .err(code: "not_found", message: "Nothing to redo", data: nil)
+        }
+        return .ok(["redone": true])
+    }
+
+    private func v2HistoryClear(params: [String: Any]) -> V2CallResult {
+        let tabManager = v2ResolveTabManager(params: params)
+        var count = 0
+        v2MainSync {
+            count = ClosedItemHistoryStore.shared.menuSnapshot(maxItemCount: nil).totalItemCount
+            AppDelegate.shared?.clearRecentlyClosedHistory(preferredTabManager: tabManager)
+        }
+        return .ok(["cleared": count])
     }
 
     private func v2SettingsOpen(params: [String: Any]) -> V2CallResult {

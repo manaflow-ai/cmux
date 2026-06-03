@@ -21,9 +21,9 @@ extension ContentView {
             ),
             CommandPaletteCommandContribution(
                 commandId: "palette.openHistoryPane",
-                title: constant(String(localized: "command.openHistoryPane.title", defaultValue: "Open Session History")),
+                title: constant(String(localized: "command.openHistoryPane.title", defaultValue: "Open History")),
                 subtitle: constant(String(localized: "command.openRightSidebarToolAsPane.subtitle", defaultValue: "Pane")),
-                keywords: ["history", "session", "sessions", "vault", "agent", "claude", "codex", "resume", "transcript", "pane"]
+                keywords: ["history", "closed", "reopen", "recently closed", "undo", "tab", "workspace", "window", "pane"]
             ),
         ]
     }

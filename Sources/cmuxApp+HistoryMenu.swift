@@ -34,6 +34,14 @@ extension cmuxApp {
                 }
             }
 
+            Button {
+                if AppDelegate.shared?.redoLastReopen(preferredTabManager: historyTabManager) != true {
+                    NSSound.beep()
+                }
+            } label: {
+                Text(String(localized: "menu.history.closeReopenedItem", defaultValue: "Close Reopened Item"))
+            }
+
             recentlyClosedMenuSection(
                 manager: historyTabManager,
                 snapshot: recentlyClosedSnapshot

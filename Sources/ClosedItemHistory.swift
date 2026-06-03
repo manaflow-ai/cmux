@@ -68,6 +68,14 @@ enum ClosedItemHistoryEntry: Codable {
     case window(ClosedWindowHistoryEntry)
 }
 
+/// Identifies a live item that was just reopened from history so a "redo"
+/// (re-close) can target it. Window reopens are not tracked; redo covers panels
+/// and workspaces only.
+enum ReopenedItemRef: Equatable, Sendable {
+    case panel(workspaceId: UUID, panelId: UUID)
+    case workspace(workspaceId: UUID)
+}
+
 struct ClosedItemHistoryRecord: Identifiable, Codable {
     let id: UUID
     let closedAt: Date
@@ -80,8 +88,53 @@ struct ClosedItemHistoryRecord: Identifiable, Codable {
     }
 }
 
-struct ClosedItemHistoryMenuItem: Identifiable {
+/// Coarse category of a closed item, used to pick a row icon in the History pane.
+enum ClosedItemKind: String, Equatable, Sendable {
+    case terminal
+    case browser
+    case markdown
+    case filePreview
+    case project
+    case tool
+    case history
+    case extensionBrowser
+    case workspace
+    case window
+
+    /// SF Symbol name representing this kind in the History pane.
+    var systemImage: String {
+        switch self {
+        case .terminal: return "terminal"
+        case .browser: return "globe"
+        case .markdown: return "doc.richtext"
+        case .filePreview: return "doc"
+        case .project: return "folder"
+        case .tool: return "wrench.and.screwdriver"
+        case .history: return "clock.arrow.circlepath"
+        case .extensionBrowser: return "puzzlepiece.extension"
+        case .workspace: return "rectangle.stack"
+        case .window: return "macwindow"
+        }
+    }
+
+    /// Maps a closed panel's `PanelType` to its closed-item kind.
+    static func forPanel(_ type: PanelType) -> ClosedItemKind {
+        switch type {
+        case .terminal: return .terminal
+        case .browser: return .browser
+        case .markdown: return .markdown
+        case .filePreview: return .filePreview
+        case .rightSidebarTool: return .tool
+        case .project: return .project
+        case .history: return .history
+        case .extensionBrowser: return .extensionBrowser
+        }
+    }
+}
+
+struct ClosedItemHistoryMenuItem: Identifiable, Equatable {
     let id: UUID
+    let kind: ClosedItemKind
     let title: String
     let detail: String
     let closedAt: Date
@@ -132,6 +185,10 @@ final class ClosedItemHistoryStore: ObservableObject {
     )
 
     @Published private(set) var revision: UInt64 = 0
+    /// The most recently reopened item, re-closable via redo. Cleared whenever a
+    /// new close is recorded (any ``push(_:)``) so redo only applies immediately
+    /// after an undo.
+    @Published private(set) var redoTarget: ReopenedItemRef? = nil
     @Published private var records: [ClosedItemHistoryRecord] = []
     private let capacity: Int?
     private let fileURL: URL?
@@ -183,10 +240,29 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     func push(_ record: ClosedItemHistoryRecord) {
+        // Recording a new close branches the timeline, so any pending redo
+        // (re-close of the last reopened item) no longer applies.
+        if redoTarget != nil {
+            redoTarget = nil
+        }
         records.append(record)
         trimToCapacityIfNeeded()
         revision &+= 1
         persistRecords()
+    }
+
+    /// Records that `ref` was just reopened from history, making it the target
+    /// for a subsequent redo (re-close).
+    func noteReopened(_ ref: ReopenedItemRef) {
+        redoTarget = ref
+        revision &+= 1
+    }
+
+    /// Clears any pending redo target.
+    func clearRedoTarget() {
+        guard redoTarget != nil else { return }
+        redoTarget = nil
+        revision &+= 1
     }
 
     @discardableResult
@@ -666,6 +742,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         case .panel(let entry):
             return ClosedItemHistoryMenuItem(
                 id: record.id,
+                kind: ClosedItemKind.forPanel(entry.snapshot.type),
                 title: title(for: entry.snapshot),
                 detail: String(localized: "menu.history.recentlyClosed.kind.tab", defaultValue: "Tab"),
                 closedAt: record.closedAt
@@ -673,6 +750,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         case .workspace(let entry):
             return ClosedItemHistoryMenuItem(
                 id: record.id,
+                kind: .workspace,
                 title: title(for: entry.snapshot),
                 detail: String(localized: "menu.history.recentlyClosed.kind.workspace", defaultValue: "Workspace"),
                 closedAt: record.closedAt
@@ -680,6 +758,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         case .window(let entry):
             return ClosedItemHistoryMenuItem(
                 id: record.id,
+                kind: .window,
                 title: String(localized: "menu.history.recentlyClosed.kind.window", defaultValue: "Window"),
                 detail: windowWorkspaceCountLabel(entry.snapshot.tabManager.workspaces.count),
                 closedAt: record.closedAt

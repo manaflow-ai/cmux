@@ -3642,6 +3642,27 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
+        case "history":
+            try runHistoryNamespace(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
+        case "undo":
+            var undoParams: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &undoParams, client: client, windowRaw: windowId)
+            let undoPayload = try client.sendV2(method: "history.undo", params: undoParams)
+            printV2Payload(undoPayload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "Reopened")
+
+        case "redo":
+            var redoParams: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &redoParams, client: client, windowRaw: windowId)
+            let redoPayload = try client.sendV2(method: "history.redo", params: redoParams)
+            printV2Payload(redoPayload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "Re-closed")
+
         case "list-workspaces":
             Self.warnLegacyVerbDeprecated("list-workspaces", replacement: "cmux workspace list")
             try runWorkspaceListCommand(
@@ -6908,6 +6929,66 @@ struct CMUXCLI {
     /// same v2 socket methods that legacy verbs use (`new-workspace`,
     /// `list-workspaces`, etc.) so behavior matches. Legacy verbs keep working
     /// unchanged for backwards compatibility.
+    private func runHistoryNamespace(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        guard let sub = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "history requires a subcommand. Try: list, reopen, undo, redo, clear")
+        }
+        let rest = Array(commandArgs.dropFirst())
+        switch sub {
+        case "list":
+            var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
+            let payload = try client.sendV2(method: "history.list", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let entries = payload["entries"] as? [[String: Any]] ?? []
+                if entries.isEmpty {
+                    print("No closed items")
+                } else {
+                    for entry in entries {
+                        let entryId = (entry["id"] as? String) ?? ""
+                        let kind = (entry["kind"] as? String) ?? ""
+                        let title = (entry["title"] as? String) ?? ""
+                        print("\(entryId)  [\(kind)]  \(title)")
+                    }
+                }
+            }
+        case "reopen":
+            let (idOpt, remainder) = parseOption(rest, name: "--id")
+            guard let historyId = idOpt ?? remainder.first(where: { !$0.hasPrefix("-") }) else {
+                throw CLIError(message: "history reopen requires an ID (cmux history reopen <id>). Use 'cmux undo' to reopen the most recent.")
+            }
+            var params: [String: Any] = ["history_id": historyId]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
+            let payload = try client.sendV2(method: "history.reopen", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "Reopened")
+        case "undo":
+            var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
+            let payload = try client.sendV2(method: "history.undo", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "Reopened")
+        case "redo":
+            var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
+            let payload = try client.sendV2(method: "history.redo", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "Re-closed")
+        case "clear":
+            var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
+            let payload = try client.sendV2(method: "history.clear", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "Cleared")
+        default:
+            throw CLIError(message: "Unknown history subcommand: \(sub). Try: list, reopen, undo, redo, clear")
+        }
+    }
+
     private func runWorkspaceNamespace(
         commandArgs: [String],
         client: SocketClient,
