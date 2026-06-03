@@ -90,7 +90,7 @@ enum RosettaNativeRelaunch {
         // translation cannot loop.
         setenv(guardKey, "1", 1)
 
-        var attributes = posix_spawnattr_t(nil as OpaquePointer?)
+        var attributes: posix_spawnattr_t?
         guard posix_spawnattr_init(&attributes) == 0 else {
             rosettaRelaunchLogger.warning("failed to init posix_spawnattr; continuing translated")
             unsetenv(guardKey)
