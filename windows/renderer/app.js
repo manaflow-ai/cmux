@@ -17060,6 +17060,7 @@ function showPanelContextMenu(event, panel) {
   }
   const appearanceSettings = contextMenuButton("All appearance settings", () => openSettingsCategory("appearance"), false, "", { icon: "settings" });
   const clear = contextMenuButton("Clear color", () => updatePanel(panel.id, { color: "" }), !panel.color, "", { icon: "close" });
+  clear.title = panel.color ? "Clear this pane color." : "Pane color is already default.";
   const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(panel.color), !canSaveCustomColor(panel.color), "", { icon: "plus" });
   saveColor.title = customColorSaveTitle(panel.color, "Save this pane color to the reusable palette.");
   const customColor = contextColorPicker(panel.color, (color) => {
@@ -17142,6 +17143,9 @@ function showWorkspaceContextMenu(event, workspace) {
   saveColor.title = customColorSaveTitle(workspace.color, "Save this workspace color to the reusable palette.");
   const clearColor = contextMenuButton("Clear color", () => clearWorkspaceColor(workspace), !workspace.color);
   clearColor.title = workspace.color ? "Clear this workspace color." : "Workspace color is already default.";
+  const paneColorsDirty = workspace.panels.some((panel) => panel.color);
+  const clearPaneColors = contextMenuButton("Clear pane colors", () => clearWorkspacePaneColors(workspace), !paneColorsDirty, "danger");
+  clearPaneColors.title = paneColorsDirty ? "Clear pane colors in this workspace." : "Pane colors are already default.";
   const terminalPanels = workspaceTerminalPanels(workspace);
   const hasTerminalPanes = terminalPanels.length > 0;
   const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
@@ -17184,7 +17188,7 @@ function showWorkspaceContextMenu(event, workspace) {
     contextMenuSectionTitle("Workspace color"),
     colors,
     customColor,
-    contextMenuActionGroup(saveColor, clearColor),
+    contextMenuActionGroup(saveColor, clearColor, clearPaneColors),
     contextMenuSectionTitle(t("workspace.backgrounds")),
     backgroundActions
   );
