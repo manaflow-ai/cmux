@@ -9425,7 +9425,10 @@ function renderSettingsInspector(options = {}) {
       ? "Look settings already match the default setup."
       : "Reset theme, accent, app background, and terminal colors.";
     appearanceActions.append(
-      settingsActionButton("Save profile", saveCurrentLookProfile, "primary", "appearance look save current settings profile theme accent background terminal layout performance"),
+      applySettingsProfileSaveLimit(
+        settingsActionButton("Save profile", saveCurrentLookProfile, "primary", "appearance look save current settings profile theme accent background terminal layout performance"),
+        "Save this look as a reusable Settings profile."
+      ),
       settingsActionButton("Profiles", () => openSettingsCategory("profiles"), "", "appearance look settings profiles saved apply update"),
       lookReset
     );
@@ -9497,7 +9500,10 @@ function renderSettingsInspector(options = {}) {
       ? "Browser home already uses the default page."
       : "Reset the browser home page to the default.";
     homeActions.append(
-      settingsActionButton("Save browser profile", saveCurrentBrowserProfile, "primary", "browser save profile home page launch external chrome edge brave reusable"),
+      applySettingsProfileSaveLimit(
+        settingsActionButton("Save browser profile", saveCurrentBrowserProfile, "primary", "browser save profile home page launch external chrome edge brave reusable"),
+        "Save this browser setup as a reusable Settings profile."
+      ),
       settingsActionButton("Open pane", () => createPanel("browser", "right", { url: state.settings.browserHomeUrl })),
       settingsActionButton("Open external", () => openExternalBrowser(state.settings.browserHomeUrl, { toast: true }), "", "browser system chrome edge brave profile external"),
       settingsActionButton("Refresh profiles", () => refreshBrowserProfiles({ render: true }), "", "browser chrome edge brave profile detect refresh reload"),
@@ -9739,8 +9745,14 @@ function renderSettingsInspector(options = {}) {
     speedPreset.disabled = speedPresetActive;
     speedPreset.title = speedPresetActive ? "Fast performance settings are already active." : "Apply the fast performance preset.";
     performanceActions.append(
-      settingsActionButton("Save clean + fast", applyAndSaveCleanFastProfile, "primary", "performance clean fast simple speed preset save settings profile reusable"),
-      settingsActionButton("Save current speed", saveCurrentPerformanceProfile, "", "performance save current speed lag settings profile reusable"),
+      applySettingsProfileSaveLimit(
+        settingsActionButton("Save clean + fast", applyAndSaveCleanFastProfile, "primary", "performance clean fast simple speed preset save settings profile reusable"),
+        "Apply Clean + Fast and save it as a reusable profile."
+      ),
+      applySettingsProfileSaveLimit(
+        settingsActionButton("Save current speed", saveCurrentPerformanceProfile, "", "performance save current speed lag settings profile reusable"),
+        "Save current performance settings as a reusable profile."
+      ),
       settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
       speedPreset,
       resetPerformanceStatsAction()
@@ -9875,7 +9887,10 @@ function renderSettingsInspector(options = {}) {
       ? "Terminal colors already match the cmux default."
       : "Reset background, text, and cursor colors to the cmux default.";
     colorActions.append(
-      settingsActionButton("Save terminal profile", saveCurrentTerminalProfile, "primary", "terminal save profile setup font color cursor shell reusable"),
+      applySettingsProfileSaveLimit(
+        settingsActionButton("Save terminal profile", saveCurrentTerminalProfile, "primary", "terminal save profile setup font color cursor shell reusable"),
+        "Save this terminal setup as a reusable Settings profile."
+      ),
       resetTerminalColors
     );
     terminalSection.append(colorActions);
@@ -12416,6 +12431,22 @@ function activeSavedSettingsProfile() {
   return state.savedSettingsProfiles.find((profile) => isActiveSettingsProfile(profile)) || null;
 }
 
+function savedSettingsProfilesFull() {
+  return state.savedSettingsProfiles.length >= savedSettingsProfilesLimit;
+}
+
+function settingsProfileLimitTitle() {
+  return `Profile limit is ${savedSettingsProfilesLimit}. Delete one first.`;
+}
+
+function applySettingsProfileSaveLimit(button, availableTitle = "Save the current setup as a reusable profile.") {
+  if (!button) return button;
+  const full = savedSettingsProfilesFull();
+  button.disabled = full;
+  button.title = full ? settingsProfileLimitTitle() : availableTitle;
+  return button;
+}
+
 function activeSettingsSetupModel() {
   const saved = activeSavedSettingsProfile();
   if (saved) {
@@ -12608,11 +12639,8 @@ function quickSetupOverviewPanel() {
   saveSetup.querySelector(".quick-overview-save-icon").innerHTML = quickActionIconMarkup("profiles");
   const setup = activeSettingsSetupModel();
   saveSetup.querySelector("[data-quick-profile-count]").textContent = `${setup.kind} / ${savedSettingsProfileCountLabel()} profiles`;
-  saveSetup.disabled = state.savedSettingsProfiles.length >= savedSettingsProfilesLimit;
+  applySettingsProfileSaveLimit(saveSetup);
   saveSetup.dataset.settingsSearch = normalizeSettingsQuery("quick setup save current settings profile look layout terminal browser performance");
-  saveSetup.title = saveSetup.disabled
-    ? `Profile limit is ${savedSettingsProfilesLimit}. Delete one first.`
-    : "Save the current setup as a reusable profile.";
   saveSetup.setAttribute("aria-label", saveSetup.title);
   saveSetup.onclick = () => {
     if (!saveSetup.disabled) saveQuickSetupProfile();
@@ -12814,7 +12842,7 @@ function quickSetupActionDefinitions() {
       meta: savedSettingsProfileCountLabel,
       cta: "Save",
       search: "save clean fast simple speed settings profile reusable setup performance lag preset",
-      disabled: () => state.savedSettingsProfiles.length >= savedSettingsProfilesLimit,
+      disabled: savedSettingsProfilesFull,
       run: () => applyAndSaveCleanFastProfile()
     },
     {
@@ -12836,7 +12864,7 @@ function quickSetupActionDefinitions() {
       meta: savedSettingsProfileCountLabel,
       cta: "Save",
       search: "save current settings profile setup look layout terminal browser performance",
-      disabled: () => state.savedSettingsProfiles.length >= savedSettingsProfilesLimit,
+      disabled: savedSettingsProfilesFull,
       run: () => saveQuickSetupProfile()
     },
     {
@@ -15880,7 +15908,7 @@ function settingsProfilesPanel() {
   const title = document.createElement("span");
   title.textContent = "Saved profiles";
   const save = settingsActionButton("Save", saveCurrentSettingsProfile, "", "save current settings profile preset");
-  save.disabled = state.savedSettingsProfiles.length >= savedSettingsProfilesLimit;
+  applySettingsProfileSaveLimit(save);
   header.append(title, save);
   wrapper.append(header, settingsProfileCurrentSetupPanel());
 
@@ -15969,6 +15997,10 @@ function settingsProfileCard(profile) {
 }
 
 async function saveCurrentSettingsProfile(options = {}) {
+  if (savedSettingsProfilesFull()) {
+    toast(settingsProfileLimitTitle());
+    return null;
+  }
   const label = await showTextDialog({
     title: options.title || "Save settings profile",
     message: options.message || "Save the current look, layout, terminal, and performance settings.",
@@ -17279,7 +17311,7 @@ function paletteQuickActions() {
       run: () => applySettingsPresetById("simpleFast")
     });
   }
-  if (!activeSavedSettingsProfile() && state.savedSettingsProfiles.length < savedSettingsProfilesLimit) {
+  if (!activeSavedSettingsProfile() && !savedSettingsProfilesFull()) {
     actions.splice(Math.min(actions.length, 3), 0, {
       id: "quick.saveSetup",
       label: t("palette.quickSaveSetup"),
