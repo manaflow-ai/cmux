@@ -891,7 +891,7 @@ class CmuxWindowsRuntime {
       }
     }
     const cwd = workspace.cwd || firstTerminalCwd || defaultWorkspaceDirectory();
-    const branch = gitBranch(cwd, { searchParents: false });
+    const branch = gitBranch(cwd);
     return {
       id: workspace.id,
       title: workspace.title,
