@@ -5461,7 +5461,7 @@ extension CMUXCLI {
 
     private func ensureDiffViewerAssets(nextTo viewerURL: URL) throws -> DiffViewerAssets {
         let sourceDirectory = try diffViewerBundledAssetDirectory()
-        let assetDirectoryName = "pierre-diffs-1.2.1-trees-1.0.0-beta.4"
+        let assetDirectoryName = "pierre-diffs-1.2.7-trees-1.0.0-beta.4"
         let targetDirectory = viewerURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent(assetDirectoryName, isDirectory: true)
@@ -5478,7 +5478,7 @@ extension CMUXCLI {
         guard assetPaths.contains("diffs.mjs"),
               assetPaths.contains("trees.mjs"),
               assetPaths.contains("worker-pool/worker-pool.mjs"),
-              assetPaths.contains("worker-pool/worker-portable.mjs") else {
+              assetPaths.contains("worker-pool/worker-portable.js") else {
             throw CLIError(message: "Bundled diff viewer entry assets not found")
         }
         for assetPath in assetPaths {
@@ -5498,7 +5498,7 @@ extension CMUXCLI {
             diffsModuleURL: "./assets/\(assetDirectoryName)/diffs.mjs",
             treesModuleURL: "./assets/\(assetDirectoryName)/trees.mjs",
             workerPoolModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-pool.mjs",
-            workerModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-portable.mjs",
+            workerModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-portable.js",
             files: assetPaths.map { targetDirectory.appendingPathComponent($0, isDirectory: false) }
                 + appAssetPaths.map { targetAppDirectory.appendingPathComponent($0, isDirectory: false) }
         )
