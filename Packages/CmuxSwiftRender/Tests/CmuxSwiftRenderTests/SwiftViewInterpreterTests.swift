@@ -601,6 +601,26 @@ import Testing
         #expect(radial?.children.first?.kind == .radialGradient)
     }
 
+    @Test func closuresHonorLocalLetBindings() {
+        // map/reduce/sorted closures with a local `let` must define it (was a
+        // bug: closures returned the first expression, skipping let bindings).
+        let mapped = interp.evaluate("""
+        HStack { ForEach([1, 2, 3].map { x in let d = x * 2; d + 1 }) { n in Text("\\(n)") } }
+        """)
+        #expect(mapped?.children.map(\.text) == ["3", "5", "7"])
+
+        let reduced = interp.evaluate("""
+        VStack { Text("\\([1, 2, 3].reduce(0) { acc, x in let step = x * x; acc + step })") }
+        """)
+        #expect(reduced?.children.first?.text == "14")
+    }
+
+    @Test func colorChannelHandlesNonFiniteWithoutCrashing() {
+        // Color(red: .infinity) must not trap converting Double->Int.
+        let node = interp.evaluate(#"VStack { Rectangle().foregroundColor(Color(red: 2.0, green: 0.5, blue: 0.0)) ; Text("ok") }"#)
+        #expect(node?.children.last?.text == "ok")
+    }
+
     @Test func valueFuncWithSwitchAndIfLet() {
         let node = interp.evaluate("""
         func tint(_ w) -> String {

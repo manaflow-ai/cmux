@@ -286,7 +286,9 @@ struct RenderNodeView: View {
             guard let key = dslKeyEquivalent(token) else { return view }
             return AnyView(view.keyboardShortcut(key, modifiers: dslEventModifiers(modifier.value("modifiers"))))
         case "disabled":
-            return AnyView(view.disabled(token != "false"))
+            // Disabled only when the arg explicitly resolves to true; an
+            // unresolved expression defaults to enabled, not disabled.
+            return AnyView(view.disabled(token == "true"))
         case "redacted":
             let reason = clean(modifier.value("reason")) ?? token
             return AnyView(view.redacted(reason: reason == "invalidated" ? .invalidated : .placeholder))
@@ -306,7 +308,9 @@ struct RenderNodeView: View {
             return AnyView(view.scrollContentBackground(token == "hidden" ? .hidden : .visible))
         case "aspectRatio":
             let mode: ContentMode = clean(modifier.value("contentMode")) == "fill" ? .fill : .fit
-            if let token, let ratio = Double(token) { return AnyView(view.aspectRatio(CGFloat(ratio), contentMode: mode)) }
+            // Only apply an explicit ratio when positive; a zero/negative ratio
+            // is invalid in SwiftUI, so fall back to mode-only.
+            if let token, let ratio = Double(token), ratio > 0 { return AnyView(view.aspectRatio(CGFloat(ratio), contentMode: mode)) }
             return AnyView(view.aspectRatio(contentMode: mode))
         case "scaledToFit":
             return AnyView(view.aspectRatio(contentMode: .fit))

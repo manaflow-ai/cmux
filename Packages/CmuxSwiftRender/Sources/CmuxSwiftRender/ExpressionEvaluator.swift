@@ -543,7 +543,10 @@ struct ExpressionEvaluator {
         func channel(_ label: String) -> Int? {
             guard let e = call.arguments.first(where: { $0.label?.text == label })?.expression else { return nil }
             switch eval(e, env) {
-            case let .double(d): return max(0, min(255, Int((d * 255).rounded())))
+            case let .double(d):
+                // Clamp to [0,1] BEFORE converting — `Int(Double.infinity)` traps.
+                guard d.isFinite else { return 0 }
+                return max(0, min(255, Int((max(0, min(1, d)) * 255).rounded())))
             case let .int(i): return max(0, min(255, i))
             default: return nil
             }
@@ -565,22 +568,19 @@ struct ExpressionEvaluator {
             if names.count > 0 { scope.define(names[0].name.text, a) }
             if names.count > 1 { scope.define(names[1].name.text, b) }
         }
-        for item in closure.statements {
-            if let expr = item.item.as(ExprSyntax.self) { return eval(expr, scope) }
-        }
-        return nil
+        // Multi-statement bodies (local `let`, `if`/`switch`, trailing expr) are
+        // evaluated like a value-func block, so `{ a, b in let s = a + b; s }`
+        // works, not just single-expression closures.
+        return evalBlockValue(closure.statements, scope)
     }
 
-    /// Evaluates a single-expression closure body with `element` bound to the
-    /// closure parameter (and `$0`).
+    /// Evaluates a closure body with `element` bound to the closure parameter
+    /// (and `$0`), honoring local `let` bindings and a trailing expression.
     private func evalClosure(_ closure: ClosureExprSyntax, _ element: SwiftValue, _ env: Environment) -> SwiftValue? {
         let scope = env.makeChild()
         scope.define("$0", element)
         if let name = closureParameterName(closure) { scope.define(name, element) }
-        for item in closure.statements {
-            if let expr = item.item.as(ExprSyntax.self) { return eval(expr, scope) }
-        }
-        return nil
+        return evalBlockValue(closure.statements, scope)
     }
 
     private func closureParameterName(_ closure: ClosureExprSyntax) -> String? {

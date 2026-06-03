@@ -60,8 +60,12 @@ public enum SwiftValue: Sendable, Equatable {
     public var iterationValues: [SwiftValue]? {
         switch self {
         case let .range(lower, upper, inclusive):
-            let end = inclusive ? upper + 1 : upper
-            guard end >= lower else { return [] }
+            // Overflow-safe end + a materialization cap so a pathological range
+            // (e.g. `0...Int.max`) can't overflow or exhaust memory.
+            let (end, addOverflow) = inclusive ? upper.addingReportingOverflow(1) : (upper, false)
+            guard !addOverflow, end >= lower else { return [] }
+            let (count, subOverflow) = end.subtractingReportingOverflow(lower)
+            guard !subOverflow, count <= 100_000 else { return [] }
             return (lower..<end).map(SwiftValue.int)
         case let .array(values):
             return values
