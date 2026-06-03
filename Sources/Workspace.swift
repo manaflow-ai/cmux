@@ -10072,6 +10072,7 @@ enum SidebarBranchOrdering {
         orderedPanelIds: [UUID],
         panelBranches: [UUID: SidebarGitBranchState],
         panelDirectories: [UUID: String],
+        panelDirectoryDisplayLabels: [UUID: String] = [:],
         defaultDirectory: String?,
         homeDirectoryForTildeExpansion: String?,
         fallbackBranch: SidebarGitBranchState?
@@ -10102,6 +10103,7 @@ enum SidebarBranchOrdering {
             let panelBranch = normalized(panelBranches[panelId]?.branch)
             let branch = panelBranch ?? defaultBranchForPanels
             let directory = normalized(panelDirectories[panelId])
+            let displayedDirectory = normalized(panelDirectoryDisplayLabels[panelId]) ?? directory
             guard branch != nil || directory != nil else { continue }
 
             let panelDirty = panelBranch != nil
@@ -10131,7 +10133,7 @@ enum SidebarBranchOrdering {
                     }
                     existing.directory = preferredDisplayedDirectory(
                         existing: existing.directory,
-                        replacement: directory,
+                        replacement: displayedDirectory,
                         homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
                     )
                     entries[key] = existing
@@ -10141,7 +10143,7 @@ enum SidebarBranchOrdering {
                 }
             } else {
                 order.append(key)
-                entries[key] = MutableEntry(branch: branch, isDirty: panelDirty, directory: directory)
+                entries[key] = MutableEntry(branch: branch, isDirty: panelDirty, directory: displayedDirectory)
             }
         }
 
@@ -10418,6 +10420,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
+    @Published var panelDirectoryDisplayLabels: [UUID: String] = [:]
     @Published var panelTitles: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
@@ -10559,6 +10562,7 @@ final class Workspace: Identifiable, ObservableObject {
                 .map { _ in () }
                 .eraseToAnyPublisher(),
             sidebarObservationSignal($panelDirectories),
+            sidebarObservationSignal($panelDirectoryDisplayLabels),
             sidebarObservationSignal($statusEntries),
             sidebarObservationSignal($metadataBlocks),
             sidebarObservationSignal($logEntries),
@@ -12124,11 +12128,19 @@ final class Workspace: Identifiable, ObservableObject {
         return trimmedCurrentDirectory.isEmpty ? nil : trimmedCurrentDirectory
     }
 
-    func updatePanelDirectory(panelId: UUID, directory: String) {
+    func updatePanelDirectory(panelId: UUID, directory: String, displayLabel: String? = nil) {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         if panelDirectories[panelId] != trimmed {
             panelDirectories[panelId] = trimmed
+        }
+        let trimmedDisplayLabel = displayLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmedDisplayLabel.isEmpty {
+            if panelDirectoryDisplayLabels[panelId] != nil {
+                panelDirectoryDisplayLabels.removeValue(forKey: panelId)
+            }
+        } else if panelDirectoryDisplayLabels[panelId] != trimmedDisplayLabel {
+            panelDirectoryDisplayLabels[panelId] = trimmedDisplayLabel
         }
         // Update current directory if this is the focused panel
         if panelId == focusedPanelId {
@@ -12632,6 +12644,7 @@ final class Workspace: Identifiable, ObservableObject {
             removePendingTerminalInputObservers(forPanelId: panelId)
         }
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
+        panelDirectoryDisplayLabels = panelDirectoryDisplayLabels.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
@@ -12737,6 +12750,11 @@ final class Workspace: Identifiable, ObservableObject {
         return normalizedSidebarDirectory(currentDirectory)
     }
 
+    private func sidebarResolvedDisplayDirectory(for panelId: UUID) -> String? {
+        normalizedSidebarDirectory(panelDirectoryDisplayLabels[panelId])
+            ?? sidebarResolvedDirectory(for: panelId)
+    }
+
     private func sidebarResolvedPanelDirectories(orderedPanelIds: [UUID]) -> [UUID: String] {
         var resolved: [UUID: String] = [:]
         for panelId in orderedPanelIds {
@@ -12748,6 +12766,43 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarDirectoriesInDisplayOrder(orderedPanelIds: [UUID], includeFallback: Bool = true) -> [String] {
+        let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
+        var resolvedDisplayDirectories: [UUID: String] = [:]
+        for panelId in orderedPanelIds {
+            if let directory = sidebarResolvedDisplayDirectory(for: panelId) {
+                resolvedDisplayDirectories[panelId] = directory
+            }
+        }
+        let homeDirectoryForCanonicalization = sidebarHomeDirectoryForCanonicalization(
+            resolvedPanelDirectories: resolvedDirectories
+        )
+        var ordered: [String] = []
+        var seen: Set<String> = []
+
+        for panelId in orderedPanelIds {
+            guard let directory = resolvedDirectories[panelId],
+                  let displayedDirectory = resolvedDisplayDirectories[panelId],
+                  let key = SidebarBranchOrdering.canonicalDirectoryKey(
+                      directory,
+                      homeDirectoryForTildeExpansion: homeDirectoryForCanonicalization
+                  ) else { continue }
+            if seen.insert(key).inserted {
+                ordered.append(displayedDirectory)
+            }
+        }
+
+        if includeFallback, ordered.isEmpty, let fallbackDirectory = normalizedSidebarDirectory(currentDirectory) {
+            return [fallbackDirectory]
+        }
+
+        return ordered
+    }
+
+    func sidebarDirectoriesInDisplayOrder() -> [String] {
+        sidebarDirectoriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+    }
+
+    private func sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [UUID], includeFallback: Bool = true) -> [String] {
         let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
         let homeDirectoryForCanonicalization = sidebarHomeDirectoryForCanonicalization(
             resolvedPanelDirectories: resolvedDirectories
@@ -12773,9 +12828,6 @@ final class Workspace: Identifiable, ObservableObject {
         return ordered
     }
 
-    func sidebarDirectoriesInDisplayOrder() -> [String] {
-        sidebarDirectoriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
-    }
     func sidebarFinderDirectory() -> String? {
         guard !isRemoteWorkspace else { return nil }
         let panelIds = sidebarOrderedPanelIds()
@@ -12784,7 +12836,10 @@ final class Workspace: Identifiable, ObservableObject {
                 && !isRemoteTerminalSurface($0)
                 && !pendingRemoteTerminalChildExitSurfaceIds.contains($0)
         }
-        return sidebarDirectoriesInDisplayOrder(orderedPanelIds: localPanelIds, includeFallback: panelIds.isEmpty || localPanelIds.count == panelIds.count).first
+        return sidebarFilesystemDirectoriesInDisplayOrder(
+            orderedPanelIds: localPanelIds,
+            includeFallback: panelIds.isEmpty || localPanelIds.count == panelIds.count
+        ).first
     }
 
     func sidebarGitBranchesInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarGitBranchState] {
@@ -12809,6 +12864,7 @@ final class Workspace: Identifiable, ObservableObject {
             orderedPanelIds: orderedPanelIds,
             panelBranches: panelGitBranches,
             panelDirectories: resolvedDirectories,
+            panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
             defaultDirectory: normalizedSidebarDirectory(currentDirectory),
             homeDirectoryForTildeExpansion: sidebarHomeDirectoryForCanonicalization(
                 resolvedPanelDirectories: resolvedDirectories
@@ -15766,6 +15822,11 @@ final class Workspace: Identifiable, ObservableObject {
         if let directory = detached.directory {
             panelDirectories[detached.panelId] = directory
         }
+        if let directoryDisplayLabel = detached.directoryDisplayLabel {
+            panelDirectoryDisplayLabels[detached.panelId] = directoryDisplayLabel
+        } else {
+            panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
+        }
         if let ttyName = detached.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
             surfaceTTYNames[detached.panelId] = ttyName
         } else {
@@ -15812,6 +15873,7 @@ final class Workspace: Identifiable, ObservableObject {
             removeBrowserOpenTabSuggestionIfNeeded(panel: detached.panel, panelId: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
+            panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
@@ -18497,6 +18559,7 @@ extension Workspace: BonsplitDelegate {
                 isLoading: browserPanel?.isLoading ?? false,
                 isPinned: pinnedPanelIds.contains(panelId),
                 directory: panelDirectories[panelId],
+                directoryDisplayLabel: panelDirectoryDisplayLabels[panelId],
                 ttyName: surfaceTTYNames[panelId],
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],

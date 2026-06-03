@@ -17199,7 +17199,7 @@ class TerminalController {
           ports_kick [--tab=X] [--panel=Y] [--reason=command|refresh] - Request batched port scan for panel
           report_shell_state <prompt|running> [--tab=X] [--panel=Y] - Report whether the shell is idle at a prompt or running a command
           report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y] - Hint that a PR-affecting command completed in the panel
-          report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
+          report_pwd <path|display-label> [--path=/actual/path] [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
           right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--tab=X] [--window=Y] [--no-focus] - Control right sidebar visibility, mode, and focus
           sidebar_state [--tab=X] - Dump sidebar metadata
@@ -21161,10 +21161,16 @@ class TerminalController {
         guard let tabManager else { return "ERROR: TabManager not available" }
         let parsed = parseOptions(args)
         guard !parsed.positional.isEmpty else {
-            return "ERROR: Missing path — usage: report_pwd <path> [--tab=X] [--panel=Y]"
+            return "ERROR: Missing path — usage: report_pwd <path|display-label> [--path=/actual/path] [--tab=X] [--panel=Y]"
         }
 
-        let directory = parsed.positional.joined(separator: " ")
+        let displayLabel = parsed.positional.joined(separator: " ")
+        let explicitPath = parsed.options["path"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let explicitPath, explicitPath.isEmpty {
+            return "ERROR: Missing filesystem path — usage: report_pwd <display-label> --path=/actual/path [--tab=X] [--panel=Y]"
+        }
+        let directory = explicitPath ?? displayLabel
+        let directoryDisplayLabel = explicitPath == nil ? nil : displayLabel
         if let scope = Self.explicitSocketScope(options: parsed.options) {
             TerminalMutationBus.shared.enqueueMainActorMutation {
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId),
@@ -21174,7 +21180,12 @@ class TerminalController {
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else { return }
-                tabManager.updateSurfaceDirectory(tabId: scope.workspaceId, surfaceId: scope.panelId, directory: directory)
+                tabManager.updateSurfaceDirectory(
+                    tabId: scope.workspaceId,
+                    surfaceId: scope.panelId,
+                    directory: directory,
+                    displayLabel: directoryDisplayLabel
+                )
             }
             return "OK"
         }
@@ -21192,7 +21203,7 @@ class TerminalController {
             let surfaceId: UUID
             if let panelArg {
                 if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: report_pwd <path> [--tab=X] [--panel=Y]"
+                    result = "ERROR: Missing panel id — usage: report_pwd <path|display-label> [--path=/actual/path] [--tab=X] [--panel=Y]"
                     return
                 }
                 guard let parsedId = UUID(uuidString: panelArg) else {
@@ -21213,7 +21224,12 @@ class TerminalController {
                 return
             }
 
-            tabManager.updateSurfaceDirectory(tabId: tab.id, surfaceId: surfaceId, directory: directory)
+            tabManager.updateSurfaceDirectory(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                directory: directory,
+                displayLabel: directoryDisplayLabel
+            )
         }
         return result
     }
