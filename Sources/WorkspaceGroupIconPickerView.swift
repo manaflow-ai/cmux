@@ -2,10 +2,13 @@ import AppKit
 import SwiftUI
 
 struct WorkspaceGroupIconPickerView: View {
+    private static let pageSize = 96
+
     let currentSymbol: String?
     let onSelect: (String?) -> Void
 
     @State private var searchText: String
+    @State private var emojiLimit = Self.pageSize
 
     init(currentSymbol: String?, onSelect: @escaping (String?) -> Void) {
         self.currentSymbol = currentSymbol
@@ -22,7 +25,11 @@ struct WorkspaceGroupIconPickerView: View {
     }
 
     private var emojiSuggestions: [String] {
-        WorkspaceGroupEmojiCatalog.matching(query: searchText)
+        emojiMatches.emojis
+    }
+
+    private var emojiMatches: (emojis: [String], hasMore: Bool) {
+        WorkspaceGroupEmojiCatalog.matching(query: searchText, limit: emojiLimit)
     }
 
     var body: some View {
@@ -33,6 +40,9 @@ struct WorkspaceGroupIconPickerView: View {
             )
             .textFieldStyle(.roundedBorder)
             .frame(height: 24)
+            .onChange(of: searchText) { _, _ in
+                emojiLimit = Self.pageSize
+            }
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
@@ -63,6 +73,11 @@ struct WorkspaceGroupIconPickerView: View {
                                     isSelected: selectedIcon == emoji
                                 ) {
                                     onSelect(emoji)
+                                }
+                                .onAppear {
+                                    guard emojiMatches.hasMore,
+                                          emoji == emojiSuggestions.last else { return }
+                                    emojiLimit += Self.pageSize
                                 }
                             }
                         }

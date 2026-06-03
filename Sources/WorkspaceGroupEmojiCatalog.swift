@@ -5,20 +5,33 @@ enum WorkspaceGroupEmojiCatalog {
         "🛠️", "🧰", "📣", "💡", "🕹️", "🧵", "🪄", "🧱", "📎", "🗂️", "📚", "🔬"
     ]
 
-    private static let emojis = commonEmoji + generatedEmoji.filter { !commonEmoji.contains($0) }
-
-    static func matching(query rawQuery: String) -> [String] {
+    static func matching(query rawQuery: String, limit: Int) -> (emojis: [String], hasMore: Bool) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return emojis }
-        if let emoji = RenderableSystemSymbol.normalizedEmoji(query) {
-            return [emoji] + emojis.filter { $0 != emoji }
+        guard !query.isEmpty else {
+            return pageAllEmoji(limit: limit)
         }
-        return emojis.filter { $0.localizedCaseInsensitiveContains(query) }
+        if let emoji = RenderableSystemSymbol.normalizedEmoji(query) {
+            return ([emoji], false)
+        }
+        return ([], false)
     }
 
-    private static let generatedEmoji: [String] = {
+    private static func pageAllEmoji(limit: Int) -> (emojis: [String], hasMore: Bool) {
+        let cappedLimit = max(limit, 0)
+        guard cappedLimit > 0 else { return ([], true) }
         var values: [String] = []
+        values.reserveCapacity(cappedLimit)
         var seen = Set<String>()
+
+        for emoji in commonEmoji {
+            guard !seen.contains(emoji) else { continue }
+            seen.insert(emoji)
+            values.append(emoji)
+            if values.count >= cappedLimit {
+                return (values, true)
+            }
+        }
+
         for range in emojiScalarRanges {
             for value in range {
                 guard let scalar = UnicodeScalar(value) else { continue }
@@ -27,10 +40,14 @@ enum WorkspaceGroupEmojiCatalog {
                       !seen.contains(emoji) else { continue }
                 seen.insert(emoji)
                 values.append(emoji)
+                if values.count >= cappedLimit {
+                    return (values, true)
+                }
             }
         }
-        return values
-    }()
+
+        return (values, false)
+    }
 
     private static let emojiScalarRanges: [ClosedRange<Int>] = [
         0x203C ... 0x3299,
