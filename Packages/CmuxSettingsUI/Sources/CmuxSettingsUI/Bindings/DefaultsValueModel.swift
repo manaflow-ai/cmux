@@ -18,8 +18,13 @@ import Observation
 /// 3. ``set(_:)`` updates ``current`` optimistically (immediate UI) and
 ///    persists the write in a fire-and-forget `Task`.
 ///
-/// Lifecycle: the observation `Task` captures `self` weakly and exits
-/// when the model is deallocated, so no explicit cancellation is needed.
+/// Lifecycle: the observation is owned by a ``SettingReadDriver`` held by the
+/// model. When the model deallocates, the driver's `deinit` cancels the
+/// iterating task, which finishes the change stream and tears down its
+/// underlying `NotificationCenter.notifications(named:)` sequence. A bare
+/// `weak self` inside the loop is **not** enough — the task is parked at the
+/// `await` and never re-checks `self` for an idle key, leaking the
+/// subscription (see https://github.com/manaflow-ai/cmux/issues/5302).
 @MainActor
 @Observable
 public final class DefaultsValueModel<Value: SettingCodable> {
@@ -28,6 +33,10 @@ public final class DefaultsValueModel<Value: SettingCodable> {
 
     private let store: UserDefaultsSettingsStore
     private let key: DefaultsKey<Value>
+
+    /// Owns the change-stream subscription and cancels it when this model
+    /// deallocates.
+    @ObservationIgnored private let observation = SettingReadDriver<Value>()
 
     /// Creates a model bound to ``key`` in ``store``.
     ///
@@ -60,12 +69,8 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         // element (the actual stored value) lands immediately after and
         // is the sole writer of `current` thereafter.
         self.current = key.defaultValue
-        Task { [weak self] in
-            for await value in makeStream() {
-                guard let self else { return }
-                if Task.isCancelled { break }
-                self.current = value
-            }
+        observation.activate(makeStream) { [weak self] value in
+            self?.current = value
         }
     }
 
