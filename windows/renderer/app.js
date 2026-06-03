@@ -181,6 +181,8 @@ const renderSlowFrameTriggerCount = 4;
 const performanceMetricsRefreshMinMs = 250;
 const performanceGuardStartupGraceMs = 2500;
 const performanceGuardStartupRenderCount = 3;
+const performanceGuardSlowPaneCreateMs = 2000;
+const performanceGuardSlowTerminalConnectMs = 1500;
 const appearancePreviewKeys = new Set([
   "theme",
   "accent",
@@ -4033,6 +4035,10 @@ function recordRenderDuration(durationMs) {
 function performanceGuardCanUseRenderSignal() {
   return state.renderStats.count > performanceGuardStartupRenderCount
     && performance.now() - state.performanceGuardStartedAt >= performanceGuardStartupGraceMs;
+}
+
+function performanceGuardCanUseActivitySignal() {
+  return performance.now() - state.performanceGuardStartedAt >= performanceGuardStartupGraceMs;
 }
 
 function cleanupStalePaneCache() {
@@ -11765,10 +11771,18 @@ function recordDurationStats(stats, durationMs) {
 function recordPaneCreateDuration(type, durationMs) {
   state.paneCreateStats.lastType = type === "browser" ? "browser" : "terminal";
   recordDurationStats(state.paneCreateStats, durationMs);
+  schedulePerformanceMetricsRefresh();
+  if (performanceGuardCanUseActivitySignal() && state.paneCreateStats.lastMs >= performanceGuardSlowPaneCreateMs) {
+    maybeTriggerPerformanceGuard("slow pane creation");
+  }
 }
 
 function recordTerminalConnectDuration(durationMs) {
   recordDurationStats(state.terminalConnectStats, durationMs);
+  schedulePerformanceMetricsRefresh();
+  if (performanceGuardCanUseActivitySignal() && state.terminalConnectStats.lastMs >= performanceGuardSlowTerminalConnectMs) {
+    maybeTriggerPerformanceGuard("slow terminal connection");
+  }
 }
 
 function durationMetric(stats, key = "lastMs") {
@@ -13197,9 +13211,13 @@ function performanceOverviewModel() {
   const hasBacklog = queuedBytes >= terminalOutputBacklogThreshold;
   const slowRender = lastRenderMs >= renderSlowFrameMs || avgRenderMs >= renderSlowFrameMs;
   const verySlowRender = lastRenderMs >= renderVerySlowFrameMs || avgRenderMs >= renderVerySlowFrameMs;
+  const slowPaneAdd = state.paneCreateStats.lastMs >= performanceGuardSlowPaneCreateMs
+    || state.paneCreateStats.avgMs >= performanceGuardSlowPaneCreateMs;
+  const slowShellConnect = state.terminalConnectStats.lastMs >= performanceGuardSlowTerminalConnectMs
+    || state.terminalConnectStats.avgMs >= performanceGuardSlowTerminalConnectMs;
   const status = state.settings.performanceMode
     ? "tuned"
-    : hasBacklog || verySlowRender
+    : hasBacklog || verySlowRender || slowPaneAdd || slowShellConnect
       ? "warning"
       : slowRender || pendingPanes > 0
         ? "watching"
@@ -13211,13 +13229,14 @@ function performanceOverviewModel() {
       : status === "watching"
         ? "Watching load"
         : "Running steady";
-  const reason = state.performanceGuardTriggered && state.performanceGuardReason
-    ? state.performanceGuardReason
-    : state.settings.performanceMode
-      ? "Effects and hidden output are reduced."
-      : state.settings.adaptivePerformance
-        ? "Adaptive guard will tune if rendering or terminal output stalls."
-        : "Adaptive guard is disabled.";
+  const reason = performanceOverviewReason({
+    hasBacklog,
+    pendingPanes,
+    slowPaneAdd,
+    slowRender,
+    slowShellConnect,
+    verySlowRender
+  });
   return {
     status,
     title,
@@ -13231,6 +13250,26 @@ function performanceOverviewModel() {
     paused: pausedOutput ? `${pausedOutput} paused` : "None",
     pending: pendingPanes ? `${pendingPanes} pending` : "None"
   };
+}
+
+function performanceOverviewReason({
+  hasBacklog = false,
+  pendingPanes = 0,
+  slowPaneAdd = false,
+  slowRender = false,
+  slowShellConnect = false,
+  verySlowRender = false
+} = {}) {
+  if (state.performanceGuardTriggered && state.performanceGuardReason) return state.performanceGuardReason;
+  if (state.settings.performanceMode) return "Effects and hidden output are reduced.";
+  if (hasBacklog) return "Terminal output backlog is building.";
+  if (verySlowRender) return "Rendering is taking longer than expected.";
+  if (slowPaneAdd) return "New panes are taking longer than expected.";
+  if (slowShellConnect) return "Terminal shell connection is taking longer than expected.";
+  if (slowRender) return "Rendering is being watched for repeated slow frames.";
+  if (pendingPanes > 0) return "Pane creation is still in progress.";
+  if (state.settings.adaptivePerformance) return "Adaptive guard will tune if rendering, output, or pane startup stalls.";
+  return "Adaptive guard is disabled.";
 }
 
 function performanceOverviewPanel() {
