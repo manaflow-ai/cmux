@@ -545,7 +545,7 @@ const state = {
   browserUrlSyncTimer: 0,
   browserTabSnapshotSaveTimer: 0,
   pendingTerminalFontSizeSync: new Map(),
-  terminalFontSizeSyncTimer: 0,
+  terminalFontSizeSyncTimers: new Map(),
   windowResizing: null,
   windowMaximized: false,
   resizing: null,
@@ -18255,8 +18255,11 @@ function queueTerminalFontSizeSync(panelId, fontSize) {
   if (!found || found.panel.type !== "terminal") return false;
   const size = Number(fontSize);
   state.pendingTerminalFontSizeSync.set(panelId, Number.isFinite(size) && size <= 0 ? 0 : normalizeTerminalFontSize(fontSize, state.settings.terminalFontSize));
-  if (state.terminalFontSizeSyncTimer) clearTimeout(state.terminalFontSizeSyncTimer);
-  state.terminalFontSizeSyncTimer = setTimeout(flushTerminalFontSizeSync, 220);
+  const previousTimer = state.terminalFontSizeSyncTimers.get(panelId);
+  if (previousTimer) clearTimeout(previousTimer);
+  state.terminalFontSizeSyncTimers.set(panelId, setTimeout(() => {
+    flushTerminalFontSizeSync({ panelIds: [panelId] });
+  }, 220));
   return true;
 }
 
@@ -18275,12 +18278,18 @@ async function terminalFontSizeSyncFetch(panelId, terminalFontSize, options = {}
 }
 
 async function flushTerminalFontSizeSync(options = {}) {
-  if (state.terminalFontSizeSyncTimer) {
-    clearTimeout(state.terminalFontSizeSyncTimer);
-    state.terminalFontSizeSyncTimer = 0;
+  const requestedPanelIds = Array.isArray(options.panelIds)
+    ? new Set(options.panelIds.filter(Boolean))
+    : null;
+  const panelIdsToClear = requestedPanelIds || new Set(state.terminalFontSizeSyncTimers.keys());
+  for (const panelId of panelIdsToClear) {
+    const timer = state.terminalFontSizeSyncTimers.get(panelId);
+    if (timer) clearTimeout(timer);
+    state.terminalFontSizeSyncTimers.delete(panelId);
   }
-  const entries = [...state.pendingTerminalFontSizeSync.entries()];
-  state.pendingTerminalFontSizeSync.clear();
+  const entries = [...state.pendingTerminalFontSizeSync.entries()]
+    .filter(([panelId]) => !requestedPanelIds || requestedPanelIds.has(panelId));
+  for (const [panelId] of entries) state.pendingTerminalFontSizeSync.delete(panelId);
   await Promise.all(entries.map(async ([panelId, terminalFontSize]) => {
     const found = findPanelState(panelId);
     if (!found || found.panel.type !== "terminal" || normalizeTerminalFontSize(found.panel.terminalFontSize, 0) !== terminalFontSize) return;
