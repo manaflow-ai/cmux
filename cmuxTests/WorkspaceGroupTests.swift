@@ -8,7 +8,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Workspace group model")
+@Suite("Workspace group model", .serialized)
 struct WorkspaceGroupTests {
 
     private func makeTabManager() -> TabManager {
@@ -19,7 +19,7 @@ struct WorkspaceGroupTests {
             WorkspaceGroupNewWorkspacePlacementSettings.defaultValue.rawValue,
             forKey: WorkspaceGroupNewWorkspacePlacementSettings.key
         )
-        let manager = TabManager()
+        let manager = TabManager(debugCreateInitialWorkspace: false)
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         return manager
