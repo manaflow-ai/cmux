@@ -45,7 +45,7 @@
     "taglinePrefix": "Le terminal conçu pour ",
     "typingCodingAgents": "agents de code",
     "typingMultitasking": "multitâche",
-    "subtitle": "Application macOS native basée sur Ghostty. Onglets verticaux, notifications quand les agents ont besoin d'attention, panneaux divisés et une API socket pour l'automatisation.",
+    "subtitle": "Application macOS native basée sur Ghostty. Onglets verticaux, notifications quand les agents ont besoin d'attention, panneaux divisés et une <cliLink>CLI</cliLink> pour la programmabilité.",
     "features": "Fonctionnalités",
     "faq": "FAQ",
     "communitySection": "Communauté",
@@ -302,6 +302,22 @@
         "p3": "Cela envoie le workspace actuel à la fin du cycle des non lus, afin de continuer à les parcourir sans effacer leur état.",
         "p4": "Cmd+Option+U bascule le workspace actuel entre lu et non lu.",
         "p5": "C’est utile quand tu sautes vers un nouveau workspace non lu avec Cmd+Shift+U mais que tu dois changer de contexte avant de répondre."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Rouvrez les terminaux, navigateurs, workspaces et sessions d’agents fermés avec Cmd+Shift+T, et revenez sur votre focus avec Cmd+[ et Cmd+].",
+        "date": "2 juin 2026",
+        "p1": "Vous fermez un onglet de terminal pour faire de la place, puis vous réalisez que vous en aviez besoin. Ou vous fermez un workspace entier et perdez l’agent en pleine tâche. cmux conserve désormais un historique de ce que vous avez fermé et mis au premier plan, si bien qu’un raccourci suffit pour le retrouver.",
+        "reopenTitle": "Rouvrez ce que vous avez fermé",
+        "reopenP": "Appuyez sur <code>Cmd+Shift+T</code> pour rouvrir le dernier élément fermé. Cela fonctionne pour les onglets de terminal, les onglets du navigateur, les workspaces et les fenêtres, et les restaure un par un dans l’ordre où vous les avez fermés. Chaque surface revient à sa place, ses volets intacts.",
+        "agentTitle": "Les sessions d’agents reviennent aussi",
+        "agentP": "L’historique rouvre aussi les sessions d’agents fermées. Rouvrez une session Claude Code, Codex ou OpenCode et elle reprend là où elle s’était arrêtée. Exécutez <code>cmux hooks setup</code> une fois pour que cmux puisse suivre les sessions d’agents ; elles se rouvrent ensuite comme tout le reste.",
+        "agentP2": "Cela s’appuie sur la <link>restauration de session</link> de cmux, qui reprend les agents pris en charge via leurs propres commandes natives de reprise.",
+        "focusTitle": "Revenez là où vous étiez",
+        "focusP": "Les boutons précédent et suivant de la barre de titre, ou <code>Cmd+[</code> et <code>Cmd+]</code>, sautent au workspace ou à la fenêtre précédent et suivant où vous travailliez, comme précédent et suivant dans un navigateur.",
+        "fullHistoryTitle": "Le panneau d’historique complet",
+        "fullHistoryP": "Quand il vous faut plus que le dernier élément, ouvrez le panneau d’historique complet : une vue cherchable, regroupée par jour, de tout ce que vous avez fermé et mis au premier plan, avec des horodatages et une action Clear Closed.",
+        "docsCta": "Consultez les <link>raccourcis clavier</link> pour la liste complète, y compris comment réattribuer la navigation dans l’historique."
       }
     },
     "zenOfCmux": {
@@ -427,6 +443,10 @@
         "agents de codage IA",
         "workspace non lu"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history : rouvrir les terminaux et sessions fermés",
+      "metaDescription": "cmux conserve un historique de ce que vous avez fermé et mis au premier plan. Rouvrez les terminaux, navigateurs, workspaces et sessions Claude Code, Codex et OpenCode fermés avec Cmd+Shift+T, et déplacez le focus en arrière et en avant avec Cmd+[ et Cmd+]."
     }
   },
   "docs": {
@@ -555,17 +575,35 @@
           "confirmQuit": "Contrôle quand cmux demande confirmation avant de quitter. Les builds DEV quittent toujours immédiatement, quel que soit ce réglage. L'ancien app.warnBeforeQuit reste accepté comme fallback booléen.",
           "warnBeforeQuit": "Fallback booléen hérité pour la confirmation de fermeture. Utilisez app.confirmQuit pour les nouvelles configurations.",
           "warnBeforeClosingTabXButton": "Afficher une confirmation avant de fermer un onglet avec le bouton de fermeture d’onglet.",
-          "hideTabCloseButton": "Masquer les boutons de fermeture d’onglet dans la barre d’onglets du volet."
+          "hideTabCloseButton": "Masquer les boutons de fermeture d’onglet dans la barre d’onglets du volet.",
+          "forkConversationDefaultDestination": "Destination par défaut de l'action principale Fork Conversation dans le menu contextuel de l'onglet. Le sous-menu affiche toujours toutes les destinations."
         },
         "terminal": {
-          "copyOnSelect": "Copie le texte sélectionné dans le terminal dans le presse-papiers système lorsque la sélection est validée, y compris les sélections de mots et de lignes par double ou triple clic."
+          "copyOnSelect": "Copie le texte sélectionné dans le terminal dans le presse-papiers système lorsque la sélection est validée, y compris les sélections de mots et de lignes par double ou triple clic.",
+          "showTextBoxOnNewTerminals": "Affiche l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés.",
+          "focusTextBoxOnNewTerminals": "Place le focus sur l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés. Le focus affiche aussi TextBox."
         },
         "browser": {
           "defaultSearchEngine": "Moteur de recherche par défaut pour les saisies de la barre d’adresse du navigateur qui ne sont pas des URL. Utilisez custom avec customSearchEngineURLTemplate pour d’autres fournisseurs.",
           "customSearchEngineName": "Nom affiché lorsque defaultSearchEngine vaut custom.",
           "customSearchEngineURLTemplate": "URL de recherche utilisée lorsque defaultSearchEngine vaut custom. Incluez l’espace réservé de requête ou %s pour la requête encodée. Sans espace réservé, cmux ajoute q= à l’URL."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "Valeur globale par défaut indiquant où Cmd-N dans un groupe, le bouton + de l’en-tête du groupe et les actions de groupe configurées placent le nouveau workspace : `afterCurrent` (après le workspace actif du groupe, avec repli sur top), `top` (deuxième position, juste après l’ancre) ou `end` (après le dernier membre).",
+          "byCwd": {
+            "newWorkspacePlacement": "Remplacement par cwd indiquant où Cmd-N dans le groupe, le bouton + de l’en-tête du groupe et les actions de groupe configurées placent le nouveau workspace : `afterCurrent` (après le workspace actif du groupe, avec repli sur top), `top` (deuxième position, juste après l’ancre) ou `end` (après le dernier membre). Si absent, la valeur globale par défaut est utilisée."
+          }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "Commandes personnalisées",
@@ -686,7 +724,8 @@
         "notifications": "Notifications",
         "find": "Recherche",
         "terminal": "Terminal",
-        "window": "Fenêtre"
+        "window": "Fenêtre",
+        "diffViewer": "Visionneuse de diff"
       },
       "sc": {
         "ws-new": "Nouvel espace de travail",
@@ -732,7 +771,7 @@
       "metaTitle": "Raccourcis clavier"
     },
     "api": {
-      "title": "Référence API",
+      "title": "Référence CLI",
       "metaDescription": "Référence de l'API CLI et socket Unix de cmux. Gestion des espaces de travail, panneaux divisés, contrôle des entrées, notifications, métadonnées de la barre latérale, variables d'environnement et méthodes de détection.",
       "intro": "cmux fournit à la fois un outil CLI et un socket Unix pour le contrôle programmatique. Chaque commande est disponible via les deux interfaces.",
       "socket": "Socket",
@@ -811,7 +850,7 @@
       "pythonClient": "Client Python",
       "shellScript": "Script shell",
       "buildScriptNotification": "Script de build avec notification",
-      "metaTitle": "Référence API"
+      "metaTitle": "Référence CLI"
     },
     "notifications": {
       "title": "Notifications",
@@ -954,7 +993,7 @@
       "authoringCallout": "Quand vous ajoutez une nouvelle compétence, incluez <code>agents/openai.yaml</code> afin que l’installateur expose un nom clair, une courte description et un prompt par défaut.",
       "relatedTitle": "Documentation liée",
       "relatedBrowserAutomation": "Automatisation du navigateur",
-      "relatedApi": "Référence API",
+      "relatedApi": "Référence CLI",
       "relatedCustomCommands": "Commandes personnalisées"
     },
     "changelog": {
@@ -969,7 +1008,7 @@
       "sessionRestore": "Restauration de session",
       "customCommands": "Commandes personnalisées",
       "keyboardShortcuts": "Raccourcis clavier",
-      "apiReference": "Référence API",
+      "apiReference": "Référence CLI",
       "browserAutomation": "Automatisation du navigateur",
       "skills": "Compétences",
       "notifications": "Notifications",
@@ -979,7 +1018,8 @@
       "changelog": "Changelog",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (bêta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1113,6 +1153,21 @@
       "daemonSession": "Gestion des séances",
       "daemonSessionHow": "Maintient les sessions lors des reconnexions, coordonne le redimensionnement du PTY sur plusieurs pièces jointes",
       "daemonPath": "Le binaire du démon est stocké dans ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote sur l'hôte distant et vérifié par rapport à un manifeste SHA-256 intégré dans l'application."
+    },
+    "textBox": {
+      "title": "TextBox (bêta)",
+      "metaTitle": "TextBox (bêta)",
+      "metaDescription": "Configurez l'entrée TextBox bêta de cmux pour les nouveaux onglets, divisions et espaces de travail de terminal.",
+      "intro": "TextBox est la surface de saisie enrichie de cmux pour composer des prompts avant de les envoyer au terminal.",
+      "betaCallout": "TextBox est une fonctionnalité bêta. Ses valeurs par défaut et son comportement peuvent changer pendant les tests.",
+      "defaultsTitle": "Valeurs par défaut",
+      "defaultsDesc": "Les réglages TextBox se trouvent dans Settings > TextBox :",
+      "showSetting": "Show TextBox on New Terminals ouvre les nouveaux espaces de travail, onglets et divisions de terminal avec TextBox visible, tout en gardant le focus dans le terminal.",
+      "focusSetting": "Focus TextBox on New Terminals place le focus clavier dans TextBox. Le focus affiche aussi TextBox.",
+      "maxLinesSetting": "TextBox Max Lines limite la hauteur de TextBox avant que son contenu ne défile.",
+      "configTitle": "cmux.json",
+      "configDesc": "Définissez les mêmes valeurs par défaut dans ~/.config/cmux/cmux.json sous terminal :",
+      "focusNote": "Les sessions restaurées conservent leur visibilité TextBox et leur état de focus enregistrés. Ces valeurs par défaut ne s'appliquent qu'aux nouvelles surfaces de terminal."
     }
   },
   "legal": {
@@ -1132,11 +1187,18 @@
     "egrefen": "Je l'utilise depuis tout le week-end et c'est genial.",
     "max4c": "c'est mon outil prefere depuis deux semaines",
     "lucas_flatwhite": "Il n'est pas trop tard. J'utilise beaucoup Ghostty, et cmux aussi, c'est l'amour. Onglets verticaux, anneaux de notification, navigateur intégré, panneaux divisés, accélération GPU... les avantages sont vraiment nombreux !",
+    "yamadashy": "J'utilise cmux depuis un moment et je l'aime bien. Ce n'est pas tant 'c'est incroyable', c'est plutôt 'oui, c'est exactement ça'. Il fonctionne aussi très bien avec k1Low/mo.",
     "minixalpha": "J'utilise aussi cmux comme terminal principal et je le recommande à mes collègues. Les notifications, les espaces de travail et les raccourcis améliorent l'efficacité quand plusieurs tâches tournent en parallèle. Même si cmux est un peu laid, ses fonctions le rendent indispensable.",
+    "juan_barbat": "J'ai eu un souci avec le navigateur, mais cmux est indispensable dans mon quotidien.",
+    "yousefrol": "Ma suggestion est simple: utilisez cmux. Il a résolu presque tous mes problèmes de terminal.",
+    "tobiasgloeckler": "Je viens d'installer cmux. J'utilisais Ghostty jusque-là, mais cmux est encore mieux adapté aux agents IA et au code.",
+    "wescld": "Franchement, je ne sais pas comment j'ai vécu si longtemps sans cmux.",
     "jinchenma_ai": "cmux est l'outil de terminal que j'utilise le plus en ce moment. Il est open source et gratuit. Il a presque remplacé iTerm2 pour moi et résout parfaitement l'organisation de plusieurs fenêtres de terminal.",
+    "zvasil": "Je suis passé de Warp à cmux il y a quelque temps, et j'ai eu l'impression de monter dans une fusée. C'est natif macOS en Swift et le développement est super actif.",
     "immazzystar": "Un outil que j'aime utiliser récemment : cmux. Je n'ai plus besoin de changer constamment de fenêtre de terminal.",
     "blitz_zidan": "cmux est mon terminal préféré ces derniers temps. Je trouve qu'il est vraiment très bon pour faire tourner plusieurs terminaux.",
     "asaza": "cmux a l'air tellement bien que c'est peut-etre le moment de dire adieu a VSCode",
+    "ssarisen": "Si vous devez travailler avec plusieurs terminaux, vous devriez vraiment essayer cmux. Quand un terminal attend votre saisie, il envoie automatiquement une notification.",
     "johnthedebs": "Hey, ca a l'air vraiment genial. J'adore les idees, en particulier : la programmabilite, l'UI en couches, le navigateur avec API. J'ai hate d'essayer. Je tiens aussi a remercier Mitchell Hashimoto pour avoir cree libghostty ; c'est une periode passionnante pour etre utilisateur de terminal.",
     "joeriddles": "Des onglets verticaux dans mon terminal ! Je n'y avais jamais pense. J'utilise et j'adore les onglets verticaux de Firefox.",
     "dchu17": "Je l'ai essaye et c'etait assez intuitif. Beau travail !",
@@ -1196,5 +1258,8 @@
       "intro": "Cette page ouvre les règles dans l'espace de travail cmux actuel.",
       "fallback": "cmux affiche d'abord les règles et demande avant de les coller dans l'espace de travail actuel. Si cmux ne s'ouvre pas, installez cmux et cliquez à nouveau sur Ouvrir dans cmux."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "Créateur d’OpenClaw. Fondateur de PSPDFKit."
   }
 }

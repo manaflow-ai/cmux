@@ -212,7 +212,21 @@ enum CommandPaletteSettingsToggleCommands {
                 sectionTitle: app,
                 keywords: ["app.openMarkdownInCmuxViewer", "markdown", "md", "viewer", "preview", "file"],
                 defaultValue: CmdClickMarkdownRouteSettings.defaultValue,
-                defaultsKey: CmdClickMarkdownRouteSettings.key
+                defaultsKey: CmdClickMarkdownRouteSettings.key,
+                didSet: { _, _, notificationCenter in
+                    CmdClickMarkdownRouteSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "fileEditorWordWrap",
+                settingsKey: "fileEditor.wordWrap",
+                title: {
+                    String(localized: "settings.app.fileEditorWordWrap", defaultValue: "File Editor Word Wrap")
+                },
+                sectionTitle: app,
+                keywords: ["fileEditor.wordWrap", "file", "editor", "word", "wrap", "soft", "reflow", "lines", "preview"],
+                defaultValue: FilePreviewWordWrapSettings.defaultEnabled,
+                defaultsKey: FilePreviewWordWrapSettings.key
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "iMessageMode",
@@ -659,6 +673,17 @@ enum CommandPaletteSettingsToggleCommands {
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "rightSidebarFeed",
+                settingsKey: "betaFeatures.feed",
+                title: {
+                    String(localized: "settings.betaFeatures.feed", defaultValue: "Feed")
+                },
+                sectionTitle: beta,
+                keywords: ["betaFeatures.feed", "feed", "right", "sidebar", "beta", "agent", "decisions", "permissions"],
+                defaultValue: RightSidebarBetaFeatureSettings.defaultFeedEnabled,
+                defaultsKey: RightSidebarBetaFeatureSettings.feedEnabledKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "rightSidebarDock",
                 settingsKey: "betaFeatures.dock",
                 title: {
@@ -724,6 +749,17 @@ enum CommandPaletteSettingsToggleCommands {
                 keywords: ["automation.geminiIntegration", "gemini", "hooks", "agent", "integration"],
                 defaultValue: GeminiIntegrationSettings.defaultHooksEnabled,
                 defaultsKey: GeminiIntegrationSettings.hooksEnabledKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "kiroIntegration",
+                settingsKey: "automation.kiroIntegration",
+                title: {
+                    String(localized: "settings.automation.kiro", defaultValue: "Kiro CLI Integration")
+                },
+                sectionTitle: automation,
+                keywords: ["automation.kiroIntegration", "kiro", "cli", "hooks", "agent", "integration"],
+                defaultValue: KiroIntegrationSettings.defaultHooksEnabled,
+                defaultsKey: KiroIntegrationSettings.hooksEnabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "browserSearchSuggestions",

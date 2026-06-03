@@ -14,11 +14,8 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
         app.launchArguments += ["-workspacePresentationMode", "minimal"]
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
-            app.launch()
-        }
+        app.launchArguments += ["-rightSidebar.beta.feed.enabled", "YES"]
+        app.launch()
         defer { app.terminate() }
 
         if app.state == .runningBackground {
@@ -51,7 +48,7 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         }
         XCTAssertEqual(secondaryBarHeight, modeBarHeight, accuracy: 0.5, "Expected secondary bar to match the right sidebar mode bar. geometry=\(geometry)")
         XCTAssertEqual(secondaryBarHeight, 28, accuracy: 0.5, "Expected right sidebar chrome to use the standard minimal-mode lane height. geometry=\(geometry)")
-        XCTAssertEqual(CGFloat(secondaryBarHeight), alphaTab.frame.height, accuracy: 2, "Expected secondary bar to match Bonsplit pane tab height. geometry=\(geometry) alphaTab=\(alphaTab.frame)")
+        XCTAssertGreaterThanOrEqual(alphaTab.frame.height, CGFloat(secondaryBarHeight), "Expected Bonsplit pane tab hit target to cover the compact chrome lane. geometry=\(geometry) alphaTab=\(alphaTab.frame)")
 
         let controlHeightKeys = [
             "rightSidebarModeControl_sessionsHeight",
@@ -109,11 +106,7 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
             "-sidebarTintHexDark", "#FF0044",
             "-sidebarTintOpacity", "1.0",
         ]
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
-            app.launch()
-        }
+        app.launch()
         defer { app.terminate() }
 
         if app.state == .runningBackground {

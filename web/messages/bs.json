@@ -45,7 +45,7 @@
     "taglinePrefix": "Terminal napravljen za ",
     "typingCodingAgents": "agente za kodiranje",
     "typingMultitasking": "multitasking",
-    "subtitle": "Nativna macOS aplikacija izgrađena na Ghostty-ju. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i socket API za automatizaciju.",
+    "subtitle": "Nativna macOS aplikacija izgrađena na Ghostty-ju. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i <cliLink>CLI</cliLink> za programabilnost.",
     "features": "Funkcionalnosti",
     "faq": "Česta pitanja",
     "communitySection": "Zajednica",
@@ -302,6 +302,22 @@
         "p3": "To šalje trenutni workspace na kraj nepročitanog ciklusa, pa možete nastaviti prolaziti kroz nepročitani rad bez brisanja statusa.",
         "p4": "Cmd+Option+U mijenja trenutni workspace između pročitanog i nepročitanog.",
         "p5": "Korisno je kada skočite na novi nepročitani workspace preko Cmd+Shift+U, ali želite promijeniti kontekst prije odgovora."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Ponovo otvorite zatvorene terminale, preglednike, workspace-ove i sesije agenata pomoću Cmd+Shift+T i vratite se kroz svoj fokus pomoću Cmd+[ i Cmd+].",
+        "date": "2. juni 2026.",
+        "p1": "Zatvorite karticu terminala da raščistite, a onda shvatite da vam je trebala. Ili zatvorite cijeli workspace i izgubite agenta usred zadatka. cmux sada vodi historiju onoga što ste zatvorili i fokusirali, pa je za povratak dovoljna jedna prečica.",
+        "reopenTitle": "Ponovo otvorite ono što ste zatvorili",
+        "reopenP": "Pritisnite <code>Cmd+Shift+T</code> da ponovo otvorite posljednje što ste zatvorili. Radi za kartice terminala, kartice preglednika, workspace-ove i prozore i vraća ih jedan po jedan redoslijedom kojim ste ih zatvarali. Svaka površina se vraća na svoje mjesto, s netaknutim oknima.",
+        "agentTitle": "I sesije agenata se vraćaju",
+        "agentP": "Historija ponovo otvara i zatvorene sesije agenata. Ponovo otvorite sesiju Claude Code, Codex ili OpenCode i nastavlja se tamo gdje je stala. Jednom pokrenite <code>cmux hooks setup</code> da cmux može pratiti sesije agenata; nakon toga se otvaraju kao i sve ostalo.",
+        "agentP2": "Ovo se oslanja na cmux <link>obnavljanje sesije</link>, koje nastavlja podržane agente putem njihovih vlastitih nativnih komandi za nastavak.",
+        "focusTitle": "Vratite se tamo gdje ste bili",
+        "focusP": "Dugmad naprijed i nazad u naslovnoj traci, ili <code>Cmd+[</code> i <code>Cmd+]</code>, skaču na prethodni i sljedeći workspace ili prozor u kojem ste radili, isto kao naprijed i nazad u pregledniku.",
+        "fullHistoryTitle": "Potpuni panel historije",
+        "fullHistoryP": "Kada vam treba više od posljednje stavke, otvorite potpuni panel historije: pretraživi prikaz grupisan po danima svega što ste zatvorili i fokusirali, s vremenskim oznakama i akcijom Clear Closed.",
+        "docsCta": "Pogledajte <link>prečice na tastaturi</link> za potpunu listu, uključujući kako ponovo dodijeliti navigaciju historijom."
       }
     },
     "zenOfCmux": {
@@ -427,6 +443,10 @@
         "AI agenti za kodiranje",
         "workspace nepročitan"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: ponovno otvaranje zatvorenih terminala i sesija",
+      "metaDescription": "cmux vodi historiju onoga što ste zatvorili i fokusirali. Ponovo otvorite zatvorene terminale, preglednike, workspace-ove i sesije Claude Code, Codex i OpenCode pomoću Cmd+Shift+T, a fokus pomjerajte naprijed i nazad pomoću Cmd+[ i Cmd+]."
     }
   },
   "docs": {
@@ -555,17 +575,35 @@
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
-          "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna."
+          "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
+          "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta."
         },
         "terminal": {
-          "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom."
+          "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom.",
+          "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
+          "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
         },
         "browser": {
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
           "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "Globalna zadana vrijednost za mjesto gdje Cmd-N unutar grupe, + dugme u zaglavlju grupe i podešene grupne akcije stavljaju novi workspace: `afterCurrent` (poslije aktivnog workspacea u grupi, uz povratak na top), `top` (druga pozicija, odmah poslije sidra) ili `end` (poslije zadnjeg člana).",
+          "byCwd": {
+            "newWorkspacePlacement": "Podešavanje po cwd za mjesto gdje Cmd-N unutar grupe, + dugme u zaglavlju grupe i podešene grupne akcije stavljaju novi workspace: `afterCurrent` (poslije aktivnog workspacea u grupi, uz povratak na top), `top` (druga pozicija, odmah poslije sidra) ili `end` (poslije zadnjeg člana). Ako je izostavljeno, koristi se globalna zadana vrijednost."
+          }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "Prilagođene komande",
@@ -686,7 +724,8 @@
         "notifications": "Notifikacije",
         "find": "Pretraga",
         "terminal": "Terminal",
-        "window": "Prozor"
+        "window": "Prozor",
+        "diffViewer": "Preglednik diffa"
       },
       "sc": {
         "ws-new": "Novi radni prostor",
@@ -732,7 +771,7 @@
       "metaTitle": "Prečice na tastaturi"
     },
     "api": {
-      "title": "API Referenca",
+      "title": "CLI Referenca",
       "metaDescription": "cmux CLI i Unix socket API referenca. Upravljanje radnim prostorima, podijeljeni paneli, kontrola unosa, notifikacije, metapodaci bočne trake, varijable okruženja i metode detekcije.",
       "intro": "cmux pruža i CLI alat i Unix socket za programsku kontrolu. Svaka komanda je dostupna kroz oba interfejsa.",
       "socket": "Socket",
@@ -811,7 +850,7 @@
       "pythonClient": "Python klijent",
       "shellScript": "Shell skripta",
       "buildScriptNotification": "Build skripta sa notifikacijom",
-      "metaTitle": "API referenca"
+      "metaTitle": "CLI Referenca"
     },
     "notifications": {
       "title": "Notifikacije",
@@ -954,7 +993,7 @@
       "authoringCallout": "Kada dodajete novu vještinu, uključite <code>agents/openai.yaml</code> da instalater prikaže jasno ime, kratak opis i zadani prompt.",
       "relatedTitle": "Povezana dokumentacija",
       "relatedBrowserAutomation": "Automatizacija preglednika",
-      "relatedApi": "API referenca",
+      "relatedApi": "CLI referenca",
       "relatedCustomCommands": "Prilagođene komande"
     },
     "changelog": {
@@ -969,7 +1008,7 @@
       "sessionRestore": "Obnova sesije",
       "customCommands": "Prilagođene komande",
       "keyboardShortcuts": "Prečice na tastaturi",
-      "apiReference": "API Referenca",
+      "apiReference": "CLI Referenca",
       "browserAutomation": "Automatizacija preglednika",
       "skills": "Vještine",
       "notifications": "Notifikacije",
@@ -979,7 +1018,8 @@
       "changelog": "Zapisnik promjena",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (Beta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1113,6 +1153,21 @@
       "daemonSession": "Upravljanje sesijama",
       "daemonSessionHow": "Zadržava sesije preko ponovnog povezivanja, koordinira promjenu veličine PTY-a u više priloga",
       "daemonPath": "Daemon binarni fajl je pohranjen na ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote na udaljenom hostu i provjeren prema SHA-256 manifestu ugrađenom u aplikaciju."
+    },
+    "textBox": {
+      "title": "TextBox (Beta)",
+      "metaTitle": "TextBox (Beta)",
+      "metaDescription": "Podesite cmux beta TextBox unos za nove terminalske tabove, podjele i radne prostore.",
+      "intro": "TextBox je cmuxova bogata terminalska površina za unos, za sastavljanje promptova prije slanja u terminal.",
+      "betaCallout": "TextBox je beta funkcija. Zadane vrijednosti i ponašanje mogu se promijeniti tokom testiranja.",
+      "defaultsTitle": "Zadane vrijednosti",
+      "defaultsDesc": "TextBox postavke su u Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals otvara nove radne prostore, terminalske tabove i podjele s vidljivim TextBoxom, dok fokus ostaje u terminalu.",
+      "focusSetting": "Focus TextBox on New Terminals postavlja fokus tastature u TextBox. Fokusiranje također prikazuje TextBox.",
+      "maxLinesSetting": "TextBox Max Lines ograničava visinu TextBoxa prije nego što se sadržaj počne skrolati.",
+      "configTitle": "cmux.json",
+      "configDesc": "Iste zadane vrijednosti postavite u ~/.config/cmux/cmux.json pod terminal:",
+      "focusNote": "Obnovljene sesije zadržavaju spremljenu vidljivost TextBoxa i stanje fokusa. Ove zadane vrijednosti važe samo za novokreirane terminalske površine."
     }
   },
   "legal": {
@@ -1132,11 +1187,18 @@
     "egrefen": "Koristio sam ovo cijeli vikend i nevjerovatno je.",
     "max4c": "ovo je bio moj omiljeni alat posljednje dvije sedmice",
     "lucas_flatwhite": "Još nije kasno. Često koristim Ghostty, ali i cmux mi je drag. Vertikalni tabovi, prstenovi za obavijesti, ugrađeni browser, podijeljeni paneli, GPU ubrzanje... ima stvarno mnogo prednosti!",
+    "yamadashy": "Koristim cmux neko vrijeme i sviđa mi se. Nije toliko osjećaj 'ovo je nevjerovatno', koliko 'da, to je to'. Dobro se slaže i s k1Low/mo.",
     "minixalpha": "I ja koristim cmux kao glavni terminal i preporučujem ga kolegama. Obavijesti, radni prostori i prečice podižu efikasnost kada paralelno radim više stvari. Iako je cmux malo ružan, funkcionalnost ga čini neizostavnim.",
+    "juan_barbat": "Imao sam jedan problem s preglednikom, ali cmux mi je nezamjenjiv iz dana u dan.",
+    "yousefrol": "Moj prijedlog je da jednostavno koristite cmux. Riješio mi je skoro svaki problem s terminalom.",
+    "tobiasgloeckler": "Upravo sam instalirao cmux. Do sada sam koristio Ghostty, ali cmux je još bolji za AI agente i kodiranje.",
+    "wescld": "Čovječe, ne znam kako sam toliko dugo živio bez cmuxa.",
     "jinchenma_ai": "cmux je terminalski alat koji u zadnje vrijeme najviše koristim. Otvoren je i besplatan. Uglavnom mi je zamijenio iTerm2 i savršeno rješava raspored više terminalskih prozora.",
+    "zvasil": "Prije nekog vremena sam prešao na njega s Warpa i osjećaj je bio kao prelazak na raketu. Nativan je za macOS, pisan u Swiftu i razvija se super aktivno.",
     "immazzystar": "Alat koji mi se u zadnje vrijeme sviđa: cmux. Više ne moram stalno prebacivati terminalske prozore.",
     "blitz_zidan": "cmux mi je trenutno omiljeni terminal. Lično mislim da je odličan za pokretanje više terminala.",
     "asaza": "cmux izgleda toliko dobro da je možda konačno vrijeme da se oprostim od VSCode-a",
+    "ssarisen": "Ako morate raditi s više terminala, svakako probajte cmux. Kada terminal čeka vaš unos, automatski dobijete obavještenje.",
     "johnthedebs": "Hej, ovo izgleda ozbiljno odlično. Volim ideje ovdje, specifično: programabilnost, slojeviti UI, preglednik sa API-jem. Radujem se da ovo probam. Takođe želim dodati da stvarno cijenim Mitchell Hashimoto-a što je kreirao libghostty; osjeća se kao uzbudljivo vrijeme za korisnike terminala.",
     "joeriddles": "Vertikalni tabovi u mom terminalu! Nikada nisam na to pomislio. Koristim i volim Firefox vertikalne tabove.",
     "dchu17": "Dao sam ovome priliku i bilo je prilično intuitivno. Dobar posao!",
@@ -1196,5 +1258,8 @@
       "intro": "Ova stranica otvara pravila u trenutnom cmux radnom prostoru.",
       "fallback": "cmux prvo prikazuje pravila i pita prije nego što ih zalijepi u trenutni radni prostor. Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmux."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "Kreator OpenClawa. Osnivač PSPDFKita."
   }
 }

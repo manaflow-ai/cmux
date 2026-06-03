@@ -3574,6 +3574,101 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.showCount, 2)
     }
 
+    private func attachPanelWebViewToWindow(_ panel: BrowserPanel) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView?.addSubview(host)
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 180, height: host.bounds.height)
+        host.addSubview(panel.webView)
+        // Intentionally not made key / ordered front: consume's attach gate only
+        // needs webView.window != nil, and a key window + live WKWebView + runloop
+        // spin can recurse SwiftUI<->AppKit layout in the unit-test host.
+        return window
+    }
+
+    private func teardownWindowedPanel(_ panel: BrowserPanel, window: NSWindow) {
+        // Detach the live WKWebView from the window before any teardown so the
+        // window-close cascade never walks the web view's responder/layout tree
+        // (that path can recurse SwiftUI<->AppKit and overflow the stack here).
+        panel.webView.removeFromSuperview()
+        BrowserWindowPortalRegistry.detach(webView: panel.webView)
+        panel.webView.cmuxSetUnitTestInspector(nil)
+        window.contentView = nil
+        window.orderOut(nil)
+        panel.close()
+    }
+
+    func testManuallyClosedInspectorStaysClosedAfterNavigationReattach() {
+        let (panel, inspector) = makePanelWithInspector()
+        let window = attachPanelWebViewToWindow(panel)
+        defer { teardownWindowedPanel(panel, window: window) }
+
+        // User opens the Web Inspector; it attaches alongside the page.
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        panel.noteDeveloperToolsHostAttached()
+
+        // Let the inspector sit open past the manual-close detection grace so a
+        // later invisibility is unambiguously a deliberate close, and let the
+        // open transition settle.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+
+        // User closes the inspector via its own UI. cmux did not initiate this,
+        // so the persisted intent is still "visible" until the close is detected.
+        inspector.close()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        let showCountAfterClose = inspector.showCount
+
+        // User navigates to another page. While the DevTools intent is set the
+        // browser stays in local-inline hosting, so SwiftUI re-runs the same
+        // host-attach + after-attach restore that BrowserPanelView performs on
+        // every updateNSView.
+        panel.noteDeveloperToolsHostAttached()
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertFalse(
+            panel.isDeveloperToolsVisible(),
+            "A manually-closed Web Inspector must stay closed after navigating to another page"
+        )
+        XCTAssertFalse(
+            panel.preferredDeveloperToolsVisible,
+            "The persisted DevTools intent must follow the user's manual close instead of desyncing"
+        )
+        XCTAssertEqual(
+            inspector.showCount,
+            showCountAfterClose,
+            "Navigation after a manual inspector close must not re-show the inspector"
+        )
+    }
+
+    func testInspectorLeftOpenStaysOpenAcrossNavigationReattach() {
+        let (panel, inspector) = makePanelWithInspector()
+        let window = attachPanelWebViewToWindow(panel)
+        defer { teardownWindowedPanel(panel, window: window) }
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        panel.noteDeveloperToolsHostAttached()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+
+        // Navigate while the inspector is still open: it must persist, not close.
+        panel.noteDeveloperToolsHostAttached()
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(
+            panel.isDeveloperToolsVisible(),
+            "An inspector the user left open must persist across navigation"
+        )
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertEqual(inspector.closeCount, 0)
+    }
+
     func testAttachedInspectorRevealReattachesFrontendAfterLayoutReentry() {
         let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
         defer { closeBrowserPanel(panel) }
@@ -4437,6 +4532,82 @@ final class BrowserIMEKeyDownRoutingTests: XCTestCase {
 }
 
 
+private final class BrowserKeyboardHitTestCountingView: NSView {
+    private(set) var hitTestCount = 0
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        hitTestCount += 1
+        return super.hitTest(point)
+    }
+
+    func resetHitTestCount() {
+        hitTestCount = 0
+    }
+}
+
+
+@MainActor
+final class BrowserInputEventPerformanceTests: XCTestCase {
+    func testBrowserKeyDownDispatchDoesNotHitTestPointerOnlyOverlays() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = BrowserKeyboardHitTestCountingView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+
+        let slot = WindowBrowserSlotView(frame: contentView.bounds)
+        slot.autoresizingMask = [.width, .height]
+        contentView.addSubview(slot)
+
+        let webView = CmuxWebView(frame: slot.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        slot.addSubview(webView)
+        slot.pinHostedWebView(webView)
+        slot.setPaneDropContext(BrowserPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID(id: UUID())
+        ))
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        contentView.resetHitTestCount()
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: NSPoint(x: 320, y: 210),
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ) else {
+            XCTFail("Failed to construct browser keyDown event")
+            return
+        }
+
+        window.sendEvent(event)
+
+        XCTAssertEqual(
+            contentView.hitTestCount,
+            0,
+            "Keyboard dispatch should not walk browser hit-test overlays; pointer routing owns hit-testing."
+        )
+    }
+}
+
+
 final class BrowserReturnKeyDownRoutingTests: XCTestCase {
     func testRoutesForReturnWhenBrowserFirstResponder() {
         XCTAssertTrue(
@@ -5144,6 +5315,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let data = try XCTUnwrap(URL(string: "data:text/plain,hello"))
         let file = try XCTUnwrap(URL(string: "file:///tmp/cmux-local-test.html"))
         let blob = try XCTUnwrap(URL(string: "blob:https://example.com/550e8400-e29b-41d4-a716-446655440000"))
+        let diffViewer = try XCTUnwrap(URL(string: "cmux-diff-viewer://0123456789abcdef/diff.html"))
         let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
         let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
 
@@ -5153,6 +5325,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         XCTAssertFalse(browserShouldOpenURLExternally(data))
         XCTAssertFalse(browserShouldOpenURLExternally(file))
         XCTAssertFalse(browserShouldOpenURLExternally(blob))
+        XCTAssertFalse(browserShouldOpenURLExternally(diffViewer))
         XCTAssertFalse(browserShouldOpenURLExternally(javascript))
         XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
     }

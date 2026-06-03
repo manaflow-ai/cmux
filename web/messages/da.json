@@ -45,7 +45,7 @@
     "taglinePrefix": "Terminalen bygget til ",
     "typingCodingAgents": "kodningsagenter",
     "typingMultitasking": "multitasking",
-    "subtitle": "Native macOS-app bygget på Ghostty. Vertikale faner, notifikationsringe når agenter har brug for opmærksomhed, opdelte paneler og en socket API til automatisering.",
+    "subtitle": "Native macOS-app bygget på Ghostty. Vertikale faner, notifikationsringe når agenter har brug for opmærksomhed, opdelte paneler og en <cliLink>CLI</cliLink> til programmerbarhed.",
     "features": "Funktioner",
     "faq": "FAQ",
     "communitySection": "Fællesskab",
@@ -302,6 +302,22 @@
         "p3": "Det sender det nuværende workspace bagerst i den ulæste cyklus, så du kan blive ved med at cykle gennem ulæst arbejde uden at rydde det.",
         "p4": "Cmd+Option+U skifter det nuværende workspace mellem læst og ulæst.",
         "p5": "Det er nyttigt, når du hopper til et nyt ulæst workspace med Cmd+Shift+U, men vil skifte kontekst før du svarer."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Genåbn lukkede terminaler, browsere, workspaces og agent-sessioner med Cmd+Shift+T, og gå tilbage gennem dit fokus med Cmd+[ og Cmd+].",
+        "date": "2. juni 2026",
+        "p1": "Du lukker et terminalfaneblad for at rydde op og opdager så, at du havde brug for det. Eller du lukker et helt workspace og mister den agent, der var midt i en opgave. cmux fører nu en historik over det, du har lukket og haft i fokus, så det kun kræver én genvej at få det tilbage.",
+        "reopenTitle": "Genåbn det, du har lukket",
+        "reopenP": "Tryk på <code>Cmd+Shift+T</code> for at genåbne det, du lukkede sidst. Det virker for terminalfaneblade, browserfaneblade, workspaces og vinduer og gendanner dem ét ad gangen i den rækkefølge, du lukkede dem. Hver flade vender tilbage til sin plads med ruderne intakte.",
+        "agentTitle": "Agent-sessioner kommer også tilbage",
+        "agentP": "Historikken genåbner også lukkede agent-sessioner. Genåbn en Claude Code-, Codex- eller OpenCode-session, og den fortsætter, hvor den slap. Kør <code>cmux hooks setup</code> én gang, så cmux kan holde styr på agent-sessioner; derefter genåbnes de som alt andet.",
+        "agentP2": "Det bygger på cmux <link>session-gendannelse</link>, som genoptager understøttede agenter via deres egne native genoptagelseskommandoer.",
+        "focusTitle": "Tilbage til der, hvor du var",
+        "focusP": "Frem- og tilbage-knapperne i titellinjen, eller <code>Cmd+[</code> og <code>Cmd+]</code>, springer til det forrige og næste workspace eller vindue, du arbejdede i, på samme måde som frem og tilbage i en browser.",
+        "fullHistoryTitle": "Det fulde historikpanel",
+        "fullHistoryP": "Når du har brug for mere end det seneste element, så åbn det fulde historikpanel: en søgbar visning grupperet efter dag over alt, du har lukket og haft i fokus, med tidsstempler og en Clear Closed-handling.",
+        "docsCta": "Se <link>tastaturgenveje</link> for den fulde liste, herunder hvordan du ombinder historiknavigationen."
       }
     },
     "zenOfCmux": {
@@ -427,6 +443,10 @@
         "AI-kodeagenter",
         "workspace ulæst"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: genåbn lukkede terminaler og sessioner",
+      "metaDescription": "cmux fører en historik over det, du har lukket og haft i fokus. Genåbn lukkede terminaler, browsere, workspaces og Claude Code-, Codex- og OpenCode-sessioner med Cmd+Shift+T, og flyt fokus frem og tilbage med Cmd+[ og Cmd+]."
     }
   },
   "docs": {
@@ -555,17 +575,35 @@
           "confirmQuit": "Styrer hvornår cmux beder om bekræftelse før afslutning. DEV-builds afsluttes altid straks uanset denne indstilling. Den ældre app.warnBeforeQuit accepteres stadig som boolesk fallback.",
           "warnBeforeQuit": "Ældre boolesk fallback til afslutningsbekræftelse. Brug app.confirmQuit til nye konfigurationer.",
           "warnBeforeClosingTabXButton": "Vis en bekræftelse, før en fane lukkes med fanens luk-knap.",
-          "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje."
+          "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje.",
+          "forkConversationDefaultDestination": "Standarddestinationen for fanens primære Fork Conversation-handling i genvejsmenuen. Undermenuen viser stadig alle destinationer."
         },
         "terminal": {
-          "copyOnSelect": "Kopierer markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes, inklusive ord- og linjemarkeringer fra dobbelt- og tredobbeltklik."
+          "copyOnSelect": "Kopierer markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes, inklusive ord- og linjemarkeringer fra dobbelt- og tredobbeltklik.",
+          "showTextBoxOnNewTerminals": "Viser beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",
+          "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits. Fokus viser også TextBox."
         },
         "browser": {
           "defaultSearchEngine": "Standardsøgemaskine for forespørgsler i browserens adresselinje, der ikke er URLer. Brug custom med customSearchEngineURLTemplate til andre udbydere.",
           "customSearchEngineName": "Visningsnavn brugt når defaultSearchEngine er custom.",
           "customSearchEngineURLTemplate": "Søge-URL brugt når defaultSearchEngine er custom. Medtag forespørgselspladsholderen eller %s for den kodede søgning. Uden en pladsholder tilføjer cmux q= til URLen."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, gruppehovedets + knap og konfigurerede gruppehandlinger placerer det nye workspace: `afterCurrent` (efter det aktive workspace i gruppen, med top som fallback), `top` (anden plads, lige efter ankeret) eller `end` (efter det sidste medlem).",
+          "byCwd": {
+            "newWorkspacePlacement": "Cwd-specifik tilsidesættelse for hvor Cmd-N i gruppen, gruppehovedets + knap og konfigurerede gruppehandlinger placerer det nye workspace: `afterCurrent` (efter det aktive workspace i gruppen, med top som fallback), `top` (anden plads, lige efter ankeret) eller `end` (efter det sidste medlem). Hvis den udelades, bruges den globale standard."
+          }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "Brugerdefinerede kommandoer",
@@ -686,7 +724,8 @@
         "notifications": "Notifikationer",
         "find": "Find",
         "terminal": "Terminal",
-        "window": "Vindue"
+        "window": "Vindue",
+        "diffViewer": "Diff-viser"
       },
       "sc": {
         "ws-new": "Nyt workspace",
@@ -732,7 +771,7 @@
       "metaTitle": "Tastaturgenveje"
     },
     "api": {
-      "title": "API-reference",
+      "title": "CLI-reference",
       "metaDescription": "cmux CLI og Unix socket API-reference. Workspace-håndtering, opdelte paneler, inputstyring, notifikationer, sidebar-metadata, miljøvariabler og detektionsmetoder.",
       "intro": "cmux tilbyder både et CLI-værktøj og en Unix socket til programmatisk styring. Alle kommandoer er tilgængelige via begge grænseflader.",
       "socket": "Socket",
@@ -811,7 +850,7 @@
       "pythonClient": "Python-klient",
       "shellScript": "Shell-script",
       "buildScriptNotification": "Build-script med notifikation",
-      "metaTitle": "API-reference"
+      "metaTitle": "CLI-reference"
     },
     "notifications": {
       "title": "Notifikationer",
@@ -954,7 +993,7 @@
       "authoringCallout": "Når du tilføjer en ny færdighed, skal du inkludere <code>agents/openai.yaml</code>, så installeren viser et tydeligt navn, en kort beskrivelse og en standardprompt.",
       "relatedTitle": "Relateret dokumentation",
       "relatedBrowserAutomation": "Browserautomatisering",
-      "relatedApi": "API-reference",
+      "relatedApi": "CLI-reference",
       "relatedCustomCommands": "Tilpassede kommandoer"
     },
     "changelog": {
@@ -969,7 +1008,7 @@
       "sessionRestore": "Sessionsgenoprettelse",
       "customCommands": "Brugerdefinerede kommandoer",
       "keyboardShortcuts": "Tastaturgenveje",
-      "apiReference": "API-reference",
+      "apiReference": "CLI-reference",
       "browserAutomation": "Browserautomatisering",
       "skills": "Færdigheder",
       "notifications": "Notifikationer",
@@ -979,7 +1018,8 @@
       "changelog": "Ændringslog",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (beta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1113,6 +1153,21 @@
       "daemonSession": "Sessionsledelse",
       "daemonSessionHow": "Vedvarer sessioner på tværs af genforbindelser, koordinerer PTY-størrelsen på tværs af flere vedhæftede filer",
       "daemonPath": "Den binære dæmon er gemt på ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote på fjernværten og verificeret mod et SHA-256-manifest, der er indlejret i appen."
+    },
+    "textBox": {
+      "title": "TextBox (beta)",
+      "metaTitle": "TextBox (beta)",
+      "metaDescription": "Konfigurer cmux' beta-TextBox-input for nye terminalfaner, splits og arbejdsområder.",
+      "intro": "TextBox er cmux' rige terminalinputflade til at skrive prompts, før de sendes til en terminal.",
+      "betaCallout": "TextBox er en beta-funktion. Standarder og adfærd kan ændre sig under test.",
+      "defaultsTitle": "Standarder",
+      "defaultsDesc": "TextBox-indstillingerne findes under Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals åbner nye arbejdsområder, terminalfaner og terminalsplits med TextBox synlig, mens fokus bliver i terminalen.",
+      "focusSetting": "Focus TextBox on New Terminals placerer tastaturfokus i TextBox. Fokus viser også TextBox.",
+      "maxLinesSetting": "TextBox Max Lines begrænser TextBox-højden, før indholdet ruller.",
+      "configTitle": "cmux.json",
+      "configDesc": "Sæt de samme standarder i ~/.config/cmux/cmux.json under terminal:",
+      "focusNote": "Gendannede sessioner bevarer deres gemte TextBox-synlighed og fokusstatus. Disse standarder gælder kun for nyoprettede terminalflader."
     }
   },
   "legal": {
@@ -1132,11 +1187,18 @@
     "egrefen": "Jeg har brugt det hele weekenden og det er fantastisk.",
     "max4c": "dette har været mit yndlingsværktøj de sidste to uger",
     "lucas_flatwhite": "Det er ikke for sent. Jeg bruger Ghostty meget, og cmux er også kærlighed. Lodrette faner, notifikationsringe, indbygget browser, splitpaneler, GPU-acceleration... der er virkelig mange fordele!",
+    "yamadashy": "Jeg har brugt cmux et stykke tid, og jeg kan lide det. Det føles ikke så meget som 'det her er fantastisk', men mere som 'ja, det er det her'. Det spiller også godt sammen med k1Low/mo.",
     "minixalpha": "Jeg bruger også cmux som min primære terminal og anbefaler den til kolleger. Notifikationer, workspaces og genveje gør parallelle opgaver mere effektive. Selvom cmux er lidt grim, gør funktionaliteten den uundværlig.",
+    "juan_barbat": "Jeg havde et problem med browseren, men cmux er uundværlig i min hverdag.",
+    "yousefrol": "Mit forslag er bare at bruge cmux. Det løste næsten alle terminalproblemer for mig.",
+    "tobiasgloeckler": "Jeg har lige installeret cmux. Jeg brugte Ghostty før, men cmux er endnu bedre egnet til AI-agenter og kodning.",
+    "wescld": "Mand, jeg ved ikke, hvordan jeg levede så længe uden cmux.",
     "jinchenma_ai": "cmux er det terminalværktøj, jeg bruger mest for tiden. Det er open source og gratis. Det har stort set erstattet iTerm2 for mig og løser problemet med mange terminalvinduer perfekt.",
+    "zvasil": "Jeg skiftede til det fra Warp for et stykke tid siden, og det føltes som at skifte til en raket. Det er native macOS Swift og bliver udviklet super aktivt.",
     "immazzystar": "Et værktøj jeg har nydt at bruge på det seneste: cmux. Jeg behøver ikke længere konstant skifte mellem terminalvinduer.",
     "blitz_zidan": "cmux er min yndlingsterminal for tiden. Personligt synes jeg, den er virkelig god til at køre flere terminaler.",
     "asaza": "cmux ser så godt ud at det måske endelig er tid til at sige farvel til VSCode",
+    "ssarisen": "Hvis du skal arbejde med flere terminaler, bør du helt sikkert prøve cmux. Når en terminal venter på dit input, sender den automatisk en notifikation.",
     "johnthedebs": "Hey, det ser virkelig fedt ud. Elsker ideerne her, specifikt: programmerbarheden, det lagdelte UI, browseren med API. Glæder mig til at prøve det. Vil også tilføje at jeg virkelig sætter pris på at Mitchell Hashimoto har skabt libghostty; det føles som en spændende tid at være terminalbruger.",
     "joeriddles": "Vertikale faner i min terminal! Det havde jeg aldrig tænkt på før. Jeg bruger og elsker Firefox vertikale faner.",
     "dchu17": "Gav det en prøve og det var ret intuitivt. Godt arbejde!",
@@ -1196,5 +1258,8 @@
       "intro": "Denne side åbner regler i det aktuelle cmux-arbejdsområde.",
       "fallback": "cmux viser først reglerne og spørger, før de indsættes i det aktuelle arbejdsområde. Hvis cmux ikke åbner, skal du installere cmux og klikke på Åbn i cmux igen."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "Skaber af OpenClaw. Grundlægger af PSPDFKit."
   }
 }

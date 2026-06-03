@@ -397,7 +397,7 @@ enum AgentResumeCommandBuilder {
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment, kind: kind.rawValue)
         for key in selectedEnvironment.keys.sorted() {
             guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
@@ -531,6 +531,10 @@ enum AgentResumeCommandBuilder {
                 option: "--resume",
                 sessionId: sessionId
             )
+        case .kiro:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "kiro-cli")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "kiro", args: original.tail) else { return nil }
+            return [original.executable, "chat", "--resume-id", sessionId] + preserved
         case .antigravity:
             return resumeWithOption(
                 kind: "antigravity",
@@ -1114,12 +1118,19 @@ struct RestorableAgentSessionIndex: Sendable {
             }
 
             for record in state.sessions.values {
-                let normalizedSessionId = record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+                let effectiveRecord = kind == .claude
+                    ? resolvedClaudeWorkflowRecord(
+                        record,
+                        fileManager: fileManager,
+                        lookup: claudeTranscriptLookup
+                    )
+                    : record
+                let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
-                      let workspaceId = UUID(uuidString: record.workspaceId),
-                      let panelId = UUID(uuidString: record.surfaceId),
+                      let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
+                      let panelId = UUID(uuidString: effectiveRecord.surfaceId),
                       hookRecordIsRestorable(
-                          record,
+                          effectiveRecord,
                           kind: kind,
                           fileManager: fileManager,
                           claudeTranscriptLookup: claudeTranscriptLookup
@@ -1130,14 +1141,19 @@ struct RestorableAgentSessionIndex: Sendable {
                 let snapshot = SessionRestorableAgentSnapshot(
                     kind: kind,
                     sessionId: normalizedSessionId,
-                    workingDirectory: normalizedWorkingDirectory(record.cwd),
-                    launchCommand: record.launchCommand,
+                    workingDirectory: restorableWorkingDirectory(
+                        for: effectiveRecord,
+                        kind: kind,
+                        fileManager: fileManager,
+                        lookup: claudeTranscriptLookup
+                    ),
+                    launchCommand: effectiveRecord.launchCommand,
                     registration: registration
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let liveProcessID = liveScopedProcessID(
-                    for: record,
+                    for: effectiveRecord,
                     kind: kind,
                     workspaceId: workspaceId,
                     panelId: panelId,
@@ -1145,20 +1161,20 @@ struct RestorableAgentSessionIndex: Sendable {
                 )
                 let entry = Entry(
                     snapshot: snapshot,
-                    lifecycle: record.agentLifecycle,
-                    updatedAt: record.updatedAt,
+                    lifecycle: effectiveRecord.agentLifecycle,
+                    updatedAt: effectiveRecord.updatedAt,
                     processIDs: liveProcessID.map { [$0] } ?? []
                 )
-                if hookCandidatesByPanel[key]?.updatedAt ?? -Double.infinity <= record.updatedAt {
+                if hookCandidatesByPanel[key]?.updatedAt ?? -Double.infinity <= effectiveRecord.updatedAt {
                     hookCandidatesByPanel[key] = entry
                 }
-                if hookCandidatesBySession[sessionKey]?.updatedAt ?? -Double.infinity <= record.updatedAt {
+                if hookCandidatesBySession[sessionKey]?.updatedAt ?? -Double.infinity <= effectiveRecord.updatedAt {
                     hookCandidatesBySession[sessionKey] = entry
                 }
-                guard record.pid == nil || liveProcessID != nil else {
+                guard effectiveRecord.pid == nil || liveProcessID != nil else {
                     continue
                 }
-                if let existing = resolved[key], existing.updatedAt > record.updatedAt {
+                if let existing = resolved[key], existing.updatedAt > effectiveRecord.updatedAt {
                     continue
                 }
                 resolved[key] = entry
@@ -1230,6 +1246,119 @@ struct RestorableAgentSessionIndex: Sendable {
         return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
     }
 
+    private static func resolvedClaudeWorkflowRecord(
+        _ record: RestorableAgentHookSessionRecord,
+        fileManager: FileManager,
+        lookup: ClaudeTranscriptLookupCache
+    ) -> RestorableAgentHookSessionRecord {
+        guard let sessionId = normalizedNonEmptyValue(record.sessionId),
+              claudeSessionIdIsSafeFilename(sessionId) else {
+            return record
+        }
+        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
+           regularNonEmptyFileExists(
+               atPath: (transcriptPath as NSString).expandingTildeInPath,
+               fileManager: fileManager
+           ) {
+            return record
+        }
+
+        let roots = lookup.configRoots(for: record)
+        guard !roots.isEmpty else { return record }
+        let candidateProjectDirs = claudeWorkflowProjectDirs(
+            for: record,
+            sessionId: sessionId,
+            roots: roots,
+            fileManager: fileManager,
+            lookup: lookup
+        )
+        guard let resolved = newestClaudeSiblingTranscript(
+            in: candidateProjectDirs,
+            excludingSessionId: sessionId,
+            fileManager: fileManager
+        ) else {
+            return record
+        }
+
+        var resolvedRecord = record
+        resolvedRecord.sessionId = resolved.sessionId
+        resolvedRecord.transcriptPath = resolved.path
+        return resolvedRecord
+    }
+
+    private static func claudeWorkflowProjectDirs(
+        for record: RestorableAgentHookSessionRecord,
+        sessionId: String,
+        roots: [String],
+        fileManager: FileManager,
+        lookup: ClaudeTranscriptLookupCache
+    ) -> [String] {
+        var projectDirs: [String] = []
+        var seen: Set<String> = []
+
+        func appendIfWorkflowContainer(projectRoot: String) {
+            let workflowContainer = (projectRoot as NSString).appendingPathComponent(sessionId)
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: workflowContainer, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return
+            }
+            let standardized = (projectRoot as NSString).standardizingPath
+            guard seen.insert(standardized).inserted else { return }
+            projectDirs.append(standardized)
+        }
+
+        let cwdCandidates = [
+            normalizedWorkingDirectory(record.launchCommand?.workingDirectory),
+            normalizedWorkingDirectory(record.cwd),
+        ].compactMap { $0 }
+        for root in roots {
+            let projectsRoot = (root as NSString).appendingPathComponent("projects")
+            for cwd in cwdCandidates {
+                appendIfWorkflowContainer(
+                    projectRoot: (projectsRoot as NSString).appendingPathComponent(encodeClaudeProjectDir(cwd))
+                )
+            }
+            for projectDir in lookup.projectDirs(configRoot: root) {
+                appendIfWorkflowContainer(
+                    projectRoot: (projectsRoot as NSString).appendingPathComponent(projectDir)
+                )
+            }
+        }
+        return projectDirs
+    }
+
+    private static func newestClaudeSiblingTranscript(
+        in projectDirs: [String],
+        excludingSessionId excludedSessionId: String,
+        fileManager: FileManager
+    ) -> (sessionId: String, path: String)? {
+        var best: (sessionId: String, path: String, modifiedAt: TimeInterval)?
+        for projectDir in projectDirs {
+            guard let children = try? fileManager.contentsOfDirectory(atPath: projectDir) else {
+                continue
+            }
+            for child in children where child.hasSuffix(".jsonl") {
+                let sessionId = String(child.dropLast(".jsonl".count))
+                guard sessionId != excludedSessionId,
+                      claudeSessionIdIsSafeFilename(sessionId) else {
+                    continue
+                }
+                let path = (projectDir as NSString).appendingPathComponent(child)
+                guard regularNonEmptyFileExists(atPath: path, fileManager: fileManager) else {
+                    continue
+                }
+                let modifiedAt = ((try? fileManager.attributesOfItem(atPath: path)[.modificationDate]) as? Date)?
+                    .timeIntervalSince1970 ?? 0
+                if best == nil || modifiedAt > best!.modifiedAt {
+                    best = (sessionId, path, modifiedAt)
+                }
+            }
+        }
+        guard let best else { return nil }
+        return (best.sessionId, best.path)
+    }
+
     private static func claudeTranscriptExists(
         for record: RestorableAgentHookSessionRecord,
         fileManager: FileManager,
@@ -1267,6 +1396,64 @@ struct RestorableAgentSessionIndex: Sendable {
         return false
     }
 
+    /// The directory cmux must `cd` into to resume or fork this session.
+    ///
+    /// Claude stores a transcript under the project directory derived from the cwd the session
+    /// was *created* in, and `claude --resume` / `--fork-session` only locate it from that same
+    /// directory. The hook-reported `cwd` drifts when the agent `cd`s elsewhere mid-session
+    /// (e.g. starting in a repo root, then moving into a worktree for the rest of the session),
+    /// so trusting it makes fork/resume fail with "No conversation found". For Claude, prefer the
+    /// candidate directory whose project folder actually holds the transcript: the launch cwd or
+    /// the recorded cwd, matched first against the transcript's known storage path, then against
+    /// the config directory on disk. Falls back to the recorded cwd when neither can be verified.
+    private static func restorableWorkingDirectory(
+        for record: RestorableAgentHookSessionRecord,
+        kind: RestorableAgentKind,
+        fileManager: FileManager,
+        lookup: ClaudeTranscriptLookupCache
+    ) -> String? {
+        let recordedCwd = normalizedWorkingDirectory(record.cwd)
+        guard kind == .claude else { return recordedCwd }
+
+        let launchCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
+        guard let sessionId = normalizedNonEmptyValue(record.sessionId),
+              claudeSessionIdIsSafeFilename(sessionId) else {
+            return recordedCwd ?? launchCwd
+        }
+        let candidates = [launchCwd, recordedCwd].compactMap { $0 }
+
+        // The transcript's own storage path names the project directory Claude will look in,
+        // so the candidate whose encoding matches it is the one Claude can resume from.
+        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
+            let expandedTranscriptPath = (transcriptPath as NSString).expandingTildeInPath
+            let projectDir = (expandedTranscriptPath as NSString).deletingLastPathComponent
+            let expectedProjectDirName = (projectDir as NSString).lastPathComponent
+            if !expectedProjectDirName.isEmpty,
+               let matched = candidates.first(where: {
+                   encodeClaudeProjectDir($0) == expectedProjectDirName
+               }) {
+                return matched
+            }
+        }
+
+        // No transcript path on record: probe the config directory for the candidate that holds it.
+        let roots = lookup.configRoots(for: record)
+        if !roots.isEmpty {
+            for candidate in candidates {
+                let projectDirName = encodeClaudeProjectDir(candidate)
+                for root in roots where claudeTranscriptFileExists(
+                    configRoot: root,
+                    projectDirName: projectDirName,
+                    sessionId: sessionId,
+                    fileManager: fileManager
+                ) {
+                    return candidate
+                }
+            }
+        }
+        return recordedCwd ?? launchCwd
+    }
+
     private static func claudeSessionIdIsSafeFilename(_ sessionId: String) -> Bool {
         sessionId.range(of: #"[\\/]"#, options: .regularExpression) == nil
             && !sessionId.isEmpty
@@ -1275,7 +1462,11 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     static func encodeClaudeProjectDir(_ path: String) -> String {
+        // Claude derives a project directory name by replacing both "/" and "." with "-"
+        // (e.g. "/Users/x/repo/.claude" -> "-Users-x-repo--claude"). Missing the "." case
+        // sent dotted paths to the wrong project directory.
         path.replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ".", with: "-")
     }
 
     private static func claudeTranscriptFileExists(

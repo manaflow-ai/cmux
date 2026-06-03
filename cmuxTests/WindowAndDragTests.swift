@@ -3,6 +3,7 @@ import AppKit
 import Carbon.HIToolbox
 import Darwin
 import PDFKit
+import Testing
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -427,7 +428,7 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertEqual(createdWorkspace?.currentDirectory, droppedDirectory.path)
     }
 
-    func testApplicationOpenURLsIgnoresBundleSelfPaths() {
+    func testApplicationOpenURLsIgnoresBundleSelfPaths() throws {
         _ = NSApplication.shared
         let app = AppDelegate()
 
@@ -449,8 +450,12 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         _ = app.synchronizeActiveMainWindowContext(preferredWindow: window)
 
         let existingWorkspaceIds = Set(manager.tabs.map(\.id))
-        let embeddedExecutableURL = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/MacOS/cmux", isDirectory: false)
+        let embeddedExecutableURL = try XCTUnwrap(Bundle.main.executableURL?.standardizedFileURL)
+        let executableValues = try embeddedExecutableURL.resourceValues(forKeys: [.isExecutableKey])
+        XCTAssertEqual(executableValues.isExecutable, true)
+        XCTAssertNotNil(
+            TerminalDefaultFileOpenRequest(fileURL: embeddedExecutableURL)
+        )
 
         app.application(
             NSApplication.shared,
@@ -465,6 +470,17 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
 
 @MainActor
 final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
+    func testDefaultTerminalRegistrationKeepsAllAdvertisedTargets() {
+        XCTAssertEqual(
+            DefaultTerminalRegistration.targetCount,
+            DefaultTerminalRegistration.urlSchemes.count + DefaultTerminalRegistration.contentTypeIdentifiers.count
+        )
+        XCTAssertEqual(
+            DefaultTerminalRegistration.contentType(forIdentifier: "com.apple.terminal.shell-script").identifier,
+            "com.apple.terminal.shell-script"
+        )
+    }
+
     func testScheduleLaunchServicesRegistrationDefersRegisterWork() {
         _ = NSApplication.shared
         let app = AppDelegate()
@@ -489,6 +505,53 @@ final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
         scheduledWork?()
 
         XCTAssertEqual(registerCallCount, 1)
+    }
+}
+
+final class TerminalDefaultFileOpenRequestTests: XCTestCase {
+    func testBuildsQuotedLaunchInputForTerminalCommandFile() throws {
+        let contentType = DefaultTerminalRegistration.contentType(forIdentifier: "com.apple.terminal.shell-script")
+        let url = URL(fileURLWithPath: "/tmp/cmux default's/Run Me.command")
+
+        let request = try XCTUnwrap(TerminalDefaultFileOpenRequest(fileURL: url, contentType: contentType))
+
+        XCTAssertEqual(request.workingDirectory, "/tmp/cmux default's")
+        XCTAssertEqual(request.initialInput, "'/tmp/cmux default'\\''s/Run Me.command'\n")
+    }
+
+    func testIgnoresPlainTextFiles() {
+        let url = URL(fileURLWithPath: "/tmp/notes.txt")
+
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .plainText))
+    }
+
+    func testBuildsLaunchInputForExtensionlessUnixExecutable() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-terminal-default-executable-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let executable = directory.appendingPathComponent("runme", isDirectory: false)
+        try "#!/bin/sh\necho cmux\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let request = try XCTUnwrap(TerminalDefaultFileOpenRequest(fileURL: executable))
+
+        XCTAssertEqual(request.workingDirectory, directory.path)
+        XCTAssertEqual(request.initialInput, "'\(executable.path)'\n")
+    }
+
+    func testIgnoresDirectoriesWithTerminalScriptExtension() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-terminal-default-directory-\(UUID().uuidString).command", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: directory, contentType: .directory))
     }
 }
 
@@ -806,6 +869,12 @@ final class WindowDragHandleHitTests: XCTestCase {
         let config = TitlebarControlsStyle.classic.config
         let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
         XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
+        XCTAssertEqual(
+            ranges[0].lowerBound,
+            TitlebarControlsLayoutMetrics.hintLeadingPadding + config.groupPadding.leading,
+            accuracy: 0.001,
+            "Hidden titlebar hit regions should share the visible titlebar control leading position."
+        )
 
         XCTAssertTrue(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(
@@ -967,15 +1036,11 @@ final class WindowDragHandleHitTests: XCTestCase {
         }
 
         let trafficLightFrame = closeButtonSuperview.convert(closeButton.frame, to: contentView)
-        let opticalYOffset = MinimalModeSidebarTitlebarControlsMetrics.titlebarControlsOpticalYOffset(in: window)
-        let expectedHostCenterY = contentView.isFlipped
-            ? trafficLightFrame.midY + opticalYOffset
-            : trafficLightFrame.midY - opticalYOffset
         XCTAssertEqual(
             target.frame.midY,
-            expectedHostCenterY,
+            trafficLightFrame.midY,
             accuracy: 0.25,
-            "Minimal-mode sidebar controls should compensate for the titlebar icon padding by one backing pixel"
+            "Minimal-mode sidebar controls should share the traffic-light center Y"
         )
     }
 
@@ -1889,6 +1954,73 @@ final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
         XCTAssertFalse(
             window.isMovable,
             "Explicit chrome drag zones may temporarily enable movement, but the main window must return to pane-tab-safe immovable state"
+        )
+    }
+}
+
+
+@Suite("Custom titlebar leading padding")
+struct CustomTitlebarLeadingPaddingTests {
+    @Test func hiddenSidebarUsesMinimumSidebarTitleInset() {
+        #expect(
+            ContentView.customTitlebarLeadingPadding(
+                isFullScreen: false,
+                isSidebarVisible: false,
+                sidebarWidth: 216,
+                minimumSidebarWidth: 216,
+                titlebarLeadingInset: 82
+            ) == 228
+        )
+    }
+
+    @Test func minimumWidthVisibleSidebarMatchesHiddenSidebarTitleInset() {
+        let hidden = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: false,
+            sidebarWidth: 216,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+        let visible = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: true,
+            sidebarWidth: 216,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+
+        #expect(visible == hidden)
+    }
+
+    @Test func widerSidebarPushesTitlebarContentRight() {
+        let hidden = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: false,
+            sidebarWidth: 216,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+        let visible = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: true,
+            sidebarWidth: 320,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+
+        #expect(visible > hidden)
+        #expect(visible == 332)
+    }
+
+    @Test func fullscreenHiddenSidebarKeepsCompactInset() {
+        #expect(
+            ContentView.customTitlebarLeadingPadding(
+                isFullScreen: true,
+                isSidebarVisible: false,
+                sidebarWidth: 216,
+                minimumSidebarWidth: 216,
+                titlebarLeadingInset: 82
+            ) == 8
         )
     }
 }
@@ -3124,6 +3256,55 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(applications.map(\.isDefault), [false])
     }
 
+    func testExternalOpenMenuKeepsFinderTopLevelAndOpenWithItemsSearchableByAppName() throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.png")
+        let previewURL = URL(fileURLWithPath: "/System/Applications/Preview.app")
+        let pixelmatorURL = URL(fileURLWithPath: "/Applications/Pixelmator Pro.app")
+        let primaryApplication = FileExternalOpenApplication(
+            url: previewURL,
+            displayName: "Preview",
+            isDefault: true
+        )
+        let otherApplication = FileExternalOpenApplication(
+            url: pixelmatorURL,
+            displayName: "Pixelmator Pro",
+            isDefault: false
+        )
+
+        let menu = FileExternalOpenMenuFactory.makeMenu(
+            fileURL: fileURL,
+            primaryApplication: primaryApplication,
+            otherApplications: [otherApplication]
+        )
+
+        let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+        XCTAssertEqual(topLevelTitles, [
+            FileExternalOpenText.openInApplication("Preview"),
+            FileExternalOpenText.revealInFinder,
+            FileExternalOpenText.openWithMenu,
+        ])
+
+        let openWithItem = try XCTUnwrap(menu.items.first { $0.title == FileExternalOpenText.openWithMenu })
+        let openWithTitles = try XCTUnwrap(openWithItem.submenu?.items.map(\.title))
+        XCTAssertEqual(openWithTitles, ["Pixelmator Pro"])
+    }
+
+    func testExternalOpenMenuKeepsFinderTopLevelWithoutResolvedApplications() {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.bin")
+
+        let menu = FileExternalOpenMenuFactory.makeMenu(
+            fileURL: fileURL,
+            primaryApplication: nil,
+            otherApplications: []
+        )
+
+        let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+        XCTAssertEqual(topLevelTitles, [
+            FileExternalOpenText.openExternally,
+            FileExternalOpenText.revealInFinder,
+        ])
+    }
+
     func testCmdClickSupportedFileRoutingDefaultsToReadableRegularFilesOnly() throws {
         let suiteName = "cmux.file-preview-routing.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -3158,6 +3339,18 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         XCTAssertTrue(CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
         XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+    }
+
+    func testCmdClickMarkdownRoutingDefaultsToReadableMarkdownFiles() throws {
+        let suiteName = "cmux.markdown-preview-default-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "# preview me", encoding: .utf8, pathExtension: "md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        XCTAssertTrue(CmdClickMarkdownRouteSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
     }
 
     func testCmdClickFilePreviewRoutingReusesRightSidePane() throws {

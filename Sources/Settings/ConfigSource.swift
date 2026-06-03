@@ -103,6 +103,16 @@ struct ConfigSourceEnvironment {
         try writeCmuxConfigContents(contents, to: url)
     }
 
+    func writeCmuxConfigSetting(key: String, value: String) throws {
+        let url = try materializeCmuxConfigFileIfNeeded()
+        try CmuxGhosttyConfigSettingEditor.writeSetting(
+            key: key,
+            value: value,
+            to: url,
+            fileManager: fileManager
+        )
+    }
+
     private func writeCmuxConfigContents(_ contents: String, to url: URL) throws {
         let writeURL = configWriteURL(for: url)
         try fileManager.createDirectory(

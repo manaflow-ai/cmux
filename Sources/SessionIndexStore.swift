@@ -872,13 +872,6 @@ final class SessionIndexStore: ObservableObject {
             ?? url.deletingLastPathComponent().lastPathComponent
     }
 
-    /// Inverse of `decodeClaudeProjectDir`. Used as a fast path: when filtering
-    /// by cwd we can skip enumerating other project dirs entirely.
-    nonisolated private static func encodeClaudeProjectDir(_ path: String) -> String {
-        // "/Users/x/y" -> "-Users-x-y"
-        return path.replacingOccurrences(of: "/", with: "-")
-    }
-
     nonisolated private static func enumerateClaudeJSONLCandidates(
         root: ClaudeSessionRoot,
         cwdFilter: String?,
@@ -907,7 +900,9 @@ final class SessionIndexStore: ObservableObject {
         }
 
         if let cwdFilter {
-            let dirName = encodeClaudeProjectDir(cwdFilter)
+            // Single-sourced with RestorableAgentSessionIndex so this fast-path cwd filter
+            // encodes dotted paths ("." -> "-") identically to the transcript-discovery path.
+            let dirName = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwdFilter)
             let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
@@ -1361,12 +1356,12 @@ final class SessionIndexStore: ObservableObject {
             // Drain stdout BEFORE waitUntilExit. With many matches rg writes
             // more than the ~64 KB pipe buffer; reading until EOF lets rg
             // make progress and EOF arrives when rg closes its stdout on exit.
-            // Once readDataToEndOfFile returns, the process is already exiting,
+            // Once the pipe read returns, the process is already exiting,
             // so waitUntilExit is essentially instant — we just need it to make
             // terminationStatus observable. (Setting terminationHandler here
             // would race: if rg already exited, the handler is registered too
             // late and never fires → deadlock.)
-            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: outPipe.fileHandleForReading)
             process.waitUntilExit()
             cancellation.markFinished(processIdentifier: process.processIdentifier)
             if Task.isCancelled { return [] }
@@ -1383,7 +1378,7 @@ final class SessionIndexStore: ObservableObject {
             }
         } onCancel: {
             // Fires synchronously when the awaiting Task is cancelled. SIGTERM
-            // closes stdout, lets readDataToEndOfFile return, and unblocks the
+            // closes stdout, lets the pipe read return, and unblocks the
             // body so this call can complete cleanly.
             cancellation.cancel()
         }

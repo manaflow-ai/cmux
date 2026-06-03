@@ -459,7 +459,7 @@ enum NotificationSoundSettings {
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: errorPipe.fileHandleForReading)
             let errorOutput = String(data: errorData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if fileManager.fileExists(atPath: normalizedDestination.path) {
@@ -1723,9 +1723,11 @@ final class TerminalNotificationStore: ObservableObject {
         let removedIds = notifications
             .filter { $0.tabId == tabId }
             .map { $0.id.uuidString }
+        var usedNotificationIds = Set(notifications.filter { $0.tabId != tabId }.map(\.id))
         let restoredForTab = restoredNotifications
             .filter { $0.tabId == tabId }
             .sorted(by: Self.notificationSortPrecedes)
+            .map { Self.notificationWithUniqueId($0, usedIds: &usedNotificationIds) }
         let keptNotifications = notifications.filter { $0.tabId != tabId }
         let nextNotifications = (restoredForTab + keptNotifications).sorted(by: Self.notificationSortPrecedes)
 
@@ -1739,6 +1741,34 @@ final class TerminalNotificationStore: ObservableObject {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: removedIds)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: removedIds)
         }
+    }
+
+    private static func notificationWithUniqueId(
+        _ notification: TerminalNotification,
+        usedIds: inout Set<UUID>
+    ) -> TerminalNotification {
+        if usedIds.insert(notification.id).inserted {
+            return notification
+        }
+
+        var replacementId = UUID()
+        while !usedIds.insert(replacementId).inserted {
+            replacementId = UUID()
+        }
+
+        return TerminalNotification(
+            id: replacementId,
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId,
+            panelId: notification.panelId,
+            title: notification.title,
+            subtitle: notification.subtitle,
+            body: notification.body,
+            createdAt: notification.createdAt,
+            isRead: notification.isRead,
+            paneFlash: notification.paneFlash,
+            clickAction: notification.clickAction
+        )
     }
 
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }

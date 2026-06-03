@@ -45,7 +45,7 @@
     "taglinePrefix": "Термінал, створений для ",
     "typingCodingAgents": "агентів програмування",
     "typingMultitasking": "багатозадачності",
-    "subtitle": "Нативний застосунок для macOS на базі Ghostty. Вертикальні вкладки, кільця сповіщень, коли агенти потребують уваги, розділені панелі та socket API для автоматизації.",
+    "subtitle": "Нативний застосунок для macOS на базі Ghostty. Вертикальні вкладки, кільця сповіщень, коли агенти потребують уваги, розділені панелі та <cliLink>CLI</cliLink> для програмованості.",
     "features": "Можливості",
     "faq": "Питання та відповіді",
     "communitySection": "Спільнота",
@@ -318,6 +318,22 @@
         "p3": "Це відправляє поточний workspace у кінець циклу непрочитаних, щоб ви могли продовжувати перегляд без очищення статусу.",
         "p4": "Cmd+Option+U перемикає поточний workspace між прочитаним і непрочитаним.",
         "p5": "Це корисно, коли ви переходите до нового непрочитаного workspace через Cmd+Shift+U, але хочете змінити контекст перед відповіддю."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Знову відкривайте закриті термінали, браузери, робочі простори й сесії агентів за допомогою Cmd+Shift+T та повертайтеся за своїм фокусом за допомогою Cmd+[ і Cmd+].",
+        "date": "2 червня 2026 р.",
+        "p1": "Ви закриваєте вкладку термінала, щоб навести лад, а потім розумієте, що вона була потрібна. Або закриваєте цілий робочий простір і втрачаєте агента посеред задачі. Тепер cmux веде історію того, що ви закрили та на чому фокусувалися, тож повернути це можна одним сполученням клавіш.",
+        "reopenTitle": "Знову відкрийте те, що закрили",
+        "reopenP": "Натисніть <code>Cmd+Shift+T</code>, щоб знову відкрити останнє закрите. Це працює для вкладок термінала, вкладок браузера, робочих просторів і вікон та відновлює їх по одному в тому порядку, в якому ви їх закривали. Кожна поверхня повертається на своє місце з незмінними панелями.",
+        "agentTitle": "Сесії агентів теж повертаються",
+        "agentP": "Історія також знову відкриває закриті сесії агентів. Знову відкрийте сесію Claude Code, Codex або OpenCode, і вона продовжиться з того місця, де зупинилася. Один раз виконайте <code>cmux hooks setup</code>, щоб cmux міг відстежувати сесії агентів; після цього вони відкриваються знову, як і все інше.",
+        "agentP2": "Це побудовано на <link>відновленні сесій</link> cmux, яке відновлює підтримувані агенти через їхні власні нативні команди відновлення.",
+        "focusTitle": "Поверніться туди, де ви були",
+        "focusP": "Кнопки «назад» і «вперед» у рядку заголовка або <code>Cmd+[</code> і <code>Cmd+]</code> переходять до попереднього й наступного робочого простору чи вікна, де ви працювали, так само як «назад» і «вперед» у браузері.",
+        "fullHistoryTitle": "Повна панель історії",
+        "fullHistoryP": "Коли вам потрібно більше за останній елемент, відкрийте повну панель історії: придатний для пошуку, згрупований за днями огляд усього, що ви закрили та на чому фокусувалися, із позначками часу й дією Clear Closed.",
+        "docsCta": "Перегляньте <link>клавіатурні скорочення</link>, щоб побачити повний список, зокрема як перепризначити навігацію історією."
       }
     },
     "passkeyAuth": {
@@ -427,6 +443,10 @@
         "AI-агенти для кодування",
         "workspace непрочитаний"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: повторне відкриття закритих терміналів і сесій",
+      "metaDescription": "cmux веде історію того, що ви закрили та на чому фокусувалися. Знову відкривайте закриті термінали, браузери, робочі простори й сесії Claude Code, Codex та OpenCode за допомогою Cmd+Shift+T, а фокус переміщуйте назад і вперед за допомогою Cmd+[ і Cmd+]."
     }
   },
   "docs": {
@@ -555,17 +575,35 @@
           "confirmQuit": "Керує тим, коли cmux запитує підтвердження перед виходом. DEV-збірки завжди завершуються одразу незалежно від цього налаштування. Застарілий app.warnBeforeQuit і надалі приймається як булевий запасний варіант.",
           "warnBeforeQuit": "Застарілий булевий запасний варіант для підтвердження виходу. Для нових конфігурацій використовуйте app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Показувати підтвердження перед закриттям вкладки кнопкою закриття вкладки.",
-          "hideTabCloseButton": "Приховувати кнопки закриття вкладок на панелі вкладок області."
+          "hideTabCloseButton": "Приховувати кнопки закриття вкладок на панелі вкладок області.",
+          "forkConversationDefaultDestination": "Типове призначення для основної дії Fork Conversation у контекстному меню вкладки. Підменю й надалі показує всі призначення."
         },
         "terminal": {
-          "copyOnSelect": "Копіює вибраний текст термінала до системного буфера обміну після підтвердження виділення, зокрема слова й рядки, вибрані подвійним або потрійним клацанням."
+          "copyOnSelect": "Копіює вибраний текст термінала до системного буфера обміну після підтвердження виділення, зокрема слова й рядки, вибрані подвійним або потрійним клацанням.",
+          "showTextBoxOnNewTerminals": "Типово показує бета-ввід TextBox для новостворених робочих просторів, вкладок термінала й розділень.",
+          "focusTextBoxOnNewTerminals": "Типово фокусує бета-ввід TextBox для новостворених робочих просторів, вкладок термінала й розділень. Фокусування також показує TextBox."
         },
         "browser": {
           "defaultSearchEngine": "Пошукова система за замовчуванням для запитів в адресному рядку браузера, які не є URL. Для інших провайдерів використовуйте custom з customSearchEngineURLTemplate.",
           "customSearchEngineName": "Назва для показу, коли defaultSearchEngine має значення custom.",
           "customSearchEngineURLTemplate": "URL пошуку, який використовується коли defaultSearchEngine має значення custom. Додайте заповнювач запиту або %s для закодованого запиту. Без заповнювача cmux додасть q= до URL."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "Глобальне значення за замовчуванням для того, куди Cmd-N у групі, кнопка + у заголовку групи та налаштовані дії групи розміщують новий workspace: `afterCurrent` (після активного workspace у групі, з fallback до top), `top` (друга позиція одразу після якоря) або `end` (після останнього учасника).",
+          "byCwd": {
+            "newWorkspacePlacement": "Перевизначення для cwd, яке задає, куди Cmd-N у групі, кнопка + у заголовку групи та налаштовані дії групи розміщують новий workspace: `afterCurrent` (після активного workspace у групі, з fallback до top), `top` (друга позиція одразу після якоря) або `end` (після останнього учасника). Якщо пропущено, використовується глобальне значення за замовчуванням."
+          }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "Користувацькі команди",
@@ -687,7 +725,8 @@
         "notifications": "Сповіщення",
         "find": "Пошук",
         "terminal": "Термінал",
-        "window": "Вікно"
+        "window": "Вікно",
+        "diffViewer": "Перегляд diff"
       },
       "sc": {
         "ws-new": "Новий робочий простір",
@@ -732,8 +771,8 @@
       }
     },
     "api": {
-      "title": "Довідник API",
-      "metaTitle": "Довідник API",
+      "title": "Довідник CLI",
+      "metaTitle": "Довідник CLI",
       "metaDescription": "Довідник cmux CLI та Unix socket API. Керування робочими просторами, розділені панелі, керування введенням, сповіщення, метадані бічної панелі, змінні середовища та методи виявлення.",
       "intro": "cmux надає як CLI-інструмент, так і Unix-сокет для програмного керування. Кожна команда доступна через обидва інтерфейси.",
       "socket": "Сокет",
@@ -954,7 +993,7 @@
       "authoringCallout": "Додаючи нову навичку, включайте <code>agents/openai.yaml</code>, щоб інсталятор показував чітку назву, короткий опис і стандартний prompt.",
       "relatedTitle": "Пов’язана документація",
       "relatedBrowserAutomation": "Автоматизація браузера",
-      "relatedApi": "Довідник API",
+      "relatedApi": "Довідник CLI",
       "relatedCustomCommands": "Користувацькі команди"
     },
     "changelog": {
@@ -1054,7 +1093,7 @@
       "sessionRestore": "Відновлення сесії",
       "customCommands": "Користувацькі команди",
       "keyboardShortcuts": "Клавіатурні скорочення",
-      "apiReference": "Довідник API",
+      "apiReference": "Довідник CLI",
       "browserAutomation": "Автоматизація браузера",
       "skills": "Навички",
       "notifications": "Сповіщення",
@@ -1064,7 +1103,8 @@
       "changelog": "Журнал змін",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (бета)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1198,6 +1238,21 @@
       "daemonSession": "Керування сеансами",
       "daemonSessionHow": "Зберігає сеанси під час повторного підключення, змінює розмір PTY координат у кількох вкладеннях",
       "daemonPath": "Двійковий файл демона зберігається в ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote на віддаленому хості та перевіряється на маніфест SHA-256, вбудований у програму."
+    },
+    "textBox": {
+      "title": "TextBox (бета)",
+      "metaTitle": "TextBox (бета)",
+      "metaDescription": "Налаштуйте бета-ввід TextBox у cmux для нових вкладок термінала, розділень і робочих просторів.",
+      "intro": "TextBox — це розширена поверхня вводу термінала в cmux для складання промптів перед надсиланням у термінал.",
+      "betaCallout": "TextBox — бета-функція. Під час тестування значення за замовчуванням і поведінка можуть змінюватися.",
+      "defaultsTitle": "Типові значення",
+      "defaultsDesc": "Налаштування TextBox розміщені в Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals відкриває нові робочі простори, вкладки термінала й розділення з видимим TextBox, залишаючи фокус у терміналі.",
+      "focusSetting": "Focus TextBox on New Terminals переносить фокус клавіатури в TextBox. Фокусування також показує TextBox.",
+      "maxLinesSetting": "TextBox Max Lines обмежує висоту TextBox до початку прокручування вмісту.",
+      "configTitle": "cmux.json",
+      "configDesc": "Ті самі типові значення можна встановити в ~/.config/cmux/cmux.json у розділі terminal:",
+      "focusNote": "Відновлені сеанси зберігають записану видимість TextBox і стан фокуса. Ці типові значення застосовуються лише до новостворених поверхонь термінала."
     }
   },
   "legal": {
@@ -1219,11 +1274,18 @@
     "egrefen": "I've been using this all weekend and it's amazing.",
     "max4c": "this has been my favorite tool for past two weeks",
     "lucas_flatwhite": "Ще не пізно. Я багато користуюся Ghostty, але cmux теж люблю. Вертикальні вкладки, кільця сповіщень, вбудований браузер, розділені панелі, GPU-прискорення... переваг справді багато!",
+    "yamadashy": "Я користуюся cmux уже деякий час, і він мені подобається. Це не стільки 'неймовірно', скільки відчуття 'так, ось воно'. Він також добре працює з k1Low/mo.",
     "minixalpha": "Я теж використовую cmux як основний термінал і рекомендую його колегам. Сповіщення, робочі простори й гарячі клавіші підвищують ефективність, коли паралельно виконується багато робіт. Хоч cmux трохи негарний, його функціональність робить його незамінним.",
+    "juan_barbat": "У мене була проблема з браузером, але cmux незамінний у моїй щоденній роботі.",
+    "yousefrol": "Моя порада проста: користуйтеся cmux. Він вирішив майже всі мої проблеми з терміналом.",
+    "tobiasgloeckler": "Я щойно встановив cmux. Раніше користувався Ghostty, але cmux ще краще підходить для AI-агентів і програмування.",
+    "wescld": "Не знаю, як я так довго жив без cmux.",
     "jinchenma_ai": "cmux — це термінальний інструмент, яким я останнім часом користуюся найбільше. Він open source і безкоштовний. Для мене він майже замінив iTerm2 і чудово вирішує проблему розміщення багатьох термінальних вікон.",
+    "zvasil": "Я вже деякий час як перейшов на нього з Warp, і це було наче пересісти на ракету. Він нативний для macOS, написаний на Swift і дуже активно розвивається.",
     "immazzystar": "Інструмент, який мені нещодавно сподобалося використовувати: cmux. Більше не треба постійно перемикатися між вікнами термінала.",
     "blitz_zidan": "cmux останнім часом мій улюблений термінал. Особисто я думаю, що він дуже добре підходить для запуску кількох терміналів.",
     "asaza": "cmux looks so good it might finally be time to say goodbye to VSCode",
+    "ssarisen": "Якщо вам потрібно працювати з кількома терміналами, обов'язково спробуйте cmux. Коли термінал чекає на ваш ввід, він автоматично надсилає сповіщення.",
     "johnthedebs": "Hey, this looks seriously awesome. Love the ideas here, specifically: the programmability, layered UI, browser w/ api. Looking forward to giving this a spin. Also want to add that I really appreciate Mitchell Hashimoto creating libghostty; it feels like an exciting time to be a terminal user.",
     "joeriddles": "Vertical tabs in my terminal! I never thought of that before. I use and love Firefox vertical tabs.",
     "dchu17": "Gave this a run and it was pretty intuitive. Good work!",
@@ -1283,5 +1345,8 @@
       "intro": "Ця сторінка відкриває правила в поточній робочій області cmux.",
       "fallback": "cmux спочатку показує правила та запитує, перш ніж вставити їх у поточну робочу область. Якщо cmux не відкривається, інсталюйте cmux і знову натисніть Відкрити в cmux."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "Творець OpenClaw. Засновник PSPDFKit."
   }
 }

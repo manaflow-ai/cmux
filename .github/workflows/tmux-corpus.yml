@@ -1,6 +1,10 @@
 name: tmux corpus
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/tmux-corpus.yml"
+      - "daemon/remote/**"
   workflow_dispatch:
     inputs:
       fuzztime:
@@ -41,7 +45,7 @@ jobs:
       - name: Run tmux corpus fuzz targets
         working-directory: daemon/remote
         env:
-          FUZZTIME: ${{ github.event.inputs.fuzztime || '2m' }}
+          FUZZTIME: ${{ github.event_name == 'pull_request' && '30s' || github.event.inputs.fuzztime || '2m' }}
         run: |
           set -euo pipefail
           for target in \
@@ -57,7 +61,7 @@ jobs:
 
   terminal-nightly:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, warp-macos-15-arm64-6x]
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -72,7 +76,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else

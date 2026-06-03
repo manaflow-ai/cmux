@@ -45,7 +45,7 @@
     "taglinePrefix": "ទែមីណលដែលបង្កើតសម្រាប់ ",
     "typingCodingAgents": "ភ្នាក់ងារសរសេរកូដ",
     "typingMultitasking": "ពហុកិច្ចការ",
-    "subtitle": "កម្មវិធី macOS ដើមដែលបង្កើតលើ Ghostty។ ផ្ទាំងបញ្ឈរ, រង្វង់ជូនដំណឹងពេល agent ត្រូវការការយកចិត្តទុកដាក់, បន្ទះបំបែក, និង socket API សម្រាប់ស្វ័យប្រវត្តិកម្ម។",
+    "subtitle": "កម្មវិធី macOS ដើមដែលបង្កើតលើ Ghostty។ ផ្ទាំងបញ្ឈរ, រង្វង់ជូនដំណឹងពេល agent ត្រូវការការយកចិត្តទុកដាក់, បន្ទះបំបែក, និង <cliLink>CLI</cliLink> សម្រាប់ការសរសេរកម្មវិធី។",
     "features": "មុខងារ",
     "faq": "សំណួរញឹកញាប់",
     "communitySection": "សហគមន៍",
@@ -302,6 +302,22 @@
         "p3": "វាផ្ញើ workspace បច្ចុប្បន្នទៅខាងក្រោយវដ្តមិនទាន់អាន ដូច្នេះអ្នកអាចបន្តបង្វិលដោយមិនលុបស្ថានភាព។",
         "p4": "Cmd+Option+U ប្ដូរ workspace បច្ចុប្បន្នរវាងបានអាន និងមិនទាន់អាន។",
         "p5": "វាមានប្រយោជន៍នៅពេលអ្នកលោតទៅ workspace មិនទាន់អានថ្មីដោយ Cmd+Shift+U ប៉ុន្តែត្រូវប្ដូរបរិបទមុនឆ្លើយ។"
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "បើកឡើងវិញនូវ terminal កម្មវិធីរុករក workspace និង session របស់ agent ដែលបានបិទ ដោយប្រើ Cmd+Shift+T ហើយតាមដានការផ្ដោតរបស់អ្នកវិញ ដោយប្រើ Cmd+[ និង Cmd+]។",
+        "date": "2 មិថុនា 2026",
+        "p1": "អ្នកបិទ tab terminal មួយដើម្បីរៀបចំ រួចទើបដឹងថាអ្នកនៅត្រូវការវា។ ឬអ្នកបិទ workspace ទាំងមូល ហើយបាត់ agent ដែលកំពុងធ្វើការពាក់កណ្ដាល។ ឥឡូវនេះ cmux រក្សាប្រវត្តិនៃអ្វីដែលអ្នកបានបិទ និងផ្ដោត ដូច្នេះការយកវាមកវិញត្រូវការតែ shortcut មួយប៉ុណ្ណោះ។",
+        "reopenTitle": "បើកឡើងវិញនូវអ្វីដែលអ្នកបានបិទ",
+        "reopenP": "ចុច <code>Cmd+Shift+T</code> ដើម្បីបើកឡើងវិញនូវរបស់ចុងក្រោយដែលអ្នកបានបិទ។ វាដំណើរការសម្រាប់ tab terminal, tab កម្មវិធីរុករក, workspace និងបង្អួច ហើយស្ដារវាមកវិញម្ដងមួយៗតាមលំដាប់ដែលអ្នកបានបិទ។ ផ្ទៃនីមួយៗត្រឡប់មកកន្លែងដើមវិញ ដោយ pane នៅដដែល។",
+        "agentTitle": "session របស់ agent ក៏ត្រឡប់មកវិញដែរ",
+        "agentP": "ប្រវត្តិក៏បើកឡើងវិញនូវ session របស់ agent ដែលបានបិទផងដែរ។ បើក session របស់ Claude Code, Codex ឬ OpenCode ឡើងវិញ នោះវានឹងបន្តពីកន្លែងដែលវាបានឈប់។ ដំណើរការ <code>cmux hooks setup</code> ម្ដង ដើម្បីឲ្យ cmux អាចតាមដាន session របស់ agent បាន បន្ទាប់មកវាបើកឡើងវិញ ដូចអ្វីៗផ្សេងទៀត។",
+        "agentP2": "នេះផ្អែកលើ <link>ការស្ដារ session</link> របស់ cmux ដែលបន្ត agent ដែលគាំទ្រ តាមរយៈ command ស្ដារ native រៀងៗខ្លួន។",
+        "focusTitle": "ត្រឡប់ទៅកន្លែងដែលអ្នកធ្លាប់នៅ",
+        "focusP": "ប៊ូតុងថយក្រោយ និងទៅមុខនៅរបារចំណងជើង ឬ <code>Cmd+[</code> និង <code>Cmd+]</code> លោតទៅ workspace ឬបង្អួចមុន និងបន្ទាប់ដែលអ្នកកំពុងធ្វើការ ដូចគ្នានឹងថយក្រោយ និងទៅមុខនៅក្នុងកម្មវិធីរុករក។",
+        "fullHistoryTitle": "panel ប្រវត្តិពេញលេញ",
+        "fullHistoryP": "ពេលអ្នកត្រូវការច្រើនជាងធាតុចុងក្រោយ សូមបើក panel ប្រវត្តិពេញលេញ៖ ទិដ្ឋភាពដែលអាចស្វែងរក និងដាក់ជាក្រុមតាមថ្ងៃ នៃអ្វីៗទាំងអស់ដែលអ្នកបានបិទ និងផ្ដោត ជាមួយ timestamp និងសកម្មភាព Clear Closed។",
+        "docsCta": "សូមមើល <link>ផ្លូវកាត់ក្ដារចុច</link> សម្រាប់បញ្ជីពេញលេញ រួមទាំងវិធីកំណត់ការរុករកប្រវត្តិឡើងវិញ។"
       }
     },
     "zenOfCmux": {
@@ -427,6 +443,10 @@
         "AI coding agents",
         "workspace មិនទាន់អាន"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: បើកឡើងវិញនូវ terminal និង session ដែលបានបិទ",
+      "metaDescription": "cmux រក្សាប្រវត្តិនៃអ្វីដែលអ្នកបានបិទ និងផ្ដោត។ បើកឡើងវិញនូវ terminal កម្មវិធីរុករក workspace និង session របស់ Claude Code, Codex និង OpenCode ដែលបានបិទ ដោយប្រើ Cmd+Shift+T ហើយផ្លាស់ទីការផ្ដោតទៅមុខ និងថយក្រោយ ដោយប្រើ Cmd+[ និង Cmd+]។"
     }
   },
   "docs": {
@@ -555,17 +575,35 @@
           "confirmQuit": "កំណត់ពេលដែល cmux ស្នើសុំការបញ្ជាក់មុនពេលចាកចេញ។ កំណែ DEV តែងតែចាកចេញភ្លាមៗ ដោយមិនគិតពីការកំណត់នេះទេ។ app.warnBeforeQuit ចាស់នៅតែត្រូវបានទទួលយកជាជម្រើសបម្រុង boolean។",
           "warnBeforeQuit": "ជម្រើសបម្រុង boolean ចាស់សម្រាប់ការបញ្ជាក់មុនចាកចេញ។ ប្រើ app.confirmQuit សម្រាប់ការកំណត់ថ្មី។",
           "warnBeforeClosingTabXButton": "បង្ហាញការបញ្ជាក់ មុនពេលបិទផ្ទាំងដោយប៊ូតុងបិទផ្ទាំង។",
-          "hideTabCloseButton": "លាក់ប៊ូតុងបិទផ្ទាំងនៅក្នុងរបារផ្ទាំងរបស់ផ្ទាំងបង្អួច។"
+          "hideTabCloseButton": "លាក់ប៊ូតុងបិទផ្ទាំងនៅក្នុងរបារផ្ទាំងរបស់ផ្ទាំងបង្អួច។",
+          "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination."
         },
         "terminal": {
-          "copyOnSelect": "ចម្លងអត្ថបទ terminal ដែលបានជ្រើសទៅក្ដារតម្រៀបរបស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់ រួមទាំងការជ្រើសពាក្យ និងបន្ទាត់ដោយចុចពីរដង និងចុចបីដង។"
+          "copyOnSelect": "ចម្លងអត្ថបទ terminal ដែលបានជ្រើសទៅក្ដារតម្រៀបរបស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់ រួមទាំងការជ្រើសពាក្យ និងបន្ទាត់ដោយចុចពីរដង និងចុចបីដង។",
+          "showTextBoxOnNewTerminals": "បង្ហាញការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។",
+          "focusTextBoxOnNewTerminals": "ផ្តោតការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។ ការផ្តោតក៏បង្ហាញ TextBox ផងដែរ។"
         },
         "browser": {
           "defaultSearchEngine": "ម៉ាស៊ីនស្វែងរកលំនាំដើមសម្រាប់សំណួរនៅក្នុងរបារអាសយដ្ឋានដែលមិនមែនជា URL។ ប្រើ custom ជាមួយ customSearchEngineURLTemplate សម្រាប់អ្នកផ្តល់ផ្សេងៗ។",
           "customSearchEngineName": "ឈ្មោះបង្ហាញដែលប្រើនៅពេល defaultSearchEngine ជា custom។",
           "customSearchEngineURLTemplate": "URL ស្វែងរកដែលប្រើនៅពេល defaultSearchEngine ជា custom។ ដាក់ទីតាំងជំនួសសំណួរ ឬ %s សម្រាប់ពាក្យស្វែងរកដែលបានអ៊ិនកូដ។ ប្រសិនបើគ្មានទីតាំងជំនួស cmux បន្ថែម q= ទៅ URL។"
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "តម្លៃលំនាំដើមសកលសម្រាប់ទីតាំងដែល Cmd-N នៅក្នុងក្រុម ប៊ូតុង + ក្នុងក្បាលក្រុម និងសកម្មភាពក្រុមដែលបានកំណត់ ដាក់ workspace ថ្មី: `afterCurrent` (បន្ទាប់ពី workspace សកម្មក្នុងក្រុម ហើយត្រឡប់ទៅ top ប្រសិនបើគ្មាន), `top` (ទីតាំងទីពីរ បន្ទាប់ពី anchor ភ្លាមៗ) ឬ `end` (បន្ទាប់ពីសមាជិកចុងក្រោយ).",
+          "byCwd": {
+            "newWorkspacePlacement": "ការកំណត់ជំនួសតាម cwd សម្រាប់ទីតាំងដែល Cmd-N នៅក្នុងក្រុម ប៊ូតុង + ក្នុងក្បាលក្រុម និងសកម្មភាពក្រុមដែលបានកំណត់ ដាក់ workspace ថ្មី: `afterCurrent` (បន្ទាប់ពី workspace សកម្មក្នុងក្រុម ហើយត្រឡប់ទៅ top ប្រសិនបើគ្មាន), `top` (ទីតាំងទីពីរ បន្ទាប់ពី anchor ភ្លាមៗ) ឬ `end` (បន្ទាប់ពីសមាជិកចុងក្រោយ). បើមិនកំណត់ វានឹងប្រើតម្លៃលំនាំដើមសកល។"
+          }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "ពាក្យបញ្ជាផ្ទាល់ខ្លួន",
@@ -686,7 +724,8 @@
         "notifications": "ជូនដំណឹង",
         "find": "ស្វែងរក",
         "terminal": "ទែមីណល",
-        "window": "បង្អួច"
+        "window": "បង្អួច",
+        "diffViewer": "កម្មវិធីមើល diff"
       },
       "sc": {
         "ws-new": "Workspace ថ្មី",
@@ -732,7 +771,7 @@
       "metaTitle": "ផ្លូវកាត់ក្តារចុច"
     },
     "api": {
-      "title": "ឯកសារយោង API",
+      "title": "ឯកសារយោង CLI",
       "metaDescription": "ឯកសារយោង cmux CLI និង Unix socket API។ ការគ្រប់គ្រង workspace, បន្ទះបំបែក, ការគ្រប់គ្រងការបញ្ចូល, ជូនដំណឹង, ទិន្នន័យមេតារបារចំហៀង, អថេរបរិស្ថាន, និងវិធីកំណត់។",
       "intro": "cmux ផ្ដល់ទាំងឧបករណ៍ CLI និង Unix socket សម្រាប់ការគ្រប់គ្រងដោយកម្មវិធី។ ពាក្យបញ្ជាទាំងអស់មានតាមរយៈចំណុចប្រទាក់ទាំងពីរ។",
       "socket": "Socket",
@@ -811,7 +850,7 @@
       "pythonClient": "Python client",
       "shellScript": "Shell script",
       "buildScriptNotification": "Build script ជាមួយជូនដំណឹង",
-      "metaTitle": "ឯកសារ API"
+      "metaTitle": "ឯកសារយោង CLI"
     },
     "notifications": {
       "title": "ជូនដំណឹង",
@@ -954,7 +993,7 @@
       "authoringCallout": "នៅពេលបន្ថែមជំនាញថ្មី សូមរួមបញ្ចូល <code>agents/openai.yaml</code> ដើម្បីឱ្យ installer បង្ហាញឈ្មោះច្បាស់ ការពិពណ៌នាខ្លី និង prompt លំនាំដើម។",
       "relatedTitle": "ឯកសារពាក់ព័ន្ធ",
       "relatedBrowserAutomation": "ការធ្វើស្វ័យប្រវត្តិកម្ម Browser",
-      "relatedApi": "ឯកសារយោង API",
+      "relatedApi": "ឯកសារយោង CLI",
       "relatedCustomCommands": "ពាក្យបញ្ជាផ្ទាល់ខ្លួន"
     },
     "changelog": {
@@ -969,7 +1008,7 @@
       "sessionRestore": "ស្ដារវគ្គ",
       "customCommands": "ពាក្យបញ្ជាផ្ទាល់ខ្លួន",
       "keyboardShortcuts": "ផ្លូវកាត់ក្ដារចុច",
-      "apiReference": "ឯកសារយោង API",
+      "apiReference": "ឯកសារយោង CLI",
       "browserAutomation": "ស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក",
       "skills": "ជំនាញ",
       "notifications": "ជូនដំណឹង",
@@ -979,7 +1018,8 @@
       "changelog": "កំណត់ត្រាផ្លាស់ប្ដូរ",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (បេតា)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1113,6 +1153,21 @@
       "daemonSession": "ការគ្រប់គ្រងសម័យ",
       "daemonSessionHow": "បន្តវគ្គឆ្លងកាត់ការភ្ជាប់ឡើងវិញ សម្របសម្រួល PTY ផ្លាស់ប្តូរទំហំតាមឯកសារភ្ជាប់ជាច្រើន។",
       "daemonPath": "daemon binary ត្រូវបានរក្សាទុកនៅ ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote នៅលើម៉ាស៊ីនពីចម្ងាយ និងបានផ្ទៀងផ្ទាត់ប្រឆាំងនឹងការបង្ហាញ SHA-256 ដែលបានបង្កប់នៅក្នុងកម្មវិធី។"
+    },
+    "textBox": {
+      "title": "TextBox (បេតា)",
+      "metaTitle": "TextBox (បេតា)",
+      "metaDescription": "កំណត់រចនាសម្ព័ន្ធការបញ្ចូល TextBox បេតារបស់ cmux សម្រាប់ផ្ទាំង ស្ប្លីត និង workspace ស្ថានីយថ្មី។",
+      "intro": "TextBox គឺជាផ្ទៃបញ្ចូលស្ថានីយ rich របស់ cmux សម្រាប់រៀបចំ prompt មុនពេលផ្ញើទៅស្ថានីយ។",
+      "betaCallout": "TextBox គឺជាមុខងារបេតា។ តម្លៃលំនាំដើម និងឥរិយាបថអាចផ្លាស់ប្តូរនៅពេលកំពុងសាកល្បង។",
+      "defaultsTitle": "លំនាំដើម",
+      "defaultsDesc": "ការកំណត់ TextBox ស្ថិតនៅ Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals បើក workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយថ្មីដោយបង្ហាញ TextBox ខណៈដែល focus នៅតែស្ថិតក្នុងស្ថានីយ។",
+      "focusSetting": "Focus TextBox on New Terminals ដាក់ focus ក្តារចុចក្នុង TextBox។ ការដាក់ focus ក៏បង្ហាញ TextBox ផងដែរ។",
+      "maxLinesSetting": "TextBox Max Lines កំណត់កម្ពស់ TextBox មុនពេលមាតិកាចាប់ផ្តើមរមូរ។",
+      "configTitle": "cmux.json",
+      "configDesc": "កំណត់លំនាំដើមដូចគ្នានៅក្នុង ~/.config/cmux/cmux.json ក្រោម terminal:",
+      "focusNote": "Session ដែលបានស្តារឡើងវិញរក្សាស្ថានភាពបង្ហាញ និង focus របស់ TextBox ដែលបានរក្សាទុក។ លំនាំដើមទាំងនេះអនុវត្តតែចំពោះផ្ទៃស្ថានីយដែលទើបបង្កើតថ្មីប៉ុណ្ណោះ។"
     }
   },
   "legal": {
@@ -1128,11 +1183,18 @@
     "egrefen": "ខ្ញុំប្រើវាពេញចុងសប្តាហ៍ ហើយវាអស្ចារ្យ។",
     "max4c": "នេះជាឧបករណ៍ដែលខ្ញុំចូលចិត្តបំផុតក្នុងរយៈពេលពីរសប្តាហ៍កន្លងមក",
     "lucas_flatwhite": "មិនទាន់យឺតទេ។ ខ្ញុំប្រើ Ghostty ច្រើន ហើយ cmux ក៏គួរឱ្យស្រឡាញ់ដែរ។ ផ្ទាំងបញ្ឈរ រង្វង់ជូនដំណឹង កម្មវិធីរុករកភ្ជាប់មកជាមួយ ផ្ទាំងបំបែក និង GPU acceleration... មានអត្ថប្រយោជន៍ច្រើនណាស់!",
+    "yamadashy": "ខ្ញុំបានប្រើ cmux មួយរយៈហើយ ហើយខ្ញុំចូលចិត្តវា។ វាមិនមែនជាអារម្មណ៍ថា 'អស្ចារ្យណាស់' ទេ ប៉ុន្តែជា 'បាទ នេះហើយ'។ វាក៏ដំណើរការល្អជាមួយ k1Low/mo ផងដែរ។",
     "minixalpha": "ខ្ញុំក៏ប្រើ cmux ជា terminal ចម្បង ហើយណែនាំឱ្យមិត្តរួមការងារប្រើផងដែរ។ ការជូនដំណឹង workspace និង shortcut ធ្វើឱ្យការងារច្រើនក្នុងពេលតែមួយមានប្រសិទ្ធភាពជាងមុន។ ទោះបី cmux មើលទៅមិនសូវស្អាត ក៏មុខងាររបស់វាធ្វើឱ្យខ្ញុំមិនអាចខ្វះវាបាន។",
+    "juan_barbat": "ខ្ញុំធ្លាប់មានបញ្ហាមួយជាមួយកម្មវិធីរុករក ប៉ុន្តែ cmux គឺមិនអាចខ្វះបានក្នុងការងារប្រចាំថ្ងៃរបស់ខ្ញុំ។",
+    "yousefrol": "យោបល់របស់ខ្ញុំគឺប្រើ cmux ទៅ។ វាបានដោះស្រាយបញ្ហា terminal ស្ទើរតែទាំងអស់សម្រាប់ខ្ញុំ។",
+    "tobiasgloeckler": "ខ្ញុំទើបតែដំឡើង cmux។ ខ្ញុំធ្លាប់ប្រើ Ghostty ប៉ុន្តែ cmux សមស្របជាងសម្រាប់ AI agents និងការសរសេរកូដ។",
+    "wescld": "ខ្ញុំមិនដឹងទេថាខ្ញុំរស់នៅយូរប៉ុណ្ណាដោយគ្មាន cmux បានយ៉ាងដូចម្តេច។",
     "jinchenma_ai": "cmux គឺជា terminal tool ដែលខ្ញុំប្រើច្រើនបំផុតថ្មីៗនេះ។ វា open source និងឥតគិតថ្លៃ។ សម្រាប់ខ្ញុំ វាបានជំនួស iTerm2 ស្ទើរតែទាំងស្រុង ហើយដោះស្រាយបញ្ហារៀបចំបង្អួច terminal ច្រើនបានល្អឥតខ្ចោះ។",
+    "zvasil": "ខ្ញុំបានប្តូរពី Warp មកប្រើវាមួយរយៈហើយ ហើយវាមានអារម្មណ៍ដូចជាប្តូរទៅកាន់រ៉ុក្កែត។ វាជា macOS native Swift ហើយកំពុងអភិវឌ្ឍយ៉ាងសកម្ម។",
     "immazzystar": "ឧបករណ៍មួយដែលខ្ញុំចូលចិត្តប្រើថ្មីៗនេះ: cmux។ ខ្ញុំមិនចាំបាច់ប្ដូររវាងបង្អួច terminal ញឹកញាប់ទៀតទេ។",
     "blitz_zidan": "cmux គឺជា terminal ដែលខ្ញុំចូលចិត្តបំផុតថ្មីៗនេះ។ ខ្ញុំគិតថាវាល្អណាស់សម្រាប់ដំណើរការ terminal ច្រើន។",
     "asaza": "cmux មើលទៅល្អខ្លាំងម៉ង អាចដល់ពេលហើយនឹងបញ្ចប់ជាមួយ VSCode",
+    "ssarisen": "ប្រសិនបើអ្នកត្រូវធ្វើការជាមួយ terminal ច្រើន អ្នកគួរតែសាកល្បង cmux។ ពេល terminal កំពុងរង់ចាំ input របស់អ្នក វានឹងផ្ញើ notification ដោយស្វ័យប្រវត្តិ។",
     "johnthedebs": "នេះមើលទៅអស្ចារ្យ។ ចូលចិត្តគំនិតនៅទីនេះ ជាពិសេស: ភាពអាចសរសេរកម្មវិធីបាន, UI ជាស្រទាប់, កម្មវិធីរុករកជាមួយ API។ រង់ចាំសាកល្បង។ ក៏ចង់និយាយថាខ្ញុំពិតជាអរគុណ Mitchell Hashimoto ដែលបង្កើត libghostty។ វារឹតតែគួរឱ្យរំភើបសម្រាប់អ្នកប្រើទែមីណល។",
     "joeriddles": "ផ្ទាំងបញ្ឈរក្នុងទែមីណលរបស់ខ្ញុំ! ខ្ញុំមិនដែលគិតដល់រឿងនេះមកមុនទេ។ ខ្ញុំប្រើហើយចូលចិត្តផ្ទាំងបញ្ឈរ Firefox។",
     "dchu17": "សាកល្បងហើយវាងាយស្រួលប្រើ។ ធ្វើបានល្អ!",
@@ -1196,5 +1258,8 @@
       "intro": "ទំព័រនេះបើកច្បាប់នៅក្នុងកន្លែងធ្វើការ cmux បច្ចុប្បន្ន។",
       "fallback": "cmux បង្ហាញច្បាប់ជាមុន ហើយសួរមុនពេលបិទភ្ជាប់ពួកវាទៅក្នុងកន្លែងធ្វើការបច្ចុប្បន្ន។ ប្រសិនបើ cmux មិនបើកទេ សូមដំឡើង cmux ហើយចុច Open in cmux ម្តងទៀត។"
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "អ្នកបង្កើត OpenClaw។ ស្ថាបនិក PSPDFKit។"
   }
 }
