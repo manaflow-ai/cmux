@@ -3230,6 +3230,214 @@ async function pasteSavedBackgroundImages() {
   return applySavedBackgroundImageImports(savedBackgroundImageImportsFromPayload(parsedPayload));
 }
 
+function savedLibraryPayload() {
+  return {
+    version: 1,
+    type: "cmux-saved-customization-library",
+    summary: {
+      commandSnippets: state.customCommandSnippets.length,
+      settingsProfiles: state.savedSettingsProfiles.length,
+      workspaceBlueprints: state.workspaceBlueprints.length,
+      colors: state.customColorPalette.length,
+      backgrounds: state.savedBackgroundImages.length
+    },
+    commandSnippets: state.customCommandSnippets,
+    settingsProfiles: state.savedSettingsProfiles,
+    workspaceBlueprints: state.workspaceBlueprints,
+    customColorPalette: state.customColorPalette,
+    savedBackgroundImages: state.savedBackgroundImages
+  };
+}
+
+async function copySavedLibrary() {
+  if (savedDataItemCount() === 0) {
+    toast("Customization library is empty.");
+    return false;
+  }
+  const payload = JSON.stringify(savedLibraryPayload(), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Customization library copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Customization library",
+    message: "Clipboard access is unavailable. Saved snippets, profiles, blueprints, colors, and backgrounds are shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function savedLibraryEntriesFromPayload(payload) {
+  const parsed = importedObject(payload);
+  if (!parsed) return null;
+  const source = importedObject(parsed.savedLibrary) || importedObject(parsed.customizationLibrary) || parsed;
+  return {
+    commandSnippets: Array.isArray(source.commandSnippets) ? source.commandSnippets : [],
+    settingsProfiles: Array.isArray(source.settingsProfiles) ? source.settingsProfiles : [],
+    workspaceBlueprints: Array.isArray(source.workspaceBlueprints) ? source.workspaceBlueprints : [],
+    colors: Array.isArray(source.customColorPalette)
+      ? source.customColorPalette
+      : Array.isArray(source.customPalette)
+        ? source.customPalette
+        : Array.isArray(source.colors)
+          ? source.colors
+          : Array.isArray(source.palette)
+            ? source.palette
+            : [],
+    backgrounds: Array.isArray(source.savedBackgroundImages)
+      ? source.savedBackgroundImages
+      : Array.isArray(source.savedBackgrounds)
+        ? source.savedBackgrounds
+        : Array.isArray(source.backgrounds)
+          ? source.backgrounds
+          : []
+  };
+}
+
+function hasSavedLibraryEntries(entries) {
+  return Boolean(
+    entries?.commandSnippets?.length
+    || entries?.settingsProfiles?.length
+    || entries?.workspaceBlueprints?.length
+    || entries?.colors?.length
+    || entries?.backgrounds?.length
+  );
+}
+
+function mergedCommandSnippetLibrary(imported, current) {
+  const next = [];
+  const seenCommands = new Set();
+  const seenIds = new Set();
+  for (const entry of [...imported, ...current]) {
+    const snippet = normalizeCustomCommandSnippet(entry);
+    if (!snippet) continue;
+    const commandKey = snippet.command.toLowerCase();
+    if (seenCommands.has(commandKey)) continue;
+    if (seenIds.has(snippet.id)) snippet.id = createCustomCommandSnippetId();
+    seenCommands.add(commandKey);
+    seenIds.add(snippet.id);
+    next.push(snippet);
+    if (next.length >= customCommandSnippetsLimit) break;
+  }
+  return next;
+}
+
+function mergedSettingsProfileLibrary(imported, current) {
+  const next = [];
+  const seenIds = new Set();
+  for (const entry of [...imported, ...current]) {
+    const profile = normalizeSavedSettingsProfile(entry);
+    if (!profile || seenIds.has(profile.id)) continue;
+    seenIds.add(profile.id);
+    next.push(profile);
+    if (next.length >= savedSettingsProfilesLimit) break;
+  }
+  return next;
+}
+
+function mergedWorkspaceBlueprintLibrary(imported, current) {
+  const next = [];
+  const seenIds = new Set();
+  for (const entry of [...imported, ...current]) {
+    const blueprint = normalizeWorkspaceBlueprint(entry);
+    if (!blueprint || seenIds.has(blueprint.id)) continue;
+    seenIds.add(blueprint.id);
+    next.push(blueprint);
+    if (next.length >= workspaceBlueprintsLimit) break;
+  }
+  return next;
+}
+
+function mergedSavedBackgroundLibrary(imported, current) {
+  const next = [];
+  const seenUrls = new Set();
+  const seenIds = new Set();
+  for (const entry of [...imported, ...current]) {
+    const background = normalizeSavedBackgroundImage(entry);
+    if (!background) continue;
+    const urlKey = background.url.toLowerCase();
+    if (seenUrls.has(urlKey)) continue;
+    if (seenIds.has(background.id)) background.id = createSavedBackgroundImageId();
+    seenUrls.add(urlKey);
+    seenIds.add(background.id);
+    next.push(background);
+    if (next.length >= savedBackgroundImagesLimit) break;
+  }
+  return next;
+}
+
+function mergeSavedLibrary(payload) {
+  const entries = savedLibraryEntriesFromPayload(payload);
+  if (!hasSavedLibraryEntries(entries)) {
+    toast("Clipboard does not contain a customization library.");
+    return false;
+  }
+
+  let changed = false;
+  const nextSnippets = mergedCommandSnippetLibrary(entries.commandSnippets, state.customCommandSnippets);
+  if (stableJson(nextSnippets) !== stableJson(state.customCommandSnippets)) {
+    state.customCommandSnippets = nextSnippets;
+    saveCustomCommandSnippets();
+    changed = true;
+  }
+
+  const nextProfiles = mergedSettingsProfileLibrary(entries.settingsProfiles, state.savedSettingsProfiles);
+  if (stableJson(nextProfiles) !== stableJson(state.savedSettingsProfiles)) {
+    state.savedSettingsProfiles = nextProfiles;
+    saveSavedSettingsProfiles();
+    changed = true;
+  }
+
+  const nextBlueprints = mergedWorkspaceBlueprintLibrary(entries.workspaceBlueprints, state.workspaceBlueprints);
+  if (stableJson(nextBlueprints) !== stableJson(state.workspaceBlueprints)) {
+    state.workspaceBlueprints = nextBlueprints;
+    saveWorkspaceBlueprints();
+    changed = true;
+  }
+
+  const nextColors = uniqueColors([
+    ...entries.colors.map(normalizeCustomPaletteColor).filter(Boolean),
+    ...state.customColorPalette
+  ]).slice(0, customColorPaletteLimit);
+  if (stableJson(nextColors) !== stableJson(state.customColorPalette)) {
+    state.customColorPalette = nextColors;
+    saveCustomColorPalette();
+    changed = true;
+  }
+
+  const nextBackgrounds = mergedSavedBackgroundLibrary(entries.backgrounds, state.savedBackgroundImages);
+  if (stableJson(nextBackgrounds) !== stableJson(state.savedBackgroundImages)) {
+    state.savedBackgroundImages = nextBackgrounds;
+    saveSavedBackgroundImages();
+    changed = true;
+  }
+
+  if (!changed) {
+    toast("Customization library already matches.");
+    return false;
+  }
+  renderSettingsInspector();
+  toast("Customization library updated.");
+  return true;
+}
+
+async function pasteSavedLibrary() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    return mergeSavedLibrary(JSON.parse(clipboard));
+  } catch {
+    toast("Clipboard does not contain a customization library.");
+    return false;
+  }
+}
+
 async function saveCustomBackgroundImage(background, options = {}) {
   const input = typeof background === "string" ? { url: background } : background || {};
   const source = input.url || input.value || input.backgroundImage;
@@ -4870,6 +5078,8 @@ const commands = [
   { id: "settings.pasteAppSetup", label: "Paste App Setup", shortcut: "", run: () => pasteAppSetup() },
   { id: "settings.copyRecentActivity", label: "Copy Recent Activity", shortcut: "", run: () => copyRecentActivity() },
   { id: "settings.pasteRecentActivity", label: "Paste Recent Activity", shortcut: "", run: () => pasteRecentActivity() },
+  { id: "settings.copySavedLibrary", label: "Copy Customization Library", shortcut: "", run: () => copySavedLibrary() },
+  { id: "settings.pasteSavedLibrary", label: "Paste Customization Library", shortcut: "", run: () => pasteSavedLibrary() },
   { id: "settings.pane", label: "Open Active Pane Settings", shortcut: "", run: () => openPaneSettings() },
   { id: "settings.copyPaneSetup", label: "Copy Active Pane Setup", shortcut: "", run: () => copyActivePaneSetup() },
   { id: "settings.pastePaneSetup", label: "Paste Active Pane Setup", shortcut: "", run: () => pasteActivePaneSetup() },
@@ -11555,11 +11765,19 @@ function renderSettingsInspector(options = {}) {
     copyRecent.title = recentActivity ? "Copy recent folders, commands, browser pages, and saved browser tabs as JSON." : "Recent activity is empty.";
     const pasteRecent = settingsActionButton("Paste recent activity", pasteRecentActivity, "", "settings data recent activity import paste folders commands browser pages tabs clipboard json");
     pasteRecent.title = "Merge copied recent folders, commands, browser pages, and saved browser tabs.";
+    const savedLibrary = savedDataItemCount() > 0;
+    const copySavedLibraryAction = settingsActionButton("Copy library", copySavedLibrary, "", "settings data saved customization library export copy snippets profiles blueprints colors backgrounds clipboard json");
+    copySavedLibraryAction.disabled = !savedLibrary;
+    copySavedLibraryAction.title = savedLibrary ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON." : "Customization library is empty.";
+    const pasteSavedLibraryAction = settingsActionButton("Paste library", pasteSavedLibrary, "", "settings data saved customization library import paste snippets profiles blueprints colors backgrounds clipboard json");
+    pasteSavedLibraryAction.title = "Merge copied saved snippets, profiles, blueprints, colors, and backgrounds.";
     actions.append(
       copySetup,
       pasteSetup,
       copyRecent,
       pasteRecent,
+      copySavedLibraryAction,
+      pasteSavedLibraryAction,
       closeEmpty,
       clearRecent,
       settingsActionButton("Reset", resetSettings, "danger")
@@ -20177,6 +20395,13 @@ function showToolbarMenu(event) {
       })(),
       contextMenuButton("Copy app setup", copyAppSetup),
       contextMenuButton("Paste app setup", pasteAppSetup),
+      (() => {
+        const savedLibrary = savedDataItemCount() > 0;
+        const action = contextMenuButton("Copy customization library", copySavedLibrary, !savedLibrary);
+        action.title = savedLibrary ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON." : "Customization library is empty.";
+        return action;
+      })(),
+      contextMenuButton("Paste customization library", pasteSavedLibrary),
       (() => {
         const recentActivity = hasRecentActivity();
         const action = contextMenuButton("Copy recent activity", copyRecentActivity, !recentActivity);
