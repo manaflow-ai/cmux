@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -129,7 +129,7 @@ struct SidebarProviderMenuRegressionTests {
     }
 
     /// The host renders the selected view through an
-    /// `any CmuxExtensionSidebarProvider` existential
+    /// `any CmuxSidebarProvider` existential
     /// (`CmuxExtensionSidebarSelection.provider(for:)?.render(snapshot:)`).
     /// `render(snapshot:)` must dynamic-dispatch to the concrete view; if it
     /// instead hits the empty protocol-extension default, every built-in view
@@ -148,9 +148,9 @@ struct SidebarProviderMenuRegressionTests {
         )
     }
 
-    private static func populatedSnapshot(workspaceCount: Int) -> CmuxExtensionSidebarSnapshot {
+    private static func populatedSnapshot(workspaceCount: Int) -> CmuxSidebarProviderSnapshot {
         let workspaces = (0..<workspaceCount).map { index in
-            CmuxExtensionWorkspaceSnapshot(
+            CmuxSidebarProviderWorkspace(
                 id: UUID(),
                 title: "Workspace \(index)",
                 customDescription: nil,
@@ -165,7 +165,7 @@ struct SidebarProviderMenuRegressionTests {
                 listeningPorts: []
             )
         }
-        return CmuxExtensionSidebarSnapshot(
+        return CmuxSidebarProviderSnapshot(
             sequence: 1,
             selectedWorkspaceId: nil,
             workspaces: workspaces

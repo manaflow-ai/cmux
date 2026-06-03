@@ -353,6 +353,14 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    fileprivate func handleWebContentProcessTermination(for terminatedWebView: WKWebView) {
+        guard terminatedWebView === webView else { return }
+#if DEBUG
+        cmuxDebugLog("popup.webcontent.terminated depth=\(nestingDepth)")
+#endif
+        closePopup()
+    }
+
     fileprivate func requestNavigation(_ request: URLRequest, in webView: WKWebView) {
         guard let url = request.url else { return }
 
@@ -664,6 +672,10 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         // Parity with main browser: performDefaultHandling enables system keychain
         // lookups, MDM client certs, and SSO extensions (e.g. Microsoft Entra ID).
         completionHandler(.performDefaultHandling, nil)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        controller?.handleWebContentProcessTermination(for: webView)
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {

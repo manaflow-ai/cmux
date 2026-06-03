@@ -3626,3 +3626,88 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 }
+
+@MainActor
+final class OmnibarNativeTextFieldCaretTests: XCTestCase {
+    /// A window that hands the omnibar field a real, controllable field editor so
+    /// the click path can be exercised headlessly in CI (mirrors the probe pattern
+    /// used by the omnibar key-routing tests in `BrowserConfigTests`).
+    private final class CaretProbeWindow: NSWindow {
+        let probeFieldEditor = NSTextView(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+
+        override func fieldEditor(_ createFlag: Bool, for object: Any?) -> NSText? {
+            probeFieldEditor
+        }
+    }
+
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow,
+        clickCount: Int = 1,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: clickCount,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
+
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/5268: a single,
+    /// unmodified click that focuses the omnibar must leave a caret (zero-length
+    /// selection) at the click position, not select the entire URL.
+    func testSingleClickFocusPlacesCaretInsteadOfSelectingAll() {
+        let window = CaretProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 80, width: 360, height: 24))
+        field.font = .systemFont(ofSize: 12)
+        field.isEditable = true
+        field.isSelectable = true
+        field.isEnabled = true
+        field.stringValue = "https://github.com/manaflow-ai/cmux"
+        container.addSubview(field)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            field.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        // Do NOT pre-focus: the bug only manifests on the click that first acquires
+        // focus, where the old code forced a select-all on mouseUp.
+        let clickPoint = NSPoint(x: field.frame.midX, y: field.frame.midY)
+        let pointInWindow = container.convert(clickPoint, to: nil)
+        field.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window))
+        field.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: pointInWindow, window: window))
+
+        guard let editor = field.currentEditor() as? NSTextView else {
+            XCTFail("Expected a field editor after the click acquired focus")
+            return
+        }
+        let textLength = (editor.string as NSString).length
+        XCTAssertGreaterThan(textLength, 0, "Test precondition: the omnibar should contain a URL")
+        XCTAssertEqual(
+            editor.selectedRange().length,
+            0,
+            "A single click must place a caret, not select the whole URL"
+        )
+    }
+}
