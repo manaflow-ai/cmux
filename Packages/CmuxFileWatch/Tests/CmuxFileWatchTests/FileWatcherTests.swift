@@ -75,6 +75,61 @@ import Testing
         #expect(await firstEvent(watcher, within: 5))
     }
 
+    @Test func directoryTargetYieldsOnChildChange() async throws {
+        // The FileExplorer path: the watched path is itself a directory, and a
+        // change to its contents must yield.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-watcher-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let watcher = FileWatcher(path: directory.path)
+        defer { Task { await watcher.stop() } }
+
+        try "child".write(to: directory.appendingPathComponent("child.txt"), atomically: true, encoding: .utf8)
+
+        #expect(await firstEvent(watcher, within: 5))
+    }
+
+    @Test func atomicReplaceYieldsEvent() async throws {
+        // The MarkdownPanel / JSONConfigStore save path: an atomic write replaces
+        // the inode (temp file + rename), so the watcher must reattach via the
+        // directory source and still yield.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-watcher-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("watched.txt")
+        try "initial".write(to: file, atomically: true, encoding: .utf8)
+
+        let watcher = FileWatcher(path: file.path)
+        defer { Task { await watcher.stop() } }
+
+        // `.atomic` writes to a sibling temp file then renames over the original,
+        // replacing the inode the file source was attached to.
+        try "replaced".write(to: file, atomically: true, encoding: .utf8)
+
+        #expect(await firstEvent(watcher, within: 5))
+    }
+
+    @Test func throttledWatcherYieldsAfterChange() async throws {
+        // A throttled watcher (the FileExplorer/MarkdownPanel coalescing config)
+        // still delivers an event for a real change.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-watcher-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("watched.txt")
+        try "initial".write(to: file, atomically: true, encoding: .utf8)
+
+        let watcher = FileWatcher(path: file.path, throttle: .milliseconds(50))
+        defer { Task { await watcher.stop() } }
+
+        try "changed".write(to: file, atomically: false, encoding: .utf8)
+
+        #expect(await firstEvent(watcher, within: 5))
+    }
+
     @Test func stopFinishesStream() async {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-file-watcher-\(UUID().uuidString)", isDirectory: true)
