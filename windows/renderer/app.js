@@ -18668,6 +18668,33 @@ async function copySavedBackgroundImageSource(background) {
   return copyBackgroundImageSource(background?.url, "Background source copied.");
 }
 
+function terminalColorPresetById(presetId) {
+  return terminalColorPresets.find((candidate) => candidate.id === presetId) || null;
+}
+
+function terminalColorPresetProfileSettings(preset) {
+  if (!preset) return null;
+  return normalizeSettings({
+    ...state.settings,
+    terminalBackground: preset.background,
+    terminalForeground: preset.foreground,
+    terminalCursorColor: preset.cursor
+  });
+}
+
+function savedSettingsProfileForTerminalColorPreset(preset) {
+  const settings = terminalColorPresetProfileSettings(preset);
+  if (!settings) return null;
+  return state.savedSettingsProfiles.find((profile) => settingsProfileMatchesSettings(profile, settings)) || null;
+}
+
+function terminalColorPresetProfileSaveTitle(preset, savedProfile = savedSettingsProfileForTerminalColorPreset(preset)) {
+  if (!preset) return "Choose a terminal color preset first.";
+  if (savedProfile) return `${savedProfile.label} already saves ${preset.label}.`;
+  if (savedSettingsProfilesFull()) return settingsProfileLimitTitle();
+  return "Save this terminal color preset as a reusable profile.";
+}
+
 function isActiveTerminalColorPreset(preset) {
   return state.settings.terminalBackground === preset.background
     && state.settings.terminalForeground === preset.foreground
@@ -18675,7 +18702,7 @@ function isActiveTerminalColorPreset(preset) {
 }
 
 function isTerminalColorPresetIdActive(presetId) {
-  const preset = terminalColorPresets.find((candidate) => candidate.id === presetId);
+  const preset = terminalColorPresetById(presetId);
   return Boolean(preset && isActiveTerminalColorPreset(preset));
 }
 
@@ -18838,10 +18865,31 @@ function terminalColorPalettePayload() {
   };
 }
 
-async function copyTerminalColorPalette() {
-  const payload = JSON.stringify(terminalColorPalettePayload(), null, 2);
+function terminalColorPresetPalettePayload(preset) {
+  if (!preset) return null;
+  return {
+    type: "cmux-terminal-colors",
+    effective: {
+      background: preset.background || terminalColorDefaults.background,
+      foreground: preset.foreground || terminalColorDefaults.foreground,
+      cursor: preset.cursor || state.settings.accent || terminalColorDefaults.cursor
+    },
+    settings: {
+      terminalBackground: preset.background,
+      terminalForeground: preset.foreground,
+      terminalCursorColor: preset.cursor
+    }
+  };
+}
+
+async function copyTerminalColorPayload(payloadModel, toastText = "Terminal colors copied.") {
+  if (!payloadModel) {
+    toast("Choose terminal colors first.");
+    return false;
+  }
+  const payload = JSON.stringify(payloadModel, null, 2);
   if (await writeClipboardText(payload)) {
-    toast("Terminal colors copied.");
+    toast(toastText);
     return true;
   }
   await showTextDialog({
@@ -18853,6 +18901,19 @@ async function copyTerminalColorPalette() {
     readOnly: true
   });
   return false;
+}
+
+async function copyTerminalColorPalette() {
+  return copyTerminalColorPayload(terminalColorPalettePayload());
+}
+
+async function copyTerminalColorPresetPalette(presetId) {
+  const preset = terminalColorPresetById(presetId);
+  if (!preset) {
+    toast("Terminal color preset not found.");
+    return false;
+  }
+  return copyTerminalColorPayload(terminalColorPresetPalettePayload(preset), `${preset.label} terminal colors copied.`);
 }
 
 function terminalColorUpdatesFromPayload(payload) {
@@ -18933,10 +18994,14 @@ function applyTerminalColorPresetById(presetId) {
 function terminalColorPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "terminal-color-preset-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("terminal color theme preset powershell high contrast light warm graphite default");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("terminal color theme preset powershell high contrast light warm graphite default save profile copy");
   for (const preset of terminalColorPresets) {
-    const button = document.createElement("button");
     const active = isActiveTerminalColorPreset(preset);
+    const savedProfile = savedSettingsProfileForTerminalColorPreset(preset);
+    const card = document.createElement("div");
+    card.className = "terminal-color-preset-card";
+    card.dataset.settingsSearch = normalizeSettingsQuery(`terminal color preset theme save profile copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${preset.label} ${preset.body}`);
+    const button = document.createElement("button");
     button.className = `terminal-color-preset${active ? " is-active" : ""}`;
     button.type = "button";
     button.disabled = active;
@@ -18968,7 +19033,21 @@ function terminalColorPresetGrid() {
     button.onclick = () => {
       if (!isActiveTerminalColorPreset(preset)) applyTerminalColorPreset(preset);
     };
-    grid.append(button);
+    const actions = document.createElement("div");
+    actions.className = "terminal-color-preset-actions";
+    const save = settingsActionButton(
+      savedProfile ? "Saved" : "Save",
+      () => saveTerminalColorPresetProfile(preset.id),
+      savedProfile ? "primary" : "",
+      `terminal color preset save profile reusable ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body}`
+    );
+    save.disabled = Boolean(savedProfile) || savedSettingsProfilesFull();
+    save.title = terminalColorPresetProfileSaveTitle(preset, savedProfile);
+    const copy = settingsActionButton("Copy", () => copyTerminalColorPresetPalette(preset.id), "", `terminal color preset copy palette clipboard json ${preset.label} ${preset.body}`);
+    copy.title = "Copy these terminal colors as JSON.";
+    actions.append(save, copy);
+    card.append(button, actions);
+    grid.append(card);
   }
   return grid;
 }
@@ -20011,6 +20090,33 @@ function saveCurrentTerminalProfile() {
     message: "Save the current terminal font, colors, cursor, shell, and supporting app settings.",
     baseName: "Terminal profile"
   });
+}
+
+function saveTerminalColorPresetProfile(presetId) {
+  const preset = terminalColorPresetById(presetId);
+  if (!preset) {
+    toast("Terminal color preset not found.");
+    return null;
+  }
+  const existing = savedSettingsProfileForTerminalColorPreset(preset);
+  if (existing) {
+    toast(`${existing.label} profile already saves ${preset.label}.`);
+    return existing;
+  }
+  if (savedSettingsProfilesFull()) {
+    toast(settingsProfileLimitTitle());
+    return null;
+  }
+  const saved = upsertSavedSettingsProfile({
+    id: createSettingsProfileId(),
+    label: defaultSettingsProfileName(`${preset.label} terminal`),
+    settings: terminalColorPresetProfileSettings(preset),
+    createdAt: Date.now()
+  });
+  if (!saved) return null;
+  renderSettingsInspector();
+  toast(`${saved.label} profile saved.`);
+  return saved;
 }
 
 function saveCurrentBrowserProfile() {
@@ -22307,6 +22413,7 @@ function paletteEntries() {
   });
   for (const preset of terminalColorPresets) {
     const active = isActiveTerminalColorPreset(preset);
+    const savedProfile = savedSettingsProfileForTerminalColorPreset(preset);
     entries.push({
       id: `terminalColor.${preset.id}`,
       label: `Terminal colors: ${preset.label}`,
@@ -22317,6 +22424,25 @@ function paletteEntries() {
       title: terminalColorPresetTitle(preset, active),
       search: normalizeSettingsQuery(`terminal colors theme preset apply active ${preset.label} ${preset.body}`),
       run: () => applyTerminalColorPreset(preset)
+    });
+    entries.push({
+      id: `terminalColor.save.${preset.id}`,
+      label: `Save terminal profile: ${preset.label}`,
+      meta: savedProfile ? `Already saved / ${savedProfile.label}` : savedSettingsProfileCountLabel(),
+      shortcut: savedProfile ? "Saved" : "Save",
+      disabled: Boolean(savedProfile) || savedSettingsProfilesFull(),
+      title: terminalColorPresetProfileSaveTitle(preset, savedProfile),
+      search: normalizeSettingsQuery(`terminal colors theme preset save profile reusable ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body}`),
+      run: () => saveTerminalColorPresetProfile(preset.id)
+    });
+    entries.push({
+      id: `terminalColor.copy.${preset.id}`,
+      label: `Copy terminal colors: ${preset.label}`,
+      meta: preset.body,
+      shortcut: "Copy",
+      title: "Copy these terminal colors as JSON.",
+      search: normalizeSettingsQuery(`terminal colors theme preset copy palette clipboard json ${preset.label} ${preset.body}`),
+      run: () => copyTerminalColorPresetPalette(preset.id)
     });
   }
   const presetProfilesFull = savedSettingsProfilesFull();
