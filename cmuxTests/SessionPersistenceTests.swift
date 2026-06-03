@@ -3956,11 +3956,11 @@ extension SessionPersistenceTests {
         )
 
         let startupInput = try XCTUnwrap(binding.startupInput)
-        let cdRange = try XCTUnwrap(startupInput.range(of: "cd -- '/tmp/project'"))
         let envRange = try XCTUnwrap(startupInput.range(of: "'/usr/bin/env'"))
-        let commandRange = try XCTUnwrap(startupInput.range(of: "'codex resume session'"))
-        XCTAssertLessThan(cdRange.lowerBound, envRange.lowerBound)
+        let cdRange = try XCTUnwrap(startupInput.range(of: "cd -- '\\''/tmp/project'\\''"))
+        let commandRange = try XCTUnwrap(startupInput.range(of: "codex resume session"))
         XCTAssertLessThan(envRange.lowerBound, commandRange.lowerBound)
+        XCTAssertLessThan(cdRange.lowerBound, commandRange.lowerBound)
         XCTAssertTrue(startupInput.contains("'CODEX_HOME=/tmp/codex home'"), startupInput)
         XCTAssertFalse(startupInput.contains("ANTHROPIC_API_KEY"), startupInput)
     }
@@ -4159,7 +4159,7 @@ extension SessionPersistenceTests {
         let prefix = "/bin/zsh '"
         let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
         let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        let cdRange = try XCTUnwrap(scriptContents.range(of: "cd -- '/tmp/project with spaces'"))
+        let cdRange = try XCTUnwrap(scriptContents.range(of: "cd -- '\\''/tmp/project with spaces'\\''"))
         let commandRange = try XCTUnwrap(scriptContents.range(of: "codex resume session"))
         XCTAssertLessThan(cdRange.lowerBound, commandRange.lowerBound)
         XCTAssertTrue(scriptContents.contains(longPath))
