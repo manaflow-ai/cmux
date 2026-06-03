@@ -10854,7 +10854,7 @@ struct CMUXCLI {
 
     private func sshOptionValue(named key: String, in options: [String]) -> String? {
         let loweredKey = key.lowercased()
-        for option in options {
+        for option in options.reversed() {
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
             let parts = trimmed.split(

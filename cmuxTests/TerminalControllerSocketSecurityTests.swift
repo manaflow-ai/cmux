@@ -301,6 +301,49 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
     }
 
+    func testRemoteConfigureUsesLastForwardAgentOption() throws {
+        let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
+        setenv("SSH_AUTH_SOCK", "/tmp/cmux-configure-agent.sock", 1)
+        defer {
+            if let previousAgentSocketPath {
+                setenv("SSH_AUTH_SOCK", previousAgentSocketPath, 1)
+            } else {
+                unsetenv("SSH_AUTH_SOCK")
+            }
+        }
+
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "transport": "ssh",
+                "destination": "example.com",
+                "ssh_options": ["ForwardAgent=yes", "ForwardAgent=no"],
+                "auto_connect": false,
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertNil(workspace.remoteConfiguration?.agentSocketPath)
+        XCTAssertNil(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
+        XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
+    }
+
     func testRemoteConfigureRejectsPersistentDaemonSlotWithoutPreserve() throws {
         let response = try handleV2Request(
             method: "workspace.remote.configure",

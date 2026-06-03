@@ -94,10 +94,10 @@ private enum WorkspaceRemoteSSHOptionFilter {
         return normalizedAgentSocketPath(trimmed)
     }
 
-    /// Reads the first non-empty value for an OpenSSH-style `-o key=value` or `-o key value` option.
+    /// Reads the last non-empty value for an OpenSSH-style `-o key=value` or `-o key value` option.
     private static func optionValue(named key: String, in options: [String]) -> String? {
         let loweredKey = key.lowercased()
-        for option in options {
+        for option in options.reversed() {
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
             let parts = trimmed.split(
@@ -367,7 +367,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
 
     private static func sshOptionValue(named name: String, in options: [String]) -> String? {
         let loweredName = name.lowercased()
-        for option in options {
+        for option in options.reversed() {
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
             if let equals = trimmed.firstIndex(of: "=") {
@@ -524,7 +524,6 @@ struct WorkspaceRemoteConfiguration: Equatable {
             && WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile)
                 == WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(other.identityFile)
             && Self.proxyBrokerSSHOptions(sshOptions) == Self.proxyBrokerSSHOptions(other.sshOptions)
-            && self.agentSocketPath == other.agentSocketPath
             && daemonWebSocketEndpoint?.proxyBrokerKeyComponent == other.daemonWebSocketEndpoint?.proxyBrokerKeyComponent
     }
 }

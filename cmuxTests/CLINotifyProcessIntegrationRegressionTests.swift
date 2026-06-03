@@ -2538,6 +2538,28 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
 
+    func testSSHForwardAgentRepeatedOptionUsesLastValue() throws {
+        let run = try runMockedSSH(
+            arguments: [
+                "--ssh-option", "ForwardAgent=yes",
+                "--ssh-option", "ForwardAgent=no",
+            ],
+            environmentOverrides: [
+                "SSH_AUTH_SOCK": "/tmp/cmux-test-agent-\(UUID().uuidString).sock",
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+
+        XCTAssertEqual(sshOptions.filter { $0.hasPrefix("ForwardAgent=") }, [
+            "ForwardAgent=yes",
+            "ForwardAgent=no",
+        ])
+        XCTAssertNil(createParams["initial_env"])
+        XCTAssertNil(configureParams["ssh_auth_sock"])
+    }
+
     func testSSHForwardAgentConfigPropagatesCallerAgentSocket() throws {
         let agentSocketPath = "/tmp/cmux-test-agent-\(UUID().uuidString).sock"
         let run = try runMockedSSH(
