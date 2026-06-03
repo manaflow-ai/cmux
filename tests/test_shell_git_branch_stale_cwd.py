@@ -155,6 +155,52 @@ def _run_case(
     return 0, f"{shell}: ok"
 
 
+def _run_zsh_chpwd_keeps_watch(base: Path, *, script: Path) -> tuple[int, str]:
+    # The zsh chpwd hook must scope the marker to the new cwd WITHOUT tearing down
+    # a running HEAD watch -- chpwd fires mid-line for `cd foo && long-cmd`, so
+    # stopping the watch there would drop live branch updates during the long
+    # step. Stand up a long-lived stand-in watch process, record its pid the way
+    # the integration does, change directory (which fires the hook) and assert the
+    # process survived.
+    nonrepo = base / "zsh-chpwd" / "nonrepo"
+    nonrepo.mkdir(parents=True, exist_ok=True)
+
+    command = textwrap.dedent(
+        """\
+        source "$CMUX_TEST_SCRIPT"
+        precmd_functions=()
+        preexec_functions=()
+        sleep 5 &
+        watch_pid=$!
+        _CMUX_GIT_HEAD_WATCH_PID=$watch_pid
+        cd "$CMUX_TEST_NONREPO"
+        if kill -0 "$watch_pid" 2>/dev/null; then print -r -- WATCH_ALIVE; else print -r -- WATCH_DEAD; fi
+        kill "$watch_pid" 2>/dev/null || true
+        """
+    )
+
+    env = dict(os.environ)
+    env["CMUX_TEST_SCRIPT"] = str(script)
+    env["CMUX_TEST_NONREPO"] = str(nonrepo)
+    env.pop("_CMUX_GIT_ACTIVE_PWD_FILE", None)
+
+    try:
+        result = subprocess.run(
+            ["zsh", "-f", "-c", command],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except FileNotFoundError:
+        return 1, "zsh: shell binary not found; cannot exercise chpwd watch behavior"
+
+    output = (result.stdout or "") + (result.stderr or "")
+    if "WATCH_ALIVE" not in output:
+        return 1, f"zsh: chpwd tore down a running HEAD watch on cd; compound-command live updates would break: {output!r}"
+    return 0, "zsh chpwd: keeps the HEAD watch alive"
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     cases = [
@@ -175,6 +221,14 @@ def main() -> int:
                 continue
             ran += 1
             rc, detail = _run_case(base, shell=shell, shell_args=shell_args, script=script)
+            if rc != 0:
+                failures.append(detail)
+
+        # zsh-only: chpwd must keep a running HEAD watch alive so compound commands
+        # like `cd foo && long-cmd` still get live branch updates (cases[0] is zsh).
+        zsh_script = cases[0][2]
+        if zsh_script.exists():
+            rc, detail = _run_zsh_chpwd_keeps_watch(base, script=zsh_script)
             if rc != 0:
                 failures.append(detail)
 

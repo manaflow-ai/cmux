@@ -1724,8 +1724,14 @@ _cmux_fix_path() {
 }
 
 _cmux_chpwd() {
+    # Only refresh the active-cwd marker so async git reporters (the HEAD-watch
+    # loop and deferred prompt probes) are scoped to the new cwd. Do NOT tear the
+    # HEAD watch down here: chpwd fires mid-line for compound commands such as
+    # `cd foo && pnpm dev`, and killing the watcher would drop live branch updates
+    # during the long-running step. The marker guard already suppresses any stale
+    # report for the path the shell just left, and precmd stops the watch at the
+    # next prompt.
     _cmux_set_git_active_pwd "$PWD"
-    _cmux_stop_git_head_watch
 }
 
 _cmux_restore_terminal_identity_after_startup() {
