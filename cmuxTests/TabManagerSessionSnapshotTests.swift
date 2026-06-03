@@ -1956,6 +1956,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         remoteWorkspace.setCustomTitle("Remote Mac mini")
         let identityFile = "~/.ssh/id_ed25519"
         let expandedIdentityFile = (identityFile as NSString).expandingTildeInPath
+        let agentSocketPath = "/tmp/cmux-restore-agent.sock"
         let configuration = WorkspaceRemoteConfiguration(
             destination: "dev@example.com",
             port: 2222,
@@ -1965,13 +1966,15 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 "ControlMaster=auto",
                 "ControlPersist=60s",
                 "StrictHostKeyChecking=accept-new",
+                "ForwardAgent=yes",
             ],
             localProxyPort: nil,
             relayPort: 64002,
             relayID: "relay-restore-test",
             relayToken: String(repeating: "d", count: 64),
             localSocketPath: "/tmp/cmux-restore-test.sock",
-            terminalStartupCommand: "ssh dev@example.com"
+            terminalStartupCommand: "ssh dev@example.com",
+            agentSocketPath: agentSocketPath
         )
         remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
         let remotePanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
@@ -2004,7 +2007,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(remoteSnapshot.identityFile, expandedIdentityFile)
         XCTAssertEqual(remoteSnapshot.sshOptions, [
             "StrictHostKeyChecking=accept-new",
+            "ForwardAgent=yes",
         ])
+        XCTAssertEqual(remoteSnapshot.agentSocketPath, agentSocketPath)
 
         let restored = TabManager()
         restored.restoreSessionSnapshot(persistedTabManager)
@@ -2020,8 +2025,11 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(restoredWorkspace.terminalPanel(for: restoredPanelId)?.requestedWorkingDirectory)
         XCTAssertEqual(
             restoredWorkspace.remoteConfiguration?.terminalStartupCommand,
-            "ssh -p 2222 -i \(expandedIdentityFile) -o StrictHostKeyChecking=accept-new -tt dev@example.com"
+            "ssh -p 2222 -i \(expandedIdentityFile) -o StrictHostKeyChecking=accept-new -o ForwardAgent=yes -tt dev@example.com"
         )
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.agentSocketPath, agentSocketPath)
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
     }
 
     func testSessionSnapshotRestoresPersistentSSHPTYSessionAfterRelaunch() throws {

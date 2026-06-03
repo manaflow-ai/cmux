@@ -88,6 +88,7 @@ nonisolated struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable 
     var skipDaemonBootstrap: Bool?
     var relayPort: Int? = nil
     var persistentDaemonSlot: String? = nil
+    var agentSocketPath: String? = nil
 }
 
 struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable {
@@ -450,7 +451,7 @@ extension SessionRemoteWorkspaceSnapshot {
         localSocketPath: String? = nil,
         allowPersistentPTYRestore: Bool = true,
         preserveSSHOptions: Bool = false,
-        agentSocketPath: String? = nil
+        agentSocketPath overrideAgentSocketPath: String? = nil
     ) -> WorkspaceRemoteConfiguration? {
         guard transport == .ssh else { return nil }
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -527,7 +528,7 @@ extension SessionRemoteWorkspaceSnapshot {
                     sshOptions: restoredSSHOptions
                 ),
             foregroundAuthToken: foregroundAuthToken,
-            agentSocketPath: agentSocketPath,
+            agentSocketPath: overrideAgentSocketPath ?? agentSocketPath,
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession,
             persistentDaemonSlot: preservePTYSession ? normalizedPersistentDaemonSlot : nil,
@@ -626,7 +627,8 @@ extension WorkspaceRemoteConfiguration {
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap,
             relayPort: preserveAfterTerminalExit ? relayPort : nil,
-            persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil
+            persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil,
+            agentSocketPath: agentSocketPath
         )
     }
 }
