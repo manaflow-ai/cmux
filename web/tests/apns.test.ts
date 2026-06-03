@@ -288,6 +288,7 @@ describe("apns sender transport", () => {
 
     let results: Awaited<ReturnType<typeof sendApnsNotification>> = [];
     try {
+      // Fake req.end() is synchronous here, so both host groups have started before any await.
       expect(started).toEqual([sandboxHost, productionHost]);
     } finally {
       releaseSandbox();
@@ -366,6 +367,70 @@ describe("apns sender transport", () => {
     expect(results).toEqual([
       { deviceToken: "a".repeat(64), status: 0, reason: "connection_error", prune: false },
       { deviceToken: "b".repeat(64), status: 200, reason: undefined, prune: false },
+    ]);
+    expect(closed).toEqual([productionHost]);
+  });
+
+  test("keeps same-host successes when another request fails to start", async () => {
+    const productionHost = apnsHostForEnvironment("production");
+    const closed: string[] = [];
+
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+
+      close() {
+        return this;
+      }
+
+      end() {
+        this.emit("response", { ":status": 200 });
+        this.emit("end");
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      private requestCount = 0;
+
+      request() {
+        this.requestCount += 1;
+        if (this.requestCount === 2) {
+          throw new Error("request failed");
+        }
+        return new FakeRequest();
+      }
+
+      close() {
+        closed.push(productionHost);
+      }
+    }
+
+    const transport = {
+      connect: (host: string) => {
+        expect(host).toBe(productionHost);
+        return new FakeSession();
+      },
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+
+    const results = await sendApnsNotification(
+      { keyP8: p8, keyId: "KID-SAME-HOST-PARTIAL", teamId: "TEAM456" },
+      [
+        { deviceToken: "a".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" },
+        { deviceToken: "b".repeat(64), bundleId: "dev.cmux.app.beta", environment: "production" },
+      ],
+      { title: "agent", body: "done" },
+      1000,
+      transport,
+    );
+
+    expect(results).toEqual([
+      { deviceToken: "a".repeat(64), status: 200, reason: undefined, prune: false },
+      { deviceToken: "b".repeat(64), status: 0, reason: "request failed", prune: false },
     ]);
     expect(closed).toEqual([productionHost]);
   });

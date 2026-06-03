@@ -113,10 +113,21 @@ export async function sendApnsNotification(
 
   const results = await Promise.all(
     [...byHost.entries()].map(([host, hostTargets]) =>
-      sendHostGroup(transport, host, hostTargets, jwt, body, timeoutMs),
+      sendHostGroup(transport, host, hostTargets, jwt, body, timeoutMs).catch(() =>
+        connectionErrorResults(hostTargets),
+      ),
     ),
   );
   return results.flat();
+}
+
+function connectionErrorResults(hostTargets: readonly ApnsTarget[]): ApnsSendResult[] {
+  return hostTargets.map((target) => ({
+    deviceToken: target.deviceToken,
+    status: 0,
+    reason: "connection_error",
+    prune: false,
+  }));
 }
 
 async function sendHostGroup(
@@ -137,12 +148,7 @@ async function sendHostGroup(
     });
     return await Promise.all(hostTargets.map((t) => sendOne(connectedClient, jwt, t, body, timeoutMs, connError)));
   } catch {
-    return hostTargets.map((target) => ({
-      deviceToken: target.deviceToken,
-      status: 0,
-      reason: "connection_error",
-      prune: false,
-    }));
+    return connectionErrorResults(hostTargets);
   } finally {
     client?.close();
   }
@@ -165,15 +171,21 @@ function sendOne(
     };
     void connError.then(() => finish(0, "connection_error"));
 
-    const req = client.request({
-      ":method": "POST",
-      ":path": `/3/device/${target.deviceToken}`,
-      "apns-topic": target.bundleId,
-      "apns-push-type": "alert",
-      authorization: `bearer ${jwt}`,
-      "content-type": "application/json",
-      "content-length": String(body.length),
-    });
+    let req: http2.ClientHttp2Stream;
+    try {
+      req = client.request({
+        ":method": "POST",
+        ":path": `/3/device/${target.deviceToken}`,
+        "apns-topic": target.bundleId,
+        "apns-push-type": "alert",
+        authorization: `bearer ${jwt}`,
+        "content-type": "application/json",
+        "content-length": String(body.length),
+      });
+    } catch (err) {
+      finish(0, err instanceof Error ? err.message : "request_error");
+      return;
+    }
     req.setTimeout(timeoutMs, () => {
       req.close();
       finish(0, "timeout");
