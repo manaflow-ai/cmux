@@ -2560,32 +2560,27 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(configureParams["ssh_auth_sock"])
     }
 
-    func testSSHForwardAgentConfigPropagatesCallerAgentSocket() throws {
+    func testSSHPreservesCallerAgentSocketForOpenSSHConfigResolution() throws {
         let agentSocketPath = try makeExistingAgentSocketPath()
         let run = try runMockedSSH(
             arguments: [],
             environmentOverrides: [
-                "CMUX_TEST_SSH_G_OUTPUT": "forwardagent yes\n",
                 "SSH_AUTH_SOCK": agentSocketPath,
             ]
         )
         let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
         let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
-        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
         let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
 
-        XCTAssertTrue(sshOptions.contains("ForwardAgent=yes"), "ssh_options: \(sshOptions)")
+        XCTAssertNil(configureParams["ssh_options"])
         XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
 
-    func testSSHForwardAgentConfigLiteralSocketPathPropagatesSocketPath() throws {
+    func testSSHForwardAgentLiteralSocketPathPropagatesSocketPath() throws {
         let agentSocketPath = try makeExistingAgentSocketPath()
         let run = try runMockedSSH(
-            arguments: [],
-            environmentOverrides: [
-                "CMUX_TEST_SSH_G_OUTPUT": "forwardagent \(agentSocketPath)\n",
-            ]
+            arguments: ["--ssh-option", "ForwardAgent=\(agentSocketPath)"]
         )
         let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
         let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
@@ -2597,15 +2592,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
 
-    func testSSHForwardAgentConfigTildeSocketPathExpandsSocketPath() throws {
+    func testSSHForwardAgentTildeSocketPathExpandsSocketPath() throws {
         let homeURL = try makeTemporaryDirectory(prefix: "cmux-ssh-home")
         let tildeSocketPath = "~/.ssh/cmux-test-agent.sock"
         let expandedSocketURL = homeURL.appendingPathComponent(".ssh/cmux-test-agent.sock")
         try createExistingFile(at: expandedSocketURL)
         let run = try runMockedSSH(
-            arguments: [],
+            arguments: ["--ssh-option", "ForwardAgent=\(tildeSocketPath)"],
             environmentOverrides: [
-                "CMUX_TEST_SSH_G_OUTPUT": "forwardagent \(tildeSocketPath)\n",
                 "HOME": homeURL.path,
             ]
         )
@@ -2636,20 +2630,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     func testSSHNoForwardAgentFlagOverridesConfig() throws {
+        let agentSocketPath = try makeExistingAgentSocketPath()
         let run = try runMockedSSH(
             arguments: ["--no-forward-agent"],
             environmentOverrides: [
-                "CMUX_TEST_SSH_G_OUTPUT": "forwardagent yes\n",
-                "SSH_AUTH_SOCK": "/tmp/cmux-test-agent-\(UUID().uuidString).sock",
+                "SSH_AUTH_SOCK": agentSocketPath,
             ]
         )
         let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
         let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
         let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
 
         XCTAssertTrue(sshOptions.contains("ForwardAgent=no"), "ssh_options: \(sshOptions)")
-        XCTAssertNil(createParams["initial_env"])
-        XCTAssertNil(configureParams["ssh_auth_sock"])
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
 
     private func assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(

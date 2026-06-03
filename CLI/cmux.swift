@@ -7825,9 +7825,6 @@ struct CMUXCLI {
             throw CLIError(message: "ssh requires a destination (example: cmux ssh user@host)")
         }
         let agentForwarding = resolvedSSHAgentForwarding(
-            destination: destination,
-            port: port,
-            identityFile: identityFile,
             sshOptions: sshOptions,
             override: forwardAgentOverride
         )
@@ -7847,9 +7844,6 @@ struct CMUXCLI {
     }
 
     private func resolvedSSHAgentForwarding(
-        destination: String,
-        port: Int?,
-        identityFile: String?,
         sshOptions: [String],
         override: Bool?
     ) -> (sshOptions: [String], agentSocketPath: String?) {
@@ -7862,69 +7856,13 @@ struct CMUXCLI {
             forwardAgentValue = override ? "yes" : nil
         } else if let explicitForwardAgent = sshForwardAgentValue(in: resolvedOptions) {
             forwardAgentValue = Self.isSSHNoValue(explicitForwardAgent) ? nil : explicitForwardAgent
-        } else if let configuredForwardAgent = effectiveSSHConfigForwardAgent(
-            destination: destination,
-            port: port,
-            identityFile: identityFile,
-            sshOptions: resolvedOptions
-        ), !Self.isSSHNoValue(configuredForwardAgent) {
-            resolvedOptions.append("ForwardAgent=\(configuredForwardAgent)")
-            forwardAgentValue = configuredForwardAgent
         } else {
             forwardAgentValue = nil
         }
 
         let agentSocketPath = forwardAgentValue.flatMap(defaultSSHAgentSocketPath(forForwardAgentValue:))
+            ?? existingSSHAgentSocketPath(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"])
         return (resolvedOptions, agentSocketPath)
-    }
-
-    private func effectiveSSHConfigForwardAgent(
-        destination: String,
-        port: Int?,
-        identityFile: String?,
-        sshOptions: [String]
-    ) -> String? {
-#if DEBUG
-        if let fixture = ProcessInfo.processInfo.environment["CMUX_TEST_SSH_G_OUTPUT"] {
-            return sshForwardAgentValue(fromSSHConfigDump: fixture)
-        }
-#endif
-
-        var arguments = ["-G"]
-        if let port {
-            arguments += ["-p", String(port)]
-        }
-        if let identityFile = normalizedSSHIdentityPath(identityFile) {
-            arguments += ["-i", identityFile]
-        }
-        for option in sshOptions {
-            arguments += ["-o", option]
-        }
-        arguments.append(destination)
-
-        let result = runProcess(executablePath: "/usr/bin/ssh", arguments: arguments, timeout: 3)
-        guard result.status == 0 else {
-            cliDebugLog(
-                "cli.ssh.forwardAgent.resolve.failed target=\(destination) " +
-                "status=\(result.status) stderr=\(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
-            )
-            return nil
-        }
-
-        return sshForwardAgentValue(fromSSHConfigDump: result.stdout)
-    }
-
-    private func sshForwardAgentValue(fromSSHConfigDump output: String) -> String? {
-        for line in output.split(whereSeparator: \.isNewline) {
-            let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
-            guard parts.count == 2,
-                  parts[0].lowercased() == "forwardagent" else {
-                continue
-            }
-            let value = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? nil : value
-        }
-        return nil
     }
 
     private func sshOptionsRemovingForwardAgent(_ options: [String]) -> [String] {
