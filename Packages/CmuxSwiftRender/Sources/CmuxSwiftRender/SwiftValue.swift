@@ -44,6 +44,9 @@ public enum SwiftValue: Sendable, Equatable {
         case let .string(value):
             if name == "count" { return .int(value.count) }
             if name == "isEmpty" { return .bool(value.isEmpty) }
+            if name == "capitalized" { return .string(value.capitalized) }
+            if name == "uppercased" { return .string(value.uppercased()) }
+            if name == "lowercased" { return .string(value.lowercased()) }
             return nil
         default:
             return nil

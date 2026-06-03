@@ -601,6 +601,17 @@ import Testing
         #expect(radial?.children.first?.kind == .radialGradient)
     }
 
+    @Test func stringAndArrayJoinHelpers() {
+        let node = interp.evaluate("""
+        VStack {
+            Text(["a", "b", "c"].joined(separator: "/"))
+            Text("hello world".capitalized)
+            Text("a-b-c".replacingOccurrences(of: "-", with: "."))
+        }
+        """)
+        #expect(node?.children.map(\.text) == ["a/b/c", "Hello World", "a.b.c"])
+    }
+
     @Test func closuresHonorLocalLetBindings() {
         // map/reduce/sorted closures with a local `let` must define it (was a
         // bug: closures returned the first expression, skipping let bindings).

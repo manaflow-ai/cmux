@@ -317,6 +317,12 @@ struct ExpressionEvaluator {
                 return .array(result)
             case "isEmpty":
                 return .bool(values.isEmpty)
+            case "joined":
+                let separator: String = {
+                    if let firstArg, case let .string(v)? = eval(firstArg, env) { return v }
+                    return ""
+                }()
+                return .string(values.map { $0.displayString }.joined(separator: separator))
             default:
                 return nil
             }
@@ -332,7 +338,16 @@ struct ExpressionEvaluator {
             case "contains": return argString().map { .bool(s.contains($0)) }
             case "uppercased": return .string(s.uppercased())
             case "lowercased": return .string(s.lowercased())
+            case "capitalized": return .string(s.capitalized)
             case "isEmpty": return .bool(s.isEmpty)
+            case "replacingOccurrences":
+                func labeled(_ label: String) -> String? {
+                    guard let e = call.arguments.first(where: { $0.label?.text == label })?.expression else { return nil }
+                    if case let .string(v)? = eval(e, env) { return v }
+                    return nil
+                }
+                guard let target = labeled("of"), let replacement = labeled("with") else { return nil }
+                return .string(s.replacingOccurrences(of: target, with: replacement))
             case "split":
                 guard let sep = argString(), let first = sep.first else { return nil }
                 return .array(s.split(separator: first).map { .string(String($0)) })
