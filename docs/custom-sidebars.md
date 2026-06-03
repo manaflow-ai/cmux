@@ -72,13 +72,27 @@ Then right-click the sidebar button and choose **mine**.
 
 ## Live data you can bind to (read-only, refreshes ~1s)
 
-- `workspaces` — array of `{ id, title, selected, directory, tabs }`, where
-  `tabs` is an array of `{ id, title, focused }`.
-- `workspaceCount` — Int.
-- `selectedTitle` — String, the active workspace's title.
-- `clock` — `{ time ("HH:mm:ss"), hour, minute, second, epoch }`. The sidebar
-  re-renders about once a second, so clocks/countdowns and workspace changes
-  are live.
+- `workspaces` — array, one per workspace. Always present: `id`, `title`,
+  `selected` (Bool), `pinned` (Bool), `index` (Int), `directory`, `ports`
+  (array of Int) + `portCount`, `unread` (Int notifications), `tabs` + `tabCount`.
+  Present when the workspace has them (use `if let` / ternary): `description`,
+  `color` (hex), `branch` + `dirty` (Bool) from git, `pr`
+  (`{ number, label, url, status: open|merged|closed, stale, branch }`),
+  `progress` (`{ value: 0..1, label }`), `latestMessage` (last agent message),
+  `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
+  (`{ target, state, connected }`).
+- `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
+  `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
+  `dirty`, `ports` (array of Int).
+- `workspaceCount` — Int. `selectedTitle` — active workspace's title.
+  `selectedId` — its id. `unreadTotal` — total unread notifications.
+- `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The
+  sidebar re-renders about once a second, so clocks/countdowns and workspace
+  changes are live.
+
+Optional fields are omitted when the workspace doesn't have them, so guard with
+`if let b = w.branch { ... }` or `w.pr != nil ? ... : ...` rather than assuming
+they exist.
 
 ## Views
 
@@ -175,12 +189,14 @@ The dropped item's id and target index are sent as `workspace_id` and `index`.
 ## Not yet supported
 
 The interpreter is a growing subset. Currently missing: `@State` and input
-controls (`TextField`, `Toggle`, `Slider`, `Picker`); `switch`; user `func`s
-and reusable view structs; `popover`/`sheet`/`menu`; gradients and
-`.background(<view>)`; richer live data beyond workspaces/clock (git branch,
-ports, processes, file lists); number/date formatting helpers. If your sidebar
-needs one of these, write it the natural Swift way anyway, unsupported syntax is
-skipped rather than crashing, and ask for the feature.
+controls (`TextField`, `Toggle`, `Slider`, `Picker`); `switch`; reusable view
+structs; `popover`/`sheet`/`menu`; gradients and arbitrary `.overlay`/
+`.background(<view>)`. User `func`s and number/date formatting (`.formatted`)
+are supported. Workspace data (git branch/dirty, ports, PR, unread, remote,
+latest agent/prompt messages) is live; data cmux doesn't track (custom domain
+collections) won't appear. If your sidebar needs a missing feature, write it the
+natural Swift way anyway, unsupported syntax is skipped rather than crashing, and
+ask for the feature.
 
 ## Performance and lazy loading
 

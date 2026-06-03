@@ -10477,26 +10477,8 @@ struct VerticalTabsSidebar: View {
     /// itself, so it respects the sidebar snapshot-boundary rule.
     private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
-        let workspaces: [SwiftValue] = tabManager.tabs.map { workspace in
-            let focusedPanelId = workspace.focusedPanelId
-            var tabs: [SwiftValue] = []
-            for paneId in workspace.bonsplitController.allPaneIds {
-                for tab in workspace.bonsplitController.tabs(inPane: paneId) {
-                    guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
-                    tabs.append(.object([
-                        "id": .string(panelId.uuidString),
-                        "title": .string(tab.title),
-                        "focused": .bool(panelId == focusedPanelId),
-                    ]))
-                }
-            }
-            return .object([
-                "id": .string(workspace.id.uuidString),
-                "title": .string(workspace.customTitle ?? workspace.title),
-                "selected": .bool(workspace.id == selectedId),
-                "directory": .string(workspace.currentDirectory),
-                "tabs": .array(tabs),
-            ])
+        let workspaces: [SwiftValue] = tabManager.tabs.enumerated().map { index, workspace in
+            customSidebarWorkspaceValue(workspace, index: index, selectedId: selectedId)
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
         let c = Calendar.current.dateComponents([.hour, .minute, .second, .weekday], from: now)
@@ -10506,14 +10488,101 @@ struct VerticalTabsSidebar: View {
             "hour": .int(hour),
             "minute": .int(minute),
             "second": .int(second),
+            "weekday": .int(c.weekday ?? 0),
             "epoch": .int(Int(now.timeIntervalSince1970)),
         ])
         return [
             "workspaces": .array(workspaces),
             "workspaceCount": .int(tabManager.tabs.count),
             "selectedTitle": .string(selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? ""),
+            "selectedId": .string(selectedId?.uuidString ?? ""),
+            "unreadTotal": .int(notificationStore.unreadCount),
             "clock": clock,
         ]
+    }
+
+    /// Projects one workspace's live state into the interpreter value tree.
+    /// Optional fields are omitted when absent so interpreted `if let` / ternary
+    /// truthiness behaves; always-present fields default sensibly. Keep this in
+    /// sync with the data keys documented in `docs/custom-sidebars.md`.
+    private func customSidebarWorkspaceValue(_ workspace: Workspace, index: Int, selectedId: UUID?) -> SwiftValue {
+        let focusedPanelId = workspace.focusedPanelId
+        var fields: [String: SwiftValue] = [
+            "id": .string(workspace.id.uuidString),
+            "title": .string(workspace.customTitle ?? workspace.title),
+            "selected": .bool(workspace.id == selectedId),
+            "pinned": .bool(workspace.isPinned),
+            "index": .int(index),
+            "directory": .string(workspace.currentDirectory),
+            "ports": .array(workspace.listeningPorts.map { .int($0) }),
+            "portCount": .int(workspace.listeningPorts.count),
+            "unread": .int(notificationStore.unreadCount(forTabId: workspace.id)),
+            "tabs": .array(customSidebarSurfaceValues(workspace, focusedPanelId: focusedPanelId)),
+            "tabCount": .int(workspace.bonsplitController.allPaneIds.reduce(0) { $0 + workspace.bonsplitController.tabs(inPane: $1).count }),
+        ]
+        if let description = workspace.customDescription, !description.isEmpty { fields["description"] = .string(description) }
+        if let color = workspace.customColor, !color.isEmpty { fields["color"] = .string(color) }
+        if let git = workspace.gitBranch {
+            fields["branch"] = .string(git.branch)
+            fields["dirty"] = .bool(git.isDirty)
+        }
+        if let pr = workspace.pullRequest {
+            var prFields: [String: SwiftValue] = [
+                "number": .int(pr.number),
+                "label": .string(pr.label),
+                "url": .string(pr.url.absoluteString),
+                "status": .string(pr.status.rawValue),
+                "stale": .bool(pr.isStale),
+            ]
+            if let prBranch = pr.branch { prFields["branch"] = .string(prBranch) }
+            fields["pr"] = .object(prFields)
+        }
+        if let progress = workspace.progress {
+            var progressFields: [String: SwiftValue] = ["value": .double(progress.value)]
+            if let label = progress.label { progressFields["label"] = .string(label) }
+            fields["progress"] = .object(progressFields)
+        }
+        if let message = workspace.latestConversationMessage, !message.isEmpty { fields["latestMessage"] = .string(message) }
+        if let prompt = workspace.latestSubmittedMessage, !prompt.isEmpty { fields["latestPrompt"] = .string(prompt) }
+        if let at = workspace.latestSubmittedAt { fields["latestAt"] = .int(Int(at.timeIntervalSince1970)) }
+        if let target = workspace.remoteDisplayTarget {
+            fields["remote"] = .object([
+                "target": .string(target),
+                "state": .string(workspace.remoteConnectionState.rawValue),
+                "connected": .bool(workspace.remoteConnectionState == .connected),
+            ])
+        }
+        return .object(fields)
+    }
+
+    /// Projects a workspace's surfaces (terminal/browser/etc. tabs) into the
+    /// interpreter value tree, enriched with per-surface directory, pin, git,
+    /// and ports where available.
+    private func customSidebarSurfaceValues(_ workspace: Workspace, focusedPanelId: UUID?) -> [SwiftValue] {
+        var tabs: [SwiftValue] = []
+        for paneId in workspace.bonsplitController.allPaneIds {
+            for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
+                var surfaceFields: [String: SwiftValue] = [
+                    "id": .string(panelId.uuidString),
+                    "title": .string(tab.title),
+                    "focused": .bool(panelId == focusedPanelId),
+                    "pinned": .bool(workspace.pinnedPanelIds.contains(panelId)),
+                ]
+                if let directory = workspace.panelDirectories[panelId], !directory.isEmpty {
+                    surfaceFields["directory"] = .string(directory)
+                }
+                if let git = workspace.panelGitBranches[panelId] {
+                    surfaceFields["branch"] = .string(git.branch)
+                    surfaceFields["dirty"] = .bool(git.isDirty)
+                }
+                if let ports = workspace.surfaceListeningPorts[panelId], !ports.isEmpty {
+                    surfaceFields["ports"] = .array(ports.map { .int($0) })
+                }
+                tabs.append(.object(surfaceFields))
+            }
+        }
+        return tabs
     }
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
