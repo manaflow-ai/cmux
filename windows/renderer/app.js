@@ -3806,6 +3806,8 @@ const commands = [
   { id: "workspace.color", label: "Change Workspace Color", shortcut: "", run: () => cycleWorkspaceColor() },
   { id: "workspace.changeFolder", label: "Change Workspace Folder", shortcut: "", run: () => chooseWorkspaceFolder() },
   { id: "workspace.openFolder", label: "Open Workspace Folder", shortcut: "", run: () => openWorkspaceFolder() },
+  { id: "workspace.copySetup", label: "Copy Workspace Setup", shortcut: "", run: () => copyWorkspaceSetup() },
+  { id: "workspace.pasteSetup", label: "Paste Workspace Setup", shortcut: "", run: () => pasteWorkspaceSetup() },
   { id: "workspace.next", label: "Next Workspace", shortcut: "Ctrl+PageDown", run: () => cycleWorkspace(1) },
   { id: "workspace.previous", label: "Previous Workspace", shortcut: "Ctrl+PageUp", run: () => cycleWorkspace(-1) },
   { id: "workspace.last", label: "Switch to Last Workspace", shortcut: "Ctrl+Alt+Backspace", run: () => focusLastWorkspace() },
@@ -9924,6 +9926,17 @@ function renderSettingsInspector(options = {}) {
       true,
       "workspace color custom hex picker palette swatch reset default clear"
     ));
+    const workspaceActions = document.createElement("div");
+    workspaceActions.className = "settings-actions";
+    workspaceActions.dataset.settingsSearch = normalizeSettingsQuery("workspace setup copy paste rename name color folder directory cwd clipboard json");
+    const copyWorkspace = settingsActionButton("Copy setup", () => copyWorkspaceSetup(workspace), "", "workspace setup copy rename name color folder directory cwd clipboard json");
+    copyWorkspace.disabled = !workspace;
+    copyWorkspace.title = workspace ? "Copy this workspace name, color, and folder as JSON." : "Open a workspace before copying setup.";
+    const pasteWorkspace = settingsActionButton("Paste setup", () => pasteWorkspaceSetup(workspace), "", "workspace setup paste rename name color folder directory cwd clipboard json");
+    pasteWorkspace.disabled = !workspace;
+    pasteWorkspace.title = workspace ? "Apply copied cmux workspace setup." : "Open a workspace before pasting setup.";
+    workspaceActions.append(copyWorkspace, pasteWorkspace);
+    workspaceSection.append(workspaceActions);
     nodes.push(workspaceSection);
   }
 
@@ -17935,6 +17948,8 @@ function showWorkspaceContextMenu(event, workspace) {
     contextMenuButton("Rename", () => renameWorkspaceById(workspace.id, workspace.title)),
     contextMenuButton("Change folder", () => chooseWorkspaceFolder(workspace), !workspace.id),
     contextMenuButton("Open folder", () => openWorkspaceFolder(workspace), !workspace.cwd),
+    contextMenuButton("Copy setup", () => copyWorkspaceSetup(workspace)),
+    contextMenuButton("Paste setup", () => pasteWorkspaceSetup(workspace)),
     contextMenuButton("New terminal here", () => createTerminalPanel("right", { workspaceId: workspace.id })),
     contextMenuButton("Open browser here", () => openBrowserPrompt(workspace.id)),
     contextMenuButton("New workspace", () => createWorkspace()),
@@ -18217,6 +18232,8 @@ function showToolbarMenu(event) {
       contextMenuButton("Change workspace color", cycleWorkspaceColor),
       toolbarAction("Change workspace folder", () => chooseWorkspaceFolder(), !workspace, "Choose a folder for the active workspace.", workspaceRequiredTitle),
       toolbarAction("Open workspace folder", () => openWorkspaceFolder(), !workspace?.cwd, "Open this workspace folder.", workspace ? "This workspace does not have a folder yet." : workspaceRequiredTitle),
+      toolbarAction("Copy workspace setup", () => copyWorkspaceSetup(workspace), !workspace, "Copy this workspace name, color, and folder as JSON.", workspaceRequiredTitle),
+      toolbarAction("Paste workspace setup", () => pasteWorkspaceSetup(workspace), !workspace, "Apply copied cmux workspace setup.", workspaceRequiredTitle),
       contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
       (() => {
         const action = contextMenuButton("Save workspace blueprint", saveCurrentWorkspaceBlueprint, !canSaveCurrentWorkspaceBlueprint(workspace));
@@ -19569,6 +19586,150 @@ async function renameWorkspaceTo(title, workspaceId = activeWorkspace()?.id) {
   const nextTitle = trimmed.slice(0, 80);
   if (!workspace || !nextTitle || nextTitle === workspace.title) return false;
   return await updateWorkspace(workspace.id, { title: nextTitle });
+}
+
+function workspaceSetupTarget(workspace = activeWorkspace()) {
+  return state.data?.workspaces.find((candidate) => candidate.id === workspace?.id) || workspace || null;
+}
+
+function workspaceSetupPayload(workspace = activeWorkspace()) {
+  const target = workspaceSetupTarget(workspace);
+  if (!target) return null;
+  const settings = {
+    title: target.title || "",
+    color: target.color || "",
+    cwd: target.cwd || ""
+  };
+  return {
+    version: 1,
+    type: "cmux-workspace-setup",
+    summary: {
+      name: settings.title || "Workspace",
+      color: settings.color || "Default",
+      folder: target.cwdShort || settings.cwd || "No folder"
+    },
+    settings
+  };
+}
+
+async function copyWorkspaceSetup(workspace = activeWorkspace()) {
+  const payloadModel = workspaceSetupPayload(workspace);
+  if (!payloadModel) {
+    toast("Open a workspace to copy its setup.");
+    return false;
+  }
+  const payload = JSON.stringify(payloadModel, null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Workspace setup copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Workspace setup",
+    message: "Clipboard access is unavailable. The active workspace setup is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function workspaceSetupTitleUpdateFromValue(raw) {
+  if (typeof raw !== "string") return null;
+  const title = raw.trim().slice(0, 80);
+  return title || null;
+}
+
+function workspaceSetupColorUpdateFromValue(raw) {
+  if (raw === null || raw === "") return "";
+  if (typeof raw !== "string") return null;
+  const color = raw.trim();
+  return isAllowedUiColor(color, state.data?.palette || workspaceColorOptions) ? color : null;
+}
+
+function workspaceSetupFolderUpdateFromValue(raw) {
+  if (raw === null || raw === "") return undefined;
+  if (typeof raw !== "string") return null;
+  const cwd = stripWrappingQuotes(raw);
+  return cwd || undefined;
+}
+
+function workspaceSetupUpdatesFromPayload(payload) {
+  const parsed = importedObject(payload);
+  const source = importedObject(parsed?.settings) || parsed;
+  if (!source) return null;
+  const updates = {};
+  if (Object.prototype.hasOwnProperty.call(source, "title")) {
+    const title = workspaceSetupTitleUpdateFromValue(source.title);
+    if (title === null) return null;
+    updates.title = title;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "color")) {
+    const color = workspaceSetupColorUpdateFromValue(source.color);
+    if (color === null) return null;
+    updates.color = color;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "cwd")) {
+    const cwd = workspaceSetupFolderUpdateFromValue(source.cwd);
+    if (cwd === null) return null;
+    if (cwd !== undefined) updates.cwd = cwd;
+  }
+  return Object.keys(updates).length ? updates : null;
+}
+
+function workspaceSetupUpdatesChangeWorkspace(workspace, updates) {
+  if (!workspace || !updates) return false;
+  if (Object.prototype.hasOwnProperty.call(updates, "title")) {
+    const title = String(updates.title || "").trim().slice(0, 80);
+    if (title && workspace.title !== title) return true;
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "color") && (workspace.color || "") !== updates.color) {
+    return true;
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "cwd") && updates.cwd && workspace.cwd !== updates.cwd) {
+    return true;
+  }
+  return false;
+}
+
+async function applyWorkspaceSetupUpdates(updates, workspace = activeWorkspace()) {
+  const target = workspaceSetupTarget(workspace);
+  if (!target) {
+    toast("Open a workspace to paste setup.");
+    return false;
+  }
+  if (!updates) {
+    toast("Clipboard does not contain workspace setup.");
+    return false;
+  }
+  if (!workspaceSetupUpdatesChangeWorkspace(target, updates)) {
+    toast("Workspace setup already matches.");
+    return false;
+  }
+  const ok = await updateWorkspace(target.id, updates);
+  if (!ok) {
+    toast("Workspace setup could not be applied.");
+    return false;
+  }
+  if (updates.cwd) rememberRecentFolder(updates.cwd);
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast("Workspace setup applied.");
+  return true;
+}
+
+async function pasteWorkspaceSetup(workspace = activeWorkspace()) {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(clipboard);
+    return applyWorkspaceSetupUpdates(workspaceSetupUpdatesFromPayload(parsed), workspace);
+  } catch {
+    toast("Clipboard does not contain workspace setup.");
+    return false;
+  }
 }
 
 async function cycleWorkspaceColor(workspaceId = activeWorkspace()?.id) {
