@@ -1868,6 +1868,7 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
 }
 
 .surface-new-tab {
+  --surface-new-accent: var(--color-accent);
   align-self: center;
   position: relative;
   z-index: 3;
@@ -1882,7 +1883,7 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   padding: 0 8px 0 6px;
   border-color: var(--color-line);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-chrome) 16%);
+  background: color-mix(in oklch, var(--color-pane) 92%, var(--color-canvas) 8%);
   color: var(--color-muted);
   font: 720 11px/1 var(--font-ui);
   box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 6%, transparent);
@@ -1935,12 +1936,6 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   display: none;
 }
 
-.surface-new-tab:hover {
-  border-color: color-mix(in oklch, currentcolor 38%, var(--color-line));
-  background: color-mix(in oklch, currentcolor 10%, var(--color-pane));
-  color: var(--color-text);
-}
-
 .surface-tabs.is-crowded {
   --surface-add-width: 34px;
   --surface-add-gap: 5px;
@@ -1985,9 +1980,10 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   place-items: center;
   width: 24px;
   height: 24px;
-  border: 1px solid color-mix(in oklch, currentcolor 38%, var(--color-line) 62%);
+  border: 1px solid color-mix(in oklch, var(--surface-new-accent) 34%, var(--color-line) 66%);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, currentcolor 8%, var(--color-pane));
+  background: color-mix(in oklch, var(--surface-new-accent) 9%, var(--color-pane) 91%);
+  color: color-mix(in oklch, var(--surface-new-accent) 72%, var(--color-text) 28%);
 }
 
 .surface-new-tab svg {
@@ -2018,9 +2014,9 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   bottom: -4px;
   width: 13px;
   height: 13px;
-  border: 1px solid var(--color-line);
+  border: 1px solid color-mix(in oklch, var(--surface-new-accent) 34%, var(--color-line) 66%);
   border-radius: 50%;
-  background: var(--color-pane-active);
+  background: var(--color-canvas);
   color: var(--color-text);
 }
 
@@ -2044,33 +2040,28 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
 }
 
 .surface-new-terminal {
-  border-color: color-mix(in oklch, var(--color-success) 22%, var(--color-line) 78%);
+  --surface-new-accent: var(--color-success);
+  border-color: color-mix(in oklch, var(--surface-new-accent) 20%, var(--color-line) 80%);
 }
 
 .surface-new-browser {
-  border-color: color-mix(in oklch, var(--color-accent) 22%, var(--color-line) 78%);
-}
-
-.surface-new-terminal .surface-new-icon {
-  color: color-mix(in oklch, var(--color-success) 68%, var(--color-text) 32%);
-}
-
-.surface-new-browser .surface-new-icon {
-  color: color-mix(in oklch, var(--color-accent) 68%, var(--color-text) 32%);
+  --surface-new-accent: var(--color-accent);
+  border-color: color-mix(in oklch, var(--surface-new-accent) 20%, var(--color-line) 80%);
 }
 
 .surface-new-tab:hover {
-  border-color: color-mix(in oklch, currentcolor 48%, var(--color-line-strong) 52%);
-  background: color-mix(in oklch, var(--color-pane-active) 88%, currentcolor 12%);
+  border-color: color-mix(in oklch, var(--surface-new-accent) 42%, var(--color-line-strong) 58%);
+  background: color-mix(in oklch, var(--surface-new-accent) 10%, var(--color-pane-active) 90%);
   color: var(--color-text);
 }
 
 .surface-new-tab:hover .surface-new-icon {
-  background: color-mix(in oklch, currentcolor 12%, var(--color-pane-active));
+  border-color: color-mix(in oklch, var(--surface-new-accent) 54%, var(--color-line-strong) 46%);
+  background: color-mix(in oklch, var(--surface-new-accent) 15%, var(--color-pane-active) 85%);
 }
 
 .surface-new-tab:hover .surface-new-add {
-  border-color: color-mix(in oklch, currentcolor 36%, var(--color-line-strong));
+  border-color: color-mix(in oklch, var(--surface-new-accent) 48%, var(--color-line-strong) 52%);
 }
 
 .shell.density-compact:not(.add-tabs-labeled) .surface-new-tab {
