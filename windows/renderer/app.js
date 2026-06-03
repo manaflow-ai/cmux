@@ -14009,6 +14009,7 @@ function settingsCommandList() {
   const list = document.createElement("div");
   list.className = "settings-command-list";
   const grouped = settingsCommandGroups();
+  const activeLayoutCommandIds = activePaneLayoutCommandIds();
   for (const [group, groupCommands] of grouped.entries()) {
     const groupNode = document.createElement("div");
     groupNode.className = "settings-command-group";
@@ -14019,29 +14020,38 @@ function settingsCommandList() {
     title.textContent = group;
     groupNode.append(title);
     for (const command of groupCommands) {
-      groupNode.append(settingsCommandCard(command, group));
+      groupNode.append(settingsCommandCard(command, group, activeLayoutCommandIds.has(command.id)));
     }
     list.append(groupNode);
   }
   return list;
 }
 
-function settingsCommandCard(command, group) {
+function settingsCommandCard(command, group, active = false) {
   const card = document.createElement("div");
-  card.className = "settings-command-card";
-  card.dataset.settingsSearch = normalizeSettingsQuery(`actions commands shortcuts keyboard palette run ${group} ${command.id} ${command.label} ${command.shortcut}`);
+  card.className = `settings-command-card${active ? " is-active" : ""}`;
+  card.dataset.settingsSearch = normalizeSettingsQuery(`actions commands shortcuts keyboard palette run ${active ? "active current " : ""}${group} ${command.id} ${command.label} ${command.shortcut}`);
   const text = document.createElement("div");
   text.className = "settings-command-text";
+  const labelRow = document.createElement("span");
+  labelRow.className = "settings-command-label-row";
   const label = document.createElement("span");
   label.className = "settings-command-label";
   label.textContent = command.label;
+  labelRow.append(label);
+  if (active) {
+    const status = document.createElement("span");
+    status.className = "settings-command-status";
+    status.textContent = "Active";
+    labelRow.append(status);
+  }
   const id = document.createElement("span");
   id.className = "settings-command-id";
   id.textContent = command.id;
-  text.append(label, id);
+  text.append(labelRow, id);
   const shortcut = document.createElement("span");
   shortcut.className = "settings-command-shortcut";
-  shortcut.textContent = command.shortcut || "Palette";
+  shortcut.textContent = active ? "Active" : command.shortcut || "Palette";
   const run = document.createElement("button");
   run.className = `settings-command-run${isDangerCommand(command) ? " danger" : ""}`;
   run.type = "button";
