@@ -1,6 +1,7 @@
 "use client";
 
 import { ContextMenu } from "@base-ui-components/react/context-menu";
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { Link } from "../../../i18n/navigation";
@@ -22,8 +23,8 @@ export function BrandLogoLink({
         </Link>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Positioner sideOffset={8}>
-          <ContextMenu.Popup className="z-50 min-w-56 rounded-lg border border-border bg-background p-1.5 shadow-xl shadow-black/10 outline-none">
+        <ContextMenu.Positioner sideOffset={8} className="z-[1000]">
+          <ContextMenu.Popup className="z-[1000] min-w-64 rounded-lg border border-border bg-background p-1.5 shadow-xl shadow-black/10 outline-none">
             <ContextMenu.Group>
               <ContextMenu.GroupLabel className="px-2.5 py-2 text-xs text-muted">
                 {t("label")}
@@ -33,14 +34,22 @@ export function BrandLogoLink({
                 download="app-icon-light.png"
                 label={t("downloadLight")}
               >
-                <LightIcon />
+                <MenuIconImage
+                  src="/brand/app-icon-light.png"
+                  alt=""
+                  preview="light"
+                />
               </BrandMenuItem>
               <BrandMenuItem
                 href="/brand/app-icon-dark.png"
                 download="app-icon-dark.png"
                 label={t("downloadDark")}
               >
-                <DarkIcon />
+                <MenuIconImage
+                  src="/brand/app-icon-dark.png"
+                  alt=""
+                  preview="dark"
+                />
               </BrandMenuItem>
             </ContextMenu.Group>
             <ContextMenu.Separator className="my-1 h-px bg-border" />
@@ -59,7 +68,7 @@ export function BrandLogoLink({
 }
 
 const menuItemClass =
-  "flex min-h-9 cursor-default select-none items-center gap-3 rounded-md px-2.5 py-2 text-sm text-foreground outline-none hover:bg-code-bg data-[highlighted]:bg-code-bg";
+  "flex min-h-10 cursor-default select-none items-center gap-3 rounded-md px-2.5 py-2 text-sm text-foreground outline-none hover:bg-code-bg data-[highlighted]:bg-code-bg";
 
 function BrandMenuItem({
   children,
@@ -83,24 +92,32 @@ function BrandMenuItem({
   );
 }
 
-function LightIcon() {
+function MenuIconImage({
+  alt,
+  preview,
+  src,
+}: {
+  alt: string;
+  preview: "light" | "dark";
+  src: string;
+}) {
   return (
     <span
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-[#f7f7f7]"
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border p-0.5 ${
+        preview === "light"
+          ? "border-black/10 bg-[#f7f7f7]"
+          : "border-white/10 bg-[#0a0a0a]"
+      }`}
       aria-hidden="true"
     >
-      <span className="h-2.5 w-2.5 rounded-sm bg-[#171717]" />
-    </span>
-  );
-}
-
-function DarkIcon() {
-  return (
-    <span
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-[#171717]"
-      aria-hidden="true"
-    >
-      <span className="h-2.5 w-2.5 rounded-sm bg-[#f7f7f7]" />
+      <Image
+        src={src}
+        alt={alt}
+        width={1024}
+        height={1024}
+        unoptimized
+        className="h-full w-full rounded object-contain"
+      />
     </span>
   );
 }
