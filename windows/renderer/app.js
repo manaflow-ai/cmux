@@ -18392,6 +18392,50 @@ function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount =
   });
 }
 
+function quickLookControlsPanel() {
+  const lookSettingsDefault = appearanceSettingsAreDefault();
+  const profilesFull = savedSettingsProfilesFull();
+  const themeLabel = optionLabel(themeOptions, state.settings.theme, state.settings.theme);
+  const backgroundLabel = appearanceBackgroundLabel(state.settings.backgroundImage);
+  const actions = [
+    quickOverviewControlButton("Save profile", saveCurrentLookProfile, {
+      disabled: profilesFull,
+      title: profilesFull ? settingsProfileLimitTitle() : "Save this look as a reusable Settings profile.",
+      search: "quick setup look appearance save profile theme accent background terminal colors reusable"
+    }),
+    quickOverviewControlButton("Copy look", copyLookSettings, {
+      title: "Copy theme, accent, app background, and terminal colors as JSON.",
+      search: "quick setup look appearance copy theme accent background terminal colors clipboard json"
+    }),
+    quickOverviewControlButton("Paste look", pasteLookSettings, {
+      title: "Apply copied cmux look JSON.",
+      search: "quick setup look appearance paste theme accent background terminal colors clipboard json"
+    }),
+    quickOverviewControlButton("Reset look", resetAppearanceSettings, {
+      disabled: lookSettingsDefault,
+      title: lookSettingsDefault
+        ? "Look settings already match the default setup."
+        : "Reset theme, accent, app background, and terminal colors.",
+      search: `quick setup look appearance reset default theme accent background terminal colors ${lookSettingsDefault ? "active current" : ""}`
+    }),
+    quickOverviewControlButton("Looks", () => openSettingsCategory("appearance"), {
+      title: "Open full appearance settings.",
+      search: "quick setup look appearance settings theme accent background terminal color packs"
+    }),
+    quickOverviewControlButton("Gallery", () => openSettingsCategory("appearance", { query: "theme gallery", focusSearch: false }), {
+      title: "Open the theme gallery and look packs.",
+      search: "quick setup look appearance theme gallery visual preview packs"
+    })
+  ];
+  return quickOverviewControlsPanel({
+    className: "quick-overview-look",
+    title: "Look controls",
+    meta: `${activeLookPackLabel()} / ${themeLabel} / ${backgroundLabel}`,
+    search: `quick setup look appearance controls theme accent background terminal colors profile copy paste reset gallery packs ${activeLookPackLabel()} ${themeLabel} ${backgroundLabel} ${accentModeLabel()}`,
+    actions
+  });
+}
+
 function quickColorControlsPanel(workspace = activeWorkspace()) {
   const targetOption = colorApplyTargetOption(state.colorApplyTarget, workspace);
   const accentSave = currentColorSaveModel("accent", workspace);
@@ -18745,7 +18789,7 @@ function quickSetupOverviewPanel() {
   const librarySummary = quickCustomizationLibrarySummary(libraryEntries);
   const panel = document.createElement("div");
   panel.className = "quick-setup-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls theme layout terminal browser commands actions workflows shortcuts palette performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints starter layouts reusable colors backgrounds snippets packs data maintenance backup restore cleanup privacy storage`);
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls theme look appearance layout terminal browser commands actions workflows shortcuts palette performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints starter layouts reusable colors backgrounds snippets packs data maintenance backup restore cleanup privacy storage`);
   panel.innerHTML = `
     <div class="quick-overview-heading">
       <span class="quick-overview-copy">
@@ -18793,6 +18837,7 @@ function quickSetupOverviewPanel() {
     <div data-quick-terminal-controls></div>
     <div data-quick-command-controls></div>
     <div data-quick-browser-controls></div>
+    <div data-quick-look-controls></div>
     <div data-quick-color-controls></div>
     <button class="quick-overview-speed" type="button" data-performance-status>
       <span class="quick-overview-speed-icon" aria-hidden="true"></span>
@@ -18876,6 +18921,7 @@ function quickSetupOverviewPanel() {
   panel.querySelector("[data-quick-terminal-controls]").replaceWith(quickTerminalControlsPanel(workspace, terminalCount));
   panel.querySelector("[data-quick-command-controls]").replaceWith(quickCommandActionControlsPanel());
   panel.querySelector("[data-quick-browser-controls]").replaceWith(quickBrowserControlsPanel(workspace, browserCount));
+  panel.querySelector("[data-quick-look-controls]").replaceWith(quickLookControlsPanel());
   panel.querySelector("[data-quick-color-controls]").replaceWith(quickColorControlsPanel(workspace));
   const speed = panel.querySelector(".quick-overview-speed");
   speed.className = `quick-overview-speed is-${performance.status}`;
