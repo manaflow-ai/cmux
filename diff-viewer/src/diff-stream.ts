@@ -283,7 +283,7 @@ function appendFileDiffToModel(
   const previousState = path.length === 0 ? undefined : model.pathStateByTreePath.get(treePath);
   const renamedItem = previousState == null ? undefined : moveCurrentPathItemToPrevious(model, treePath, previousState);
   const stats = fileStats(fileDiff);
-  const itemId = model.itemIdToFile.has(treePath) ? uniqueDiffItemId(model, `${treePath}?2`) : treePath;
+  const itemId = previousState != null || model.itemIdToFile.has(treePath) ? uniqueDiffItemId(model, `${treePath}?2`) : treePath;
   const item: DiffItem = {
     id: itemId,
     type: "diff",
@@ -328,8 +328,10 @@ function moveCurrentPathItemToPrevious(model: StreamingDiffModel, treePath: stri
   const oldId = state.currentItemId;
   const suffix = state.currentType === "deleted" ? "?deleted" : "?previous";
   const newId = uniqueDiffItemId(model, `${treePath}${suffix}`);
-  state.currentItem.id = newId;
+  const replacementItem = { ...state.currentItem, id: newId };
+  state.currentItem = replacementItem;
   state.currentItemId = newId;
+  replaceModelItem(model.items, oldId, replacementItem);
   const itemMetadata = model.itemIdToFile.get(oldId);
   if (itemMetadata) {
     model.itemIdToFile.delete(oldId);
@@ -340,14 +342,19 @@ function moveCurrentPathItemToPrevious(model: StreamingDiffModel, treePath: stri
     model.treePathByItemId.set(newId, treePath);
   }
   if (model.pendingItemById.has(oldId)) {
-    const pendingItem = model.pendingItemById.get(oldId);
+    replaceModelItem(model.pendingItems, oldId, replacementItem);
     model.pendingItemById.delete(oldId);
-    if (pendingItem) {
-      model.pendingItemById.set(newId, pendingItem);
-    }
+    model.pendingItemById.set(newId, replacementItem);
     return undefined;
   }
   return { oldId, newId };
+}
+
+function replaceModelItem(items: DiffItem[], oldId: string, replacementItem: DiffItem): void {
+  const index = items.findIndex((item) => item.id === oldId);
+  if (index !== -1) {
+    items[index] = replacementItem;
+  }
 }
 
 function uniqueDiffItemId(model: StreamingDiffModel, baseId: string): string {
