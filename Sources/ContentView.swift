@@ -8850,8 +8850,7 @@ struct ContentView: View {
             }
             return false
         }
-        runCommandPaletteResolvedActivation(.command(commandID: commandID))
-        return true
+        return false
     }
 
     private func runSelectedCommandPaletteResult() {
