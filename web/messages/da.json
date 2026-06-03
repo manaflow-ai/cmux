@@ -242,6 +242,22 @@
         "p3": "Det sender det nuværende workspace bagerst i den ulæste cyklus, så du kan blive ved med at cykle gennem ulæst arbejde uden at rydde det.",
         "p4": "Cmd+Option+U skifter det nuværende workspace mellem læst og ulæst.",
         "p5": "Det er nyttigt, når du hopper til et nyt ulæst workspace med Cmd+Shift+U, men vil skifte kontekst før du svarer."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Genåbn lukkede terminaler, browsere, workspaces og agent-sessioner med Cmd+Shift+T, og gå tilbage gennem dit fokus med Cmd+[ og Cmd+].",
+        "date": "2. juni 2026",
+        "p1": "Du lukker et terminalfaneblad for at rydde op og opdager så, at du havde brug for det. Eller du lukker et helt workspace og mister den agent, der var midt i en opgave. cmux fører nu en historik over det, du har lukket og haft i fokus, så det kun kræver én genvej at få det tilbage.",
+        "reopenTitle": "Genåbn det, du har lukket",
+        "reopenP": "Tryk på <code>Cmd+Shift+T</code> for at genåbne det, du lukkede sidst. Det virker for terminalfaneblade, browserfaneblade, workspaces og vinduer og gendanner dem ét ad gangen i den rækkefølge, du lukkede dem. Hver flade vender tilbage til sin plads med ruderne intakte.",
+        "agentTitle": "Agent-sessioner kommer også tilbage",
+        "agentP": "Historikken genåbner også lukkede agent-sessioner. Genåbn en Claude Code-, Codex- eller OpenCode-session, og den fortsætter, hvor den slap. Kør <code>cmux hooks setup</code> én gang, så cmux kan holde styr på agent-sessioner; derefter genåbnes de som alt andet.",
+        "agentP2": "Det bygger på cmux <link>session-gendannelse</link>, som genoptager understøttede agenter via deres egne native genoptagelseskommandoer.",
+        "focusTitle": "Tilbage til der, hvor du var",
+        "focusP": "Frem- og tilbage-knapperne i titellinjen, eller <code>Cmd+[</code> og <code>Cmd+]</code>, springer til det forrige og næste workspace eller vindue, du arbejdede i, på samme måde som frem og tilbage i en browser.",
+        "fullHistoryTitle": "Det fulde historikpanel",
+        "fullHistoryP": "Når du har brug for mere end det seneste element, så åbn det fulde historikpanel: en søgbar visning grupperet efter dag over alt, du har lukket og haft i fokus, med tidsstempler og en Clear Closed-handling.",
+        "docsCta": "Se <link>tastaturgenveje</link> for den fulde liste, herunder hvordan du ombinder historiknavigationen."
       }
     },
     "zenOfCmux": {
@@ -367,6 +383,10 @@
         "AI-kodeagenter",
         "workspace ulæst"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: genåbn lukkede terminaler og sessioner",
+      "metaDescription": "cmux fører en historik over det, du har lukket og haft i fokus. Genåbn lukkede terminaler, browsere, workspaces og Claude Code-, Codex- og OpenCode-sessioner med Cmd+Shift+T, og flyt fokus frem og tilbage med Cmd+[ og Cmd+]."
     }
   },
   "docs": {
@@ -513,8 +533,17 @@
           "byCwd": {
             "newWorkspacePlacement": "Cwd-specifik tilsidesættelse for hvor Cmd-N i gruppen, gruppehovedets + knap og konfigurerede gruppehandlinger placerer det nye workspace: `afterCurrent` (efter det aktive workspace i gruppen, med top som fallback), `top` (anden plads, lige efter ankeret) eller `end` (efter det sidste medlem). Hvis den udelades, bruges den globale standard."
           }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "Brugerdefinerede kommandoer",

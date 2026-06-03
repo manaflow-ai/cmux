@@ -1,12 +1,13 @@
+import CmuxFileWatch
 import CmuxSettings
 import Foundation
 
 /// Loads a named custom sidebar file and hot-reloads it on change.
 ///
 /// The file is either an interpreted `.swift` view or a declarative `.json`
-/// document. Watched via ``JSONConfigFileWatcher`` (kqueue-backed); the model
-/// stores raw Swift source so the view can re-interpret it against the live
-/// data context, not only on file save.
+/// document. Watched via ``CmuxFileWatch/FileWatcher`` (kqueue-backed); the
+/// model stores raw Swift source so the view can re-interpret it against the
+/// live data context, not only on file save.
 @MainActor
 @Observable
 final class CustomSidebarModel {
@@ -22,6 +23,7 @@ final class CustomSidebarModel {
     let fileURL: URL
 
     private var watchTask: Task<Void, Never>?
+    private var watcher: FileWatcher?
 
     init(fileURL: URL) {
         self.fileURL = fileURL
@@ -31,9 +33,11 @@ final class CustomSidebarModel {
     func start() {
         reload()
         guard watchTask == nil else { return }
-        let url = fileURL
+        // Leading-edge throttle coalesces the burst of kqueue events an atomic
+        // save emits into one reload.
+        let watcher = FileWatcher(path: fileURL.path, throttle: .milliseconds(150))
+        self.watcher = watcher
         watchTask = Task { [weak self] in
-            let watcher = JSONConfigFileWatcher(fileURL: url)
             for await _ in watcher.events {
                 guard let self else { return }
                 self.reload()
@@ -44,6 +48,10 @@ final class CustomSidebarModel {
     func stop() {
         watchTask?.cancel()
         watchTask = nil
+        if let watcher {
+            self.watcher = nil
+            Task { await watcher.stop() }
+        }
     }
 
     /// Re-reads the file: stores `.swift` source verbatim, decodes `.json`.

@@ -242,6 +242,22 @@
         "p3": "Dadurch wandert der aktuelle Workspace ans Ende des ungelesenen Zyklus, sodass du weiter durch ungelesene Arbeit wechseln kannst, ohne sie zu löschen.",
         "p4": "Cmd+Option+U schaltet den aktuellen Workspace zwischen gelesen und ungelesen um.",
         "p5": "Das ist nützlich, wenn du mit Cmd+Shift+U zu einem neuen ungelesenen Workspace springst, aber vor der Antwort den Kontext wechseln musst."
+      },
+      "cmuxHistory": {
+        "title": "cmux history",
+        "summary": "Öffne geschlossene Terminals, Browser, Workspaces und Agent-Sitzungen mit Cmd+Shift+T wieder und verfolge deinen Fokus mit Cmd+[ und Cmd+] zurück.",
+        "date": "2. Juni 2026",
+        "p1": "Du schließt einen Terminal-Tab, um Ordnung zu schaffen, und merkst dann, dass du ihn doch brauchst. Oder du schließt einen ganzen Workspace und verlierst den Agent, der mitten in der Arbeit war. cmux führt jetzt einen Verlauf darüber, was du geschlossen und fokussiert hast, sodass ein Tastenkürzel genügt, um es zurückzuholen.",
+        "reopenTitle": "Wieder öffnen, was du geschlossen hast",
+        "reopenP": "Drücke <code>Cmd+Shift+T</code>, um das zuletzt Geschlossene wieder zu öffnen. Das funktioniert für Terminal-Tabs, Browser-Tabs, Workspaces und Fenster und stellt sie nacheinander in der Reihenfolge wieder her, in der du sie geschlossen hast. Jede Oberfläche kehrt an ihren Platz zurück, mit unveränderten Bereichen.",
+        "agentTitle": "Auch Agent-Sitzungen kommen zurück",
+        "agentP": "Der Verlauf öffnet auch geschlossene Agent-Sitzungen wieder. Öffne eine Claude-Code-, Codex- oder OpenCode-Sitzung erneut, und sie wird dort fortgesetzt, wo sie aufgehört hat. Führe einmal <code>cmux hooks setup</code> aus, damit cmux Agent-Sitzungen verfolgen kann; danach lassen sie sich wie alles andere wieder öffnen.",
+        "agentP2": "Das baut auf der cmux-<link>Sitzungswiederherstellung</link> auf, die unterstützte Agents über deren eigene native Wiederaufnahmebefehle wiederherstellt.",
+        "focusTitle": "Zurück zu deinem letzten Standort",
+        "focusP": "Die Vor- und Zurück-Schaltflächen in der Titelleiste oder <code>Cmd+[</code> und <code>Cmd+]</code> springen zum vorherigen und nächsten Workspace oder Fenster, in dem du gearbeitet hast, genauso wie Vor und Zurück im Browser.",
+        "fullHistoryTitle": "Das vollständige Verlaufsfenster",
+        "fullHistoryP": "Wenn du mehr als das letzte Element brauchst, öffne das vollständige Verlaufsfenster: eine durchsuchbare, nach Tagen gruppierte Ansicht von allem, was du geschlossen und fokussiert hast, mit Zeitstempeln und einer Aktion „Clear Closed“.",
+        "docsCta": "Die vollständige Liste, einschließlich wie du die Verlaufsnavigation neu belegst, findest du in den <link>Tastenkürzeln</link>."
       }
     },
     "zenOfCmux": {
@@ -367,6 +383,10 @@
         "KI-Coding-Agenten",
         "Workspace ungelesen"
       ]
+    },
+    "cmuxHistory": {
+      "metaTitle": "cmux history: geschlossene Terminals und Sitzungen wieder öffnen",
+      "metaDescription": "cmux führt einen Verlauf darüber, was du geschlossen und fokussiert hast. Öffne geschlossene Terminals, Browser, Workspaces sowie Claude-Code-, Codex- und OpenCode-Sitzungen mit Cmd+Shift+T wieder und bewege den Fokus mit Cmd+[ und Cmd+] vor und zurück."
     }
   },
   "docs": {
@@ -513,8 +533,17 @@
           "byCwd": {
             "newWorkspacePlacement": "Cwd-spezifische Überschreibung dafür, wo Cmd-N innerhalb der Gruppe, die + Schaltfläche im Gruppenkopf und konfigurierte Gruppenaktionen den neuen Workspace platzieren: `afterCurrent` (nach dem aktiven Workspace in der Gruppe, mit Rückfall auf top), `top` (zweite Position direkt nach dem Anker) oder `end` (nach dem letzten Mitglied). Wenn ausgelassen, wird der globale Standard verwendet."
           }
+        },
+        "markdown": {
+          "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+          "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
+          "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         }
-      }
+      },
+      "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
+      "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
+      "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
     },
     "customCommands": {
       "title": "Benutzerdefinierte Befehle",
