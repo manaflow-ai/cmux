@@ -13314,6 +13314,61 @@ function scheduleAppearancePreviewRefresh() {
   });
 }
 
+function themeChoiceById(themeId) {
+  return themePreviewOptions.find((candidate) => candidate.id === themeId) || null;
+}
+
+function themeChoiceLabel(theme) {
+  return optionLabel(themeOptions, theme?.id, theme?.id || "Theme");
+}
+
+function themeChoiceAccent(theme) {
+  return normalizeUiColor(theme?.accent, state.settings.accent || defaultSettings.accent);
+}
+
+function themeChoiceSettings(theme) {
+  if (!theme) return null;
+  return normalizeSettings({
+    ...state.settings,
+    theme: theme.id,
+    accent: themeChoiceAccent(theme)
+  });
+}
+
+function isActiveThemeChoice(theme) {
+  if (!theme) return false;
+  return state.settings.theme === theme.id
+    && colorKey(state.settings.accent) === colorKey(themeChoiceAccent(theme));
+}
+
+function savedSettingsProfileForThemeChoice(theme) {
+  const settings = themeChoiceSettings(theme);
+  if (!settings) return null;
+  return state.savedSettingsProfiles.find((profile) => settingsProfileMatchesSettings(profile, settings)) || null;
+}
+
+function themeChoiceProfileSaveTitle(theme, savedProfile = savedSettingsProfileForThemeChoice(theme)) {
+  if (!theme) return "Choose a theme first.";
+  if (savedProfile) return `${savedProfile.label} already saves ${themeChoiceLabel(theme)}.`;
+  if (savedSettingsProfilesFull()) return settingsProfileLimitTitle();
+  return "Save this theme and accent as a reusable profile.";
+}
+
+function applyThemeChoice(theme, options = {}) {
+  if (!theme) {
+    toast("Theme not found.");
+    return false;
+  }
+  const label = themeChoiceLabel(theme);
+  const changed = updateSettings({ theme: theme.id, accent: themeChoiceAccent(theme) });
+  if (!changed) {
+    if (options.toast !== false) toast(`${label} theme already active.`);
+    return false;
+  }
+  if (options.toast) toast(`${label} theme applied.`);
+  return true;
+}
+
 function refreshAppearancePreview() {
   const preview = elements.inspectorBody.querySelector(".appearance-preview");
   if (preview) preview.replaceWith(appearancePreviewPanel());
@@ -13325,15 +13380,16 @@ function refreshAppearancePreview() {
   const themeSelect = elements.inspectorBody.querySelector('[data-setting-control="theme"]');
   if (themeSelect && themeSelect.value !== state.settings.theme) themeSelect.value = state.settings.theme;
   for (const button of elements.inspectorBody.querySelectorAll("[data-theme-choice]")) {
-    const active = button.dataset.themeChoice === state.settings.theme;
+    const theme = themeChoiceById(button.dataset.themeChoice);
+    const active = isActiveThemeChoice(theme);
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
     const status = button.querySelector(".theme-choice-status");
     if (status) setTextIfChanged(status, active ? "Active" : "");
-    const theme = themePreviewOptions.find((candidate) => candidate.id === button.dataset.themeChoice);
     if (theme) {
-      const label = optionLabel(themeOptions, theme.id, theme.id);
-      const search = normalizeSettingsQuery(`theme visual gallery preview ${active ? "active current " : ""}${label} ${theme.id}`);
+      const label = themeChoiceLabel(theme);
+      const savedProfile = savedSettingsProfileForThemeChoice(theme);
+      const search = normalizeSettingsQuery(`theme visual gallery preview save profile copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${label} ${theme.id}`);
       if (button.dataset.settingsSearch !== search) {
         button.dataset.settingsSearch = search;
         updateSettingsSearchIndexItemSearch(button, search);
@@ -13346,16 +13402,20 @@ function refreshAppearancePreview() {
 function themeChoiceGrid() {
   const grid = document.createElement("div");
   grid.className = "theme-choice-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("theme gallery visual preview color appearance look");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("theme gallery visual preview color appearance look save profile copy");
   for (const theme of themePreviewOptions) {
-    const label = optionLabel(themeOptions, theme.id, theme.id);
+    const label = themeChoiceLabel(theme);
+    const active = isActiveThemeChoice(theme);
+    const savedProfile = savedSettingsProfileForThemeChoice(theme);
+    const card = document.createElement("div");
+    card.className = "theme-choice-card";
+    card.dataset.settingsSearch = normalizeSettingsQuery(`theme visual gallery preview save profile copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${label} ${theme.id}`);
     const button = document.createElement("button");
-    const active = theme.id === state.settings.theme;
     button.className = `theme-choice${active ? " is-active" : ""}`;
     button.type = "button";
-    button.title = label;
+    button.title = active ? `${label} theme already active.` : `Apply ${label} theme and accent.`;
     button.dataset.themeChoice = theme.id;
-    button.dataset.settingsSearch = normalizeSettingsQuery(`theme visual gallery preview ${active ? "active current " : ""}${label} ${theme.id}`);
+    button.dataset.settingsSearch = normalizeSettingsQuery(`theme visual gallery preview save profile copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${label} ${theme.id}`);
     button.setAttribute("aria-pressed", active ? "true" : "false");
     button.style.setProperty("--theme-preview-canvas", theme.canvas);
     button.style.setProperty("--theme-preview-pane", theme.pane);
@@ -13376,10 +13436,23 @@ function themeChoiceGrid() {
     button.querySelector(".theme-choice-label").textContent = label;
     button.querySelector(".theme-choice-status").textContent = active ? "Active" : "";
     button.onclick = () => {
-      const changed = updateSettings({ theme: theme.id });
-      if (!changed) toast(`${label} theme already active.`);
+      applyThemeChoice(theme);
     };
-    grid.append(button);
+    const actions = document.createElement("div");
+    actions.className = "theme-choice-actions";
+    const save = settingsActionButton(
+      savedProfile ? "Saved" : "Save",
+      () => saveThemeChoiceProfile(theme.id),
+      savedProfile ? "primary" : "",
+      `theme visual gallery save profile reusable ${savedProfile ? "saved active current " : ""}${label} ${theme.id}`
+    );
+    save.disabled = Boolean(savedProfile) || savedSettingsProfilesFull();
+    save.title = themeChoiceProfileSaveTitle(theme, savedProfile);
+    const copy = settingsActionButton("Copy", () => copyThemeChoiceProfile(theme.id), "", `theme visual gallery copy settings profile clipboard json ${label} ${theme.id}`);
+    copy.title = "Copy this theme as a Settings profile JSON.";
+    actions.append(save, copy);
+    card.append(button, actions);
+    grid.append(card);
   }
   return grid;
 }
@@ -20127,6 +20200,48 @@ function saveCurrentLookProfile() {
   });
 }
 
+function saveThemeChoiceProfile(themeId) {
+  const theme = themeChoiceById(themeId);
+  if (!theme) {
+    toast("Theme not found.");
+    return null;
+  }
+  const label = themeChoiceLabel(theme);
+  const existing = savedSettingsProfileForThemeChoice(theme);
+  if (existing) {
+    toast(`${existing.label} profile already saves ${label}.`);
+    return existing;
+  }
+  if (savedSettingsProfilesFull()) {
+    toast(settingsProfileLimitTitle());
+    return null;
+  }
+  const saved = upsertSavedSettingsProfile({
+    id: createSettingsProfileId(),
+    label: defaultSettingsProfileName(`${label} look`),
+    settings: themeChoiceSettings(theme),
+    createdAt: Date.now()
+  });
+  if (!saved) return null;
+  renderSettingsInspector();
+  toast(`${saved.label} profile saved.`);
+  return saved;
+}
+
+function copyThemeChoiceProfile(themeId) {
+  const theme = themeChoiceById(themeId);
+  if (!theme) {
+    toast("Theme not found.");
+    return false;
+  }
+  const label = themeChoiceLabel(theme);
+  return copySettingsProfilePayload({
+    label: `${label} look`,
+    settings: themeChoiceSettings(theme),
+    createdAt: Date.now()
+  }, `${label} theme profile copied.`);
+}
+
 function saveCurrentTerminalProfile() {
   return saveCurrentSettingsProfile({
     title: "Save terminal profile",
@@ -22147,7 +22262,7 @@ function paletteEntryKind(entry) {
   if (id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.")) return "settings";
   if (id.startsWith("layout.")) return "layout";
   if (id.startsWith("background") || id.startsWith("savedBackground")) return "look";
-  if (id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("savedColorPalette.") || id.startsWith("terminalColor.")) return "color";
+  if (id.startsWith("themeChoice.") || id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("savedColorPalette.") || id.startsWith("terminalColor.")) return "color";
   return "command";
 }
 
@@ -22526,6 +22641,42 @@ function paletteEntries() {
       title: "Copy these terminal colors as JSON.",
       search: normalizeSettingsQuery(`terminal colors theme preset copy palette clipboard json ${preset.label} ${preset.body}`),
       run: () => copyTerminalColorPresetPalette(preset.id)
+    });
+  }
+  const themeProfilesFull = savedSettingsProfilesFull();
+  for (const theme of themePreviewOptions) {
+    const label = themeChoiceLabel(theme);
+    const active = isActiveThemeChoice(theme);
+    const savedProfile = savedSettingsProfileForThemeChoice(theme);
+    entries.push({
+      id: `themeChoice.${theme.id}`,
+      label: `Theme: ${label}`,
+      meta: active ? `Active / ${theme.id}` : "Theme + accent",
+      shortcut: active ? "Active" : "Look",
+      active,
+      disabled: active,
+      title: active ? `${label} theme already active.` : `Apply ${label} theme and accent.`,
+      search: normalizeSettingsQuery(`theme visual gallery appearance look apply active accent ${label} ${theme.id}`),
+      run: () => applyThemeChoice(theme, { toast: true })
+    });
+    entries.push({
+      id: `themeChoice.save.${theme.id}`,
+      label: `Save theme profile: ${label}`,
+      meta: savedProfile ? `Already saved / ${savedProfile.label}` : savedSettingsProfileCountLabel(),
+      shortcut: savedProfile ? "Saved" : "Save",
+      disabled: Boolean(savedProfile) || themeProfilesFull,
+      title: themeChoiceProfileSaveTitle(theme, savedProfile),
+      search: normalizeSettingsQuery(`theme visual gallery appearance look save profile reusable accent ${savedProfile ? "saved active current " : ""}${label} ${theme.id}`),
+      run: () => saveThemeChoiceProfile(theme.id)
+    });
+    entries.push({
+      id: `themeChoice.copy.${theme.id}`,
+      label: `Copy theme profile: ${label}`,
+      meta: "Settings profile JSON",
+      shortcut: "Copy",
+      title: "Copy this theme as a Settings profile JSON.",
+      search: normalizeSettingsQuery(`theme visual gallery appearance look copy profile clipboard json accent ${label} ${theme.id}`),
+      run: () => copyThemeChoiceProfile(theme.id)
     });
   }
   const presetProfilesFull = savedSettingsProfilesFull();
