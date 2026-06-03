@@ -353,6 +353,23 @@ check_web_db_behavior_test_coverage() {
   echo "PASS: web DB behavior tests run in CI with CMUX_DB_TEST and Postgres"
 }
 
+check_swift_package_tests_require_nonzero_execution() {
+  if ! awk '
+    /^[[:space:]]*- name: Run Swift package unit tests$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /swift test --package-path "Packages\/\$pkg"/ { saw_swift_test=1 }
+    in_step && /tee "\$output_file"/ { saw_capture=1 }
+    in_step && /Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
+    in_step && /completed without executing any tests/ { saw_failure_message=1 }
+    END { exit(saw_swift_test && saw_capture && saw_nonzero_guard && saw_failure_message ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: Swift package unit-test lane must fail if a listed package completes without executing any XCTest or Swift Testing tests"
+    exit 1
+  fi
+
+  echo "PASS: Swift package unit-test lane rejects zero-test package runs"
+}
+
 check_tests_deriveddata_cache() {
   if ! awk '
     /^  tests:/ { in_job=1; next }
@@ -554,6 +571,7 @@ check_retryable_submodule_checkout
 check_split_theme_regression_timeout
 check_command_palette_nucleo_ffi_coverage
 check_web_db_behavior_test_coverage
+check_swift_package_tests_require_nonzero_execution
 check_tests_deriveddata_cache
 check_ui_regression_budget
 check_build_and_lag_budget
