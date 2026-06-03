@@ -9660,12 +9660,18 @@ function renderSettingsInspector(options = {}) {
         ? `Blueprint limit is ${workspaceBlueprintsLimit}. Delete one before saving another layout.`
         : "Open a workspace before saving a layout."
       : "Save the current workspace pane layout as a reusable blueprint.";
+    const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
+    const resetChromeAction = settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", `workspace chrome toolbar sidebar footer inspector tabs status header title reset ${workspaceChromeDefault ? "active current " : ""}`);
+    resetChromeAction.disabled = workspaceChromeDefault;
+    resetChromeAction.title = workspaceChromeDefault
+      ? "Workspace chrome already matches the default setup."
+      : "Reset toolbar, sidebar, tabs, status bar, and panel widths.";
     layoutActions.append(
       settingsActionButton(state.settings.focusMode ? "Leave focus" : "Focus mode", () => toggleFocusMode(), "", "focus mode simple clean hide chrome"),
       saveLayoutAction,
       settingsActionButton("Blueprints", () => openSettingsCategory("blueprints"), "", "open saved workspace blueprints layout templates"),
       settingsActionButton("Reset split layout", resetActivePaneLayout, "", "split layout pane splitter resize reset equal"),
-      settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", "workspace chrome toolbar sidebar footer inspector tabs status header title reset")
+      resetChromeAction
     );
     layoutSection.append(layoutActions);
     layoutSection.append(paneLayoutPresetsDisclosurePanel());
@@ -16631,7 +16637,7 @@ function showToolbarMenu(event) {
     contextMenuSectionTitle("Layout"),
     contextMenuActionGroup(
       contextMenuButton("Reset split layout", resetActivePaneLayout, !multiPane),
-      contextMenuButton("Reset workspace chrome", resetWorkspaceChrome),
+      contextMenuButton("Reset workspace chrome", resetWorkspaceChrome, workspaceChromeSettingsAreDefault()),
       contextMenuButton("Equalize panes", () => applyPaneLayoutPreset("equal"), !multiPane),
       contextMenuButton("Grid layout", () => applyPaneLayoutPreset("grid"), !multiPane),
       contextMenuButton("Active pane wide", () => applyPaneLayoutPreset("activeWide"), !multiPane),
@@ -19532,6 +19538,10 @@ function settingsKeysMatchDefaults(keys) {
 
 function appearanceSettingsAreDefault() {
   return settingsKeysMatchDefaults(appearanceResetSettings);
+}
+
+function workspaceChromeSettingsAreDefault() {
+  return settingsKeysMatchDefaults(workspaceChromeSettings);
 }
 
 function toggleFocusMode(nextValue = !state.settings.focusMode, options = {}) {
