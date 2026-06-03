@@ -49,7 +49,7 @@ final class ShortcutWhenClauseTests: XCTestCase {
         XCTAssertFalse(ShortcutWhenClause.atom(.terminalFocus).evaluate(state(sidebar: true)))
     }
 
-    func testWorkspaceDigitsExceptSidebar() {
+    func testWorkspaceDigitsExceptSidebar() throws {
         let clause = try XCTUnwrap(ShortcutWhenClause.parse("!sidebarFocus"))
         XCTAssertTrue(clause.evaluate(state()), "terminal focus → workspace digit allowed")
         XCTAssertTrue(clause.evaluate(state(browser: true)), "browser focus → workspace digit allowed")
