@@ -2665,19 +2665,57 @@ function savedColorApplyTitle(color, targetOption, active) {
   return `Apply ${label} to ${targetOption.label.toLowerCase()}.`;
 }
 
+function normalizeColorForTarget(color, target = state.colorApplyTarget) {
+  const raw = stripWrappingQuotes(color);
+  if (!raw) return "";
+  const customColor = normalizeCustomPaletteColor(raw);
+  if (customColor) return customColor;
+  const scope = normalizeColorApplyTarget(target);
+  if (scope === "accent") return normalizeUiColor(raw, "");
+  return isAllowedUiColor(raw, state.data?.palette || workspaceColorOptions) ? raw : "";
+}
+
+function pastedColorSourceFromPayload(payload) {
+  if (typeof payload === "string") return stripWrappingQuotes(payload);
+  const parsed = importedObject(payload);
+  if (!parsed) return "";
+  const settings = importedObject(parsed.settings);
+  const summary = importedObject(parsed.summary);
+  for (const value of [
+    parsed.color,
+    parsed.value,
+    parsed.hex,
+    parsed.accent,
+    settings?.accent,
+    summary?.accent
+  ]) {
+    if (typeof value !== "string") continue;
+    const color = stripWrappingQuotes(value);
+    if (color) return color;
+  }
+  return "";
+}
+
+function refreshAppearanceSettingsForColorChange() {
+  if (state.inspectorMode === "settings" && state.settingsCategory === "appearance") {
+    renderSettingsInspector();
+  }
+}
+
 async function applySavedColorToTarget(color, target = state.colorApplyTarget) {
-  const normalized = normalizeCustomPaletteColor(color);
+  const scope = normalizeColorApplyTarget(target);
+  const normalized = normalizeColorForTarget(color, scope);
   if (!normalized) {
-    toast("Choose a saved color first.");
+    toast("Choose a color this target can use.");
     return false;
   }
-  const scope = normalizeColorApplyTarget(target);
   if (scope === "accent") {
     if (colorKey(state.settings.accent) === colorKey(normalized)) {
       toast("Accent already uses this color.");
       return false;
     }
     updateSettings({ accent: normalized });
+    refreshAppearanceSettingsForColorChange();
     toast("Accent color updated.");
     return true;
   }
@@ -2692,6 +2730,7 @@ async function applySavedColorToTarget(color, target = state.colorApplyTarget) {
       return false;
     }
     await setWorkspaceColor(normalized, workspace.id);
+    refreshAppearanceSettingsForColorChange();
     toast("Workspace color updated.");
     return true;
   }
@@ -2706,10 +2745,33 @@ async function applySavedColorToTarget(color, target = state.colorApplyTarget) {
       return false;
     }
     await updatePanel(panel.id, { color: normalized });
+    refreshAppearanceSettingsForColorChange();
     toast("Pane color updated.");
     return true;
   }
   return setWorkspacePaneColors(normalized);
+}
+
+async function pasteColorToTarget(target = state.colorApplyTarget) {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  let source = "";
+  try {
+    source = pastedColorSourceFromPayload(JSON.parse(clipboard));
+  } catch {
+    source = pastedColorSourceFromPayload(clipboard);
+  }
+  const scope = normalizeColorApplyTarget(target);
+  const color = normalizeColorForTarget(source, scope);
+  if (!color) {
+    const targetOption = colorApplyTargetOption(scope);
+    toast(`Clipboard does not contain a color ${targetOption.label.toLowerCase()} can use.`);
+    return false;
+  }
+  return applySavedColorToTarget(color, scope);
 }
 
 async function applyBackgroundValueToTarget(value, target = state.backgroundApplyTarget, options = {}) {
@@ -15052,7 +15114,12 @@ function savedColorPalettePanel() {
 
   const actions = document.createElement("div");
   actions.className = "settings-actions saved-color-actions";
-  actions.dataset.settingsSearch = normalizeSettingsQuery("saved color palette save current accent workspace");
+  actions.dataset.settingsSearch = normalizeSettingsQuery("saved color palette paste clipboard apply save current accent workspace");
+  const pasteColor = settingsActionButton("Paste color", () => pasteColorToTarget(state.colorApplyTarget), "", "saved color paste clipboard apply selected target accent workspace pane all hex oklch");
+  pasteColor.disabled = Boolean(targetOption.disabled);
+  pasteColor.title = targetOption.disabled
+    ? `${targetOption.label}: ${targetOption.meta}.`
+    : `Paste a copied color to ${targetOption.label.toLowerCase()}.`;
   const saveAccent = settingsActionButton("Save accent", () => upsertCustomColorPalette(state.settings.accent), "", "saved color save current accent");
   applyCustomColorSaveLimit(saveAccent, state.settings.accent, "Save the current accent color.");
   const saveWorkspace = settingsActionButton("Save workspace", () => upsertCustomColorPalette(workspace?.color), "", "saved color save workspace");
@@ -15074,7 +15141,7 @@ function savedColorPalettePanel() {
     : clearPanes.disabled
       ? "Pane colors are already default."
       : "Clear pane colors in the active workspace.";
-  actions.append(saveAccent, saveWorkspace, savePane, clearWorkspace, clearPanes);
+  actions.append(pasteColor, saveAccent, saveWorkspace, savePane, clearWorkspace, clearPanes);
   panel.append(actions);
 
   if (state.customColorPalette.length === 0) {
@@ -18499,7 +18566,7 @@ function paletteEntryKind(entry) {
   if (id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.")) return "settings";
   if (id.startsWith("layout.")) return "layout";
   if (id.startsWith("background") || id.startsWith("savedBackground")) return "look";
-  if (id.startsWith("savedColor.") || id.startsWith("terminalColor.")) return "color";
+  if (id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("terminalColor.")) return "color";
   return "command";
 }
 
@@ -18794,6 +18861,24 @@ function paletteEntries() {
       title: disabled ? `${option.label}: ${option.meta}.` : colorCopyTitle(option.color, fallback, `Copy ${label} color value.`),
       search: normalizeSettingsQuery(`copy current ${label} color value clipboard ${option.status} ${option.meta}`),
       run: () => copyColorValue(option.color, fallback, toastText)
+    });
+  }
+  for (const [id, option] of [
+    ["accent", colorAccentTargetOption],
+    ["workspace", colorWorkspaceTargetOption],
+    ["pane", colorPaneTargetOption],
+    ["all", colorAllTargetOption]
+  ]) {
+    const label = option.label.toLowerCase();
+    entries.push({
+      id: `currentColor.paste.${id}`,
+      label: `Paste color to ${label}`,
+      meta: `${option.status} / ${option.meta}`,
+      shortcut: "Paste",
+      disabled: option.disabled,
+      title: option.disabled ? `${option.label}: ${option.meta}.` : `Paste a copied color to ${label}.`,
+      search: normalizeSettingsQuery(`paste copied clipboard ${label} color apply current target ${option.status} ${option.meta} hex oklch`),
+      run: () => pasteColorToTarget(id)
     });
   }
   for (const color of state.customColorPalette) {
