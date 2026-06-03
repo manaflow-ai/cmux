@@ -2774,11 +2774,158 @@ async function pasteColorToTarget(target = state.colorApplyTarget) {
   return applySavedColorToTarget(color, scope);
 }
 
+const backgroundSetupSettings = [
+  "backgroundImage",
+  "backgroundOpacity",
+  "backgroundFit",
+  "backgroundPosition",
+  "backgroundEffects"
+];
+
 async function applyBackgroundValueToTarget(value, target = state.backgroundApplyTarget, options = {}) {
   const scope = normalizeBackgroundApplyTarget(target);
   if (scope === "pane") return applyPanelBackgroundImage(value, activeTerminalPanelForSettings(), options);
   if (scope === "all") return applyWorkspaceBackgroundImageToTerminals(value, activeWorkspace(), options);
   return applyCustomBackgroundImage(value, options);
+}
+
+function backgroundSetupPayload(target = state.backgroundApplyTarget) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  const model = activeBackgroundPanelViewModel(scope);
+  const settings = {};
+  for (const key of backgroundSetupSettings) {
+    settings[key] = key === "backgroundImage"
+      ? normalizeBackgroundValue(model.background)
+      : state.settings[key];
+  }
+  return {
+    version: 1,
+    type: "cmux-background-setup",
+    target: scope,
+    summary: {
+      target: backgroundApplyTargetOption(scope).label,
+      background: model.label,
+      fit: optionLabel(backgroundFitOptions, state.settings.backgroundFit, state.settings.backgroundFit),
+      position: optionLabel(backgroundPositionOptions, state.settings.backgroundPosition, state.settings.backgroundPosition),
+      effects: optionLabel(backgroundEffectsOptions, state.settings.backgroundEffects, state.settings.backgroundEffects),
+      opacity: state.settings.backgroundOpacity
+    },
+    settings
+  };
+}
+
+async function copyBackgroundSetup(target = state.backgroundApplyTarget) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  const targetOption = backgroundApplyTargetOption(scope);
+  if (!activeBackgroundTargetStatus(scope).canTarget) {
+    toast(`${targetOption.label} cannot use a background right now.`);
+    return false;
+  }
+  const model = activeBackgroundPanelViewModel(scope);
+  if (model.mixed) {
+    toast("Terminal backgrounds are mixed. Choose one background first.");
+    return false;
+  }
+  const payload = JSON.stringify(backgroundSetupPayload(scope), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Background setup copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Background setup",
+    message: "Clipboard access is unavailable. The current background setup is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function backgroundSetupUpdatesFromPayload(payload) {
+  const parsed = importedObject(payload);
+  if (!parsed) {
+    if (typeof payload !== "string") return null;
+    const backgroundImage = normalizeBackgroundValue(payload);
+    return backgroundImage || stripWrappingQuotes(payload)
+      ? { hasBackgroundImage: true, backgroundImage, tuningUpdates: {} }
+      : null;
+  }
+  const source = importedObject(parsed.settings) || parsed;
+  const updates = {};
+  let hasBackgroundImage = false;
+  let backgroundImage = "";
+  for (const key of ["backgroundImage", "background", "url", "value"]) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    const raw = source[key];
+    if (raw === null) {
+      hasBackgroundImage = true;
+      backgroundImage = "";
+      break;
+    }
+    if (typeof raw !== "string") return null;
+    const trimmed = stripWrappingQuotes(raw);
+    const normalized = normalizeBackgroundValue(raw);
+    if (trimmed && !normalized) return null;
+    hasBackgroundImage = true;
+    backgroundImage = normalized;
+    break;
+  }
+  for (const key of ["backgroundOpacity", "backgroundFit", "backgroundPosition", "backgroundEffects"]) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    const value = lookSettingUpdateFromValue(key, source[key]);
+    if (value === null) return null;
+    updates[key] = value;
+  }
+  return hasBackgroundImage || Object.keys(updates).length
+    ? { hasBackgroundImage, backgroundImage, tuningUpdates: updates }
+    : null;
+}
+
+async function applyBackgroundSetupPayload(payload, target = state.backgroundApplyTarget) {
+  const setup = backgroundSetupUpdatesFromPayload(payload);
+  if (!setup) {
+    toast("Clipboard does not contain a background setup.");
+    return false;
+  }
+  const scope = normalizeBackgroundApplyTarget(target);
+  const targetOption = backgroundApplyTargetOption(scope);
+  if (!activeBackgroundTargetStatus(scope).canTarget) {
+    toast(`${targetOption.label} cannot use a background right now.`);
+    return false;
+  }
+  let backgroundChanged = false;
+  if (setup.hasBackgroundImage) {
+    const result = await applyBackgroundValueToTarget(setup.backgroundImage, scope, { render: false, toast: false });
+    if (result === null) {
+      toast("Background setup image could not be loaded.");
+      return false;
+    }
+    backgroundChanged = Boolean(result);
+  }
+  const tuningChanged = Object.keys(setup.tuningUpdates).length
+    ? updateSettings(setup.tuningUpdates, { immediate: true })
+    : false;
+  if (backgroundChanged || tuningChanged) {
+    renderSettingsInspector();
+    toast(`Background setup applied to ${targetOption.label.toLowerCase()}.`);
+    return true;
+  }
+  toast("Background setup already matches.");
+  return false;
+}
+
+async function pasteBackgroundSetup(target = state.backgroundApplyTarget) {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    return applyBackgroundSetupPayload(JSON.parse(clipboard), target);
+  } catch {
+    return applyBackgroundSetupPayload(clipboard, target);
+  }
 }
 
 async function applyBackgroundPresetToTarget(preset, target = state.backgroundApplyTarget) {
@@ -11135,7 +11282,7 @@ function activeBackgroundPanel(options = {}) {
   const model = activeBackgroundPanelViewModel();
   panel.className = `active-background-panel${model.hasBackground ? " has-image" : ""}`;
   panel.dataset.activeBackgroundTuning = options.tuning ? "true" : "false";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("active background image wallpaper current preview source choose save open clear fit position effects opacity strength transparency tune");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("active background image wallpaper current preview source choose save open clear copy paste setup fit position effects opacity strength transparency tune");
   panel.style.setProperty("--active-background-image", model.image);
   panel.style.setProperty("--active-background-repeat", model.repeat);
   panel.style.setProperty("--active-background-size", model.size);
@@ -11220,6 +11367,21 @@ function activeBackgroundPanel(options = {}) {
   const imageGroup = backgroundActionGroup("Image", "active background image choose paste save copy open", [choose, paste, save, copySource, open]);
   imageGroup.classList.add("background-action-group-image");
 
+  const copySetup = settingsActionButton("Copy setup", () => copyBackgroundSetup(state.backgroundApplyTarget), "", "active background setup copy image tuning fit position effects opacity clipboard json");
+  copySetup.dataset.backgroundAction = "copy-setup";
+  copySetup.title = !targetStatus.canTarget
+    ? `${backgroundApplyTargetOption(targetStatus.scope).label} cannot use a background right now.`
+    : model.mixed
+      ? "Terminal backgrounds are mixed."
+      : `Copy ${targetLabel} background and tuning.`;
+  copySetup.disabled = !targetStatus.canTarget || model.mixed;
+  const pasteSetup = settingsActionButton("Paste setup", () => pasteBackgroundSetup(state.backgroundApplyTarget), "", "active background setup paste image tuning fit position effects opacity clipboard json");
+  pasteSetup.dataset.backgroundAction = "paste-setup";
+  pasteSetup.title = `Paste copied background setup to ${targetLabel}.`;
+  pasteSetup.disabled = !targetStatus.canTarget;
+  const setupGroup = backgroundActionGroup("Setup", "active background setup copy paste tuning clipboard json", [copySetup, pasteSetup]);
+  setupGroup.classList.add("background-action-group-setup");
+
   const applyCurrent = settingsActionButton("Use app image", applyCurrentBackgroundToTarget, "", "active background apply current app image to selected target pane all terminals");
   applyCurrent.dataset.backgroundAction = "apply-current";
   applyCurrent.title = `Use the whole-app background on ${targetLabel}`;
@@ -11230,7 +11392,7 @@ function activeBackgroundPanel(options = {}) {
   clear.disabled = !targetStatus.canTarget || !targetStatus.hasValue;
   const scopeGroup = backgroundActionGroup("Target", "active background selected target app pane all terminals use app clear", [applyCurrent, clear]);
   scopeGroup.classList.add("background-action-group-scope");
-  actions.append(imageGroup, scopeGroup);
+  actions.append(imageGroup, setupGroup, scopeGroup);
   if (options.tuning) {
     const refreshBackgroundSummary = () => {
       const nextModel = activeBackgroundPanelViewModel();
@@ -11350,6 +11512,8 @@ function refreshBackgroundPreviewNodes() {
     const paste = panel.querySelector('[data-background-action="paste"]');
     const save = panel.querySelector('[data-background-action="save"]');
     const copySource = panel.querySelector('[data-background-action="copy"]');
+    const copySetup = panel.querySelector('[data-background-action="copy-setup"]');
+    const pasteSetup = panel.querySelector('[data-background-action="paste-setup"]');
     const applyTyped = panel.querySelector('[data-background-action="apply-typed"]');
     const applyCurrent = panel.querySelector('[data-background-action="apply-current"]');
     const open = panel.querySelector('[data-background-action="open"]');
@@ -11378,6 +11542,18 @@ function refreshBackgroundPreviewNodes() {
     if (copySource) {
       setDisabledIfChanged(copySource, !canCopyBackgroundImageSource(model.background));
       setTitleIfChanged(copySource, backgroundImageCopyTitle(model.background, "Copy the selected background source."));
+    }
+    if (copySetup) {
+      setDisabledIfChanged(copySetup, !targetStatus.canTarget || model.mixed);
+      setTitleIfChanged(copySetup, !targetStatus.canTarget
+        ? `${backgroundApplyTargetOption(targetStatus.scope).label} cannot use a background right now.`
+        : model.mixed
+          ? "Terminal backgrounds are mixed."
+          : `Copy ${targetLabel} background and tuning.`);
+    }
+    if (pasteSetup) {
+      setDisabledIfChanged(pasteSetup, !targetStatus.canTarget);
+      setTitleIfChanged(pasteSetup, `Paste copied background setup to ${targetLabel}.`);
     }
     if (applyCurrent) {
       setDisabledIfChanged(applyCurrent, !state.settings.backgroundImage || !targetStatus.canTarget || targetStatus.scope === "app");
@@ -18786,6 +18962,34 @@ function paletteEntries() {
   const backgroundAppTargetOption = backgroundApplyTargetOption("app", paletteWorkspace);
   const backgroundPaneTargetOption = backgroundApplyTargetOption("pane", paletteWorkspace);
   const backgroundAllTargetOption = backgroundApplyTargetOption("all", paletteWorkspace);
+  for (const [id, option] of [
+    ["app", backgroundAppTargetOption],
+    ["pane", backgroundPaneTargetOption],
+    ["all", backgroundAllTargetOption]
+  ]) {
+    const model = activeBackgroundPanelViewModel(id, paletteWorkspace);
+    const label = option.label.toLowerCase();
+    entries.push({
+      id: `backgroundSetup.copy.${id}`,
+      label: `Copy ${label} background setup`,
+      meta: `${model.label} / ${option.meta}`,
+      shortcut: "Copy",
+      disabled: option.disabled || model.mixed,
+      title: option.disabled ? `${option.label}: ${option.meta}.` : model.mixed ? "Terminal backgrounds are mixed." : `Copy ${option.label} background and tuning.`,
+      search: normalizeSettingsQuery(`background setup copy current ${label} image tuning opacity fit position effects clipboard json ${model.label} ${option.meta}`),
+      run: () => copyBackgroundSetup(id)
+    });
+    entries.push({
+      id: `backgroundSetup.paste.${id}`,
+      label: `Paste background setup to ${label}`,
+      meta: `${model.label} / ${option.meta}`,
+      shortcut: "Paste",
+      disabled: option.disabled,
+      title: option.disabled ? `${option.label}: ${option.meta}.` : `Paste copied background setup to ${label}.`,
+      search: normalizeSettingsQuery(`background setup paste apply ${label} image tuning opacity fit position effects clipboard json ${model.label} ${option.meta}`),
+      run: () => pasteBackgroundSetup(id)
+    });
+  }
   for (const preset of backgroundPresets) {
     const presetId = preset.value || "none";
     const activeApp = normalizeBackgroundValue(state.settings.backgroundImage) === normalizeBackgroundValue(preset.value);
