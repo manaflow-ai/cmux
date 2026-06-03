@@ -2343,12 +2343,18 @@ function colorApplyTargetOptions(workspace = activeWorkspace()) {
   const paneColor = panel?.color || workspaceColor;
   const paneColors = (workspace?.panels || []).map((candidate) => colorKey(candidate.color)).filter(Boolean);
   const uniquePaneColors = [...new Set(paneColors)];
+  const allPaneStatus = paneCount
+    ? uniquePaneColors.length > 1
+      ? `${uniquePaneColors.length} colors`
+      : colorSummaryLabel(uniquePaneColors[0] || "", workspaceColor)
+    : "no panes";
   return [
     {
       id: "accent",
       label: "Accent",
       meta: "app chrome",
       color: state.settings.accent,
+      status: colorSummaryLabel(state.settings.accent, defaultSettings.accent),
       disabled: false
     },
     {
@@ -2356,6 +2362,7 @@ function colorApplyTargetOptions(workspace = activeWorkspace()) {
       label: "Workspace",
       meta: workspace ? workspaceDisplayTitle(workspace) : "no workspace",
       color: workspaceColor,
+      status: workspace ? colorSummaryLabel(workspace?.color, state.settings.accent) : "no workspace",
       disabled: !workspace
     },
     {
@@ -2363,6 +2370,7 @@ function colorApplyTargetOptions(workspace = activeWorkspace()) {
       label: "This pane",
       meta: panel ? panelDisplayTitle(panel, true) : "no pane",
       color: paneColor,
+      status: panel ? colorSummaryLabel(panel?.color, workspaceColor) : "no pane",
       disabled: !panel
     },
     {
@@ -2370,6 +2378,7 @@ function colorApplyTargetOptions(workspace = activeWorkspace()) {
       label: "All panes",
       meta: paneCount ? `${paneCount} pane${paneCount === 1 ? "" : "s"}` : "no panes",
       color: uniquePaneColors.length === 1 ? uniquePaneColors[0] : workspaceColor,
+      status: allPaneStatus,
       disabled: paneCount === 0
     }
   ];
@@ -14301,11 +14310,16 @@ function savedColorPalettePanel() {
 function activeColorTargetControl() {
   const control = document.createElement("div");
   control.className = "background-target-control color-target-control";
-  control.dataset.settingsSearch = normalizeSettingsQuery("saved color target apply accent workspace active pane all panes scope destination");
+  control.dataset.settingsSearch = normalizeSettingsQuery("saved color target apply accent workspace active pane all panes scope destination current status");
 
+  const header = document.createElement("span");
+  header.className = "background-target-header";
   const label = document.createElement("span");
   label.className = "background-target-label";
-  label.textContent = "Target";
+  label.textContent = "Color target";
+  const current = document.createElement("span");
+  current.className = "background-target-current";
+  header.append(label, current);
 
   const options = document.createElement("div");
   options.className = "background-target-options";
@@ -14320,6 +14334,7 @@ function activeColorTargetControl() {
       <span class="background-target-copy">
         <span class="background-target-name"></span>
         <span class="background-target-meta"></span>
+        <span class="background-target-status"></span>
       </span>
     `;
     button.onclick = () => {
@@ -14330,13 +14345,15 @@ function activeColorTargetControl() {
     };
     options.append(button);
   }
-  control.append(label, options);
+  control.append(header, options);
   updateActiveColorTargetControl(control);
   return control;
 }
 
 function updateActiveColorTargetControl(root) {
   const options = colorApplyTargetOptions();
+  const selected = colorApplyTargetOption(state.colorApplyTarget);
+  setTextIfChanged(root.querySelector(".background-target-current"), `${selected.label} / ${selected.status}`);
   for (const button of root.querySelectorAll("[data-color-target]")) {
     const target = options.find((candidate) => candidate.id === button.dataset.colorTarget);
     if (!target) continue;
@@ -14344,11 +14361,12 @@ function updateActiveColorTargetControl(root) {
     setClassNameIfChanged(button, `background-target-option${active ? " is-active" : ""}${target.disabled ? " is-disabled" : ""}`);
     setDisabledIfChanged(button, target.disabled);
     setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
-    setAttributeIfChanged(button, "aria-label", `${target.label}: ${target.meta}`);
-    setTitleIfChanged(button, `${target.label}: ${target.meta}`);
+    setAttributeIfChanged(button, "aria-label", `${target.label}: ${target.meta}. ${target.status}.`);
+    setTitleIfChanged(button, `${target.label}: ${target.meta}. ${target.status}.`);
     setStylePropertyIfChanged(button, "--target-color", target.color || state.settings.accent);
     setTextIfChanged(button.querySelector(".background-target-name"), target.label);
     setTextIfChanged(button.querySelector(".background-target-meta"), target.meta);
+    setTextIfChanged(button.querySelector(".background-target-status"), target.status);
   }
 }
 
