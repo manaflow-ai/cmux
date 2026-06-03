@@ -5,29 +5,69 @@
       location = "group:cmux.xcodeproj">
    </FileRef>
    <Group
+      location = "container:Packages"
+      name = "Packages (Shared)">
+      <FileRef
+         location = "group:CMUXMobileCore">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXAuthCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAuthRuntime">
+      </FileRef>
+   </Group>
+   <Group
       location = "container:ios"
-      name = "iOS">
+      name = "Packages (iOS)">
       <FileRef
          location = "group:cmux-ios.xcodeproj">
       </FileRef>
       <FileRef
          location = "group:cmuxPackage">
       </FileRef>
+      <FileRef
+         location = "container:Packages/CmuxMobileCamera">
+      </FileRef>
+      <FileRef
+         location = "container:Packages/CmuxMobileDiagnostics">
+      </FileRef>
+      <FileRef
+         location = "container:Packages/CmuxMobilePairedMac">
+      </FileRef>
+      <FileRef
+         location = "container:Packages/CmuxMobileRPC">
+      </FileRef>
+      <FileRef
+         location = "container:Packages/CmuxMobileShellModel">
+      </FileRef>
+      <FileRef
+         location = "container:Packages/CmuxMobileShellUI">
+      </FileRef>
+      <FileRef
+         location = "container:Packages/CmuxMobileSupport">
+      </FileRef>
+      <FileRef
+         location = "container:Packages/CmuxMobileTerminal">
+      </FileRef>
+      <FileRef
+         location = "container:Packages/CmuxMobileTerminalKit">
+      </FileRef>
+      <FileRef
+         location = "container:Packages/CmuxMobileTransport">
+      </FileRef>
+      <FileRef
+         location = "container:Packages/CmuxMobileWorkspace">
+      </FileRef>
    </Group>
    <Group
       location = "container:Packages"
-      name = "Packages">
+      name = "Packages (macOS)">
       <FileRef
          location = "group:CMUXAgentLaunch">
       </FileRef>
       <FileRef
          location = "group:CMUXAgentVault">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxAuthRuntime">
-      </FileRef>
-      <FileRef
-         location = "group:CMUXAuthCore">
       </FileRef>
       <FileRef
          location = "group:CMUXDebugLog">
@@ -40,42 +80,6 @@
       </FileRef>
       <FileRef
          location = "group:CmuxFoundation">
-      </FileRef>
-      <FileRef
-         location = "group:CMUXMobileCore">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileCamera">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileDiagnostics">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobilePairedMac">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileRPC">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileShellModel">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileShellUI">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileSupport">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileTerminal">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileTerminalKit">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileTransport">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileWorkspace">
       </FileRef>
       <FileRef
          location = "group:CMUXPasteboardFidelity">
