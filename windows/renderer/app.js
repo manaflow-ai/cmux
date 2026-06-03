@@ -6414,9 +6414,9 @@ function markTerminalOutputReady(session) {
 }
 
 function shouldDeferInitialTerminalLoad(panel, workspace, visibleCount = 1) {
+  if (shouldDeferTerminalInitUntilPaint(panel, workspace)) return true;
   if (shouldStartColdTerminalsFast()) return false;
-  return shouldDeferTerminalInitUntilPaint(panel, workspace)
-    || shouldKeepTerminalInitDeferred(panel)
+  return shouldKeepTerminalInitDeferred(panel)
     || (visibleCount > 1
     && panel?.type === "terminal"
     && !state.terminals.has(panel.id)
@@ -6427,7 +6427,6 @@ function shouldDeferInitialTerminalLoad(panel, workspace, visibleCount = 1) {
 
 function shouldDeferTerminalInitUntilPaint(panel, workspace) {
   return panel?.type === "terminal"
-    && !shouldStartColdTerminalsFast()
     && panel.id === workspace?.activePanelId
     && state.paintDeferredTerminalInitPanelIds.has(panel.id)
     && !state.terminals.has(panel.id)
@@ -17607,7 +17606,6 @@ async function focusWorkspace(workspaceId) {
   const shouldDeferColdTerminalForWorkspaceSwitch = Boolean(
     switchingWorkspace
     && focusablePanel?.type === "terminal"
-    && !shouldStartColdTerminalsFast()
     && !state.terminals.has(focusablePanel.id)
     && !isPanelMinimized(focusablePanel)
     && !isPendingPanel(focusablePanel)
