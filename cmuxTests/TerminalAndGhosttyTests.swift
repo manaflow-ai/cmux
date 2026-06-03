@@ -1619,7 +1619,8 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
         normalizedChars: String? = nil,
         modifiers: NSEvent.ModifierFlags = [],
         hasSelection: Bool,
-        state: inout TerminalKeyboardCopyModeInputState
+        state: inout TerminalKeyboardCopyModeInputState,
+        asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = { _, _ in nil }
     ) -> TerminalKeyboardCopyModeResolution {
         terminalKeyboardCopyModeResolve(
             keyCode: keyCode,
@@ -1627,7 +1628,8 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
             normalizedCharacters: normalizedChars ?? chars,
             modifierFlags: modifiers,
             hasSelection: hasSelection,
-            state: &state
+            state: &state,
+            asciiCharacterProvider: asciiCharacterProvider
         )
     }
 
