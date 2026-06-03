@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxFoundation
 import CmuxSocketControl
 import CoreFoundation
 import CryptoKit
@@ -7855,103 +7856,35 @@ struct CMUXCLI {
             resolvedOptions.append("ForwardAgent=\(override ? "yes" : "no")")
             forwardAgentValue = override ? "yes" : nil
         } else if let explicitForwardAgent = sshForwardAgentValue(in: resolvedOptions) {
-            forwardAgentValue = Self.isSSHNoValue(explicitForwardAgent) ? nil : explicitForwardAgent
+            forwardAgentValue = explicitForwardAgent
         } else {
             forwardAgentValue = nil
         }
 
-        let agentSocketPath = forwardAgentValue.flatMap(defaultSSHAgentSocketPath(forForwardAgentValue:))
+        let resolver = SSHAgentSocketResolver()
+        let explicitAgentSocketPath = forwardAgentValue
+            .flatMap(resolver.agentSocketPath(forForwardAgentValue:))
+            .flatMap(existingSSHAgentSocketPath)
+        let agentSocketPath = explicitAgentSocketPath
             ?? existingSSHAgentSocketPath(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"])
         return (resolvedOptions, agentSocketPath)
     }
 
     private func sshOptionsRemovingForwardAgent(_ options: [String]) -> [String] {
-        options.filter { option in
-            sshOptionKey(option) != "forwardagent"
-        }
-    }
-
-    private func sshOptionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
+        SSHAgentSocketResolver().removingOptions(named: "ForwardAgent", from: options)
     }
 
     private func sshForwardAgentValue(in options: [String]) -> String? {
-        sshOptionValue(named: "ForwardAgent", in: options)
-    }
-
-    /// Resolves a supported `ForwardAgent` value into the local socket path to inject into the remote workspace.
-    private func defaultSSHAgentSocketPath(forForwardAgentValue value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("$") {
-            let variableName = String(trimmed.dropFirst())
-            return existingSSHAgentSocketPath(ProcessInfo.processInfo.environment[variableName])
-        }
-        if Self.isSSHYesValue(trimmed) {
-            return existingSSHAgentSocketPath(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"])
-        }
-        guard !Self.isSSHNoValue(trimmed) else {
-            return nil
-        }
-        guard isPathLikeSSHAgentSocketValue(trimmed) else {
-            return nil
-        }
-        return existingSSHAgentSocketPath(trimmed)
-    }
-
-    /// Returns whether a literal `ForwardAgent` value looks like a socket path rather than a mode such as `ask`.
-    private func isPathLikeSSHAgentSocketValue(_ value: String) -> Bool {
-        value.hasPrefix("/") || value.hasPrefix("~")
-    }
-
-    /// Normalizes a candidate SSH agent socket path while preserving the original path spelling.
-    private func normalizedSSHAgentSocketPath(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        guard trimmed.hasPrefix("~") else {
-            return trimmed
-        }
-        let expanded = (trimmed as NSString).expandingTildeInPath
-        guard !expanded.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return trimmed
-        }
-        return expanded
+        SSHAgentSocketResolver().optionValue(named: "ForwardAgent", in: options)
     }
 
     /// Returns a normalized agent socket path only when it currently exists.
     private func existingSSHAgentSocketPath(_ value: String?) -> String? {
-        guard let path = normalizedSSHAgentSocketPath(value),
+        guard let path = SSHAgentSocketResolver().normalizedAgentSocketPath(value),
               FileManager.default.fileExists(atPath: path) else {
             return nil
         }
         return path
-    }
-
-    /// Returns whether an SSH option value enables a boolean-style OpenSSH setting.
-    private static func isSSHYesValue(_ value: String) -> Bool {
-        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "yes", "true", "on", "1":
-            return true
-        default:
-            return false
-        }
-    }
-
-    /// Returns whether an SSH option value disables agent socket injection for cmux-managed environments.
-    private static func isSSHNoValue(_ value: String) -> Bool {
-        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "no", "false", "off", "0", "ask":
-            return true
-        default:
-            return false
-        }
     }
 
     func buildSSHCommandText(
@@ -10660,16 +10593,7 @@ struct CMUXCLI {
     }
 
     private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        for option in options {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let token = trimmed.split(whereSeparator: { $0 == "=" || $0.isWhitespace }).first.map(String.init)?.lowercased()
-            if token == loweredKey {
-                return true
-            }
-        }
-        return false
+        SSHAgentSocketResolver().hasOptionKey(options, key: key)
     }
 
     private func deferredRemoteReconnectLocalCommandScript(
@@ -10800,23 +10724,7 @@ struct CMUXCLI {
     }
 
     private func sshOptionValue(named key: String, in options: [String]) -> String? {
-        let loweredKey = key.lowercased()
-        for option in options.reversed() {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let parts = trimmed.split(
-                maxSplits: 1,
-                omittingEmptySubsequences: true,
-                whereSeparator: { $0 == "=" || $0.isWhitespace }
-            )
-            if parts.count == 2, parts[0].lowercased() == loweredKey {
-                let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty {
-                    return value
-                }
-            }
-        }
-        return nil
+        SSHAgentSocketResolver().optionValue(named: key, in: options)
     }
 
     private func cliDebugLog(_ message: @autoclosure () -> String) {

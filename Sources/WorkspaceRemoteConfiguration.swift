@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxFoundation
 #if canImport(Security)
 import Security
 #endif
@@ -28,7 +29,7 @@ private enum WorkspaceRemoteSSHOptionFilter {
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }.filter { option in
-            guard let key = optionKey(option) else { return true }
+            guard let key = SSHAgentSocketResolver().optionKey(option) else { return true }
             return !keys.contains(key)
         }
     }
@@ -57,9 +58,7 @@ private enum WorkspaceRemoteSSHOptionFilter {
 
     /// Normalizes an SSH agent socket path and expands `~` so environment injection receives a usable path.
     static func normalizedAgentSocketPath(_ value: String?) -> String? {
-        guard let trimmed = normalizedOptional(value) else { return nil }
-        guard trimmed.hasPrefix("~") else { return trimmed }
-        return normalizedOptional((trimmed as NSString).expandingTildeInPath) ?? trimmed
+        SSHAgentSocketResolver().normalizedAgentSocketPath(value)
     }
 
     /// Returns a normalized agent socket path only when it currently exists.
@@ -72,91 +71,12 @@ private enum WorkspaceRemoteSSHOptionFilter {
     }
 
     static func hasOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        return options.contains { option in
-            optionKey(option) == loweredKey
-        }
+        SSHAgentSocketResolver().hasOptionKey(options, key: key)
     }
 
     /// Resolves a durable `ForwardAgent` SSH option into the current local agent socket path, when one is usable.
     static func sshAgentSocketPath(for options: [String]) -> String? {
-        guard let forwardAgentValue = optionValue(named: "ForwardAgent", in: options) else {
-            return nil
-        }
-        return sshAgentSocketPath(forForwardAgentValue: forwardAgentValue)
-    }
-
-    /// Maps OpenSSH `ForwardAgent` forms to a socket path without treating modes like `ask` as paths.
-    private static func sshAgentSocketPath(forForwardAgentValue value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("$") {
-            let variableName = String(trimmed.dropFirst())
-            return normalizedAgentSocketPath(ProcessInfo.processInfo.environment[variableName])
-        }
-        if isSSHYesValue(trimmed) {
-            return normalizedAgentSocketPath(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"])
-        }
-        guard !isSSHNoValue(trimmed),
-              isPathLikeSSHAgentSocketValue(trimmed) else {
-            return nil
-        }
-        return normalizedAgentSocketPath(trimmed)
-    }
-
-    /// Reads the last non-empty value for an OpenSSH-style `-o key=value` or `-o key value` option.
-    private static func optionValue(named key: String, in options: [String]) -> String? {
-        let loweredKey = key.lowercased()
-        for option in options.reversed() {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let parts = trimmed.split(
-                maxSplits: 1,
-                omittingEmptySubsequences: true,
-                whereSeparator: { $0 == "=" || $0.isWhitespace }
-            )
-            if parts.count == 2, parts[0].lowercased() == loweredKey {
-                let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty {
-                    return value
-                }
-            }
-        }
-        return nil
-    }
-
-    /// Returns whether an SSH option value enables a boolean-style OpenSSH setting.
-    private static func isSSHYesValue(_ value: String) -> Bool {
-        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "yes", "true", "on", "1":
-            return true
-        default:
-            return false
-        }
-    }
-
-    /// Returns whether an SSH option value should avoid cmux-managed agent socket injection.
-    private static func isSSHNoValue(_ value: String) -> Bool {
-        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "no", "false", "off", "0", "ask":
-            return true
-        default:
-            return false
-        }
-    }
-
-    /// Returns whether a literal `ForwardAgent` value looks like a socket path rather than a mode.
-    private static func isPathLikeSSHAgentSocketValue(_ value: String) -> Bool {
-        value.hasPrefix("/") || value.hasPrefix("~")
-    }
-
-    private static func optionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
+        SSHAgentSocketResolver().agentSocketPath(for: options)
     }
 }
 
@@ -363,35 +283,11 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
     }
 
     private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        return options.contains { option in
-            option
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-                .first
-                .map(String.init)?
-                .lowercased() == loweredKey
-        }
+        SSHAgentSocketResolver().hasOptionKey(options, key: key)
     }
 
     private static func sshOptionValue(named name: String, in options: [String]) -> String? {
-        let loweredName = name.lowercased()
-        for option in options.reversed() {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            if let equals = trimmed.firstIndex(of: "=") {
-                let key = String(trimmed[..<equals]).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard key.lowercased() == loweredName else { continue }
-                let value = String(trimmed[trimmed.index(after: equals)...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                return value.isEmpty ? nil : String(value)
-            }
-            let parts = trimmed.split(maxSplits: 1, whereSeparator: { $0.isWhitespace })
-            guard parts.first.map({ String($0).lowercased() }) == loweredName else { continue }
-            guard parts.count > 1 else { return nil }
-            let value = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? nil : value
-        }
-        return nil
+        SSHAgentSocketResolver().optionValue(named: name, in: options)
     }
 
     private static func sshOptionValueIsDisabled(_ rawValue: String?, zeroIsDisabled: Bool = true) -> Bool {
