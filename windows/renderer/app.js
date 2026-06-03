@@ -3210,6 +3210,21 @@ function applyTerminalThemeIfChanged(session, panel = null, options = {}) {
   return true;
 }
 
+function syncTerminalSessionPanelState(panel) {
+  if (panel?.type !== "terminal") return false;
+  const session = state.terminals.get(panel.id);
+  if (!session?.term) return false;
+  let changed = applyTerminalThemeIfChanged(session, panel);
+  const nextFontSize = terminalFontSizeForPanel(panel);
+  if (session.fontSize !== nextFontSize || session.term.options.fontSize !== nextFontSize) {
+    session.fontSize = nextFontSize;
+    session.term.options.fontSize = nextFontSize;
+    scheduleFitTerminal(session, true);
+    changed = true;
+  }
+  return changed;
+}
+
 function refreshTerminalAppearance() {
   for (const session of state.terminals.values()) {
     const panel = findPanelState(session.panelId)?.panel;
@@ -5381,6 +5396,7 @@ function updatePaneActiveState(pane, panel, workspace, visibleCount = workspace?
   const closeActionLabel = pending ? "Cancel pane" : closePaneActionLabel(workspace, panel.id);
   setTitleIfChanged(parts.close, closeActionLabel);
   setAttributeIfChanged(parts.close, "aria-label", closeActionLabel);
+  syncTerminalSessionPanelState(panel);
   if (panel.type === "terminal" && !pending) {
     const deferred = parts.body.querySelector(".terminal-deferred");
     if (deferred) renderDeferredTerminal(panel, parts.body);
@@ -5442,7 +5458,6 @@ function paneStructureSignature(workspace, visiblePanels, tree) {
     appendSignatureValue(nextParts, panel.url || "");
     appendSignatureValue(nextParts, panel.shellProfile || "");
     appendSignatureValue(nextParts, panel.shellPath || "");
-    appendSignatureValue(nextParts, terminalFontSizeForPanel(panel));
     appendSignatureValue(nextParts, isPendingPanel(panel));
   });
   return parts.join("");
@@ -5538,8 +5553,7 @@ function renderPaneNode(panel, workspace, visibleCount) {
   setStylePropertyIfChanged(pane, "--pane-background-size", backgroundSizeCss(state.settings.backgroundFit));
   setStylePropertyIfChanged(pane, "--pane-background-position", backgroundPositionCss(state.settings.backgroundPosition));
   setStylePropertyIfChanged(pane, "--pane-background-opacity", String(Math.max(0.12, Math.min(0.42, state.settings.backgroundOpacity / 100 || 0.18))));
-  const terminalSession = state.terminals.get(panel.id);
-  if (terminalSession && panel.type === "terminal") applyTerminalThemeIfChanged(terminalSession, panel);
+  syncTerminalSessionPanelState(panel);
   toggleClassIfChanged(pane, "is-active", panel.id === workspace.activePanelId);
   const zoomed = isPanelZoomed(panel, workspace);
   const minimized = isPanelMinimized(panel);
