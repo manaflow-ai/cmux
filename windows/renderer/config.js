@@ -37,6 +37,7 @@ export const defaultSettings = {
   performanceMode: false,
   adaptivePerformance: true,
   reduceMotion: false,
+  chromeMotionMode: "balanced",
   sidebarWidth: 232,
   inspectorWidth: 360,
   terminalFontFamily: "cascadia",
@@ -392,6 +393,12 @@ export const terminalStartupOptions = [
   ["balanced", label("terminalStartup.balanced", "Balanced")]
 ];
 
+export const chromeMotionOptions = [
+  ["snappy", label("chromeMotion.snappy", "Snappy"), label("chromeMotion.snappy.body", "Shorter UI transitions")],
+  ["balanced", label("chromeMotion.balanced", "Balanced"), label("chromeMotion.balanced.body", "Default motion timing")],
+  ["calm", label("chromeMotion.calm", "Calm"), label("chromeMotion.calm.body", "Smoother, slower transitions")]
+];
+
 export const titleDetailOptions = [
   ["smart", label("titleDetail.smart", "Smart")],
   ["compact", label("titleDetail.compact", "Name only")],
@@ -515,6 +522,7 @@ export const settingsPresets = [
       performanceMode: false,
       adaptivePerformance: true,
       reduceMotion: false,
+      chromeMotionMode: "balanced",
       sidebarWidth: 232,
       inspectorWidth: 360,
       terminalFontFamily: "cascadia",
@@ -567,6 +575,7 @@ export const settingsPresets = [
       performanceMode: false,
       adaptivePerformance: true,
       reduceMotion: false,
+      chromeMotionMode: "snappy",
       sidebarWidth: 212,
       inspectorWidth: 340,
       terminalFontFamily: "cascadia",
@@ -619,6 +628,7 @@ export const settingsPresets = [
       performanceMode: true,
       adaptivePerformance: true,
       reduceMotion: true,
+      chromeMotionMode: "snappy",
       sidebarWidth: 212,
       inspectorWidth: 340,
       terminalFontFamily: "cascadia",
@@ -672,6 +682,7 @@ export const settingsPresets = [
       performanceMode: false,
       adaptivePerformance: true,
       reduceMotion: true,
+      chromeMotionMode: "balanced",
       sidebarWidth: 216,
       inspectorWidth: 328,
       terminalFontFamily: "cascadia",
@@ -724,6 +735,7 @@ export const settingsPresets = [
       performanceMode: true,
       adaptivePerformance: true,
       reduceMotion: true,
+      chromeMotionMode: "snappy",
       sidebarWidth: 204,
       inspectorWidth: 320,
       terminalFontFamily: "consolas",
@@ -776,6 +788,7 @@ export const settingsPresets = [
       performanceMode: false,
       adaptivePerformance: true,
       reduceMotion: true,
+      chromeMotionMode: "calm",
       sidebarWidth: 240,
       inspectorWidth: 360,
       terminalFontFamily: "cascadia",
@@ -828,6 +841,7 @@ export const settingsPresets = [
       performanceMode: false,
       adaptivePerformance: false,
       reduceMotion: false,
+      chromeMotionMode: "calm",
       sidebarWidth: 248,
       inspectorWidth: 384,
       terminalFontFamily: "cascadia",

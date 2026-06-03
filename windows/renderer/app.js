@@ -8,6 +8,7 @@ import {
   backgroundPresets,
   browserHomePresets,
   browserLaunchModeOptions,
+  chromeMotionOptions,
   cornerStyleOptions,
   defaultSettings,
   paneActionOptions,
@@ -144,6 +145,15 @@ function paneDividerSizePx(value = state.settings.paneDividerSize) {
   return paneDividerSizePixels.get(value) || paneDividerSizePixels.get(defaultSettings.paneDividerSize) || 12;
 }
 
+const chromeMotionDurations = new Map([
+  ["snappy", { fast: "70ms", med: "110ms" }],
+  ["balanced", { fast: "110ms", med: "170ms" }],
+  ["calm", { fast: "150ms", med: "230ms" }]
+]);
+function chromeMotionDurationTokens(value = state.settings.chromeMotionMode) {
+  return chromeMotionDurations.get(value) || chromeMotionDurations.get(defaultSettings.chromeMotionMode);
+}
+
 const workspaceColorOptions = [...new Set([
   ...accentOptions,
   "oklch(62% 0.22 255)",
@@ -213,6 +223,7 @@ const performanceSetupSettings = [
   "performanceMode",
   "adaptivePerformance",
   "reduceMotion",
+  "chromeMotionMode",
   "backgroundOpacity",
   "backgroundBlur",
   "backgroundEffects",
@@ -360,6 +371,7 @@ const settingsInspectorSettingKeys = {
     "performanceMode",
     "adaptivePerformance",
     "reduceMotion",
+    "chromeMotionMode",
     "terminalPauseInactiveOutput",
     "terminalSmoothResumedOutput",
     "terminalScrollback",
@@ -1043,6 +1055,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.performanceMode = Boolean(next.performanceMode);
   next.adaptivePerformance = next.adaptivePerformance !== false;
   next.reduceMotion = Boolean(next.reduceMotion);
+  if (!chromeMotionOptions.some(([id]) => id === next.chromeMotionMode)) next.chromeMotionMode = defaultSettings.chromeMotionMode;
   next.terminalPauseInactiveOutput = next.terminalPauseInactiveOutput !== false;
   next.terminalSmoothResumedOutput = next.terminalSmoothResumedOutput !== false;
   next.terminalCursorBlink = next.terminalCursorBlink !== false;
@@ -3019,6 +3032,7 @@ function settingsProfileSummary(settings) {
   const activePane = optionLabel(activePaneEmphasisOptions, normalized.activePaneEmphasis, normalized.activePaneEmphasis);
   const actions = paneActionOptions.find(([id]) => id === normalized.paneActionMode)?.[1] || normalized.paneActionMode;
   const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, "Flat");
+  const chromeMotion = optionLabel(chromeMotionOptions, normalized.chromeMotionMode, normalized.chromeMotionMode);
   const startup = optionLabel(terminalStartupOptions, normalized.terminalStartupMode, "Fast");
   const browserHomeHost = hostnameOf(normalized.browserHomeUrl) || "browser";
   return [
@@ -3032,6 +3046,7 @@ function settingsProfileSummary(settings) {
     `${activePane.toLowerCase()} active pane`,
     `${actions} pane controls`,
     normalized.paneColorMarkers ? "colored pane markers" : "quiet pane markers",
+    `${chromeMotion.toLowerCase()} motion`,
     `${browserHomeHost} home`,
     `${backgroundEffects.toLowerCase()} background`,
     `${normalized.backgroundBlur}px soften`,
@@ -5115,6 +5130,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.showAdvanced,
     settings.performanceMode,
     settings.reduceMotion,
+    settings.chromeMotionMode,
     settings.paneHeaderMode,
     settings.paneActionMode,
     settings.sidebarDetailMode,
@@ -5146,6 +5162,9 @@ function applySettings() {
   const cornerStyle = cornerStyleCssVars();
   setStylePropertyIfChanged(document.documentElement, "--radius-1", cornerStyle.radius1);
   setStylePropertyIfChanged(document.documentElement, "--radius-2", cornerStyle.radius2);
+  const chromeMotion = chromeMotionDurationTokens();
+  setStylePropertyIfChanged(document.documentElement, "--dur-fast", chromeMotion.fast);
+  setStylePropertyIfChanged(document.documentElement, "--dur-med", chromeMotion.med);
   setStylePropertyIfChanged(elements.shell, "--pane-splitter-size", `${paneDividerSizePx()}px`);
   toggleClassIfChanged(elements.shell, "density-compact", state.settings.density === "compact");
   toggleClassIfChanged(elements.shell, "pane-header-compact", state.settings.paneHeaderMode === "compact");
@@ -13061,6 +13080,12 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked })), false, "speed smooth lag effects reduce animation"));
     performanceSection.append(settingRow("Adaptive guard", toggleInput(state.settings.adaptivePerformance, (checked) => updateSettings({ adaptivePerformance: checked })), false, "adaptive automatic performance guard lag slow output tune"));
     performanceSection.append(settingRow("Reduce motion", toggleInput(state.settings.reduceMotion, (checked) => updateSettings({ reduceMotion: checked })), false, "motion animation transition smooth reduce accessibility"));
+    performanceSection.append(settingRow(
+      "Motion speed",
+      settingSegmentedControl("chromeMotionMode", chromeMotionOptions, "motion speed animation transition snappy balanced calm smooth fast chrome ui timing", { compact: true }),
+      true,
+      "motion speed animation transition snappy balanced calm smooth fast chrome ui timing"
+    ));
     performanceSection.append(settingRow("Cursor blink", toggleInput(state.settings.terminalCursorBlink, (checked) => updateSettings({ terminalCursorBlink: checked })), false, "terminal cursor blink caret motion repaint lag performance"));
     const startupSelect = document.createElement("select");
     startupSelect.className = "setting-select";
@@ -13092,7 +13117,7 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(scrollbackRow);
     const performanceActions = document.createElement("div");
     performanceActions.className = "settings-actions";
-    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save current balanced reset render stats clear copy paste setup workspace chrome density toolbar padding background opacity soften blur effects diagnostics report lag debug");
+    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save current balanced reset render stats clear copy paste setup workspace chrome density toolbar padding background opacity soften blur effects motion speed diagnostics report lag debug");
     const speedPresetActive = isSettingsPresetIdActive("performance");
     const speedPreset = settingsActionButton(
       speedPresetActive ? "Speed active" : "Speed preset",
@@ -13111,8 +13136,8 @@ function renderSettingsInspector(options = {}) {
         settingsActionButton("Save current speed", saveCurrentPerformanceProfile, "", "performance save current speed lag settings profile reusable"),
         "Save current performance settings as a reusable profile."
       ),
-      settingsActionButton("Copy setup", copyPerformanceSetup, "", "performance setup copy speed lag motion workspace chrome density toolbar padding background opacity effects terminal startup inactive browser suspend clipboard json"),
-      settingsActionButton("Paste setup", pastePerformanceSetup, "", "performance setup paste speed lag motion workspace chrome density toolbar padding background opacity effects terminal startup inactive browser suspend clipboard json"),
+      settingsActionButton("Copy setup", copyPerformanceSetup, "", "performance setup copy speed lag motion speed snappy balanced calm workspace chrome density toolbar padding background opacity effects terminal startup inactive browser suspend clipboard json"),
+      settingsActionButton("Paste setup", pastePerformanceSetup, "", "performance setup paste speed lag motion speed snappy balanced calm workspace chrome density toolbar padding background opacity effects terminal startup inactive browser suspend clipboard json"),
       settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
       speedPreset,
       resetPerformanceStatsAction()
@@ -17569,6 +17594,7 @@ function performanceDiagnosticsPayload() {
       performanceMode: state.settings.performanceMode,
       adaptivePerformance: state.settings.adaptivePerformance,
       reduceMotion: state.settings.reduceMotion,
+      chromeMotionMode: state.settings.chromeMotionMode,
       terminalPauseInactiveOutput: state.settings.terminalPauseInactiveOutput,
       terminalSmoothResumedOutput: state.settings.terminalSmoothResumedOutput,
       terminalStartupMode: state.settings.terminalStartupMode,
@@ -17623,6 +17649,7 @@ const performanceTuningPresets = [
       performanceMode: false,
       adaptivePerformance: true,
       reduceMotion: false,
+      chromeMotionMode: "balanced",
       density: "comfortable",
       toolbarMode: "minimal",
       paneActionMode: "essential",
@@ -17646,6 +17673,7 @@ const performanceTuningPresets = [
       performanceMode: true,
       adaptivePerformance: true,
       reduceMotion: true,
+      chromeMotionMode: "snappy",
       density: "compact",
       toolbarMode: "minimal",
       paneActionMode: "essential",
@@ -17669,6 +17697,7 @@ const performanceTuningPresets = [
       performanceMode: true,
       adaptivePerformance: true,
       reduceMotion: true,
+      chromeMotionMode: "snappy",
       density: "compact",
       toolbarMode: "minimal",
       paneActionMode: "essential",
@@ -17692,6 +17721,7 @@ const performanceTuningPresets = [
       performanceMode: true,
       adaptivePerformance: true,
       reduceMotion: true,
+      chromeMotionMode: "snappy",
       density: "compact",
       toolbarMode: "minimal",
       paneActionMode: "essential",
@@ -17715,6 +17745,7 @@ const performanceTuningPresets = [
       performanceMode: false,
       adaptivePerformance: true,
       reduceMotion: true,
+      chromeMotionMode: "calm",
       density: "compact",
       toolbarMode: "minimal",
       paneActionMode: "essential",
@@ -17738,6 +17769,7 @@ const performanceTuningPresets = [
       performanceMode: false,
       adaptivePerformance: false,
       reduceMotion: false,
+      chromeMotionMode: "balanced",
       density: "comfortable",
       toolbarMode: "minimal",
       paneActionMode: "essential",
@@ -18077,10 +18109,11 @@ function performanceSetupSummaryForSettings(settings) {
   const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, normalized.backgroundEffects);
   const toolbar = optionLabel(toolbarModeOptions, normalized.toolbarMode, normalized.toolbarMode);
   const controls = optionLabel(paneActionOptions, normalized.paneActionMode, normalized.paneActionMode);
+  const motionSpeed = optionLabel(chromeMotionOptions, normalized.chromeMotionMode, normalized.chromeMotionMode);
   return {
     mode: normalized.performanceMode ? "Tuned" : "Balanced",
     adaptiveGuard: normalized.adaptivePerformance ? "On" : "Off",
-    motion: normalized.performanceMode || normalized.reduceMotion ? "Reduced" : "Full",
+    motion: normalized.performanceMode || normalized.reduceMotion ? `Reduced / ${motionSpeed}` : motionSpeed,
     chrome: `${normalized.density === "compact" ? "Compact" : "Comfortable"} / ${toolbar}`,
     controls,
     background: `${backgroundEffects} ${normalized.backgroundOpacity}% / ${normalized.backgroundBlur}px soften`,
@@ -18211,6 +18244,7 @@ async function copyPerformanceSetup() {
 
 function performanceSetupSettingUpdateFromValue(key, raw) {
   if (key === "terminalStartupMode") return optionIdAllowed(terminalStartupOptions, raw) ? raw : null;
+  if (key === "chromeMotionMode") return optionIdAllowed(chromeMotionOptions, raw) ? raw : null;
   if (key === "density") return ["comfortable", "compact"].includes(raw) ? raw : null;
   if (key === "toolbarMode") return optionIdAllowed(toolbarModeOptions, raw) ? raw : null;
   if (key === "paneActionMode") return optionIdAllowed(paneActionOptions, raw) ? raw : null;
@@ -18292,7 +18326,7 @@ function performanceTuningPresetSettings(preset) {
 function performanceTuningPresetSearchText(preset, settings = performanceTuningPresetSettings(preset)) {
   const summary = performanceSetupSummaryForSettings(settings || {});
   return normalizeSettingsQuery([
-    "performance tuning preset setup apply copy speed lag smooth low motion live panes workspace chrome density toolbar controls padding background opacity effects glass flat terminal output browser preview suspend history scrollback",
+    "performance tuning preset setup apply copy speed lag smooth low motion speed snappy balanced calm live panes workspace chrome density toolbar controls padding background opacity effects glass flat terminal output browser preview suspend history scrollback",
     preset?.label,
     preset?.body,
     summary.mode,
@@ -21009,7 +21043,7 @@ function refreshPerformanceHealthPanel(panel = elements.inspectorBody.querySelec
 function performanceTuningPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "performance-tune-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes workspace chrome density toolbar padding background opacity soften blur effects glass flat browser preview apply copy setup history scrollback");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes workspace chrome density toolbar padding background opacity soften blur effects motion speed snappy balanced calm glass flat browser preview apply copy setup history scrollback");
   for (const preset of performanceTuningPresets) {
     const settings = performanceTuningPresetSettings(preset);
     if (!settings) continue;
@@ -21046,14 +21080,14 @@ function performanceTuningPresetGrid() {
     button.querySelector(".performance-tune-body").textContent = preset.body;
     const meta = button.querySelectorAll(".performance-tune-meta span");
     meta[0].textContent = summary.mode;
-    meta[1].textContent = summary.background;
+    meta[1].textContent = summary.motion;
     meta[2].textContent = summary.history;
     button.onclick = () => {
       if (!isActivePerformanceTuningPreset(preset)) applyPerformanceTuningPreset(preset.id);
     };
     const actions = document.createElement("div");
     actions.className = "performance-tune-actions";
-    const copy = settingsActionButton("Copy", () => copyPerformanceTuningPreset(preset.id), "", `performance tuning preset copy setup clipboard json ${preset.label} ${preset.body}`);
+    const copy = settingsActionButton("Copy", () => copyPerformanceTuningPreset(preset.id), "", `performance tuning preset copy setup clipboard json motion speed ${preset.label} ${preset.body}`);
     copy.title = "Copy this tuning preset as performance setup JSON.";
     actions.append(copy);
     card.append(button, actions);
@@ -27802,7 +27836,7 @@ function paletteEntries() {
       meta: `${summary.motion} / ${summary.background} / ${summary.inactiveBrowsers} browsers`,
       shortcut: "Copy",
       title: "Copy this tuning preset as performance setup JSON.",
-      search: normalizeSettingsQuery(`performance tuning preset copy setup clipboard json speed lag smooth background opacity effects ${preset.label} ${preset.body} ${summary.mode} ${summary.motion} ${summary.background} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.history}`),
+      search: normalizeSettingsQuery(`performance tuning preset copy setup clipboard json speed lag smooth motion speed snappy balanced calm background opacity effects ${preset.label} ${preset.body} ${summary.mode} ${summary.motion} ${summary.background} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.history}`),
       run: () => copyPerformanceTuningPreset(preset.id)
     });
   }
