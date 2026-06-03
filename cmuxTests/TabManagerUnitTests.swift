@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import Combine
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1421,6 +1422,45 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         XCTAssertEqual(prompts.first?.message, expectedMessage)
         XCTAssertEqual(prompts.first?.acceptCmdD, false)
         XCTAssertEqual(manager.tabs.map(\.title), ["Alpha", "Beta", "Gamma"])
+    }
+
+    func testCloseWorkspacesWithConfirmationUsesCompactPromptAndPublishesSingleTabsChangeForLargeSelection() {
+        let manager = TabManager()
+        while manager.tabs.count < 15 {
+            _ = manager.addWorkspace()
+        }
+        for (index, workspace) in manager.tabs.enumerated() {
+            manager.setCustomTitle(tabId: workspace.id, title: "Workspace \(index)")
+        }
+
+        let closingIds = manager.tabs.prefix(14).map(\.id)
+        var tabEmissionCounts: [Int] = []
+        let cancellable = manager.$tabs.dropFirst().sink { tabs in
+            tabEmissionCounts.append(tabs.count)
+        }
+        defer { cancellable.cancel() }
+
+        var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            prompts.append((title, message, acceptCmdD))
+            return true
+        }
+
+        manager.closeWorkspacesWithConfirmation(Array(closingIds), allowPinned: true)
+
+        let expectedSummary = String(
+            format: String(
+                localized: "dialog.closeWorkspaces.summary",
+                defaultValue: "This will close %1$lld workspaces and all of their panels:"
+            ),
+            locale: .current,
+            Int64(14)
+        )
+        XCTAssertEqual(prompts.count, 1)
+        XCTAssertEqual(prompts.first?.message, expectedSummary)
+        XCTAssertFalse(prompts.first?.message.contains("Workspace 0") ?? true)
+        XCTAssertEqual(manager.tabs.map(\.title), ["Workspace 14"])
+        XCTAssertEqual(tabEmissionCounts, [1], "Expected multi-close to publish one tabs array mutation")
     }
 }
 
