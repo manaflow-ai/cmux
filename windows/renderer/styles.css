@@ -7179,7 +7179,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .recent-folder-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 68px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
   color: var(--color-text);
@@ -7187,8 +7187,16 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   font-weight: 760;
 }
 
+.recent-folder-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
 .recent-folder-header .settings-action {
   height: 26px;
+  min-width: 64px;
 }
 
 .recent-folder-empty {

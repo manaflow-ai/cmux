@@ -1800,6 +1800,122 @@ function upsertSavedSettingsProfile(profile) {
   return state.savedSettingsProfiles[0];
 }
 
+function settingsProfilePayload(profile) {
+  const normalized = normalizeSavedSettingsProfile(profile);
+  if (!normalized) return null;
+  const settings = normalizeSettings(normalized.settings);
+  return {
+    version: 1,
+    type: "cmux-settings-profile",
+    summary: {
+      label: normalized.label,
+      settings: settingsProfileSummary(settings)
+    },
+    profile: {
+      label: normalized.label,
+      settings,
+      createdAt: normalized.createdAt
+    }
+  };
+}
+
+function currentSettingsProfilePayload() {
+  const setup = activeSettingsSetupModel();
+  return settingsProfilePayload({
+    label: setup.baseName || setup.label || "Custom setup",
+    settings: state.settings,
+    createdAt: Date.now()
+  });
+}
+
+async function copySettingsProfilePayload(profile, toastText = "Settings profile copied.") {
+  const payloadModel = settingsProfilePayload(profile);
+  if (!payloadModel) {
+    toast("Choose a settings profile first.");
+    return false;
+  }
+  const payload = JSON.stringify(payloadModel, null, 2);
+  if (await writeClipboardText(payload)) {
+    toast(toastText);
+    return true;
+  }
+  await showTextDialog({
+    title: "Settings profile",
+    message: "Clipboard access is unavailable. The settings profile is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function copyCurrentSettingsProfile() {
+  const payloadModel = currentSettingsProfilePayload();
+  if (!payloadModel) {
+    toast("Current settings profile could not be copied.");
+    return false;
+  }
+  return copySettingsProfilePayload(payloadModel.profile, "Current settings profile copied.");
+}
+
+function copySavedSettingsProfile(profileId) {
+  const profile = state.savedSettingsProfiles.find((candidate) => candidate.id === profileId);
+  if (!profile) {
+    toast("Settings profile not found.");
+    return false;
+  }
+  return copySettingsProfilePayload(profile, `${profile.label} profile copied.`);
+}
+
+function settingsProfileSourceFromPayload(payload) {
+  const parsed = importedObject(payload);
+  if (!parsed) return null;
+  if (importedObject(parsed.profile)) return parsed.profile;
+  if (Array.isArray(parsed.settingsProfiles) && parsed.settingsProfiles.length > 0) return parsed.settingsProfiles[0];
+  if (importedObject(parsed.settings)) return parsed;
+  return null;
+}
+
+function settingsProfileFromPayload(payload) {
+  const source = settingsProfileSourceFromPayload(payload);
+  const settings = importedObject(source?.settings);
+  if (!settings || !profileSettingsSettingKeys.some((key) => Object.hasOwn(settings, key))) return null;
+  const summary = importedObject(payload?.summary);
+  const label = normalizeSettingsProfileLabel(source.label || source.name || summary?.label || "Imported profile");
+  if (!label) return null;
+  return normalizeSavedSettingsProfile({
+    id: createSettingsProfileId(),
+    label: defaultSettingsProfileName(label),
+    settings,
+    createdAt: Date.now()
+  });
+}
+
+async function pasteSettingsProfile() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(clipboard);
+    const profile = settingsProfileFromPayload(parsed);
+    if (!profile) {
+      toast("Clipboard does not contain a settings profile.");
+      return null;
+    }
+    const saved = upsertSavedSettingsProfile(profile);
+    if (!saved) return null;
+    renderSettingsInspector();
+    toast(`${saved.label} profile saved.`);
+    return saved;
+  } catch {
+    toast("Clipboard does not contain a settings profile.");
+    return null;
+  }
+}
+
 function loadCustomColorPalette() {
   try {
     const parsed = JSON.parse(localStorage.getItem(customColorPaletteStorageKey) || "[]");
@@ -3980,6 +4096,8 @@ const commands = [
   { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
   { id: "settings.profiles", label: "Open Settings Profiles", shortcut: "", run: () => openSettingsCategory("profiles") },
   { id: "settings.saveProfile", label: "Save Current Settings Profile", shortcut: "", run: () => saveCurrentSettingsProfile() },
+  { id: "settings.copyCurrentProfile", label: "Copy Current Settings Profile", shortcut: "", run: () => copyCurrentSettingsProfile() },
+  { id: "settings.pasteProfile", label: "Paste Settings Profile", shortcut: "", run: () => pasteSettingsProfile() },
   { id: "settings.clearRecentActivity", label: "Clear Recent Activity", shortcut: "", run: () => clearRecentActivity() },
   { id: "settings.terminal", label: "Open Terminal Settings", shortcut: "", run: () => openSettingsCategory("terminal") },
   { id: "settings.copyTerminalSetup", label: "Copy Terminal Setup", shortcut: "", run: () => copyTerminalSetup() },
@@ -17586,7 +17704,7 @@ function applySettingsPresetById(presetId) {
 function settingsProfilesPanel() {
   const wrapper = document.createElement("div");
   wrapper.className = "settings-profile-list";
-  wrapper.dataset.settingsSearch = normalizeSettingsQuery("saved settings profile preset appearance layout terminal performance apply save rename delete");
+  wrapper.dataset.settingsSearch = normalizeSettingsQuery("saved settings profile preset appearance layout terminal performance apply save copy paste rename delete clipboard json");
 
   const header = document.createElement("div");
   header.className = "recent-folder-header";
@@ -17594,7 +17712,14 @@ function settingsProfilesPanel() {
   title.textContent = "Saved profiles";
   const save = settingsActionButton("Save", saveCurrentSettingsProfile, "", "save current settings profile preset");
   applySettingsProfileSaveLimit(save);
-  header.append(title, save);
+  const copyCurrent = settingsActionButton("Copy", copyCurrentSettingsProfile, "", "copy current settings profile setup preset clipboard json");
+  copyCurrent.title = "Copy the current setup as a Settings profile JSON.";
+  const paste = settingsActionButton("Paste", pasteSettingsProfile, "", "paste settings profile setup preset clipboard json");
+  applySettingsProfileSaveLimit(paste, "Paste a copied Settings profile.");
+  const headerActions = document.createElement("div");
+  headerActions.className = "recent-folder-header-actions";
+  headerActions.append(save, copyCurrent, paste);
+  header.append(title, headerActions);
   wrapper.append(header, settingsProfileCurrentSetupPanel());
 
   if (state.savedSettingsProfiles.length === 0) {
@@ -17645,7 +17770,7 @@ function settingsProfileCard(profile) {
   const active = isActiveSettingsProfile(profile);
   const card = document.createElement("div");
   card.className = `recent-folder-card settings-profile-card${active ? " is-active" : ""}`;
-  card.dataset.settingsSearch = normalizeSettingsQuery(`saved settings profile preset apply active rename delete ${profile.label} ${settingsProfileSummary(profile.settings)}`);
+  card.dataset.settingsSearch = normalizeSettingsQuery(`saved settings profile preset apply active copy paste rename delete clipboard json ${profile.label} ${settingsProfileSummary(profile.settings)}`);
 
   const text = document.createElement("div");
   text.className = "recent-folder-text";
@@ -17673,6 +17798,7 @@ function settingsProfileCard(profile) {
   apply.disabled = active;
   actions.append(
     apply,
+    settingsActionButton("Copy", () => copySavedSettingsProfile(profile.id), "", `copy settings profile clipboard json ${profile.label}`),
     settingsActionButton("Update", () => updateSavedSettingsProfile(profile.id), "", `update settings profile ${profile.label} overwrite current settings`),
     settingsActionButton("Rename", () => renameSavedSettingsProfile(profile.id), "", `rename settings profile ${profile.label}`),
     settingsActionButton("Delete", () => deleteSavedSettingsProfile(profile.id), "danger", `delete settings profile ${profile.label}`)
@@ -18763,6 +18889,12 @@ function showToolbarMenu(event) {
       contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
       contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
       contextMenuButton("Settings profiles", () => openSettingsCategory("profiles")),
+      contextMenuButton("Copy current profile", copyCurrentSettingsProfile),
+      (() => {
+        const action = contextMenuButton("Paste settings profile", pasteSettingsProfile, profilesFull);
+        action.title = profilesFull ? settingsProfileLimitTitle() : "Paste a copied Settings profile.";
+        return action;
+      })(),
       contextMenuButton("Copy app setup", copyAppSetup),
       contextMenuButton("Paste app setup", pasteAppSetup),
       (() => {
@@ -19963,6 +20095,28 @@ function paletteEntries() {
       }
     });
   }
+  const activeSetup = activeSettingsSetupModel();
+  const savedProfilesFull = savedSettingsProfilesFull();
+  const activeSetupSummary = settingsProfileSummary(state.settings);
+  entries.push({
+    id: "settingsProfile.copyCurrent",
+    label: "Copy current settings profile",
+    meta: `${activeSetup.label} / ${activeSetupSummary}`,
+    shortcut: "Copy",
+    title: "Copy the current setup as a Settings profile JSON.",
+    search: normalizeSettingsQuery(`settings profile setup current copy clipboard json ${activeSetup.kind} ${activeSetup.label} ${activeSetupSummary}`),
+    run: copyCurrentSettingsProfile
+  });
+  entries.push({
+    id: "settingsProfile.paste",
+    label: "Paste settings profile",
+    meta: savedSettingsProfileCountLabel(),
+    shortcut: "Paste",
+    disabled: savedProfilesFull,
+    title: savedProfilesFull ? settingsProfileLimitTitle() : "Paste a copied Settings profile.",
+    search: normalizeSettingsQuery("settings profile setup paste import clipboard json saved reusable"),
+    run: pasteSettingsProfile
+  });
   for (const profile of state.savedSettingsProfiles) {
     const summary = settingsProfileSummary(profile.settings);
     const active = isActiveSettingsProfile(profile);
@@ -19976,6 +20130,15 @@ function paletteEntries() {
       title: active ? `${profile.label} profile already active.` : `Apply ${profile.label} settings profile.`,
       search: normalizeSettingsQuery(`settings profile preset saved apply active ${profile.label} ${summary}`),
       run: () => applySavedSettingsProfile(profile.id)
+    });
+    entries.push({
+      id: `settingsProfile.copy.${profile.id}`,
+      label: `Copy profile: ${profile.label}`,
+      meta: summary,
+      shortcut: "Copy",
+      title: `Copy ${profile.label} as a Settings profile JSON.`,
+      search: normalizeSettingsQuery(`settings profile preset saved copy clipboard json ${profile.label} ${summary}`),
+      run: () => copySavedSettingsProfile(profile.id)
     });
   }
   const currentPaletteBlueprint = state.workspaceBlueprints.length > 0 ? currentWorkspaceBlueprintSnapshot("Current setup") : null;
