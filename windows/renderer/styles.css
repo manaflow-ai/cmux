@@ -2938,6 +2938,10 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   display: none;
 }
 
+.pane.is-browser {
+  contain: layout;
+}
+
 .pane-body {
   min-width: 0;
   min-height: 0;
@@ -3979,7 +3983,7 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   display: grid;
   grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   overflow: hidden;
-  contain: layout paint;
+  contain: layout;
   background: var(--color-canvas);
 }
 
@@ -4278,8 +4282,7 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
 
 .browser-view {
   grid-area: 1 / 1;
-  position: absolute;
-  inset: 0;
+  position: relative;
   z-index: 0;
   display: block;
   align-self: stretch;

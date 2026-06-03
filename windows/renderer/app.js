@@ -7976,7 +7976,7 @@ function activateBrowserTab(session, tabId) {
     session.setStatus?.(browserLoadingStatusText);
   }
   queueBrowserUrlSync(session.panelId, tab.url);
-  saveBrowserSessionTabsNow(session);
+  saveBrowserSessionTabs(session);
   renderBrowserTabs(session);
   focusPanel(session.panelId);
   return true;
