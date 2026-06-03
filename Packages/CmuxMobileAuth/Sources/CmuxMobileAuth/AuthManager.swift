@@ -396,6 +396,8 @@ public final class AuthManager {
     }
 
     public func signOut() async {
+        await NotificationManager.shared.unregisterFromServer()
+
         do {
             try await stack.signOut()
         } catch {
@@ -406,7 +408,6 @@ public final class AuthManager {
         clearDebugPasswordCredentials()
         #endif
         clearAuthState()
-        await NotificationManager.shared.unregisterFromServer()
     }
 
     public func getAccessToken() async throws -> String {
