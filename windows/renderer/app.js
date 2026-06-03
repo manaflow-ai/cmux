@@ -9743,7 +9743,7 @@ function renderSettingsInspector(options = {}) {
       settingsActionButton("Save current speed", saveCurrentPerformanceProfile, "", "performance save current speed lag settings profile reusable"),
       settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
       speedPreset,
-      settingsActionButton("Reset stats", resetRenderStats, "", "performance render stats reset")
+      resetPerformanceStatsAction()
     );
     performanceSection.append(performanceActions);
     nodes.push(performanceSection);
@@ -12071,6 +12071,41 @@ function performanceMetrics() {
   ];
 }
 
+function hasPerformanceStats() {
+  const currentQueue = totalTerminalOutputQueue();
+  return Boolean(
+    state.renderStats.count
+    || state.renderStats.slowCount
+    || state.renderStats.coalescedRenders
+    || state.renderStats.skippedRenders
+    || state.renderStats.browserUrlRenderSkips
+    || state.renderStats.guardActivations
+    || state.terminalOutputStats.maxQueued > currentQueue
+    || state.terminalOutputStats.writtenBytes
+    || state.terminalOutputStats.chunks
+    || state.terminalOutputStats.lastChunk
+    || state.terminalOutputStats.pausedFlushes
+    || state.terminalOutputStats.trimmedBytes
+    || state.terminalOutputStats.trimmedEvents
+    || state.terminalFitStats.deferred
+    || state.terminalFitStats.flushed
+    || state.paneCreateStats.count
+    || state.paneCreateStats.failures
+    || state.terminalConnectStats.count
+    || state.performanceGuardTriggered
+    || state.performanceGuardReason
+    || state.performanceGuardSlowRenderCount
+  );
+}
+
+function resetPerformanceStatsAction() {
+  const hasStats = hasPerformanceStats();
+  const action = settingsActionButton("Reset stats", resetRenderStats, "", `performance render stats reset ${hasStats ? "" : "empty clear "}`);
+  action.disabled = !hasStats;
+  action.title = hasStats ? "Clear collected performance counters." : "Performance counters are already clear.";
+  return action;
+}
+
 function localStorageString(key) {
   try {
     return localStorage.getItem(key) || "";
@@ -13939,6 +13974,10 @@ function activePaneLayoutCommandIds(workspace = activeWorkspace()) {
 }
 
 function resetRenderStats() {
+  if (!hasPerformanceStats()) {
+    toast("Performance stats already clear.");
+    return false;
+  }
   state.renderStats = {
     count: 0,
     lastMs: 0,
@@ -13989,6 +14028,7 @@ function resetRenderStats() {
   state.performanceMetricsRefreshAt = 0;
   renderSettingsInspector();
   toast("Performance stats reset.");
+  return true;
 }
 
 function maybeTriggerPerformanceGuard(reason) {
