@@ -4778,8 +4778,12 @@ struct CMUXCLI {
         // Build the routing params shared by all socket-backed subcommands.
         func buildRoutingParams(includeDefaultSurface: Bool = false) throws -> [String: Any] {
             var params: [String: Any] = [:]
+            // Only inherit the caller's ambient surface when no explicit
+            // workspace/window was given. With `--workspace <other>`, the caller's
+            // CMUX_SURFACE_ID belongs to a different workspace and the server would
+            // reject it as sourceSurfaceNotFound.
             let surfaceRaw = surfaceOpt
-                ?? (includeDefaultSurface && windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+                ?? (includeDefaultSurface && windowOpt == nil && workspaceOpt == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             if let surfaceRaw {
                 if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                     params["surface_id"] = surface
@@ -5396,6 +5400,7 @@ struct CMUXCLI {
         "new-window",
         "new-workspace",
         "next-window",
+        "note",
         "notify",
         "omc",
         "omo",

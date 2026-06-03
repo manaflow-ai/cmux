@@ -14953,8 +14953,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return didOpen
             case .diffViewer:
                 guard let workspace = context.tabManager.selectedWorkspace else { return false }
-                let rawCwd = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-                let cwd = rawCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : rawCwd
+                // Mirror the shared diff opener: prefer the focused panel's tracked
+                // directory over the workspace's last cwd so the diff targets the repo
+                // the user is actually in.
+                let cwd = workspace.resolvedWorkingDirectory()
+                    ?? FileManager.default.homeDirectoryForCurrentUser.path
                 let didOpen = CmuxDiffViewerLauncher.shared.start(
                     cwd: cwd,
                     workspaceId: workspace.id,

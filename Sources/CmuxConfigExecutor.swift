@@ -58,12 +58,11 @@ final class CmuxDiffViewerLauncher {
             Task { @MainActor in
                 Self.shared.processes.removeValue(forKey: processIdentifier)
                 guard terminationStatus != 0 else { return }
-                let detail = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                let limitedDetail = detail.isEmpty
-                    ? "status=\(terminationStatus)"
-                    : String(detail.prefix(240))
+                // The child's stdout/stderr can contain repo paths or file contents,
+                // and tagged Debug logs land under /tmp; log only a byte count.
+                let outputByteCount = output.utf8.count
                 #if DEBUG
-                cmuxDebugLog("diffViewer.launch exited status=\(terminationStatus) detail=\(limitedDetail)")
+                cmuxDebugLog("diffViewer.launch exited status=\(terminationStatus) outputBytes=\(outputByteCount)")
                 #endif
                 NSSound.beep()
             }

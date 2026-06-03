@@ -401,10 +401,17 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
                 self.isDirty = self.textContent != currentContent
                 self.isFileUnavailable = false
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
-                // Edits made while this save was in flight leave isDirty == true;
-                // reschedule so autosave continues without waiting for a new keystroke.
+                // Edits made while this save was in flight leave isDirty == true.
+                // If the panel is closing, the debounced autosave won't run, so flush
+                // the latest text now — this write is ordered after the one that just
+                // finished, so the newest content wins. Otherwise reschedule so autosave
+                // continues without waiting for a new keystroke.
                 if self.isDirty {
-                    self.scheduleAutoSaveIfNeeded()
+                    if self.isClosed {
+                        _ = self.saveTextContent()
+                    } else {
+                        self.scheduleAutoSaveIfNeeded()
+                    }
                 }
             case .failed(let fileExists):
                 self.isFileUnavailable = !fileExists
