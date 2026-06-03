@@ -141,6 +141,16 @@ private final class CLISocketSentryTelemetry {
 
     func captureError(stage: String, error: Error, data: [String: Any] = [:]) {
         guard shouldEmit else { return }
+        if CLISocketErrorClassification.isExpectedTransportError(error) {
+            // The cmux app / socket peer is simply unavailable (app closed, stale
+            // socket, peer hung up mid-write). This fires on essentially every
+            // shell-prompt and agent-hook invocation whenever the app is not
+            // running, so capturing it flooded Sentry past the project's monthly
+            // quota and made real crashes invisible. It also paid a 2.0s
+            // SentrySDK.flush below, stalling the prompt. Drop it before starting
+            // the SDK; genuinely unexpected errors still report normally.
+            return
+        }
 #if canImport(Sentry)
         Self.ensureStarted()
         flushPendingBreadcrumbs()
