@@ -1,27 +1,51 @@
+public import CMUXMobileCore
+public import Foundation
 import Dispatch
-import Foundation
 @preconcurrency import Network
 
+/// Errors raised while establishing or operating a ``CmxNetworkByteTransport``.
 public enum CmxNetworkByteTransportError: Error, Equatable, Sendable {
+    /// The host was empty after trimming whitespace.
     case emptyHost
+    /// The port fell outside `1...65535`.
     case invalidPort(Int)
+    /// The configured maximum receive length was not positive.
     case invalidMaximumReceiveLength(Int)
+    /// The route kind cannot be served by this network transport.
     case unsupportedRouteKind(CmxAttachTransportKind)
+    /// The endpoint is not a host/port endpoint this transport can dial.
     case unsupportedEndpoint(CmxAttachEndpoint)
+    /// An operation was attempted before the connection became ready.
     case notConnected
+    /// The transport was already closed.
     case alreadyClosed
+    /// A receive was requested while another is still in flight.
     case receiveAlreadyInProgress
+    /// A send was requested while another is still in flight.
     case sendAlreadyInProgress
+    /// The connect deadline elapsed before the connection became ready.
     case connectionTimedOut
+    /// The connection failed; the associated value describes the cause.
     case connectionFailed(String)
+    /// A receive failed; the associated value describes the cause.
     case receiveFailed(String)
+    /// A send failed; the associated value describes the cause.
     case sendFailed(String)
 }
 
+/// A ``CmxRouteAwareByteTransportFactory`` that builds Network.framework TCP
+/// transports for host/port routes.
 public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory {
+    /// The route kinds this factory can build a transport for.
     public var supportedKinds: [CmxAttachTransportKind]
+    /// The maximum number of bytes a single receive call yields.
     public var maximumReceiveLength: Int
 
+    /// Creates a factory bound to the given supported route kinds.
+    /// - Parameters:
+    ///   - supportedKinds: Route kinds this factory accepts. Defaults to
+    ///     `tailscale` and `debugLoopback`.
+    ///   - maximumReceiveLength: Per-receive byte cap for built transports.
     public init(
         supportedKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength
@@ -30,6 +54,11 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         self.maximumReceiveLength = maximumReceiveLength
     }
 
+    /// Builds a connected-on-demand transport for a supported host/port route.
+    /// - Parameter route: The attach route to build a transport for.
+    /// - Returns: A ``CmxNetworkByteTransport`` for the route's host and port.
+    /// - Throws: ``CmxNetworkByteTransportError`` when the route kind or
+    ///   endpoint is unsupported, or the route fails validation.
     public func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         try route.validate()
         guard supportedKinds.contains(route.kind) else {
@@ -46,8 +75,14 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
     }
 }
 
+/// A ``CmxByteTransport`` over a single Network.framework `NWConnection`.
+///
+/// The actor owns the connection, its callback queue, and all in-flight
+/// continuations so connect/receive/send/close are serialized without locks.
 public actor CmxNetworkByteTransport: CmxByteTransport {
+    /// Default per-receive byte cap.
     public static let defaultMaximumReceiveLength = 64 * 1024
+    /// Default connect deadline, after which ``connect()`` fails as timed out.
     public static let defaultConnectTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
 
     private enum TransportState {
@@ -64,15 +99,22 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     private let maximumReceiveLength: Int
     private let connectTimeoutNanoseconds: UInt64
     private var state: TransportState = .idle
-    private var connectContinuations: [UUID: CheckedContinuation<Void, Error>] = [:]
-    private var receiveContinuation: (id: UUID, continuation: CheckedContinuation<Data?, Error>)?
+    private var connectContinuations: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var receiveContinuation: (id: UUID, continuation: CheckedContinuation<Data?, any Error>)?
     private var receiveInFlightOperationID: UUID?
     private var receiveBuffer: [Data] = []
-    private var sendContinuation: (id: UUID, continuation: CheckedContinuation<Void, Error>?)?
+    private var sendContinuation: (id: UUID, continuation: CheckedContinuation<Void, any Error>?)?
     private var cancelledOperationIDs: Set<UUID> = []
     private var connectTimeoutTimer: DispatchSourceTimer?
     private var remoteDidClose = false
 
+    /// Creates a transport for an explicit host and port.
+    /// - Parameters:
+    ///   - host: The destination host; must be non-empty after trimming.
+    ///   - port: The destination port in `1...65535`.
+    ///   - maximumReceiveLength: Per-receive byte cap.
+    ///   - connectTimeoutNanoseconds: Deadline for ``connect()``.
+    /// - Throws: ``CmxNetworkByteTransportError`` for invalid host/port/length.
     public init(
         host: String,
         port: Int,
@@ -108,6 +150,13 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
     }
 
+    /// Creates a transport from a host/port attach route.
+    /// - Parameters:
+    ///   - route: The route to connect to; must carry a host/port endpoint.
+    ///   - maximumReceiveLength: Per-receive byte cap.
+    ///   - connectTimeoutNanoseconds: Deadline for ``connect()``.
+    /// - Throws: ``CmxNetworkByteTransportError`` when the endpoint is not a
+    ///   host/port, or the underlying host/port init fails.
     public init(
         route: CmxAttachRoute,
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
@@ -125,6 +174,8 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         )
     }
 
+    /// Opens the connection, awaiting `ready` or failing on error/timeout.
+    /// - Throws: ``CmxNetworkByteTransportError`` or `CancellationError`.
     public func connect() async throws {
         try Task.checkCancellation()
         let operationID = UUID()
@@ -137,6 +188,9 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         }
     }
 
+    /// Receives the next chunk of bytes, or `nil` at end of stream.
+    /// - Returns: The next received `Data`, or `nil` once the peer closed.
+    /// - Throws: ``CmxNetworkByteTransportError`` or `CancellationError`.
     public func receive() async throws -> Data? {
         try Task.checkCancellation()
         let operationID = UUID()
@@ -149,6 +203,9 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         }
     }
 
+    /// Sends bytes over the connection. Empty data is a no-op.
+    /// - Parameter data: The bytes to write.
+    /// - Throws: ``CmxNetworkByteTransportError`` or `CancellationError`.
     public func send(_ data: Data) async throws {
         guard !data.isEmpty else {
             return
@@ -164,6 +221,10 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         }
     }
 
+    /// Cancels the connection and completes any in-flight operations.
+    ///
+    /// A pending ``receive()`` resolves to `nil` (end of stream); pending
+    /// connect/send calls fail with ``CmxNetworkByteTransportError/alreadyClosed``.
     public func close() async {
         close(
             pendingError: CmxNetworkByteTransportError.alreadyClosed,
@@ -173,7 +234,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
 
     private func startConnect(
         operationID: UUID,
-        continuation: CheckedContinuation<Void, Error>
+        continuation: CheckedContinuation<Void, any Error>
     ) {
         guard !consumeCancelledOperation(operationID) else {
             continuation.resume(throwing: CancellationError())
@@ -233,7 +294,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
 
     private func startReceive(
         operationID: UUID,
-        continuation: CheckedContinuation<Data?, Error>
+        continuation: CheckedContinuation<Data?, any Error>
     ) {
         guard !consumeCancelledOperation(operationID) else {
             continuation.resume(throwing: CancellationError())
@@ -350,7 +411,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     private func startSend(
         _ data: Data,
         operationID: UUID,
-        continuation: CheckedContinuation<Void, Error>
+        continuation: CheckedContinuation<Void, any Error>
     ) {
         guard !consumeCancelledOperation(operationID) else {
             continuation.resume(throwing: CancellationError())
@@ -428,7 +489,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         resumeSendContinuation(throwing: error)
     }
 
-    private func close(pendingError: Error, resumeReceiveWithError: Bool) {
+    private func close(pendingError: any Error, resumeReceiveWithError: Bool) {
         guard !isClosed else {
             return
         }
@@ -522,7 +583,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         return false
     }
 
-    private func resumeConnectContinuations(throwing error: Error? = nil) {
+    private func resumeConnectContinuations(throwing error: (any Error)? = nil) {
         let continuations = connectContinuations.values
         connectContinuations.removeAll()
         for continuation in continuations {
@@ -536,7 +597,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
 
     private func resumeReceiveContinuation(
         returning data: Data? = nil,
-        throwing error: Error? = nil
+        throwing error: (any Error)? = nil
     ) {
         guard let pending = receiveContinuation else {
             return
@@ -549,7 +610,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         }
     }
 
-    private func resumeSendContinuation(throwing error: Error) {
+    private func resumeSendContinuation(throwing error: any Error) {
         guard let pending = sendContinuation else {
             return
         }

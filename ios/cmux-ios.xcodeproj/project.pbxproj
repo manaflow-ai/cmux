@@ -17,6 +17,7 @@
 		8B41F6852DEDD25C001A66F9 /* cmuxFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* cmuxFeature */; };
 		8B7E20012DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20032DF3A00100A66F90 /* CMUXMobileCore */; };
 		8B7E20022DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20042DF3A00100A66F90 /* CMUXMobileCore */; };
+		8B7E20052DF3A00100A66F90 /* CmuxMobileTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20062DF3A00100A66F90 /* CmuxMobileTransport */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -54,6 +55,7 @@
 			files = (
 				8B41F6852DEDD25C001A66F9 /* cmuxFeature in Frameworks */,
 				8B7E20012DF3A00100A66F90 /* CMUXMobileCore in Frameworks */,
+				8B7E20052DF3A00100A66F90 /* CmuxMobileTransport in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -157,6 +159,7 @@
 			packageProductDependencies = (
 				8B41F6842DEDD25C001A66F9 /* cmuxFeature */,
 				8B7E20032DF3A00100A66F90 /* CMUXMobileCore */,
+				8B7E20062DF3A00100A66F90 /* CmuxMobileTransport */,
 			);
 			productName = cmux;
 			productReference = 8B41F6452DEDD0D5001A66F9 /* cmux.app */;
@@ -513,6 +516,10 @@
 		8B7E20042DF3A00100A66F90 /* CMUXMobileCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CMUXMobileCore;
+		};
+		8B7E20062DF3A00100A66F90 /* CmuxMobileTransport */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxMobileTransport;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

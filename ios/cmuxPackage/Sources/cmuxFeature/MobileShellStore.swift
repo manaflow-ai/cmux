@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileAuth
+import CmuxMobileTransport
 import Foundation
 import Observation
 import OSLog

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileTransport
 import SwiftUI
 import cmuxFeature
 
