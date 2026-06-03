@@ -18,5 +18,15 @@ public struct KeyboardShortcutsCatalogSection: SettingCatalogSection {
         defaultValue: [:]
     )
 
+    /// Per-action focus predicates (`shortcuts.when`), keyed by action id, as
+    /// raw expression strings. The app target owns parsing/evaluation; the
+    /// Settings UI only needs to know which actions are context-scoped so its
+    /// conflict detection does not false-reject two bindings the user has made
+    /// disjoint by context.
+    public let when = JSONKey<[String: String]>(
+        id: "shortcuts.when",
+        defaultValue: [:]
+    )
+
     public init() {}
 }

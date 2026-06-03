@@ -13,6 +13,10 @@ public struct KeyboardShortcutsSection: View {
     private let hostActions: SettingsHostActions
 
     @State private var bindings: [String: StoredShortcut] = [:]
+    /// Action ids that carry a `shortcuts.when` override. These are context-scoped
+    /// (the app target evaluates the predicate), so the recorder must not treat a
+    /// same-keystroke binding as conflicting with them.
+    @State private var whenOverriddenActionIds: Set<String> = []
     @State private var streamTask: Task<Void, Never>?
     @State private var chordModeActions: Set<String> = []
     @State private var restoreShortcuts: [String: StoredShortcut] = [:]
@@ -85,6 +89,7 @@ public struct KeyboardShortcutsSection: View {
                 .accessibilityIdentifier("ShortcutRecordingHint")
         }
         .task { await streamBindings() }
+        .task { await streamWhenOverrides() }
         .onDisappear { streamTask?.cancel() }
     }
 
@@ -325,6 +330,11 @@ public struct KeyboardShortcutsSection: View {
 
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
         for other in ShortcutAction.allCases where other != action {
+            // Skip actions the user has context-scoped with `shortcuts.when`: the
+            // app target gates them by focus, so a same-keystroke binding the user
+            // is recording is not necessarily a real collision. The authoritative
+            // app-target conflict check still validates the cmux.json result.
+            if whenOverriddenActionIds.contains(other.rawValue) { continue }
             let override = bindings[other.rawValue]
             let effective = override ?? other.defaultStroke.map { StoredShortcut(first: $0) }
             guard let effective, !effective.isUnbound else { continue }
@@ -347,6 +357,14 @@ public struct KeyboardShortcutsSection: View {
     /// `⌃1…9` rather than the literal single digit `⌃1`.
     private func format(_ shortcut: StoredShortcut, numbered: Bool = false) -> String {
         shortcutDisplayString(shortcut, numbered: numbered)
+    }
+
+    /// Tracks which actions carry a `shortcuts.when` override so conflict
+    /// detection can skip them (see ``detectConflict(for:stroke:)``).
+    private func streamWhenOverrides() async {
+        for await whenMap in jsonStore.values(for: catalog.shortcuts.when) {
+            whenOverriddenActionIds = Set(whenMap.keys)
+        }
     }
 
     private func streamBindings() async {

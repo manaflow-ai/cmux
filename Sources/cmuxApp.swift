@@ -911,14 +911,12 @@ struct cmuxApp: App {
 
             // Numbered workspace selection (9 = last workspace)
             ForEach(1...9, id: \.self) { number in
+                // `menuShortcut(for:)` already returns `.unbound` when the action
+                // carries a configured `shortcuts.when` clause, so a context-gated
+                // workspace shortcut takes the no-key-equivalent branch and the
+                // gated keyDown handler owns dispatch (issue #5189).
                 let selectWorkspaceByNumberShortcut = menuShortcut(for: .selectWorkspaceByNumber)
-                // When the action carries a `when` clause (any focus restriction),
-                // the menu must NOT register a static key equivalent: a menu
-                // equivalent fires regardless of focus and would bypass the clause
-                // (e.g. select Workspace 6 while the sidebar is focused). Let the
-                // context-gated keyDown handler own dispatch instead (issue #5189).
-                let isContextGated = KeyboardShortcutSettings.effectiveWhenClause(for: .selectWorkspaceByNumber) != .always
-                if selectWorkspaceByNumberShortcut.isUnbound || selectWorkspaceByNumberShortcut.hasChord || isContextGated {
+                if selectWorkspaceByNumberShortcut.isUnbound || selectWorkspaceByNumberShortcut.hasChord {
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
                         let manager = activeTabManager
                         if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
