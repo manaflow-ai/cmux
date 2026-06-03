@@ -1892,6 +1892,156 @@ function hasRecentActivity() {
   );
 }
 
+function recentActivityPayload() {
+  return {
+    version: 1,
+    type: "cmux-recent-activity",
+    summary: {
+      folders: state.recentFolders.length,
+      commands: state.recentCommands.length,
+      browserPages: state.recentBrowserPages.length,
+      browserTabPanes: state.browserTabSnapshots.size,
+      browserTabs: browserTabSnapshotCount()
+    },
+    recentFolders: state.recentFolders,
+    recentCommands: state.recentCommands,
+    recentBrowserPages: state.recentBrowserPages,
+    browserTabs: Object.fromEntries(state.browserTabSnapshots)
+  };
+}
+
+async function copyRecentActivity() {
+  if (!hasRecentActivity()) {
+    toast("Recent activity is empty.");
+    return false;
+  }
+  const payload = JSON.stringify(recentActivityPayload(), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Recent activity copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Recent activity",
+    message: "Clipboard access is unavailable. Recent folders, commands, browser pages, and saved browser tabs are shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function browserTabSnapshotMapFromPayload(value) {
+  const source = value instanceof Map ? value : importedObject(value);
+  const snapshots = new Map();
+  if (!source) return snapshots;
+  const entries = value instanceof Map ? [...source.entries()] : Object.entries(source);
+  for (const [panelId, snapshotValue] of entries) {
+    const id = String(panelId || "").trim();
+    if (!id) continue;
+    const snapshot = browserTabSessionSnapshotFromValue(snapshotValue, state.settings.browserHomeUrl);
+    if (!snapshot) continue;
+    snapshots.set(id, snapshot);
+  }
+  return snapshots;
+}
+
+function recentActivityEntriesFromPayload(payload) {
+  const parsed = importedObject(payload);
+  if (!parsed) return null;
+  const source = importedObject(parsed.recentActivity) || parsed;
+  return {
+    folders: normalizeRecentFolderList(Array.isArray(source.recentFolders) ? source.recentFolders : []),
+    commands: normalizeRecentCommandList(Array.isArray(source.recentCommands) ? source.recentCommands : []),
+    pages: normalizeRecentBrowserPageList(Array.isArray(source.recentBrowserPages) ? source.recentBrowserPages : []),
+    browserTabs: browserTabSnapshotMapFromPayload(source.browserTabs || source.browserTabSnapshots)
+  };
+}
+
+function hasRecentActivityEntries(entries) {
+  return Boolean(
+    entries?.folders?.length
+    || entries?.commands?.length
+    || entries?.pages?.length
+    || entries?.browserTabs?.size
+  );
+}
+
+function mergedRecentActivityList(imported, current, limit, keyForItem) {
+  const next = [];
+  const seen = new Set();
+  for (const item of [...imported, ...current]) {
+    const key = keyForItem(item);
+    if (!item || seen.has(key)) continue;
+    seen.add(key);
+    next.push(item);
+    if (next.length >= limit) break;
+  }
+  return next;
+}
+
+function mergeRecentActivity(payload) {
+  const entries = recentActivityEntriesFromPayload(payload);
+  if (!hasRecentActivityEntries(entries)) {
+    toast("Clipboard does not contain recent activity.");
+    return false;
+  }
+
+  let changed = false;
+  const nextFolders = mergedRecentActivityList(entries.folders, state.recentFolders, recentFoldersLimit, folderKey);
+  if (stableJson(nextFolders) !== stableJson(state.recentFolders)) {
+    state.recentFolders = nextFolders;
+    saveRecentFolders();
+    changed = true;
+  }
+
+  const nextCommands = mergedRecentActivityList(entries.commands, state.recentCommands, recentCommandsLimit, (command) => command.toLowerCase());
+  if (stableJson(nextCommands) !== stableJson(state.recentCommands)) {
+    state.recentCommands = nextCommands;
+    saveRecentCommands();
+    changed = true;
+  }
+
+  const nextPages = mergedRecentActivityList(entries.pages, state.recentBrowserPages, recentBrowserPagesLimit, (url) => url.toLowerCase());
+  if (stableJson(nextPages) !== stableJson(state.recentBrowserPages)) {
+    state.recentBrowserPages = nextPages;
+    saveRecentBrowserPages();
+    changed = true;
+  }
+
+  const nextTabs = new Map(entries.browserTabs);
+  for (const [panelId, snapshot] of state.browserTabSnapshots.entries()) {
+    if (!nextTabs.has(panelId)) nextTabs.set(panelId, snapshot);
+  }
+  if (stableJson(nextTabs) !== stableJson(state.browserTabSnapshots)) {
+    state.browserTabSnapshots = nextTabs;
+    saveBrowserTabSnapshots(state.browserTabSnapshots);
+    changed = true;
+  }
+
+  if (!changed) {
+    toast("Recent activity already matches.");
+    return false;
+  }
+  renderSettingsInspector();
+  toast("Recent activity updated.");
+  return true;
+}
+
+async function pasteRecentActivity() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    return mergeRecentActivity(JSON.parse(clipboard));
+  } catch {
+    toast("Clipboard does not contain recent activity.");
+    return false;
+  }
+}
+
 async function clearRecentActivity() {
   if (!hasRecentActivity()) {
     toast("Recent activity is already clear.");
@@ -4718,6 +4868,8 @@ const commands = [
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
   { id: "settings.copyAppSetup", label: "Copy App Setup", shortcut: "", run: () => copyAppSetup() },
   { id: "settings.pasteAppSetup", label: "Paste App Setup", shortcut: "", run: () => pasteAppSetup() },
+  { id: "settings.copyRecentActivity", label: "Copy Recent Activity", shortcut: "", run: () => copyRecentActivity() },
+  { id: "settings.pasteRecentActivity", label: "Paste Recent Activity", shortcut: "", run: () => pasteRecentActivity() },
   { id: "settings.pane", label: "Open Active Pane Settings", shortcut: "", run: () => openPaneSettings() },
   { id: "settings.copyPaneSetup", label: "Copy Active Pane Setup", shortcut: "", run: () => copyActivePaneSetup() },
   { id: "settings.pastePaneSetup", label: "Paste Active Pane Setup", shortcut: "", run: () => pasteActivePaneSetup() },
@@ -11398,9 +11550,16 @@ function renderSettingsInspector(options = {}) {
     copySetup.title = "Copy settings, profiles, blueprints, saved colors, backgrounds, snippets, and recent data as JSON.";
     const pasteSetup = settingsActionButton("Paste app setup", pasteAppSetup, "", "settings data import paste app setup restore preferences profiles blueprints snippets colors backgrounds recent clipboard json");
     pasteSetup.title = "Paste exported cmux Windows app setup JSON.";
+    const copyRecent = settingsActionButton("Copy recent activity", copyRecentActivity, "", "settings data recent activity export copy folders commands browser pages tabs clipboard json");
+    copyRecent.disabled = !recentActivity;
+    copyRecent.title = recentActivity ? "Copy recent folders, commands, browser pages, and saved browser tabs as JSON." : "Recent activity is empty.";
+    const pasteRecent = settingsActionButton("Paste recent activity", pasteRecentActivity, "", "settings data recent activity import paste folders commands browser pages tabs clipboard json");
+    pasteRecent.title = "Merge copied recent folders, commands, browser pages, and saved browser tabs.";
     actions.append(
       copySetup,
       pasteSetup,
+      copyRecent,
+      pasteRecent,
       closeEmpty,
       clearRecent,
       settingsActionButton("Reset", resetSettings, "danger")
@@ -20018,6 +20177,13 @@ function showToolbarMenu(event) {
       })(),
       contextMenuButton("Copy app setup", copyAppSetup),
       contextMenuButton("Paste app setup", pasteAppSetup),
+      (() => {
+        const recentActivity = hasRecentActivity();
+        const action = contextMenuButton("Copy recent activity", copyRecentActivity, !recentActivity);
+        action.title = recentActivity ? "Copy recent folders, commands, browser pages, and saved browser tabs as JSON." : "Recent activity is empty.";
+        return action;
+      })(),
+      contextMenuButton("Paste recent activity", pasteRecentActivity),
       (() => {
         const recentActivity = hasRecentActivity();
         const action = contextMenuButton("Clear recent activity", clearRecentActivity, !recentActivity, "danger");
