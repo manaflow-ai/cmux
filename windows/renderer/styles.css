@@ -9672,7 +9672,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
   gap: var(--space-2);
-  align-items: center;
+  align-items: start;
 }
 
 .saved-background-add-icon {
@@ -9700,10 +9700,11 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .saved-background-add-text {
   min-width: 0;
   display: grid;
-  gap: 3px;
+  gap: 4px;
 }
 
 .saved-background-add-title,
+.saved-background-add-target,
 .saved-background-add-body {
   min-width: 0;
   overflow: hidden;
@@ -9714,6 +9715,36 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   color: var(--color-text);
   font-size: 12px;
   font-weight: 760;
+  white-space: nowrap;
+}
+
+.saved-background-add-target {
+  width: fit-content;
+  max-width: 100%;
+  display: inline-grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-accent) 8%, var(--color-pane-warm) 92%);
+  color: var(--color-text);
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.saved-background-add-target-icon,
+.saved-background-add-target-icon svg {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+}
+
+.saved-background-add-target-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

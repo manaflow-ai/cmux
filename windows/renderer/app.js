@@ -2236,6 +2236,10 @@ function backgroundApplyTargetPrimaryLabel(target = state.backgroundApplyTarget)
   return "Apply to app";
 }
 
+function backgroundApplyTargetSaveLabel(target = state.backgroundApplyTarget) {
+  return `${backgroundApplyTargetPrimaryLabel(target)} + save`;
+}
+
 function backgroundApplyTargetClearLabel(target = state.backgroundApplyTarget) {
   const scope = normalizeBackgroundApplyTarget(target);
   if (scope === "pane") return "Clear pane";
@@ -13887,6 +13891,8 @@ function savedBackgroundImagesPanel() {
   panel.append(activeBackgroundTargetControl());
 
   const targetStatus = activeBackgroundTargetStatus();
+  const addTargetOption = backgroundApplyTargetOption(targetStatus.scope);
+  const targetLabel = backgroundApplyTargetActionLabel(targetStatus.scope);
   const addCard = document.createElement("div");
   addCard.className = "saved-background-add-card";
   addCard.dataset.settingsSearch = normalizeSettingsQuery("saved background add image drop paste choose local file url selected target wallpaper");
@@ -13894,13 +13900,18 @@ function savedBackgroundImagesPanel() {
   const addCopy = document.createElement("div");
   addCopy.className = "saved-background-add-copy";
   addCopy.innerHTML = `
-    <span class="saved-background-add-icon" aria-hidden="true">${quickActionIconMarkup("background")}</span>
-    <span class="saved-background-add-text">
-      <span class="saved-background-add-title">Add image background</span>
-      <span class="saved-background-add-body"></span>
-    </span>
+      <span class="saved-background-add-icon" aria-hidden="true">${quickActionIconMarkup("background")}</span>
+      <span class="saved-background-add-text">
+        <span class="saved-background-add-title">Add image for ${addTargetOption.label}</span>
+        <span class="saved-background-add-target">
+          <span class="saved-background-add-target-icon" aria-hidden="true">${backgroundTargetIconMarkup(targetStatus.scope)}</span>
+          <span class="saved-background-add-target-label"></span>
+        </span>
+        <span class="saved-background-add-body"></span>
+      </span>
   `;
-  addCopy.querySelector(".saved-background-add-body").textContent = `Drop an image, paste from clipboard, or choose a file for ${backgroundApplyTargetActionLabel(targetStatus.scope).toLowerCase()}.`;
+  addCopy.querySelector(".saved-background-add-target-label").textContent = targetLabel;
+  addCopy.querySelector(".saved-background-add-body").textContent = `Drop an image, paste from clipboard, choose a file, or type a URL/path. Enter applies and saves it to ${addTargetOption.label.toLowerCase()}.`;
 
   const addRow = document.createElement("div");
   addRow.className = "saved-background-add";
@@ -13930,16 +13941,20 @@ function savedBackgroundImagesPanel() {
   const actions = document.createElement("div");
   actions.className = "settings-actions saved-background-actions";
   actions.dataset.settingsSearch = normalizeSettingsQuery("saved background current choose local file wallpaper apply save");
-  const applyAndSave = settingsActionButton("Apply + save", applyAndSaveTypedImage, "primary", "saved background image apply save selected target url local path file wallpaper");
+  const applyAndSave = settingsActionButton(backgroundApplyTargetSaveLabel(targetStatus.scope), applyAndSaveTypedImage, "primary", "saved background image apply save selected target url local path file wallpaper");
   applyAndSave.disabled = !targetStatus.canTarget;
+  applyAndSave.title = `Apply and save the typed image to ${targetLabel}`;
   const saveCurrent = settingsActionButton("Save selected", () => saveCustomBackgroundImage({
     url: activeBackgroundPanelViewModel().background
   }), "", "saved background image current selected target");
   saveCurrent.disabled = !isCustomBackgroundImage(activeBackgroundPanelViewModel().background);
+  saveCurrent.title = "Save the currently selected background without changing the target.";
   const pasteSave = settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input, target: () => state.backgroundApplyTarget, save: true }), "", "saved background image paste clipboard copied image apply save selected target wallpaper");
   pasteSave.disabled = !targetStatus.canTarget;
+  pasteSave.title = `Paste, apply, and save an image to ${targetLabel}`;
   const chooseSave = settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "saved background image choose local file selected target wallpaper");
   chooseSave.disabled = !targetStatus.canTarget;
+  chooseSave.title = `Choose, apply, and save an image to ${targetLabel}`;
   actions.append(
     applyAndSave,
     saveCurrent,
