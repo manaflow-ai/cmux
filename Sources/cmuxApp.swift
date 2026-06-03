@@ -912,7 +912,13 @@ struct cmuxApp: App {
             // Numbered workspace selection (9 = last workspace)
             ForEach(1...9, id: \.self) { number in
                 let selectWorkspaceByNumberShortcut = menuShortcut(for: .selectWorkspaceByNumber)
-                if selectWorkspaceByNumberShortcut.isUnbound || selectWorkspaceByNumberShortcut.hasChord {
+                // When the action carries a `when` clause (any focus restriction),
+                // the menu must NOT register a static key equivalent: a menu
+                // equivalent fires regardless of focus and would bypass the clause
+                // (e.g. select Workspace 6 while the sidebar is focused). Let the
+                // context-gated keyDown handler own dispatch instead (issue #5189).
+                let isContextGated = KeyboardShortcutSettings.effectiveWhenClause(for: .selectWorkspaceByNumber) != .always
+                if selectWorkspaceByNumberShortcut.isUnbound || selectWorkspaceByNumberShortcut.hasChord || isContextGated {
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
                         let manager = activeTabManager
                         if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {

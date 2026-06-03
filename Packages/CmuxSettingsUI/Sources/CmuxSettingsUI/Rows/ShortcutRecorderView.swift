@@ -144,7 +144,8 @@ public final class RecorderHostButton: NSButton {
     /// this notification. The composition root observes it and unregisters
     /// system-wide hotkeys while ``isActivelyRecording`` is `true`, so a global
     /// hotkey being rebound in Settings is captured instead of firing.
-    public static let activeRecordingDidChangeNotification = Notification.Name(
+    // `nonisolated` so the nonisolated `deinit` teardown path can post it.
+    public nonisolated static let activeRecordingDidChangeNotification = Notification.Name(
         "com.cmux.settingsUI.recorderActiveRecordingDidChange"
     )
 
@@ -175,6 +176,14 @@ public final class RecorderHostButton: NSButton {
     deinit {
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
+        }
+        // If AppKit tears us down while still armed (without a resignFirstResponder
+        // that would call stopRecording), the start-notification's effect — Carbon
+        // global hotkeys unregistered — would otherwise persist. The `activeRecorder`
+        // weak ref nils as we deinit, so `isActivelyRecording` already reads false;
+        // post the change so SystemWideHotkeyController re-registers (issue #5189).
+        if isRecording {
+            NotificationCenter.default.post(name: Self.activeRecordingDidChangeNotification, object: nil)
         }
     }
 
