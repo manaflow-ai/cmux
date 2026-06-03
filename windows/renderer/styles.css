@@ -9173,6 +9173,22 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   gap: var(--space-2);
 }
 
+.settings-preset-card {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.settings-preset-card .settings-preset {
+  width: 100%;
+}
+
+.settings-preset-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
 .settings-preset {
   min-width: 0;
   display: grid;

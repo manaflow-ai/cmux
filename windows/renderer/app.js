@@ -2411,6 +2411,31 @@ function copySavedSettingsProfile(profileId) {
   return copySettingsProfilePayload(profile, `${profile.label} profile copied.`);
 }
 
+function settingsProfileMatchesSettings(profile, settings) {
+  if (!profile?.settings || !settings) return false;
+  const profileSettings = normalizeSettings(profile.settings);
+  const targetSettings = normalizeSettings(settings);
+  return profileSettingsSettingKeys.every((key) => profileSettings[key] === targetSettings[key]);
+}
+
+function savedSettingsProfileForPreset(preset) {
+  if (!preset?.settings) return null;
+  return state.savedSettingsProfiles.find((profile) => settingsProfileMatchesSettings(profile, preset.settings)) || null;
+}
+
+function copySettingsPresetProfile(presetId) {
+  const preset = settingsPresetById(presetId);
+  if (!preset) {
+    toast("Settings preset not found.");
+    return false;
+  }
+  return copySettingsProfilePayload({
+    label: `${preset.label} setup`,
+    settings: preset.settings,
+    createdAt: Date.now()
+  }, `${preset.label} preset profile copied.`);
+}
+
 function settingsProfileSourceFromPayload(payload) {
   const parsed = importedObject(payload);
   if (!parsed) return null;
@@ -19607,7 +19632,12 @@ function settingsPresetGrid() {
     const normalized = normalizeSettings(preset.settings);
     const themePreview = settingsPresetThemePreview(normalized.theme);
     const active = isActiveSettingsPreset(preset);
+    const savedProfile = savedSettingsProfileForPreset(preset);
+    const saveDisabled = Boolean(savedProfile) || savedSettingsProfilesFull();
     const summary = settingsProfileSummary(normalized);
+    const card = document.createElement("div");
+    card.className = `settings-preset-card${active ? " is-active" : ""}${savedProfile ? " is-saved" : ""}`;
+    card.dataset.settingsSearch = normalizeSettingsQuery(`preset profile save copy ${active ? "active current " : ""}${savedProfile ? "saved reusable " : ""}${preset.label} ${preset.body} ${summary}`);
     const button = document.createElement("button");
     button.className = `settings-preset${active ? " is-active" : ""}`;
     button.type = "button";
@@ -19646,7 +19676,25 @@ function settingsPresetGrid() {
     button.onclick = () => {
       if (!active) applySettingsPreset(preset);
     };
-    grid.append(button);
+    const actions = document.createElement("div");
+    actions.className = "settings-preset-actions";
+    const save = settingsActionButton(
+      savedProfile ? "Saved" : "Save",
+      () => saveSettingsPresetProfile(preset.id),
+      savedProfile ? "primary" : "",
+      `settings preset profile save reusable ${savedProfile ? "saved active current " : ""}${preset.label} ${summary}`
+    );
+    save.disabled = saveDisabled;
+    save.title = savedProfile
+      ? `${savedProfile.label} already saves ${preset.label}.`
+      : savedSettingsProfilesFull()
+        ? settingsProfileLimitTitle()
+        : "Save this preset as a reusable profile.";
+    const copy = settingsActionButton("Copy", () => copySettingsPresetProfile(preset.id), "", `settings preset profile copy clipboard json ${preset.label} ${summary}`);
+    copy.title = "Copy this preset as a Settings profile JSON.";
+    actions.append(save, copy);
+    card.append(button, actions);
+    grid.append(card);
   }
   return grid;
 }
@@ -19883,6 +19931,33 @@ function saveCurrentPerformanceProfile() {
     message: "Save the current speed, rendering, terminal output, and supporting app settings.",
     baseName: "Performance profile"
   });
+}
+
+function saveSettingsPresetProfile(presetId) {
+  const preset = settingsPresetById(presetId);
+  if (!preset) {
+    toast("Settings preset not found.");
+    return null;
+  }
+  const existing = savedSettingsProfileForPreset(preset);
+  if (existing) {
+    toast(`${existing.label} profile already saves ${preset.label}.`);
+    return existing;
+  }
+  if (savedSettingsProfilesFull()) {
+    toast(settingsProfileLimitTitle());
+    return null;
+  }
+  const saved = upsertSavedSettingsProfile({
+    id: createSettingsProfileId(),
+    label: defaultSettingsProfileName(`${preset.label} setup`),
+    settings: preset.settings,
+    createdAt: Date.now()
+  });
+  if (!saved) return null;
+  renderSettingsInspector();
+  toast(`${saved.label} profile saved.`);
+  return saved;
 }
 
 function defaultSettingsProfileName(baseName = "My profile") {
@@ -22129,9 +22204,11 @@ function paletteEntries() {
       run: () => applyTerminalColorPreset(preset)
     });
   }
+  const presetProfilesFull = savedSettingsProfilesFull();
   for (const preset of settingsPresets) {
     const summary = settingsProfileSummary(preset.settings);
     const active = isActiveSettingsPreset(preset);
+    const savedProfile = savedSettingsProfileForPreset(preset);
     entries.push({
       id: `settingsPreset.${preset.id}`,
       label: `Preset: ${preset.label}`,
@@ -22142,6 +22219,29 @@ function paletteEntries() {
       title: active ? `${preset.label} settings already active.` : `Apply ${preset.label} settings.`,
       search: normalizeSettingsQuery(`settings preset profile setup apply active ${preset.label} ${preset.body} ${summary}`),
       run: () => applySettingsPreset(preset)
+    });
+    entries.push({
+      id: `settingsPreset.save.${preset.id}`,
+      label: `Save preset profile: ${preset.label}`,
+      meta: savedProfile ? `Already saved / ${savedProfile.label}` : savedSettingsProfileCountLabel(),
+      shortcut: savedProfile ? "Saved" : "Save",
+      disabled: Boolean(savedProfile) || presetProfilesFull,
+      title: savedProfile
+        ? `${savedProfile.label} already saves ${preset.label}.`
+        : presetProfilesFull
+          ? settingsProfileLimitTitle()
+          : "Save this preset as a reusable profile.",
+      search: normalizeSettingsQuery(`settings preset profile setup save reusable ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${summary}`),
+      run: () => saveSettingsPresetProfile(preset.id)
+    });
+    entries.push({
+      id: `settingsPreset.copy.${preset.id}`,
+      label: `Copy preset profile: ${preset.label}`,
+      meta: summary,
+      shortcut: "Copy",
+      title: "Copy this preset as a Settings profile JSON.",
+      search: normalizeSettingsQuery(`settings preset profile setup copy clipboard json ${preset.label} ${preset.body} ${summary}`),
+      run: () => copySettingsPresetProfile(preset.id)
     });
   }
   const paletteActiveTerminal = activeTerminalPanelForSettings();
