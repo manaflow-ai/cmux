@@ -2920,6 +2920,82 @@ function currentWorkspaceBlueprintPayload() {
   return snapshot ? workspaceBlueprintPayload(snapshot) : null;
 }
 
+function workspaceStarterById(starterId) {
+  return workspaceStarters.find((candidate) => candidate.id === starterId) || null;
+}
+
+function workspaceStarterPanelTitle(type, index, panels) {
+  if (type === "browser") return "Browser";
+  const terminalCount = panels.slice(0, index + 1).filter((panelType) => panelType === "terminal").length;
+  const totalTerminals = panels.filter((panelType) => panelType === "terminal").length;
+  return totalTerminals > 1 ? `Terminal ${terminalCount}` : "Terminal";
+}
+
+function workspaceStarterBlueprint(starter, options = {}) {
+  if (!starter?.panels?.length) return null;
+  const weight = Math.round(paneLayoutScale / starter.panels.length);
+  return normalizeWorkspaceBlueprint({
+    id: options.id || createWorkspaceBlueprintId(),
+    label: options.label || `${starter.label} starter`,
+    splitDirection: "right",
+    color: "",
+    cwd: "",
+    createdAt: options.createdAt,
+    panels: starter.panels.map((type, index) => ({
+      type,
+      title: workspaceStarterPanelTitle(type, index, starter.panels),
+      color: "",
+      backgroundImage: "",
+      cwd: "",
+      shellProfile: state.settings.terminalProfile,
+      shellPath: "",
+      terminalFontSize: 0,
+      url: type === "browser" ? state.settings.browserHomeUrl : "",
+      weight
+    }))
+  });
+}
+
+function workspaceStarterSavedBlueprint(starter) {
+  const snapshot = workspaceStarterBlueprint(starter, { label: "Starter snapshot" });
+  if (!snapshot) return null;
+  return state.workspaceBlueprints.find((blueprint) => workspaceBlueprintMatchesSnapshot(blueprint, snapshot)) || null;
+}
+
+async function copyWorkspaceStarterBlueprint(starterId) {
+  const starter = workspaceStarterById(starterId);
+  const blueprint = workspaceStarterBlueprint(starter);
+  if (!starter || !blueprint) {
+    toast("Workspace starter not found.");
+    return false;
+  }
+  return copyWorkspaceBlueprintPayload(blueprint, `${starter.label} starter blueprint copied.`);
+}
+
+function saveWorkspaceStarterBlueprint(starterId) {
+  const starter = workspaceStarterById(starterId);
+  if (!starter) {
+    toast("Workspace starter not found.");
+    return null;
+  }
+  const existing = workspaceStarterSavedBlueprint(starter);
+  if (existing) {
+    toast(`${existing.label} blueprint already saved.`);
+    return existing;
+  }
+  if (workspaceBlueprintsFull()) {
+    toast(workspaceBlueprintLimitTitle());
+    return null;
+  }
+  const saved = upsertWorkspaceBlueprint(workspaceStarterBlueprint(starter, {
+    label: defaultWorkspaceBlueprintNameFromLabel(`${starter.label} starter`)
+  }));
+  if (!saved) return null;
+  renderSettingsInspector();
+  toast(`${saved.label} blueprint saved.`);
+  return saved;
+}
+
 function layoutSetupPayload() {
   const chromePayload = workspaceChromePayload();
   const blueprintPayload = currentWorkspaceBlueprintPayload();
@@ -19241,10 +19317,12 @@ function workspaceStarterGrid() {
   const grid = document.createElement("div");
   grid.className = "workspace-starter-grid";
   for (const starter of workspaceStarters) {
+    const savedBlueprint = workspaceStarterSavedBlueprint(starter);
+    const saveDisabled = Boolean(savedBlueprint) || workspaceBlueprintsFull();
     const card = document.createElement("div");
-    card.className = "workspace-starter";
+    card.className = `workspace-starter${savedBlueprint ? " is-active" : ""}`;
     card.dataset.workspaceStarter = starter.id;
-    card.dataset.settingsSearch = normalizeSettingsQuery(`workspace starter layout preset new add current ${starter.label} ${starter.body} ${starter.panels.join(" ")}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`workspace starter layout preset blueprint save copy new add current ${savedBlueprint ? "saved active " : ""}${starter.label} ${starter.body} ${starter.panels.join(" ")}`);
     card.innerHTML = `
       <span class="workspace-starter-title-text"></span>
       <span class="workspace-starter-body"></span>
@@ -19257,9 +19335,23 @@ function workspaceStarterGrid() {
       .join(" + ");
     const actions = document.createElement("div");
     actions.className = "workspace-starter-actions";
+    const save = settingsActionButton(
+      savedBlueprint ? "Saved" : "Save",
+      () => saveWorkspaceStarterBlueprint(starter.id),
+      savedBlueprint ? "primary" : "",
+      `save workspace starter blueprint reusable ${savedBlueprint ? "saved active current " : ""}${starter.label}`
+    );
+    save.disabled = saveDisabled;
+    save.title = savedBlueprint
+      ? `${savedBlueprint.label} blueprint is already saved.`
+      : workspaceBlueprintsFull()
+        ? workspaceBlueprintLimitTitle()
+        : "Save this starter as a reusable workspace blueprint.";
     actions.append(
       settingsActionButton("New", () => createWorkspaceFromStarter(starter.id), "", `new workspace from starter ${starter.label}`),
-      settingsActionButton("Add", () => applyWorkspaceStarter(starter.id), "", `add starter to current workspace ${starter.label}`)
+      settingsActionButton("Add", () => applyWorkspaceStarter(starter.id), "", `add starter to current workspace ${starter.label}`),
+      save,
+      settingsActionButton("Copy", () => copyWorkspaceStarterBlueprint(starter.id), "", `copy workspace starter blueprint clipboard json ${starter.label}`)
     );
     card.append(actions);
     grid.append(card);
@@ -21672,7 +21764,7 @@ function paletteEntryKind(entry) {
   const id = String(entry?.id || "");
   if (id.startsWith("terminal.") || id.startsWith("recentCommand.") || id.startsWith("commandSnippet.")) return "terminal";
   if (id.startsWith("browser.") || id.startsWith("recentBrowser.") || id.startsWith("browserHomePreset.")) return "browser";
-  if (id.startsWith("workspace.") || id.startsWith("recentFolder.") || id.startsWith("workspaceBlueprint.")) return "workspace";
+  if (id.startsWith("workspace.") || id.startsWith("recentFolder.") || id.startsWith("workspaceBlueprint.") || id.startsWith("workspaceStarter.")) return "workspace";
   if (id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.")) return "settings";
   if (id.startsWith("layout.")) return "layout";
   if (id.startsWith("background") || id.startsWith("savedBackground")) return "look";
@@ -22447,6 +22539,33 @@ function paletteEntries() {
       title: `Copy ${blueprint.label} as a workspace blueprint JSON.`,
       search: normalizeSettingsQuery(`workspace blueprint layout template saved copy clipboard json ${blueprint.label} ${summary}`),
       run: () => copySavedWorkspaceBlueprint(blueprint.id)
+    });
+  }
+  for (const starter of workspaceStarters) {
+    const savedBlueprint = workspaceStarterSavedBlueprint(starter);
+    const saveDisabled = Boolean(savedBlueprint) || paletteBlueprintsFull;
+    entries.push({
+      id: `workspaceStarter.save.${starter.id}`,
+      label: `Save starter as blueprint: ${starter.label}`,
+      meta: savedBlueprint ? `Already saved / ${savedBlueprint.label}` : `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} saved blueprints`,
+      shortcut: savedBlueprint ? "Saved" : "Save",
+      disabled: saveDisabled,
+      title: savedBlueprint
+        ? `${savedBlueprint.label} blueprint is already saved.`
+        : paletteBlueprintsFull
+          ? workspaceBlueprintLimitTitle()
+          : "Save this starter as a reusable workspace blueprint.",
+      search: normalizeSettingsQuery(`workspace starter layout blueprint save reusable ${savedBlueprint ? "saved active current " : ""}${starter.label} ${starter.body} ${starter.panels.join(" ")}`),
+      run: () => saveWorkspaceStarterBlueprint(starter.id)
+    });
+    entries.push({
+      id: `workspaceStarter.copy.${starter.id}`,
+      label: `Copy starter blueprint: ${starter.label}`,
+      meta: starter.body,
+      shortcut: "Copy",
+      title: "Copy this starter as workspace blueprint JSON.",
+      search: normalizeSettingsQuery(`workspace starter layout blueprint copy clipboard json ${starter.label} ${starter.body} ${starter.panels.join(" ")}`),
+      run: () => copyWorkspaceStarterBlueprint(starter.id)
     });
   }
   for (const [id, label] of settingsCategories.filter(([id]) => id !== "all")) {
