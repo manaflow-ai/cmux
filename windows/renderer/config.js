@@ -517,7 +517,7 @@ export const settingsPresets = [
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
       terminalCursorStyle: "bar",
-      terminalCursorBlink: true,
+      terminalCursorBlink: false,
       terminalBackground: "",
       terminalForeground: "",
       terminalCursorColor: "",
@@ -565,7 +565,7 @@ export const settingsPresets = [
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
       terminalCursorStyle: "bar",
-      terminalCursorBlink: true,
+      terminalCursorBlink: false,
       terminalBackground: "",
       terminalForeground: "",
       terminalCursorColor: ""
@@ -612,7 +612,7 @@ export const settingsPresets = [
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
       terminalCursorStyle: "bar",
-      terminalCursorBlink: true,
+      terminalCursorBlink: false,
       terminalBackground: "",
       terminalForeground: "",
       terminalCursorColor: ""

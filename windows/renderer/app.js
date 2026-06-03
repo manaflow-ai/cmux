@@ -194,6 +194,7 @@ const performanceSetupSettings = [
   "terminalStartupMode",
   "terminalPauseInactiveOutput",
   "terminalSmoothResumedOutput",
+  "terminalCursorBlink",
   "browserSuspendInactive",
   "terminalScrollback"
 ];
@@ -204,6 +205,7 @@ const performanceSetupBooleanSettings = new Set([
   "reduceMotion",
   "terminalPauseInactiveOutput",
   "terminalSmoothResumedOutput",
+  "terminalCursorBlink",
   "browserSuspendInactive"
 ]);
 const performanceHealthSettingKeys = new Set([
@@ -12841,6 +12843,7 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked })), false, "speed smooth lag effects reduce animation"));
     performanceSection.append(settingRow("Adaptive guard", toggleInput(state.settings.adaptivePerformance, (checked) => updateSettings({ adaptivePerformance: checked })), false, "adaptive automatic performance guard lag slow output tune"));
     performanceSection.append(settingRow("Reduce motion", toggleInput(state.settings.reduceMotion, (checked) => updateSettings({ reduceMotion: checked })), false, "motion animation transition smooth reduce accessibility"));
+    performanceSection.append(settingRow("Cursor blink", toggleInput(state.settings.terminalCursorBlink, (checked) => updateSettings({ terminalCursorBlink: checked })), false, "terminal cursor blink caret motion repaint lag performance"));
     const startupSelect = document.createElement("select");
     startupSelect.className = "setting-select";
     startupSelect.dataset.settingControl = "terminalStartupMode";
@@ -17222,6 +17225,7 @@ const performanceTuningPresets = [
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
+      terminalCursorBlink: true,
       browserSuspendInactive: true,
       terminalScrollback: 12000
     }
@@ -17237,6 +17241,7 @@ const performanceTuningPresets = [
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
+      terminalCursorBlink: false,
       browserSuspendInactive: true,
       terminalScrollback: 6000
     }
@@ -17252,6 +17257,7 @@ const performanceTuningPresets = [
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
+      terminalCursorBlink: false,
       browserSuspendInactive: true,
       terminalScrollback: 10000
     }
@@ -17267,6 +17273,7 @@ const performanceTuningPresets = [
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: false,
       terminalSmoothResumedOutput: false,
+      terminalCursorBlink: true,
       browserSuspendInactive: false,
       terminalScrollback: 20000
     }
@@ -17295,6 +17302,17 @@ const performanceHealthCheckDefinitions = [
     meta: () => state.settings.performanceMode || state.settings.reduceMotion ? "Reduced" : "Full motion",
     updates: () => ({ reduceMotion: true }),
     search: "reduce motion animation smooth scrolling transition"
+  },
+  {
+    id: "cursorBlink",
+    label: "Cursor blink",
+    body: "Stops terminal cursor blinking so panes repaint less during lag tuning.",
+    actionLabel: "Steady",
+    readyLabel: "Steady",
+    issue: () => state.settings.terminalCursorBlink,
+    meta: () => state.settings.terminalCursorBlink ? "Blinking" : "Steady",
+    updates: () => ({ terminalCursorBlink: false }),
+    search: "terminal cursor blink caret motion repaint lag"
   },
   {
     id: "backgroundWeight",
@@ -17560,6 +17578,7 @@ function performanceSetupSummaryForSettings(settings) {
     terminalStartup: optionLabel(terminalStartupOptions, normalized.terminalStartupMode, normalized.terminalStartupMode),
     inactiveOutput: normalized.terminalPauseInactiveOutput ? "Paused" : "Live",
     resume: normalized.terminalSmoothResumedOutput ? "Smooth" : "Immediate",
+    cursor: normalized.terminalCursorBlink ? "Blinking" : "Steady cursor",
     inactiveBrowsers: normalized.browserSuspendInactive ? "Suspended" : "Live",
     history: `${normalized.terminalScrollback.toLocaleString()} history`
   };
@@ -17754,6 +17773,7 @@ function performanceTuningPresetSearchText(preset, settings = performanceTuningP
     summary.terminalStartup,
     summary.inactiveOutput,
     summary.resume,
+    summary.cursor,
     summary.inactiveBrowsers,
     summary.history
   ].join(" "));
