@@ -71,7 +71,7 @@ public final class CMUXMobileShellStore: MobileTerminalOutputSinking {
     }
     public var selectedTerminalID: MobileTerminalPreview.ID?
 
-    private let runtime: CMUXMobileRuntime?
+    private let runtime: (any MobileSyncRuntime)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
     private let identityProvider: (any MobileIdentityProviding)?
     private let reachability: any ReachabilityProviding
@@ -143,7 +143,7 @@ public final class CMUXMobileShellStore: MobileTerminalOutputSinking {
     }
 
     public init(
-        runtime: CMUXMobileRuntime? = nil,
+        runtime: (any MobileSyncRuntime)? = nil,
         isSignedIn: Bool = false,
         connectionState: MobileConnectionState = .disconnected,
         connectedHostName: String = "",
@@ -202,7 +202,7 @@ public final class CMUXMobileShellStore: MobileTerminalOutputSinking {
         }
     }
 
-    public static func preview(runtime: CMUXMobileRuntime? = nil) -> CMUXMobileShellStore {
+    public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
         CMUXMobileShellStore(runtime: runtime, workspaces: PreviewMobileHost.workspaces)
     }
 
