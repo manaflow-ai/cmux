@@ -5377,6 +5377,7 @@ function updateVisiblePaneActiveState(workspace, visiblePanels) {
 
 function updatePaneActiveState(pane, panel, workspace, visibleCount = workspace?.panels?.length || 0) {
   const parts = paneParts(pane);
+  updatePaneChromeState(pane, panel, workspace);
   const zoomed = isPanelZoomed(panel, workspace);
   const minimized = isPanelMinimized(panel);
   const pending = isPendingPanel(panel);
@@ -5396,7 +5397,6 @@ function updatePaneActiveState(pane, panel, workspace, visibleCount = workspace?
   const closeActionLabel = pending ? "Cancel pane" : closePaneActionLabel(workspace, panel.id);
   setTitleIfChanged(parts.close, closeActionLabel);
   setAttributeIfChanged(parts.close, "aria-label", closeActionLabel);
-  syncTerminalSessionPanelState(panel);
   if (panel.type === "terminal" && !pending) {
     const deferred = parts.body.querySelector(".terminal-deferred");
     if (deferred) renderDeferredTerminal(panel, parts.body);
@@ -5448,16 +5448,6 @@ function paneStructureSignature(workspace, visiblePanels, tree) {
   appendSignatureArray(parts, visiblePanels, (nextParts, panel) => {
     appendSignatureValue(nextParts, panel.id);
     appendSignatureValue(nextParts, panel.type);
-    appendSignatureValue(nextParts, panelDisplayTitle(panel, false));
-    appendSignatureValue(nextParts, panel.title || "");
-    appendSignatureValue(nextParts, panel.titleLocked || false);
-    appendSignatureValue(nextParts, panel.color || "");
-    appendSignatureValue(nextParts, panel.backgroundImage || "");
-    appendSignatureValue(nextParts, panel.cwd || "");
-    appendSignatureValue(nextParts, panel.cwdShort || "");
-    appendSignatureValue(nextParts, panel.url || "");
-    appendSignatureValue(nextParts, panel.shellProfile || "");
-    appendSignatureValue(nextParts, panel.shellPath || "");
     appendSignatureValue(nextParts, isPendingPanel(panel));
   });
   return parts.join("");
@@ -5528,6 +5518,27 @@ function updatePaneToolState(button, icon, label) {
   setAttributeIfChanged(button, "aria-label", label);
 }
 
+function updatePaneChromeState(pane, panel, workspace) {
+  if (!pane || !panel) return;
+  const parts = paneParts(pane);
+  setStylePropertyIfChanged(pane, "--panel-color", panel.color || workspace?.color || "var(--color-accent)");
+  const paneBackgroundImage = panel.type === "terminal" ? normalizeBackgroundValue(panel.backgroundImage) : "";
+  toggleClassIfChanged(pane, "has-pane-background", Boolean(paneBackgroundImage));
+  setStylePropertyIfChanged(pane, "--pane-background-image", backgroundCss(paneBackgroundImage));
+  setStylePropertyIfChanged(pane, "--pane-background-repeat", backgroundRepeatCss(paneBackgroundImage));
+  setStylePropertyIfChanged(pane, "--pane-background-size", backgroundSizeCss(state.settings.backgroundFit));
+  setStylePropertyIfChanged(pane, "--pane-background-position", backgroundPositionCss(state.settings.backgroundPosition));
+  setStylePropertyIfChanged(pane, "--pane-background-opacity", String(Math.max(0.12, Math.min(0.42, state.settings.backgroundOpacity / 100 || 0.18))));
+  toggleClassIfChanged(pane, "is-browser", panel.type === "browser");
+  toggleClassIfChanged(pane, "is-terminal", panel.type === "terminal");
+  updatePaneTypeBadge(parts.type, panel.type);
+  const title = panelDisplayTitle(panel, false);
+  setTextIfChanged(parts.title, title);
+  setTitleIfChanged(parts.title, title);
+  setTitleIfChanged(parts.header, `${title} - drag header to move, double-click to rename`);
+  syncTerminalSessionPanelState(panel);
+}
+
 function updatePaneTypeBadge(badge, type) {
   if (!badge) return;
   const kind = type === "browser" ? "browser" : "terminal";
@@ -5545,31 +5556,16 @@ function renderPaneNode(panel, workspace, visibleCount) {
   if (!pane) pane = createPane(panel);
   const parts = paneParts(pane);
   setDatasetIfChanged(pane, "panelId", panel.id);
-  setStylePropertyIfChanged(pane, "--panel-color", panel.color || workspace.color || "var(--color-accent)");
-  const paneBackgroundImage = panel.type === "terminal" ? normalizeBackgroundValue(panel.backgroundImage) : "";
-  toggleClassIfChanged(pane, "has-pane-background", Boolean(paneBackgroundImage));
-  setStylePropertyIfChanged(pane, "--pane-background-image", backgroundCss(paneBackgroundImage));
-  setStylePropertyIfChanged(pane, "--pane-background-repeat", backgroundRepeatCss(paneBackgroundImage));
-  setStylePropertyIfChanged(pane, "--pane-background-size", backgroundSizeCss(state.settings.backgroundFit));
-  setStylePropertyIfChanged(pane, "--pane-background-position", backgroundPositionCss(state.settings.backgroundPosition));
-  setStylePropertyIfChanged(pane, "--pane-background-opacity", String(Math.max(0.12, Math.min(0.42, state.settings.backgroundOpacity / 100 || 0.18))));
-  syncTerminalSessionPanelState(panel);
+  updatePaneChromeState(pane, panel, workspace);
   toggleClassIfChanged(pane, "is-active", panel.id === workspace.activePanelId);
   const zoomed = isPanelZoomed(panel, workspace);
   const minimized = isPanelMinimized(panel);
   toggleClassIfChanged(pane, "is-zoomed", zoomed);
   toggleClassIfChanged(pane, "has-attention", panel.needsAttention);
-  toggleClassIfChanged(pane, "is-browser", panel.type === "browser");
-  toggleClassIfChanged(pane, "is-terminal", panel.type === "terminal");
   toggleClassIfChanged(pane, "is-minimized", minimized);
   const pending = isPendingPanel(panel);
   toggleClassIfChanged(pane, "is-pending", pending);
   if (visibleCount <= 1) clearPaneFlex(pane);
-  updatePaneTypeBadge(parts.type, panel.type);
-  const title = panelDisplayTitle(panel, false);
-  setTextIfChanged(parts.title, title);
-  setTitleIfChanged(parts.title, title);
-  setTitleIfChanged(parts.header, `${title} - drag header to move, double-click to rename`);
   updatePaneToolState(parts.zoom, zoomed ? "showAll" : "focus", zoomed ? "Show all panes" : "Focus pane");
   updatePaneToolState(parts.minimize, minimized ? "restore" : "minimize", minimized ? "Restore pane" : "Minimize pane");
   for (const button of parts.tools) {
