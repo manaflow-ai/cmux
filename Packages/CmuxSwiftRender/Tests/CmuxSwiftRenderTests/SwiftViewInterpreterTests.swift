@@ -601,6 +601,17 @@ import Testing
         #expect(radial?.children.first?.kind == .radialGradient)
     }
 
+    @Test func stringTrimmingCharacters() {
+        let node = interp.evaluate("""
+        VStack {
+            Text("  hi  ".trimmingCharacters(in: .whitespaces))
+            Text("\\("  hi  ".trimmingCharacters(in: .whitespacesAndNewlines).count)")
+        }
+        """)
+        #expect(node?.children.first?.text == "hi")
+        #expect(node?.children.last?.text == "2")
+    }
+
     @Test func stringAndArrayJoinHelpers() {
         let node = interp.evaluate("""
         VStack {

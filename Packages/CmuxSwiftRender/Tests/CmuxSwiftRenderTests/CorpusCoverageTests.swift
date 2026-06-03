@@ -39,7 +39,7 @@ import Testing
             "reversed", "prefix", "isEmpty", "hasPrefix", "hasSuffix", "uppercased",
             "lowercased", "split", "formatted", "currency", "notation", "percent", "strikethrough", "system",
             "indices", "enumerated", "dropFirst", "dropLast", "suffix",
-            "joined", "capitalized", "replacingOccurrences",
+            "joined", "capitalized", "replacingOccurrences", "trimmingCharacters",
             "italic", "monospaced", "monospacedDigit", "fontDesign", "underline",
             "multilineTextAlignment", "textCase", "truncationMode",
             "shadow", "border", "blur", "offset", "scaleEffect", "rotationEffect",

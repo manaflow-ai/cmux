@@ -351,6 +351,13 @@ struct ExpressionEvaluator {
             case "split":
                 guard let sep = argString(), let first = sep.first else { return nil }
                 return .array(s.split(separator: first).map { .string(String($0)) })
+            case "trimmingCharacters":
+                // `.trimmingCharacters(in: .whitespaces / .whitespacesAndNewlines / .newlines)`
+                let token = call.arguments.first(where: { $0.label?.text == "in" })?.expression.trimmedDescription ?? ""
+                let set: CharacterSet = token.contains("newlines") && !token.contains("whitespacesAndNewlines")
+                    ? .newlines
+                    : (token.contains("whitespaces") ? (token.contains("AndNewlines") ? .whitespacesAndNewlines : .whitespaces) : .whitespacesAndNewlines)
+                return .string(s.trimmingCharacters(in: set))
             default:
                 return nil
             }
