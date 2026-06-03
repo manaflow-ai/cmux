@@ -28,6 +28,7 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
     @Published private(set) var themeBackground: NSColor = .textBackgroundColor
     @Published private(set) var themeForeground: NSColor = .textColor
     @Published private(set) var drawsBackground: Bool = true
+    @Published private(set) var wrapLines: Bool = false
     private(set) var isApplyingExternalUpdate = false
 
     weak var panel: FilePreviewPanel? {
@@ -61,6 +62,10 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
         if !themeBackground.approximatelyEquals(background) { themeBackground = background }
         if !themeForeground.approximatelyEquals(foreground) { themeForeground = foreground }
         if self.drawsBackground != draws { self.drawsBackground = draws }
+    }
+
+    func setWrapLines(_ wrap: Bool) {
+        if wrapLines != wrap { wrapLines = wrap }
     }
 
     func adjustFontSize(by factor: CGFloat) {
@@ -423,7 +428,7 @@ struct HighlightedSourceEditorCore: View {
             appearance: .init(
                 theme: makeSyntaxTheme(),
                 font: .monospacedSystemFont(ofSize: bridge.fontSize, weight: .regular),
-                wrapLines: false
+                wrapLines: bridge.wrapLines
             )
         )
     }
@@ -514,6 +519,7 @@ struct HighlightedFilePreviewEditor: NSViewRepresentable {
     let themeForegroundColor: NSColor
     let drawsBackground: Bool
     let language: CodeLanguage
+    let wordWrap: Bool
 
     func makeCoordinator() -> HighlightedEditorBridge { HighlightedEditorBridge() }
 
@@ -521,6 +527,7 @@ struct HighlightedFilePreviewEditor: NSViewRepresentable {
         let bridge = context.coordinator
         bridge.setVisibleInUI(isVisibleInUI)
         bridge.updateThemeIfNeeded(background: themeBackgroundColor, foreground: themeForegroundColor, drawsBackground: drawsBackground)
+        bridge.setWrapLines(wordWrap)
 
         let container = HighlightedEditorContainerView(bridge: bridge)
         container.isHidden = !isVisibleInUI
@@ -540,6 +547,7 @@ struct HighlightedFilePreviewEditor: NSViewRepresentable {
         bridge.panel = panel
         bridge.setContent(panel.textContent)
         bridge.updateThemeIfNeeded(background: themeBackgroundColor, foreground: themeForegroundColor, drawsBackground: drawsBackground)
+        bridge.setWrapLines(wordWrap)
     }
 
     static func dismantleNSView(_ container: HighlightedEditorContainerView, coordinator: HighlightedEditorBridge) {

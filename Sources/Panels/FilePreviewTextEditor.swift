@@ -22,19 +22,22 @@ struct HighlightedFilePreviewRouter: View {
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
     let drawsBackground: Bool
+    let wordWrap: Bool
 
     init(
         panel: FilePreviewPanel,
         isVisibleInUI: Bool,
         themeBackgroundColor: NSColor,
         themeForegroundColor: NSColor,
-        drawsBackground: Bool
+        drawsBackground: Bool,
+        wordWrap: Bool
     ) {
         self.panel = panel
         self.isVisibleInUI = isVisibleInUI
         self.themeBackgroundColor = themeBackgroundColor
         self.themeForegroundColor = themeForegroundColor
         self.drawsBackground = drawsBackground
+        self.wordWrap = wordWrap
     }
 
     var body: some View {
@@ -48,7 +51,8 @@ struct HighlightedFilePreviewRouter: View {
                 themeBackgroundColor: themeBackgroundColor,
                 themeForegroundColor: themeForegroundColor,
                 drawsBackground: drawsBackground,
-                language: language
+                language: language,
+                wordWrap: wordWrap
             )
         } else {
             FilePreviewTextEditor(
@@ -56,7 +60,8 @@ struct HighlightedFilePreviewRouter: View {
                 isVisibleInUI: isVisibleInUI,
                 themeBackgroundColor: themeBackgroundColor,
                 themeForegroundColor: themeForegroundColor,
-                drawsBackground: drawsBackground
+                drawsBackground: drawsBackground,
+                wordWrap: wordWrap
             )
         }
     }
