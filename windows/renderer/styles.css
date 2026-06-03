@@ -7157,8 +7157,11 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   position: relative;
   min-width: 0;
   display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: center;
   gap: 2px;
-  padding: 7px 8px 7px 19px;
+  min-height: 46px;
+  padding: 4px 7px 4px 4px;
   overflow: hidden;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
@@ -7183,23 +7186,12 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .quick-overview-scope-item::before {
-  content: "";
-  position: absolute;
-  left: 8px;
-  top: 12px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--color-faint);
+  display: none;
 }
 
 .quick-overview-scope-item.is-active {
   border-color: color-mix(in oklch, var(--color-accent) 46%, var(--color-line) 54%);
   background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane) 90%);
-}
-
-.quick-overview-scope-item.is-active::before {
-  background: var(--color-accent);
 }
 
 .quick-overview-scope-item.is-muted {
@@ -7210,6 +7202,42 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .quick-overview-scope-item.is-muted:focus-visible {
   border-color: var(--color-line);
   background: color-mix(in oklch, var(--color-pane) 86%, var(--color-rail) 14%);
+}
+
+.quick-overview-scope-preview {
+  position: relative;
+  width: 32px;
+  height: 30px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background:
+    linear-gradient(135deg, color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%), var(--color-pane-warm));
+}
+
+.quick-overview-scope-item.has-image .quick-overview-scope-preview {
+  background-image: var(--quick-scope-background-image);
+  background-size: var(--quick-scope-background-size, cover);
+  background-repeat: var(--quick-scope-background-repeat, no-repeat);
+  background-position: var(--quick-scope-background-position, center);
+}
+
+.quick-overview-scope-item.is-mixed .quick-overview-scope-preview {
+  background:
+    linear-gradient(135deg, color-mix(in oklch, var(--color-accent) 20%, transparent) 0 25%, transparent 25% 50%, color-mix(in oklch, var(--color-accent-hover) 20%, transparent) 50% 75%, transparent 75%),
+    var(--color-pane);
+  background-size: 12px 12px;
+}
+
+.quick-overview-scope-item.is-active .quick-overview-scope-preview {
+  border-color: color-mix(in oklch, var(--color-accent) 66%, var(--color-line) 34%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 22%, transparent);
+}
+
+.quick-overview-scope-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
 }
 
 .quick-overview-scope-item b,

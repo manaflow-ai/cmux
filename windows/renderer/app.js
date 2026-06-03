@@ -12116,8 +12116,15 @@ function workspaceCountLabel() {
 function setQuickScopeItemState(panel, scopeId, options = {}) {
   const item = panel.querySelector(`[data-quick-scope-item="${scopeId}"]`);
   if (!item) return;
-  item.classList.toggle("is-active", Boolean(options.active));
-  item.classList.toggle("is-muted", Boolean(options.muted));
+  const model = activeBackgroundPanelViewModel(scopeId);
+  toggleClassIfChanged(item, "is-active", Boolean(options.active));
+  toggleClassIfChanged(item, "is-muted", Boolean(options.muted));
+  toggleClassIfChanged(item, "has-image", model.hasBackground);
+  toggleClassIfChanged(item, "is-mixed", model.mixed);
+  setStylePropertyIfChanged(item, "--quick-scope-background-image", model.image);
+  setStylePropertyIfChanged(item, "--quick-scope-background-repeat", model.repeat);
+  setStylePropertyIfChanged(item, "--quick-scope-background-size", model.size);
+  setStylePropertyIfChanged(item, "--quick-scope-background-position", model.position);
   setDisabledIfChanged(item, Boolean(options.disabled));
   const option = backgroundApplyTargetOption(scopeId);
   const title = formatMessage("quickGuide.backgroundTargetTitle", { label: option.label });
@@ -12166,13 +12173,16 @@ function quickSetupOverviewPanel() {
     </div>
     <div class="quick-overview-scope" aria-label="Background scope">
       <button class="quick-overview-scope-item" type="button" data-quick-scope-item="app">
-        <b>App image</b><em data-quick-scope-app></em>
+        <span class="quick-overview-scope-preview" aria-hidden="true"></span>
+        <span class="quick-overview-scope-copy"><b>App image</b><em data-quick-scope-app></em></span>
       </button>
       <button class="quick-overview-scope-item" type="button" data-quick-scope-item="pane">
-        <b>Active terminal</b><em data-quick-scope-pane></em>
+        <span class="quick-overview-scope-preview" aria-hidden="true"></span>
+        <span class="quick-overview-scope-copy"><b>Active terminal</b><em data-quick-scope-pane></em></span>
       </button>
       <button class="quick-overview-scope-item" type="button" data-quick-scope-item="all">
-        <b>All terminals</b><em data-quick-scope-all></em>
+        <span class="quick-overview-scope-preview" aria-hidden="true"></span>
+        <span class="quick-overview-scope-copy"><b>All terminals</b><em data-quick-scope-all></em></span>
       </button>
     </div>
   `;
