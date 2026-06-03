@@ -5377,6 +5377,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var runtimeSurfaceCreateAttemptCountForTesting = 0
     private let debugForceRefreshCountLock = NSLock()
     private var debugForceRefreshCountValue = 0
+    @MainActor
+    static var runtimeSurfaceFreeOverrideForTesting: (@Sendable (ghostty_surface_t) -> Void)?
 #endif
     private enum PortalLifecycleState: String {
         case live
@@ -5961,10 +5963,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 #endif
 
+        let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting
         Task { @MainActor in
             // Keep free behavior aligned with deinit: perform the runtime teardown on
             // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
-            ghostty_surface_free(surfaceToFree)
+            if let freeSurface {
+                freeSurface(surfaceToFree)
+            } else {
+                ghostty_surface_free(surfaceToFree)
+            }
             callbackContext?.release()
         }
     }
@@ -5999,8 +6006,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         )
 #endif
 
+        let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting
         Task { @MainActor in
-            ghostty_surface_free(surfaceToFree)
+            if let freeSurface {
+                freeSurface(surfaceToFree)
+            } else {
+                ghostty_surface_free(surfaceToFree)
+            }
             callbackContext?.release()
         }
     }
@@ -7379,6 +7391,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         ghostty_surface_free(surfaceToFree)
         runtimeSurfaceFreedOutOfBandForTesting = true
         callbackContext?.release()
+    }
+
+    @MainActor
+    func installRuntimeSurfaceForTesting(_ runtimeSurface: ghostty_surface_t) {
+        surface = runtimeSurface
+        portalLifecycleState = .live
+        runtimeSurfaceFreedOutOfBandForTesting = false
     }
 #endif
 
