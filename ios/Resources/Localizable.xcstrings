@@ -1,0 +1,769 @@
+{
+  "sourceLanguage" : "en",
+  "version" : "1.0",
+  "strings" : {
+    "terminal.input_accessory.zoom_in" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Zoom In" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "拡大" } }
+      }
+    },
+    "terminal.input_accessory.zoom_out" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Zoom Out" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "縮小" } }
+      }
+    },
+    "terminal.home.action.delete" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Delete" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "削除" } }
+      }
+    },
+    "terminal.home.action.mark_read" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Read" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "既読" } }
+      }
+    },
+    "terminal.home.action.mark_unread" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unread" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "未読" } }
+      }
+    },
+    "terminal.home.add_server" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add Server" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーバーを追加" } }
+      }
+    },
+    "terminal.home.delete_server" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Delete Server" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーバーを削除" } }
+      }
+    },
+    "terminal.home.edit_server" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Edit Server" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーバーを編集" } }
+      }
+    },
+    "terminal.home.empty_description" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Start a workspace from the pinned servers above." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "上の固定サーバーからワークスペースを開始してください。" } }
+      }
+    },
+    "terminal.home.empty_title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No Workspaces" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースはありません" } }
+      }
+    },
+    "terminal.home.missing_description" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This workspace is no longer available." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このワークスペースは利用できません。" } }
+      }
+    },
+    "terminal.home.missing_title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspace Missing" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースが見つかりません" } }
+      }
+    },
+    "terminal.home.more_label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "More" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "その他" } }
+      }
+    },
+    "terminal.home.navigation_title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspaces" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペース" } }
+      }
+    },
+    "terminal.home.search_prompt" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Search workspaces" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースを検索" } }
+      }
+    },
+    "terminal.home.select_workspace_description" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Choose a workspace from the sidebar." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サイドバーからワークスペースを選択してください。" } }
+      }
+    },
+    "terminal.home.select_workspace_title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Select a Workspace" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースを選択" } }
+      }
+    },
+    "terminal.home.server_not_ready" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Setup" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "設定" } }
+      }
+    },
+    "terminal.home.servers_footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tap a server to start a workspace." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーバーをタップしてワークスペースを開始します。" } }
+      }
+    },
+    "terminal.home.servers_header" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Servers" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーバー" } }
+      }
+    },
+    "terminal.home.settings_label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Settings" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "設定" } }
+      }
+    },
+    "terminal.home.ssh_label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "SSH" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "SSH" } }
+      }
+    },
+    "terminal.home.status.connected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connected" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続済み" } }
+      }
+    },
+    "terminal.home.status.connecting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connecting" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続中" } }
+      }
+    },
+    "terminal.home.status.direct_connecting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connecting to cmuxd" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmuxd に接続中" } }
+      }
+    },
+    "terminal.home.status.direct_reconnecting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reconnecting to cmuxd" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmuxd に再接続中" } }
+      }
+    },
+    "terminal.home.status.disconnected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Disconnected" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "未接続" } }
+      }
+    },
+    "terminal.home.status.failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "失敗" } }
+      }
+    },
+    "terminal.home.status.needs_setup" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Setup Required" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "設定が必要" } }
+      }
+    },
+    "terminal.home.status.reconnecting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reconnecting" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "再接続中" } }
+      }
+    },
+    "terminal.home.timestamp.yesterday" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Yesterday" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "昨日" } }
+      }
+    },
+    "terminal.home.workspaces_header" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Recent" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最近" } }
+      }
+    },
+    "terminal.host.missing_server_name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Missing Server" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーバーなし" } }
+      }
+    },
+    "terminal.host.new_server_name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New Server" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新しいサーバー" } }
+      }
+    },
+    "terminal.host.setup_required" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "SSH setup required" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "SSH の設定が必要です" } }
+      }
+    },
+    "terminal.host_editor.bootstrap" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Bootstrap Command" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "起動コマンド" } }
+      }
+    },
+    "terminal.host_editor.bootstrap_footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Use {{session}} to inject the workspace tmux session name." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "{{session}} を使うとワークスペースの tmux セッション名を挿入します。" } }
+      }
+    },
+    "terminal.host_editor.cancel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancel" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
+      }
+    },
+    "terminal.host_editor.edit_title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Server" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーバー" } }
+      }
+    },
+    "terminal.host_editor.hostname" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Hostname" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ホスト名" } }
+      }
+    },
+    "terminal.host_editor.name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Name" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "名前" } }
+      }
+    },
+    "terminal.host_editor.new_title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New Server" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新しいサーバー" } }
+      }
+    },
+    "terminal.host_editor.password" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Password" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "パスワード" } }
+      }
+    },
+    "terminal.host_editor.authentication" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Authentication" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "認証" } }
+      }
+    },
+    "terminal.host_editor.authentication.password" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Password" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "パスワード" } }
+      }
+    },
+    "terminal.host_editor.authentication.private_key" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Private Key" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "秘密鍵" } }
+      }
+    },
+    "terminal.host_editor.transport" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Transport" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続方式" } }
+      }
+    },
+    "terminal.host_editor.transport.raw_ssh" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "SSH" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "SSH" } }
+      }
+    },
+    "terminal.host_editor.transport.remote_daemon" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "cmuxd" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmuxd" } }
+      }
+    },
+    "terminal.host_editor.transport_footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Choose how iOS reaches this server. cmuxd uses the direct daemon path when available." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "iOS がこのサーバーへ接続する方法を選びます。cmuxd は利用可能な場合に直接デーモン経由で接続します。" } }
+      }
+    },
+    "terminal.host_editor.allow_ssh_fallback" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Allow SSH Fallback" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "SSH フォールバックを許可" } }
+      }
+    },
+    "terminal.host_editor.direct_tls_pins" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Direct TLS Pins" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "直接 TLS ピン" } }
+      }
+    },
+    "terminal.host_editor.direct_tls_pins_footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add one sha256:... certificate pin per line for direct cmuxd connections." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "直接 cmuxd 接続に使う sha256:... 証明書ピンを 1 行に 1 つずつ追加します。" } }
+      }
+    },
+    "terminal.host_editor.password_footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Store the SSH password in the iOS keychain." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "SSH パスワードを iOS のキーチェーンに保存します。" } }
+      }
+    },
+    "terminal.host_editor.private_key_footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Paste an unencrypted OpenSSH Ed25519 or ECDSA private key." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "暗号化されていない OpenSSH Ed25519 または ECDSA 秘密鍵を貼り付けてください。" } }
+      }
+    },
+    "terminal.host_editor.pending_host_key" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pending Host Key" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "保留中のホスト鍵" } }
+      }
+    },
+    "terminal.host_editor.pending_host_key_footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Trust this key to allow the first SSH connection." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最初の SSH 接続を許可するにはこの鍵を信頼してください。" } }
+      }
+    },
+    "terminal.host_editor.trust_pending_host_key" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Trust Pending Key" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "保留中の鍵を信頼" } }
+      }
+    },
+    "terminal.host_editor.clear_pending_host_key" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Clear Pending Key" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "保留中の鍵を消去" } }
+      }
+    },
+    "terminal.host_editor.trusted_host_key" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Trusted Host Key" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "信頼済みホスト鍵" } }
+      }
+    },
+    "terminal.host_editor.trusted_host_key_footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Future SSH connections must match this pinned host key." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "今後の SSH 接続はこの固定したホスト鍵と一致する必要があります。" } }
+      }
+    },
+    "terminal.host_editor.clear_trusted_host_key" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Clear Trusted Key" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "信頼済み鍵を消去" } }
+      }
+    },
+    "terminal.host_editor.port" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Port" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ポート" } }
+      }
+    },
+    "terminal.host_editor.save" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Save" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "保存" } }
+      }
+    },
+    "terminal.host_editor.username" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Username" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ユーザー名" } }
+      }
+    },
+    "terminal.input_accessory.down" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "↓" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "↓" } }
+      }
+    },
+    "terminal.input_accessory.control" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ctrl" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Ctrl" } }
+      }
+    },
+    "terminal.input_accessory.alt" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Alt" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Alt" } }
+      }
+    },
+    "terminal.input_accessory.escape" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Esc" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Esc" } }
+      }
+    },
+    "terminal.input_accessory.left" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "←" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "←" } }
+      }
+    },
+    "terminal.input_accessory.right" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "→" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "→" } }
+      }
+    },
+    "terminal.input_accessory.tab" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tab" } }
+      }
+    },
+    "terminal.input_accessory.up" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "↑" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "↑" } }
+      }
+    },
+    "terminal.runtime.app_creation_failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "libghostty app creation failed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "libghostty app の作成に失敗しました" } }
+      }
+    },
+    "terminal.runtime.init_failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "libghostty initialization failed (%d)" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "libghostty の初期化に失敗しました (%d)" } }
+      }
+    },
+    "terminal.seed.mac_mini" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mac Mini" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac Mini" } }
+      }
+    },
+    "terminal.ssh.authentication_timed_out" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "SSH authentication timed out." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "SSH 認証がタイムアウトしました。" } }
+      }
+    },
+    "terminal.ssh.channel_closed_before_auth" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The SSH channel closed before authentication completed." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "SSH チャンネルが認証完了前に閉じました。" } }
+      }
+    },
+    "terminal.ssh.host_key_changed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The server host key changed. Review and trust the new key before connecting." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーバーのホスト鍵が変更されました。接続する前に新しい鍵を確認して信頼してください。" } }
+      }
+    },
+    "terminal.ssh.untrusted_host_key" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Review and trust this server host key before connecting." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続する前にこのサーバーのホスト鍵を確認して信頼してください。" } }
+      }
+    },
+    "terminal.ssh.password_unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Password authentication is unavailable on this server." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このサーバーではパスワード認証を利用できません。" } }
+      }
+    },
+    "terminal.ssh.password_missing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add a password for this server." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このサーバーのパスワードを入力してください。" } }
+      }
+    },
+    "terminal.ssh.private_key_encrypted_unsupported" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Encrypted SSH private keys are not supported yet." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "暗号化された SSH 秘密鍵にはまだ対応していません。" } }
+      }
+    },
+    "terminal.ssh.private_key_invalid" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The SSH private key is not a valid OpenSSH key." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "SSH 秘密鍵が有効な OpenSSH 鍵ではありません。" } }
+      }
+    },
+    "terminal.ssh.private_key_invalid_material" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The SSH private key material is invalid." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "SSH 秘密鍵の内容が無効です。" } }
+      }
+    },
+    "terminal.ssh.private_key_missing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add a private key for this server." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このサーバーの秘密鍵を入力してください。" } }
+      }
+    },
+    "terminal.ssh.private_key_unsupported_type" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This SSH private key type is not supported yet." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "この SSH 秘密鍵の種類にはまだ対応していません。" } }
+      }
+    },
+    "terminal.ssh.public_key_unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Public key authentication is unavailable on this server." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このサーバーでは公開鍵認証を利用できません。" } }
+      }
+    },
+    "terminal.workspace.configure_host" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add SSH host details to connect." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続するには SSH ホスト情報を入力してください。" } }
+      }
+    },
+    "terminal.workspace.configure_password" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add a password for this server." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このサーバーのパスワードを入力してください。" } }
+      }
+    },
+    "terminal.workspace.configure_private_key" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add a private key for this server." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このサーバーの秘密鍵を入力してください。" } }
+      }
+    },
+    "terminal.workspace.error.direct_auth_rejected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Direct daemon rejected this session." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmuxd がこのセッションを拒否しました。" } }
+      }
+    },
+    "terminal.workspace.error.direct_connection_failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Direct daemon connection failed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmuxd への直接接続に失敗しました" } }
+      }
+    },
+    "terminal.workspace.error.direct_connection_timeout_detail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "connection timed out" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続がタイムアウトしました" } }
+      }
+    },
+    "terminal.workspace.error.direct_handshake_timeout_detail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "handshake timed out" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ハンドシェイクがタイムアウトしました" } }
+      }
+    },
+    "terminal.workspace.error.direct_tls_rejected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Direct daemon TLS verification failed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmuxd の TLS 検証に失敗しました" } }
+      }
+    },
+    "terminal.workspace.error.direct_invalid_handshake" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Invalid direct daemon handshake" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmuxd のハンドシェイクが不正です" } }
+      }
+    },
+    "terminal.workspace.error.direct_invalid_url" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Invalid direct daemon URL" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmuxd の URL が不正です" } }
+      }
+    },
+    "terminal.workspace.error.bootstrap_channel_closed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remote daemon channel closed." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リモートデーモンのチャネルが閉じました。" } }
+      }
+    },
+    "terminal.workspace.error.bootstrap_command_failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remote command failed with exit status %lld." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リモートコマンドが終了ステータス %lld で失敗しました。" } }
+      }
+    },
+    "terminal.workspace.error.bootstrap_command_failed_with_output" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remote command failed with exit status %lld: %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リモートコマンドが終了ステータス %lld で失敗しました: %@" } }
+      }
+    },
+    "terminal.workspace.error.bootstrap_timeout" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remote daemon bootstrap timed out." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リモートデーモンの起動準備がタイムアウトしました。" } }
+      }
+    },
+    "terminal.workspace.missing_server_error" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Server missing" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーバーが見つかりません" } }
+      }
+    },
+    "terminal.workspace.notice.fallback_ssh" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Direct daemon unavailable, using SSH." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmuxd に直接接続できないため、SSH を使います。" } }
+      }
+    },
+    "terminal.workspace.opening" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Opening terminal..." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナルを開いています..." } }
+      }
+    },
+    "terminal.workspace.reconnect" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reconnect" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "再接続" } }
+      }
+    },
+    "terminal.workspace.surface_unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal surface unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル画面を作成できません" } }
+      }
+    },
+    "terminal.workspace.waiting_for_daemon" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Waiting for Mac to finish starting this workspace…" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac がこのワークスペースの起動を完了するのを待っています…" } }
+      }
+    },
+    "terminal.workspace.unavailable_title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "利用不可" } }
+      }
+    }
+  }
+}

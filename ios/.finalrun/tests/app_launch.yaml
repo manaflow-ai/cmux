@@ -1,0 +1,6 @@
+name: app_launch
+description: Verify the app launches successfully to either the sign-in screen or the main workspaces screen.
+
+steps:
+  - Launch the app.
+  - Verify the app is showing either the sign-in screen (with "Sign in with Apple" and "Sign in with Google" buttons) or the main Workspaces screen. Either state confirms the app launched successfully.

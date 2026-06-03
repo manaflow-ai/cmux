@@ -1,0 +1,1416 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0089E8429BE438F9D8A4A0E9 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = 4DB01F45CD0702537E918BA6 /* NIOCore */; };
+		02EA7FE606CF8B06C12B0330 /* StackAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 17CB6F7349F63FE9A55AFCBA /* StackAuth */; };
+		0BDD226BF2A870F9E2B6B48E /* AppDatabaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 332FCBAF4BBD19F77DDE0FC9 /* AppDatabaseTests.swift */; };
+		0C6212EC501024F2C49110DF /* UnifiedInboxRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64750470099378D31D4BDD1 /* UnifiedInboxRow.swift */; };
+		0EEA1A5F0C688046D781B705 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BAF9334F41F6254A643208D /* NotificationManager.swift */; };
+		10B32EDB3FF81F33AC018ACA /* TerminalSSHPrivateKeyParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C421C4249CE79600D125D7FF /* TerminalSSHPrivateKeyParserTests.swift */; };
+		11F7995149AB9E9569CD8D4B /* LiveAnchormuxSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F0036E626FEB15B0BA455A /* LiveAnchormuxSupport.swift */; };
+		1636EA8C7059A6C28262ACA3 /* IOSMacWorkspaceSyncUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57BAAB8CB1A9DEC3A64FE209 /* IOSMacWorkspaceSyncUITests.swift */; };
+		16E18B3A5ADB0B56DB529773 /* TerminalUITestHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13C1E2DF31951062E23DA8B6 /* TerminalUITestHarness.swift */; };
+		18EA96F8C4A795E03188EF9A /* StackAuthApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAD5303B620E0A9963722367 /* StackAuthApp.swift */; };
+		19BE0124962AC51482497B1E /* TerminalCredentialsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C93A3C264A438944ACCF0BA /* TerminalCredentialsStore.swift */; };
+		1BFF5013C1BAA83E3CC784D9 /* TerminalDirectDaemonTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49C34E3038B8C3FFD032D71D /* TerminalDirectDaemonTransportTests.swift */; };
+		1CBA3B4ECD5E27E5F749B23B /* Environment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F3E4D1CC9AEF0C9137A977F /* Environment.swift */; };
+		1DA2C7FB4DE9A4E4D7C9B1E1 /* DebugLogsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B95880067ECC39B86C5CFDA5 /* DebugLogsView.swift */; };
+		21E893C47036E3C2B71AA84E /* NotificationTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA415A9D81F5189E4B8EB45 /* NotificationTokenStore.swift */; };
+		2419A28393E9E693F95756EA /* GhosttyRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2133FE68D880E1205177B511 /* GhosttyRuntime.swift */; };
+		2478DD014779A5A8D015163D /* TerminalSidebarStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FDC51D95F3E5A96A87C011A /* TerminalSidebarStoreTests.swift */; };
+		2801BECDFC4D83ED7C2C3821 /* CrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AEBF607BA60286A0DCA5719 /* CrashReporter.swift */; };
+		29409C33E26430151F55EFD7 /* AnchormuxLiveLatencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3484E8DA6FC996CF59ED2795 /* AnchormuxLiveLatencyTests.swift */; };
+		344AA92DCFC24778FBE99CF3 /* TerminalSSHPrivateKeyParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E827F690E10123C3E49AF08 /* TerminalSSHPrivateKeyParser.swift */; };
+		35E4B51CEF0631C2A24C3CB1 /* LocalConfig.example.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3088F4C4959A46FE729E45B9 /* LocalConfig.example.plist */; };
+		3653B307FB52DA3ED70CAAD4 /* TerminalDaemonConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C325E94D01A73159327CA37E /* TerminalDaemonConnection.swift */; };
+		36DF9DBF05DBD429B3E236FA /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 6D04796B335A4EF9472F3C7B /* Localizable.xcstrings */; };
+		37CB14E21C9289C748A0D4B5 /* InputStrategyLabUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0EDBBD5DD606D90334B83A2 /* InputStrategyLabUITests.swift */; };
+		385B83894852389F95C969A9 /* MessagePositionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50D7352C9993A9347DC31B11 /* MessagePositionUITests.swift */; };
+		3E6E9A9B450D14D5FDA9A4FB /* ChatFix1MainMockUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46E2A84EE57B76326490484B /* ChatFix1MainMockUITests.swift */; };
+		4093241013AD5A84B1921485 /* MobileAnalyticsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B287A1DF924C96E1B77E50B8 /* MobileAnalyticsClient.swift */; };
+		40E191A08D336B91FD1C46B6 /* TerminalSSHTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0932E47DC033515DB52916D /* TerminalSSHTransport.swift */; };
+		450D934BB4206CE1AD747CF8 /* TerminalRemoteDaemonClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469D35135F2FE231F824116B /* TerminalRemoteDaemonClient.swift */; };
+		465A96835B7DBA05A9E32CD5 /* LiveAnchormuxConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45A5B53FEF2F048DA56D2472 /* LiveAnchormuxConfigTests.swift */; };
+		46F4D18F747BD9BC1C022CBE /* DebugLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B97F49D6DAB4938BBB02860 /* DebugLogStore.swift */; };
+		4788D5AB7F81447C478085E6 /* TerminalWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7AA5FF8AF803EC910E3E9B9 /* TerminalWorkspace.swift */; };
+		491297D2B5FBA5E1C0D3C16B /* TerminalHomeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7FFC2F3CA5EFC68DFCD90FF /* TerminalHomeUITests.swift */; };
+		4A8BF88320933C89665ECA9B /* PushNotificationConfigurator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B92F4E5D5591617733F1CE91 /* PushNotificationConfigurator.swift */; };
+		4D48AA7C6BCC4BCD9E1714D7 /* ShortThreadLayoutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D7768A357BB39676DE783F0 /* ShortThreadLayoutUITests.swift */; };
+		4EA9E361940755F958A3A7BE /* GhosttySurfaceContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FA3FDA2BC472453ACC68E54 /* GhosttySurfaceContractTests.swift */; };
+		4EE3B9913C87B3BA618C336D /* AppDatabaseMigrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89EC91AA4671ABE4E611F385 /* AppDatabaseMigrator.swift */; };
+		50F64D9F29CEFA79EE502840 /* TerminalRemoteDaemonBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4860186F7E006848253577A /* TerminalRemoteDaemonBootstrapTests.swift */; };
+		516341407A8F0045ADFE9305 /* ServerScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0012DD36A8108CDBCC7FFB /* ServerScannerView.swift */; };
+		552A6871270B9D007D875AF6 /* NIOTransportServices in Frameworks */ = {isa = PBXBuildFile; productRef = 53B70A5F79698287F52C6841 /* NIOTransportServices */; };
+		5765C708A2DE94C86B96D8A0 /* WorkspaceLiveSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = E31DB7639E2682275F1ED39E /* WorkspaceLiveSync.swift */; };
+		58B0A93A8C6CF02D9225C04F /* TerminalRemoteDaemonBootstrapTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 647E49487CAEF1DF11AC3132 /* TerminalRemoteDaemonBootstrapTransportTests.swift */; };
+		58DCABFDFB1C2A57D253CDF1 /* UnifiedInboxSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A349A5B2BF892E746EC798 /* UnifiedInboxSyncService.swift */; };
+		595A0FA1A8B8D4F8D1963A6F /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE3612A4F23C4449FD140F98 /* ContentView.swift */; };
+		598603618288EB723C147A5F /* TerminalRemoteDaemonBootstrapTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D51D3B2D11FB5FB44AE597 /* TerminalRemoteDaemonBootstrapTransport.swift */; };
+		5FEBC9C4C76C88A809369526 /* TerminalServerCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1EC1076DDF12A33A3F4BD /* TerminalServerCatalogTests.swift */; };
+		60D2235A81BEF53FDB6544A3 /* TerminalDirectDaemonTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466D6BAD29A0685ECDB7F36D /* TerminalDirectDaemonTransport.swift */; };
+		6294572E64B3734F83BE7938 /* AuthPresentationContextProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = D122B00904D8EA85C4742AA6 /* AuthPresentationContextProvider.swift */; };
+		63B51F8ADC31CFCE9E25CF0F /* TerminalSidebarRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6E3907A041CB7A053C74EBF /* TerminalSidebarRootView.swift */; };
+		64212DD8EB19099526116B48 /* NIOSSH in Frameworks */ = {isa = PBXBuildFile; productRef = FDD895A8470CE4ECEC55E1BE /* NIOSSH */; };
+		68F1305E09406BC3B8FF0318 /* InputPillVisibilityAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ABFF24425D2184E8F78F463 /* InputPillVisibilityAssertions.swift */; };
+		6ABCF8FC10BBF3925DBEA014 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = BE635B9D811C6CA8EF9EE4DA /* CMUXAuthCore */; };
+		70A52F26E8AA2625AD2A60B3 /* TerminalHostedViewContainerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE732C449C8B987AC730C57 /* TerminalHostedViewContainerTests.swift */; };
+		70FC65E4401E592BD124A90B /* AppDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2977B601EA51C124360206C7 /* AppDatabase.swift */; };
+		7106985A7EEEEAE0237B4827 /* TerminalRemoteDaemonSessionTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1BA7043A67839E3A06F470F /* TerminalRemoteDaemonSessionTransport.swift */; };
+		7269270FAC81979468EA33BD /* TerminalHostEditorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DE62A8D62C530AC1B0589FF /* TerminalHostEditorUITests.swift */; };
+		76AE81E3F2B85A22FF6B83E8 /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9087C0B8F1286CD0B19CD31F /* AuthManager.swift */; };
+		78E5E5FC258BA9C04DA2B08B /* TerminalRemoteDaemonBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA24C145FA908CF29936819A /* TerminalRemoteDaemonBootstrap.swift */; };
+		7D926446DDA0060093A5CCA0 /* KeyboardSyncUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EAF33CCBEC812756B9EB0DA /* KeyboardSyncUITests.swift */; };
+		846B4E8A6393D4EFA707C3AE /* GhosttySurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B849EF00D8D9D4D7CBECA71 /* GhosttySurfaceView.swift */; };
+		8690E1828AA69CEDA05F76C1 /* MobileSyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3AAD5011EC7691DB8BC1A90 /* MobileSyncModels.swift */; };
+		9A574D169798E1DD76A1D49B /* UITestConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B7ED930E2B87982C4CEC9BA /* UITestConfig.swift */; };
+		9B0D70457FC3D6051161B59A /* TerminalSessionControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5F8F2B0BAB1B57DC21EB21 /* TerminalSessionControllerTests.swift */; };
+		9B8783DD1BC57F42ED61A6F9 /* MultilineInputUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE62D28CE43B32188010398A /* MultilineInputUITests.swift */; };
+		9C47D316782CF6C6964A45CE /* CMuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2FC96D579C3A3B74DAB71B8 /* CMuxApp.swift */; };
+		A1E97AF11D264C091B454262 /* NotificationRouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8771A773DCD77CB895AC6D1B /* NotificationRouteStore.swift */; };
+		A3A5FF3072EB63CB5D4616DE /* SignInViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5BF7D54B8D44A99889F672 /* SignInViewTests.swift */; };
+		A584F68723DBCD3B9F984F20 /* TerminalServerDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04613339A0B059AF4CC301F6 /* TerminalServerDiscovery.swift */; };
+		A5FC62E4DAA13509944CF242 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 3DC0750A2EC5460A69E1AFAE /* Sentry */; };
+		A635A7179B90AF97456AD6C9 /* TerminalWorkspaceMetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF97CC01F2F006852BC36489 /* TerminalWorkspaceMetadataService.swift */; };
+		A6EFC4A95CC0ED84F0513026 /* TerminalInputUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 304375C0A66E7A93BDDEE7F4 /* TerminalInputUITests.swift */; };
+		AB1C424D51F88B58A32D0FB6 /* TerminalUITestEchoFormatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702970D0D62B9A6143BECDAA /* TerminalUITestEchoFormatterTests.swift */; };
+		AB4CF205C521C1E14EDFF4D1 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 9757F8AA5AA13DA7D131699A /* GRDB */; };
+		AB72146D83D35EA60CC4E731 /* TerminalBackendContracts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1511B457D07DA73472FE1B40 /* TerminalBackendContracts.swift */; };
+		ACEDA8E2D207913AE97DEF0B /* TerminalRemoteDaemonBootstrapSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F2C251403384AF2FAE69B2D /* TerminalRemoteDaemonBootstrapSessionTests.swift */; };
+		AD23B3315E1AD6C2FF64984E /* TerminalTextInputPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73670DE438503675C69D50A7 /* TerminalTextInputPipelineTests.swift */; };
+		B2BB1A4556D045025F824F84 /* TerminalRemoteDaemonBootstrapSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 609116A98775DD86C53F243A /* TerminalRemoteDaemonBootstrapSession.swift */; };
+		B5B638A57E74D227CA6121CB /* TerminalHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 373324C6154BE0FA34FAA499 /* TerminalHost.swift */; };
+		B760296B64D359B4E2ED93AB /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAFFEAB40EDD4BCBFEFD76FB /* SignInView.swift */; };
+		B8CF15C86C77DA0B57B4BAD6 /* TerminalDaemonConnectionPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CD2B50AB2128B8AE2BA2492 /* TerminalDaemonConnectionPool.swift */; };
+		B8FF075BDF4D70B96A47C038 /* TerminalServerCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A83B1BB8063E440AEF6A9BD5 /* TerminalServerCatalog.swift */; };
+		BB060AEACD11BF92CC1CF715 /* StackAuthSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C886B3F5AAB7299E02D350A8 /* StackAuthSessionTests.swift */; };
+		BD32C5F0C45D6CAA00676AA7 /* TerminalRemoteDaemonClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58AF78B17031AAAB6C08339A /* TerminalRemoteDaemonClientTests.swift */; };
+		BE0E3F9B6EC73871820B04B5 /* TerminalDirectDaemonClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9379E1EEE6569DF0E0F219B8 /* TerminalDirectDaemonClientTests.swift */; };
+		C0F910B59E30B69AFFECC200 /* TerminalCacheRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B32866817E544170356801E9 /* TerminalCacheRepository.swift */; };
+		C11EB689DA2070B49425BC6E /* AuthError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17E46AF784D636FFF06F2F5F /* AuthError.swift */; };
+		C1B7D719350DC9705A9A038A /* TerminalWorkspaceIdentityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88E9ADB2B5B46327234A6E01 /* TerminalWorkspaceIdentityService.swift */; };
+		C211BD6F721FB176E550E2DC /* InboxCacheRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DE75E117D3B3DFB6DA75EB /* InboxCacheRepository.swift */; };
+		C35B6BEEE8D866C0A6A30138 /* TerminalInputTextViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A64EAEE7A594119722FD01 /* TerminalInputTextViewTests.swift */; };
+		C4A6578BDBA1C1244F49D120 /* MobileContractModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E12DCFB9065ECAE7FA1196D /* MobileContractModels.swift */; };
+		CE5D22A6F7D7581D33FD1373 /* UnifiedInboxItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F4CE5C1C1175998377D3D92 /* UnifiedInboxItem.swift */; };
+		D79991DD5C64A4DF44E16795 /* TerminalDaemonTicketServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 799F0951A0197EC9879ABD05 /* TerminalDaemonTicketServiceTests.swift */; };
+		D7E03BEFBF9F77C444C33FD8 /* TerminalWebSocketDaemonTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1417CA18232B39FBDDE85503 /* TerminalWebSocketDaemonTransport.swift */; };
+		DB86D220A6B2F78BD9BBB891 /* TerminalStoreSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50780A4857E0E11BDE989A92 /* TerminalStoreSnapshot.swift */; };
+		DBF1095147B567E1E9AA65DE /* ConversationE2ETests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC4DFB6057D8F844573DF25 /* ConversationE2ETests.swift */; };
+		E53B642466F792A14F963E71 /* InboxTestFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0333E38C68F549375D57C0B /* InboxTestFixtures.swift */; };
+		E58E43ECFDF8996EC8E278BE /* TerminalRemoteDaemonSessionTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70F74FCD55979E8CAE40D2 /* TerminalRemoteDaemonSessionTransportTests.swift */; };
+		EA60C0405556129A6822B720 /* TerminalSidebarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A588697250384065B7EB7AFE /* TerminalSidebarStore.swift */; };
+		EB23AC9E8D2EA2EEF932EDF2 /* AnchormuxLiveSharingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 687E7759D51BD39CC2B8113F /* AnchormuxLiveSharingTests.swift */; };
+		ECD1416E7ACC59E7ED3F73A5 /* UnifiedInboxSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A4403F22FB039151B7BA413 /* UnifiedInboxSyncServiceTests.swift */; };
+		ED8F269488E63AC9769FCB3E /* NotificationManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC8F8779541C571F872DB484 /* NotificationManagerTests.swift */; };
+		EDB0DD8D307403C0118F51B0 /* TerminalAsyncTimeout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64C98B8748428A845E9E583D /* TerminalAsyncTimeout.swift */; };
+		EEF71CC911AAACC4FD664E97 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 37514174EEBB8853B706B2E2 /* Assets.xcassets */; };
+		EFA47F254B5D9EB0F0C90DFC /* MobileSyncModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D2DF6EA0EB9729F8795273 /* MobileSyncModelsTests.swift */; };
+		F05EB2EEFC4FCCBA4DF085D7 /* StackAuthUser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0692BC100B6C84A606C88581 /* StackAuthUser.swift */; };
+		F12D86FDCC3B5F1EC9541EB8 /* LiveTCPDaemonTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA93534EF4055B1E6217031 /* LiveTCPDaemonTransportTests.swift */; };
+		F2811BDA6B5CABDEC723DB30 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 01DF3D3A5E8E935C5518C800 /* CMUXAuthCore */; };
+		F3C1FD7DEBFE47603D6200DD /* TerminalReconnectUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A49C9E8F8EB74BE0942635DB /* TerminalReconnectUITests.swift */; };
+		F45A1672B309AB47264A5B19 /* TerminalDirectDaemonClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 400676CDDB4404C93AD0E2F1 /* TerminalDirectDaemonClient.swift */; };
+		F5F1FEA88BE3F7E3123BFB0D /* TerminalInboxUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A2BA73731782979511F08EA /* TerminalInboxUITests.swift */; };
+		FD7DEB39FB6802AA88884C3E /* TerminalDaemonTicketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CDECDA34EE5AD4F9B962F2F /* TerminalDaemonTicketService.swift */; };
+		FFD590D33286D4BCB370969C /* AuthPersistenceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B852E46E13849457AF82378B /* AuthPersistenceUITests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		42A2B88AD066C8F0FBB24B31 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AF18EE9FF7249C69BF1E5F0B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8A54513EB812CBBBB23A0494;
+			remoteInfo = cmux;
+		};
+		F477996FEC6B744C4AAA76C4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AF18EE9FF7249C69BF1E5F0B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8A54513EB812CBBBB23A0494;
+			remoteInfo = cmux;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		04613339A0B059AF4CC301F6 /* TerminalServerDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalServerDiscovery.swift; sourceTree = "<group>"; };
+		0692BC100B6C84A606C88581 /* StackAuthUser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackAuthUser.swift; sourceTree = "<group>"; };
+		0F2C251403384AF2FAE69B2D /* TerminalRemoteDaemonBootstrapSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRemoteDaemonBootstrapSessionTests.swift; sourceTree = "<group>"; };
+		13C1E2DF31951062E23DA8B6 /* TerminalUITestHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalUITestHarness.swift; sourceTree = "<group>"; };
+		1417CA18232B39FBDDE85503 /* TerminalWebSocketDaemonTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWebSocketDaemonTransport.swift; sourceTree = "<group>"; };
+		1511B457D07DA73472FE1B40 /* TerminalBackendContracts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendContracts.swift; sourceTree = "<group>"; };
+		17E46AF784D636FFF06F2F5F /* AuthError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthError.swift; sourceTree = "<group>"; };
+		1E19E0127B00CCC94F5E35A7 /* cmuxTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = cmuxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		211B43F30E5F914700C7031C /* cmux.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2133FE68D880E1205177B511 /* GhosttyRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyRuntime.swift; sourceTree = "<group>"; };
+		2237641898432796FF39E2A1 /* cmuxd-remote */ = {isa = PBXFileReference; path = "cmuxd-remote"; sourceTree = "<group>"; };
+		28D51D3B2D11FB5FB44AE597 /* TerminalRemoteDaemonBootstrapTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRemoteDaemonBootstrapTransport.swift; sourceTree = "<group>"; };
+		2977B601EA51C124360206C7 /* AppDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDatabase.swift; sourceTree = "<group>"; };
+		2A2BA73731782979511F08EA /* TerminalInboxUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInboxUITests.swift; sourceTree = "<group>"; };
+		2C2E020CE863F4D2B2E54F85 /* stack-auth-swift-sdk-prerelease */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "stack-auth-swift-sdk-prerelease"; path = "vendor/stack-auth-swift-sdk-prerelease"; sourceTree = SOURCE_ROOT; };
+		2CDECDA34EE5AD4F9B962F2F /* TerminalDaemonTicketService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDaemonTicketService.swift; sourceTree = "<group>"; };
+		2EAF33CCBEC812756B9EB0DA /* KeyboardSyncUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSyncUITests.swift; sourceTree = "<group>"; };
+		304375C0A66E7A93BDDEE7F4 /* TerminalInputUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInputUITests.swift; sourceTree = "<group>"; };
+		3088F4C4959A46FE729E45B9 /* LocalConfig.example.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = LocalConfig.example.plist; sourceTree = "<group>"; };
+		30DE75E117D3B3DFB6DA75EB /* InboxCacheRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxCacheRepository.swift; sourceTree = "<group>"; };
+		332FCBAF4BBD19F77DDE0FC9 /* AppDatabaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDatabaseTests.swift; sourceTree = "<group>"; };
+		3484E8DA6FC996CF59ED2795 /* AnchormuxLiveLatencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchormuxLiveLatencyTests.swift; sourceTree = "<group>"; };
+		373324C6154BE0FA34FAA499 /* TerminalHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalHost.swift; sourceTree = "<group>"; };
+		37514174EEBB8853B706B2E2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3A0012DD36A8108CDBCC7FFB /* ServerScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerScannerView.swift; sourceTree = "<group>"; };
+		3BAF9334F41F6254A643208D /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		3CD2B50AB2128B8AE2BA2492 /* TerminalDaemonConnectionPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDaemonConnectionPool.swift; sourceTree = "<group>"; };
+		3DE732C449C8B987AC730C57 /* TerminalHostedViewContainerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalHostedViewContainerTests.swift; sourceTree = "<group>"; };
+		3E827F690E10123C3E49AF08 /* TerminalSSHPrivateKeyParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHPrivateKeyParser.swift; sourceTree = "<group>"; };
+		3FA3FDA2BC472453ACC68E54 /* GhosttySurfaceContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttySurfaceContractTests.swift; sourceTree = "<group>"; };
+		400676CDDB4404C93AD0E2F1 /* TerminalDirectDaemonClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDirectDaemonClient.swift; sourceTree = "<group>"; };
+		45A5B53FEF2F048DA56D2472 /* LiveAnchormuxConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAnchormuxConfigTests.swift; sourceTree = "<group>"; };
+		466D6BAD29A0685ECDB7F36D /* TerminalDirectDaemonTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDirectDaemonTransport.swift; sourceTree = "<group>"; };
+		469D35135F2FE231F824116B /* TerminalRemoteDaemonClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRemoteDaemonClient.swift; sourceTree = "<group>"; };
+		46E2A84EE57B76326490484B /* ChatFix1MainMockUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFix1MainMockUITests.swift; sourceTree = "<group>"; };
+		4807EE63207C0AFD2046273E /* Ghostty-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Ghostty-Bridging-Header.h"; sourceTree = "<group>"; };
+		49C34E3038B8C3FFD032D71D /* TerminalDirectDaemonTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDirectDaemonTransportTests.swift; sourceTree = "<group>"; };
+		4AEBF607BA60286A0DCA5719 /* CrashReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReporter.swift; sourceTree = "<group>"; };
+		4C93A3C264A438944ACCF0BA /* TerminalCredentialsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCredentialsStore.swift; sourceTree = "<group>"; };
+		4FC4DFB6057D8F844573DF25 /* ConversationE2ETests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationE2ETests.swift; sourceTree = "<group>"; };
+		4FDC51D95F3E5A96A87C011A /* TerminalSidebarStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSidebarStoreTests.swift; sourceTree = "<group>"; };
+		50780A4857E0E11BDE989A92 /* TerminalStoreSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStoreSnapshot.swift; sourceTree = "<group>"; };
+		50D7352C9993A9347DC31B11 /* MessagePositionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagePositionUITests.swift; sourceTree = "<group>"; };
+		57BAAB8CB1A9DEC3A64FE209 /* IOSMacWorkspaceSyncUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSMacWorkspaceSyncUITests.swift; sourceTree = "<group>"; };
+		58AF78B17031AAAB6C08339A /* TerminalRemoteDaemonClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRemoteDaemonClientTests.swift; sourceTree = "<group>"; };
+		609116A98775DD86C53F243A /* TerminalRemoteDaemonBootstrapSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRemoteDaemonBootstrapSession.swift; sourceTree = "<group>"; };
+		61A64EAEE7A594119722FD01 /* TerminalInputTextViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInputTextViewTests.swift; sourceTree = "<group>"; };
+		647E49487CAEF1DF11AC3132 /* TerminalRemoteDaemonBootstrapTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRemoteDaemonBootstrapTransportTests.swift; sourceTree = "<group>"; };
+		64C98B8748428A845E9E583D /* TerminalAsyncTimeout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAsyncTimeout.swift; sourceTree = "<group>"; };
+		65D2DF6EA0EB9729F8795273 /* MobileSyncModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSyncModelsTests.swift; sourceTree = "<group>"; };
+		687E7759D51BD39CC2B8113F /* AnchormuxLiveSharingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchormuxLiveSharingTests.swift; sourceTree = "<group>"; };
+		6A4403F22FB039151B7BA413 /* UnifiedInboxSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedInboxSyncServiceTests.swift; sourceTree = "<group>"; };
+		6D04796B335A4EF9472F3C7B /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		6DE62A8D62C530AC1B0589FF /* TerminalHostEditorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalHostEditorUITests.swift; sourceTree = "<group>"; };
+		6F3E4D1CC9AEF0C9137A977F /* Environment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Environment.swift; sourceTree = "<group>"; };
+		702970D0D62B9A6143BECDAA /* TerminalUITestEchoFormatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalUITestEchoFormatterTests.swift; sourceTree = "<group>"; };
+		73670DE438503675C69D50A7 /* TerminalTextInputPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTextInputPipelineTests.swift; sourceTree = "<group>"; };
+		799F0951A0197EC9879ABD05 /* TerminalDaemonTicketServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDaemonTicketServiceTests.swift; sourceTree = "<group>"; };
+		7B849EF00D8D9D4D7CBECA71 /* GhosttySurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttySurfaceView.swift; sourceTree = "<group>"; };
+		7D7768A357BB39676DE783F0 /* ShortThreadLayoutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortThreadLayoutUITests.swift; sourceTree = "<group>"; };
+		8771A773DCD77CB895AC6D1B /* NotificationRouteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRouteStore.swift; sourceTree = "<group>"; };
+		88E9ADB2B5B46327234A6E01 /* TerminalWorkspaceIdentityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWorkspaceIdentityService.swift; sourceTree = "<group>"; };
+		896C6A7C1BF2F0EB06CE7BA5 /* cmuxUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		89A349A5B2BF892E746EC798 /* UnifiedInboxSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedInboxSyncService.swift; sourceTree = "<group>"; };
+		89EC91AA4671ABE4E611F385 /* AppDatabaseMigrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDatabaseMigrator.swift; sourceTree = "<group>"; };
+		8ABFF24425D2184E8F78F463 /* InputPillVisibilityAssertions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputPillVisibilityAssertions.swift; sourceTree = "<group>"; };
+		8B7ED930E2B87982C4CEC9BA /* UITestConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestConfig.swift; sourceTree = "<group>"; };
+		8B97F49D6DAB4938BBB02860 /* DebugLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogStore.swift; sourceTree = "<group>"; };
+		8EA415A9D81F5189E4B8EB45 /* NotificationTokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationTokenStore.swift; sourceTree = "<group>"; };
+		9087C0B8F1286CD0B19CD31F /* AuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthManager.swift; sourceTree = "<group>"; };
+		9379E1EEE6569DF0E0F219B8 /* TerminalDirectDaemonClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDirectDaemonClientTests.swift; sourceTree = "<group>"; };
+		9E12DCFB9065ECAE7FA1196D /* MobileContractModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileContractModels.swift; sourceTree = "<group>"; };
+		9F4CE5C1C1175998377D3D92 /* UnifiedInboxItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedInboxItem.swift; sourceTree = "<group>"; };
+		A4860186F7E006848253577A /* TerminalRemoteDaemonBootstrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRemoteDaemonBootstrapTests.swift; sourceTree = "<group>"; };
+		A49C9E8F8EB74BE0942635DB /* TerminalReconnectUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalReconnectUITests.swift; sourceTree = "<group>"; };
+		A588697250384065B7EB7AFE /* TerminalSidebarStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSidebarStore.swift; sourceTree = "<group>"; };
+		A64750470099378D31D4BDD1 /* UnifiedInboxRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedInboxRow.swift; sourceTree = "<group>"; };
+		A7AA5FF8AF803EC910E3E9B9 /* TerminalWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWorkspace.swift; sourceTree = "<group>"; };
+		A83B1BB8063E440AEF6A9BD5 /* TerminalServerCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalServerCatalog.swift; sourceTree = "<group>"; };
+		AA5F8F2B0BAB1B57DC21EB21 /* TerminalSessionControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSessionControllerTests.swift; sourceTree = "<group>"; };
+		AB5BF7D54B8D44A99889F672 /* SignInViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInViewTests.swift; sourceTree = "<group>"; };
+		B0EDBBD5DD606D90334B83A2 /* InputStrategyLabUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputStrategyLabUITests.swift; sourceTree = "<group>"; };
+		B287A1DF924C96E1B77E50B8 /* MobileAnalyticsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAnalyticsClient.swift; sourceTree = "<group>"; };
+		B32866817E544170356801E9 /* TerminalCacheRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCacheRepository.swift; sourceTree = "<group>"; };
+		B852E46E13849457AF82378B /* AuthPersistenceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthPersistenceUITests.swift; sourceTree = "<group>"; };
+		B92F4E5D5591617733F1CE91 /* PushNotificationConfigurator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationConfigurator.swift; sourceTree = "<group>"; };
+		B95880067ECC39B86C5CFDA5 /* DebugLogsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogsView.swift; sourceTree = "<group>"; };
+		B9F0036E626FEB15B0BA455A /* LiveAnchormuxSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAnchormuxSupport.swift; sourceTree = "<group>"; };
+		BA24C145FA908CF29936819A /* TerminalRemoteDaemonBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRemoteDaemonBootstrap.swift; sourceTree = "<group>"; };
+		BAFFEAB40EDD4BCBFEFD76FB /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
+		C132BF504A491032C99A2E7F /* cmuxd-remote */ = {isa = PBXFileReference; path = "cmuxd-remote"; sourceTree = "<group>"; };
+		C2FC96D579C3A3B74DAB71B8 /* CMuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMuxApp.swift; sourceTree = "<group>"; };
+		C325E94D01A73159327CA37E /* TerminalDaemonConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDaemonConnection.swift; sourceTree = "<group>"; };
+		C421C4249CE79600D125D7FF /* TerminalSSHPrivateKeyParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHPrivateKeyParserTests.swift; sourceTree = "<group>"; };
+		C886B3F5AAB7299E02D350A8 /* StackAuthSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackAuthSessionTests.swift; sourceTree = "<group>"; };
+		CE62D28CE43B32188010398A /* MultilineInputUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultilineInputUITests.swift; sourceTree = "<group>"; };
+		D122B00904D8EA85C4742AA6 /* AuthPresentationContextProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthPresentationContextProvider.swift; sourceTree = "<group>"; };
+		DAE2A84063F180ACA979BF22 /* cmuxd-remote */ = {isa = PBXFileReference; path = "cmuxd-remote"; sourceTree = "<group>"; };
+		DC8F8779541C571F872DB484 /* NotificationManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManagerTests.swift; sourceTree = "<group>"; };
+		DE3612A4F23C4449FD140F98 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		E0333E38C68F549375D57C0B /* InboxTestFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxTestFixtures.swift; sourceTree = "<group>"; };
+		E1BA7043A67839E3A06F470F /* TerminalRemoteDaemonSessionTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRemoteDaemonSessionTransport.swift; sourceTree = "<group>"; };
+		E31DB7639E2682275F1ED39E /* WorkspaceLiveSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLiveSync.swift; sourceTree = "<group>"; };
+		E3AAD5011EC7691DB8BC1A90 /* MobileSyncModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSyncModels.swift; sourceTree = "<group>"; };
+		EF97CC01F2F006852BC36489 /* TerminalWorkspaceMetadataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWorkspaceMetadataService.swift; sourceTree = "<group>"; };
+		F0932E47DC033515DB52916D /* TerminalSSHTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHTransport.swift; sourceTree = "<group>"; };
+		F0A1EC1076DDF12A33A3F4BD /* TerminalServerCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalServerCatalogTests.swift; sourceTree = "<group>"; };
+		F6E3907A041CB7A053C74EBF /* TerminalSidebarRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSidebarRootView.swift; sourceTree = "<group>"; };
+		F7FFC2F3CA5EFC68DFCD90FF /* TerminalHomeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalHomeUITests.swift; sourceTree = "<group>"; };
+		FA4A296DDB6F1CF9EBB72165 /* cmuxd-remote */ = {isa = PBXFileReference; path = "cmuxd-remote"; sourceTree = "<group>"; };
+		FAD5303B620E0A9963722367 /* StackAuthApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackAuthApp.swift; sourceTree = "<group>"; };
+		FC5B2E6BCCFE003B9A64B0F0 /* CMUXAuthCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CMUXAuthCore; path = ../Packages/CMUXAuthCore; sourceTree = SOURCE_ROOT; };
+		FE70F74FCD55979E8CAE40D2 /* TerminalRemoteDaemonSessionTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRemoteDaemonSessionTransportTests.swift; sourceTree = "<group>"; };
+		FEA93534EF4055B1E6217031 /* LiveTCPDaemonTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTCPDaemonTransportTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		38FF876494868FB817331EA3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F2811BDA6B5CABDEC723DB30 /* CMUXAuthCore in Frameworks */,
+				AB4CF205C521C1E14EDFF4D1 /* GRDB in Frameworks */,
+				02EA7FE606CF8B06C12B0330 /* StackAuth in Frameworks */,
+				A5FC62E4DAA13509944CF242 /* Sentry in Frameworks */,
+				0089E8429BE438F9D8A4A0E9 /* NIOCore in Frameworks */,
+				64212DD8EB19099526116B48 /* NIOSSH in Frameworks */,
+				552A6871270B9D007D875AF6 /* NIOTransportServices in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D275D63F3316D7D3DE7C99D5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6ABCF8FC10BBF3925DBEA014 /* CMUXAuthCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		00040B5EDE700E4F39AC4D17 /* dev */ = {
+			isa = PBXGroup;
+			children = (
+				92A1D52FE253D0C85F6785CB /* darwin-amd64 */,
+				0649C7D52A172A0BA53B16DE /* darwin-arm64 */,
+				3C2621A619AD83675D50ECE3 /* linux-amd64 */,
+				88DF54A3A3E4511DC2897AD0 /* linux-arm64 */,
+			);
+			path = dev;
+			sourceTree = "<group>";
+		};
+		0649C7D52A172A0BA53B16DE /* darwin-arm64 */ = {
+			isa = PBXGroup;
+			children = (
+				C132BF504A491032C99A2E7F /* cmuxd-remote */,
+			);
+			path = "darwin-arm64";
+			sourceTree = "<group>";
+		};
+		2E5540563E3ED14F8FE37AC2 /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				2977B601EA51C124360206C7 /* AppDatabase.swift */,
+				89EC91AA4671ABE4E611F385 /* AppDatabaseMigrator.swift */,
+				30DE75E117D3B3DFB6DA75EB /* InboxCacheRepository.swift */,
+				B32866817E544170356801E9 /* TerminalCacheRepository.swift */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		3C2621A619AD83675D50ECE3 /* linux-amd64 */ = {
+			isa = PBXGroup;
+			children = (
+				2237641898432796FF39E2A1 /* cmuxd-remote */,
+			);
+			path = "linux-amd64";
+			sourceTree = "<group>";
+		};
+		4F6EE39440D4E4D7D16940AF /* Mobile */ = {
+			isa = PBXGroup;
+			children = (
+				B287A1DF924C96E1B77E50B8 /* MobileAnalyticsClient.swift */,
+				9E12DCFB9065ECAE7FA1196D /* MobileContractModels.swift */,
+				E3AAD5011EC7691DB8BC1A90 /* MobileSyncModels.swift */,
+				E31DB7639E2682275F1ED39E /* WorkspaceLiveSync.swift */,
+			);
+			path = Mobile;
+			sourceTree = "<group>";
+		};
+		5102C6808EED650E6A41C51A /* Notifications */ = {
+			isa = PBXGroup;
+			children = (
+				3BAF9334F41F6254A643208D /* NotificationManager.swift */,
+				8EA415A9D81F5189E4B8EB45 /* NotificationTokenStore.swift */,
+				B92F4E5D5591617733F1CE91 /* PushNotificationConfigurator.swift */,
+			);
+			path = Notifications;
+			sourceTree = "<group>";
+		};
+		70A65C0596EDD5364F240C4F /* cmuxTests */ = {
+			isa = PBXGroup;
+			children = (
+				3484E8DA6FC996CF59ED2795 /* AnchormuxLiveLatencyTests.swift */,
+				687E7759D51BD39CC2B8113F /* AnchormuxLiveSharingTests.swift */,
+				332FCBAF4BBD19F77DDE0FC9 /* AppDatabaseTests.swift */,
+				3FA3FDA2BC472453ACC68E54 /* GhosttySurfaceContractTests.swift */,
+				E0333E38C68F549375D57C0B /* InboxTestFixtures.swift */,
+				45A5B53FEF2F048DA56D2472 /* LiveAnchormuxConfigTests.swift */,
+				FEA93534EF4055B1E6217031 /* LiveTCPDaemonTransportTests.swift */,
+				65D2DF6EA0EB9729F8795273 /* MobileSyncModelsTests.swift */,
+				DC8F8779541C571F872DB484 /* NotificationManagerTests.swift */,
+				AB5BF7D54B8D44A99889F672 /* SignInViewTests.swift */,
+				C886B3F5AAB7299E02D350A8 /* StackAuthSessionTests.swift */,
+				799F0951A0197EC9879ABD05 /* TerminalDaemonTicketServiceTests.swift */,
+				9379E1EEE6569DF0E0F219B8 /* TerminalDirectDaemonClientTests.swift */,
+				49C34E3038B8C3FFD032D71D /* TerminalDirectDaemonTransportTests.swift */,
+				3DE732C449C8B987AC730C57 /* TerminalHostedViewContainerTests.swift */,
+				61A64EAEE7A594119722FD01 /* TerminalInputTextViewTests.swift */,
+				0F2C251403384AF2FAE69B2D /* TerminalRemoteDaemonBootstrapSessionTests.swift */,
+				A4860186F7E006848253577A /* TerminalRemoteDaemonBootstrapTests.swift */,
+				647E49487CAEF1DF11AC3132 /* TerminalRemoteDaemonBootstrapTransportTests.swift */,
+				58AF78B17031AAAB6C08339A /* TerminalRemoteDaemonClientTests.swift */,
+				FE70F74FCD55979E8CAE40D2 /* TerminalRemoteDaemonSessionTransportTests.swift */,
+				F0A1EC1076DDF12A33A3F4BD /* TerminalServerCatalogTests.swift */,
+				AA5F8F2B0BAB1B57DC21EB21 /* TerminalSessionControllerTests.swift */,
+				4FDC51D95F3E5A96A87C011A /* TerminalSidebarStoreTests.swift */,
+				C421C4249CE79600D125D7FF /* TerminalSSHPrivateKeyParserTests.swift */,
+				73670DE438503675C69D50A7 /* TerminalTextInputPipelineTests.swift */,
+				702970D0D62B9A6143BECDAA /* TerminalUITestEchoFormatterTests.swift */,
+				6A4403F22FB039151B7BA413 /* UnifiedInboxSyncServiceTests.swift */,
+			);
+			path = cmuxTests;
+			sourceTree = "<group>";
+		};
+		791821D000793DF9F2709B26 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				211B43F30E5F914700C7031C /* cmux.app */,
+				1E19E0127B00CCC94F5E35A7 /* cmuxTests.xctest */,
+				896C6A7C1BF2F0EB06CE7BA5 /* cmuxUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		839E8D820869D0ED4F1C7524 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				FC5B2E6BCCFE003B9A64B0F0 /* CMUXAuthCore */,
+				2C2E020CE863F4D2B2E54F85 /* stack-auth-swift-sdk-prerelease */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		88DF54A3A3E4511DC2897AD0 /* linux-arm64 */ = {
+			isa = PBXGroup;
+			children = (
+				DAE2A84063F180ACA979BF22 /* cmuxd-remote */,
+			);
+			path = "linux-arm64";
+			sourceTree = "<group>";
+		};
+		8E4D10D9824E701A68B20356 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				6D04796B335A4EF9472F3C7B /* Localizable.xcstrings */,
+				AB688C45A23E353F07FAF4FC /* cmuxd-remote */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		90CCE25882078E9B8E73EB37 /* cmuxUITests */ = {
+			isa = PBXGroup;
+			children = (
+				B852E46E13849457AF82378B /* AuthPersistenceUITests.swift */,
+				46E2A84EE57B76326490484B /* ChatFix1MainMockUITests.swift */,
+				4FC4DFB6057D8F844573DF25 /* ConversationE2ETests.swift */,
+				8ABFF24425D2184E8F78F463 /* InputPillVisibilityAssertions.swift */,
+				B0EDBBD5DD606D90334B83A2 /* InputStrategyLabUITests.swift */,
+				57BAAB8CB1A9DEC3A64FE209 /* IOSMacWorkspaceSyncUITests.swift */,
+				2EAF33CCBEC812756B9EB0DA /* KeyboardSyncUITests.swift */,
+				50D7352C9993A9347DC31B11 /* MessagePositionUITests.swift */,
+				CE62D28CE43B32188010398A /* MultilineInputUITests.swift */,
+				7D7768A357BB39676DE783F0 /* ShortThreadLayoutUITests.swift */,
+				F7FFC2F3CA5EFC68DFCD90FF /* TerminalHomeUITests.swift */,
+				6DE62A8D62C530AC1B0589FF /* TerminalHostEditorUITests.swift */,
+				2A2BA73731782979511F08EA /* TerminalInboxUITests.swift */,
+				304375C0A66E7A93BDDEE7F4 /* TerminalInputUITests.swift */,
+				A49C9E8F8EB74BE0942635DB /* TerminalReconnectUITests.swift */,
+				13C1E2DF31951062E23DA8B6 /* TerminalUITestHarness.swift */,
+			);
+			path = cmuxUITests;
+			sourceTree = "<group>";
+		};
+		92A1D52FE253D0C85F6785CB /* darwin-amd64 */ = {
+			isa = PBXGroup;
+			children = (
+				FA4A296DDB6F1CF9EBB72165 /* cmuxd-remote */,
+			);
+			path = "darwin-amd64";
+			sourceTree = "<group>";
+		};
+		987F2755F43FF42F0B36F7EC = {
+			isa = PBXGroup;
+			children = (
+				37514174EEBB8853B706B2E2 /* Assets.xcassets */,
+				70A65C0596EDD5364F240C4F /* cmuxTests */,
+				90CCE25882078E9B8E73EB37 /* cmuxUITests */,
+				839E8D820869D0ED4F1C7524 /* Packages */,
+				8E4D10D9824E701A68B20356 /* Resources */,
+				FA8B68609B58D1503985409B /* Shared */,
+				D0872FBF2FB3B9DD37160EAB /* Sources */,
+				791821D000793DF9F2709B26 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AB688C45A23E353F07FAF4FC /* cmuxd-remote */ = {
+			isa = PBXGroup;
+			children = (
+				00040B5EDE700E4F39AC4D17 /* dev */,
+			);
+			path = "cmuxd-remote";
+			sourceTree = "<group>";
+		};
+		AE0C5B6D191A41012A2A8FF1 /* Terminal */ = {
+			isa = PBXGroup;
+			children = (
+				4807EE63207C0AFD2046273E /* Ghostty-Bridging-Header.h */,
+				2133FE68D880E1205177B511 /* GhosttyRuntime.swift */,
+				7B849EF00D8D9D4D7CBECA71 /* GhosttySurfaceView.swift */,
+				B9F0036E626FEB15B0BA455A /* LiveAnchormuxSupport.swift */,
+				3A0012DD36A8108CDBCC7FFB /* ServerScannerView.swift */,
+				64C98B8748428A845E9E583D /* TerminalAsyncTimeout.swift */,
+				4C93A3C264A438944ACCF0BA /* TerminalCredentialsStore.swift */,
+				C325E94D01A73159327CA37E /* TerminalDaemonConnection.swift */,
+				3CD2B50AB2128B8AE2BA2492 /* TerminalDaemonConnectionPool.swift */,
+				2CDECDA34EE5AD4F9B962F2F /* TerminalDaemonTicketService.swift */,
+				400676CDDB4404C93AD0E2F1 /* TerminalDirectDaemonClient.swift */,
+				466D6BAD29A0685ECDB7F36D /* TerminalDirectDaemonTransport.swift */,
+				373324C6154BE0FA34FAA499 /* TerminalHost.swift */,
+				BA24C145FA908CF29936819A /* TerminalRemoteDaemonBootstrap.swift */,
+				609116A98775DD86C53F243A /* TerminalRemoteDaemonBootstrapSession.swift */,
+				28D51D3B2D11FB5FB44AE597 /* TerminalRemoteDaemonBootstrapTransport.swift */,
+				469D35135F2FE231F824116B /* TerminalRemoteDaemonClient.swift */,
+				E1BA7043A67839E3A06F470F /* TerminalRemoteDaemonSessionTransport.swift */,
+				A83B1BB8063E440AEF6A9BD5 /* TerminalServerCatalog.swift */,
+				04613339A0B059AF4CC301F6 /* TerminalServerDiscovery.swift */,
+				F6E3907A041CB7A053C74EBF /* TerminalSidebarRootView.swift */,
+				A588697250384065B7EB7AFE /* TerminalSidebarStore.swift */,
+				3E827F690E10123C3E49AF08 /* TerminalSSHPrivateKeyParser.swift */,
+				F0932E47DC033515DB52916D /* TerminalSSHTransport.swift */,
+				50780A4857E0E11BDE989A92 /* TerminalStoreSnapshot.swift */,
+				1417CA18232B39FBDDE85503 /* TerminalWebSocketDaemonTransport.swift */,
+				A7AA5FF8AF803EC910E3E9B9 /* TerminalWorkspace.swift */,
+				88E9ADB2B5B46327234A6E01 /* TerminalWorkspaceIdentityService.swift */,
+				EF97CC01F2F006852BC36489 /* TerminalWorkspaceMetadataService.swift */,
+			);
+			path = Terminal;
+			sourceTree = "<group>";
+		};
+		C693F52B8A90CEF80F3B919F /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				17E46AF784D636FFF06F2F5F /* AuthError.swift */,
+				9087C0B8F1286CD0B19CD31F /* AuthManager.swift */,
+				D122B00904D8EA85C4742AA6 /* AuthPresentationContextProvider.swift */,
+				BAFFEAB40EDD4BCBFEFD76FB /* SignInView.swift */,
+				FAD5303B620E0A9963722367 /* StackAuthApp.swift */,
+				0692BC100B6C84A606C88581 /* StackAuthUser.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		CED1C5F9D91DF03CBE2D603F /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				6F3E4D1CC9AEF0C9137A977F /* Environment.swift */,
+				3088F4C4959A46FE729E45B9 /* LocalConfig.example.plist */,
+				8B7ED930E2B87982C4CEC9BA /* UITestConfig.swift */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		D0872FBF2FB3B9DD37160EAB /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				C2FC96D579C3A3B74DAB71B8 /* CMuxApp.swift */,
+				DE3612A4F23C4449FD140F98 /* ContentView.swift */,
+				C693F52B8A90CEF80F3B919F /* Auth */,
+				CED1C5F9D91DF03CBE2D603F /* Config */,
+				FD10D180287A0D8158DEE839 /* Debug */,
+				EBCBB13F20E30598E70D7F28 /* Inbox */,
+				4F6EE39440D4E4D7D16940AF /* Mobile */,
+				5102C6808EED650E6A41C51A /* Notifications */,
+				2E5540563E3ED14F8FE37AC2 /* Persistence */,
+				AE0C5B6D191A41012A2A8FF1 /* Terminal */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		EBCBB13F20E30598E70D7F28 /* Inbox */ = {
+			isa = PBXGroup;
+			children = (
+				8771A773DCD77CB895AC6D1B /* NotificationRouteStore.swift */,
+				9F4CE5C1C1175998377D3D92 /* UnifiedInboxItem.swift */,
+				A64750470099378D31D4BDD1 /* UnifiedInboxRow.swift */,
+				89A349A5B2BF892E746EC798 /* UnifiedInboxSyncService.swift */,
+			);
+			path = Inbox;
+			sourceTree = "<group>";
+		};
+		FA8B68609B58D1503985409B /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				1511B457D07DA73472FE1B40 /* TerminalBackendContracts.swift */,
+			);
+			name = Shared;
+			path = ../Sources/Shared;
+			sourceTree = "<group>";
+		};
+		FD10D180287A0D8158DEE839 /* Debug */ = {
+			isa = PBXGroup;
+			children = (
+				4AEBF607BA60286A0DCA5719 /* CrashReporter.swift */,
+				8B97F49D6DAB4938BBB02860 /* DebugLogStore.swift */,
+				B95880067ECC39B86C5CFDA5 /* DebugLogsView.swift */,
+			);
+			path = Debug;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8A54513EB812CBBBB23A0494 /* cmux */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 938D2BE1D84144F2777DF661 /* Build configuration list for PBXNativeTarget "cmux" */;
+			buildPhases = (
+				EAB7246C9ADE63C42ED132D5 /* Sources */,
+				D2000656D67D0A792C29D3C1 /* Resources */,
+				38FF876494868FB817331EA3 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = cmux;
+			packageProductDependencies = (
+				01DF3D3A5E8E935C5518C800 /* CMUXAuthCore */,
+				9757F8AA5AA13DA7D131699A /* GRDB */,
+				17CB6F7349F63FE9A55AFCBA /* StackAuth */,
+				3DC0750A2EC5460A69E1AFAE /* Sentry */,
+				4DB01F45CD0702537E918BA6 /* NIOCore */,
+				FDD895A8470CE4ECEC55E1BE /* NIOSSH */,
+				53B70A5F79698287F52C6841 /* NIOTransportServices */,
+			);
+			productName = cmux;
+			productReference = 211B43F30E5F914700C7031C /* cmux.app */;
+			productType = "com.apple.product-type.application";
+		};
+		CAB8C2B68EEC41A59D445386 /* cmuxUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 58DA968162C43430D77A210A /* Build configuration list for PBXNativeTarget "cmuxUITests" */;
+			buildPhases = (
+				49391E0AB0D0376AA4A9E239 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CB477DD851A2C32DB8784DDD /* PBXTargetDependency */,
+			);
+			name = cmuxUITests;
+			packageProductDependencies = (
+			);
+			productName = cmuxUITests;
+			productReference = 896C6A7C1BF2F0EB06CE7BA5 /* cmuxUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		D3574AFAEBFC69EB2BFE0750 /* cmuxTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3D04CCC5BB7E7B7699A55D42 /* Build configuration list for PBXNativeTarget "cmuxTests" */;
+			buildPhases = (
+				FDF2C12CD605C3105574EAC8 /* Sources */,
+				D275D63F3316D7D3DE7C99D5 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A88EA904ADF8939AF17CDE5B /* PBXTargetDependency */,
+			);
+			name = cmuxTests;
+			packageProductDependencies = (
+				BE635B9D811C6CA8EF9EE4DA /* CMUXAuthCore */,
+			);
+			productName = cmuxTests;
+			productReference = 1E19E0127B00CCC94F5E35A7 /* cmuxTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AF18EE9FF7249C69BF1E5F0B /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					8A54513EB812CBBBB23A0494 = {
+						DevelopmentTeam = 7WLXT3NR37;
+					};
+					CAB8C2B68EEC41A59D445386 = {
+						DevelopmentTeam = 7WLXT3NR37;
+						TestTargetID = 8A54513EB812CBBBB23A0494;
+					};
+					D3574AFAEBFC69EB2BFE0750 = {
+						DevelopmentTeam = 7WLXT3NR37;
+					};
+				};
+			};
+			buildConfigurationList = E1EC367DAF7DF5B79156B084 /* Build configuration list for PBXProject "cmux-ios" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+				ja,
+			);
+			mainGroup = 987F2755F43FF42F0B36F7EC;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				1C1AB2CE45F2CBF4C008E0CC /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+				3CD775CDBD215413B48E868A /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
+				889E491CF0737C538833C376 /* XCRemoteSwiftPackageReference "swift-nio" */,
+				842C0F3C5351654787638840 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */,
+				4A5A9FCC38439A1044D545C7 /* XCRemoteSwiftPackageReference "swift-nio-transport-services" */,
+				A5DB7047193197BE4339BAEE /* XCLocalSwiftPackageReference "../Packages/CMUXAuthCore" */,
+				7E7B68A0FB7782A6068F5055 /* XCLocalSwiftPackageReference "vendor/stack-auth-swift-sdk-prerelease" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 791821D000793DF9F2709B26 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8A54513EB812CBBBB23A0494 /* cmux */,
+				D3574AFAEBFC69EB2BFE0750 /* cmuxTests */,
+				CAB8C2B68EEC41A59D445386 /* cmuxUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		D2000656D67D0A792C29D3C1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EEF71CC911AAACC4FD664E97 /* Assets.xcassets in Resources */,
+				35E4B51CEF0631C2A24C3CB1 /* LocalConfig.example.plist in Resources */,
+				36DF9DBF05DBD429B3E236FA /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		49391E0AB0D0376AA4A9E239 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FFD590D33286D4BCB370969C /* AuthPersistenceUITests.swift in Sources */,
+				3E6E9A9B450D14D5FDA9A4FB /* ChatFix1MainMockUITests.swift in Sources */,
+				DBF1095147B567E1E9AA65DE /* ConversationE2ETests.swift in Sources */,
+				1636EA8C7059A6C28262ACA3 /* IOSMacWorkspaceSyncUITests.swift in Sources */,
+				68F1305E09406BC3B8FF0318 /* InputPillVisibilityAssertions.swift in Sources */,
+				37CB14E21C9289C748A0D4B5 /* InputStrategyLabUITests.swift in Sources */,
+				7D926446DDA0060093A5CCA0 /* KeyboardSyncUITests.swift in Sources */,
+				385B83894852389F95C969A9 /* MessagePositionUITests.swift in Sources */,
+				9B8783DD1BC57F42ED61A6F9 /* MultilineInputUITests.swift in Sources */,
+				4D48AA7C6BCC4BCD9E1714D7 /* ShortThreadLayoutUITests.swift in Sources */,
+				491297D2B5FBA5E1C0D3C16B /* TerminalHomeUITests.swift in Sources */,
+				7269270FAC81979468EA33BD /* TerminalHostEditorUITests.swift in Sources */,
+				F5F1FEA88BE3F7E3123BFB0D /* TerminalInboxUITests.swift in Sources */,
+				A6EFC4A95CC0ED84F0513026 /* TerminalInputUITests.swift in Sources */,
+				F3C1FD7DEBFE47603D6200DD /* TerminalReconnectUITests.swift in Sources */,
+				16E18B3A5ADB0B56DB529773 /* TerminalUITestHarness.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EAB7246C9ADE63C42ED132D5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				70FC65E4401E592BD124A90B /* AppDatabase.swift in Sources */,
+				4EE3B9913C87B3BA618C336D /* AppDatabaseMigrator.swift in Sources */,
+				C11EB689DA2070B49425BC6E /* AuthError.swift in Sources */,
+				76AE81E3F2B85A22FF6B83E8 /* AuthManager.swift in Sources */,
+				6294572E64B3734F83BE7938 /* AuthPresentationContextProvider.swift in Sources */,
+				9C47D316782CF6C6964A45CE /* CMuxApp.swift in Sources */,
+				595A0FA1A8B8D4F8D1963A6F /* ContentView.swift in Sources */,
+				2801BECDFC4D83ED7C2C3821 /* CrashReporter.swift in Sources */,
+				46F4D18F747BD9BC1C022CBE /* DebugLogStore.swift in Sources */,
+				1DA2C7FB4DE9A4E4D7C9B1E1 /* DebugLogsView.swift in Sources */,
+				1CBA3B4ECD5E27E5F749B23B /* Environment.swift in Sources */,
+				2419A28393E9E693F95756EA /* GhosttyRuntime.swift in Sources */,
+				846B4E8A6393D4EFA707C3AE /* GhosttySurfaceView.swift in Sources */,
+				C211BD6F721FB176E550E2DC /* InboxCacheRepository.swift in Sources */,
+				11F7995149AB9E9569CD8D4B /* LiveAnchormuxSupport.swift in Sources */,
+				4093241013AD5A84B1921485 /* MobileAnalyticsClient.swift in Sources */,
+				C4A6578BDBA1C1244F49D120 /* MobileContractModels.swift in Sources */,
+				8690E1828AA69CEDA05F76C1 /* MobileSyncModels.swift in Sources */,
+				0EEA1A5F0C688046D781B705 /* NotificationManager.swift in Sources */,
+				A1E97AF11D264C091B454262 /* NotificationRouteStore.swift in Sources */,
+				21E893C47036E3C2B71AA84E /* NotificationTokenStore.swift in Sources */,
+				4A8BF88320933C89665ECA9B /* PushNotificationConfigurator.swift in Sources */,
+				516341407A8F0045ADFE9305 /* ServerScannerView.swift in Sources */,
+				B760296B64D359B4E2ED93AB /* SignInView.swift in Sources */,
+				18EA96F8C4A795E03188EF9A /* StackAuthApp.swift in Sources */,
+				F05EB2EEFC4FCCBA4DF085D7 /* StackAuthUser.swift in Sources */,
+				EDB0DD8D307403C0118F51B0 /* TerminalAsyncTimeout.swift in Sources */,
+				AB72146D83D35EA60CC4E731 /* TerminalBackendContracts.swift in Sources */,
+				C0F910B59E30B69AFFECC200 /* TerminalCacheRepository.swift in Sources */,
+				19BE0124962AC51482497B1E /* TerminalCredentialsStore.swift in Sources */,
+				3653B307FB52DA3ED70CAAD4 /* TerminalDaemonConnection.swift in Sources */,
+				B8CF15C86C77DA0B57B4BAD6 /* TerminalDaemonConnectionPool.swift in Sources */,
+				FD7DEB39FB6802AA88884C3E /* TerminalDaemonTicketService.swift in Sources */,
+				F45A1672B309AB47264A5B19 /* TerminalDirectDaemonClient.swift in Sources */,
+				60D2235A81BEF53FDB6544A3 /* TerminalDirectDaemonTransport.swift in Sources */,
+				B5B638A57E74D227CA6121CB /* TerminalHost.swift in Sources */,
+				78E5E5FC258BA9C04DA2B08B /* TerminalRemoteDaemonBootstrap.swift in Sources */,
+				B2BB1A4556D045025F824F84 /* TerminalRemoteDaemonBootstrapSession.swift in Sources */,
+				598603618288EB723C147A5F /* TerminalRemoteDaemonBootstrapTransport.swift in Sources */,
+				450D934BB4206CE1AD747CF8 /* TerminalRemoteDaemonClient.swift in Sources */,
+				7106985A7EEEEAE0237B4827 /* TerminalRemoteDaemonSessionTransport.swift in Sources */,
+				344AA92DCFC24778FBE99CF3 /* TerminalSSHPrivateKeyParser.swift in Sources */,
+				40E191A08D336B91FD1C46B6 /* TerminalSSHTransport.swift in Sources */,
+				B8FF075BDF4D70B96A47C038 /* TerminalServerCatalog.swift in Sources */,
+				A584F68723DBCD3B9F984F20 /* TerminalServerDiscovery.swift in Sources */,
+				63B51F8ADC31CFCE9E25CF0F /* TerminalSidebarRootView.swift in Sources */,
+				EA60C0405556129A6822B720 /* TerminalSidebarStore.swift in Sources */,
+				DB86D220A6B2F78BD9BBB891 /* TerminalStoreSnapshot.swift in Sources */,
+				D7E03BEFBF9F77C444C33FD8 /* TerminalWebSocketDaemonTransport.swift in Sources */,
+				4788D5AB7F81447C478085E6 /* TerminalWorkspace.swift in Sources */,
+				C1B7D719350DC9705A9A038A /* TerminalWorkspaceIdentityService.swift in Sources */,
+				A635A7179B90AF97456AD6C9 /* TerminalWorkspaceMetadataService.swift in Sources */,
+				9A574D169798E1DD76A1D49B /* UITestConfig.swift in Sources */,
+				CE5D22A6F7D7581D33FD1373 /* UnifiedInboxItem.swift in Sources */,
+				0C6212EC501024F2C49110DF /* UnifiedInboxRow.swift in Sources */,
+				58DCABFDFB1C2A57D253CDF1 /* UnifiedInboxSyncService.swift in Sources */,
+				5765C708A2DE94C86B96D8A0 /* WorkspaceLiveSync.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FDF2C12CD605C3105574EAC8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				29409C33E26430151F55EFD7 /* AnchormuxLiveLatencyTests.swift in Sources */,
+				EB23AC9E8D2EA2EEF932EDF2 /* AnchormuxLiveSharingTests.swift in Sources */,
+				0BDD226BF2A870F9E2B6B48E /* AppDatabaseTests.swift in Sources */,
+				4EA9E361940755F958A3A7BE /* GhosttySurfaceContractTests.swift in Sources */,
+				E53B642466F792A14F963E71 /* InboxTestFixtures.swift in Sources */,
+				465A96835B7DBA05A9E32CD5 /* LiveAnchormuxConfigTests.swift in Sources */,
+				F12D86FDCC3B5F1EC9541EB8 /* LiveTCPDaemonTransportTests.swift in Sources */,
+				EFA47F254B5D9EB0F0C90DFC /* MobileSyncModelsTests.swift in Sources */,
+				ED8F269488E63AC9769FCB3E /* NotificationManagerTests.swift in Sources */,
+				A3A5FF3072EB63CB5D4616DE /* SignInViewTests.swift in Sources */,
+				BB060AEACD11BF92CC1CF715 /* StackAuthSessionTests.swift in Sources */,
+				D79991DD5C64A4DF44E16795 /* TerminalDaemonTicketServiceTests.swift in Sources */,
+				BE0E3F9B6EC73871820B04B5 /* TerminalDirectDaemonClientTests.swift in Sources */,
+				1BFF5013C1BAA83E3CC784D9 /* TerminalDirectDaemonTransportTests.swift in Sources */,
+				70A52F26E8AA2625AD2A60B3 /* TerminalHostedViewContainerTests.swift in Sources */,
+				C35B6BEEE8D866C0A6A30138 /* TerminalInputTextViewTests.swift in Sources */,
+				ACEDA8E2D207913AE97DEF0B /* TerminalRemoteDaemonBootstrapSessionTests.swift in Sources */,
+				50F64D9F29CEFA79EE502840 /* TerminalRemoteDaemonBootstrapTests.swift in Sources */,
+				58B0A93A8C6CF02D9225C04F /* TerminalRemoteDaemonBootstrapTransportTests.swift in Sources */,
+				BD32C5F0C45D6CAA00676AA7 /* TerminalRemoteDaemonClientTests.swift in Sources */,
+				E58E43ECFDF8996EC8E278BE /* TerminalRemoteDaemonSessionTransportTests.swift in Sources */,
+				10B32EDB3FF81F33AC018ACA /* TerminalSSHPrivateKeyParserTests.swift in Sources */,
+				5FEBC9C4C76C88A809369526 /* TerminalServerCatalogTests.swift in Sources */,
+				9B0D70457FC3D6051161B59A /* TerminalSessionControllerTests.swift in Sources */,
+				2478DD014779A5A8D015163D /* TerminalSidebarStoreTests.swift in Sources */,
+				AD23B3315E1AD6C2FF64984E /* TerminalTextInputPipelineTests.swift in Sources */,
+				AB1C424D51F88B58A32D0FB6 /* TerminalUITestEchoFormatterTests.swift in Sources */,
+				ECD1416E7ACC59E7ED3F73A5 /* UnifiedInboxSyncServiceTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A88EA904ADF8939AF17CDE5B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8A54513EB812CBBBB23A0494 /* cmux */;
+			targetProxy = 42A2B88AD066C8F0FBB24B31 /* PBXContainerItemProxy */;
+		};
+		CB477DD851A2C32DB8784DDD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8A54513EB812CBBBB23A0494 /* cmux */;
+			targetProxy = F477996FEC6B744C4AAA76C4 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		04A09AD0B06A179360E3F8BC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = cmux.prod.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 17;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/Headers",
+				);
+				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/libghostty-internal-fat.a",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/libghostty-internal-fat.a",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app;
+				PRODUCT_NAME = cmux;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = RELEASE;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Sources/Terminal/Ghostty-Bridging-Header.h";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		0F8D2961EACBC29724CC75C3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.dev.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = cmux;
+			};
+			name = Release;
+		};
+		2AAA35AC109818E6833A7CF7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		49B7B7813618CE22979784E4 /* Nightly */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.cmuxTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux DEV.app/cmux DEV";
+			};
+			name = Nightly;
+		};
+		4C72EF623681284DA3C171C5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.cmuxTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux DEV.app/cmux DEV";
+			};
+			name = Debug;
+		};
+		53DA0760CFD0D1D514C47D8A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		6D4D1C99CE597E71C21A4F00 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.dev.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = cmux;
+			};
+			name = Debug;
+		};
+		72889F1DC8CE8710CBC48292 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Dev";
+				CODE_SIGN_ENTITLEMENTS = cmux.dev.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 17;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/Headers",
+				);
+				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/libghostty-internal-fat.a",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/libghostty-internal-fat.a",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.dev;
+				PRODUCT_NAME = "cmux DEV";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Sources/Terminal/Ghostty-Bridging-Header.h";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		E7C57DD1C9C88D5C019AFC29 /* Nightly */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.dev.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = cmux;
+			};
+			name = Nightly;
+		};
+		E8A905E67996B5C85F7A9128 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.cmuxTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux DEV.app/cmux DEV";
+			};
+			name = Release;
+		};
+		E9EBF7DB5278900887E6BB54 /* Nightly */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Beta";
+				CODE_SIGN_ENTITLEMENTS = cmux.prod.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 17;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/Headers",
+				);
+				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/libghostty-internal-fat.a",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/libghostty-internal-fat.a",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.nightly;
+				PRODUCT_NAME = "cmux NIGHTLY";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = BETA;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Sources/Terminal/Ghostty-Bridging-Header.h";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Nightly;
+		};
+		EC7CCE7EF9911C3EC4CD0534 /* Nightly */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Nightly;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3D04CCC5BB7E7B7699A55D42 /* Build configuration list for PBXNativeTarget "cmuxTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4C72EF623681284DA3C171C5 /* Debug */,
+				49B7B7813618CE22979784E4 /* Nightly */,
+				E8A905E67996B5C85F7A9128 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		58DA968162C43430D77A210A /* Build configuration list for PBXNativeTarget "cmuxUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6D4D1C99CE597E71C21A4F00 /* Debug */,
+				E7C57DD1C9C88D5C019AFC29 /* Nightly */,
+				0F8D2961EACBC29724CC75C3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		938D2BE1D84144F2777DF661 /* Build configuration list for PBXNativeTarget "cmux" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				72889F1DC8CE8710CBC48292 /* Debug */,
+				E9EBF7DB5278900887E6BB54 /* Nightly */,
+				04A09AD0B06A179360E3F8BC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E1EC367DAF7DF5B79156B084 /* Build configuration list for PBXProject "cmux-ios" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2AAA35AC109818E6833A7CF7 /* Debug */,
+				EC7CCE7EF9911C3EC4CD0534 /* Nightly */,
+				53DA0760CFD0D1D514C47D8A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		7E7B68A0FB7782A6068F5055 /* XCLocalSwiftPackageReference "vendor/stack-auth-swift-sdk-prerelease" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "vendor/stack-auth-swift-sdk-prerelease";
+		};
+		A5DB7047193197BE4339BAEE /* XCLocalSwiftPackageReference "../Packages/CMUXAuthCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Packages/CMUXAuthCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		1C1AB2CE45F2CBF4C008E0CC /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.8.0;
+			};
+		};
+		3CD775CDBD215413B48E868A /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/getsentry/sentry-cocoa";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.0.0;
+			};
+		};
+		4A5A9FCC38439A1044D545C7 /* XCRemoteSwiftPackageReference "swift-nio-transport-services" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio-transport-services.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.26.0;
+			};
+		};
+		842C0F3C5351654787638840 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio-ssh.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.12.0;
+			};
+		};
+		889E491CF0737C538833C376 /* XCRemoteSwiftPackageReference "swift-nio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.96.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		01DF3D3A5E8E935C5518C800 /* CMUXAuthCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CMUXAuthCore;
+		};
+		17CB6F7349F63FE9A55AFCBA /* StackAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = StackAuth;
+		};
+		3DC0750A2EC5460A69E1AFAE /* Sentry */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3CD775CDBD215413B48E868A /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+			productName = Sentry;
+		};
+		4DB01F45CD0702537E918BA6 /* NIOCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 889E491CF0737C538833C376 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIOCore;
+		};
+		53B70A5F79698287F52C6841 /* NIOTransportServices */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4A5A9FCC38439A1044D545C7 /* XCRemoteSwiftPackageReference "swift-nio-transport-services" */;
+			productName = NIOTransportServices;
+		};
+		9757F8AA5AA13DA7D131699A /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1C1AB2CE45F2CBF4C008E0CC /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+		BE635B9D811C6CA8EF9EE4DA /* CMUXAuthCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CMUXAuthCore;
+		};
+		FDD895A8470CE4ECEC55E1BE /* NIOSSH */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 842C0F3C5351654787638840 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */;
+			productName = NIOSSH;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = AF18EE9FF7249C69BF1E5F0B /* Project object */;
+}

@@ -1,0 +1,12 @@
+name: sign_out
+description: Sign in, navigate to settings, sign out, and verify return to sign-in screen.
+
+steps:
+  - Launch the app.
+  - Tap the email input field.
+  - Type "${secrets.dev_login_code}" into the email field.
+  - Tap the continue or submit button.
+  - Wait for the main screen to load.
+  - Open the settings or menu.
+  - Tap "Sign Out".
+  - Verify the sign-in screen is visible again.
