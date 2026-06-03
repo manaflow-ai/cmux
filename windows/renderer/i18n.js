@@ -292,6 +292,8 @@ const windowsMessages = {
     "config.settingsPreset.focus.body": "Tighter layout with quiet Harbor colors.",
     "config.settingsPreset.performance": "Performance",
     "config.settingsPreset.performance.body": "Cuts effects and keeps terminal history lighter.",
+    "config.settingsPreset.readable": "Readable",
+    "config.settingsPreset.readable.body": "High contrast, larger terminal text, and quiet motion.",
     "config.settingsPreset.showcase": "Showcase",
     "config.settingsPreset.showcase.body": "Richer theme and soft background for demos.",
     "config.settingsCategory.quick": "Quick",
