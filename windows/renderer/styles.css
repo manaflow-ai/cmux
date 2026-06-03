@@ -7813,7 +7813,21 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background: var(--color-pane-warm);
 }
 
+.quick-preset-rail-item:disabled {
+  cursor: default;
+}
+
+.quick-preset-rail-item:disabled:hover {
+  border-color: var(--color-line);
+  background: color-mix(in oklch, var(--color-pane) 88%, var(--color-rail) 12%);
+}
+
 .quick-preset-rail-item.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 54%, var(--color-line) 46%);
+  background: color-mix(in oklch, var(--color-accent) 12%, var(--color-pane) 88%);
+}
+
+.quick-preset-rail-item.is-active:disabled:hover {
   border-color: color-mix(in oklch, var(--color-accent) 54%, var(--color-line) 46%);
   background: color-mix(in oklch, var(--color-accent) 12%, var(--color-pane) 88%);
 }
@@ -9145,9 +9159,13 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   cursor: pointer;
 }
 
-.settings-preset:hover {
+.settings-preset:hover:not(:disabled) {
   border-color: var(--color-line-strong);
   background: var(--color-pane-warm);
+}
+
+.settings-preset:disabled {
+  cursor: default;
 }
 
 .settings-preset.is-active {

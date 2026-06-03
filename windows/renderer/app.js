@@ -12891,8 +12891,9 @@ function quickSetupPresetRailPanel() {
     const button = document.createElement("button");
     button.className = `quick-preset-rail-item${active ? " is-active" : ""}`;
     button.type = "button";
+    button.disabled = active;
     button.setAttribute("aria-pressed", active ? "true" : "false");
-    button.title = `${item.label}: ${preset.body}`;
+    button.title = active ? `${item.label} preset is already active.` : `${item.label}: ${preset.body}`;
     button.dataset.settingsSearch = normalizeSettingsQuery(`quick setup preset ${item.label} ${item.body} ${preset.body} ${item.search}`);
     button.innerHTML = `
       <span class="quick-preset-rail-icon" aria-hidden="true"></span>
@@ -12904,7 +12905,9 @@ function quickSetupPresetRailPanel() {
     button.querySelector(".quick-preset-rail-icon").innerHTML = quickActionIconMarkup(item.icon);
     button.querySelector(".quick-preset-rail-label").textContent = item.label;
     button.querySelector(".quick-preset-rail-body").textContent = item.body;
-    button.onclick = () => applySettingsPreset(preset);
+    button.onclick = () => {
+      if (!active) applySettingsPreset(preset);
+    };
     panel.append(button);
   }
   return panel;
@@ -16046,13 +16049,15 @@ function settingsPresetGrid() {
     const normalized = normalizeSettings(preset.settings);
     const themePreview = settingsPresetThemePreview(normalized.theme);
     const active = isActiveSettingsPreset(preset);
+    const summary = settingsProfileSummary(normalized);
     const button = document.createElement("button");
     button.className = `settings-preset${active ? " is-active" : ""}`;
     button.type = "button";
-    button.title = `${preset.label}: ${settingsProfileSummary(normalized)}`;
-    button.setAttribute("aria-label", `${preset.label}. ${active ? "Active. " : ""}${preset.body}. ${settingsProfileSummary(normalized)}.`);
+    button.disabled = active;
+    button.title = active ? `${preset.label} settings already active.` : `${preset.label}: ${summary}`;
+    button.setAttribute("aria-label", `${preset.label}. ${active ? "Active. " : ""}${preset.body}. ${summary}.`);
     button.setAttribute("aria-pressed", active ? "true" : "false");
-    button.dataset.settingsSearch = normalizeSettingsQuery(`preset ${active ? "active current " : ""}${preset.label} ${preset.body} ${settingsProfileSummary(normalized)}`);
+    button.dataset.settingsSearch = normalizeSettingsQuery(`preset ${active ? "active current " : ""}${preset.label} ${preset.body} ${summary}`);
     button.style.setProperty("--preset-canvas", themePreview.canvas);
     button.style.setProperty("--preset-pane", themePreview.pane);
     button.style.setProperty("--preset-rail", themePreview.rail);
@@ -16080,7 +16085,9 @@ function settingsPresetGrid() {
     button.querySelector(".settings-preset-status").textContent = active ? "Active" : "";
     button.querySelector(".settings-preset-body").textContent = preset.body;
     button.querySelector(".settings-preset-tags").replaceChildren(...settingsPresetTags(normalized));
-    button.onclick = () => applySettingsPreset(preset);
+    button.onclick = () => {
+      if (!active) applySettingsPreset(preset);
+    };
     grid.append(button);
   }
   return grid;
