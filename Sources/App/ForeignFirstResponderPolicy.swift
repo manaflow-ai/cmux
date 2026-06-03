@@ -39,5 +39,8 @@ func shouldRespectForeignFirstResponder(
     in window: NSWindow,
     isRightSidebarOwner: (NSResponder) -> Bool
 ) -> Bool {
+    // A stranded responder (detached, or reparented into another window without resigning) no longer
+    // belongs to this window and must not block the terminal from reclaiming first responder.
+    guard (firstResponder as? NSView)?.window === window else { return false }
     return firstResponder is NSText || isRightSidebarOwner(firstResponder)
 }
