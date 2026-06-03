@@ -24,6 +24,9 @@
          location = "group:CMUXAgentVault">
       </FileRef>
       <FileRef
+         location = "group:CmuxAuthRuntime">
+      </FileRef>
+      <FileRef
          location = "group:CMUXAuthCore">
       </FileRef>
       <FileRef
