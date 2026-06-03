@@ -39,7 +39,8 @@
     "contact": "문의",
     "nightly": "나이틀리",
     "copyright": "© {year} Manaflow",
-    "language": "언어"
+    "language": "언어",
+    "assets": "애셋"
   },
   "home": {
     "taglinePrefix": "다음을 위해 만들어진 터미널: ",
@@ -1201,5 +1202,25 @@
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw 개발자. PSPDFKit 창립자."
+  },
+  "brandAssets": {
+    "metaTitle": "브랜드 애셋",
+    "metaDescription": "cmux 로고, 아이콘, 배지와 라이트/다크 브랜드 애셋을 다운로드하세요.",
+    "title": "브랜드 애셋",
+    "description": "cmux 로고, 아이콘, 배지, 라이트 및 다크 배경용 SVG 변형을 다운로드하세요.",
+    "logoSection": "로고 파일",
+    "usageSection": "사용법",
+    "download": "다운로드",
+    "assetAlt": "{name} 미리보기",
+    "lightPreview": "밝은 배경에 가장 적합합니다.",
+    "darkPreview": "어두운 배경에 가장 적합합니다.",
+    "usage": {
+      "iconTitle": "아이콘",
+      "iconBody": "공간이 정사각형이거나 좁을 때는 아이콘을 사용하세요.",
+      "wordmarkTitle": "워드마크",
+      "wordmarkBody": "cmux 이름을 또렷하게 보여줄 공간이 있을 때는 워드마크를 사용하세요.",
+      "themeTitle": "테마",
+      "themeBody": "표시될 배경에 맞춰 라이트 또는 다크 SVG를 선택하세요."
+    }
   }
 }

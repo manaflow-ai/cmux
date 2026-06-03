@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="160" viewBox="0 0 512 160" role="img" aria-labelledby="title">
+  <title id="title">cmux wordmark, light background</title>
+  <defs>
+    <linearGradient id="cmux-wordmark-chevron-light" x1="57" y1="80" x2="113" y2="80" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#12c7f5" />
+      <stop offset="0.52" stop-color="#2d8cff" />
+      <stop offset="1" stop-color="#6c5cff" />
+    </linearGradient>
+    <filter id="wordmark-shadow-light" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#0f172a" flood-opacity="0.16" />
+    </filter>
+  </defs>
+  <rect width="512" height="160" rx="32" fill="#fafafa" />
+  <rect x="28" y="26" width="108" height="108" rx="24" fill="#ffffff" filter="url(#wordmark-shadow-light)" />
+  <path d="M57 48 L113 80 L57 112 L57 91 L87 80 L57 69 Z" fill="url(#cmux-wordmark-chevron-light)" />
+  <text x="168" y="98" font-family="Inter, Geist, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="54" font-weight="650" fill="#171717">cmux</text>
+</svg>

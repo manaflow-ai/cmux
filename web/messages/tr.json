@@ -39,7 +39,8 @@
     "contact": "İletişim",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Dil"
+    "language": "Dil",
+    "assets": "Varlıklar"
   },
   "home": {
     "taglinePrefix": "Şunun için tasarlanmış terminal: ",
@@ -1201,5 +1202,25 @@
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw yaratıcısı. PSPDFKit kurucusu."
+  },
+  "brandAssets": {
+    "metaTitle": "Marka varlıkları",
+    "metaDescription": "cmux logolarını, ikonlarını, rozetlerini ve açık/koyu mod marka varlıklarını indirin.",
+    "title": "Marka varlıkları",
+    "description": "cmux logolarını, ikonlarını, rozetlerini ve açık ya da koyu arka planlar için SVG çeşitlerini indirin.",
+    "logoSection": "Logo dosyaları",
+    "usageSection": "Kullanım",
+    "download": "İndir",
+    "assetAlt": "{name} önizlemesi",
+    "lightPreview": "Açık arka planlar için en uygunu.",
+    "darkPreview": "Koyu arka planlar için en uygunu.",
+    "usage": {
+      "iconTitle": "İkon",
+      "iconBody": "Alan kare veya dar olduğunda ikonu kullanın.",
+      "wordmarkTitle": "Wordmark",
+      "wordmarkBody": "cmux adını net gösterecek yer olduğunda wordmark kullanın.",
+      "themeTitle": "Tema",
+      "themeBody": "Görüneceği arka plana göre açık veya koyu SVG seçin."
+    }
   }
 }

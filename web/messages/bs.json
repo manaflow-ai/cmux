@@ -39,7 +39,8 @@
     "contact": "Kontakt",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Jezik"
+    "language": "Jezik",
+    "assets": "Materijali"
   },
   "home": {
     "taglinePrefix": "Terminal napravljen za ",
@@ -1201,5 +1202,25 @@
   },
   "testimonialSubtitles": {
     "steipete": "Kreator OpenClawa. Osnivač PSPDFKita."
+  },
+  "brandAssets": {
+    "metaTitle": "Brend materijali",
+    "metaDescription": "Preuzmite cmux logotipe, ikone, bedževe i materijale za svijetli i tamni način.",
+    "title": "Brend materijali",
+    "description": "Preuzmite cmux logotipe, ikone, bedževe i SVG varijante za svijetle i tamne pozadine.",
+    "logoSection": "Logo datoteke",
+    "usageSection": "Upotreba",
+    "download": "Preuzmi",
+    "assetAlt": "Pregled za {name}",
+    "lightPreview": "Najbolje za svijetle pozadine.",
+    "darkPreview": "Najbolje za tamne pozadine.",
+    "usage": {
+      "iconTitle": "Ikona",
+      "iconBody": "Koristite ikonu kada je prostor kvadratan ili uzak.",
+      "wordmarkTitle": "Wordmark",
+      "wordmarkBody": "Koristite wordmark kada ima prostora da se ime cmux jasno prikaže.",
+      "themeTitle": "Tema",
+      "themeBody": "Odaberite svijetli ili tamni SVG prema pozadini na kojoj će se pojaviti."
+    }
   }
 }

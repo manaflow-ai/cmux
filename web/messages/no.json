@@ -39,7 +39,8 @@
     "contact": "Kontakt",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Språk"
+    "language": "Språk",
+    "assets": "Ressurser"
   },
   "home": {
     "taglinePrefix": "Terminalen bygget for ",
@@ -1201,5 +1202,25 @@
   },
   "testimonialSubtitles": {
     "steipete": "Skaperen av OpenClaw. Grunnlegger av PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Merkeressurser",
+    "metaDescription": "Last ned cmux-logoer, ikoner, merker og ressurser for lys og mørk modus.",
+    "title": "Merkeressurser",
+    "description": "Last ned cmux-logoer, ikoner, merker og SVG-varianter for lyse og mørke bakgrunner.",
+    "logoSection": "Logofiler",
+    "usageSection": "Bruk",
+    "download": "Last ned",
+    "assetAlt": "Forhåndsvisning av {name}",
+    "lightPreview": "Best for lyse bakgrunner.",
+    "darkPreview": "Best for mørke bakgrunner.",
+    "usage": {
+      "iconTitle": "Ikon",
+      "iconBody": "Bruk ikonet når plassen er kvadratisk eller kompakt.",
+      "wordmarkTitle": "Ordbilde",
+      "wordmarkBody": "Bruk ordbildet når det er plass til å vise cmux-navnet tydelig.",
+      "themeTitle": "Tema",
+      "themeBody": "Velg lys eller mørk SVG etter bakgrunnen den skal vises på."
+    }
   }
 }

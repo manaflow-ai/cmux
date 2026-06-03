@@ -39,7 +39,8 @@
     "contact": "ទំនាក់ទំនង",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "ភាសា"
+    "language": "ភាសា",
+    "assets": "ធនធាន"
   },
   "home": {
     "taglinePrefix": "ទែមីណលដែលបង្កើតសម្រាប់ ",
@@ -1201,5 +1202,25 @@
   },
   "testimonialSubtitles": {
     "steipete": "អ្នកបង្កើត OpenClaw។ ស្ថាបនិក PSPDFKit។"
+  },
+  "brandAssets": {
+    "metaTitle": "ធនធានម៉ាក",
+    "metaDescription": "ទាញយកឡូហ្គោ រូបតំណាង ផ្លាកសញ្ញា និងធនធាន cmux សម្រាប់របៀបភ្លឺនិងងងឹត។",
+    "title": "ធនធានម៉ាក",
+    "description": "ទាញយកឡូហ្គោ រូបតំណាង ផ្លាកសញ្ញា និង SVG របស់ cmux សម្រាប់ផ្ទៃខាងក្រោយភ្លឺនិងងងឹត។",
+    "logoSection": "ឯកសារឡូហ្គោ",
+    "usageSection": "ការប្រើប្រាស់",
+    "download": "ទាញយក",
+    "assetAlt": "មើលជាមុន {name}",
+    "lightPreview": "ល្អបំផុតសម្រាប់ផ្ទៃខាងក្រោយភ្លឺ។",
+    "darkPreview": "ល្អបំផុតសម្រាប់ផ្ទៃខាងក្រោយងងឹត។",
+    "usage": {
+      "iconTitle": "រូបតំណាង",
+      "iconBody": "ប្រើរូបតំណាងនៅពេលទំហំជារាងការេ ឬតូច។",
+      "wordmarkTitle": "អក្សរម៉ាក",
+      "wordmarkBody": "ប្រើអក្សរម៉ាកនៅពេលមានទំហំគ្រប់គ្រាន់ដើម្បីបង្ហាញឈ្មោះ cmux ឱ្យច្បាស់។",
+      "themeTitle": "រចនាប័ទ្ម",
+      "themeBody": "ជ្រើស SVG ភ្លឺឬងងឹតឱ្យសមនឹងផ្ទៃខាងក្រោយដែលវានឹងបង្ហាញ។"
+    }
   }
 }

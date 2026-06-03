@@ -39,7 +39,8 @@
     "contact": "聯絡我們",
     "nightly": "每夜建置",
     "copyright": "© {year} Manaflow",
-    "language": "語言"
+    "language": "語言",
+    "assets": "素材"
   },
   "home": {
     "taglinePrefix": "開源終端，專為 ",
@@ -1201,5 +1202,25 @@
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw 建立者。PSPDFKit 創辦人。"
+  },
+  "brandAssets": {
+    "metaTitle": "品牌素材",
+    "metaDescription": "下載 cmux 標誌、圖示、徽章，以及明暗模式品牌素材。",
+    "title": "品牌素材",
+    "description": "下載 cmux 標誌、圖示、徽章，以及適用於淺色和深色背景的 SVG 版本。",
+    "logoSection": "標誌檔案",
+    "usageSection": "用法",
+    "download": "下載",
+    "assetAlt": "{name} 預覽",
+    "lightPreview": "最適合淺色背景。",
+    "darkPreview": "最適合深色背景。",
+    "usage": {
+      "iconTitle": "圖示",
+      "iconBody": "空間為正方形或較緊湊時使用圖示。",
+      "wordmarkTitle": "字標",
+      "wordmarkBody": "有足夠空間清楚顯示 cmux 名稱時使用字標。",
+      "themeTitle": "主題",
+      "themeBody": "依素材所在背景選擇淺色或深色 SVG。"
+    }
   }
 }

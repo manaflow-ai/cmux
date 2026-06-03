@@ -39,7 +39,8 @@
     "contact": "Kontakt",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Sprache"
+    "language": "Sprache",
+    "assets": "Assets"
   },
   "home": {
     "taglinePrefix": "Das Terminal für ",
@@ -1201,5 +1202,25 @@
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw-Entwickler. Gründer von PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Brand-Assets",
+    "metaDescription": "Lade cmux Logos, Icons, Badges und Brand-Assets für helle und dunkle Hintergründe herunter.",
+    "title": "Brand-Assets",
+    "description": "Lade cmux Logos, Icons, Badges und SVG-Varianten für helle und dunkle Hintergründe herunter.",
+    "logoSection": "Logo-Dateien",
+    "usageSection": "Verwendung",
+    "download": "Herunterladen",
+    "assetAlt": "Vorschau von {name}",
+    "lightPreview": "Am besten für helle Hintergründe.",
+    "darkPreview": "Am besten für dunkle Hintergründe.",
+    "usage": {
+      "iconTitle": "Icon",
+      "iconBody": "Nutze das Icon, wenn der verfügbare Platz quadratisch oder knapp ist.",
+      "wordmarkTitle": "Wortmarke",
+      "wordmarkBody": "Nutze die Wortmarke, wenn genug Platz ist, um den Namen cmux klar zu zeigen.",
+      "themeTitle": "Theme",
+      "themeBody": "Wähle das helle oder dunkle SVG passend zum Hintergrund."
+    }
   }
 }

@@ -39,7 +39,8 @@
     "contact": "Kontakt",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Język"
+    "language": "Język",
+    "assets": "Zasoby"
   },
   "home": {
     "taglinePrefix": "Terminal stworzony dla ",
@@ -1201,5 +1202,25 @@
   },
   "testimonialSubtitles": {
     "steipete": "Twórca OpenClaw. Założyciel PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Zasoby marki",
+    "metaDescription": "Pobierz logotypy, ikony, odznaki i zasoby cmux do trybu jasnego i ciemnego.",
+    "title": "Zasoby marki",
+    "description": "Pobierz logotypy, ikony, odznaki i warianty SVG cmux do jasnych i ciemnych teł.",
+    "logoSection": "Pliki logo",
+    "usageSection": "Użycie",
+    "download": "Pobierz",
+    "assetAlt": "Podgląd {name}",
+    "lightPreview": "Najlepsze na jasne tła.",
+    "darkPreview": "Najlepsze na ciemne tła.",
+    "usage": {
+      "iconTitle": "Ikona",
+      "iconBody": "Użyj ikony, gdy dostępne miejsce jest kwadratowe lub małe.",
+      "wordmarkTitle": "Wordmark",
+      "wordmarkBody": "Użyj wordmarku, gdy jest miejsce, aby wyraźnie pokazać nazwę cmux.",
+      "themeTitle": "Motyw",
+      "themeBody": "Wybierz jasny lub ciemny SVG zgodnie z tłem."
+    }
   }
 }

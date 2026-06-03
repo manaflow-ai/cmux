@@ -39,7 +39,8 @@
     "contact": "ติดต่อ",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "ภาษา"
+    "language": "ภาษา",
+    "assets": "แอสเซ็ต"
   },
   "home": {
     "taglinePrefix": "เทอร์มินัลที่สร้างมาเพื่อ",
@@ -1201,5 +1202,25 @@
   },
   "testimonialSubtitles": {
     "steipete": "ผู้สร้าง OpenClaw ผู้ก่อตั้ง PSPDFKit"
+  },
+  "brandAssets": {
+    "metaTitle": "แอสเซ็ตแบรนด์",
+    "metaDescription": "ดาวน์โหลดโลโก้ ไอคอน ป้าย และแอสเซ็ต cmux สำหรับโหมดสว่างและมืด",
+    "title": "แอสเซ็ตแบรนด์",
+    "description": "ดาวน์โหลดโลโก้ ไอคอน ป้าย และไฟล์ SVG ของ cmux สำหรับพื้นหลังสว่างและมืด",
+    "logoSection": "ไฟล์โลโก้",
+    "usageSection": "การใช้งาน",
+    "download": "ดาวน์โหลด",
+    "assetAlt": "ตัวอย่าง {name}",
+    "lightPreview": "เหมาะที่สุดสำหรับพื้นหลังสว่าง",
+    "darkPreview": "เหมาะที่สุดสำหรับพื้นหลังมืด",
+    "usage": {
+      "iconTitle": "ไอคอน",
+      "iconBody": "ใช้ไอคอนเมื่อพื้นที่เป็นสี่เหลี่ยมจัตุรัสหรือมีขนาดกะทัดรัด",
+      "wordmarkTitle": "เวิร์ดมาร์ก",
+      "wordmarkBody": "ใช้เวิร์ดมาร์กเมื่อมีพื้นที่พอให้เห็นชื่อ cmux ชัดเจน",
+      "themeTitle": "ธีม",
+      "themeBody": "เลือก SVG แบบสว่างหรือมืดให้ตรงกับพื้นหลังที่จะใช้งาน"
+    }
   }
 }

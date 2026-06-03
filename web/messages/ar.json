@@ -39,7 +39,8 @@
     "contact": "تواصل معنا",
     "nightly": "إصدار ليلي",
     "copyright": "© {year} Manaflow",
-    "language": "اللغة"
+    "language": "اللغة",
+    "assets": "الأصول"
   },
   "home": {
     "taglinePrefix": "الطرفية المصممة لـ",
@@ -1201,5 +1202,25 @@
   },
   "testimonialSubtitles": {
     "steipete": "منشئ OpenClaw. مؤسس PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "أصول العلامة",
+    "metaDescription": "نزّل شعارات cmux وأيقوناته وشاراته وأصوله للوضعين الفاتح والداكن.",
+    "title": "أصول العلامة",
+    "description": "نزّل شعارات cmux وأيقوناته وشاراته ونسخ SVG للخلفيات الفاتحة والداكنة.",
+    "logoSection": "ملفات الشعار",
+    "usageSection": "الاستخدام",
+    "download": "تنزيل",
+    "assetAlt": "معاينة {name}",
+    "lightPreview": "الأفضل للخلفيات الفاتحة.",
+    "darkPreview": "الأفضل للخلفيات الداكنة.",
+    "usage": {
+      "iconTitle": "الأيقونة",
+      "iconBody": "استخدم الأيقونة عندما تكون المساحة مربعة أو صغيرة.",
+      "wordmarkTitle": "الشعار النصي",
+      "wordmarkBody": "استخدم الشعار النصي عندما توجد مساحة كافية لإظهار اسم cmux بوضوح.",
+      "themeTitle": "السمة",
+      "themeBody": "اختر SVG الفاتح أو الداكن حسب الخلفية التي سيظهر عليها."
+    }
   }
 }

@@ -39,7 +39,8 @@
     "contact": "Contacto",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Idioma"
+    "language": "Idioma",
+    "assets": "Recursos"
   },
   "home": {
     "taglinePrefix": "La terminal diseñada para ",
@@ -1201,5 +1202,25 @@
   },
   "testimonialSubtitles": {
     "steipete": "Creador de OpenClaw. Fundador de PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Recursos de marca",
+    "metaDescription": "Descarga logotipos, iconos, insignias y recursos de cmux para modo claro y oscuro.",
+    "title": "Recursos de marca",
+    "description": "Descarga logotipos, iconos, insignias y variantes SVG de cmux para fondos claros y oscuros.",
+    "logoSection": "Archivos de logotipo",
+    "usageSection": "Uso",
+    "download": "Descargar",
+    "assetAlt": "Vista previa de {name}",
+    "lightPreview": "Ideal para fondos claros.",
+    "darkPreview": "Ideal para fondos oscuros.",
+    "usage": {
+      "iconTitle": "Icono",
+      "iconBody": "Usa el icono cuando el espacio sea cuadrado o compacto.",
+      "wordmarkTitle": "Logotipo textual",
+      "wordmarkBody": "Usa el logotipo textual cuando haya espacio para mostrar claramente el nombre cmux.",
+      "themeTitle": "Tema",
+      "themeBody": "Elige el SVG claro u oscuro según el fondo donde aparecerá."
+    }
   }
 }
