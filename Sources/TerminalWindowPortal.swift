@@ -1678,11 +1678,11 @@ final class WindowTerminalPortal: NSObject {
         let deadHostedIds = entriesByHostedId.compactMap { hostedId, entry -> ObjectIdentifier? in
             guard entry.hostedView != nil else { return hostedId }
             guard let anchor = entry.anchorView else {
-                return hostedId
+                return entry.visibleInUI ? nil : hostedId
             }
 
             if anchor.superview == nil {
-                return hostedId
+                return entry.visibleInUI ? nil : hostedId
             }
             let anchorInvalidForCurrentHost =
                 anchor.window !== currentWindow ||
