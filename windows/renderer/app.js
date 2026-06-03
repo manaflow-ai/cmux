@@ -17316,6 +17316,22 @@ const performanceTuningPresets = [
     }
   },
   {
+    id: "browserHeavy",
+    label: "Browser heavy",
+    body: "Keeps multi-preview work lighter by suspending hidden browsers and reducing terminal repaint load.",
+    settings: {
+      performanceMode: true,
+      adaptivePerformance: true,
+      reduceMotion: true,
+      terminalStartupMode: "fast",
+      terminalPauseInactiveOutput: true,
+      terminalSmoothResumedOutput: true,
+      terminalCursorBlink: false,
+      browserSuspendInactive: true,
+      terminalScrollback: 8000
+    }
+  },
+  {
     id: "lowMotion",
     label: "Low motion",
     body: "Keeps the app calm without forcing the full speed tune.",
@@ -17833,7 +17849,7 @@ function performanceTuningPresetSettings(preset) {
 function performanceTuningPresetSearchText(preset, settings = performanceTuningPresetSettings(preset)) {
   const summary = performanceSetupSummaryForSettings(settings || {});
   return normalizeSettingsQuery([
-    "performance tuning preset setup apply copy speed lag smooth low motion live panes terminal output browser suspend history scrollback",
+    "performance tuning preset setup apply copy speed lag smooth low motion live panes terminal output browser preview suspend history scrollback",
     preset?.label,
     preset?.body,
     summary.mode,
@@ -20545,7 +20561,7 @@ function refreshPerformanceHealthPanel(panel = elements.inspectorBody.querySelec
 function performanceTuningPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "performance-tune-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes apply copy setup history scrollback");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes browser preview apply copy setup history scrollback");
   for (const preset of performanceTuningPresets) {
     const settings = performanceTuningPresetSettings(preset);
     if (!settings) continue;
