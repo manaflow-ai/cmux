@@ -27039,20 +27039,65 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let directSurfaceArg = optionValue(hookArgs, name: "--surface")
             ?? (hookWsFlag == nil ? normalizedHookValue(env["CMUX_SURFACE_ID"]) : nil)
+        var successfulSurfaceListCache: [String: [[String: Any]]] = [:]
+        var failedSurfaceListWorkspaces: Set<String> = []
+        func listedSurfaces(workspaceId: String) -> [[String: Any]]? {
+            if let cached = successfulSurfaceListCache[workspaceId] {
+                return cached
+            }
+            if failedSurfaceListWorkspaces.contains(workspaceId) {
+                return nil
+            }
+            do {
+                let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+                let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
+                successfulSurfaceListCache[workspaceId] = surfaces
+                return surfaces
+            } catch {
+                failedSurfaceListWorkspaces.insert(workspaceId)
+                return nil
+            }
+        }
+        func workspaceIsAccessible(_ workspaceId: String) -> Bool {
+            listedSurfaces(workspaceId: workspaceId) != nil
+        }
+        func surfaceIsAccessible(_ surfaceId: String, workspaceId: String) -> Bool {
+            guard let surfaces = listedSurfaces(workspaceId: workspaceId) else {
+                return false
+            }
+            return surfaces.contains {
+                ($0["id"] as? String) == surfaceId || ($0["ref"] as? String) == surfaceId
+            }
+        }
         func resolveAccessibleWorkspaceId(_ raw: String?) -> String? {
             guard let raw = nonEmptyClaudeHookIdentifier(raw) else {
                 return nil
             }
-            return try? resolveWorkspaceId(raw, client: client)
+            guard let workspaceId = try? resolveWorkspaceId(raw, client: client),
+                  workspaceIsAccessible(workspaceId) else {
+                return nil
+            }
+            return workspaceId
         }
         func resolveAccessibleSurfaceId(_ raw: String?, workspaceId: String) -> String? {
             guard let raw = nonEmptyClaudeHookIdentifier(raw) else {
                 return nil
             }
-            return try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client)
+            guard let surfaceId = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
+                  surfaceIsAccessible(surfaceId, workspaceId: workspaceId) else {
+                return nil
+            }
+            return surfaceId
         }
         func resolveDefaultSurfaceId(workspaceId: String) -> String? {
-            try? resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
+            guard let surfaces = listedSurfaces(workspaceId: workspaceId) else {
+                return nil
+            }
+            if let focused = surfaces.first(where: { ($0["focused"] as? Bool) == true }),
+               let id = focused["id"] as? String {
+                return id
+            }
+            return surfaces.first?["id"] as? String
         }
         let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
         let hasInvalidDirectWorkspaceArg = directWorkspaceArg != nil && resolvedDirectWorkspaceArg == nil

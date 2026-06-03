@@ -10,6 +10,11 @@ import XCTest
 #if DEBUG
 @MainActor
 final class SettingsWindowPresenterTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        SettingsWindowPresenter.resetForTests()
+    }
+
     override func tearDown() {
         SettingsWindowPresenter.resetForTests()
         super.tearDown()

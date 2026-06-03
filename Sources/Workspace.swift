@@ -12865,7 +12865,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarPullRequestsInDisplayOrder() -> [SidebarPullRequestState] {
-        return sidebarPullRequestsInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+        guard let focusedPanelId else { return [] }
+        return sidebarPullRequestsInDisplayOrder(orderedPanelIds: [focusedPanelId])
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
