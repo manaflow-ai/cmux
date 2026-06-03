@@ -18761,7 +18761,7 @@ function quickSettingsShortcutGrid() {
 function dataSettingsOverviewPanel() {
   const panel = document.createElement("div");
   panel.className = "data-settings-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("data overview storage backup export import recent saved cleanup reset local settings empty workspaces browser tabs");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("data overview storage backup export import recent saved customization library cleanup reset local settings empty workspaces browser tabs");
   panel.innerHTML = `
     <div class="data-overview-heading">
       <span class="data-overview-title">Local data</span>
@@ -18773,11 +18773,24 @@ function dataSettingsOverviewPanel() {
       <span><b>Recent</b><em data-data-overview-recent></em></span>
       <span><b>Empty</b><em data-data-overview-empty></em></span>
     </div>
+    <div class="data-overview-actions"></div>
   `;
   panel.querySelector("[data-data-overview-storage]").textContent = formatBytes(totalDataStorageBytes());
   panel.querySelector("[data-data-overview-saved]").textContent = String(savedDataItemCount());
   panel.querySelector("[data-data-overview-recent]").textContent = String(recentDataItemCount());
   panel.querySelector("[data-data-overview-empty]").textContent = String(emptyWorkspaces().length);
+  const savedLibrary = savedDataItemCount() > 0;
+  const actions = panel.querySelector(".data-overview-actions");
+  const copySetup = settingsActionButton("Copy setup", copyAppSetup, "primary", "data overview backup export full app setup settings profiles colors backgrounds recent clipboard json");
+  copySetup.title = "Copy the complete cmux Windows setup as JSON.";
+  const pasteSetup = settingsActionButton("Paste setup", pasteAppSetup, "", "data overview restore import full app setup settings profiles colors backgrounds recent clipboard json");
+  pasteSetup.title = "Paste exported cmux Windows app setup JSON.";
+  const copyLibrary = settingsActionButton("Copy library", copySavedLibrary, "", "data overview saved customization library export snippets profiles blueprints colors backgrounds clipboard json");
+  copyLibrary.disabled = !savedLibrary;
+  copyLibrary.title = savedLibrary ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON." : "Customization library is empty.";
+  const pasteLibrary = settingsActionButton("Paste library", pasteSavedLibrary, "", "data overview saved customization library import merge snippets profiles blueprints colors backgrounds clipboard json");
+  pasteLibrary.title = "Merge copied saved snippets, profiles, blueprints, colors, and backgrounds.";
+  actions.append(copySetup, pasteSetup, copyLibrary, pasteLibrary);
   return panel;
 }
 

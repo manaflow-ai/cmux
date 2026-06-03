@@ -9478,6 +9478,17 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   font-size: 12px;
 }
 
+.data-overview-actions {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.data-overview-actions .settings-action {
+  width: 100%;
+}
+
 .data-maintenance-grid {
   min-width: 0;
   display: grid;
@@ -13582,6 +13593,7 @@ textarea.dialog-input {
   }
 
   .data-maintenance-actions,
+  .data-overview-actions,
   .command-snippet-pack-actions,
   .look-pack-actions,
   .action-workflow-command-list {
