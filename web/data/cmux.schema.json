@@ -44,8 +44,8 @@
               "type": "number",
               "minimum": 0,
               "maximum": 12,
-              "default": 2,
-              "description": "Divider thickness in points. Defaults to 2pt (more visible than the legacy 1pt hairline); set to 1 to restore the thin divider, or 0 to hide the painted bar."
+              "default": 1,
+              "description": "Divider thickness in points. Defaults to a thin 1pt hairline; raise it to make the separator more visible, or set 0 to hide the painted bar."
             }
           }
         }

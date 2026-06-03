@@ -19,12 +19,11 @@ public struct UICatalogSection: SettingCatalogSection {
 
     /// Pane separator thickness in points.
     ///
-    /// Defaults to `2`, matching the app's `PaneDividerStyle.defaultThickness`
-    /// (more visible than the legacy 1pt hairline). Set to `1` to restore the
-    /// thin divider.
+    /// Defaults to `1`, matching the app's `PaneDividerStyle.defaultThickness`
+    /// (the legacy hairline). Raise it to make the separator more visible.
     public let paneDividerThickness = JSONKey<Double>(
         id: "ui.paneDivider.thickness",
-        defaultValue: 2
+        defaultValue: 1
     )
 
     /// Creates the section with its default key declarations.

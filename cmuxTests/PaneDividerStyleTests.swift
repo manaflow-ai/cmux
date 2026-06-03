@@ -33,22 +33,22 @@ struct PaneDividerStyleTests {
         #expect(style.color?.hexString() == "#78A9FF")
     }
 
-    @Test("With no configured color the explicit color stays nil so it derives from chrome")
+    @Test("With no configured color the default derives from the unchanged theme separator")
     func defaultColorDerivesFromChrome() {
         let style = PaneDividerStyle.resolved(override: .none, ghosttyDividerColor: nil)
         #expect(style.color == nil)
-        // A derived color is produced for a given background, and it is more
-        // opaque than the legacy hairline separator for the same background.
+        // The default keeps the historical theme separator color unchanged
+        // (visibility is opt-in via config, not a baseline change).
         let background = hex("#272822")
         let derived = style.resolvedColor(forChromeBackground: background)
         let legacy = WindowChromeSeparatorColor.color(forChromeBackground: background)
-        #expect(derived.alphaComponent > legacy.alphaComponent)
+        #expect(derived.hexString(includeAlpha: true) == legacy.hexString(includeAlpha: true))
     }
 
-    @Test("Default thickness is the more-visible 2pt, not the legacy 1pt hairline")
-    func defaultThicknessIsTwo() {
+    @Test("Default thickness is the legacy 1pt hairline; visibility is opt-in")
+    func defaultThicknessIsLegacyHairline() {
         let style = PaneDividerStyle.resolved(override: .none, ghosttyDividerColor: nil)
-        #expect(style.thickness == 2)
+        #expect(style.thickness == 1)
     }
 
     @Test("cmux config thickness overrides the default and is clamped to range")

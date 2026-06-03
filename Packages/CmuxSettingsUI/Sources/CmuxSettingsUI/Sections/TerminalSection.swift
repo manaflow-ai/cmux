@@ -64,7 +64,7 @@ public struct TerminalSection: View {
                 String(localized: "settings.terminal.paneDividerThickness", defaultValue: "Pane Separator Thickness"),
                 subtitle: String(
                     localized: "settings.terminal.paneDividerThickness.subtitle",
-                    defaultValue: "Thickness, in points, of the bar between split panes. The default 2pt is more visible than the old 1pt hairline; set it to 1 to restore the thin divider."
+                    defaultValue: "Thickness, in points, of the bar between split panes. Defaults to a thin 1pt hairline; increase it to make the separator more visible."
                 ),
                 controlWidth: 140
             ) {

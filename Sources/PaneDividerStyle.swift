@@ -19,23 +19,18 @@ struct PaneDividerStyle: Equatable {
 
     /// Default divider thickness, in points.
     ///
-    /// Bumped from the historical 1pt hairline to 2pt: the reporter on #5006
-    /// found the 1px divider too subtle, and the dominant lever for visibility
-    /// is thickness. 2pt survives Retina rounding while staying understated,
-    /// and remains configurable down to a hairline via `ui.paneDivider`.
-    static let defaultThickness: CGFloat = 2
+    /// Kept at the historical 1pt hairline so the out-of-the-box appearance is
+    /// unchanged. Making the separator more visible is opt-in: raise
+    /// `ui.paneDivider.thickness` (or use the Settings UI) to thicken it.
+    static let defaultThickness: CGFloat = 1
 
     /// Inclusive lower bound for a configured thickness.
     static let minimumThickness: CGFloat = 0
     /// Inclusive upper bound for a configured thickness.
     static let maximumThickness: CGFloat = 12
 
-    /// Multiplier applied to the theme-derived separator alpha for the default
-    /// divider, making it modestly more visible than the legacy hairline while
-    /// keeping the same theme-native hue.
-    static let defaultContrastBoost: CGFloat = 1.4
-
-    /// The built-in default style: theme-derived color, 2pt thick.
+    /// The built-in default style: theme-derived color, 1pt thick (the legacy
+    /// hairline). Override via `ui.paneDivider` to make it more visible.
     static let `default` = PaneDividerStyle(color: nil, thickness: defaultThickness)
 
     /// Resolve the effective divider style from its configuration layers.
@@ -81,13 +76,10 @@ struct PaneDividerStyle: Equatable {
 
     /// Derive the default divider color from the chrome background.
     ///
-    /// Uses the existing ``WindowChromeSeparatorColor`` derivation (so the hue
-    /// still matches the theme and light/dark are handled), then boosts the
-    /// alpha by ``defaultContrastBoost`` so the default divider reads more
-    /// clearly than the legacy near-invisible hairline.
+    /// Uses the existing ``WindowChromeSeparatorColor`` derivation unchanged, so
+    /// the unconfigured divider keeps its historical theme-matched hairline
+    /// color. Set `ui.paneDivider.color` to override it.
     static func defaultDerivedColor(forChromeBackground background: NSColor) -> NSColor {
-        let base = WindowChromeSeparatorColor.color(forChromeBackground: background)
-        let boostedAlpha = min(1.0, base.alphaComponent * defaultContrastBoost)
-        return base.withAlphaComponent(boostedAlpha)
+        WindowChromeSeparatorColor.color(forChromeBackground: background)
     }
 }

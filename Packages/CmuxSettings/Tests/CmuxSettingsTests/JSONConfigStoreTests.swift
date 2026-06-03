@@ -47,9 +47,9 @@ struct JSONConfigStoreTests {
         #expect((paneDivider?["thickness"] as? NSNumber)?.doubleValue == 3)
     }
 
-    @Test func paneDividerThicknessDefaultsToTwo() async {
+    @Test func paneDividerThicknessDefaultsToLegacyHairline() async {
         let (store, _, catalog) = makeStore()
-        #expect(await store.value(for: catalog.ui.paneDividerThickness) == 2)
+        #expect(await store.value(for: catalog.ui.paneDividerThickness) == 1)
         #expect(await store.value(for: catalog.ui.paneDividerColor) == "")
     }
 
