@@ -43,9 +43,7 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: The git metadata for the enclosing repository, or
     ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
-    #if compiler(>=6.2)
     @concurrent
-    #endif
     public func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
@@ -72,9 +70,7 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: Sorted existing paths to watch, or `nil` when `directory` is
     ///   not inside a git repository.
-    #if compiler(>=6.2)
     @concurrent
-    #endif
     public func watchedPaths(for directory: String) async -> [String]? {
         Self.workspaceGitMetadataWatchedPaths(for: directory)
     }
@@ -89,9 +85,7 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: Ordered, de-duplicated GitHub slugs; empty when there is no
     ///   repository or no GitHub remote.
-    #if compiler(>=6.2)
     @concurrent
-    #endif
     public func repositorySlugs(forDirectory directory: String) async -> [String] {
         guard let repository = Self.resolveGitRepository(containing: directory),
               let output = Self.gitRemoteVOutput(repository: repository) else {
