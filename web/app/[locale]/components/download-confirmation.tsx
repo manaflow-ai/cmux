@@ -40,8 +40,10 @@ export function DownloadConfirmation() {
       {/* Hero */}
       <div className="flex flex-col items-center text-center">
         <Image
+          // Decorative: the heading below already names the product, so an
+          // empty alt avoids an untranslated string for screen readers.
           src="/logo.png"
-          alt="cmux icon"
+          alt=""
           width={48}
           height={48}
           className="rounded-xl"
