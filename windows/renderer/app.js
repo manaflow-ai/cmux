@@ -5667,6 +5667,23 @@ const commands = [
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() }
 ];
 
+const commandPerformanceQuickActionIds = new Map([
+  ["settings.enablePerformanceMode", "performanceMode.on"],
+  ["settings.disablePerformanceMode", "performanceMode.off"],
+  ["settings.enableAdaptivePerformance", "adaptivePerformance.on"],
+  ["settings.disableAdaptivePerformance", "adaptivePerformance.off"],
+  ["settings.enableReduceMotion", "reduceMotion.on"],
+  ["settings.disableReduceMotion", "reduceMotion.off"],
+  ["settings.fastTerminalStartup", "terminalStartup.fast"],
+  ["settings.balancedTerminalStartup", "terminalStartup.balanced"],
+  ["settings.pauseInactiveOutput", "terminalPauseInactiveOutput.on"],
+  ["settings.keepInactiveOutputLive", "terminalPauseInactiveOutput.off"],
+  ["settings.smoothResumedOutput", "terminalSmoothResumedOutput.on"],
+  ["settings.immediateResumedOutput", "terminalSmoothResumedOutput.off"],
+  ["settings.suspendInactiveBrowsers", "browserSuspendInactive.on"],
+  ["settings.keepInactiveBrowsersLive", "browserSuspendInactive.off"]
+]);
+
 const actionWorkflowDefinitions = [
   {
     id: "workspaceSetup",
@@ -16666,6 +16683,23 @@ const performanceQuickActionDefinitions = [
 
 const performanceQuickActionById = new Map(performanceQuickActionDefinitions.map((action) => [action.id, action]));
 
+function performanceQuickActionForCommand(commandId) {
+  return performanceQuickActionById.get(commandPerformanceQuickActionIds.get(commandId)) || null;
+}
+
+function performanceQuickActionIsActive(action) {
+  return Boolean(action && state.settings[action.key] === action.value);
+}
+
+function performanceQuickActionPaletteSignature() {
+  const parts = [];
+  for (const action of performanceQuickActionDefinitions) {
+    appendSignatureValue(parts, action.id);
+    appendSignatureValue(parts, state.settings[action.key]);
+  }
+  return parts.join("");
+}
+
 const performanceToolbarToggleIds = [
   ["performanceMode.on", "performanceMode.off", () => state.settings.performanceMode],
   ["adaptivePerformance.on", "adaptivePerformance.off", () => state.settings.adaptivePerformance],
@@ -24424,6 +24458,7 @@ function paletteEntriesSignature() {
   appendSignatureValue(parts, state.settings.browserHomeUrl);
   appendSignatureValue(parts, settingsKeysSignature(profileSettingsSettingKeys));
   appendSignatureValue(parts, quickSettingsSignature());
+  appendSignatureValue(parts, performanceQuickActionPaletteSignature());
   appendSignatureValue(parts, performanceHealthPaletteSignature());
   appendPalettePaneTargetSignature(parts);
   return parts.join("");
@@ -24794,18 +24829,28 @@ function paletteEntries() {
   const activeLayoutCommandIds = activePaneLayoutCommandIds(paletteWorkspace);
   const layoutUnavailable = !paletteWorkspace || paletteWorkspace.panels.length <= 1 || !activePanel();
   const entries = commands.map((command) => {
-    const active = activeLayoutCommandIds.has(command.id);
+    const performanceAction = performanceQuickActionForCommand(command.id);
+    const performanceActive = performanceQuickActionIsActive(performanceAction);
+    const layoutActive = activeLayoutCommandIds.has(command.id);
+    const active = layoutActive || performanceActive;
     const layoutPreset = paneLayoutPresets.find((preset) => preset.id === paneLayoutCommandPresetIds.get(command.id));
     const unavailable = Boolean(layoutPreset && layoutUnavailable);
+    const performanceSearch = performanceAction
+      ? `performance speed lag smooth quick action ${performanceAction.title} ${performanceAction.applied} ${performanceAction.already}`
+      : "";
     return {
       id: command.id,
       label: command.label,
-      meta: active ? "Active layout command" : "Command",
-      shortcut: active ? "Active" : command.shortcut,
+      meta: performanceAction
+        ? performanceActive ? "Active performance setting" : "Performance quick action"
+        : layoutActive ? "Active layout command" : "Command",
+      shortcut: active ? "Active" : performanceAction ? "Speed" : command.shortcut,
       active,
       disabled: active || unavailable,
-      title: layoutPreset ? paneLayoutPresetTitle(layoutPreset, active, unavailable) : command.label,
-      search: normalizeSettingsQuery(`${command.label} ${command.shortcut} command ${active ? "active current layout" : ""}`),
+      title: performanceAction
+        ? performanceActive ? performanceAction.already : performanceAction.title
+        : layoutPreset ? paneLayoutPresetTitle(layoutPreset, layoutActive, unavailable) : command.label,
+      search: normalizeSettingsQuery(`${command.label} ${command.shortcut} command ${active ? "active current" : ""} ${layoutActive ? "layout" : ""} ${performanceSearch}`),
       run: command.run
     };
   });
