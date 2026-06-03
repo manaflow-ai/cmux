@@ -16738,6 +16738,17 @@ function performanceHealthIssueCountLabel(count = performanceHealthIssueCount())
   return `${count} fix${count === 1 ? "" : "es"}`;
 }
 
+function performanceHealthPaletteSignature() {
+  const parts = [];
+  appendSignatureValue(parts, performanceHealthIssueCount());
+  for (const check of performanceHealthCheckDefinitions) {
+    appendSignatureValue(parts, check.id);
+    appendSignatureValue(parts, performanceHealthCheckNeedsFix(check));
+    appendSignatureValue(parts, check.meta?.() || "");
+  }
+  return parts.join("");
+}
+
 function performanceHealthCombinedUpdates() {
   const updates = {};
   for (const check of performanceHealthCheckDefinitions) {
@@ -19339,6 +19350,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     terminalScrollback: Math.min(state.settings.terminalScrollback, 6000),
     terminalStartupMode: "fast",
     terminalPauseInactiveOutput: true,
+    terminalSmoothResumedOutput: true,
     browserSuspendInactive: true
   });
   if (!changed) {
@@ -24412,6 +24424,7 @@ function paletteEntriesSignature() {
   appendSignatureValue(parts, state.settings.browserHomeUrl);
   appendSignatureValue(parts, settingsKeysSignature(profileSettingsSettingKeys));
   appendSignatureValue(parts, quickSettingsSignature());
+  appendSignatureValue(parts, performanceHealthPaletteSignature());
   appendPalettePaneTargetSignature(parts);
   return parts.join("");
 }
@@ -24628,6 +24641,7 @@ function paletteQuickActionsSignature() {
   appendSignatureValue(parts, activeSettingsSetupLabel());
   appendSignatureValue(parts, browserWorkflowPresetActiveSignature());
   appendSignatureValue(parts, performanceTuningPresetActiveSignature());
+  appendSignatureValue(parts, performanceHealthPaletteSignature());
   appendSignatureValue(parts, terminalReadabilityPresetActiveSignature());
   appendSignatureValue(parts, state.savedSettingsProfiles.length);
   appendSignatureValue(parts, paneCreationButtonsDisabled());
@@ -24639,7 +24653,7 @@ function paletteEntryKind(entry) {
   if (id.startsWith("terminal.") || id.startsWith("terminalReadabilityPreset.") || id.startsWith("recentCommand.") || id.startsWith("commandSnippet.")) return "terminal";
   if (id.startsWith("browser.") || id.startsWith("recentBrowser.") || id.startsWith("browserHomePreset.") || id.startsWith("browserWorkflowPreset.")) return "browser";
   if (id.startsWith("workspace.") || id.startsWith("recentFolder.") || id.startsWith("workspaceBlueprint.") || id.startsWith("workspaceStarter.")) return "workspace";
-  if (id.startsWith("actionWorkflow.") || id.startsWith("quickSetupAction.") || id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.") || id.startsWith("performanceTunePreset.")) return "settings";
+  if (id.startsWith("actionWorkflow.") || id.startsWith("quickSetupAction.") || id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.") || id.startsWith("performanceHealth.") || id.startsWith("performanceTunePreset.")) return "settings";
   if (id.startsWith("layout.") || id.startsWith("paneLayoutPreset.") || id.startsWith("paneSetupPreset.") || id.startsWith("workspaceChromePreset.")) return "layout";
   if (id.startsWith("background") || id.startsWith("savedBackground")) return "look";
   if (id.startsWith("lookPack.") || id.startsWith("themeChoice.") || id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("savedColorPalette.") || id.startsWith("terminalColor.")) return "color";
@@ -24739,6 +24753,42 @@ function actionWorkflowPaletteEntries() {
   });
 }
 
+function performanceHealthPaletteEntries() {
+  const issueCount = performanceHealthIssueCount();
+  const allCheckText = performanceHealthCheckDefinitions
+    .map((check) => `${check.label} ${check.body} ${check.search}`)
+    .join(" ");
+  const entries = [{
+    id: "performanceHealth.applyAll",
+    label: "Performance health: Apply fixes",
+    meta: issueCount === 0 ? "Ready / Core speed settings tuned" : `${performanceHealthIssueCountLabel(issueCount)} / Lighter workspace`,
+    shortcut: issueCount === 0 ? "Ready" : "Speed",
+    active: issueCount === 0,
+    disabled: issueCount === 0,
+    icon: "speed",
+    title: issueCount === 0 ? "Performance health is already tuned." : "Apply all recommended performance health fixes.",
+    search: normalizeSettingsQuery(`performance health checklist apply all fixes speed lag smooth tune ${allCheckText}`),
+    run: applyPerformanceHealthFixes
+  }];
+  for (const check of performanceHealthCheckDefinitions) {
+    const needsFix = performanceHealthCheckNeedsFix(check);
+    const meta = check.meta?.() || "";
+    entries.push({
+      id: `performanceHealth.${check.id}`,
+      label: `Performance fix: ${check.label}`,
+      meta: needsFix ? `${check.actionLabel} / ${meta}` : `Ready / ${meta}`,
+      shortcut: needsFix ? check.actionLabel : check.readyLabel,
+      active: !needsFix,
+      disabled: !needsFix,
+      icon: "speed",
+      title: needsFix ? `Apply the ${check.label.toLowerCase()} performance fix.` : `${check.label} is already tuned.`,
+      search: normalizeSettingsQuery(`performance health checklist fix ${needsFix ? "needs tune" : "ready tuned"} ${check.label} ${check.body} ${check.search} ${meta} ${check.actionLabel} ${check.readyLabel}`),
+      run: () => applyPerformanceHealthFix(check.id)
+    });
+  }
+  return entries;
+}
+
 function paletteEntries() {
   const paletteWorkspace = activeWorkspace();
   const activeLayoutCommandIds = activePaneLayoutCommandIds(paletteWorkspace);
@@ -24761,6 +24811,7 @@ function paletteEntries() {
   });
   entries.push(...quickSetupPaletteEntries());
   entries.push(...actionWorkflowPaletteEntries());
+  entries.push(...performanceHealthPaletteEntries());
   for (const preset of workspaceChromePresets) {
     const settings = workspaceChromePresetSettings(preset);
     if (!settings) continue;
