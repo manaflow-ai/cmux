@@ -17,6 +17,10 @@ import Observation
 @Observable
 public final class TerminalAccessoryConfiguration {
     /// Shared instance backing the live toolbar and the settings editor.
+    // Read from the UIKit input-accessory build path inside the off-limits
+    // surface/input view; the only two readers are TerminalInputTextView's
+    // accessory builder and TerminalShortcutsSettingsView.
+    // TRANSITIONAL — construction-at-root injection lands with the GhosttySurfaceView UI-god-object split.
     public static let shared = TerminalAccessoryConfiguration()
 
     /// Posted (on the main thread) whenever the configuration changes, so the

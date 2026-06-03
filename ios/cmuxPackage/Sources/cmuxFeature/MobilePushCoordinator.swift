@@ -15,6 +15,12 @@ import UserNotifications
 /// must own `UNUserNotificationCenterDelegate`) and the per-scene store.
 @MainActor
 public final class MobilePushCoordinator {
+    // Construction-at-root injection (build at CMUXMobileRootScene, inject into
+    // CmuxAppDelegate + WorkspaceViews) is coupled to the auth/push wave: every
+    // method here funnels through NotificationManager.shared, which the next step
+    // deletes. Invert together with that singleton so push policy is not churned
+    // across two waves.
+    // TRANSITIONAL — push singleton inverts with the auth/push wave (see above).
     public static let shared = MobilePushCoordinator()
 
     private weak var store: CMUXMobileShellStore?

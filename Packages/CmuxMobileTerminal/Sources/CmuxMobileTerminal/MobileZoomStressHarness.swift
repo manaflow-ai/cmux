@@ -58,6 +58,7 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
 
         func start() {
             // (1) Stream bytes like the Mac does, concurrently with zoom.
+            // lint:allow timer — DEBUG-only crash-repro harness: the fixed wall-clock cadence IS the stress workload (hammering the output path faster than any human), so an injected virtual Clock would defeat the repro. Never compiled into release.
             byteTimer = Timer.scheduledTimer(withTimeInterval: 0.01, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, let view = self.surfaceView else { return }
@@ -68,6 +69,7 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
             }
 
             // (3) Hammer the zoom path far faster than a human pinch.
+            // lint:allow timer — DEBUG-only crash-repro harness: the fixed wall-clock cadence IS the stress workload; an injected virtual Clock would defeat the repro. Never compiled into release.
             zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.004, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, let view = self.surfaceView else { return }
