@@ -3396,12 +3396,14 @@ struct TextBoxInputContainer: View {
         )
     }
 
+    /// Records the newly constructed text view, lets the panel restore draft state, then syncs container-only state.
     private func registerTextView(_ textView: TextBoxInputTextView) {
         textViewReference.textView = textView
         onTextViewCreated(textView)
         syncPendingAttachmentUploadState(from: textView)
     }
 
+    /// Synchronizes pending-upload state without invoking the TextBox delegate or published panel bindings.
     private func syncPendingAttachmentUploadState(from textView: TextBoxInputTextView) {
         // Restoring preserved content during makeNSView intentionally skips textDidChange to
         // avoid publishing through TerminalPanel. Keep this container-only state in sync here.
