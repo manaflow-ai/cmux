@@ -86,7 +86,8 @@ public actor InterpreterClient {
         let deadline = timeout
         let watchdog = Task { [weak self] in
             try? await Task.sleep(for: deadline)
-            await self?.timedOut(id: id)
+            guard let self else { return }
+            await self.timedOut(id: id)
         }
         defer { watchdog.cancel() }
 
@@ -151,9 +152,15 @@ public actor InterpreterClient {
                 guard let response = try? JSONDecoder().decode(InterpreterResponse.self, from: data) else {
                     continue
                 }
-                Task { await self?.deliver(response, generation: gen) }
+                Task { [weak self] in
+                    guard let self else { return }
+                    await self.deliver(response, generation: gen)
+                }
             }
-            Task { await self?.workerEnded(generation: gen) }
+            Task { [weak self] in
+                guard let self else { return }
+                await self.workerEnded(generation: gen)
+            }
         }
         reader.stackSize = 1 << 20
         reader.name = "cmux-sidebar-interpreter-reader"
