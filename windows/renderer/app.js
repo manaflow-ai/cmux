@@ -5210,6 +5210,8 @@ const commands = [
   { id: "browser.reload", label: "Reload Active Browser", shortcut: "Ctrl+R", run: () => reloadBrowserPanel() },
   { id: "browser.openExternal", label: "Open Active Browser Externally", shortcut: "", run: () => openBrowserPanelExternally() },
   { id: "browser.copyUrl", label: "Copy Active Browser URL", shortcut: "", run: () => copyBrowserPanelUrl() },
+  { id: "browser.activeHome", label: "Use Active Browser Page as Home", shortcut: "", run: () => useActiveBrowserPageAsHome() },
+  { id: "browser.saveActiveProfile", label: "Save Active Browser Page Profile", shortcut: "", run: () => saveActiveBrowserPageProfile() },
   { id: "notifications.open", label: "Show Notifications", shortcut: "Ctrl+I", run: () => openInspector("notifications") },
   { id: "session.tools", label: "Show Session Tools", shortcut: "", run: () => openInspector("session") },
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
@@ -9566,6 +9568,26 @@ async function copyBrowserPanelUrl(panel = focusedPanel()) {
   return false;
 }
 
+function useActiveBrowserPageAsHome(panel = focusedPanel()) {
+  const browserPanel = resolveBrowserPanel(panel);
+  if (!browserPanel) {
+    toast("Focus a browser pane first.");
+    return false;
+  }
+  focusPanel(browserPanel.id);
+  return useBrowserPageAsHome(browserPanelUrl(browserPanel));
+}
+
+function saveActiveBrowserPageProfile(panel = focusedPanel()) {
+  const browserPanel = resolveBrowserPanel(panel);
+  if (!browserPanel) {
+    toast("Focus a browser pane first.");
+    return null;
+  }
+  focusPanel(browserPanel.id);
+  return saveBrowserProfileForHome(browserPanelUrl(browserPanel));
+}
+
 function newBrowserTabFromPanel(panel = focusedPanel()) {
   const browserPanel = resolveBrowserPanel(panel);
   if (!browserPanel) return createPanel("browser", "right", { url: state.settings.browserHomeUrl });
@@ -13339,6 +13361,17 @@ function resetBrowserHome() {
   if (state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
   toast("Browser home reset.");
   return true;
+}
+
+function useBrowserPageAsHome(url, label = "Browser home") {
+  const homeUrl = normalizeBrowserPageUrl(url);
+  if (!homeUrl) {
+    toast("Choose a browser page first.");
+    return false;
+  }
+  const changed = updateSettings({ browserHomeUrl: homeUrl });
+  toast(changed ? `${label} updated.` : `${label} already uses this page.`);
+  return changed;
 }
 
 function browserSetupPayload() {
@@ -18691,10 +18724,7 @@ function recentBrowserPagesSettings() {
     const open = settingsActionButton("Open", () => createPanel("browser", "right", { url }), "", `recent browser page open ${url}`);
     open.dataset.recentBrowserAction = "open";
     open.dataset.recentBrowserUrl = url;
-    const home = settingsActionButton("Home", () => {
-      const changed = updateSettings({ browserHomeUrl: url });
-      toast(changed ? "Browser home updated." : "Browser home already uses this page.");
-    }, activeHome ? "primary" : "", recentBrowserHomeActionSearch(url, activeHome));
+    const home = settingsActionButton("Home", () => useBrowserPageAsHome(url), activeHome ? "primary" : "", recentBrowserHomeActionSearch(url, activeHome));
     home.dataset.recentBrowserAction = "home";
     home.dataset.recentBrowserUrl = url;
     setRecentBrowserHomeActionState(home, activeHome);
@@ -20097,12 +20127,20 @@ function showPanelContextMenu(event, panel) {
     );
   }
   if (isBrowser) {
+    const activePageHome = isActiveRecentBrowserHome(browserPanelUrl(panel));
+    const pageProfileFull = savedSettingsProfilesFull();
+    const usePageHome = contextMenuButton(activePageHome ? "Home page active" : "Use page as home", () => useActiveBrowserPageAsHome(panel), activePageHome, "", { icon: "home" });
+    usePageHome.title = activePageHome ? "This page is already the browser home." : "Set this page as the browser home.";
+    const savePageProfile = contextMenuButton("Save page profile", () => saveActiveBrowserPageProfile(panel), pageProfileFull, "", { icon: "plus" });
+    savePageProfile.title = pageProfileFull ? settingsProfileLimitTitle() : "Save this page as a reusable browser profile.";
     surfaceActions.push(
       contextMenuButton("Focus address", () => focusBrowserAddress(panel), false, "", { icon: "search" }),
       contextMenuButton("Reload page", () => reloadBrowserPanel(panel), false, "", { icon: "reload" }),
       contextMenuButton("Open externally", () => openBrowserPanelExternally(panel), false, "", { icon: "external" }),
       contextMenuButton(t("browser.openWithProfile"), () => showExternalBrowserProfileMenuAt(event.clientX, event.clientY, browserPanelUrl(panel)), false, "", { keepOpen: true, icon: "browser" }),
       contextMenuButton("Copy URL", () => copyBrowserPanelUrl(panel), false, "", { icon: "copy" }),
+      usePageHome,
+      savePageProfile,
       contextMenuButton("Browser settings", () => openSettingsCategory("browser"), false, "", { icon: "settings" })
     );
   }
@@ -20386,6 +20424,8 @@ function showToolbarMenu(event) {
   const zoomedPanelId = zoomedPanelIdForWorkspace(workspace);
   const terminalActive = panel?.type === "terminal";
   const browserActive = panel?.type === "browser";
+  const activeBrowserPage = browserActive ? browserPanelUrl(panel) : "";
+  const activeBrowserPageHome = Boolean(activeBrowserPage && browserHomeKey(activeBrowserPage) === browserHomeKey(state.settings.browserHomeUrl));
   const latestRecentCommand = state.recentCommands[0] || "";
   const latestRecentCommandSaved = isCommandSavedAsCustomSnippet(latestRecentCommand);
   const saveRecentCommandDisabled = !latestRecentCommand || latestRecentCommandSaved || (!latestRecentCommandSaved && customCommandSnippetsFull());
@@ -20414,6 +20454,12 @@ function showToolbarMenu(event) {
     : profilesFull
       ? settingsProfileLimitTitle()
       : "Save the latest recent page as a reusable browser profile.";
+  const saveActiveBrowserProfileDisabled = !browserActive || profilesFull;
+  const saveActiveBrowserProfileTitle = !browserActive
+    ? "Focus or create a browser pane first."
+    : profilesFull
+      ? settingsProfileLimitTitle()
+      : "Save the focused browser page as a reusable profile.";
   const blueprintsFull = workspaceBlueprintsFull();
   const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
   const terminalColorsDefault = isTerminalColorPresetIdActive("cmux");
@@ -20565,6 +20611,8 @@ function showToolbarMenu(event) {
       toolbarAction("Reload active page", () => reloadBrowserPanel(panel), !browserActive, "Reload the focused browser page.", browserRequiredTitle),
       toolbarAction("Open active externally", () => openBrowserPanelExternally(panel), !browserActive, "Open the focused browser URL externally.", browserRequiredTitle),
       toolbarAction("Copy active URL", () => copyBrowserPanelUrl(panel), !browserActive, "Copy the focused browser URL.", browserRequiredTitle),
+      toolbarAction("Use active page as home", () => useActiveBrowserPageAsHome(panel), !browserActive || activeBrowserPageHome, "Set the focused browser page as the browser home.", browserActive ? "Focused browser page is already the home page." : browserRequiredTitle),
+      toolbarAction("Save active page profile", () => saveActiveBrowserPageProfile(panel), saveActiveBrowserProfileDisabled, saveActiveBrowserProfileTitle),
       toolbarAction("Copy active tabs", () => copyActiveBrowserTabSession(panel), !browserActive, "Copy the focused browser tab session as JSON.", browserRequiredTitle),
       toolbarAction("Paste browser tabs", pasteBrowserTabSessions, !workspace, "Paste copied browser tabs into the focused browser or restore them as panes.", workspaceRequiredTitle),
       toolbarAction("Open home page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: state.settings.browserHomeUrl }), !workspace, "Open the home page in a browser pane.", workspaceRequiredTitle),
