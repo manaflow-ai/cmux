@@ -13290,7 +13290,9 @@ function quickSettingsSignature() {
   appendSignatureValue(parts, state.recentFolders.length);
   appendSignatureValue(parts, state.recentCommands.length);
   appendSignatureValue(parts, state.recentBrowserPages.length);
+  appendSignatureValue(parts, state.recentBrowserPages.join(","));
   appendSignatureValue(parts, browserTabSnapshotCount());
+  appendSignatureData(parts, Object.fromEntries(state.browserTabSnapshots));
   appendSignatureValue(parts, state.customCommandSnippets.length);
   appendSignatureValue(parts, state.savedSettingsProfiles.length);
   appendSignatureValue(parts, state.workspaceBlueprints.length);
@@ -18098,6 +18100,89 @@ function quickPaneControlsPanel(panel) {
   });
 }
 
+function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount = 0) {
+  const activeBrowser = resolveBrowserPanel(activePanel());
+  const activeBrowserPage = activeBrowser ? browserPanelUrl(activeBrowser) : "";
+  const activeBrowserPageHome = Boolean(activeBrowserPage && browserHomeKey(activeBrowserPage) === browserHomeKey(state.settings.browserHomeUrl));
+  const latestRecentPage = state.recentBrowserPages[0] || "";
+  const tabEntries = browserTabSessionEntries();
+  const hasWorkspace = Boolean(workspace);
+  const profilesFull = savedSettingsProfilesFull();
+  const activeBrowserTitle = activeBrowser
+    ? panelDisplayTitle(activeBrowser, true)
+    : "No active browser";
+  const browserRequiredTitle = "Focus or create a browser pane first.";
+  const workspaceRequiredTitle = "Open a workspace before restoring browser panes.";
+  const saveProfileTitle = !activeBrowser
+    ? browserRequiredTitle
+    : profilesFull
+      ? settingsProfileLimitTitle()
+      : "Save the active browser page as a reusable profile.";
+  const actions = [
+    quickOverviewControlButton("Open home", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: state.settings.browserHomeUrl }), {
+      disabled: !hasWorkspace,
+      title: hasWorkspace ? "Open the browser home page in this workspace." : workspaceRequiredTitle,
+      search: "quick setup browser open home page pane web"
+    }),
+    quickOverviewControlButton("New tab", () => newBrowserTabFromPanel(activeBrowser), {
+      disabled: !activeBrowser,
+      title: activeBrowser ? "Open a new tab in the active browser pane." : browserRequiredTitle,
+      search: "quick setup browser new tab active pane web"
+    }),
+    quickOverviewControlButton("Copy URL", () => copyBrowserPanelUrl(activeBrowser), {
+      disabled: !activeBrowser,
+      title: activeBrowser ? "Copy the active browser URL." : browserRequiredTitle,
+      search: "quick setup browser copy active url clipboard web"
+    }),
+    quickOverviewControlButton("Use as home", () => useActiveBrowserPageAsHome(activeBrowser), {
+      disabled: !activeBrowser || activeBrowserPageHome,
+      title: !activeBrowser
+        ? browserRequiredTitle
+        : activeBrowserPageHome
+          ? "Active browser page is already the home page."
+          : "Set the active browser page as the home page.",
+      search: "quick setup browser use active page as home homepage"
+    }),
+    quickOverviewControlButton("Save profile", () => saveActiveBrowserPageProfile(activeBrowser), {
+      disabled: !activeBrowser || profilesFull,
+      title: saveProfileTitle,
+      search: "quick setup browser save active page profile reusable settings"
+    }),
+    quickOverviewControlButton("Copy tabs", () => copyActiveBrowserTabSession(activeBrowser), {
+      disabled: !activeBrowser,
+      title: activeBrowser ? "Copy the active browser tab session as JSON." : browserRequiredTitle,
+      search: "quick setup browser copy active tabs session clipboard json"
+    }),
+    quickOverviewControlButton("Paste tabs", pasteBrowserTabSessions, {
+      disabled: !hasWorkspace,
+      title: hasWorkspace ? "Paste copied browser tabs into the active browser or restore panes." : workspaceRequiredTitle,
+      search: "quick setup browser paste tabs restore session panes clipboard json"
+    }),
+    quickOverviewControlButton("Copy recent", copyRecentBrowserPages, {
+      disabled: state.recentBrowserPages.length === 0,
+      title: state.recentBrowserPages.length ? "Copy recent browser pages as JSON." : "Recent browser pages are empty.",
+      search: "quick setup browser recent pages copy history clipboard json"
+    }),
+    quickOverviewControlButton("Paste recent", pasteRecentBrowserPages, {
+      title: "Merge copied browser pages into recent pages.",
+      search: "quick setup browser recent pages paste history clipboard json"
+    }),
+    quickOverviewControlButton("Browser", () => openSettingsCategory("browser"), {
+      title: "Open full browser settings.",
+      search: "quick setup browser full settings home launch external profile tabs recent presets"
+    })
+  ];
+  const homeHost = hostnameOf(state.settings.browserHomeUrl) || "Home";
+  const recentHost = latestRecentPage ? hostnameOf(latestRecentPage) || latestRecentPage : "No recent";
+  return quickOverviewControlsPanel({
+    className: "quick-overview-browser",
+    title: "Browser controls",
+    meta: `${homeHost} / ${activeBrowserTitle} / ${browserTabSessionsMeta(tabEntries)}`,
+    search: `quick setup browser controls home tabs recent profile setup ${homeHost} ${recentHost} ${activeBrowserTitle} ${browserCount} browsers`,
+    actions
+  });
+}
+
 function quickColorControlsPanel(workspace = activeWorkspace()) {
   const targetOption = colorApplyTargetOption(state.colorApplyTarget, workspace);
   const accentSave = currentColorSaveModel("accent", workspace);
@@ -18322,6 +18407,7 @@ function quickSetupOverviewPanel() {
     </div>
     <div data-quick-workspace-controls></div>
     <div data-quick-pane-controls></div>
+    <div data-quick-browser-controls></div>
     <div data-quick-color-controls></div>
     <button class="quick-overview-speed" type="button" data-performance-status>
       <span class="quick-overview-speed-icon" aria-hidden="true"></span>
@@ -18398,6 +18484,7 @@ function quickSetupOverviewPanel() {
   panel.querySelector("[data-quick-performance]").textContent = performanceModeLabel();
   panel.querySelector("[data-quick-workspace-controls]").replaceWith(quickWorkspaceControlsPanel(workspace, terminalCount, browserCount));
   panel.querySelector("[data-quick-pane-controls]").replaceWith(quickPaneControlsPanel(activePane));
+  panel.querySelector("[data-quick-browser-controls]").replaceWith(quickBrowserControlsPanel(workspace, browserCount));
   panel.querySelector("[data-quick-color-controls]").replaceWith(quickColorControlsPanel(workspace));
   const speed = panel.querySelector(".quick-overview-speed");
   speed.className = `quick-overview-speed is-${performance.status}`;
