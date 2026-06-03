@@ -15150,7 +15150,7 @@ function browserHomePresetTitle(preset, active) {
 function browserHomePresetGrid() {
   const grid = document.createElement("div");
   grid.className = "browser-home-preset-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("browser home preset quick start google github localhost vite web url save profile copy");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("browser home preset quick start google github localhost vite angular flask python asp net api backend web url save profile copy");
   for (const preset of browserHomePresets) {
     const active = isActiveBrowserHomePreset(preset);
     const savedProfile = savedSettingsProfileForBrowserHomePreset(preset);
@@ -20056,7 +20056,7 @@ function browserHomePresetsDisclosurePanel() {
   return settingsDisclosurePanel({
     className: "browser-home-presets-disclosure",
     content: "browser-home-presets",
-    searchTerms: "browser home preset quick start localhost github google vite",
+    searchTerms: "browser home preset quick start localhost github google vite angular flask python asp net api backend 4200 5000 8000 8080",
     title: t("browser.homePresets"),
     body: t("browser.homePresets.body"),
     meta: formatMessage("browser.homePresetCount", { count: browserHomePresets.length })

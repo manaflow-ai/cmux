@@ -236,6 +236,30 @@ export const browserHomePresets = [
     label: label("browserHome.localhost5173", "Local 5173"),
     body: label("browserHome.localhost5173.body", "Vite dev server."),
     url: "http://localhost:5173"
+  },
+  {
+    id: "localhost4200",
+    label: label("browserHome.localhost4200", "Local 4200"),
+    body: label("browserHome.localhost4200.body", "Angular dev server."),
+    url: "http://localhost:4200"
+  },
+  {
+    id: "localhost5000",
+    label: label("browserHome.localhost5000", "Local 5000"),
+    body: label("browserHome.localhost5000.body", "Flask, ASP.NET, and API work."),
+    url: "http://localhost:5000"
+  },
+  {
+    id: "localhost8000",
+    label: label("browserHome.localhost8000", "Local 8000"),
+    body: label("browserHome.localhost8000.body", "Python and static preview servers."),
+    url: "http://localhost:8000"
+  },
+  {
+    id: "localhost8080",
+    label: label("browserHome.localhost8080", "Local 8080"),
+    body: label("browserHome.localhost8080.body", "Backend services and alternate previews."),
+    url: "http://localhost:8080"
   }
 ];
 
