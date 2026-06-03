@@ -9457,14 +9457,47 @@ function renderSettingsInspector(options = {}) {
       const nextTitle = titleInput.value.trim();
       const currentTitle = currentWorkspaceName();
       const suggestedTitle = suggestedWorkspaceName();
-      if (titleSave) titleSave.disabled = !workspace || !nextTitle || nextTitle === currentTitle;
-      if (titleUseFolder) titleUseFolder.disabled = !workspace || !suggestedTitle || suggestedTitle === currentTitle;
+      if (titleSave) {
+        titleSave.disabled = !workspace || !nextTitle || nextTitle === currentTitle;
+        titleSave.title = !workspace
+          ? "Open a workspace before renaming it."
+          : !nextTitle
+            ? "Enter a workspace name first."
+            : nextTitle === currentTitle
+              ? "Workspace name is already current."
+              : "Save the active workspace name.";
+      }
+      if (titleUseFolder) {
+        titleUseFolder.disabled = !workspace || !suggestedTitle || suggestedTitle === currentTitle;
+        titleUseFolder.title = !workspace
+          ? "Open a workspace before using its folder name."
+          : !suggestedTitle
+            ? "Set a workspace folder before using its name."
+            : suggestedTitle === currentTitle
+              ? "Workspace already uses the folder name."
+              : "Rename the workspace from its folder.";
+      }
     };
     const revertWorkspaceNameInput = () => {
       titleInput.value = currentWorkspaceName();
       updateWorkspaceNameActions();
     };
     const saveWorkspaceNameInput = async (options = {}) => {
+      const nextTitle = titleInput.value.trim();
+      if (!workspace) {
+        if (options.toast) toast("Open a workspace before renaming it.");
+        return false;
+      }
+      if (!nextTitle) {
+        revertWorkspaceNameInput();
+        if (options.toast) toast("Enter a workspace name first.");
+        return false;
+      }
+      if (nextTitle === currentWorkspaceName()) {
+        revertWorkspaceNameInput();
+        if (options.toast) toast("Workspace name already current.");
+        return false;
+      }
       const changed = await renameWorkspaceTo(titleInput.value);
       revertWorkspaceNameInput();
       if (options.toast) toast(changed ? "Workspace renamed." : "Workspace name already current.");
@@ -11724,8 +11757,18 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
   let titleReset = null;
   const updatePaneTitleActions = () => {
     const nextTitle = titleInput.value.trim();
-    if (titleSave) titleSave.disabled = !nextTitle || nextTitle === currentPaneTitle();
-    if (titleReset) titleReset.disabled = !panel.titleLocked;
+    if (titleSave) {
+      titleSave.disabled = !nextTitle || nextTitle === currentPaneTitle();
+      titleSave.title = !nextTitle
+        ? "Enter a pane name first, or use Default to clear a custom name."
+        : nextTitle === currentPaneTitle()
+          ? "Pane name is already current."
+          : "Save the active pane name.";
+    }
+    if (titleReset) {
+      titleReset.disabled = !panel.titleLocked;
+      titleReset.title = panel.titleLocked ? "Restore the automatic pane name." : "Pane already uses the automatic name.";
+    }
   };
   const refreshPaneTitleActionsAfterButton = () => {
     requestAnimationFrame(() => {
