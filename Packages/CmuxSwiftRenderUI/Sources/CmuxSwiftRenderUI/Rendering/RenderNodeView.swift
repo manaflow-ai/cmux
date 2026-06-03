@@ -228,6 +228,12 @@ struct RenderNodeView: View {
             return AnyView(view.grayscale(token.flatMap(Double.init) ?? 0))
         case "clipShape":
             return applyClipShape(token, to: view)
+        case "imageScale":
+            return AnyView(view.imageScale(dslImageScale(token)))
+        case "symbolRenderingMode":
+            return AnyView(view.symbolRenderingMode(dslSymbolRenderingMode(token)))
+        case "symbolVariant":
+            return AnyView(view.symbolVariant(dslSymbolVariant(token)))
         case "clipped":
             return AnyView(view.clipped())
         case "fixedSize":

@@ -480,6 +480,29 @@ import Testing
         #expect(node?.children.map(\.text) == ["2", "1", "42"])
     }
 
+    @Test func numericBuiltinsMinMaxAbs() {
+        let node = interp.evaluate("""
+        HStack {
+            Text("\\(min(3, 7))")
+            Text("\\(max(3, 7))")
+            Text("\\(abs(-5))")
+        }
+        """)
+        #expect(node?.children.map(\.text) == ["3", "7", "5"])
+    }
+
+    @Test func imageSymbolModifiersCaptured() {
+        let node = interp.evaluate("""
+        Image(systemName: "star")
+            .imageScale(.large)
+            .symbolRenderingMode(.hierarchical)
+            .symbolVariant(.fill)
+        """)
+        #expect(node?.kind == .image)
+        let names = Set((node?.modifiers ?? []).map(\.name))
+        #expect(names.isSuperset(of: ["imageScale", "symbolRenderingMode", "symbolVariant"]))
+    }
+
     @Test func overlayAndBackgroundCaptureArbitraryChildViews() {
         let node = interp.evaluate("""
         Text("base")

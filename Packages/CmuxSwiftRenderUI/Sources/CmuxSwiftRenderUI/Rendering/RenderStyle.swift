@@ -143,3 +143,33 @@ func dslTruncationMode(_ token: String?) -> Text.TruncationMode {
     default: return .tail
     }
 }
+
+/// Resolves an `Image.Scale` token (default `.medium`).
+func dslImageScale(_ token: String?) -> Image.Scale {
+    switch token?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) {
+    case "small": return .small
+    case "large": return .large
+    default: return .medium
+    }
+}
+
+/// Resolves a `SymbolRenderingMode` token (default `.monochrome`).
+func dslSymbolRenderingMode(_ token: String?) -> SymbolRenderingMode {
+    switch token?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) {
+    case "hierarchical": return .hierarchical
+    case "multicolor": return .multicolor
+    case "palette": return .palette
+    default: return .monochrome
+    }
+}
+
+/// Resolves a `SymbolVariants` token (default `.none`).
+func dslSymbolVariant(_ token: String?) -> SymbolVariants {
+    switch token?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) {
+    case "fill": return .fill
+    case "circle": return .circle
+    case "square": return .square
+    case "slash": return .slash
+    default: return SymbolVariants.none
+    }
+}

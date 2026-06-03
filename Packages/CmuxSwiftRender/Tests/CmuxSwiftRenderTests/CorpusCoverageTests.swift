@@ -26,6 +26,7 @@ import Testing
             "ForEach", "Reorderable", "cmux", "log", "Color", "ScrollView", "openURL",
             "LazyVStack", "LazyHStack", "Group", "EmptyView", "List", "Section",
             "Label", "Array", "Int", "Double", "String", "Ellipse", "UnevenRoundedRectangle",
+            "min", "max", "abs",
         ]
         let supportedMembers: Set<String> = [
             "font", "bold", "fontWeight", "foregroundColor", "foregroundStyle", "fill",
@@ -41,6 +42,7 @@ import Testing
             "zIndex", "brightness", "contrast", "saturation", "grayscale",
             "clipShape", "clipped", "fixedSize", "layoutPriority", "degrees", "radians",
             "overlay", "mask", "safeAreaInset",
+            "imageScale", "symbolRenderingMode", "symbolVariant",
         ]
 
         var unsupportedCalls: [String: Int] = [:]

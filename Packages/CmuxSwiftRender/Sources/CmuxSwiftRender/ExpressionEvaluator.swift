@@ -86,6 +86,18 @@ struct ExpressionEvaluator {
         }
         if let call = expr.as(FunctionCallExprSyntax.self),
            let ref = call.calledExpression.as(DeclReferenceExprSyntax.self),
+           ["min", "max", "abs"].contains(ref.baseName.text),
+           env.lookupFunction(ref.baseName.text) == nil {
+            let nums = call.arguments.compactMap { numericValue(eval($0.expression, env)) }
+            switch ref.baseName.text {
+            case "min" where nums.count >= 2: return numberResult(nums.min()!, intIf: allInt(call, env))
+            case "max" where nums.count >= 2: return numberResult(nums.max()!, intIf: allInt(call, env))
+            case "abs" where nums.count == 1: return numberResult(Swift.abs(nums[0]), intIf: allInt(call, env))
+            default: return nil
+            }
+        }
+        if let call = expr.as(FunctionCallExprSyntax.self),
+           let ref = call.calledExpression.as(DeclReferenceExprSyntax.self),
            let decl = env.lookupFunction(ref.baseName.text) {
             return callValueFunction(decl, call, env)
         }
@@ -399,6 +411,29 @@ struct ExpressionEvaluator {
             return evalIfValue(elseIf, scope)
         }
         return nil
+    }
+
+    /// The numeric reading of a value (int or double), else nil.
+    private func numericValue(_ value: SwiftValue?) -> Double? {
+        switch value {
+        case let .int(i): return Double(i)
+        case let .double(d): return d
+        default: return nil
+        }
+    }
+
+    /// Whether every argument of `call` evaluates to an integer (so a numeric
+    /// builtin like `min` returns `.int`, not `.double`).
+    private func allInt(_ call: FunctionCallExprSyntax, _ env: Environment) -> Bool {
+        call.arguments.allSatisfy {
+            if case .int? = eval($0.expression, env) { return true }
+            return false
+        }
+    }
+
+    /// Wraps a numeric result as `.int` when `intIf` is true, else `.double`.
+    private func numberResult(_ value: Double, intIf: Bool) -> SwiftValue {
+        intIf ? .int(Int(value)) : .double(value)
     }
 
     /// Returns the contents of the first double-quoted literal in `source`,
