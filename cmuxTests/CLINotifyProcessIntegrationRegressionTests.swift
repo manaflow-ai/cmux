@@ -2517,7 +2517,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
         let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
 
-        XCTAssertTrue(sshOptions.contains("ForwardAgent=yes"), sshOptions)
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=yes"), "ssh_options: \(sshOptions)")
         XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
@@ -2533,7 +2533,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
         let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
 
-        XCTAssertTrue(sshOptions.contains("ForwardAgent=yes"), sshOptions)
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=yes"), "ssh_options: \(sshOptions)")
         XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
@@ -2552,7 +2552,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
         let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
 
-        XCTAssertTrue(sshOptions.contains("ForwardAgent=yes"), sshOptions)
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=yes"), "ssh_options: \(sshOptions)")
         XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
@@ -2569,7 +2569,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
         let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
 
-        XCTAssertTrue(sshOptions.contains("ForwardAgent=no"), sshOptions)
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=no"), "ssh_options: \(sshOptions)")
         XCTAssertNil(createParams["initial_env"])
         XCTAssertNil(configureParams["ssh_auth_sock"])
     }
