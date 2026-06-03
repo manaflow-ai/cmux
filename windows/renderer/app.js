@@ -12639,6 +12639,7 @@ function quickSetupActionDefinitions() {
       meta: activeSettingsSetupLabel,
       cta: "Apply",
       search: "clean fast simple speed compact ui chrome terminal startup lag preset",
+      active: () => isSettingsPresetIdActive("simpleFast"),
       run: () => applySettingsPresetById("simpleFast")
     },
     {
@@ -12660,6 +12661,7 @@ function quickSetupActionDefinitions() {
       meta: activeSettingsSetupLabel,
       cta: "Apply",
       search: "simple clean minimal compact ui chrome pane controls preset",
+      active: () => isSettingsPresetIdActive("simple"),
       run: () => applySettingsPresetById("simple")
     },
     {
@@ -12888,14 +12890,15 @@ function quickSetupActionGrid() {
   grid.className = "quick-settings-shortcut-grid quick-action-grid";
   grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions new terminal browser add pane clean ui speed tune focus mode background image wallpaper pane shape resize split rows columns");
   for (const action of actions) {
+    const active = Boolean(action.active?.());
     const button = document.createElement("button");
-    button.className = "quick-settings-shortcut quick-action";
+    button.className = `quick-settings-shortcut quick-action${active ? " is-active" : ""}`;
     button.type = "button";
-    button.disabled = Boolean(action.disabled?.());
+    button.disabled = active || Boolean(action.disabled?.());
     button.title = `${action.label}: ${action.body}`;
     button.dataset.quickAction = action.id;
     button.dataset.settingsSearch = normalizeSettingsQuery(`quick action ${action.label} ${action.body} ${action.search}`);
-    button.setAttribute("aria-label", `${action.label}. ${action.body} Current: ${action.meta()}.`);
+    button.setAttribute("aria-label", `${action.label}. ${action.body} Current: ${action.meta()}.${active ? " Active." : ""}`);
     button.innerHTML = `
       <span class="quick-action-icon" aria-hidden="true"></span>
       <span class="quick-action-copy">
@@ -12911,7 +12914,7 @@ function quickSetupActionGrid() {
     button.querySelector(".quick-settings-shortcut-title").textContent = action.label;
     button.querySelector(".quick-settings-shortcut-body").textContent = action.body;
     button.querySelector(".quick-settings-shortcut-meta").textContent = action.meta();
-    button.querySelector(".quick-action-cta").textContent = action.cta;
+    button.querySelector(".quick-action-cta").textContent = active ? "Active" : action.cta;
     button.onclick = () => {
       if (button.disabled) return;
       action.run();
