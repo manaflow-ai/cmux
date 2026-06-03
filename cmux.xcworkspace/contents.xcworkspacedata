@@ -48,6 +48,12 @@
          location = "group:CmuxMobileDiagnostics">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobilePairedMac">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileRPC">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileShellModel">
       </FileRef>
       <FileRef

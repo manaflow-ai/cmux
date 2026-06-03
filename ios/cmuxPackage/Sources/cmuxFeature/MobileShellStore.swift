@@ -1,6 +1,8 @@
 import CMUXMobileCore
 import CmuxMobileAuth
 import CmuxMobileDiagnostics
+import CmuxMobilePairedMac
+import CmuxMobileRPC
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
@@ -71,7 +73,7 @@ public final class CMUXMobileShellStore {
     public var selectedTerminalID: MobileTerminalPreview.ID?
 
     private let runtime: CMUXMobileRuntime?
-    private let pairedMacStore: MobilePairedMacStore?
+    private let pairedMacStore: (any MobilePairedMacStoring)?
     private let clientID: String
     private var remoteClient: MobileCoreRPCClient? {
         didSet {
@@ -146,7 +148,7 @@ public final class CMUXMobileShellStore {
         connectedHostName: String = "",
         pairingCode: String = "",
         workspaces: [MobileWorkspacePreview] = [],
-        pairedMacStore: MobilePairedMacStore? = MobileShellStorePairedMacStoreFactory.shared()
+        pairedMacStore: (any MobilePairedMacStoring)? = nil
     ) {
         self.runtime = runtime
         self.pairedMacStore = pairedMacStore

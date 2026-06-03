@@ -1,10 +1,11 @@
 import CMUXMobileCore
 import CmuxMobileAuth
+import CmuxMobileRPC
 import Foundation
 import Observation
 import OSLog
 
-public struct CMUXMobileRuntime: Sendable {
+public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public static let defaultRPCRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     public static let defaultPairingRequestTimeoutNanoseconds: UInt64 = 8 * 1_000_000_000
 

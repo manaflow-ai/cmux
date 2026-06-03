@@ -1,57 +1,19 @@
-import CMUXMobileCore
-import Foundation
+public import CMUXMobileCore
+public import Foundation
 import SQLite3
-import Synchronization
 import os
 
 private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedMacStore")
 
-/// A Mac paired with this iOS device, persisted across launches.
-/// Auth tokens are never persisted, only enough to re-mint a fresh attach
-/// ticket via the StackAuth-authenticated manual host flow on next launch.
-public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
-    public var macDeviceID: String
-    public var displayName: String?
-    public var routes: [CmxAttachRoute]
-    public var createdAt: Date
-    public var lastSeenAt: Date
-    public var isActive: Bool
-    public var stackUserID: String?
-
-    public var id: String { macDeviceID }
-
-    public init(
-        macDeviceID: String,
-        displayName: String?,
-        routes: [CmxAttachRoute],
-        createdAt: Date,
-        lastSeenAt: Date,
-        isActive: Bool,
-        stackUserID: String?
-    ) {
-        self.macDeviceID = macDeviceID
-        self.displayName = displayName
-        self.routes = routes
-        self.createdAt = createdAt
-        self.lastSeenAt = lastSeenAt
-        self.isActive = isActive
-        self.stackUserID = stackUserID
-    }
-}
-
-public enum MobilePairedMacStoreError: Error {
-    case openFailed(Int32)
-    case prepareFailed(Int32, String)
-    case stepFailed(Int32, String)
-    case unknownSchemaVersion(Int)
-    case decodeFailed
-}
-
 /// SQLite-backed store of paired Macs. Schema migrations gated on
-/// `PRAGMA user_version`. An `actor` serializes all access to the (non-Sendable,
-/// not-thread-safe) SQLite connection, so it is genuinely `Sendable` without
-/// opting out of concurrency checking.
-public actor MobilePairedMacStore {
+/// `PRAGMA user_version`.
+///
+/// An `actor` serializes all access to the (non-`Sendable`, not-thread-safe)
+/// SQLite connection, so it is genuinely `Sendable` without opting out of
+/// concurrency checking. Construct it once at the app composition root and
+/// inject it as `any MobilePairedMacStoring`.
+public actor MobilePairedMacStore: MobilePairedMacStoring {
+    /// The schema version this build creates and migrates to.
     public static let currentSchemaVersion: Int32 = 1
 
     private let dbPath: String
@@ -60,6 +22,10 @@ public actor MobilePairedMacStore {
     // the connection itself is opened `SQLITE_OPEN_FULLMUTEX`, so this is safe.
     nonisolated(unsafe) private var db: OpaquePointer?
 
+    /// The default on-disk location for the paired-Mac database.
+    /// - Parameter fileManager: File manager used to resolve and create the directory.
+    /// - Returns: The `paired-macs.sqlite3` URL under Application Support/cmux.
+    /// - Throws: Any error thrown while resolving or creating the directory.
     public static func defaultDatabaseURL(fileManager: FileManager = .default) throws -> URL {
         let appSupport = try fileManager.url(
             for: .applicationSupportDirectory,
@@ -74,11 +40,16 @@ public actor MobilePairedMacStore {
         return dir.appendingPathComponent("paired-macs.sqlite3")
     }
 
+    /// Open (creating if needed) the store at the given database URL.
+    /// - Parameter databaseURL: On-disk SQLite file location.
+    /// - Throws: ``MobilePairedMacStoreError`` if the connection cannot be opened.
     public init(databaseURL: URL) throws {
         self.dbPath = databaseURL.path
         self.db = try Self.openConnection(path: databaseURL.path)
     }
 
+    /// Open the store at ``defaultDatabaseURL(fileManager:)``.
+    /// - Throws: ``MobilePairedMacStoreError`` if the connection cannot be opened.
     public init() throws {
         try self.init(databaseURL: Self.defaultDatabaseURL())
     }
@@ -497,38 +468,5 @@ public actor MobilePairedMacStore {
     private func lastErrorMessage() -> String {
         guard let cString = sqlite3_errmsg(db) else { return "" }
         return String(cString: cString)
-    }
-}
-
-/// Provides a process-wide shared paired-mac store, lazily opened.
-/// Returns `nil` if the store can't be initialized (e.g. read-only sandbox)
-/// so MobileShellStore can degrade to in-memory operation in tests/previews.
-public enum MobileShellStorePairedMacStoreFactory {
-    private struct State {
-        var attempted = false
-        var instance: MobilePairedMacStore?
-    }
-
-    /// Lazy singleton with failure caching, guarded by a `Mutex` so it is
-    /// concurrency-safe without `nonisolated(unsafe)`. The stored value is an
-    /// actor (Sendable), so it crosses the lock boundary safely.
-    private static let state = Mutex(State())
-
-    public static func shared() -> MobilePairedMacStore? {
-        state.withLock { state in
-            if state.attempted { return state.instance }
-            state.attempted = true
-            do {
-                state.instance = try MobilePairedMacStore()
-            } catch {
-                pairedMacStoreLog.error("failed to open paired mac store: \(String(describing: error), privacy: .public)")
-                state.instance = nil
-            }
-            return state.instance
-        }
-    }
-
-    public static func reset() {
-        state.withLock { $0 = State() }
     }
 }
