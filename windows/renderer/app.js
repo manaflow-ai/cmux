@@ -4560,15 +4560,20 @@ function renderSurfaceTabs(workspace) {
   const tabLabels = surfaceTabLabels(workspace);
   const signature = surfaceTabsSignature(workspace, tabLabels);
   const layoutSignature = surfaceTabsLayoutSignature(workspace, tabLabels);
+  const layoutChanged = layoutSignature !== state.surfaceTabsLayoutSignature;
+  const structureReady = surfaceTabStructureReady(workspace);
   if (
     signature === state.surfaceTabsSignature
-    && state.newSurfaceAddButtons.terminal
-    && state.newSurfaceAddButtons.browser
-    && state.newSurfaceAddButtons.terminal.dataset.workspaceId === workspace.id
-    && state.newSurfaceAddButtons.browser.dataset.workspaceId === workspace.id
-    && state.surfaceTabButtons.size === workspace.panels.length
-    && elements.surfaceTabs.childNodes.length === workspace.panels.length + 2
+    && structureReady
   ) {
+    return;
+  }
+  if (!layoutChanged && structureReady) {
+    updateSurfaceTabStatesOnly(workspace, tabLabels);
+    setDatasetIfChanged(elements.surfaceTabs, "tabCount", String(workspace.panels.length));
+    state.surfaceTabsSignature = signature;
+    state.surfaceTabsLayoutSignature = layoutSignature;
+    scheduleActiveSurfaceTabIntoView(workspace.activePanelId);
     return;
   }
   const validIds = new Set(workspace.panels.map((panel) => panel.id));
@@ -4590,11 +4595,22 @@ function renderSurfaceTabs(workspace) {
   nodes.push(...getNewSurfaceTabs(workspace));
   replaceChildrenIfChanged(elements.surfaceTabs, nodes);
   setDatasetIfChanged(elements.surfaceTabs, "tabCount", String(workspace.panels.length));
-  const layoutChanged = layoutSignature !== state.surfaceTabsLayoutSignature;
   state.surfaceTabsSignature = signature;
   state.surfaceTabsLayoutSignature = layoutSignature;
   if (layoutChanged) scheduleSurfaceTabsOverflowRefresh({ ensureActive: true });
   else scheduleActiveSurfaceTabIntoView(workspace.activePanelId);
+}
+
+function surfaceTabStructureReady(workspace) {
+  return Boolean(
+    workspace?.id
+    && state.newSurfaceAddButtons.terminal
+    && state.newSurfaceAddButtons.browser
+    && state.newSurfaceAddButtons.terminal.dataset.workspaceId === workspace.id
+    && state.newSurfaceAddButtons.browser.dataset.workspaceId === workspace.id
+    && state.surfaceTabButtons.size === workspace.panels.length
+    && elements.surfaceTabs.childNodes.length === workspace.panels.length + 2
+  );
 }
 
 function clearSurfaceTabs() {
@@ -4958,7 +4974,7 @@ function surfaceTabParts(button) {
   return button._surfaceParts;
 }
 
-function updateSurfaceTab(button, workspace, panel, label = surfaceTabLabel(workspace, panel)) {
+function updateSurfaceTabState(button, workspace, panel, label = surfaceTabLabel(workspace, panel)) {
   const fullTitle = panelDisplayTitle(panel, false);
   const minimized = isPanelMinimized(panel);
   const pending = isPendingPanel(panel);
@@ -4977,13 +4993,26 @@ function updateSurfaceTab(button, workspace, panel, label = surfaceTabLabel(work
   setStylePropertyIfChanged(button, "--tab-color", panel.color || workspace.color || "var(--color-accent)");
   setDatasetIfChanged(button, "paneKind", panel.type === "browser" ? "browser" : "terminal");
   setDatasetIfChanged(parts.dot, "tabIndex", String(ordinal));
+  setTitleIfChanged(parts.close, pending ? "Cancel pane" : closePaneActionLabel(workspace, panel.id));
+  return parts;
+}
+
+function updateSurfaceTabStatesOnly(workspace, tabLabels = surfaceTabLabels(workspace)) {
+  for (const panel of workspace?.panels || []) {
+    const button = state.surfaceTabButtons.get(panel.id);
+    if (!button) continue;
+    updateSurfaceTabState(button, workspace, panel, tabLabels.get(panel.id));
+  }
+}
+
+function updateSurfaceTab(button, workspace, panel, label = surfaceTabLabel(workspace, panel)) {
+  const parts = updateSurfaceTabState(button, workspace, panel, label);
   const iconName = panel.type === "browser" ? "browser" : "terminal";
   if (parts.kind && parts.kind.dataset.icon !== iconName) {
     parts.kind.dataset.icon = iconName;
     parts.kind.innerHTML = controlIconMarkup(iconName);
   }
   setTextIfChanged(parts.label, label);
-  setTitleIfChanged(parts.close, pending ? "Cancel pane" : closePaneActionLabel(workspace, panel.id));
 }
 
 function surfaceTabDropPlacement(event, button) {
