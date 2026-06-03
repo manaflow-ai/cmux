@@ -966,6 +966,13 @@ function normalizedImageUrl(value) {
   return url.startsWith("preset:") ? "" : url;
 }
 
+function normalizedSavedBackgroundValue(value) {
+  const normalized = normalizeBackgroundValue(value);
+  if (!normalized) return "";
+  if (isBackgroundPreset(normalized)) return normalized;
+  return normalizedImageUrl(normalized);
+}
+
 function isCustomBackgroundImage(value) {
   const url = normalizedImageUrl(value);
   return Boolean(url && !url.startsWith("preset:"));
@@ -1018,6 +1025,8 @@ function backgroundPositionCss(value) {
 }
 
 async function validateBackgroundImageValue(value) {
+  const preset = normalizedSavedBackgroundValue(value);
+  if (preset && isBackgroundPreset(preset)) return { ok: true, url: preset };
   const url = normalizedImageUrl(value);
   if (!url) return { ok: false, url: "" };
   const ok = await canLoadImage(backgroundImageUrl(url));
@@ -3205,6 +3214,8 @@ function createSavedBackgroundImageId() {
 
 function defaultBackgroundLabel(url) {
   if (/^data:image\//i.test(url)) return "Background image";
+  const preset = backgroundPresetMap.get(url);
+  if (preset?.label) return normalizeBackgroundLabel(preset.label);
   const name = fileNameFromUrl(url).replace(/\.(?:avif|bmp|gif|jpe?g|png|svg|webp)$/i, "");
   if (name && !name.startsWith("data:image")) return normalizeBackgroundLabel(name);
   try {
@@ -3230,7 +3241,7 @@ function backgroundFilePath(value) {
 
 function normalizeSavedBackgroundImage(entry) {
   const input = typeof entry === "string" ? { url: entry } : entry || {};
-  const url = normalizedImageUrl(input.url || input.value || input.backgroundImage);
+  const url = normalizedSavedBackgroundValue(input.url || input.value || input.backgroundImage);
   if (!url) return null;
   const label = normalizeBackgroundLabel(input.label) || defaultBackgroundLabel(url);
   const id = /^[a-z0-9_-]+$/i.test(input.id || "") ? input.id : createSavedBackgroundImageId();
@@ -3279,14 +3290,18 @@ function savedBackgroundImageLimitTitle() {
 }
 
 function savedBackgroundImageKey(value) {
-  const url = normalizedImageUrl(value);
+  const url = normalizedSavedBackgroundValue(value);
   return url ? url.toLowerCase() : "";
 }
 
-function savedBackgroundImageExists(value) {
+function savedBackgroundImageForValue(value) {
   const key = savedBackgroundImageKey(value);
-  if (!key) return false;
-  return state.savedBackgroundImages.some((candidate) => savedBackgroundImageKey(candidate.url) === key);
+  if (!key) return null;
+  return state.savedBackgroundImages.find((candidate) => savedBackgroundImageKey(candidate.url) === key) || null;
+}
+
+function savedBackgroundImageExists(value) {
+  return Boolean(savedBackgroundImageForValue(value));
 }
 
 function canSaveBackgroundImage(value) {
@@ -3410,6 +3425,76 @@ async function copySavedBackgroundImage(backgroundId) {
     readOnly: true
   });
   return false;
+}
+
+function backgroundPresetSavedBackground(preset) {
+  return preset?.value ? savedBackgroundImageForValue(preset.value) : null;
+}
+
+function backgroundPresetSaveTitle(preset, savedBackground = backgroundPresetSavedBackground(preset)) {
+  if (!preset?.value) return "This template has no reusable background.";
+  if (savedBackground) return `${savedBackground.label} already saves ${preset.label}.`;
+  if (savedBackgroundImagesFull()) return savedBackgroundImageLimitTitle();
+  return "Save this template to the reusable background library.";
+}
+
+function backgroundPresetLibraryEntry(preset) {
+  if (!preset?.value) return null;
+  return {
+    label: preset.label,
+    url: preset.value,
+    createdAt: Date.now()
+  };
+}
+
+async function copyBackgroundPresetImage(preset) {
+  const background = backgroundPresetLibraryEntry(preset);
+  if (!background) {
+    toast("This template has no reusable background.");
+    return false;
+  }
+  const payload = JSON.stringify({
+    version: 1,
+    type: "cmux-saved-background-image",
+    summary: {
+      label: background.label,
+      source: background.url
+    },
+    background: savedBackgroundImagePayloadEntry(background)
+  }, null, 2);
+  if (await writeClipboardText(payload)) {
+    toast(`${background.label} background template copied.`);
+    return true;
+  }
+  await showTextDialog({
+    title: "Background template",
+    message: "Clipboard access is unavailable. The background template is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function saveBackgroundPresetImage(preset) {
+  const background = backgroundPresetLibraryEntry(preset);
+  if (!background) {
+    toast("This template has no reusable background.");
+    return null;
+  }
+  const existing = backgroundPresetSavedBackground(preset);
+  if (existing) {
+    toast(`${existing.label} already saves ${preset.label}.`);
+    return existing;
+  }
+  if (savedBackgroundImagesFull()) {
+    toast(savedBackgroundImageLimitTitle());
+    return null;
+  }
+  const saved = upsertSavedBackgroundImage(background, { toast: false });
+  if (saved) toast(`${saved.label} background template saved.`);
+  return saved;
 }
 
 function savedBackgroundImagesFromPayload(payload) {
@@ -3724,7 +3809,7 @@ async function clearSavedLibrary() {
 async function saveCustomBackgroundImage(background, options = {}) {
   const input = typeof background === "string" ? { url: background } : background || {};
   const source = input.url || input.value || input.backgroundImage;
-  if (!normalizedImageUrl(source)) {
+  if (!normalizedSavedBackgroundValue(source)) {
     if (options.toast !== false) toast("Choose a custom background image first.");
     return null;
   }
@@ -3739,7 +3824,7 @@ async function saveCustomBackgroundImage(background, options = {}) {
 async function applyAndSaveCustomBackgroundImage(background, options = {}) {
   const input = typeof background === "string" ? { url: background } : background || {};
   const source = input.url || input.value || input.backgroundImage;
-  if (!normalizedImageUrl(source)) {
+  if (!normalizedSavedBackgroundValue(source)) {
     if (options.toast !== false) toast("Choose a custom background image first.");
     return null;
   }
@@ -3775,7 +3860,7 @@ async function applyAndSaveBackgroundImageToTarget(background, target = state.ba
     if (options.toast !== false) toast(`${targetOption.label} cannot use a background right now.`);
     return null;
   }
-  if (!normalizedImageUrl(source)) {
+  if (!normalizedSavedBackgroundValue(source)) {
     if (options.toast !== false) toast("Choose a custom background image first.");
     return null;
   }
@@ -18192,6 +18277,7 @@ function backgroundPresetGrid() {
     const activePane = Boolean(activeTerminal && panelBackgroundMatches(activeTerminal, preset.value));
     const activeAll = terminalBackgroundsMatch(workspace, preset.value);
     const activeTarget = target === "pane" ? activePane : target === "all" ? activeAll : activeApp;
+    const savedBackground = backgroundPresetSavedBackground(preset);
     const targetDisabled = Boolean(targetOption.disabled) || activeTarget;
     const applyTitle = backgroundPresetApplyTitle(preset, targetOption, activeTarget);
     const card = document.createElement("div");
@@ -18201,7 +18287,7 @@ function backgroundPresetGrid() {
       activePane ? "is-active-pane" : "",
       activeAll ? "is-active-all" : ""
     ].filter(Boolean).join(" ");
-    card.dataset.settingsSearch = normalizeSettingsQuery(`background image wallpaper template ${preset.label}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`background image wallpaper template save copy reusable ${preset.label}`);
 
     const button = document.createElement("button");
     button.className = `background-preset${activeTarget ? " is-active" : ""}`;
@@ -18239,10 +18325,22 @@ function backgroundPresetGrid() {
     const applyAction = settingsActionButton(backgroundApplyTargetPrimaryLabel(target), () => {
       if (!backgroundPresetActiveForTarget(preset.value, target)) applyBackgroundPresetToTarget(preset, target);
     }, "primary", `background template apply selected target ${targetOption.label} ${preset.label}`);
+    applyAction.classList.add("background-preset-apply-action");
     applyAction.disabled = targetDisabled;
     applyAction.title = applyTitle;
+    const saveAction = settingsActionButton(
+      savedBackground ? "Saved" : "Save",
+      () => saveBackgroundPresetImage(preset),
+      savedBackground ? "primary" : "",
+      `background template save reusable library ${savedBackground ? "saved active current " : ""}${preset.label}`
+    );
+    saveAction.disabled = !preset.value || Boolean(savedBackground) || savedBackgroundImagesFull();
+    saveAction.title = backgroundPresetSaveTitle(preset, savedBackground);
+    const copyAction = settingsActionButton("Copy", () => copyBackgroundPresetImage(preset), "", `background template copy reusable library clipboard json ${preset.label}`);
+    copyAction.disabled = !preset.value;
+    copyAction.title = preset.value ? "Copy this template as saved background JSON." : "This template has no reusable background.";
     const moreAction = settingsActionButton("More", (event) => showBackgroundPresetMenu(event, preset), "", `background template more scopes app pane all terminals ${preset.label}`);
-    actions.append(applyAction, moreAction);
+    actions.append(applyAction, saveAction, copyAction, moreAction);
 
     card.append(button, scope, actions);
     grid.append(card);
@@ -18267,13 +18365,30 @@ function showBackgroundPresetMenu(event, preset) {
   title.textContent = preset.label || "Background";
   const meta = document.createElement("div");
   meta.className = "context-meta";
-  meta.textContent = "Choose where to apply this background.";
+  meta.textContent = "Apply or save this background template.";
   const actions = contextMenuActionGroup(
     contextMenuButton(activeApp ? "App active" : "Apply to app", () => applyBackgroundPreset(preset, { toast: true }), activeApp),
     contextMenuButton(activePane ? "Terminal active" : "Apply to active terminal", () => applyBackgroundPresetToTarget(preset, "pane"), !activeTerminal || activePane),
     contextMenuButton(activeAll ? "All terminals active" : "Apply to all terminals", () => applyBackgroundPresetToTarget(preset, "all"), !hasTerminalPanes || activeAll)
   );
-  menu.replaceChildren(title, meta, contextMenuSectionTitle("Apply"), actions);
+  const savedBackground = backgroundPresetSavedBackground(preset);
+  const saveAction = contextMenuButton(
+    savedBackground ? "Saved in library" : "Save to library",
+    () => saveBackgroundPresetImage(preset),
+    !preset.value || Boolean(savedBackground) || savedBackgroundImagesFull()
+  );
+  saveAction.title = backgroundPresetSaveTitle(preset, savedBackground);
+  const copyAction = contextMenuButton("Copy as saved background", () => copyBackgroundPresetImage(preset), !preset.value);
+  copyAction.title = preset.value ? "Copy this template as saved background JSON." : "This template has no reusable background.";
+  const libraryActions = contextMenuActionGroup(saveAction, copyAction);
+  menu.replaceChildren(
+    title,
+    meta,
+    contextMenuSectionTitle("Apply"),
+    actions,
+    contextMenuSectionTitle("Library"),
+    libraryActions
+  );
   const rect = event?.currentTarget?.getBoundingClientRect?.();
   showContextMenuAt(menu, rect ? rect.left : window.innerWidth / 2, rect ? rect.bottom + 6 : window.innerHeight / 2);
 }
@@ -22281,6 +22396,7 @@ function paletteEntries() {
     const activeApp = normalizeBackgroundValue(state.settings.backgroundImage) === normalizeBackgroundValue(preset.value);
     const activePane = Boolean(paletteActiveTerminal && panelBackgroundMatches(paletteActiveTerminal, preset.value));
     const activeAll = terminalBackgroundsMatch(paletteWorkspace, preset.value);
+    const savedBackground = backgroundPresetSavedBackground(preset);
     const appMeta = preset.value ? "Built-in background" : "No background";
     entries.push({
       id: `backgroundPreset.${presetId}`,
@@ -22314,6 +22430,30 @@ function paletteEntries() {
       title: backgroundPresetApplyTitle(preset, backgroundAllTargetOption, activeAll),
       search: normalizeSettingsQuery(`background preset template image wallpaper apply active all terminal panes workspace ${preset.label} ${preset.value}`),
       run: () => applyWorkspaceBackgroundImageToTerminals(preset.value)
+    });
+    entries.push({
+      id: `backgroundPreset.save.${presetId}`,
+      label: `Save background template: ${preset.label}`,
+      meta: !preset.value
+        ? "No reusable background"
+        : savedBackground
+          ? `Already saved / ${savedBackground.label}`
+          : `${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved backgrounds`,
+      shortcut: savedBackground ? "Saved" : "Save",
+      disabled: !preset.value || Boolean(savedBackground) || savedBackgroundImagesFull(),
+      title: backgroundPresetSaveTitle(preset, savedBackground),
+      search: normalizeSettingsQuery(`background preset template image wallpaper save reusable saved background library ${savedBackground ? "saved active current " : ""}${preset.label} ${preset.value}`),
+      run: () => saveBackgroundPresetImage(preset)
+    });
+    entries.push({
+      id: `backgroundPreset.copy.${presetId}`,
+      label: `Copy background template: ${preset.label}`,
+      meta: preset.value || "No reusable background",
+      shortcut: "Copy",
+      disabled: !preset.value,
+      title: preset.value ? "Copy this template as saved background JSON." : "This template has no reusable background.",
+      search: normalizeSettingsQuery(`background preset template image wallpaper copy reusable saved background library clipboard json ${preset.label} ${preset.value}`),
+      run: () => copyBackgroundPresetImage(preset)
     });
   }
   for (const preset of browserHomePresets) {

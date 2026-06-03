@@ -10627,8 +10627,12 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .background-preset-actions {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 54px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-1);
+}
+
+.background-preset-apply-action {
+  grid-column: 1 / -1;
 }
 
 .background-preset-scope {
