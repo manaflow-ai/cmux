@@ -2,6 +2,8 @@ import type { DiffViewerConfig } from "./types";
 import { appearanceBackgroundColor, applyDiffViewerAppearance, resolveDiffViewerAppearance } from "./appearance";
 import { planPierreFileTreeRefresh } from "./file-tree-refresh";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
+import { applyDiffViewerStatusToDocument, createDiffViewerStatus } from "./status";
+import type { DiffViewerStatus, DiffViewerStatusOptions } from "./status";
 
 type GitStatusPatchEntry = {
   path: string;
@@ -132,14 +134,11 @@ type OptionsMenuSegmentItem = {
 
 type OptionsMenuItem = "separator" | OptionsMenuActionItem | OptionsMenuSegmentItem;
 
-type StatusMessageOptions = {
-  error?: boolean;
-  loading?: boolean;
-  pending?: boolean;
-  statusOnly?: boolean;
+type DiffViewerHost = {
+  setStatus: (status: DiffViewerStatus) => void;
 };
 
-export function startDiffViewer(config: DiffViewerConfig): void {
+export function startDiffViewer(config: DiffViewerConfig, host: DiffViewerHost): void {
   const requireElement = <T extends HTMLElement>(id: string): T => {
     const element = document.getElementById(id);
     if (!element) {
@@ -161,8 +160,6 @@ export function startDiffViewer(config: DiffViewerConfig): void {
   const payload = config.payload ?? {};
 const appearance = resolveDiffViewerAppearance(payload.appearance);
 const viewerElement = requireElement<HTMLElement>("viewer");
-const status = requireElement<HTMLDivElement>("status");
-const statusText = requireElement<HTMLSpanElement>("status-text");
 const toolbar = requireElement<HTMLElement>("toolbar");
 const sourceSelect = requireElement<HTMLSelectElement>("source-select");
 const repoSelect = requireElement<HTMLSelectElement>("repo-select");
@@ -291,16 +288,10 @@ async function renderDiff() {
   }
 }
 
-function showStatusMessage(message: string, options: StatusMessageOptions = {}): void {
-  if (!status.isConnected) {
-    viewerElement.replaceChildren(status);
-  }
-  document.body.dataset.loading = options.loading === true || options.pending === true ? "true" : "false";
-  document.body.dataset.statusOnly = options.statusOnly === true ? "true" : "false";
-  status.dataset.error = options.error === true ? "true" : "false";
-  status.dataset.pending = options.pending === true ? "true" : "false";
-  // Write into the dedicated text node so the empty-state icon child survives.
-  statusText.textContent = message;
+function showStatusMessage(message: string, options: DiffViewerStatusOptions = {}): void {
+  const nextStatus = createDiffViewerStatus(message, options);
+  applyDiffViewerStatusToDocument(nextStatus);
+  host.setStatus(nextStatus);
 }
 
 async function applyReplacementFrom(response: Response): Promise<boolean> {
@@ -657,7 +648,6 @@ async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile,
     if (firstRender) {
       firstRender = false;
       document.body.dataset.loading = "false";
-      status.remove();
     }
     if (!hadCodeItems) {
       updateActiveFile(codeViewItems[0]?.id ?? diffItems[0]?.id ?? "");

@@ -1,15 +1,23 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 import { startDiffViewer } from "./viewer-controller";
 import type { DiffViewerConfig } from "./types";
 import type { DiffViewerLabelResolver } from "./labels";
+import type { DiffViewerStatus } from "./status";
 
 type ConfigProps = {
   config: DiffViewerConfig;
+  initialStatus: DiffViewerStatus;
 };
 
-type ShellProps = ConfigProps & {
+type ShellProps = {
+  config: DiffViewerConfig;
   label: DiffViewerLabelResolver;
+};
+
+type LoadingLayerProps = {
+  label: DiffViewerLabelResolver;
+  status: DiffViewerStatus;
 };
 
 const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
@@ -49,12 +57,16 @@ function LoadingDiffSkeleton() {
   );
 }
 
-function LoadingLayer({ config, label }: ShellProps) {
+function LoadingLayer({ label, status }: LoadingLayerProps) {
   return (
     <div id="loading-layer" aria-live="polite">
-      <div id="status">
+      <div
+        id="status"
+        data-error={status.error ? "true" : "false"}
+        data-pending={status.pending ? "true" : "false"}
+      >
         <span id="status-icon" aria-hidden="true" />
-        <span id="status-text">{config.payload?.statusMessage ?? label("loadingDiff")}</span>
+        <span id="status-text">{status.message || label("loadingDiff")}</span>
       </div>
       <LoadingDiffSkeleton />
     </div>
@@ -165,8 +177,9 @@ function FilesSidebar({ label }: ShellProps) {
   );
 }
 
-export function App({ config }: ConfigProps) {
+export function App({ config, initialStatus }: ConfigProps) {
   const started = useRef(false);
+  const [status, setStatus] = useState(initialStatus);
   const label = createDiffViewerLabelResolver(config.payload?.labels, {
     assertMissing: shouldAssertMissingLabels(),
   });
@@ -176,7 +189,7 @@ export function App({ config }: ConfigProps) {
       return;
     }
     started.current = true;
-    startDiffViewer(config);
+    startDiffViewer(config, { setStatus });
   };
 
   return (
@@ -184,9 +197,8 @@ export function App({ config }: ConfigProps) {
       <Toolbar config={config} label={label} />
       <section id="content">
         <FilesSidebar config={config} label={label} />
-        <main id="viewer" aria-label={label("diffViewer")}>
-          <LoadingLayer config={config} label={label} />
-        </main>
+        <main id="viewer" aria-label={label("diffViewer")} />
+        <LoadingLayer label={label} status={status} />
       </section>
     </div>
   );

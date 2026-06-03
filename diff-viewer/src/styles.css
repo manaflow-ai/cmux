@@ -539,6 +539,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   box-shadow: 0 -1px 0 var(--cmux-diff-border), 0 1px 0 var(--cmux-diff-border);
 }
 #loading-layer {
+  grid-area: viewer;
   position: absolute;
   inset: 0;
   z-index: 4;
