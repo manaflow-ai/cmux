@@ -3902,6 +3902,8 @@ const commands = [
   { id: "settings.saveProfile", label: "Save Current Settings Profile", shortcut: "", run: () => saveCurrentSettingsProfile() },
   { id: "settings.clearRecentActivity", label: "Clear Recent Activity", shortcut: "", run: () => clearRecentActivity() },
   { id: "settings.terminal", label: "Open Terminal Settings", shortcut: "", run: () => openSettingsCategory("terminal") },
+  { id: "settings.copyTerminalSetup", label: "Copy Terminal Setup", shortcut: "", run: () => copyTerminalSetup() },
+  { id: "settings.pasteTerminalSetup", label: "Paste Terminal Setup", shortcut: "", run: () => pasteTerminalSetup() },
   { id: "settings.terminalColors", label: "Reset Terminal Colors", shortcut: "", run: () => applyTerminalColorPresetById("cmux") },
   { id: "settings.saveTerminalProfile", label: "Save Terminal Profile", shortcut: "", run: () => saveCurrentTerminalProfile() },
   { id: "settings.colors", label: "Open Color Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "color", focusSearch: true }) },
@@ -10461,8 +10463,12 @@ function renderSettingsInspector(options = {}) {
     ));
     const colorActions = document.createElement("div");
     colorActions.className = "settings-actions";
-    colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color reset default background foreground cursor save copy paste terminal profile setup reusable clipboard json");
+    colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color reset default background foreground cursor save copy paste terminal profile setup reusable clipboard json font size line height padding history shell");
     const terminalColorsReset = isTerminalColorPresetIdActive("cmux");
+    const copyTerminalSetupAction = settingsActionButton("Copy setup", copyTerminalSetup, "", "terminal setup copy font size line height padding history color cursor shell clipboard json");
+    copyTerminalSetupAction.title = "Copy the current terminal font, spacing, colors, cursor, and shell setup.";
+    const pasteTerminalSetupAction = settingsActionButton("Paste setup", pasteTerminalSetup, "", "terminal setup paste font size line height padding history color cursor shell clipboard json");
+    pasteTerminalSetupAction.title = "Apply a copied cmux terminal setup.";
     const copyTerminalColors = settingsActionButton("Copy colors", copyTerminalColorPalette, "", "terminal color copy palette json clipboard background foreground cursor");
     copyTerminalColors.title = "Copy the current terminal background, text, and cursor color setup.";
     const pasteTerminalColors = settingsActionButton("Paste colors", pasteTerminalColorPalette, "", "terminal color paste palette json clipboard background foreground cursor");
@@ -10477,6 +10483,8 @@ function renderSettingsInspector(options = {}) {
         settingsActionButton("Save terminal profile", saveCurrentTerminalProfile, "primary", "terminal save profile setup font color cursor shell reusable"),
         "Save this terminal setup as a reusable Settings profile."
       ),
+      copyTerminalSetupAction,
+      pasteTerminalSetupAction,
       copyTerminalColors,
       pasteTerminalColors,
       resetTerminalColors
@@ -16430,6 +16438,143 @@ function terminalColorPresetTitle(preset, active) {
   return active ? `${preset.label} terminal colors already active.` : preset.body;
 }
 
+const terminalSetupSettings = [
+  "terminalFontFamily",
+  "terminalFontSize",
+  "terminalLineHeight",
+  "terminalPadding",
+  "terminalScrollback",
+  "terminalCursorStyle",
+  "terminalCursorBlink",
+  "terminalBackground",
+  "terminalForeground",
+  "terminalCursorColor",
+  "terminalProfile",
+  "terminalCustomShell"
+];
+
+const terminalSetupColorSettings = new Set([
+  "terminalBackground",
+  "terminalForeground",
+  "terminalCursorColor"
+]);
+
+const terminalSetupNumberSettings = {
+  terminalFontSize: [terminalFontSizeMin, terminalFontSizeMax],
+  terminalLineHeight: [1, 1.5],
+  terminalPadding: [0, 16],
+  terminalScrollback: [2000, 50000]
+};
+
+function terminalSetupPayload() {
+  const settings = {};
+  for (const key of terminalSetupSettings) settings[key] = state.settings[key];
+  const colors = terminalColorPalettePayload();
+  return {
+    version: 1,
+    type: "cmux-terminal-setup",
+    summary: {
+      font: `${optionLabel(terminalFontOptions, state.settings.terminalFontFamily, state.settings.terminalFontFamily)} ${state.settings.terminalFontSize}px`,
+      lineHeight: formatLineHeight(state.settings.terminalLineHeight),
+      padding: `${state.settings.terminalPadding}px`,
+      history: String(state.settings.terminalScrollback),
+      cursor: `${optionLabel(terminalCursorStyles, state.settings.terminalCursorStyle, state.settings.terminalCursorStyle)}${state.settings.terminalCursorBlink ? " blink" : ""}`,
+      shell: optionLabel(terminalProfiles, state.settings.terminalProfile, state.settings.terminalProfile),
+      colors: colors.effective
+    },
+    settings
+  };
+}
+
+async function copyTerminalSetup() {
+  const payload = JSON.stringify(terminalSetupPayload(), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Terminal setup copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Terminal setup",
+    message: "Clipboard access is unavailable. The current terminal setup is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function terminalSetupNumberUpdateFromValue(key, raw) {
+  if (raw === null || raw === "" || typeof raw === "boolean" || typeof raw === "object") return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return null;
+  const [min, max] = terminalSetupNumberSettings[key] || [];
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+  return clamp(value, min, max);
+}
+
+function terminalSetupSettingUpdateFromValue(key, raw) {
+  if (key === "terminalFontFamily") return optionIdAllowed(terminalFontOptions, raw) ? raw : null;
+  if (key === "terminalCursorStyle") return optionIdAllowed(terminalCursorStyles, raw) ? raw : null;
+  if (key === "terminalProfile") return optionIdAllowed(terminalProfiles, raw) ? raw : null;
+  if (key === "terminalCursorBlink") return typeof raw === "boolean" ? raw : null;
+  if (key === "terminalCustomShell") {
+    if (raw === null) return "";
+    return typeof raw === "string" ? raw.trim().slice(0, 512) : null;
+  }
+  if (terminalSetupColorSettings.has(key)) {
+    if (raw === "" || raw === null) return "";
+    return typeof raw === "string" ? normalizeTerminalColor(raw) || null : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(terminalSetupNumberSettings, key)) {
+    return terminalSetupNumberUpdateFromValue(key, raw);
+  }
+  return null;
+}
+
+function terminalSetupUpdatesFromPayload(payload) {
+  const parsed = importedObject(payload);
+  const source = importedObject(parsed?.settings) || parsed;
+  if (!source) return null;
+  const updates = {};
+  for (const key of terminalSetupSettings) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    const value = terminalSetupSettingUpdateFromValue(key, source[key]);
+    if (value === null) return null;
+    updates[key] = value;
+  }
+  return Object.keys(updates).length ? updates : null;
+}
+
+function applyTerminalSetupUpdates(updates) {
+  if (!updates) {
+    toast("Clipboard does not contain terminal setup.");
+    return false;
+  }
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Terminal setup already matches.");
+    return false;
+  }
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast("Terminal setup applied.");
+  return true;
+}
+
+async function pasteTerminalSetup() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(clipboard);
+    return applyTerminalSetupUpdates(terminalSetupUpdatesFromPayload(parsed));
+  } catch {
+    toast("Clipboard does not contain terminal setup.");
+    return false;
+  }
+}
+
 function terminalColorPalettePayload() {
   const accent = getComputedStyle(document.documentElement).getPropertyValue("--color-accent").trim()
     || terminalColorDefaults.cursor;
@@ -18423,6 +18568,8 @@ function showToolbarMenu(event) {
       ),
       toolbarAction("Clear terminal background", () => applyPanelBackgroundImage("", panel), !terminalActive || !terminalBackground, "Clear the focused terminal background.", terminalActive ? "Focused terminal background is already clear." : terminalRequiredTitle),
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
+      toolbarAction("Copy terminal setup", copyTerminalSetup, false, "Copy the current terminal font, spacing, colors, cursor, and shell setup."),
+      toolbarAction("Paste terminal setup", pasteTerminalSetup, false, "Apply a copied cmux terminal setup."),
       toolbarAction("Copy terminal colors", copyTerminalColorPalette, false, "Copy the current terminal color setup."),
       toolbarAction("Paste terminal colors", pasteTerminalColorPalette, false, "Apply terminal colors copied from cmux."),
       toolbarAction("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), terminalColorsDefault, "Reset background, text, and cursor colors to the cmux default.", "Terminal colors already match the cmux default.")
@@ -19371,6 +19518,24 @@ function paletteEntries() {
       run: () => runTerminalCommandSnippet(snippet.id)
     });
   }
+  entries.push({
+    id: "terminal.copySetup",
+    label: "Copy terminal setup",
+    meta: "Font, spacing, colors, cursor, and shell JSON",
+    shortcut: "Copy",
+    title: "Copy the current terminal setup.",
+    search: normalizeSettingsQuery("terminal setup copy font size line height padding history scrollback colors cursor shell profile json clipboard settings"),
+    run: copyTerminalSetup
+  });
+  entries.push({
+    id: "terminal.pasteSetup",
+    label: "Paste terminal setup",
+    meta: "Apply copied terminal setup JSON",
+    shortcut: "Paste",
+    title: "Apply a terminal setup copied from cmux.",
+    search: normalizeSettingsQuery("terminal setup paste apply font size line height padding history scrollback colors cursor shell profile json clipboard settings"),
+    run: pasteTerminalSetup
+  });
   entries.push({
     id: "terminalColor.copyCurrent",
     label: "Copy terminal colors",
