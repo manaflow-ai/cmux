@@ -505,6 +505,8 @@ const builtInTerminalCommandSnippets = [
   { id: "gitPull", label: "Git Pull", command: "git pull --ff-only" },
   { id: "gitPush", label: "Git Push", command: "git push" },
   { id: "npmScripts", label: "Show NPM Scripts", command: "npm run" },
+  { id: "listListeningPorts", label: "List Listening Ports", command: "netstat -ano | findstr LISTENING" },
+  { id: "showNodeProcesses", label: "Show Node Processes", command: "tasklist | findstr node.exe" },
   { id: "ghPrStatus", label: "GH PR Status", command: "gh pr status" },
   { id: "ghPrChecks", label: "GH PR Checks", command: "gh pr checks" },
   { id: "ghPrViewWeb", label: "GH PR View in Browser", command: "gh pr view --web" },
@@ -529,6 +531,12 @@ const commandSnippetPackDefinitions = [
     label: "Node app",
     body: "List workspace files and inspect available package scripts.",
     snippetIds: ["listFiles", "npmScripts"]
+  },
+  {
+    id: "localDiagnostics",
+    label: "Local diagnostics",
+    body: "Quick Windows checks for listening ports and Node processes.",
+    snippetIds: ["listListeningPorts", "showNodeProcesses"]
   }
 ];
 
