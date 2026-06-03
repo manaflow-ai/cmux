@@ -6645,7 +6645,26 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         XCTAssertEqual(
             workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds),
-            workspace.sidebarPullRequestsInDisplayOrder()
+            [
+                SidebarPullRequestState(
+                    number: 101,
+                    label: "PR",
+                    url: URL(string: "https://github.com/manaflow-ai/cmux/pull/101")!,
+                    status: .open,
+                    branch: nil
+                ),
+                SidebarPullRequestState(
+                    number: 18,
+                    label: "MR",
+                    url: URL(string: "https://gitlab.com/manaflow/cmux/-/merge_requests/18")!,
+                    status: .merged,
+                    branch: nil
+                ),
+            ]
+        )
+        XCTAssertEqual(
+            workspace.sidebarPullRequestsInDisplayOrder(),
+            workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [leftFirstPanelId])
         )
     }
 

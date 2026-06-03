@@ -1813,7 +1813,6 @@ final class SocketClient {
         }
         do {
             try configureSocketWriteSafety(Self.responseTimeoutSeconds)
-            try configureReceiveTimeout(Self.responseTimeoutSeconds)
         } catch {
             close()
             throw error
@@ -1929,7 +1928,6 @@ final class SocketClient {
         }
         do {
             try configureSocketWriteSafety(Self.responseTimeoutSeconds)
-            try configureReceiveTimeout(Self.responseTimeoutSeconds)
         } catch {
             close()
             throw error
@@ -27050,7 +27048,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             do {
                 let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
-                let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
+                guard let surfaces = listed["surfaces"] as? [[String: Any]] else {
+                    failedSurfaceListWorkspaces.insert(workspaceId)
+                    return nil
+                }
                 successfulSurfaceListCache[workspaceId] = surfaces
                 return surfaces
             } catch {
@@ -27059,11 +27060,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
         }
         func workspaceIsAccessible(_ workspaceId: String) -> Bool {
-            listedSurfaces(workspaceId: workspaceId) != nil
+            listedSurfaces(workspaceId: workspaceId) != nil || failedSurfaceListWorkspaces.contains(workspaceId)
         }
         func surfaceIsAccessible(_ surfaceId: String, workspaceId: String) -> Bool {
             guard let surfaces = listedSurfaces(workspaceId: workspaceId) else {
-                return false
+                return true
             }
             return surfaces.contains {
                 ($0["id"] as? String) == surfaceId || ($0["ref"] as? String) == surfaceId

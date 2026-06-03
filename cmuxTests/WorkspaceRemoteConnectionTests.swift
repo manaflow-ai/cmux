@@ -6242,7 +6242,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
         XCTAssertEqual(
             requests.compactMap { $0["method"] as? String },
-            ["workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
+            ["workspace.create", "surface.list", "workspace.rename", "workspace.remote.configure", "workspace.select"]
         )
 
         let createParams = try XCTUnwrap(requests[0]["params"] as? [String: Any])
@@ -6250,11 +6250,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
         XCTAssertFalse(initialCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-        let renameParams = try XCTUnwrap(requests[1]["params"] as? [String: Any])
+        let renameParams = try XCTUnwrap(requests[2]["params"] as? [String: Any])
         XCTAssertEqual(renameParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(renameParams["title"] as? String, "SSH Workspace")
 
-        let configureParams = try XCTUnwrap(requests[2]["params"] as? [String: Any])
+        let configureParams = try XCTUnwrap(requests[3]["params"] as? [String: Any])
         XCTAssertEqual(configureParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(configureParams["destination"] as? String, "cmux-macmini")
         XCTAssertEqual(configureParams["port"] as? Int, 2222)
