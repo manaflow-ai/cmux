@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { formatMessage, t } from "../../i18n.js";
 
 const labelKeys = {
@@ -151,10 +151,15 @@ export function SettingsShell({
   const searchInputRef = useRef(null);
   const searchWasClearedRef = useRef(false);
   const tabsRef = useRef(null);
+  const [draftQuery, setDraftQuery] = useState(query || "");
 
   useEffect(() => {
     if (focusSearchOnMount) searchInputRef.current?.focus({ preventScroll: true });
   }, [focusSearchOnMount]);
+
+  useEffect(() => {
+    setDraftQuery(query || "");
+  }, [query]);
 
   useEffect(() => {
     if (!searchWasClearedRef.current || query) return;
@@ -197,9 +202,15 @@ export function SettingsShell({
     if (nextCategoryId !== activeCategory) onCategory(nextCategoryId);
   };
 
+  const changeSearch = (nextQuery) => {
+    setDraftQuery(nextQuery);
+    onQuery(nextQuery);
+  };
+
   const clearSearch = () => {
-    if (!query) return;
+    if (!draftQuery) return;
     searchWasClearedRef.current = true;
+    setDraftQuery("");
     onClear();
   };
   const tabTitleTemplate = safeLabels.tabTitle;
@@ -207,21 +218,21 @@ export function SettingsShell({
 
   return (
     <div className="settings-react-shell" data-react-settings="true">
-      <div className={`settings-search${query ? " has-query" : ""}`}>
+      <div className={`settings-search${draftQuery ? " has-query" : ""}`}>
         <input
           aria-label={safeLabels.searchPlaceholder}
           className="setting-control settings-search-input"
           type="search"
           placeholder={safeLabels.searchPlaceholder}
           ref={searchInputRef}
-          value={query}
-          onChange={(event) => onQuery(event.target.value)}
+          value={draftQuery}
+          onChange={(event) => changeSearch(event.target.value)}
         />
         <button
           aria-label={safeLabels.clearSearch}
           className="settings-search-clear"
           type="button"
-          disabled={!query}
+          disabled={!draftQuery}
           title={safeLabels.clearSearch}
           onClick={clearSearch}
         >

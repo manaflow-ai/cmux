@@ -13453,7 +13453,7 @@ function renderSettingsChrome(host) {
         state.settingsSearchFocusPending = true;
         scheduleSettingsInspectorRender({ resetScroll: true });
       } else {
-        renderSettingsChrome(host);
+        setSettingsSearchResultText(state.settingsSearchResultText);
         scheduleSettingsFilter();
       }
     },
