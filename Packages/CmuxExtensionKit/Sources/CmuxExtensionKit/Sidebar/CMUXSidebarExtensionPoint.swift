@@ -17,7 +17,7 @@ public enum CmuxSidebarExtensionPoint {
     /// Populated at build time from the `CMUX_SIDEBAR_EXTENSION_POINT_ID` build setting
     /// (via Info.plist variable substitution), so the resolved id lives only in the built
     /// bundle, never in tracked source. Absent or empty means "use ``baseIdentifier``".
-    public static let identifierInfoPlistKey = "CmuxSidebarExtensionPointIdentifier"
+    public static let identifierInfoPlistKey = "CMUXSidebarExtensionPointIdentifier"
 
     /// Resolves the extension point identifier for a bundle.
     ///
@@ -28,10 +28,6 @@ public enum CmuxSidebarExtensionPoint {
     /// - Parameter bundle: Bundle to read the override from. Defaults to `.main`.
     /// - Returns: The effective extension point identifier.
     public static func identifier(in bundle: Bundle = .main) -> String {
-        if let environmentOverride = ProcessInfo.processInfo.environment["CMUX_SIDEBAR_EXTENSION_POINT_ID"],
-           !environmentOverride.isEmpty {
-            return environmentOverride
-        }
         guard let override = bundle.object(forInfoDictionaryKey: identifierInfoPlistKey) as? String,
               !override.isEmpty else {
             return baseIdentifier
