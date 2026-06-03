@@ -155,6 +155,87 @@ def _run_case(
     return 0, f"{shell}: ok"
 
 
+def _same_repo_shell_command(kind: str) -> str:
+    # An in-repo `cd pkg` must NOT suppress a same-repo report. The HEAD watch
+    # keeps reporting the preexec watch_pwd (the repo root) while the marker now
+    # points at a subdirectory of the same repo; the guard must still allow it so
+    # live branch updates survive `cd pkg && long-cmd`.
+    if kind == "zsh":
+        return textwrap.dedent(
+            """\
+            source "$CMUX_TEST_SCRIPT"
+            precmd_functions=()
+            preexec_functions=()
+            _cmux_send() { print -r -- "$1" >> "$CMUX_TEST_SEND_LOG"; }
+            cd "$CMUX_TEST_REPO/pkg"
+            _cmux_set_git_active_pwd "$PWD"
+            _cmux_report_git_branch_for_path "$CMUX_TEST_REPO"
+            """
+        )
+
+    if kind == "bash":
+        return textwrap.dedent(
+            """\
+            source "$CMUX_TEST_SCRIPT"
+            _cmux_send() { printf '%s\\n' "$1" >> "$CMUX_TEST_SEND_LOG"; }
+            _cmux_send_bg() { _cmux_send "$1"; }
+            cd "$CMUX_TEST_REPO/pkg"
+            _cmux_set_git_active_pwd "$PWD"
+            _cmux_report_git_branch_for_path "$CMUX_TEST_REPO"
+            """
+        )
+
+    raise ValueError(f"Unsupported shell kind: {kind}")
+
+
+def _run_same_repo_case(
+    base: Path,
+    *,
+    shell: str,
+    shell_args: list[str],
+    script: Path,
+) -> tuple[int, str]:
+    repo = base / f"{shell}-samerepo" / "repo"
+    socket_path = base / f"{shell}-samerepo" / "cmux.sock"
+    send_log = base / f"{shell}-samerepo" / "send.log"
+    head_file = repo / ".git" / "HEAD"
+
+    (repo / "pkg").mkdir(parents=True, exist_ok=True)
+    head_file.parent.mkdir(parents=True, exist_ok=True)
+    head_file.write_text("ref: refs/heads/feature-x\n", encoding="utf-8")
+
+    env = dict(os.environ)
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_TAB_ID"] = "00000000-0000-0000-0000-000000000001"
+    env["CMUX_PANEL_ID"] = "00000000-0000-0000-0000-000000000002"
+    env["CMUX_TEST_SCRIPT"] = str(script)
+    env["CMUX_TEST_REPO"] = str(repo)
+    env["CMUX_TEST_SEND_LOG"] = str(send_log)
+    env.pop("_CMUX_GIT_ACTIVE_PWD_FILE", None)
+
+    with BoundUnixSocket(socket_path):
+        try:
+            result = subprocess.run(
+                [shell, *shell_args, _same_repo_shell_command(shell)],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+        except FileNotFoundError:
+            return 1, f"{shell}: shell binary not found; cannot exercise same-repo guard"
+
+    output = (result.stdout or "") + (result.stderr or "")
+    if result.returncode != 0:
+        return result.returncode, f"{shell}: shell failed\n{output}"
+
+    lines = _read_lines(send_log)
+    reports = [line for line in lines if line.startswith("report_git_branch ")]
+    if not any("feature-x" in line for line in reports):
+        return 1, f"{shell}: in-repo cd suppressed a same-repo branch report (live updates would break): {lines}"
+    return 0, f"{shell}: same-repo report survives in-repo cd"
+
+
 def _run_zsh_chpwd_keeps_watch(base: Path, *, script: Path) -> tuple[int, str]:
     # The zsh chpwd hook must scope the marker to the new cwd WITHOUT tearing down
     # a running HEAD watch -- chpwd fires mid-line for `cd foo && long-cmd`, so
@@ -223,6 +304,9 @@ def main() -> int:
             rc, detail = _run_case(base, shell=shell, shell_args=shell_args, script=script)
             if rc != 0:
                 failures.append(detail)
+            rc_same, detail_same = _run_same_repo_case(base, shell=shell, shell_args=shell_args, script=script)
+            if rc_same != 0:
+                failures.append(detail_same)
 
         # zsh-only: chpwd must keep a running HEAD watch alive so compound commands
         # like `cd foo && long-cmd` still get live branch updates (cases[0] is zsh).

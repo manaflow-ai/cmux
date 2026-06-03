@@ -625,7 +625,18 @@ _cmux_git_report_path_is_active() {
 
     local active_pwd=""
     IFS= read -r active_pwd < "$_CMUX_GIT_ACTIVE_PWD_FILE" || active_pwd=""
-    [[ -z "$active_pwd" || "$repo_path" == "$active_pwd" ]]
+    # No recorded cwd yet, or the report targets the current cwd exactly: allow.
+    [[ -z "$active_pwd" || "$repo_path" == "$active_pwd" ]] && return 0
+
+    # Otherwise the report is valid only when the current cwd is in the SAME
+    # repository as repo_path. This keeps live branch updates flowing after an
+    # in-repo `cd pkg` (the HEAD watch still reports the preexec watch_pwd) while
+    # still dropping a report once the shell has left the repo entirely (the
+    # stale-branch case). Resolve both HEAD paths without invoking git and compare.
+    local repo_head active_head
+    repo_head="$(_cmux_git_resolve_head_path "$repo_path" 2>/dev/null || true)"
+    active_head="$(_cmux_git_resolve_head_path "$active_pwd" 2>/dev/null || true)"
+    [[ -n "$repo_head" && "$repo_head" == "$active_head" ]]
 }
 
 _cmux_report_tty_payload() {
