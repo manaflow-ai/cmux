@@ -480,6 +480,16 @@ import Testing
         #expect(node?.children.map(\.text) == ["2", "1", "42"])
     }
 
+    @Test func deeplyNestedViewDoesNotCrash() {
+        // 600 levels of nesting overflows the small caller stack (both the
+        // swift-syntax parse and this walker recurse with depth); the large-
+        // stack worker thread absorbs it and it renders without crashing.
+        let depth = 600
+        let source = String(repeating: "VStack { ", count: depth) + "Text(\"deep\")" + String(repeating: " }", count: depth)
+        let node = interp.evaluate(source)
+        #expect(node?.kind == .vstack)
+    }
+
     @Test func progressGaugeMenuAndContextMenu() {
         let p = interp.evaluate(#"VStack { ProgressView(value: 30, total: 120) }"#)
         #expect(p?.children.first?.kind == .progressView)

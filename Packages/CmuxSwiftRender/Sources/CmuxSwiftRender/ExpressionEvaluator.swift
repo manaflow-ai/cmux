@@ -9,6 +9,9 @@ import SwiftSyntax
 /// `nil` so the caller can skip them.
 struct ExpressionEvaluator {
     func eval(_ expr: ExprSyntax, _ env: Environment) -> SwiftValue? {
+        env.budget.enter()
+        defer { env.budget.leave() }
+        guard !env.budget.exceeded else { return nil }
         if let literal = expr.as(IntegerLiteralExprSyntax.self) {
             return Int(literal.literal.text.replacingOccurrences(of: "_", with: "")).map(SwiftValue.int)
         }
@@ -360,6 +363,9 @@ struct ExpressionEvaluator {
     /// body (handling `let`, `if/else` with `return`, `return`, and a trailing
     /// expression as the implicit return).
     private func callValueFunction(_ decl: FunctionDeclSyntax, _ call: FunctionCallExprSyntax, _ env: Environment) -> SwiftValue? {
+        env.budget.enter()
+        defer { env.budget.leave() }
+        guard !env.budget.exceeded else { return nil }
         guard let body = decl.body else { return nil }
         return evalBlockValue(body.statements, bindParameters(decl, call, env))
     }

@@ -26,6 +26,14 @@ import SwiftSyntax
 /// }
 /// """, state: ["count": .int(2)])
 /// ```
+/// One-shot result holder for ``SwiftViewInterpreter``'s large-stack worker:
+/// written once on the worker thread, read on the caller only after the join
+/// signal. Safe to mark `@unchecked Sendable` because access is serialized by
+/// the join, not by concurrent sharing.
+private final class LargeStackResultBox<T>: @unchecked Sendable {
+    var value: T?
+}
+
 public struct SwiftViewInterpreter: Sendable {
     private let expressions = ExpressionEvaluator()
 
@@ -37,25 +45,39 @@ public struct SwiftViewInterpreter: Sendable {
     /// folding). Cache the result and feed it to ``evaluate(_:state:)`` when
     /// only the live data changes, so a host that re-renders on a timer does
     /// not re-parse unchanged source every frame.
+    ///
+    /// Runs on a dedicated large-stack worker thread: `swift-syntax`'s
+    /// recursive-descent parse recurses with source nesting and untrusted
+    /// authored sidebars can nest arbitrarily deep, so a 16 MB stack absorbs
+    /// realistic depth without overflowing the (small) caller stack.
     public func parse(_ source: String) -> ParsedProgram {
-        let parsed = Parser.parse(source: source)
-        let file = (try? OperatorTable.standardOperators.foldAll(parsed))?
-            .as(SourceFileSyntax.self) ?? parsed
-        return ParsedProgram(file: file)
+        onLargeStack {
+            let parsed = Parser.parse(source: source)
+            let file = (try? OperatorTable.standardOperators.foldAll(parsed))?
+                .as(SourceFileSyntax.self) ?? parsed
+            return ParsedProgram(file: file)
+        }
     }
 
     /// Interprets an already-parsed ``ParsedProgram``'s first top-level
     /// expression against an environment seeded with `state`. Returns `nil`
     /// when nothing supported is found.
+    ///
+    /// Runs the tree-walk on a dedicated large-stack worker thread (the walker
+    /// recurses with view nesting); the per-``Environment`` ``RecursionBudget``
+    /// backstops genuinely unbounded interpreter recursion (e.g. mutually
+    /// recursive view helpers).
     public func evaluate(_ program: ParsedProgram, state: [String: SwiftValue] = [:]) -> RenderNode? {
-        let env = Environment(values: state)
-        registerFunctions(program.file.statements, env)
-        for item in program.file.statements {
-            if let expr = item.item.as(ExprSyntax.self), let node = evalView(expr, env) {
-                return node
+        onLargeStack {
+            let env = Environment(values: state)
+            self.registerFunctions(program.file.statements, env)
+            for item in program.file.statements {
+                if let expr = item.item.as(ExprSyntax.self), let node = self.evalView(expr, env) {
+                    return node
+                }
             }
+            return nil
         }
-        return nil
     }
 
     /// Parses `source` and interprets the first top-level expression against
@@ -66,6 +88,24 @@ public struct SwiftViewInterpreter: Sendable {
     /// data, call ``parse(_:)`` once and reuse the ``ParsedProgram``.
     public func evaluate(_ source: String, state: [String: SwiftValue] = [:]) -> RenderNode? {
         evaluate(parse(source), state: state)
+    }
+
+    /// Runs `work` on a dedicated 16 MB-stack worker thread and returns its
+    /// result, so deep recursive-descent parsing and tree-walking do not
+    /// overflow the (small) caller stack.
+    private func onLargeStack<T: Sendable>(_ work: @escaping @Sendable () -> T) -> T {
+        // `box` is written once on the worker and read only after the join
+        // signal below, so the unchecked Sendable is safe.
+        let box = LargeStackResultBox<T>()
+        let done = DispatchSemaphore(value: 0) // one-shot thread-join signal, not a state lock.
+        let worker = Thread {
+            box.value = work()
+            done.signal()
+        }
+        worker.stackSize = 16 * 1024 * 1024
+        worker.start()
+        done.wait()
+        return box.value!
     }
 
     /// Registers any `func` declarations in `items` into `env` so value and
@@ -85,6 +125,9 @@ public struct SwiftViewInterpreter: Sendable {
     // MARK: - View expressions
 
     private func evalView(_ expr: ExprSyntax, _ env: Environment) -> RenderNode? {
+        env.budget.enter()
+        defer { env.budget.leave() }
+        guard !env.budget.exceeded else { return nil }
         guard let call = expr.as(FunctionCallExprSyntax.self) else { return nil }
         return evalCall(call, env)
     }
@@ -251,6 +294,9 @@ public struct SwiftViewInterpreter: Sendable {
     // MARK: - ViewBuilder statements
 
     private func evalItems(_ items: CodeBlockItemListSyntax, _ env: Environment) -> [RenderNode] {
+        env.budget.enter()
+        defer { env.budget.leave() }
+        guard !env.budget.exceeded else { return [] }
         registerFunctions(items, env)
         var out: [RenderNode] = []
         for item in items {
