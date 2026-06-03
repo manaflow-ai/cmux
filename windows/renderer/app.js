@@ -10122,11 +10122,6 @@ function activeBackgroundPanel(options = {}) {
       <span class="active-background-kicker">Active background</span>
       <span class="active-background-title"></span>
       <span class="active-background-source"></span>
-      <span class="active-background-scope" aria-label="Background scope">
-        <button class="active-background-scope-chip" type="button" data-background-scope="app">None</button>
-        <button class="active-background-scope-chip" type="button" data-background-scope="pane">No terminal</button>
-        <button class="active-background-scope-chip" type="button" data-background-scope="all">No terminals</button>
-      </span>
     </span>
     <span class="active-background-actions"></span>
   `;
@@ -10136,7 +10131,6 @@ function activeBackgroundPanel(options = {}) {
   panel.querySelector(".active-background-title").title = model.label;
   panel.querySelector(".active-background-source").textContent = model.source;
   panel.querySelector(".active-background-source").title = model.source;
-  updateActiveBackgroundScopeChips(panel, activeBackgroundScopeModel(state.settings.backgroundImage));
   panel.querySelector(".active-background-copy").append(activeBackgroundScopeSnapshot());
   const actions = panel.querySelector(".active-background-actions");
   panel.insertBefore(activeBackgroundTargetControl(), actions);
@@ -10289,46 +10283,6 @@ function activeBackgroundScopeModel(background = state.settings.backgroundImage,
   };
 }
 
-function updateActiveBackgroundScopeChips(panel, scope = activeBackgroundScopeModel()) {
-  if (!panel) return;
-  const chips = {
-    app: panel.querySelector('[data-background-scope="app"]'),
-    pane: panel.querySelector('[data-background-scope="pane"]'),
-    all: panel.querySelector('[data-background-scope="all"]')
-  };
-  const labels = {
-    app: scope.app,
-    pane: scope.pane,
-    all: scope.all
-  };
-  const activeStates = {
-    app: scope.hasBackground,
-    pane: scope.activePaneMatches,
-    all: scope.allPanesMatch
-  };
-  const mutedStates = {
-    app: false,
-    pane: !scope.hasTerminal,
-    all: scope.paneCount === 0
-  };
-  const activeTarget = normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
-  const targetOptions = new Map(backgroundApplyTargetOptions().map((option) => [option.id, option]));
-  for (const [id, chip] of Object.entries(chips)) {
-    if (!chip) continue;
-    const option = targetOptions.get(id) || backgroundApplyTargetOption(id);
-    const selected = id === activeTarget;
-    setTextIfChanged(chip, labels[id]);
-    toggleClassIfChanged(chip, "is-active", activeStates[id]);
-    toggleClassIfChanged(chip, "is-muted", mutedStates[id]);
-    toggleClassIfChanged(chip, "is-selected", selected);
-    setDisabledIfChanged(chip, option.disabled);
-    setAttributeIfChanged(chip, "aria-pressed", selected ? "true" : "false");
-    setAttributeIfChanged(chip, "aria-label", `${option.label}. ${labels[id]}. ${option.meta}.`);
-    setTitleIfChanged(chip, `${option.label}: ${option.meta}`);
-    chip.onclick = () => selectBackgroundApplyTarget(id);
-  }
-}
-
 function refreshAppearancePreviewOpacity(value = state.settings.backgroundOpacity) {
   const opacity = String(clamp(value, 0, 42) / 100);
   for (const preview of elements.inspectorBody.querySelectorAll(".appearance-preview")) {
@@ -10362,7 +10316,6 @@ function refreshBackgroundPreviewNodes() {
     setTextIfChanged(source, model.source);
     if (title) title.title = model.label;
     if (source) source.title = model.source;
-    updateActiveBackgroundScopeChips(panel, activeBackgroundScopeModel(state.settings.backgroundImage, workspace));
     updateActiveBackgroundScopeSnapshot(panel.querySelector(".active-background-snapshot"), workspace);
     updateActiveBackgroundTargetControl(panel);
     const targetStatus = activeBackgroundTargetStatus(state.backgroundApplyTarget, workspace);

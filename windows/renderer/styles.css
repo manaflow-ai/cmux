@@ -664,7 +664,6 @@ body.reduce-motion *::after {
 .saved-color-swatch,
 .saved-background-preview,
 .active-background-preview,
-.active-background-scope-chip,
 .workspace-starter,
 .empty-workspace-starter,
 .empty-workspace-launcher,
@@ -782,7 +781,6 @@ body.reduce-motion *::after {
 .saved-color-swatch:focus-visible,
 .saved-background-preview:focus-visible,
 .active-background-preview:focus-visible,
-.active-background-scope-chip:focus-visible,
 .workspace-starter:focus-visible,
 .empty-workspace-starter:focus-visible,
 .empty-workspace-launcher:focus-visible,
@@ -9162,80 +9160,6 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   font: 10px/1.2 var(--font-mono);
 }
 
-.active-background-scope {
-  min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding-top: 2px;
-}
-
-.active-background-scope-chip {
-  min-width: 0;
-  max-width: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  height: 20px;
-  padding: 0 6px;
-  overflow: hidden;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
-  color: var(--color-muted);
-  font: 680 10px/1 var(--font-ui);
-  cursor: pointer;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.active-background-scope-chip:hover:not(:disabled) {
-  border-color: var(--color-line-strong);
-  background: var(--color-pane-warm);
-  color: var(--color-text);
-}
-
-.active-background-scope-chip::before {
-  content: "";
-  flex: 0 0 auto;
-  width: 5px;
-  height: 5px;
-  margin-right: 5px;
-  border-radius: 50%;
-  background: var(--color-faint);
-}
-
-.active-background-scope-chip.is-active {
-  border-color: color-mix(in oklch, var(--color-accent) 54%, var(--color-line) 46%);
-  background: color-mix(in oklch, var(--color-accent) 12%, var(--color-pane) 88%);
-  color: var(--color-text);
-}
-
-.active-background-scope-chip.is-active::before {
-  background: var(--color-accent);
-}
-
-.active-background-scope-chip.is-selected {
-  border-color: color-mix(in oklch, var(--color-accent) 64%, var(--color-line) 36%);
-  background: color-mix(in oklch, var(--color-accent) 16%, var(--color-pane) 84%);
-  color: var(--color-text);
-  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 26%, transparent);
-}
-
-.active-background-scope-chip.is-muted {
-  color: var(--color-faint);
-}
-
-.active-background-scope-chip:disabled {
-  cursor: default;
-}
-
-.active-background-scope-chip.is-muted:hover:disabled {
-  border-color: var(--color-line);
-  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
-}
-
 .active-background-snapshot {
   min-width: 0;
   display: grid;
@@ -9355,7 +9279,7 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   align-items: stretch;
   gap: 6px;
   padding: var(--space-2);
-  background: color-mix(in oklch, var(--color-pane) 86%, var(--color-rail) 14%);
+  background: color-mix(in oklch, var(--color-pane) 90%, var(--color-rail) 10%);
 }
 
 .background-target-label {
@@ -9479,6 +9403,7 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-line) 42%);
   background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane) 86%);
   color: var(--color-text);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 22%, transparent);
 }
 
 .background-target-option.is-active .background-target-icon {
