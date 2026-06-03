@@ -3438,6 +3438,32 @@ async function pasteSavedLibrary() {
   }
 }
 
+async function clearSavedLibrary() {
+  if (savedDataItemCount() === 0) {
+    toast("Customization library is already clear.");
+    return false;
+  }
+  if (!await showConfirmDialog({
+    title: "Clear customization library",
+    message: "Remove saved command snippets, Settings profiles, workspace blueprints, colors, and backgrounds. Current settings and recent activity stay.",
+    confirmLabel: "Clear",
+    danger: true
+  })) return false;
+  state.customCommandSnippets = [];
+  state.savedSettingsProfiles = [];
+  state.workspaceBlueprints = [];
+  state.customColorPalette = [];
+  state.savedBackgroundImages = [];
+  saveCustomCommandSnippets();
+  saveSavedSettingsProfiles();
+  saveWorkspaceBlueprints();
+  saveCustomColorPalette();
+  saveSavedBackgroundImages();
+  renderSettingsInspector();
+  toast("Customization library cleared.");
+  return true;
+}
+
 async function saveCustomBackgroundImage(background, options = {}) {
   const input = typeof background === "string" ? { url: background } : background || {};
   const source = input.url || input.value || input.backgroundImage;
@@ -5080,6 +5106,7 @@ const commands = [
   { id: "settings.pasteRecentActivity", label: "Paste Recent Activity", shortcut: "", run: () => pasteRecentActivity() },
   { id: "settings.copySavedLibrary", label: "Copy Customization Library", shortcut: "", run: () => copySavedLibrary() },
   { id: "settings.pasteSavedLibrary", label: "Paste Customization Library", shortcut: "", run: () => pasteSavedLibrary() },
+  { id: "settings.clearSavedLibrary", label: "Clear Customization Library", shortcut: "", run: () => clearSavedLibrary() },
   { id: "settings.pane", label: "Open Active Pane Settings", shortcut: "", run: () => openPaneSettings() },
   { id: "settings.copyPaneSetup", label: "Copy Active Pane Setup", shortcut: "", run: () => copyActivePaneSetup() },
   { id: "settings.pastePaneSetup", label: "Paste Active Pane Setup", shortcut: "", run: () => pasteActivePaneSetup() },
@@ -11771,6 +11798,9 @@ function renderSettingsInspector(options = {}) {
     copySavedLibraryAction.title = savedLibrary ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON." : "Customization library is empty.";
     const pasteSavedLibraryAction = settingsActionButton("Paste library", pasteSavedLibrary, "", "settings data saved customization library import paste snippets profiles blueprints colors backgrounds clipboard json");
     pasteSavedLibraryAction.title = "Merge copied saved snippets, profiles, blueprints, colors, and backgrounds.";
+    const clearSavedLibraryAction = settingsActionButton("Clear library", clearSavedLibrary, "danger", "settings data saved customization library clear delete snippets profiles blueprints colors backgrounds");
+    clearSavedLibraryAction.disabled = !savedLibrary;
+    clearSavedLibraryAction.title = savedLibrary ? "Clear saved snippets, profiles, blueprints, colors, and backgrounds." : "Customization library is already clear.";
     actions.append(
       copySetup,
       pasteSetup,
@@ -11778,6 +11808,7 @@ function renderSettingsInspector(options = {}) {
       pasteRecent,
       copySavedLibraryAction,
       pasteSavedLibraryAction,
+      clearSavedLibraryAction,
       closeEmpty,
       clearRecent,
       settingsActionButton("Reset", resetSettings, "danger")
@@ -20402,6 +20433,12 @@ function showToolbarMenu(event) {
         return action;
       })(),
       contextMenuButton("Paste customization library", pasteSavedLibrary),
+      (() => {
+        const savedLibrary = savedDataItemCount() > 0;
+        const action = contextMenuButton("Clear customization library", clearSavedLibrary, !savedLibrary, "danger");
+        action.title = savedLibrary ? "Clear saved snippets, profiles, blueprints, colors, and backgrounds." : "Customization library is already clear.";
+        return action;
+      })(),
       (() => {
         const recentActivity = hasRecentActivity();
         const action = contextMenuButton("Copy recent activity", copyRecentActivity, !recentActivity);
