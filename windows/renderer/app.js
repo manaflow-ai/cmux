@@ -5232,6 +5232,10 @@ const commands = [
   { id: "settings.saveBackground", label: "Save Current Background", shortcut: "", run: () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }) },
   { id: "settings.copySavedBackgrounds", label: "Copy Saved Backgrounds", shortcut: "", run: () => copySavedBackgroundImages() },
   { id: "settings.pasteSavedBackgrounds", label: "Paste Saved Backgrounds", shortcut: "", run: () => pasteSavedBackgroundImages() },
+  { id: "background.chooseAllTerminals", label: "Choose All Terminal Backgrounds", shortcut: "", run: () => chooseWorkspaceTerminalBackground() },
+  { id: "background.pasteAllTerminals", label: "Paste All Terminal Backgrounds", shortcut: "", run: () => pasteWorkspaceTerminalBackgroundFromClipboard() },
+  { id: "background.useAppForAllTerminals", label: "Use App Background For All Terminals", shortcut: "", run: () => useAppBackgroundForWorkspaceTerminals() },
+  { id: "background.clearAllTerminals", label: "Clear All Terminal Backgrounds", shortcut: "", run: () => clearWorkspaceTerminalBackgrounds() },
   { id: "settings.saveBrowserProfile", label: "Save Browser Profile", shortcut: "", run: () => saveCurrentBrowserProfile() },
   { id: "session.reset", label: "Reset Session", shortcut: "", run: () => resetSession() },
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() }
@@ -19196,6 +19200,19 @@ async function pasteWorkspaceTerminalBackgroundFromClipboard(workspace = activeW
   return changed;
 }
 
+async function useAppBackgroundForWorkspaceTerminals(workspace = activeWorkspace()) {
+  const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
+  if (!appBackground) {
+    toast("Choose an app background first.");
+    return false;
+  }
+  return applyWorkspaceBackgroundImageToTerminals(appBackground, workspace);
+}
+
+async function clearWorkspaceTerminalBackgrounds(workspace = activeWorkspace()) {
+  return applyWorkspaceBackgroundImageToTerminals("", workspace);
+}
+
 function settingsPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "settings-preset-grid";
@@ -20312,6 +20329,10 @@ function showToolbarMenu(event) {
   const browserSessionEntries = browserTabSessionEntries();
   const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
   const terminalBackground = terminalActive ? normalizeBackgroundValue(panel.backgroundImage) : "";
+  const terminalPanels = workspaceTerminalPanels(workspace);
+  const hasTerminalPanes = terminalPanels.length > 0;
+  const terminalBackgroundsUseApp = Boolean(appBackground && terminalBackgroundsMatch(workspace, appBackground));
+  const terminalBackgroundsClear = terminalBackgroundsMatch(workspace, "");
   const minimizedPanes = minimizedPanelCount(workspace);
   const cleanFastActive = isSettingsPresetIdActive("simpleFast");
   const speedPresetActive = isSettingsPresetIdActive("performance");
@@ -20430,6 +20451,27 @@ function showToolbarMenu(event) {
         terminalBackgroundOpenTitle
       ),
       toolbarAction("Clear terminal background", () => applyPanelBackgroundImage("", panel), !terminalActive || !terminalBackground, "Clear the focused terminal background.", terminalActive ? "Focused terminal background is already clear." : terminalRequiredTitle),
+      toolbarAction("Choose all terminal backgrounds", () => chooseWorkspaceTerminalBackground(workspace), !hasTerminalPanes, "Choose an image for every terminal pane in this workspace.", "Open a terminal pane first."),
+      toolbarAction("Paste all terminal backgrounds", () => pasteWorkspaceTerminalBackgroundFromClipboard(workspace), !hasTerminalPanes, "Paste an image URL, path, or copied image for every terminal pane in this workspace.", "Open a terminal pane first."),
+      toolbarAction(
+        terminalBackgroundsUseApp ? "App background active for all" : "Use app background for all terminals",
+        () => useAppBackgroundForWorkspaceTerminals(workspace),
+        !hasTerminalPanes || !appBackground || terminalBackgroundsUseApp,
+        "Apply the app background to every terminal pane.",
+        !hasTerminalPanes
+          ? "Open a terminal pane first."
+          : !appBackground
+            ? "Choose an app background first."
+            : "All terminal panes already use the app background."
+      ),
+      toolbarAction(
+        "Clear all terminal backgrounds",
+        () => clearWorkspaceTerminalBackgrounds(workspace),
+        !hasTerminalPanes || terminalBackgroundsClear,
+        "Clear every terminal pane background.",
+        !hasTerminalPanes ? "Open a terminal pane first." : "Terminal pane backgrounds are already clear.",
+        "danger"
+      ),
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
       toolbarAction("Copy terminal setup", copyTerminalSetup, false, "Copy the current terminal font, spacing, colors, cursor, and shell setup."),
       toolbarAction("Paste terminal setup", pasteTerminalSetup, false, "Apply a copied cmux terminal setup."),
