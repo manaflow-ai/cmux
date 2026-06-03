@@ -185,6 +185,55 @@ export default function CustomCommandsPage() {
         })}
       </p>
 
+      <DocsHeading level={3} id="surface-tab-bar-buttons">Surface tab bar buttons and More menu</DocsHeading>
+      <p>
+        <code>ui.surfaceTabBar.buttons</code> controls the buttons at the end of each pane tab
+        bar. Put it in <code>~/.config/cmux/cmux.json</code> for a global default, or in a
+        project <code>.cmux/cmux.json</code> to override the buttons for workspaces whose
+        current directory is inside that project. The project file wins for the button list, while
+        actions and commands can still fall back to global definitions.
+      </p>
+      <p>
+        cmux always appends the built-in More button unless <code>hideMoreButton</code> is true.
+        A configured More menu should contain pane-relevant actions, for example opening Vault,
+        Files, Find, Diffs, Finder, or this customization documentation.
+      </p>
+      <CodeBlock title=".cmux/cmux.json" lang="json">{`{
+  "ui": {
+    "surfaceTabBar": {
+      "hideMoreButton": false,
+      "buttons": [
+        "cmux.newTerminal",
+        "cmux.newBrowser",
+        "cmux.splitRight",
+        "cmux.splitDown",
+        {
+          "type": "menu",
+          "id": "cmux.more",
+          "title": "More",
+          "icon": { "type": "symbol", "name": "ellipsis.vertical" },
+          "items": [
+            "cmux.vaultPane",
+            "cmux.filesPane",
+            "cmux.findPane",
+            "cmux.diffViewer",
+            "cmux.revealCurrentDirectoryInFinder",
+            "cmux.customizeSurfaceTabBar"
+          ]
+        }
+      ]
+    }
+  }
+}`}</CodeBlock>
+      <ul>
+        <li><code>cmux.vaultPane</code>: open Vault as a pane.</li>
+        <li><code>cmux.filesPane</code>: open Files as a pane.</li>
+        <li><code>cmux.findPane</code>: open Find as a pane.</li>
+        <li><code>cmux.diffViewer</code>: open Diffs for the active workspace directory.</li>
+        <li><code>cmux.revealCurrentDirectoryInFinder</code>: reveal the active pane directory in Finder.</li>
+        <li><code>cmux.customizeSurfaceTabBar</code>: open Settings to cmux.json.</li>
+      </ul>
+
       <DocsHeading level={2} id="custom-actions">{t("customActions")}</DocsHeading>
       <p>
         {t.rich("customActionsDesc", {

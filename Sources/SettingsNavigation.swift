@@ -5,6 +5,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case app
     case terminal
     case textBox
+    case paneTabBar
     case sidebarAppearance
     case betaFeatures
     case automation
@@ -28,6 +29,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.terminal", defaultValue: "Terminal")
         case .textBox:
             return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
+        case .paneTabBar:
+            return String(localized: "settings.section.paneTabBar", defaultValue: "Pane Tab Bar")
         case .workspaceColors:
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
@@ -61,6 +64,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "terminal"
         case .textBox:
             return "textformat"
+        case .paneTabBar:
+            return "slider.horizontal.3"
         case .workspaceColors:
             return "paintpalette"
         case .sidebarAppearance:
@@ -94,6 +99,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
         case .textBox:
             return "\(title) textbox text box rich input prompt beta new terminal workspace split tab focus height"
+        case .paneTabBar:
+            return "\(title) surface tab bar pane buttons more menu customize cmux json project local directory"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:
@@ -348,6 +355,9 @@ enum SettingsSearchIndex {
         setting(.textBox, "show-textbox-new-terminals", String(localized: "settings.textBox.showOnNewTerminals", defaultValue: "Show TextBox on New Terminals"), "terminal.showTextBoxOnNewTerminals textbox text box rich input prompt default new workspace split tab beta"),
         setting(.textBox, "focus-textbox-new-terminals", String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals"), "terminal.focusTextBoxOnNewTerminals textbox text box rich input prompt default new workspace split tab beta"),
         setting(.textBox, "textbox-max-lines", String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines"), "terminal.textBoxMaxLines terminal textbox text box rich input prompt max height lines grow scroll beta"),
+        setting(.paneTabBar, "documentation", String(localized: "settings.paneTabBar.documentation", defaultValue: "Documentation"), "surface tab bar pane buttons more menu customize docs"),
+        setting(.paneTabBar, "global-config", String(localized: "settings.paneTabBar.globalConfig", defaultValue: "Global cmux.json"), "global config file cmux json user settings"),
+        setting(.paneTabBar, "project-config", String(localized: "settings.paneTabBar.projectConfig", defaultValue: "Project .cmux/cmux.json"), "project local directory scoped config cmux json"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
         setting(.sidebarAppearance, "font-size", String(localized: "settings.sidebarAppearance.fontSize", defaultValue: "Sidebar Font Size"), "font size text scale workspace title badge metadata shortcut hint sidebar-font-size"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),

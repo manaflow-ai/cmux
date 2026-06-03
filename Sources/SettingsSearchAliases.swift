@@ -9,6 +9,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.terminal", defaultValue: "shell scrollback scrollbar scroll bar ghostty tty pty")
         case .textBox:
             return localized("settings.search.alias.section.textBox", defaultValue: "textbox text box rich input prompt beta focus composer compose attachments")
+        case .paneTabBar:
+            return localized("settings.search.alias.section.paneTabBar", defaultValue: "surface tab bar pane buttons more menu customize cmux json project local directory")
         case .sidebarAppearance:
             return localized("settings.search.alias.section.sidebarAppearance", defaultValue: "sidebar left rail navigation details branches badges material terminal background")
         case .betaFeatures:
@@ -87,6 +89,9 @@ enum SettingsSearchAliasIndex {
         "textBox:show-textbox-new-terminals": localized("settings.search.alias.setting.textBox.show-textbox-new-terminals", defaultValue: "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta"),
         "textBox:focus-textbox-new-terminals": localized("settings.search.alias.setting.textBox.focus-textbox-new-terminals", defaultValue: "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta"),
         "textBox:textbox-max-lines": localized("settings.search.alias.setting.textBox.textbox-max-lines", defaultValue: "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta"),
+        "paneTabBar:documentation": localized("settings.search.alias.setting.paneTabBar.documentation", defaultValue: "surface tab bar pane buttons more menu customize docs"),
+        "paneTabBar:global-config": localized("settings.search.alias.setting.paneTabBar.global-config", defaultValue: "global config file cmux json user settings surface tab bar buttons"),
+        "paneTabBar:project-config": localized("settings.search.alias.setting.paneTabBar.project-config", defaultValue: "project local directory scoped config cmux json surface tab bar buttons"),
         "sidebarAppearance:match-terminal": localized("settings.search.alias.setting.sidebarAppearance.match-terminal", defaultValue: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
         "sidebarAppearance:font-size": localized("settings.search.alias.setting.sidebarAppearance.font-size", defaultValue: "sidebar-font-size sidebar font size text scale workspace title badge metadata shortcut hint"),
         "sidebarAppearance:hide-sidebar-details": localized("settings.search.alias.setting.app.hide-sidebar-details", defaultValue: "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),

@@ -14723,10 +14723,90 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didSplit { onExecuted?() }
                 return didSplit
-            case .diff:
-                let didOpen = launchDiffViewer(tabManager: context.tabManager)
+            case .more:
+                return false
+            case .rightSidebarFiles:
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .files,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .rightSidebarFind:
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .find,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .rightSidebarVault:
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .sessions,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .rightSidebarFeed:
+                guard RightSidebarMode.feed.isAvailable() else { return false }
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .feed,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .rightSidebarDock:
+                guard RightSidebarMode.dock.isAvailable() else { return false }
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .dock,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .filesPane:
+                let didOpen = openRightSidebarToolPane(mode: .files, context: context)
                 if didOpen { onExecuted?() }
                 return didOpen
+            case .findPane:
+                let didOpen = openRightSidebarToolPane(mode: .find, context: context)
+                if didOpen { onExecuted?() }
+                return didOpen
+            case .vaultPane:
+                let didOpen = openRightSidebarToolPane(mode: .sessions, context: context)
+                if didOpen { onExecuted?() }
+                return didOpen
+            case .diffViewer:
+                guard let workspace = context.tabManager.selectedWorkspace else { return false }
+                let rawCwd = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+                let cwd = rawCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : rawCwd
+                let didOpen = CmuxDiffViewerLauncher.shared.start(
+                    cwd: cwd,
+                    workspaceId: workspace.id,
+                    surfaceId: workspace.focusedPanelId
+                )
+                if didOpen { onExecuted?() }
+                return didOpen
+            case .revealCurrentDirectoryInFinder:
+                guard let workspace = context.tabManager.selectedWorkspace,
+                      let path = WorkspaceFinderDirectoryResolver.path(for: workspace) else {
+                    return false
+                }
+                Task {
+                    await WorkspaceFinderDirectoryOpener.openInFinder(URL(fileURLWithPath: path, isDirectory: true))
+                }
+                onExecuted?()
+                return true
+            case .customizeSurfaceTabBar:
+                openPreferencesWindow(
+                    debugSource: "configured.cmux.customizeSurfaceTabBar",
+                    navigationTarget: .paneTabBar
+                )
+                onExecuted?()
+                return true
             }
         case .command, .agent, .workspaceCommand:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
@@ -14750,60 +14830,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    /// Launch the diff viewer for the selected workspace by invoking the bundled
-    /// `cmux diff` CLI (same path the command palette's Open Diff Viewer uses).
-    /// Drives the ⋯ tab-bar menu "Diff" action and its configured shortcut.
-    @MainActor
-    @discardableResult
-    func launchDiffViewer(tabManager: TabManager) -> Bool {
-        guard let workspace = tabManager.selectedWorkspace,
-              let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
-              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+    private func openRightSidebarToolPane(mode: RightSidebarMode, context: MainWindowContext) -> Bool {
+        guard mode.canOpenAsPane,
+              let workspace = context.tabManager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return false
         }
-        let socketPath = TerminalController.shared.activeSocketPath(
-            preferredPath: SocketControlSettings.socketPath()
-        )
-        let rawCwd = workspace.currentDirectory
-        let cwd = rawCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : rawCwd
-        let surfaceId = workspace.focusedPanelId
-
-        let process = Process()
-        process.executableURL = cliURL
-        var arguments = [
-            "--socket", socketPath,
-            "diff",
-            "--unstaged",
-            "--cwd", cwd,
-            "--workspace", workspace.id.uuidString,
-            "--focus", "true",
-        ]
-        if let surfaceId {
-            arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
-        }
-        process.arguments = arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
-        environment["CMUX_WORKSPACE_ID"] = workspace.id.uuidString
-        if let surfaceId {
-            environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
-        }
-        environment.removeValue(forKey: "CMUX_SOCKET")
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            return true
-        } catch {
-#if DEBUG
-            cmuxDebugLog("tabBar.diff launch failed cwd=\(cwd) error=\(error.localizedDescription)")
-#endif
-            return false
-        }
+        workspace.clearSplitZoom()
+        return workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true) != nil
     }
 
     /// Match a shortcut stroke against an event, handling normal keys.
