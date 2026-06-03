@@ -658,6 +658,7 @@ body.reduce-motion *::after {
 .surface-tab,
 .settings-action,
 .settings-preset,
+.performance-tune-preset,
 .quick-settings-shortcut,
 .actions-group-card,
 .data-storage-row,
@@ -776,6 +777,7 @@ body.reduce-motion *::after {
 .sidebar-action:focus-visible,
 .settings-action:focus-visible,
 .settings-preset:focus-visible,
+.performance-tune-preset:focus-visible,
 .quick-settings-shortcut:focus-visible,
 .quick-overview-scope-item:focus-visible,
 .actions-group-card:focus-visible,
@@ -817,6 +819,7 @@ body.reduce-motion *::after {
 .sidebar-action:active,
 .settings-action:active,
 .settings-preset:active,
+.performance-tune-preset:active,
 .quick-settings-shortcut:active,
 .actions-group-card:active,
 .data-storage-row:active,
@@ -8961,6 +8964,134 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .performance-overview-actions {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.performance-tune-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.performance-tune-card {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.performance-tune-preset {
+  min-width: 0;
+  min-height: 84px;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-text);
+  text-align: left;
+}
+
+.performance-tune-preset:hover:not(:disabled) {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+}
+
+.performance-tune-preset:disabled {
+  cursor: default;
+}
+
+.performance-tune-card.is-active .performance-tune-preset {
+  border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-line) 42%);
+  background: color-mix(in oklch, var(--color-accent) 8%, var(--color-pane) 92%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 30%, transparent);
+}
+
+.performance-tune-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.performance-tune-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.performance-tune-title,
+.performance-tune-body {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.performance-tune-title {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.performance-tune-status {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  border: 1px solid color-mix(in oklch, var(--color-accent) 48%, var(--color-line) 52%);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane) 86%);
+  color: var(--color-text);
+  font-size: 9px;
+  font-weight: 760;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.performance-tune-status:empty {
+  display: none;
+}
+
+.performance-tune-body {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.3;
+  display: -webkit-box;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.performance-tune-meta {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.performance-tune-meta span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 4px 5px;
+  border: 1px solid color-mix(in oklch, var(--color-line) 70%, transparent);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-rail) 42%, transparent);
+  color: var(--color-muted);
+  font: 10px/1 var(--font-mono);
+}
+
+.performance-tune-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+}
+
+@container (max-width: 330px) {
+  .performance-tune-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .settings-metric {

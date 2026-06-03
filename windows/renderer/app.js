@@ -185,6 +185,25 @@ const performanceGuardStartupGraceMs = 2500;
 const performanceGuardStartupRenderCount = 3;
 const performanceGuardSlowPaneCreateMs = 2000;
 const performanceGuardSlowTerminalConnectMs = 1500;
+const performanceSetupSettings = [
+  "performanceMode",
+  "adaptivePerformance",
+  "reduceMotion",
+  "terminalStartupMode",
+  "terminalPauseInactiveOutput",
+  "terminalSmoothResumedOutput",
+  "browserSuspendInactive",
+  "terminalScrollback"
+];
+const performanceSetupPreviewKeys = new Set(performanceSetupSettings);
+const performanceSetupBooleanSettings = new Set([
+  "performanceMode",
+  "adaptivePerformance",
+  "reduceMotion",
+  "terminalPauseInactiveOutput",
+  "terminalSmoothResumedOutput",
+  "browserSuspendInactive"
+]);
 const appearancePreviewKeys = new Set([
   "theme",
   "accent",
@@ -4842,6 +4861,9 @@ function updateSettings(updates, options = {}) {
   }
   if (changedKeys.some((key) => layoutSettingsPreviewKeys.has(key))) {
     scheduleLayoutSettingsPreviewRefresh();
+  }
+  if (changedKeys.some((key) => performanceSetupPreviewKeys.has(key))) {
+    refreshPerformanceTuningPresetGrid();
   }
   if (changedKeys.some((key) => browserSettingsPreviewKeys.has(key))) {
     scheduleBrowserSettingsPreviewRefresh();
@@ -11929,6 +11951,7 @@ function renderSettingsInspector(options = {}) {
     const performanceMetricGrid = settingsMetricGrid(performanceMetrics());
     performanceMetricGrid.dataset.performanceMetrics = "true";
     performanceSection.append(performanceMetricGrid);
+    performanceSection.append(performanceTuningPresetGrid());
     performanceSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked })), false, "speed smooth lag effects reduce animation"));
     performanceSection.append(settingRow("Adaptive guard", toggleInput(state.settings.adaptivePerformance, (checked) => updateSettings({ adaptivePerformance: checked })), false, "adaptive automatic performance guard lag slow output tune"));
     performanceSection.append(settingRow("Reduce motion", toggleInput(state.settings.reduceMotion, (checked) => updateSettings({ reduceMotion: checked })), false, "motion animation transition smooth reduce accessibility"));
@@ -15545,7 +15568,9 @@ function performanceDiagnosticsPayload() {
       adaptivePerformance: state.settings.adaptivePerformance,
       reduceMotion: state.settings.reduceMotion,
       terminalPauseInactiveOutput: state.settings.terminalPauseInactiveOutput,
+      terminalSmoothResumedOutput: state.settings.terminalSmoothResumedOutput,
       terminalStartupMode: state.settings.terminalStartupMode,
+      browserSuspendInactive: state.settings.browserSuspendInactive,
       background: state.settings.backgroundImage
         ? isBackgroundPreset(state.settings.backgroundImage) ? state.settings.backgroundImage : "custom-image"
         : "none",
@@ -15586,24 +15611,68 @@ function performanceDiagnosticsPayload() {
   };
 }
 
-const performanceSetupSettings = [
-  "performanceMode",
-  "adaptivePerformance",
-  "reduceMotion",
-  "terminalStartupMode",
-  "terminalPauseInactiveOutput",
-  "terminalSmoothResumedOutput",
-  "browserSuspendInactive"
+const performanceTuningPresets = [
+  {
+    id: "balanced",
+    label: "Balanced",
+    body: "Adaptive guard stays ready while motion and history remain comfortable.",
+    settings: {
+      performanceMode: false,
+      adaptivePerformance: true,
+      reduceMotion: false,
+      terminalStartupMode: "fast",
+      terminalPauseInactiveOutput: true,
+      terminalSmoothResumedOutput: true,
+      browserSuspendInactive: true,
+      terminalScrollback: 12000
+    }
+  },
+  {
+    id: "lagFix",
+    label: "Lag fix",
+    body: "Cuts visual work, pauses hidden panes, and keeps terminal history lighter.",
+    settings: {
+      performanceMode: true,
+      adaptivePerformance: true,
+      reduceMotion: true,
+      terminalStartupMode: "fast",
+      terminalPauseInactiveOutput: true,
+      terminalSmoothResumedOutput: true,
+      browserSuspendInactive: true,
+      terminalScrollback: 6000
+    }
+  },
+  {
+    id: "lowMotion",
+    label: "Low motion",
+    body: "Keeps the app calm without forcing the full speed tune.",
+    settings: {
+      performanceMode: false,
+      adaptivePerformance: true,
+      reduceMotion: true,
+      terminalStartupMode: "fast",
+      terminalPauseInactiveOutput: true,
+      terminalSmoothResumedOutput: true,
+      browserSuspendInactive: true,
+      terminalScrollback: 10000
+    }
+  },
+  {
+    id: "livePanes",
+    label: "Live panes",
+    body: "Keeps inactive terminals and browsers live for monitoring-heavy work.",
+    settings: {
+      performanceMode: false,
+      adaptivePerformance: false,
+      reduceMotion: false,
+      terminalStartupMode: "fast",
+      terminalPauseInactiveOutput: false,
+      terminalSmoothResumedOutput: false,
+      browserSuspendInactive: false,
+      terminalScrollback: 20000
+    }
+  }
 ];
-
-const performanceSetupBooleanSettings = new Set([
-  "performanceMode",
-  "adaptivePerformance",
-  "reduceMotion",
-  "terminalPauseInactiveOutput",
-  "terminalSmoothResumedOutput",
-  "browserSuspendInactive"
-]);
 
 const performanceQuickActionDefinitions = [
   {
@@ -15768,34 +15837,51 @@ function performanceQuickToolbarActions(toolbarAction) {
   });
 }
 
-function performanceSetupPayload() {
+function performanceSetupSummaryForSettings(settings) {
+  const normalized = normalizeSettings({
+    ...state.settings,
+    ...(settings || {})
+  });
+  return {
+    mode: normalized.performanceMode ? "Tuned" : "Balanced",
+    adaptiveGuard: normalized.adaptivePerformance ? "On" : "Off",
+    motion: normalized.performanceMode || normalized.reduceMotion ? "Reduced" : "Full",
+    terminalStartup: optionLabel(terminalStartupOptions, normalized.terminalStartupMode, normalized.terminalStartupMode),
+    inactiveOutput: normalized.terminalPauseInactiveOutput ? "Paused" : "Live",
+    resume: normalized.terminalSmoothResumedOutput ? "Smooth" : "Immediate",
+    inactiveBrowsers: normalized.browserSuspendInactive ? "Suspended" : "Live",
+    history: `${normalized.terminalScrollback.toLocaleString()} history`
+  };
+}
+
+function performanceSetupPayload(settingsSource = state.settings) {
+  const source = {
+    ...state.settings,
+    ...(settingsSource || {})
+  };
   const settings = {};
-  for (const key of performanceSetupSettings) settings[key] = state.settings[key];
+  for (const key of performanceSetupSettings) settings[key] = source[key];
   return {
     version: 1,
     type: "cmux-performance-setup",
-    summary: {
-      mode: state.settings.performanceMode ? "On" : "Off",
-      adaptiveGuard: state.settings.adaptivePerformance ? "On" : "Off",
-      motion: state.settings.performanceMode || state.settings.reduceMotion ? "Reduced" : "Full",
-      terminalStartup: optionLabel(terminalStartupOptions, state.settings.terminalStartupMode, state.settings.terminalStartupMode),
-      inactiveOutput: state.settings.terminalPauseInactiveOutput ? "Paused" : "Live",
-      resume: state.settings.terminalSmoothResumedOutput ? "Smooth" : "Immediate",
-      inactiveBrowsers: state.settings.browserSuspendInactive ? "Suspended" : "Live"
-    },
+    summary: performanceSetupSummaryForSettings(settings),
     settings
   };
 }
 
-async function copyPerformanceSetup() {
-  const payload = JSON.stringify(performanceSetupPayload(), null, 2);
+async function copyPerformanceSetupPayload(
+  payloadModel = performanceSetupPayload(),
+  toastText = "Performance setup copied.",
+  dialogMessage = "Clipboard access is unavailable. The current performance setup is shown below."
+) {
+  const payload = JSON.stringify(payloadModel, null, 2);
   if (await writeClipboardText(payload)) {
-    toast("Performance setup copied.");
+    toast(toastText);
     return true;
   }
   await showTextDialog({
     title: "Performance setup",
-    message: "Clipboard access is unavailable. The current performance setup is shown below.",
+    message: dialogMessage,
     value: payload,
     confirmLabel: "Close",
     multiline: true,
@@ -15804,8 +15890,16 @@ async function copyPerformanceSetup() {
   return false;
 }
 
+async function copyPerformanceSetup() {
+  return copyPerformanceSetupPayload(performanceSetupPayload(), "Performance setup copied.");
+}
+
 function performanceSetupSettingUpdateFromValue(key, raw) {
   if (key === "terminalStartupMode") return optionIdAllowed(terminalStartupOptions, raw) ? raw : null;
+  if (key === "terminalScrollback") {
+    const value = Number(raw);
+    return Number.isFinite(value) ? clamp(Math.round(value), 2000, 50000) : null;
+  }
   if (performanceSetupBooleanSettings.has(key)) return typeof raw === "boolean" ? raw : null;
   return null;
 }
@@ -15824,18 +15918,18 @@ function performanceSetupUpdatesFromPayload(payload) {
   return Object.keys(updates).length ? updates : null;
 }
 
-function applyPerformanceSetupUpdates(updates) {
+function applyPerformanceSetupUpdates(updates, options = {}) {
   if (!updates) {
     toast("Clipboard does not contain performance setup.");
     return false;
   }
   const changed = updateSettings(updates, { immediate: true });
   if (!changed) {
-    toast("Performance setup already matches.");
+    toast(options.alreadyText || "Performance setup already matches.");
     return false;
   }
   if (state.inspectorMode === "settings") renderSettingsInspector();
-  toast("Performance setup applied.");
+  toast(options.toastText || "Performance setup applied.");
   return true;
 }
 
@@ -15852,6 +15946,111 @@ async function pastePerformanceSetup() {
     toast("Clipboard does not contain performance setup.");
     return false;
   }
+}
+
+function performanceTuningPresetById(presetId) {
+  return performanceTuningPresets.find((candidate) => candidate.id === presetId) || null;
+}
+
+function performanceTuningPresetSettings(preset) {
+  return performanceSetupUpdatesFromPayload({ settings: preset?.settings });
+}
+
+function performanceTuningPresetSearchText(preset, settings = performanceTuningPresetSettings(preset)) {
+  const summary = performanceSetupSummaryForSettings(settings || {});
+  return normalizeSettingsQuery([
+    "performance tuning preset setup apply copy speed lag smooth low motion live panes terminal output browser suspend history scrollback",
+    preset?.label,
+    preset?.body,
+    summary.mode,
+    summary.adaptiveGuard,
+    summary.motion,
+    summary.terminalStartup,
+    summary.inactiveOutput,
+    summary.resume,
+    summary.inactiveBrowsers,
+    summary.history
+  ].join(" "));
+}
+
+function isActivePerformanceTuningPreset(preset) {
+  const settings = performanceTuningPresetSettings(preset);
+  if (!settings) return false;
+  return Object.entries(settings).every(([key, value]) => state.settings[key] === value);
+}
+
+function performanceTuningPresetTitle(preset, active) {
+  if (!preset) return "Choose a performance tuning preset first.";
+  if (active) return `${preset.label} tuning is already active.`;
+  return `Apply ${preset.label} performance tuning.`;
+}
+
+function updatePerformanceTuningPresetButton(button, preset) {
+  const settings = performanceTuningPresetSettings(preset);
+  if (!settings) return false;
+  const active = isActivePerformanceTuningPreset(preset);
+  const card = button.closest(".performance-tune-card");
+  let changed = false;
+  if (card) changed = toggleClassIfChanged(card, "is-active", active) || changed;
+  changed = setDisabledIfChanged(button, active) || changed;
+  changed = setTitleIfChanged(button, performanceTuningPresetTitle(preset, active)) || changed;
+  setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
+  const status = button.querySelector(".performance-tune-status");
+  if (status) changed = setTextIfChanged(status, active ? "Active" : "") || changed;
+  const search = performanceTuningPresetSearchText(preset, settings);
+  if (button.dataset.settingsSearch !== search) {
+    button.dataset.settingsSearch = search;
+    updateSettingsSearchIndexItemSearch(button, search);
+    changed = true;
+  }
+  if (card && card.dataset.settingsSearch !== search) {
+    card.dataset.settingsSearch = search;
+    updateSettingsSearchIndexItemSearch(card, search);
+    changed = true;
+  }
+  return changed;
+}
+
+function refreshPerformanceTuningPresetGrid(root = elements.inspectorBody) {
+  if (!root?.querySelectorAll) return false;
+  let changed = false;
+  for (const button of root.querySelectorAll(".performance-tune-preset[data-performance-tuning-preset]")) {
+    const preset = performanceTuningPresetById(button.dataset.performanceTuningPreset);
+    if (!preset) continue;
+    changed = updatePerformanceTuningPresetButton(button, preset) || changed;
+  }
+  return changed;
+}
+
+function applyPerformanceTuningPreset(presetId) {
+  const preset = performanceTuningPresetById(presetId);
+  const settings = performanceTuningPresetSettings(preset);
+  if (!preset || !settings) {
+    toast("Performance tuning preset not found.");
+    return false;
+  }
+  return applyPerformanceSetupUpdates(settings, {
+    toastText: `${preset.label} tuning applied.`,
+    alreadyText: `${preset.label} tuning already active.`
+  });
+}
+
+function copyPerformanceTuningPreset(presetId) {
+  const preset = performanceTuningPresetById(presetId);
+  const settings = performanceTuningPresetSettings(preset);
+  if (!preset || !settings) {
+    toast("Performance tuning preset not found.");
+    return false;
+  }
+  return copyPerformanceSetupPayload(
+    performanceSetupPayload(settings),
+    `${preset.label} tuning copied.`,
+    "Clipboard access is unavailable. The tuning preset is shown below."
+  );
+}
+
+function performanceTuningPresetActiveSignature() {
+  return performanceSetupSettings.map((key) => state.settings[key]).join("\u001f");
 }
 
 async function copyPerformanceDiagnostics() {
@@ -17106,6 +17305,62 @@ function settingsMetricCard(label, value, searchPrefix = "performance diagnostic
   return card;
 }
 
+function performanceTuningPresetGrid() {
+  const grid = document.createElement("div");
+  grid.className = "performance-tune-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes apply copy setup history scrollback");
+  for (const preset of performanceTuningPresets) {
+    const settings = performanceTuningPresetSettings(preset);
+    if (!settings) continue;
+    const active = isActivePerformanceTuningPreset(preset);
+    const summary = performanceSetupSummaryForSettings(settings);
+    const search = performanceTuningPresetSearchText(preset, settings);
+    const card = document.createElement("div");
+    card.className = `performance-tune-card${active ? " is-active" : ""}`;
+    card.dataset.settingsSearch = search;
+    const button = document.createElement("button");
+    button.className = "performance-tune-preset";
+    button.type = "button";
+    button.disabled = active;
+    button.title = performanceTuningPresetTitle(preset, active);
+    button.dataset.performanceTuningPreset = preset.id;
+    button.dataset.settingsSearch = search;
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.innerHTML = `
+      <span class="performance-tune-main">
+        <span class="performance-tune-title-row">
+          <span class="performance-tune-title"></span>
+          <span class="performance-tune-status"></span>
+        </span>
+        <span class="performance-tune-body"></span>
+      </span>
+      <span class="performance-tune-meta">
+        <span></span>
+        <span></span>
+        <span></span>
+      </span>
+    `;
+    button.querySelector(".performance-tune-title").textContent = preset.label;
+    button.querySelector(".performance-tune-status").textContent = active ? "Active" : "";
+    button.querySelector(".performance-tune-body").textContent = preset.body;
+    const meta = button.querySelectorAll(".performance-tune-meta span");
+    meta[0].textContent = summary.mode;
+    meta[1].textContent = summary.motion;
+    meta[2].textContent = summary.history;
+    button.onclick = () => {
+      if (!isActivePerformanceTuningPreset(preset)) applyPerformanceTuningPreset(preset.id);
+    };
+    const actions = document.createElement("div");
+    actions.className = "performance-tune-actions";
+    const copy = settingsActionButton("Copy", () => copyPerformanceTuningPreset(preset.id), "", `performance tuning preset copy setup clipboard json ${preset.label} ${preset.body}`);
+    copy.title = "Copy this tuning preset as performance setup JSON.";
+    actions.append(copy);
+    card.append(button, actions);
+    grid.append(card);
+  }
+  return grid;
+}
+
 function performanceOverviewModel() {
   updateTerminalOutputBacklog();
   const queuedBytes = state.terminalOutputStats.currentQueued || 0;
@@ -17224,8 +17479,9 @@ function schedulePerformanceMetricsRefresh() {
 
 function refreshPerformanceMetricsGrid() {
   const overviewChanged = refreshPerformanceOverviewPanel();
+  const presetsChanged = refreshPerformanceTuningPresetGrid();
   const grid = elements.inspectorBody.querySelector('[data-performance-metrics="true"]');
-  if (!grid) return overviewChanged;
+  if (!grid) return overviewChanged || presetsChanged;
   const metrics = performanceMetrics();
   const cards = [...grid.querySelectorAll(".settings-metric")];
   if (cards.length !== metrics.length) {
@@ -17245,7 +17501,7 @@ function refreshPerformanceMetricsGrid() {
     changed = setTextIfChanged(card.querySelector(".settings-metric-value"), value) || changed;
     changed = setTextIfChanged(card.querySelector(".settings-metric-label"), label) || changed;
   }
-  return overviewChanged || changed;
+  return overviewChanged || presetsChanged || changed;
 }
 
 function paneShapePanel(workspace = activeWorkspace()) {
@@ -22550,6 +22806,7 @@ function paletteQuickActionsSignature() {
   appendSignatureValue(parts, isSettingsPresetIdActive("simpleFast"));
   appendSignatureValue(parts, Boolean(activeSavedSettingsProfile()));
   appendSignatureValue(parts, activeSettingsSetupLabel());
+  appendSignatureValue(parts, performanceTuningPresetActiveSignature());
   appendSignatureValue(parts, state.savedSettingsProfiles.length);
   appendSignatureValue(parts, paneCreationButtonsDisabled());
   return parts.join("");
@@ -22560,7 +22817,7 @@ function paletteEntryKind(entry) {
   if (id.startsWith("terminal.") || id.startsWith("recentCommand.") || id.startsWith("commandSnippet.")) return "terminal";
   if (id.startsWith("browser.") || id.startsWith("recentBrowser.") || id.startsWith("browserHomePreset.")) return "browser";
   if (id.startsWith("workspace.") || id.startsWith("recentFolder.") || id.startsWith("workspaceBlueprint.") || id.startsWith("workspaceStarter.")) return "workspace";
-  if (id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.")) return "settings";
+  if (id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.") || id.startsWith("performanceTunePreset.")) return "settings";
   if (id.startsWith("layout.") || id.startsWith("paneLayoutPreset.") || id.startsWith("workspaceChromePreset.")) return "layout";
   if (id.startsWith("background") || id.startsWith("savedBackground")) return "look";
   if (id.startsWith("themeChoice.") || id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("savedColorPalette.") || id.startsWith("terminalColor.")) return "color";
@@ -23069,6 +23326,32 @@ function paletteEntries() {
       title: "Copy this preset as a Settings profile JSON.",
       search: normalizeSettingsQuery(`settings preset profile setup copy clipboard json ${preset.label} ${preset.body} ${summary}`),
       run: () => copySettingsPresetProfile(preset.id)
+    });
+  }
+  for (const preset of performanceTuningPresets) {
+    const settings = performanceTuningPresetSettings(preset);
+    if (!settings) continue;
+    const active = isActivePerformanceTuningPreset(preset);
+    const summary = performanceSetupSummaryForSettings(settings);
+    entries.push({
+      id: `performanceTunePreset.${preset.id}`,
+      label: `Performance tuning: ${preset.label}`,
+      meta: active ? `Active / ${summary.history}` : `${summary.mode} / ${summary.history}`,
+      shortcut: active ? "Active" : "Speed",
+      active,
+      disabled: active,
+      title: performanceTuningPresetTitle(preset, active),
+      search: performanceTuningPresetSearchText(preset, settings),
+      run: () => applyPerformanceTuningPreset(preset.id)
+    });
+    entries.push({
+      id: `performanceTunePreset.copy.${preset.id}`,
+      label: `Copy tuning preset: ${preset.label}`,
+      meta: `${summary.motion} / ${summary.inactiveOutput} output / ${summary.inactiveBrowsers} browsers`,
+      shortcut: "Copy",
+      title: "Copy this tuning preset as performance setup JSON.",
+      search: normalizeSettingsQuery(`performance tuning preset copy setup clipboard json speed lag smooth ${preset.label} ${preset.body} ${summary.mode} ${summary.motion} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.history}`),
+      run: () => copyPerformanceTuningPreset(preset.id)
     });
   }
   const paletteActiveTerminal = activeTerminalPanelForSettings();
