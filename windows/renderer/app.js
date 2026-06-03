@@ -511,12 +511,14 @@ const state = {
   paletteEntriesCache: null,
   surfaceTabScrollFrame: 0,
   surfaceTabScrollTargetId: "",
+  surfaceTabScrollStateFrame: 0,
   surfaceTabOverflowFrame: 0,
   surfaceTabEnsureActive: false,
   surfaceTabResizeObserver: null,
   surfaceTabDropTargetId: "",
   surfaceTabDropTargetMode: "",
   commandStripOverflowFrame: 0,
+  commandStripScrollFrame: 0,
   commandStripResizeObserver: null,
   dragPanelId: null,
   dragWorkspaceId: null,
@@ -4646,6 +4648,14 @@ function updateSurfaceTabScrollState(strip, overflowing = surfaceTabsOverflowing
   toggleClassIfChanged(strip, "can-scroll-right", overflowing && scrollLeft < maxScrollLeft - 1);
 }
 
+function scheduleSurfaceTabScrollStateRefresh() {
+  if (!elements.surfaceTabs || state.surfaceTabScrollStateFrame) return;
+  state.surfaceTabScrollStateFrame = requestAnimationFrame(() => {
+    state.surfaceTabScrollStateFrame = 0;
+    updateSurfaceTabScrollState(elements.surfaceTabs, elements.surfaceTabs.classList.contains("has-overflow"));
+  });
+}
+
 function updateSurfaceTabsOverflow() {
   const strip = elements.surfaceTabs;
   if (!surfaceTabsCanOverflow(strip)) {
@@ -4689,16 +4699,29 @@ function scheduleCommandStripOverflowRefresh() {
   });
 }
 
+function updateCommandStripScrollState(strip, overflowing = strip?.classList.contains("has-overflow")) {
+  if (!strip) return;
+  const maxScrollLeft = Math.max(0, strip.scrollWidth - strip.clientWidth);
+  const scrollLeft = Math.max(0, strip.scrollLeft);
+  toggleClassIfChanged(strip, "can-scroll-left", overflowing && scrollLeft > 1);
+  toggleClassIfChanged(strip, "can-scroll-right", overflowing && scrollLeft < maxScrollLeft - 1);
+}
+
+function scheduleCommandStripScrollStateRefresh() {
+  if (!elements.commandStrip || state.commandStripScrollFrame) return;
+  state.commandStripScrollFrame = requestAnimationFrame(() => {
+    state.commandStripScrollFrame = 0;
+    updateCommandStripScrollState(elements.commandStrip);
+  });
+}
+
 function updateCommandStripOverflow() {
   if (!elements.commandStrip) return;
   const strip = elements.commandStrip;
   const overflowing = commandStripContentWidth() > elements.commandStrip.clientWidth + 1
     || elements.commandStrip.scrollWidth > elements.commandStrip.clientWidth + 1;
-  const maxScrollLeft = Math.max(0, strip.scrollWidth - strip.clientWidth);
-  const scrollLeft = Math.max(0, strip.scrollLeft);
   toggleClassIfChanged(strip, "has-overflow", overflowing);
-  toggleClassIfChanged(strip, "can-scroll-left", overflowing && scrollLeft > 1);
-  toggleClassIfChanged(strip, "can-scroll-right", overflowing && scrollLeft < maxScrollLeft - 1);
+  updateCommandStripScrollState(strip, overflowing);
   if (!overflowing && strip.scrollLeft) {
     strip.scrollLeft = 0;
   }
@@ -4711,7 +4734,7 @@ function observeCommandStripOverflow() {
     state.commandStripResizeObserver.observe(elements.commandStrip);
   }
   window.addEventListener("resize", scheduleCommandStripOverflowRefresh, { passive: true });
-  elements.commandStrip.addEventListener("scroll", () => updateCommandStripOverflow(), { passive: true });
+  elements.commandStrip.addEventListener("scroll", scheduleCommandStripScrollStateRefresh, { passive: true });
   requestAnimationFrame(() => {
     updateCommandStripOverflow();
   });
@@ -4732,7 +4755,7 @@ function observeSurfaceTabOverflow() {
   }
   window.addEventListener("resize", scheduleSurfaceTabsOverflowRefresh, { passive: true });
   window.visualViewport?.addEventListener("resize", scheduleSurfaceTabsOverflowRefresh, { passive: true });
-  elements.surfaceTabs.addEventListener("scroll", () => updateSurfaceTabScrollState(elements.surfaceTabs), { passive: true });
+  elements.surfaceTabs.addEventListener("scroll", scheduleSurfaceTabScrollStateRefresh, { passive: true });
   requestAnimationFrame(() => {
     updateSurfaceTabsOverflow();
   });
@@ -6412,6 +6435,7 @@ function cleanupPanel(panelId) {
   clearBrowserSuspendStop(browserSession);
   if (browserSession?.tabRenderFrame) cancelAnimationFrame(browserSession.tabRenderFrame);
   if (browserSession?.tabScrollFrame) cancelAnimationFrame(browserSession.tabScrollFrame);
+  if (browserSession?.tabScrollStateFrame) cancelAnimationFrame(browserSession.tabScrollStateFrame);
   if (browserSession?.tabOverflowFrame) cancelAnimationFrame(browserSession.tabOverflowFrame);
   browserSession?.tabResizeObserver?.disconnect?.();
   browserSession?.detachTabWheelScroll?.();
@@ -7630,6 +7654,23 @@ function scheduleBrowserTabOverflowRefresh(session) {
   });
 }
 
+function updateBrowserTabScrollState(session, overflowing = session?.tabList?.classList.contains("has-overflow")) {
+  const tabList = session?.tabList;
+  if (!tabList) return;
+  const maxScrollLeft = Math.max(0, tabList.scrollWidth - tabList.clientWidth);
+  const scrollLeft = Math.max(0, tabList.scrollLeft);
+  toggleClassIfChanged(tabList, "can-scroll-left", overflowing && scrollLeft > 1);
+  toggleClassIfChanged(tabList, "can-scroll-right", overflowing && scrollLeft < maxScrollLeft - 1);
+}
+
+function scheduleBrowserTabScrollStateRefresh(session) {
+  if (!session?.tabList || session.tabScrollStateFrame) return;
+  session.tabScrollStateFrame = requestAnimationFrame(() => {
+    session.tabScrollStateFrame = 0;
+    updateBrowserTabScrollState(session);
+  });
+}
+
 function updateBrowserTabOverflow(session) {
   const tabList = session?.tabList;
   if (!tabList) return;
@@ -7642,11 +7683,8 @@ function updateBrowserTabOverflow(session) {
   const naturalOverflowing = tabList.scrollWidth > tabList.clientWidth + 1;
   toggleClassIfChanged(tabList, "is-crowded", naturalOverflowing || tabCount >= 5);
   const overflowing = tabList.scrollWidth > tabList.clientWidth + 1;
-  const maxScrollLeft = Math.max(0, tabList.scrollWidth - tabList.clientWidth);
-  const scrollLeft = Math.max(0, tabList.scrollLeft);
   toggleClassIfChanged(tabList, "has-overflow", overflowing);
-  toggleClassIfChanged(tabList, "can-scroll-left", overflowing && scrollLeft > 1);
-  toggleClassIfChanged(tabList, "can-scroll-right", overflowing && scrollLeft < maxScrollLeft - 1);
+  updateBrowserTabScrollState(session, overflowing);
   if (!overflowing && tabList.scrollLeft) tabList.scrollLeft = 0;
   session.tabOverflowSignature = tabOverflowStateSignature(tabList, tabCount);
 }
@@ -8553,6 +8591,7 @@ function ensureBrowser(panel, body) {
     tabButtons: new Map(),
     tabSignature: "",
     tabOverflowSignature: "",
+    tabScrollStateFrame: 0,
     tabDropTargetId: "",
     tabDropTargetMode: "",
     setStatus,
@@ -8576,7 +8615,7 @@ function ensureBrowser(panel, body) {
     suspendStopTimer: 0
   };
   session.detachTabWheelScroll = attachHorizontalWheelScroll(tabList);
-  tabList.addEventListener("scroll", () => updateBrowserTabOverflow(session), { passive: true });
+  tabList.addEventListener("scroll", () => scheduleBrowserTabScrollStateRefresh(session), { passive: true });
   if (typeof ResizeObserver === "function") {
     session.tabResizeObserver = new ResizeObserver(() => {
       scheduleActiveBrowserTabIntoView(session);
