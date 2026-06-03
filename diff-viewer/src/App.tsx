@@ -324,7 +324,7 @@ function Toolbar({
           title={label("options")}
           aria-label={label("options")}
           aria-expanded={state.optionsOpen}
-          aria-haspopup="menu"
+          aria-controls="options-menu"
           onClick={() => dispatch({ type: "set-options-open", open: !state.optionsOpen })}
         >
           <Icon name="dots" />
@@ -482,7 +482,7 @@ function OptionsMenu({
 }) {
   const toggle = (key: keyof DiffViewerOptions) => dispatch({ type: "set-option", key, value: !state.options[key] });
   return (
-    <div id="options-menu" role="menu" aria-label={label("options")}>
+    <div id="options-menu" aria-label={label("options")}>
       <MenuButton icon="refresh" label={label("refresh")} onClick={onReload} />
       <MenuButton checked={state.options.wordWrap} icon="wrap" label={state.options.wordWrap ? label("disableWordWrap") : label("enableWordWrap")} onClick={() => toggle("wordWrap")} />
       <MenuButton checked={state.options.collapsed} icon="collapse" label={state.options.collapsed ? label("expandAllDiffs") : label("collapseAllDiffs")} onClick={() => toggle("collapsed")} />
@@ -492,7 +492,7 @@ function OptionsMenu({
       <MenuButton checked={state.options.showBackgrounds} icon="background" label={state.options.showBackgrounds ? label("hideBackgrounds") : label("showBackgrounds")} onClick={() => toggle("showBackgrounds")} />
       <MenuButton checked={state.options.lineNumbers} icon="numbers" label={state.options.lineNumbers ? label("hideLineNumbers") : label("showLineNumbers")} onClick={() => toggle("lineNumbers")} />
       <MenuButton checked={state.options.wordDiffs} icon="word" label={state.options.wordDiffs ? label("disableWordDiffs") : label("enableWordDiffs")} onClick={() => toggle("wordDiffs")} />
-      <div className="menu-item menu-segment" role="presentation">
+      <div className="menu-item menu-segment">
         <Icon name="bars" />
         <span className="menu-label">{label("indicatorStyle")}</span>
         <span className="menu-segment-controls">
@@ -536,8 +536,7 @@ function MenuButton({
     <button
       type="button"
       className="menu-item"
-      role={checked == null ? "menuitem" : "menuitemcheckbox"}
-      aria-checked={checked == null ? undefined : checked}
+      aria-pressed={checked == null ? undefined : checked}
       onClick={onClick}
     >
       <Icon name={icon} />
@@ -600,8 +599,10 @@ function FilesSidebar({
             selectedPath={selectedPath}
             source={state.treeSource}
           />
-        ) : (
+        ) : state.status.loading || state.status.pending ? (
           <LoadingFileList />
+        ) : (
+          <div className="visually-hidden">{state.status.message}</div>
         )}
       </div>
       <div id="files-footer" aria-label={label("diffStats")}>
