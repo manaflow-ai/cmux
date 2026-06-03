@@ -606,6 +606,7 @@ struct WorkspaceDetailView: View {
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize
                 )
+                .id(terminalID)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(TerminalPalette.background)
             } else {

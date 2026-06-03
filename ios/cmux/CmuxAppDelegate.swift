@@ -33,7 +33,7 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         let ids = Self.cmuxIDs(from: notification.request.content.userInfo)
-        let present = await MobilePushCoordinator.shared.shouldPresentInForeground(
+        let present = MobilePushCoordinator.shared.shouldPresentInForeground(
             workspaceId: ids.workspaceId,
             surfaceId: ids.surfaceId
         )
@@ -45,7 +45,7 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         didReceive response: UNNotificationResponse
     ) async {
         let ids = Self.cmuxIDs(from: response.notification.request.content.userInfo)
-        await MobilePushCoordinator.shared.handleTap(
+        MobilePushCoordinator.shared.handleTap(
             workspaceId: ids.workspaceId,
             surfaceId: ids.surfaceId
         )
