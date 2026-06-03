@@ -11347,6 +11347,14 @@ function scheduleLayoutSettingsPreviewRefresh() {
 function refreshLayoutSettingsPreview() {
   const preview = elements.inspectorBody.querySelector(".layout-settings-preview");
   if (preview) preview.replaceWith(layoutSettingsPreviewPanel());
+  const workspace = activeWorkspace();
+  const unavailable = !workspace || workspace.panels.length <= 1;
+  const activePresetIds = unavailable ? new Set() : activePaneLayoutPresetIds(workspace);
+  for (const button of elements.inspectorBody.querySelectorAll(".pane-layout-preset[data-preset-id]")) {
+    const preset = paneLayoutPresets.find((candidate) => candidate.id === button.dataset.presetId);
+    if (!preset) continue;
+    updatePaneLayoutPresetButton(button, preset, activePresetIds.has(preset.id), unavailable);
+  }
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
 
@@ -14126,8 +14134,8 @@ function paneShapePanel(workspace = activeWorkspace()) {
 
 function paneLayoutPresetGrid() {
   const workspace = activeWorkspace();
-  const disabled = !workspace || workspace.panels.length <= 1;
-  const activePresetIds = disabled ? new Set() : activePaneLayoutPresetIds(workspace);
+  const unavailable = !workspace || workspace.panels.length <= 1;
+  const activePresetIds = unavailable ? new Set() : activePaneLayoutPresetIds(workspace);
   const grid = document.createElement("div");
   grid.className = "pane-layout-preset-grid";
   grid.dataset.settingsSearch = normalizeSettingsQuery("split layout pane presets side by side stacked active wide tall equal");
@@ -14136,7 +14144,8 @@ function paneLayoutPresetGrid() {
     const button = document.createElement("button");
     button.className = `pane-layout-preset${active ? " is-active" : ""}`;
     button.type = "button";
-    button.disabled = disabled;
+    button.disabled = unavailable || active;
+    button.title = paneLayoutPresetTitle(preset, active, unavailable);
     button.dataset.presetId = preset.id;
     button.dataset.settingsSearch = normalizeSettingsQuery(`split layout pane preset ${active ? "active current " : ""}${preset.label} ${preset.body}`);
     button.setAttribute("aria-pressed", active ? "true" : "false");
@@ -14147,22 +14156,40 @@ function paneLayoutPresetGrid() {
       <span class="pane-layout-preset-copy">
         <span class="pane-layout-preset-title-row">
           <span class="pane-layout-preset-title"></span>
+          <span class="pane-layout-preset-status"></span>
         </span>
         <span class="pane-layout-preset-body"></span>
       </span>
     `;
     button.querySelector(".pane-layout-preset-title").textContent = preset.label;
-    if (active) {
-      const status = document.createElement("span");
-      status.className = "pane-layout-preset-status";
-      status.textContent = "Active";
-      button.querySelector(".pane-layout-preset-title-row").append(status);
-    }
+    button.querySelector(".pane-layout-preset-status").textContent = active ? "Active" : "";
     button.querySelector(".pane-layout-preset-body").textContent = preset.body;
-    button.onclick = () => applyPaneLayoutPreset(preset.id);
+    button.onclick = () => {
+      if (!activePaneLayoutPresetIds(activeWorkspace()).has(preset.id)) applyPaneLayoutPreset(preset.id);
+    };
     grid.append(button);
   }
   return grid;
+}
+
+function paneLayoutPresetTitle(preset, active, unavailable) {
+  if (unavailable) return "Open another pane to use layout presets.";
+  if (active) return `${preset.label} layout already active.`;
+  return `Apply ${preset.label} layout.`;
+}
+
+function updatePaneLayoutPresetButton(button, preset, active, unavailable) {
+  button.classList.toggle("is-active", active);
+  setDisabledIfChanged(button, unavailable || active);
+  setTitleIfChanged(button, paneLayoutPresetTitle(preset, active, unavailable));
+  setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
+  const status = button.querySelector(".pane-layout-preset-status");
+  if (status) setTextIfChanged(status, active ? "Active" : "");
+  const search = normalizeSettingsQuery(`split layout pane preset ${active ? "active current " : ""}${preset.label} ${preset.body}`);
+  if (button.dataset.settingsSearch !== search) {
+    button.dataset.settingsSearch = search;
+    updateSettingsSearchIndexItemSearch(button, search);
+  }
 }
 
 function paneLayoutPresetTreeForWorkspace(preset, workspace, activePanelId, currentTree = null) {

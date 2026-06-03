@@ -9413,9 +9413,17 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   cursor: default;
 }
 
+.pane-layout-preset.is-active:disabled {
+  opacity: 1;
+}
+
 .pane-layout-preset-title,
 .pane-layout-preset-body {
   min-width: 0;
+}
+
+.pane-layout-preset-status:empty {
+  display: none;
 }
 
 .pane-layout-preset-title {
