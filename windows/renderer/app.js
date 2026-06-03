@@ -3893,6 +3893,8 @@ const commands = [
   { id: "settings.cleanFast", label: "Apply Clean + Fast Setup", shortcut: "", run: () => applySettingsPresetById("simpleFast") },
   { id: "settings.saveCleanFastProfile", label: "Save Clean + Fast Profile", shortcut: "", run: () => applyAndSaveCleanFastProfile() },
   { id: "settings.savePerformanceProfile", label: "Save Performance Profile", shortcut: "", run: () => saveCurrentPerformanceProfile() },
+  { id: "settings.copyPerformanceSetup", label: "Copy Performance Setup", shortcut: "", run: () => copyPerformanceSetup() },
+  { id: "settings.pastePerformanceSetup", label: "Paste Performance Setup", shortcut: "", run: () => pastePerformanceSetup() },
   { id: "settings.copyDiagnostics", label: "Copy Performance Diagnostics", shortcut: "", run: () => copyPerformanceDiagnostics() },
   { id: "settings.actions", label: "Open Actions Settings", shortcut: "", run: () => openSettingsCategory("actions") },
   { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
@@ -10278,6 +10280,7 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(settingRow("Terminal startup", startupSelect, false, "terminal startup new pane load fast balanced workspace switching lag"));
     performanceSection.append(settingRow("Pause inactive output", toggleInput(state.settings.terminalPauseInactiveOutput, (checked) => updateSettings({ terminalPauseInactiveOutput: checked })), false, "terminal output pause inactive hidden background lag smooth performance"));
     performanceSection.append(settingRow("Smooth resumed output", toggleInput(state.settings.terminalSmoothResumedOutput, (checked) => updateSettings({ terminalSmoothResumedOutput: checked })), false, "terminal output resume hidden backlog smooth workspace switching lag performance"));
+    performanceSection.append(settingRow("Suspend inactive browsers", toggleInput(state.settings.browserSuspendInactive, (checked) => updateSettings({ browserSuspendInactive: checked })), false, "browser webview suspend inactive background panes lag memory performance"));
     const scrollbackRange = document.createElement("input");
     scrollbackRange.className = "setting-control";
     scrollbackRange.type = "range";
@@ -10293,7 +10296,7 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(scrollbackRow);
     const performanceActions = document.createElement("div");
     performanceActions.className = "settings-actions";
-    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save current balanced reset render stats clear copy diagnostics report lag debug");
+    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save current balanced reset render stats clear copy paste setup diagnostics report lag debug");
     const speedPresetActive = isSettingsPresetIdActive("performance");
     const speedPreset = settingsActionButton(
       speedPresetActive ? "Speed active" : "Speed preset",
@@ -10312,6 +10315,8 @@ function renderSettingsInspector(options = {}) {
         settingsActionButton("Save current speed", saveCurrentPerformanceProfile, "", "performance save current speed lag settings profile reusable"),
         "Save current performance settings as a reusable profile."
       ),
+      settingsActionButton("Copy setup", copyPerformanceSetup, "", "performance setup copy speed lag motion terminal startup inactive browser suspend clipboard json"),
+      settingsActionButton("Paste setup", pastePerformanceSetup, "", "performance setup paste speed lag motion terminal startup inactive browser suspend clipboard json"),
       settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
       speedPreset,
       resetPerformanceStatsAction()
@@ -13366,6 +13371,111 @@ function performanceDiagnosticsPayload() {
       browserCache: state.browserViews.size
     }
   };
+}
+
+const performanceSetupSettings = [
+  "performanceMode",
+  "adaptivePerformance",
+  "reduceMotion",
+  "terminalStartupMode",
+  "terminalPauseInactiveOutput",
+  "terminalSmoothResumedOutput",
+  "browserSuspendInactive"
+];
+
+const performanceSetupBooleanSettings = new Set([
+  "performanceMode",
+  "adaptivePerformance",
+  "reduceMotion",
+  "terminalPauseInactiveOutput",
+  "terminalSmoothResumedOutput",
+  "browserSuspendInactive"
+]);
+
+function performanceSetupPayload() {
+  const settings = {};
+  for (const key of performanceSetupSettings) settings[key] = state.settings[key];
+  return {
+    version: 1,
+    type: "cmux-performance-setup",
+    summary: {
+      mode: state.settings.performanceMode ? "On" : "Off",
+      adaptiveGuard: state.settings.adaptivePerformance ? "On" : "Off",
+      motion: state.settings.performanceMode || state.settings.reduceMotion ? "Reduced" : "Full",
+      terminalStartup: optionLabel(terminalStartupOptions, state.settings.terminalStartupMode, state.settings.terminalStartupMode),
+      inactiveOutput: state.settings.terminalPauseInactiveOutput ? "Paused" : "Live",
+      resume: state.settings.terminalSmoothResumedOutput ? "Smooth" : "Immediate",
+      inactiveBrowsers: state.settings.browserSuspendInactive ? "Suspended" : "Live"
+    },
+    settings
+  };
+}
+
+async function copyPerformanceSetup() {
+  const payload = JSON.stringify(performanceSetupPayload(), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Performance setup copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Performance setup",
+    message: "Clipboard access is unavailable. The current performance setup is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function performanceSetupSettingUpdateFromValue(key, raw) {
+  if (key === "terminalStartupMode") return optionIdAllowed(terminalStartupOptions, raw) ? raw : null;
+  if (performanceSetupBooleanSettings.has(key)) return typeof raw === "boolean" ? raw : null;
+  return null;
+}
+
+function performanceSetupUpdatesFromPayload(payload) {
+  const parsed = importedObject(payload);
+  const source = importedObject(parsed?.settings) || parsed;
+  if (!source) return null;
+  const updates = {};
+  for (const key of performanceSetupSettings) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    const value = performanceSetupSettingUpdateFromValue(key, source[key]);
+    if (value === null) return null;
+    updates[key] = value;
+  }
+  return Object.keys(updates).length ? updates : null;
+}
+
+function applyPerformanceSetupUpdates(updates) {
+  if (!updates) {
+    toast("Clipboard does not contain performance setup.");
+    return false;
+  }
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Performance setup already matches.");
+    return false;
+  }
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast("Performance setup applied.");
+  return true;
+}
+
+async function pastePerformanceSetup() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(clipboard);
+    return applyPerformanceSetupUpdates(performanceSetupUpdatesFromPayload(parsed));
+  } catch {
+    toast("Clipboard does not contain performance setup.");
+    return false;
+  }
 }
 
 async function copyPerformanceDiagnostics() {
@@ -18359,6 +18469,8 @@ function showToolbarMenu(event) {
     contextMenuActionGroup(
       contextMenuButton("Performance settings", () => openSettingsCategory("performance")),
       contextMenuButton("Tune performance now", () => tunePerformanceNow()),
+      contextMenuButton("Copy performance setup", copyPerformanceSetup),
+      contextMenuButton("Paste performance setup", pastePerformanceSetup),
       contextMenuButton("Copy performance diagnostics", copyPerformanceDiagnostics),
       (() => {
         const action = contextMenuButton(
