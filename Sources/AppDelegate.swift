@@ -2175,6 +2175,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
+        if CmuxXCTestLaunchEnvironment.isUITestSocketHarness(ProcessInfo.processInfo.environment) {
+            startSocketListenerIfEnabled(tabManager: tabManager, source: "appDelegate.configure.uiTestSocketHarness")
+        }
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
 #if DEBUG
