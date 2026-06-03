@@ -40,6 +40,7 @@ import Testing
             "shadow", "border", "blur", "offset", "scaleEffect", "rotationEffect",
             "zIndex", "brightness", "contrast", "saturation", "grayscale",
             "clipShape", "clipped", "fixedSize", "layoutPriority", "degrees", "radians",
+            "overlay", "mask", "safeAreaInset",
         ]
 
         var unsupportedCalls: [String: Int] = [:]

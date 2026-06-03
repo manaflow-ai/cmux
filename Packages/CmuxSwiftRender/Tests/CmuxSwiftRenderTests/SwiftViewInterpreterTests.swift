@@ -480,6 +480,23 @@ import Testing
         #expect(node?.children.map(\.text) == ["2", "1", "42"])
     }
 
+    @Test func overlayAndBackgroundCaptureArbitraryChildViews() {
+        let node = interp.evaluate("""
+        Text("base")
+            .overlay(alignment: .topTrailing) {
+                Circle().frame(width: 8, height: 8)
+            }
+            .background {
+                RoundedRectangle(cornerRadius: 8)
+            }
+        """)
+        let overlay = node?.modifiers.first { $0.name == "overlay" }
+        #expect(overlay?.children.first?.kind == .circle)
+        #expect(overlay?.value("alignment") == ".topTrailing" || overlay?.value("alignment") == "topTrailing")
+        let background = node?.modifiers.first { $0.name == "background" }
+        #expect(background?.children.first?.kind == .roundedRectangle)
+    }
+
     @Test func ellipseAndUnevenRoundedRectangleShapes() {
         let node = interp.evaluate("""
         HStack {

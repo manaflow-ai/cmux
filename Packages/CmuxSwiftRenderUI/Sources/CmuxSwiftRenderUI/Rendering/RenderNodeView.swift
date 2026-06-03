@@ -154,7 +154,32 @@ struct RenderNodeView: View {
             if let token, let value = Double(token) { return AnyView(view.padding(CGFloat(value))) }
             return AnyView(view.padding())
         case "background":
+            if !modifier.children.isEmpty {
+                let alignment = frameAlignment(clean(modifier.value("alignment")))
+                return AnyView(view.background(alignment: alignment) { modifierChildren(modifier) })
+            }
             if let color = dslColor(token) { return AnyView(view.background(color)) }
+            return view
+        case "overlay":
+            if !modifier.children.isEmpty {
+                let alignment = frameAlignment(clean(modifier.value("alignment")))
+                return AnyView(view.overlay(alignment: alignment) { modifierChildren(modifier) })
+            }
+            if let color = dslColor(token) { return AnyView(view.overlay(color)) }
+            return view
+        case "mask":
+            if !modifier.children.isEmpty {
+                return AnyView(view.mask { modifierChildren(modifier) })
+            }
+            return view
+        case "safeAreaInset":
+            if !modifier.children.isEmpty {
+                let edge = clean(modifier.value("edge"))
+                if edge == "top" {
+                    return AnyView(view.safeAreaInset(edge: .top) { modifierChildren(modifier) })
+                }
+                return AnyView(view.safeAreaInset(edge: .bottom) { modifierChildren(modifier) })
+            }
             return view
         case "cornerRadius":
             if let token, let value = Double(token) {
@@ -211,6 +236,21 @@ struct RenderNodeView: View {
             return AnyView(view.layoutPriority(token.flatMap(Double.init) ?? 0))
         default:
             return view
+        }
+    }
+
+    /// Renders a child-bearing modifier's subtree (overlay/background/mask
+    /// content). Multiple top-level views stack in a `ZStack`.
+    @ViewBuilder
+    private func modifierChildren(_ modifier: RenderModifier) -> some View {
+        if modifier.children.count == 1 {
+            RenderNodeView(node: modifier.children[0])
+        } else {
+            ZStack {
+                ForEach(Array(modifier.children.enumerated()), id: \.offset) { _, child in
+                    RenderNodeView(node: child)
+                }
+            }
         }
     }
 

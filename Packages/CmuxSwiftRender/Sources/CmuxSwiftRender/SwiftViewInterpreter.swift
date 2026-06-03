@@ -99,6 +99,19 @@ public struct SwiftViewInterpreter: Sendable {
                 node.action = parseAction(closure, env)
                 return node
             }
+            // Child-bearing modifiers carry their trailing closure's views as a
+            // subtree (`.overlay { ... }`, `.background { ... }`, `.mask { ... }`,
+            // `.safeAreaInset(edge:) { ... }`), so arbitrary nested content
+            // composes, not just colors.
+            let childBearing: Set<String> = ["overlay", "background", "mask", "safeAreaInset"]
+            if childBearing.contains(name), let closure = call.trailingClosure {
+                node.modifiers.append(RenderModifier(
+                    name: name,
+                    args: modifierArgs(call.arguments, env),
+                    children: evalItems(closure.statements, env)
+                ))
+                return node
+            }
             node.modifiers.append(RenderModifier(name: name, args: modifierArgs(call.arguments, env)))
             return node
         }
