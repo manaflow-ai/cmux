@@ -60,6 +60,9 @@
          location = "group:CmuxMobileShellModel">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileShellUI">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileSupport">
       </FileRef>
       <FileRef

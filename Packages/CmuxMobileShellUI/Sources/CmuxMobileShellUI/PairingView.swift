@@ -312,6 +312,15 @@ enum AddDeviceInputKind {
     case number
 }
 
+/// Whether a scanned QR payload is a cmux pairing link.
+///
+/// cmux pairing QR codes carry a `cmux-ios://` deep link; any other QR content
+/// (a website URL, a Wi-Fi join code) must be ignored so the scanner never hands
+/// the connection layer a non-pairing string.
+func mobilePairingScannerAcceptsCode(_ code: String) -> Bool {
+    code.hasPrefix("cmux-ios://")
+}
+
 #if os(iOS)
 struct MobilePairingScannerSheet: View {
     let onCode: (String) -> Void
@@ -379,7 +388,7 @@ struct QRCodeScannerView: UIViewControllerRepresentable {
         context.coordinator.observe(stream: stream)
         return QRCodeCaptureController(
             stream: stream,
-            accepts: { $0.hasPrefix("cmux-ios://") },
+            accepts: mobilePairingScannerAcceptsCode,
             unavailableText: L10n.string("mobile.pairing.cameraUnavailable", defaultValue: "Camera Unavailable")
         )
     }
