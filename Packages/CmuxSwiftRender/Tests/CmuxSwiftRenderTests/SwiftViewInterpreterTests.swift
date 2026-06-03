@@ -19,6 +19,23 @@ import Testing
         #expect(node?.children.first?.modifiers.first?.name == "font")
     }
 
+    @Test func reorderableCapturesRowsItemIdsAndSpec() {
+        let ws = SwiftValue.array([
+            .object(["id": .string("w1"), "title": .string("A")]),
+            .object(["id": .string("w2"), "title": .string("B")]),
+        ])
+        let node = interp.evaluate("""
+        Reorderable(workspaces, move: "workspace.reorder") { w in
+            Text(w.title)
+        }
+        """, state: ["workspaces": ws])
+        #expect(node?.kind == .reorderable)
+        #expect(node?.children.map(\.text) == ["A", "B"])
+        #expect(node?.reorder?.method == "workspace.reorder")
+        #expect(node?.reorder?.idParam == "workspace_id")
+        #expect(node?.reorder?.itemIds == ["w1", "w2"])
+    }
+
     @Test func parsesHSplitViewColumns() {
         let node = interp.evaluate("""
         HSplitView {

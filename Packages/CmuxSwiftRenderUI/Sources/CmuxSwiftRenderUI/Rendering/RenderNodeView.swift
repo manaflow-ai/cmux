@@ -36,6 +36,8 @@ struct RenderNodeView: View {
             ZStack { children }
         case .hsplit:
             ResizableHSplit(columns: node.children)
+        case .reorderable:
+            ReorderableList(rows: node.children, spec: node.reorder)
         case .text:
             Text(node.text ?? "")
         case .image:

@@ -114,6 +114,8 @@ public struct SwiftViewInterpreter: Sendable {
             return RenderNode(kind: kind, spacing: doubleArgument(named: "spacing", call.arguments, env), children: children)
         case "HSplitView":
             return RenderNode(kind: .hsplit, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "Reorderable":
+            return evalReorderable(call, env)
         default:
             return nil
         }
@@ -150,6 +152,41 @@ public struct SwiftViewInterpreter: Sendable {
         if let stmt = node.as(ExpressionStmtSyntax.self) { return stmt.expression.as(IfExprSyntax.self) }
         if let expr = node.as(ExprSyntax.self) { return expr.as(IfExprSyntax.self) }
         return nil
+    }
+
+    /// Evaluates `Reorderable(data, move: "method", id: "field") { item in row }`
+    /// into a `.reorderable` node: one rendered row per item plus a
+    /// ``ReorderSpec`` carrying the item ids and the drop command.
+    private func evalReorderable(_ call: FunctionCallExprSyntax, _ env: Environment) -> RenderNode? {
+        guard let dataExpr = call.arguments.first(where: { $0.label == nil })?.expression,
+              case let .array(items)? = expressions.eval(dataExpr, env),
+              let closure = call.trailingClosure else { return nil }
+        let method = labeledStringArgument("move", call.arguments, env) ?? "workspace.reorder"
+        let idField = labeledStringArgument("id", call.arguments, env) ?? "id"
+        let idParam = labeledStringArgument("idParam", call.arguments, env) ?? "workspace_id"
+        let indexParam = labeledStringArgument("indexParam", call.arguments, env) ?? "index"
+        let paramName = closureParameterName(closure)
+
+        var rows: [RenderNode] = []
+        var ids: [String] = []
+        for item in items {
+            let scope = env.makeChild()
+            if let paramName { scope.define(paramName, item) }
+            scope.define("$0", item)
+            let rowNodes = evalItems(closure.statements, scope)
+            rows.append(rowNodes.count == 1 ? rowNodes[0] : RenderNode(kind: .vstack, children: rowNodes))
+            ids.append(item.member(idField)?.displayString ?? "")
+        }
+        return RenderNode(
+            kind: .reorderable,
+            children: rows,
+            reorder: ReorderSpec(method: method, idParam: idParam, indexParam: indexParam, itemIds: ids)
+        )
+    }
+
+    private func labeledStringArgument(_ label: String, _ args: LabeledExprListSyntax, _ env: Environment) -> String? {
+        guard let expr = args.first(where: { $0.label?.text == label })?.expression else { return nil }
+        return exprString(expr, env)
     }
 
     private func isForEach(_ call: FunctionCallExprSyntax) -> Bool {
