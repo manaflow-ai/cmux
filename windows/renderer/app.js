@@ -1914,6 +1914,84 @@ async function copyCustomColorValue(color, toastText = "Color copied.") {
   return false;
 }
 
+function savedColorPalettePayload() {
+  return {
+    version: 1,
+    type: "cmux-saved-color-palette",
+    summary: {
+      count: state.customColorPalette.length,
+      limit: customColorPaletteLimit
+    },
+    colors: [...state.customColorPalette]
+  };
+}
+
+async function copySavedColorPalette() {
+  const payload = JSON.stringify(savedColorPalettePayload(), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Saved color palette copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Saved color palette",
+    message: "Clipboard access is unavailable. The saved color palette is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function savedColorPaletteColorsFromPayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  const parsed = importedObject(payload);
+  if (!parsed) return null;
+  if (Array.isArray(parsed.colors)) return parsed.colors;
+  if (Array.isArray(parsed.customColorPalette)) return parsed.customColorPalette;
+  if (Array.isArray(parsed.palette)) return parsed.palette;
+  return null;
+}
+
+function savedColorPaletteUpdatesFromPayload(payload) {
+  const rawColors = savedColorPaletteColorsFromPayload(payload);
+  if (!rawColors) return null;
+  const colors = uniqueColors(rawColors.map(normalizeCustomPaletteColor).filter(Boolean));
+  return colors.length ? colors.slice(0, customColorPaletteLimit) : null;
+}
+
+function applySavedColorPaletteUpdates(colors) {
+  if (!colors) {
+    toast("Clipboard does not contain a saved color palette.");
+    return false;
+  }
+  const next = uniqueColors([...colors, ...state.customColorPalette]).slice(0, customColorPaletteLimit);
+  if (next.length === state.customColorPalette.length && next.every((color, index) => color === state.customColorPalette[index])) {
+    toast("Saved color palette already matches.");
+    return false;
+  }
+  state.customColorPalette = next;
+  saveCustomColorPalette();
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast("Saved color palette applied.");
+  return true;
+}
+
+async function pasteSavedColorPalette() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(clipboard);
+    return applySavedColorPaletteUpdates(savedColorPaletteUpdatesFromPayload(parsed));
+  } catch {
+    toast("Clipboard does not contain a saved color palette.");
+    return false;
+  }
+}
+
 async function copyColorValue(value, fallback = "", toastText = "Color copied.") {
   const color = normalizeCopyableColorValue(value, fallback);
   if (!color) {
@@ -3909,6 +3987,8 @@ const commands = [
   { id: "settings.terminalColors", label: "Reset Terminal Colors", shortcut: "", run: () => applyTerminalColorPresetById("cmux") },
   { id: "settings.saveTerminalProfile", label: "Save Terminal Profile", shortcut: "", run: () => saveCurrentTerminalProfile() },
   { id: "settings.colors", label: "Open Color Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "color", focusSearch: true }) },
+  { id: "settings.copySavedColors", label: "Copy Saved Color Palette", shortcut: "", run: () => copySavedColorPalette() },
+  { id: "settings.pasteSavedColors", label: "Paste Saved Color Palette", shortcut: "", run: () => pasteSavedColorPalette() },
   { id: "settings.saveAccentColor", label: "Save Current Accent Color", shortcut: "", run: () => upsertCustomColorPalette(state.settings.accent) },
   { id: "settings.saveWorkspaceColor", label: "Save Current Workspace Color", shortcut: "", run: () => upsertCustomColorPalette(activeWorkspace()?.color) },
   { id: "settings.backgrounds", label: "Open Background Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "background", focusSearch: true }) },
@@ -15780,7 +15860,11 @@ function savedColorPalettePanel() {
 
   const actions = document.createElement("div");
   actions.className = "settings-actions saved-color-actions";
-  actions.dataset.settingsSearch = normalizeSettingsQuery("saved color palette paste clipboard apply save current accent workspace");
+  actions.dataset.settingsSearch = normalizeSettingsQuery("saved color palette copy paste clipboard apply save current accent workspace reusable colors json");
+  const copyPalette = settingsActionButton("Copy palette", copySavedColorPalette, "", "saved color palette copy reusable colors clipboard json");
+  copyPalette.title = "Copy the saved color palette as JSON.";
+  const pastePalette = settingsActionButton("Paste palette", pasteSavedColorPalette, "", "saved color palette paste reusable colors clipboard json");
+  pastePalette.title = "Merge copied saved colors into the palette.";
   const pasteColor = settingsActionButton("Paste color", () => pasteColorToTarget(state.colorApplyTarget), "", "saved color paste clipboard apply selected target accent workspace pane all hex oklch");
   pasteColor.disabled = Boolean(targetOption.disabled);
   pasteColor.title = targetOption.disabled
@@ -15807,7 +15891,7 @@ function savedColorPalettePanel() {
     : clearPanes.disabled
       ? "Pane colors are already default."
       : "Clear pane colors in the active workspace.";
-  actions.append(pasteColor, saveAccent, saveWorkspace, savePane, clearWorkspace, clearPanes);
+  actions.append(copyPalette, pastePalette, pasteColor, saveAccent, saveWorkspace, savePane, clearWorkspace, clearPanes);
   panel.append(actions);
 
   if (state.customColorPalette.length === 0) {
@@ -18688,6 +18772,8 @@ function showToolbarMenu(event) {
         return action;
       })(),
       contextMenuButton("Color settings", () => openSettingsCategory("appearance", { query: "color", focusSearch: true })),
+      contextMenuButton("Copy saved colors", copySavedColorPalette),
+      contextMenuButton("Paste saved colors", pasteSavedColorPalette),
       (() => {
         const action = contextMenuButton("Save current accent", () => upsertCustomColorPalette(state.settings.accent), !canSaveCustomColor(state.settings.accent));
         action.title = customColorSaveTitle(state.settings.accent, "Save the current accent color to the reusable palette.");
@@ -19385,7 +19471,7 @@ function paletteEntryKind(entry) {
   if (id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.")) return "settings";
   if (id.startsWith("layout.")) return "layout";
   if (id.startsWith("background") || id.startsWith("savedBackground")) return "look";
-  if (id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("terminalColor.")) return "color";
+  if (id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("savedColorPalette.") || id.startsWith("terminalColor.")) return "color";
   return "command";
 }
 
@@ -19746,6 +19832,24 @@ function paletteEntries() {
       run: () => pasteColorToTarget(id)
     });
   }
+  entries.push({
+    id: "savedColorPalette.copy",
+    label: "Copy saved color palette",
+    meta: `${state.customColorPalette.length}/${customColorPaletteLimit} saved colors`,
+    shortcut: "Copy",
+    title: "Copy the saved color palette as JSON.",
+    search: normalizeSettingsQuery("saved color palette copy reusable colors json clipboard custom accent workspace pane"),
+    run: copySavedColorPalette
+  });
+  entries.push({
+    id: "savedColorPalette.paste",
+    label: "Paste saved color palette",
+    meta: "Merge copied colors into saved colors",
+    shortcut: "Paste",
+    title: "Merge copied saved colors into the palette.",
+    search: normalizeSettingsQuery("saved color palette paste reusable colors json clipboard custom accent workspace pane"),
+    run: pasteSavedColorPalette
+  });
   for (const color of state.customColorPalette) {
     const colorValue = colorKey(color);
     const colorLabel = color.toUpperCase();
