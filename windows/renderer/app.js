@@ -526,6 +526,7 @@ const state = {
   paletteFocusFrame: 0,
   paletteListSignature: "",
   paletteEntriesCache: null,
+  paletteEntriesCacheSignature: "",
   surfaceTabScrollFrame: 0,
   surfaceTabScrollTargetId: "",
   surfaceTabScrollStateFrame: 0,
@@ -16622,8 +16623,28 @@ function flushPaletteRender() {
 }
 
 function paletteEntriesForOpenSession() {
-  if (!state.paletteEntriesCache) state.paletteEntriesCache = paletteEntries();
+  const signature = paletteEntriesSignature();
+  if (!state.paletteEntriesCache || state.paletteEntriesCacheSignature !== signature) {
+    state.paletteEntriesCache = paletteEntries();
+    state.paletteEntriesCacheSignature = signature;
+    state.paletteListSignature = "";
+  }
   return state.paletteEntriesCache;
+}
+
+function paletteEntriesSignature() {
+  const parts = [];
+  appendSignatureValue(parts, state.dataSignature || "");
+  appendSignatureData(parts, state.recentFolders);
+  appendSignatureData(parts, state.recentCommands);
+  appendSignatureData(parts, state.recentBrowserPages);
+  appendSignatureData(parts, state.customCommandSnippets);
+  appendSignatureData(parts, state.customColorPalette);
+  appendSignatureData(parts, state.savedBackgroundImages);
+  appendSignatureData(parts, state.savedSettingsProfiles);
+  appendSignatureData(parts, state.workspaceBlueprints);
+  appendSignatureValue(parts, state.settings.browserHomeUrl);
+  return parts.join("");
 }
 
 function paletteQuickActions() {
@@ -16766,12 +16787,28 @@ function paletteListSignature(query, entries, totalCount = entries.length) {
   const parts = [];
   appendSignatureValue(parts, query);
   appendSignatureValue(parts, totalCount);
+  if (!query) appendSignatureValue(parts, paletteQuickActionsSignature());
   appendSignatureArray(parts, entries, (nextParts, entry) => {
     appendSignatureValue(nextParts, entry.id);
     appendSignatureValue(nextParts, entry.label);
     appendSignatureValue(nextParts, entry.meta);
     appendSignatureValue(nextParts, entry.shortcut);
   });
+  return parts.join("");
+}
+
+function paletteQuickActionsSignature() {
+  const workspace = activeWorkspace();
+  const active = focusedPanel();
+  const parts = [];
+  appendSignatureValue(parts, workspace?.id || "");
+  appendSignatureValue(parts, workspace?.title || "");
+  appendSignatureValue(parts, active?.id || "");
+  appendSignatureValue(parts, active?.type || "");
+  appendSignatureValue(parts, active?.title || "");
+  appendSignatureValue(parts, active?.url || "");
+  appendSignatureValue(parts, state.settings.browserHomeUrl);
+  appendSignatureValue(parts, paneCreationButtonsDisabled());
   return parts.join("");
 }
 
@@ -17105,7 +17142,8 @@ function schedulePaletteFocus() {
 function openPalette() {
   state.paletteOpen = true;
   state.paletteIndex = 0;
-  state.paletteEntriesCache = paletteEntries();
+  state.paletteEntriesCache = null;
+  state.paletteEntriesCacheSignature = "";
   state.paletteListSignature = "";
   renderPalette();
   elements.paletteList.scrollTop = 0;
@@ -17116,6 +17154,7 @@ function closePalette() {
   state.paletteOpen = false;
   cancelPaletteFocus();
   state.paletteEntriesCache = null;
+  state.paletteEntriesCacheSignature = "";
   state.paletteListSignature = "";
   elements.paletteList.scrollTop = 0;
   renderPalette();
