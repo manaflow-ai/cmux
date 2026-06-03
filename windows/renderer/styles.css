@@ -7210,9 +7210,19 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background: var(--color-pane);
 }
 
+.recent-folder-card.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 54%, var(--color-line) 46%);
+  background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane) 90%);
+}
+
 .recent-folder-card:hover {
   border-color: var(--color-line-strong);
   background: var(--color-pane-warm);
+}
+
+.recent-folder-card.is-active:hover {
+  border-color: color-mix(in oklch, var(--color-accent) 64%, var(--color-line) 36%);
+  background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane-warm) 86%);
 }
 
 .recent-folder-text {

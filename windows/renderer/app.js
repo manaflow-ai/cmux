@@ -11263,6 +11263,7 @@ function refreshBrowserSettingsPreview() {
       }
     }
   }
+  refreshRecentBrowserHomeActions();
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
 
@@ -15174,9 +15175,11 @@ function recentBrowserPagesSettings() {
   }
 
   for (const url of state.recentBrowserPages) {
+    const activeHome = isActiveRecentBrowserHome(url);
     const card = document.createElement("div");
-    card.className = "recent-folder-card";
-    card.dataset.settingsSearch = normalizeSettingsQuery(`recent browser page url web open home ${hostnameOf(url)} ${url}`);
+    card.className = `recent-folder-card${activeHome ? " is-active" : ""}`;
+    card.dataset.recentBrowserUrl = url;
+    card.dataset.settingsSearch = recentBrowserPageSearch(url, activeHome);
     const text = document.createElement("div");
     text.className = "recent-folder-text";
     const name = document.createElement("div");
@@ -15193,17 +15196,65 @@ function recentBrowserPagesSettings() {
     actions.className = "recent-folder-actions command-snippet-actions is-built-in";
     const open = settingsActionButton("Open", () => createPanel("browser", "right", { url }), "", `recent browser page open ${url}`);
     open.dataset.recentBrowserAction = "open";
+    open.dataset.recentBrowserUrl = url;
     const home = settingsActionButton("Home", () => {
       const changed = updateSettings({ browserHomeUrl: url });
       toast(changed ? "Browser home updated." : "Browser home already uses this page.");
-    }, "", `recent browser page home ${url}`);
+    }, activeHome ? "primary" : "", recentBrowserHomeActionSearch(url, activeHome));
     home.dataset.recentBrowserAction = "home";
+    home.dataset.recentBrowserUrl = url;
+    setRecentBrowserHomeActionState(home, activeHome);
     actions.append(open, home);
     card.append(text, actions);
     section.append(card);
   }
 
   return section;
+}
+
+function isActiveRecentBrowserHome(url) {
+  return browserHomeKey(url) === browserHomeKey(state.settings.browserHomeUrl);
+}
+
+function recentBrowserPageSearch(url, activeHome = isActiveRecentBrowserHome(url)) {
+  return normalizeSettingsQuery(`recent browser page url web open home ${activeHome ? "active current " : ""}${hostnameOf(url)} ${url}`);
+}
+
+function recentBrowserHomeActionSearch(url, activeHome = isActiveRecentBrowserHome(url)) {
+  return `recent browser page ${activeHome ? "active current " : ""}home set browser home ${url}`;
+}
+
+function setRecentBrowserHomeActionState(button, activeHome) {
+  if (!button) return;
+  button.disabled = activeHome;
+  button.classList.toggle("primary", activeHome);
+  button.title = activeHome ? "This page is already the browser home." : "Set this page as the browser home.";
+  setSettingsActionLabel(button, activeHome ? "Active" : "Home");
+}
+
+function refreshRecentBrowserHomeActions() {
+  const cards = elements.inspectorBody.querySelectorAll(".recent-folder-card[data-recent-browser-url]");
+  for (const card of cards) {
+    const url = card.dataset.recentBrowserUrl || "";
+    const activeHome = isActiveRecentBrowserHome(url);
+    card.classList.toggle("is-active", activeHome);
+    const cardSearch = recentBrowserPageSearch(url, activeHome);
+    if (card.dataset.settingsSearch !== cardSearch) {
+      card.dataset.settingsSearch = cardSearch;
+      updateSettingsSearchIndexItemSearch(card, cardSearch);
+    }
+  }
+  const buttons = elements.inspectorBody.querySelectorAll('[data-recent-browser-action="home"][data-recent-browser-url]');
+  for (const button of buttons) {
+    const url = button.dataset.recentBrowserUrl || "";
+    const activeHome = isActiveRecentBrowserHome(url);
+    setRecentBrowserHomeActionState(button, activeHome);
+    const search = normalizeSettingsQuery(`Home ${recentBrowserHomeActionSearch(url, activeHome)}`);
+    if (button.dataset.settingsSearch !== search) {
+      button.dataset.settingsSearch = search;
+      updateSettingsSearchIndexItemSearch(button, search);
+    }
+  }
 }
 
 function commandSnippetsSettings() {
