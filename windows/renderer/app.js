@@ -1684,6 +1684,16 @@ function findTerminalCommandSnippet(snippetId) {
   return allTerminalCommandSnippets().find((candidate) => candidate.id === snippetId);
 }
 
+function commandSnippetCommandKey(command) {
+  return normalizeTerminalCommand(command).toLowerCase();
+}
+
+function isBuiltInCommandSnippetSaved(snippet) {
+  const commandKey = commandSnippetCommandKey(snippet?.command);
+  if (!commandKey) return false;
+  return state.customCommandSnippets.some((candidate) => commandSnippetCommandKey(candidate.command) === commandKey);
+}
+
 function upsertCustomCommandSnippet(snippet) {
   const normalized = normalizeCustomCommandSnippet(snippet);
   if (!normalized) return null;
@@ -15294,9 +15304,10 @@ function commandSnippetsSettings() {
 }
 
 function commandSnippetCard(snippet) {
+  const savedBuiltIn = Boolean(snippet.builtIn && isBuiltInCommandSnippetSaved(snippet));
   const card = document.createElement("div");
-  card.className = "recent-folder-card command-snippet-card";
-  card.dataset.settingsSearch = normalizeSettingsQuery(`command snippet terminal shell run ${snippet.builtIn ? "built in" : "custom saved"} ${snippet.label} ${snippet.command}`);
+  card.className = `recent-folder-card command-snippet-card${savedBuiltIn ? " is-active" : ""}`;
+  card.dataset.settingsSearch = normalizeSettingsQuery(`command snippet terminal shell run ${snippet.builtIn ? "built in" : "custom saved"} ${savedBuiltIn ? "saved active current " : ""}${snippet.label} ${snippet.command}`);
 
   const text = document.createElement("div");
   text.className = "recent-folder-text";
@@ -15314,7 +15325,10 @@ function commandSnippetCard(snippet) {
   actions.className = `recent-folder-actions command-snippet-actions${snippet.builtIn ? " is-built-in" : ""}`;
   actions.append(settingsActionButton("Run", () => runTerminalCommand(snippet.command), "", `run command snippet ${snippet.label} ${snippet.command}`));
   if (snippet.builtIn) {
-    actions.append(settingsActionButton("Save", () => saveBuiltInCommandSnippet(snippet), "", `save built in command snippet ${snippet.label}`));
+    const save = settingsActionButton(savedBuiltIn ? "Saved" : "Save", () => saveBuiltInCommandSnippet(snippet), savedBuiltIn ? "primary" : "", `save built in command snippet ${savedBuiltIn ? "saved active current " : ""}${snippet.label}`);
+    save.disabled = savedBuiltIn;
+    save.title = savedBuiltIn ? "This built-in snippet is already saved." : "Save this built-in snippet.";
+    actions.append(save);
   } else {
     actions.append(
       settingsActionButton("Edit", () => editCustomCommandSnippet(snippet.id), "", `edit custom command snippet ${snippet.label}`),
@@ -15378,8 +15392,7 @@ async function deleteCustomCommandSnippet(snippetId) {
 }
 
 function saveBuiltInCommandSnippet(snippet) {
-  const commandKey = snippet.command.toLowerCase();
-  if (state.customCommandSnippets.some((candidate) => candidate.command.toLowerCase() === commandKey)) {
+  if (isBuiltInCommandSnippetSaved(snippet)) {
     toast("Snippet is already saved.");
     return;
   }
