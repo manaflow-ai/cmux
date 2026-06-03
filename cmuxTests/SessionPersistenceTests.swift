@@ -5238,9 +5238,12 @@ extension SessionPersistenceTests {
 
             XCTAssertNil(restoredPanel.requestedWorkingDirectory)
             XCTAssertTrue(startupPayload.contains("codex resume session-duplicate-turn --yolo"), startupPayload)
-            XCTAssertTrue(startupPayload.contains("{ cd --"), startupPayload)
-            XCTAssertTrue(startupPayload.contains(missingCwd.path), startupPayload)
-            XCTAssertTrue(startupPayload.contains("[ ! -d"), startupPayload)
+            let guardStart = try XCTUnwrap(startupPayload.range(of: "{ cd -- "), startupPayload)
+            let guardSuffix = String(startupPayload[guardStart.lowerBound...])
+            let guardEnd = try XCTUnwrap(guardSuffix.range(of: "]; } &&")?.upperBound, guardSuffix)
+            let guardSnippet = String(guardSuffix[..<guardEnd])
+            XCTAssertTrue(guardSnippet.contains(missingCwd.path), guardSnippet)
+            XCTAssertTrue(guardSnippet.contains("2>/dev/null || [ ! -d"), guardSnippet)
         }
     }
 
@@ -5298,7 +5301,7 @@ extension SessionPersistenceTests {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
         let previous = defaults.object(forKey: key)
-        defaults.removeObject(forKey: key)
+        defaults.set(true, forKey: key)
         defer {
             if let previous {
                 defaults.set(previous, forKey: key)
@@ -5318,7 +5321,10 @@ extension SessionPersistenceTests {
         let command = try XCTUnwrap(panel.surface.debugInitialCommand())
         let launcherPrefix = "/bin/zsh '"
         guard command.hasPrefix(launcherPrefix), command.hasSuffix("'") else {
-            return command
+            return try XCTUnwrap(
+                Optional<String>.none,
+                "Unexpected restored startup command format: \(command)"
+            )
         }
         let scriptPath = String(command.dropFirst(launcherPrefix.count).dropLast())
         return try String(contentsOfFile: scriptPath, encoding: .utf8)
