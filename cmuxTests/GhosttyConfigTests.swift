@@ -2055,7 +2055,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             }
         }
         defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        defaults.set(0, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        defaults.set(60, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
         try body()
     }
 

@@ -1717,6 +1717,15 @@ extension Workspace {
                 restoredAgentResumeLaunch?.initialInput != nil ||
                 (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
             )
+            let requestedWorkingDirectoryForRestoredTerminal =
+                remoteConfiguration != nil &&
+                (restoredAgentWillRunStartupCommand ||
+                 restoredAgentWillRunStartupInput ||
+                 restoresRemoteWorkspaceTerminalSnapshot ||
+                 effectiveRemoteStartupCommand != nil ||
+                 startupHandlesWorkingDirectory)
+                ? nil
+                : savedWorkingDirectory
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -1746,7 +1755,7 @@ extension Workspace {
                 inPane: paneId,
                 focus: false,
                 workingDirectory: localWorkingDirectory,
-                requestedWorkingDirectory: savedWorkingDirectory,
+                requestedWorkingDirectory: requestedWorkingDirectoryForRestoredTerminal,
                 initialCommand: restoredStartupCommand,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredStartupInput,
@@ -7967,7 +7976,7 @@ final class WorkspaceRemoteSessionController {
           esac
           cmux_child_pids="$(printf '%s\\n' "$cmux_ps_output" | awk -v parent="$cmux_listener_pid" -v slot="$cmux_persistent_slot" '
             function clean_token(value) {
-              gsub(/\047/, "", value)
+              gsub(/\\047/, "", value)
               gsub(/"/, "", value)
               gsub(/\\\\/, "", value)
               return value
@@ -12856,13 +12865,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarPullRequestsInDisplayOrder() -> [SidebarPullRequestState] {
-        guard let focusedPanelId else {
-            return []
-        }
-        let focusedPullRequests = sidebarPullRequestsInDisplayOrder(orderedPanelIds: [focusedPanelId])
-        guard !focusedPullRequests.isEmpty else {
-            return []
-        }
         return sidebarPullRequestsInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
     }
 
