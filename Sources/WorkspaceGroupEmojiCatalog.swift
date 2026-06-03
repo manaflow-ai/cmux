@@ -1,3 +1,5 @@
+import Foundation
+
 enum WorkspaceGroupEmojiCatalog {
     private static let commonEmoji = [
         "🚀", "💻", "🧠", "⚙️", "🔥", "✅", "📁", "🧪", "🎯", "✨", "⚡️", "⭐️",
