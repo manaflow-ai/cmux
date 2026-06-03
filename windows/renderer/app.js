@@ -3882,6 +3882,8 @@ const commands = [
   { id: "notifications.open", label: "Show Notifications", shortcut: "Ctrl+I", run: () => openInspector("notifications") },
   { id: "session.tools", label: "Show Session Tools", shortcut: "", run: () => openInspector("session") },
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
+  { id: "settings.copyAppSetup", label: "Copy App Setup", shortcut: "", run: () => copyAppSetup() },
+  { id: "settings.pasteAppSetup", label: "Paste App Setup", shortcut: "", run: () => pasteAppSetup() },
   { id: "settings.pane", label: "Open Active Pane Settings", shortcut: "", run: () => openPaneSettings() },
   { id: "settings.copyPaneSetup", label: "Copy Active Pane Setup", shortcut: "", run: () => copyActivePaneSetup() },
   { id: "settings.pastePaneSetup", label: "Paste Active Pane Setup", shortcut: "", run: () => pasteActivePaneSetup() },
@@ -10542,9 +10544,13 @@ function renderSettingsInspector(options = {}) {
     const emptyWorkspaceCleanupTargets = hasEmptyWorkspaceCleanupTargets();
     closeEmpty.disabled = !emptyWorkspaceCleanupTargets;
     closeEmpty.title = emptyWorkspaceCleanupTargets ? "Close empty workspaces except the active one." : "There are no extra empty workspaces to close.";
+    const copySetup = settingsActionButton("Copy app setup", copyAppSetup, "", "settings data export copy app setup backup preferences profiles blueprints snippets colors backgrounds recent clipboard json");
+    copySetup.title = "Copy settings, profiles, blueprints, saved colors, backgrounds, snippets, and recent data as JSON.";
+    const pasteSetup = settingsActionButton("Paste app setup", pasteAppSetup, "", "settings data import paste app setup restore preferences profiles blueprints snippets colors backgrounds recent clipboard json");
+    pasteSetup.title = "Paste exported cmux Windows app setup JSON.";
     actions.append(
-      settingsActionButton("Export", exportSettings),
-      settingsActionButton("Import", importSettings),
+      copySetup,
+      pasteSetup,
       closeEmpty,
       clearRecent,
       settingsActionButton("Reset", resetSettings, "danger")
@@ -13675,13 +13681,29 @@ function quickSetupOverviewPanel() {
         <span class="quick-overview-title">Current setup</span>
         <span class="quick-overview-subtitle"></span>
       </span>
-      <button class="quick-overview-save" type="button">
-        <span class="quick-overview-save-icon" aria-hidden="true"></span>
-        <span class="quick-overview-save-copy">
-          <b>Save setup</b>
-          <em data-quick-profile-count></em>
-        </span>
-      </button>
+      <span class="quick-overview-actions">
+        <button class="quick-overview-save" type="button" data-quick-setup-action="save">
+          <span class="quick-overview-save-icon" aria-hidden="true"></span>
+          <span class="quick-overview-save-copy">
+            <b>Save</b>
+            <em data-quick-profile-count></em>
+          </span>
+        </button>
+        <button class="quick-overview-save is-secondary" type="button" data-quick-setup-action="copy">
+          <span class="quick-overview-save-icon" aria-hidden="true"></span>
+          <span class="quick-overview-save-copy">
+            <b>Copy</b>
+            <em>App setup</em>
+          </span>
+        </button>
+        <button class="quick-overview-save is-secondary" type="button" data-quick-setup-action="paste">
+          <span class="quick-overview-save-icon" aria-hidden="true"></span>
+          <span class="quick-overview-save-copy">
+            <b>Paste</b>
+            <em>App setup</em>
+          </span>
+        </button>
+      </span>
     </div>
     <div class="quick-overview-grid">
       <span><b>Profile</b><em data-quick-profile></em></span>
@@ -13718,7 +13740,7 @@ function quickSetupOverviewPanel() {
     </div>
   `;
   panel.querySelector(".quick-overview-subtitle").textContent = folder;
-  const saveSetup = panel.querySelector(".quick-overview-save");
+  const saveSetup = panel.querySelector('[data-quick-setup-action="save"]');
   saveSetup.querySelector(".quick-overview-save-icon").innerHTML = quickActionIconMarkup("profiles");
   const setup = activeSettingsSetupModel();
   saveSetup.querySelector("[data-quick-profile-count]").textContent = `${setup.kind} / ${savedSettingsProfileCountLabel()} profiles`;
@@ -13728,6 +13750,18 @@ function quickSetupOverviewPanel() {
   saveSetup.onclick = () => {
     if (!saveSetup.disabled) saveQuickSetupProfile();
   };
+  const copySetup = panel.querySelector('[data-quick-setup-action="copy"]');
+  copySetup.querySelector(".quick-overview-save-icon").innerHTML = controlIconMarkup("copy");
+  copySetup.title = "Copy the full app setup as JSON.";
+  copySetup.setAttribute("aria-label", copySetup.title);
+  copySetup.dataset.settingsSearch = normalizeSettingsQuery("quick setup copy app setup export settings profiles blueprints colors backgrounds snippets clipboard json");
+  copySetup.onclick = () => copyAppSetup();
+  const pasteSetup = panel.querySelector('[data-quick-setup-action="paste"]');
+  pasteSetup.querySelector(".quick-overview-save-icon").innerHTML = controlIconMarkup("clipboard");
+  pasteSetup.title = "Paste exported cmux Windows app setup JSON.";
+  pasteSetup.setAttribute("aria-label", pasteSetup.title);
+  pasteSetup.dataset.settingsSearch = normalizeSettingsQuery("quick setup paste app setup import settings profiles blueprints colors backgrounds snippets clipboard json");
+  pasteSetup.onclick = () => pasteAppSetup();
   const profileValue = panel.querySelector("[data-quick-profile]");
   profileValue.textContent = setup.label;
   profileValue.title = `${setup.kind}: ${setup.label}`;
@@ -18645,6 +18679,8 @@ function showToolbarMenu(event) {
       contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
       contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
       contextMenuButton("Settings profiles", () => openSettingsCategory("profiles")),
+      contextMenuButton("Copy app setup", copyAppSetup),
+      contextMenuButton("Paste app setup", pasteAppSetup),
       (() => {
         const recentActivity = hasRecentActivity();
         const action = contextMenuButton("Clear recent activity", clearRecentActivity, !recentActivity, "danger");
@@ -22532,7 +22568,24 @@ async function pasteClipboardToTerminal(panel = activePanel()) {
   return true;
 }
 
-async function exportSettings() {
+function copyAppSetup() {
+  return exportSettings({
+    title: "App setup JSON",
+    fallbackMessage: "Clipboard access is unavailable. The current app setup is shown below.",
+    toastText: "App setup copied."
+  });
+}
+
+function pasteAppSetup() {
+  return importSettings({
+    title: "Paste app setup",
+    message: "Paste exported cmux Windows app setup JSON.",
+    confirmLabel: "Paste",
+    toastText: "App setup applied."
+  });
+}
+
+async function exportSettings(options = {}) {
   const payload = JSON.stringify({
     version: 8,
     settings: state.settings,
@@ -22549,35 +22602,37 @@ async function exportSettings() {
     recentBrowserPages: state.recentBrowserPages
   }, null, 2);
   if (await writeClipboardText(payload)) {
-    toast("Settings copied to clipboard.");
-    return;
+    toast(options.toastText || "Settings copied to clipboard.");
+    return true;
   }
   await showTextDialog({
-    title: "Settings JSON",
-    message: "Clipboard access is unavailable. The current settings are shown below.",
+    title: options.title || "Settings JSON",
+    message: options.fallbackMessage || "Clipboard access is unavailable. The current settings are shown below.",
     value: payload,
     confirmLabel: "Close",
     multiline: true,
     readOnly: true
   });
+  return false;
 }
 
 function importedObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 
-async function importSettings() {
+async function importSettings(options = {}) {
   const clipboard = await readClipboardText();
-  const suggested = clipboard.trim().startsWith("{") ? clipboard : "";
+  const clipboardText = String(clipboard || "");
+  const suggested = clipboardText.trim().startsWith("{") ? clipboardText : "";
   const raw = await showTextDialog({
-    title: "Import settings",
-    message: "Paste exported cmux Windows settings JSON.",
+    title: options.title || "Import settings",
+    message: options.message || "Paste exported cmux Windows settings JSON.",
     value: suggested,
     placeholder: "{ ... }",
-    confirmLabel: "Import",
+    confirmLabel: options.confirmLabel || "Import",
     multiline: true
   });
-  if (raw === null) return;
+  if (raw === null) return false;
   try {
     const parsed = JSON.parse(raw);
     state.settings = normalizeSettings(parsed?.settings && typeof parsed.settings === "object" ? parsed.settings : parsed);
@@ -22713,9 +22768,11 @@ async function importSettings() {
     scheduleTerminalAppearanceRefresh();
     render();
     renderSettingsInspector();
-    toast("Settings imported.");
+    toast(options.toastText || "Settings imported.");
+    return true;
   } catch {
     toast("Settings import failed.");
+    return false;
   }
 }
 
