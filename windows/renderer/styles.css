@@ -382,6 +382,20 @@ button {
   transition-duration: 0ms !important;
 }
 
+.shell.performance-mode ~ .palette,
+.shell.performance-mode ~ .palette *,
+.shell.performance-mode ~ .dialog-backdrop,
+.shell.performance-mode ~ .dialog-backdrop *,
+.shell.performance-mode ~ .workspace-switch-hud,
+.shell.performance-mode ~ .workspace-switch-hud *,
+.shell.performance-mode ~ .pane-switch-hud,
+.shell.performance-mode ~ .pane-switch-hud *,
+.shell.performance-mode ~ .toast-region,
+.shell.performance-mode ~ .toast-region * {
+  animation-duration: 0ms !important;
+  transition-duration: 0ms !important;
+}
+
 .shell.performance-mode.has-background::before {
   display: none;
 }
@@ -410,6 +424,15 @@ button {
 
 .shell.performance-mode .pane.has-pane-background .terminal-host::before {
   display: none;
+}
+
+.shell.performance-mode.inspector-open .inspector,
+.shell.performance-mode .browser-error-card,
+.shell.performance-mode ~ .palette .palette-dialog,
+.shell.performance-mode ~ .workspace-switch-hud,
+.shell.performance-mode ~ .pane-switch-hud,
+.shell.performance-mode ~ .toast-region .toast {
+  box-shadow: none;
 }
 
 .shell.performance-mode.has-background .pane-header,
