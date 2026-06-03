@@ -110,7 +110,7 @@
           },
           "installCommand": {
             "type": "string",
-            "description": "Optional shell command offered in the failure alert. cmux runs it in a visible terminal tab only after the user clicks Run Install Command."
+            "description": "Optional shell command shown in the failure alert. cmux runs it in a visible terminal tab only after the user clicks Run Install Command."
           },
           "startupTimeoutSeconds": {
             "type": "number",

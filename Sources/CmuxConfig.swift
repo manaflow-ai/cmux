@@ -503,7 +503,8 @@ struct CmuxDirectoryToolDefinition: Codable, Sendable, Hashable {
             command: """
             TOOL="${CMUX_TOOL_EXECUTABLE:-$(command -v jupyter || true)}"; \
             if [ -z "$TOOL" ]; then TOOL="$(command -v jupyter-lab || true)"; fi; \
-            if [ -z "$TOOL" ]; then echo "Jupyter is not installed or is not on PATH." >&2; exit 127; fi; \
+            if [ -z "$TOOL" ] && command -v uvx >/dev/null 2>&1; then exec uvx --from jupyterlab jupyter lab --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50; fi; \
+            if [ -z "$TOOL" ]; then echo "Jupyter is not installed and uvx is not on PATH." >&2; exit 127; fi; \
             if [ "$(basename "$TOOL")" = "jupyter-lab" ]; then exec "$TOOL" --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50; fi; \
             exec "$TOOL" lab --no-browser --ip=127.0.0.1 --port=8888 --ServerApp.port_retries=50
             """,
@@ -511,9 +512,9 @@ struct CmuxDirectoryToolDefinition: Codable, Sendable, Hashable {
             urlRegex: "(http://(?:127\\.0\\.0\\.1|localhost):[^\\s]+)",
             failureMessage: String(
                 localized: "directoryTool.jupyter.failureMessage",
-                defaultValue: "Jupyter is not installed or did not print a local URL. Install JupyterLab, then run this command again."
+                defaultValue: "Jupyter is not installed, uvx is not available, or the tool did not print a local URL. Install uv, then run this command again."
             ),
-            installCommand: "python3 -m pip install --user jupyterlab",
+            installCommand: "if command -v brew >/dev/null 2>&1; then brew install uv; else curl -LsSf https://astral.sh/uv/install.sh | sh; fi",
             startupTimeoutSeconds: 20
         ),
     ]

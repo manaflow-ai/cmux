@@ -2192,6 +2192,15 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertEqual(availableTools, ["notebook"])
     }
 
+    func testDefaultJupyterUsesUVXFallbackAndInstallCommand() throws {
+        let definition = try XCTUnwrap(CmuxDirectoryToolDefinition.defaultDefinitions.first { $0.id == "jupyter" })
+        XCTAssertTrue(definition.command.contains("uvx --from jupyterlab jupyter lab"))
+        XCTAssertEqual(
+            definition.installCommand,
+            "if command -v brew >/dev/null 2>&1; then brew install uv; else curl -LsSf https://astral.sh/uv/install.sh | sh; fi"
+        )
+    }
+
     func testTowerDetectedViaApplicationLookupOutsideApplications() {
         let towerPath = "/Volumes/Setapp/Tower.app"
         let env = environment(

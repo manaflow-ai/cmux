@@ -9945,9 +9945,12 @@ struct ContentView: View {
             defaultValue: "Couldn't Start %@"
         )
         alert.messageText = String(format: titleFormat, tool.subtitle ?? tool.title)
-        alert.informativeText = directoryToolLaunchFailureMessage(tool: tool, failure: failure)
-
         let installCommand = tool.installCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        alert.informativeText = directoryToolLaunchFailureMessage(
+            tool: tool,
+            failure: failure,
+            installCommand: installCommand
+        )
         if installCommand?.isEmpty == false {
             alert.addButton(withTitle: String(
                 localized: "directoryTool.launchFailure.runInstall",
@@ -9979,7 +9982,8 @@ struct ContentView: View {
 
     private func directoryToolLaunchFailureMessage(
         tool: CmuxResolvedDirectoryTool,
-        failure: DirectoryToolWebServerController.LaunchFailure
+        failure: DirectoryToolWebServerController.LaunchFailure,
+        installCommand: String?
     ) -> String {
         let baseMessage: String
         if let configuredMessage = tool.failureMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -10010,13 +10014,22 @@ struct ContentView: View {
             }
         }
 
+        var message = baseMessage
+        if let installCommand, !installCommand.isEmpty {
+            let installFormat = String(
+                localized: "directoryTool.launchFailure.installCommandFormat",
+                defaultValue: "%@\n\nInstall command:\n%@"
+            )
+            message = String(format: installFormat, message, installCommand)
+        }
+
         let output = failure.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !output.isEmpty else { return baseMessage }
+        guard !output.isEmpty else { return message }
         let outputFormat = String(
             localized: "directoryTool.launchFailure.outputFormat",
             defaultValue: "%@\n\nOutput:\n%@"
         )
-        return String(format: outputFormat, baseMessage, output)
+        return String(format: outputFormat, message, output)
     }
 
     private func runDirectoryToolInstallCommand(
