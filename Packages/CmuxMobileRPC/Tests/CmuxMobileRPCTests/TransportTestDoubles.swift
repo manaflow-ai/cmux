@@ -6,24 +6,33 @@ import Testing
 /// A minimal `MobileSyncRuntime` for tests, supplying a transport factory,
 /// stack-token provider, timeout, and clock without pulling the app's DI bundle.
 struct TestMobileSyncRuntime: MobileSyncRuntime {
+    var supportedRouteKinds: [CmxAttachTransportKind]
     var transportFactory: any CmxByteTransportFactory
     var stackAccessTokenProvider: @Sendable () async throws -> String
     var rpcRequestTimeoutNanoseconds: UInt64
+    var pairingRequestTimeoutNanoseconds: UInt64
     var now: @Sendable () -> Date
+    var supportsServerPushEvents: Bool
 
     init(
         transportFactory: any CmxByteTransportFactory,
+        supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .iroh, .websocket, .debugLoopback],
         stackAccessToken: String? = "test-stack-token",
         rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
-        now: @escaping @Sendable () -> Date = Date.init
+        pairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
+        now: @escaping @Sendable () -> Date = Date.init,
+        supportsServerPushEvents: Bool = true
     ) {
+        self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
         self.stackAccessTokenProvider = {
             guard let stackAccessToken else { throw MissingTestStackAccessToken() }
             return stackAccessToken
         }
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
+        self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.now = now
+        self.supportsServerPushEvents = supportsServerPushEvents
     }
 }
 
