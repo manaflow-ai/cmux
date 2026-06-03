@@ -17676,7 +17676,7 @@ private extension NSWindow {
         if let terminalView = cmuxOwningGhosttyView(for: hitView) {
             return cmuxMainPaneBodyPointerFocusTarget(forTerminalView: terminalView, source: .directHit)
         }
-        if let webView = cmuxOwningWebView(for: hitView) {
+        if let webView = cmuxDirectOwningWebView(for: hitView) {
             return cmuxMainPaneBodyPointerFocusTarget(
                 forWebView: webView,
                 appDelegate: appDelegate,
@@ -17720,6 +17720,35 @@ private extension NSWindow {
             focusIntent: .browser(.webView),
             source: source
         )
+    }
+
+    // Resolves the CmuxWebView whose responder chain a pointer hit will actually reach
+    // — the hit view itself or one of its ancestors. This is deliberately descendant-only
+    // and stricter than `cmuxOwningWebView(for:)`, mirroring the terminal direct-hit helper
+    // `cmuxOwningGhosttyView(for:)`: it must NOT map `WindowBrowserSlotView` *siblings*
+    // (overlay/chrome beside the hosted web view) onto the web view. The direct-hit
+    // classification reflects whether normal responder dispatch will focus the pane on its
+    // own. A sibling click never reaches the web view's `mouseDown`, so it is not a direct
+    // hit and must fall through to the geometric portal-fallback path. Using the sibling-aware
+    // resolver here would misread an overlay covering the web content (the split/workspace
+    // churn state that triggers issue #5269) as a direct hit and skip activation, leaving the
+    // pane unfocused. Focus-stealing chrome (e.g. the find field) stays protected downstream
+    // by `cmuxHitViewAllowsPortalPaneBodyFallback(_:)`, which blocks the fallback for native
+    // text entry.
+    private static func cmuxDirectOwningWebView(for view: NSView) -> CmuxWebView? {
+        if let webView = view as? CmuxWebView {
+            return webView
+        }
+
+        var current: NSView? = view.superview
+        while let candidate = current {
+            if let webView = candidate as? CmuxWebView {
+                return webView
+            }
+            current = candidate.superview
+        }
+
+        return nil
     }
 
     private static func cmuxNativeTextEntryOwnsPointerHit(_ hitView: NSView) -> Bool {
