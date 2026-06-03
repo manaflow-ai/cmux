@@ -648,6 +648,7 @@ const state = {
   inspectorSignature: "",
   settingsInspectorSignature: "",
   settingsInspectorRenderFrame: 0,
+  settingsInspectorRenderOptions: null,
   deferSettingsInspectorForWorkspaceSwitch: false,
   settingsScrollResetPending: false,
   settingsSearchAutoScrollQuery: "",
@@ -8813,11 +8814,27 @@ function ensureBrowser(panel, body) {
 }
 
 function scheduleSettingsInspectorRender(options = {}) {
+  state.settingsInspectorRenderOptions = mergeSettingsInspectorRenderOptions(
+    state.settingsInspectorRenderOptions,
+    options
+  );
   if (state.settingsInspectorRenderFrame) return;
   state.settingsInspectorRenderFrame = requestAnimationFrame(() => {
     state.settingsInspectorRenderFrame = 0;
-    renderSettingsInspector(options);
+    const pendingOptions = state.settingsInspectorRenderOptions || {};
+    state.settingsInspectorRenderOptions = null;
+    renderSettingsInspector(pendingOptions);
   });
+}
+
+function mergeSettingsInspectorRenderOptions(current = {}, next = {}) {
+  return {
+    ...current,
+    ...next,
+    force: Boolean(current?.force || next?.force),
+    resetScroll: Boolean(current?.resetScroll || next?.resetScroll),
+    ifChanged: Boolean(current?.ifChanged || next?.ifChanged)
+  };
 }
 
 function renderInspector(options = {}) {
@@ -13663,7 +13680,7 @@ function savedColorPalettePanel() {
   const colorInput = document.createElement("input");
   colorInput.className = "saved-color-input";
   colorInput.type = "color";
-  colorInput.value = colorInputValue(state.settings.accent);
+  colorInput.value = colorInputValue(targetOption.color || state.settings.accent);
   colorInput.dataset.settingsSearch = normalizeSettingsQuery("saved color custom color picker hex");
   const applyPicked = settingsActionButton(colorApplyTargetPrimaryLabel(colorTarget), () => applySavedColorToTarget(colorInput.value, state.colorApplyTarget), "primary", "saved color custom picker apply selected target accent workspace pane all");
   applyPicked.disabled = Boolean(targetOption.disabled);
@@ -15399,7 +15416,7 @@ function showPanelContextMenu(event, panel) {
   const generalActions = contextMenuActionGroup(
     contextMenuButton("Rename", () => renamePanel(panel)),
     contextMenuButton("Use default name", () => updatePanel(panel.id, { title: "" }), !panel.titleLocked),
-    contextMenuButton("Customize tab", () => openPaneSettings(panel)),
+    contextMenuButton("Customize tab", () => openPaneAppearanceSettings(panel)),
     contextMenuButton("Duplicate", () => duplicatePanel(panel)),
     isTerminal
       ? contextMenuButton("New terminal tab", () => createTerminalPanel("right", { anchorPanelId: panel.id }))
@@ -15473,7 +15490,7 @@ function showPanelContextMenu(event, panel) {
     };
     colors.append(button);
   }
-  const appearanceSettings = contextMenuButton("Appearance settings", () => openPaneAppearanceSettings(panel));
+  const appearanceSettings = contextMenuButton("All appearance settings", () => openSettingsCategory("appearance"));
   const clear = contextMenuButton("Clear color", () => updatePanel(panel.id, { color: "" }), !panel.color);
   const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(panel.color), !normalizeCustomPaletteColor(panel.color));
   const customColor = contextColorPicker(panel.color, (color) => {
@@ -18306,9 +18323,21 @@ function openPaneSettings(panel = focusedPanel()) {
   openSettingsCategory("workspace", { query: "active pane", focusSearch: false });
 }
 
+function primePaneAppearanceSettings(panel = focusedPanel()) {
+  const found = panel?.id ? findPanelState(panel.id) : null;
+  const targetPanel = found?.panel || panel;
+  if (!targetPanel?.id) return false;
+  state.colorApplyTarget = "pane";
+  if (resolveTerminalPanel(targetPanel)) state.backgroundApplyTarget = "pane";
+  return true;
+}
+
 function openPaneAppearanceSettings(panel = focusedPanel()) {
-  if (panel?.id) focusPanel(panel.id);
-  openSettingsCategory("workspace", { query: "active pane color background", focusSearch: false });
+  if (panel?.id) {
+    focusPanel(panel.id);
+    primePaneAppearanceSettings(panel);
+  }
+  openSettingsCategory("appearance", { focusSearch: false });
 }
 
 function updateRailButtons() {
