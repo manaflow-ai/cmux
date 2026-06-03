@@ -1421,6 +1421,7 @@ struct TerminalKeyboardCopyModeInputState: Equatable {
 enum TerminalKeyboardCopyModeResolution: Equatable {
     case perform(TerminalKeyboardCopyModeAction, count: Int)
     case consume
+    case pass
 }
 
 private let terminalKeyboardCopyModeMaxCount = 9_999
@@ -1599,6 +1600,7 @@ func terminalKeyboardCopyModeAction(
 func terminalKeyboardCopyModeResolve(
     keyCode: UInt16,
     charactersIgnoringModifiers: String?,
+    normalizedCharacters: String?,
     modifierFlags: NSEvent.ModifierFlags,
     hasSelection: Bool,
     state: inout TerminalKeyboardCopyModeInputState
@@ -1674,6 +1676,23 @@ func terminalKeyboardCopyModeResolve(
     let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
     state.reset()
     return .perform(action, count: count)
+}
+
+func terminalKeyboardCopyModeResolve(
+    keyCode: UInt16,
+    charactersIgnoringModifiers: String?,
+    modifierFlags: NSEvent.ModifierFlags,
+    hasSelection: Bool,
+    state: inout TerminalKeyboardCopyModeInputState
+) -> TerminalKeyboardCopyModeResolution {
+    terminalKeyboardCopyModeResolve(
+        keyCode: keyCode,
+        charactersIgnoringModifiers: charactersIgnoringModifiers,
+        normalizedCharacters: charactersIgnoringModifiers,
+        modifierFlags: modifierFlags,
+        hasSelection: hasSelection,
+        state: &state
+    )
 }
 
 private final class GhosttySurfaceCallbackContext {

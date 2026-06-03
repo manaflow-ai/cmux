@@ -1581,6 +1581,7 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
     private func resolve(
         _ keyCode: UInt16,
         chars: String,
+        normalizedChars: String? = nil,
         modifiers: NSEvent.ModifierFlags = [],
         hasSelection: Bool,
         state: inout TerminalKeyboardCopyModeInputState
@@ -1588,10 +1589,81 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
         terminalKeyboardCopyModeResolve(
             keyCode: keyCode,
             charactersIgnoringModifiers: chars,
+            normalizedCharacters: normalizedChars ?? chars,
             modifierFlags: modifiers,
             hasSelection: hasSelection,
             state: &state
         )
+    }
+
+    func testNonASCIILettersUseLayoutNormalizedCharacters() {
+        let cases: [
+            (
+                name: String,
+                keyCode: UInt16,
+                rawChars: String,
+                normalizedChars: String,
+                modifiers: NSEvent.ModifierFlags,
+                hasSelection: Bool,
+                expected: TerminalKeyboardCopyModeResolution
+            )
+        ] = [
+            ("j under Korean 2-set", 38, "ㅓ", "j", [], false, .perform(.scrollLines(1), count: 1)),
+            ("k under Korean 2-set", 40, "ㅏ", "k", [], false, .perform(.scrollLines(-1), count: 1)),
+            ("h under Korean 2-set", 4, "ㅗ", "h", [], true, .perform(.adjustSelection(.left), count: 1)),
+            ("l under Korean 2-set", 37, "ㅣ", "l", [], true, .perform(.adjustSelection(.right), count: 1)),
+            ("v under Korean 2-set", 9, "ㅍ", "v", [], false, .perform(.startSelection, count: 1)),
+            ("y under Korean 2-set", 16, "ㅛ", "y", [], true, .perform(.copyAndExit, count: 1)),
+            ("n under Korean 2-set", 45, "ㅜ", "n", [], false, .perform(.searchNext, count: 1)),
+            ("G under Korean 2-set", 5, "ㅎ", "g", [.shift], false, .perform(.scrollToBottom, count: 1)),
+        ]
+
+        for testCase in cases {
+            var state = TerminalKeyboardCopyModeInputState()
+            XCTAssertEqual(
+                resolve(
+                    testCase.keyCode,
+                    chars: testCase.rawChars,
+                    normalizedChars: testCase.normalizedChars,
+                    modifiers: testCase.modifiers,
+                    hasSelection: testCase.hasSelection,
+                    state: &state
+                ),
+                testCase.expected,
+                testCase.name
+            )
+            XCTAssertEqual(state, TerminalKeyboardCopyModeInputState(), testCase.name)
+        }
+    }
+
+    func testNonASCIIGGUsesLayoutNormalizedCharacters() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(5, chars: "ㅎ", normalizedChars: "g", hasSelection: false, state: &state),
+            .consume
+        )
+        XCTAssertEqual(
+            resolve(5, chars: "ㅎ", normalizedChars: "g", hasSelection: false, state: &state),
+            .perform(.scrollToTop, count: 1)
+        )
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testASCIICharactersTakePrecedenceOverLayoutFallback() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(38, chars: "h", normalizedChars: "j", hasSelection: true, state: &state),
+            .perform(.adjustSelection(.left), count: 1)
+        )
+    }
+
+    func testUnmatchedNonASCIIKeyPassesThrough() {
+        var state = TerminalKeyboardCopyModeInputState(countPrefix: 3)
+        XCTAssertEqual(
+            resolve(104, chars: "한", normalizedChars: "한", hasSelection: false, state: &state),
+            .pass
+        )
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
     }
 
     func testCountPrefixAppliesToMotion() {
