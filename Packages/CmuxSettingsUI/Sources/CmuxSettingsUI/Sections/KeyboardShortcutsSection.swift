@@ -372,6 +372,8 @@ public struct KeyboardShortcutsSection: View {
         let task = Task {
             for await dictionary in jsonStore.values(for: catalog.shortcuts.bindings) {
                 if Task.isCancelled { break }
+                let changedActionIds = Set(bindings.keys).union(dictionary.keys)
+                    .filter { bindings[$0] != dictionary[$0] }
                 bindings = dictionary
                 // Mirror legacy `KeyboardShortcutRecorder.onChange(of:
                 // shortcut)`: when an action's effective shortcut becomes
@@ -385,34 +387,22 @@ public struct KeyboardShortcutsSection: View {
                 // shortcut changes. Externally-edited cmux.json should
                 // dismiss a stale rejection banner for that action.
                 pruneConflictRejections()
-                pruneNumberedDigitRejections()
+                pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
             }
         }
         streamTask = task
         await task.value
     }
 
-    /// Drops the "Use a digit from 1 through 9" banner for any action whose
-    /// binding now reflects a committed state. A numbered action only ever
-    /// persists a valid `1…9` placeholder or an unbound marker, so an external
-    /// `cmux.json` edit (or another settings surface) restoring a usable
-    /// binding must dismiss a stale rejection — matching the legacy
-    /// `rejectedAttempt` clear-on-change behavior.
-    private func pruneNumberedDigitRejections() {
+    /// Drops the "Use a digit from 1 through 9" banner for an action only when
+    /// *that action's* binding actually changed in the latest stream update (an
+    /// external `cmux.json` edit or another settings surface restoring a usable
+    /// binding). Mirrors the legacy per-action `rejectedAttempt` clear-on-change
+    /// without dismissing the banner when an unrelated shortcut is saved.
+    private func pruneNumberedDigitRejections(changedActionIds: Set<String>) {
         guard !numberedDigitRejections.isEmpty else { return }
-        for key in Array(numberedDigitRejections) {
-            guard let action = ShortcutAction(rawValue: key) else {
-                numberedDigitRejections.remove(key)
-                continue
-            }
-            guard let effective = bindings[action.rawValue] else {
-                // No override → the (valid) default applies; banner is stale.
-                numberedDigitRejections.remove(key)
-                continue
-            }
-            if effective.isUnbound || isNumberedDigitKey(effective.first.key) {
-                numberedDigitRejections.remove(key)
-            }
+        for key in Array(numberedDigitRejections) where changedActionIds.contains(key) {
+            numberedDigitRejections.remove(key)
         }
     }
 
