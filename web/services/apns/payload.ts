@@ -19,8 +19,8 @@ export interface ApnsNotificationInput {
   readonly body: string;
   readonly workspaceId?: string | null;
   readonly surfaceId?: string | null;
-  /** When true, replace the real title/body with a generic message so terminal
-   * content never leaves the Mac even after the user opted into forwarding. */
+  /** When true, replace real terminal text with a generic fallback. Keep the
+   * fallback literal until device tokens carry client localization capability. */
   readonly hideContent?: boolean;
 }
 
@@ -32,7 +32,7 @@ export interface ApnsNotificationInput {
 export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
   const hidden = input.hideContent === true;
   const title = hidden ? "cmux" : input.title.trim() || "cmux";
-  const body = hidden ? "" : input.body;
+  const body = hidden ? "An agent needs your attention" : input.body;
   const subtitle = hidden ? undefined : input.subtitle?.trim() || undefined;
 
   const alert: Record<string, string> = { title };
