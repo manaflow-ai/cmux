@@ -10886,6 +10886,12 @@ function renderSettingsInspector(options = {}) {
     layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar sidebar footer inspector tabs status header title focus mode simple clean copy paste clipboard json");
     const saveLayoutAction = settingsActionButton("Save layout", saveCurrentWorkspaceBlueprint, "", "save current split pane layout workspace blueprint reusable");
     applyWorkspaceBlueprintSaveLimit(saveLayoutAction, workspace, "Save the current workspace pane layout as a reusable blueprint.");
+    const copyLayoutAction = settingsActionButton("Copy layout", copyCurrentWorkspaceBlueprint, "", "copy current split pane layout workspace blueprint clipboard json");
+    copyLayoutAction.disabled = !workspace?.panels?.length;
+    copyLayoutAction.title = workspace?.panels?.length ? "Copy the current workspace pane layout as JSON." : "Open panes before copying a layout.";
+    const pasteLayoutAction = settingsActionButton("Paste blueprint", pasteWorkspaceBlueprint, "", "paste workspace blueprint split pane layout clipboard json reusable");
+    pasteLayoutAction.disabled = workspaceBlueprintsFull();
+    pasteLayoutAction.title = pasteLayoutAction.disabled ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint into the reusable layout library.";
     const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
     const copyChromeAction = settingsActionButton("Copy chrome", copyWorkspaceChromeSettings, "", "workspace chrome layout copy toolbar sidebar footer inspector tabs status header title focus mode clipboard json");
     copyChromeAction.title = "Copy toolbar, sidebar, tabs, status bar, and panel widths as JSON.";
@@ -10905,6 +10911,8 @@ function renderSettingsInspector(options = {}) {
     layoutActions.append(
       settingsActionButton(state.settings.focusMode ? "Leave focus" : "Focus mode", () => toggleFocusMode(), "", "focus mode simple clean hide chrome"),
       saveLayoutAction,
+      copyLayoutAction,
+      pasteLayoutAction,
       copyChromeAction,
       pasteChromeAction,
       settingsActionButton("Blueprints", () => openSettingsCategory("blueprints"), "", "open saved workspace blueprints layout templates"),
