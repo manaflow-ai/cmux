@@ -13,7 +13,7 @@ struct WorkspaceGroupIconPickerView: View {
     init(currentSymbol: String?, onSelect: @escaping (String?) -> Void) {
         self.currentSymbol = currentSymbol
         self.onSelect = onSelect
-        _searchText = State(initialValue: currentSymbol ?? "")
+        _searchText = State(initialValue: RenderableSystemSymbol.normalizedEmoji(currentSymbol ?? "") ?? "")
     }
 
     private var selectedIcon: String? {
