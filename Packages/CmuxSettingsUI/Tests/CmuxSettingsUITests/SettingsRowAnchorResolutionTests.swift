@@ -74,6 +74,7 @@ struct SettingsRowAnchorResolutionTests {
         "browser.showSearchSuggestions",
         "browser.theme",
         "browser.urlsToAlwaysOpenExternally",
+        "fileEditor.wordWrap",
         "notifications.command",
         "notifications.dockBadge",
         "notifications.paneFlash",

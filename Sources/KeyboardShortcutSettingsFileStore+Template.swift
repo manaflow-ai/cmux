@@ -198,6 +198,11 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "fileEditor": [
+                    "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
+                ],
+            ],
+            [
                 "shortcuts": [
                     "bindings": shortcutsBindings,
                 ],

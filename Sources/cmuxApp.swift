@@ -2,6 +2,7 @@ import AppKit
 import CmuxSocketControl
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxUpdaterUI
 import SwiftUI
 import Observation
 import Darwin
@@ -322,7 +323,7 @@ struct cmuxApp: App {
                     )
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
-                        UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
+                        AppDelegate.shared?.updateLog.append("ui test: cmuxApp onAppear")
                     }
 #endif
                     bootstrapMainWindowScene()

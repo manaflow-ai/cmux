@@ -1,76 +1,173 @@
-import Foundation
-import AppKit
-import SwiftUI
-import Sparkle
+public import Foundation
+@preconcurrency public import Sparkle
+import Observation
 
-class UpdateViewModel: ObservableObject {
-    @Published var state: UpdateState = .idle
-    @Published var overrideState: UpdateState?
-    @Published var detectedUpdateVersion: String?
-    @Published private(set) var detectedUpdateItem: SUAppcastItem?
+/// The observable source of truth for the custom update UI.
+///
+/// `UpdateStateModel` holds the current ``UpdateState`` (plus an optional `overrideState` used
+/// by debug tooling), the most recently detected background update, and a set of derived,
+/// localized display strings the UI renders. It is observed directly by SwiftUI via the
+/// Observation framework; appearance (color) derivations live in the `CmuxUpdaterUI` package.
+///
+/// State transitions funnel through ``setState(_:)`` / ``setOverrideState(_:)`` (and the
+/// higher-level mutators), which both apply the change and emit on the ``stateChanges()``
+/// stream. ``UpdateController`` consumes that stream to drive force-install, attempt-update,
+/// and the auto-dismiss of a "no updates" result — replacing the previous Combine
+/// `@Published` subscriptions.
+///
+/// All access is main-actor isolated; ``UpdateState`` values never cross an actor boundary, so
+/// the non-`Sendable` callbacks they carry are safe.
+@MainActor
+@Observable
+public final class UpdateStateModel {
+    /// The current update phase as driven by Sparkle.
+    public private(set) var state: UpdateState = .idle
+    /// A debug/override phase that, when set, takes precedence over ``state`` for display.
+    public private(set) var overrideState: UpdateState?
+    /// The display version of the most recently detected background update, if any.
+    public private(set) var detectedUpdateVersion: String?
+    /// The appcast item for the most recently detected background update, if any.
+    public private(set) var detectedUpdateItem: SUAppcastItem?
     #if DEBUG
-    @Published var debugOverrideText: String?
+    /// A debug override for the pill's title text.
+    public var debugOverrideText: String?
     #endif
 
-    var effectiveState: UpdateState {
-        overrideState ?? state
+    /// Continuations for active ``stateChanges()`` subscribers, keyed by subscription id.
+    @ObservationIgnored
+    private var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
+
+    /// Creates an empty model in the ``UpdateState/idle`` state.
+    public init() {}
+
+    // MARK: - Change stream
+
+    /// A stream that emits once whenever ``state`` or ``overrideState`` changes.
+    ///
+    /// The element is `Void`: subscribers read the latest ``state``/``overrideState`` directly
+    /// (both are main-actor isolated like the subscriber), which avoids sending the
+    /// non-`Sendable` ``UpdateState`` across the stream. This is the `@Observable`-native
+    /// replacement for observing `@Published var state`.
+    public func stateChanges() -> AsyncStream<Void> {
+        AsyncStream { continuation in
+            let id = UUID()
+            changeObservers[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in self?.changeObservers[id] = nil }
+            }
+        }
     }
 
-    var showsDetectedBackgroundUpdate: Bool {
-        effectiveState.isIdle && detectedUpdateVersion != nil
+    private func notifyStateChanged() {
+        for continuation in changeObservers.values {
+            continuation.yield(())
+        }
     }
 
-    var hasCachedDetectedUpdateDetails: Bool {
-        detectedUpdateItem != nil
+    // MARK: - State mutation (the single write funnel)
+
+    /// Sets ``state`` and notifies ``stateChanges()`` subscribers.
+    public func setState(_ newState: UpdateState) {
+        state = newState
+        notifyStateChanged()
     }
 
-    var showsPill: Bool {
-        !effectiveState.isIdle || showsDetectedBackgroundUpdate
+    /// Sets ``overrideState`` and notifies ``stateChanges()`` subscribers.
+    public func setOverrideState(_ newState: UpdateState?) {
+        overrideState = newState
+        notifyStateChanged()
     }
 
-    func recordDetectedUpdate(_ item: SUAppcastItem) {
+    /// Applies a state produced by the Sparkle driver, recording the detected update first
+    /// when the new state is ``UpdateState/updateAvailable(_:)``.
+    public func applyDriverState(_ newState: UpdateState) {
+        if case .updateAvailable(let update) = newState {
+            recordDetectedUpdate(update.appcastItem)
+        }
+        setState(newState)
+    }
+
+    /// Cancels whatever phase is active and returns the model to ``UpdateState/idle``,
+    /// clearing any override. Used when starting a fresh check.
+    public func cancelActiveStateForNewCheck() {
+        state.cancel()
+        // One conceptual transition: update both fields, then emit a single change notification
+        // (avoids two redundant stateChanges() emissions for one logical reset).
+        state = .idle
+        overrideState = nil
+        notifyStateChanged()
+    }
+
+    // MARK: - Detected background update
+
+    /// Records a background-detected available update (or clears it when the version string
+    /// is unusable).
+    public func recordDetectedUpdate(_ item: SUAppcastItem) {
         let version = Self.normalizedDetectedUpdateVersion(from: item.displayVersionString)
         detectedUpdateItem = version == nil ? nil : item
         detectedUpdateVersion = version
     }
 
-    func clearDetectedUpdate() {
+    /// Clears any detected background update.
+    public func clearDetectedUpdate() {
         detectedUpdateItem = nil
         detectedUpdateVersion = nil
     }
 
-    func dismissDetectedAvailableUpdate() {
+    #if DEBUG
+    /// Sets the detected-update version directly without an appcast item. DEBUG-only, for UI
+    /// test scaffolding that wants to surface the passive banner without a real appcast.
+    public func debugSetDetectedVersion(_ version: String?) {
+        detectedUpdateItem = nil
+        detectedUpdateVersion = version
+    }
+    #endif
+
+    /// Dismisses a detected available update, replying `.dismiss` to Sparkle for whichever of
+    /// ``state``/``overrideState`` is carrying it, and clearing the detected-update banner.
+    public func dismissDetectedAvailableUpdate() {
         clearDetectedUpdate()
 
         var didDismissUpdate = false
         if case .updateAvailable(let update) = state {
             update.reply(.dismiss)
             didDismissUpdate = true
-            state = .idle
+            setState(.idle)
         }
 
         if let overrideState, case .updateAvailable(let update) = overrideState {
             if !didDismissUpdate {
                 update.reply(.dismiss)
             }
-            self.overrideState = nil
+            setOverrideState(nil)
         }
     }
 
-    func cancelActiveStateForNewCheck() {
-        state.cancel()
-        state = .idle
-        overrideState = nil
+    // MARK: - Derived display state
+
+    /// The phase to display: the override if present, otherwise ``state``.
+    public var effectiveState: UpdateState {
+        overrideState ?? state
     }
 
-    func applyDriverState(_ newState: UpdateState) {
-        if case .updateAvailable(let update) = newState {
-            recordDetectedUpdate(update.appcastItem)
-        }
-        state = newState
+    /// Whether to surface a passive "update available" banner detected in the background while
+    /// the foreground flow is idle.
+    public var showsDetectedBackgroundUpdate: Bool {
+        effectiveState.isIdle && detectedUpdateVersion != nil
     }
 
-    var text: String {
+    /// Whether cached appcast details exist for the detected background update.
+    public var hasCachedDetectedUpdateDetails: Bool {
+        detectedUpdateItem != nil
+    }
+
+    /// Whether the update pill should be visible.
+    public var showsPill: Bool {
+        !effectiveState.isIdle || showsDetectedBackgroundUpdate
+    }
+
+    /// The pill's title text for the current phase.
+    public var text: String {
         #if DEBUG
         if let debugOverrideText { return debugOverrideText }
         #endif
@@ -109,7 +206,9 @@ class UpdateViewModel: ObservableObject {
         }
     }
 
-    var maxWidthText: String {
+    /// The widest title text the pill can show for the current phase, used to reserve layout
+    /// width so the pill does not resize as progress ticks.
+    public var maxWidthText: String {
         if let detectedText = detectedUpdateText {
             return detectedText
         }
@@ -123,7 +222,8 @@ class UpdateViewModel: ObservableObject {
         }
     }
 
-    var iconName: String? {
+    /// The SF Symbol name for the current phase, or `nil` when idle.
+    public var iconName: String? {
         if showsDetectedBackgroundUpdate {
             return "shippingbox.fill"
         }
@@ -149,7 +249,8 @@ class UpdateViewModel: ObservableObject {
         }
     }
 
-    var description: String {
+    /// A one-line description of the current phase for the popover.
+    public var description: String {
         switch effectiveState {
         case .idle:
             return ""
@@ -172,7 +273,8 @@ class UpdateViewModel: ObservableObject {
         }
     }
 
-    var badge: String? {
+    /// A short trailing badge (version or percent) for the current phase, or `nil`.
+    public var badge: String? {
         switch effectiveState {
         case .updateAvailable(let update):
             let version = update.appcastItem.displayVersionString
@@ -190,65 +292,16 @@ class UpdateViewModel: ObservableObject {
         }
     }
 
-    var iconColor: Color {
-        if showsDetectedBackgroundUpdate {
-            return cmuxAccentColor()
-        }
-        switch effectiveState {
-        case .idle:
-            return .secondary
-        case .permissionRequest:
-            return .white
-        case .checking:
-            return .secondary
-        case .updateAvailable:
-            return cmuxAccentColor()
-        case .downloading, .extracting, .installing:
-            return .secondary
-        case .notFound:
-            return .secondary
-        case .error:
-            return .orange
-        }
+    /// The detected-background-update title, when one should be shown.
+    var detectedUpdateText: String? {
+        guard showsDetectedBackgroundUpdate, let version = detectedUpdateVersion else { return nil }
+        return String(localized: "update.available.withVersion", defaultValue: "Update Available: \(version)")
     }
 
-    var backgroundColor: Color {
-        if showsDetectedBackgroundUpdate {
-            return cmuxAccentColor()
-        }
-        switch effectiveState {
-        case .permissionRequest:
-            return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.3, of: .black) ?? .systemBlue)
-        case .updateAvailable:
-            return cmuxAccentColor()
-        case .notFound:
-            return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.5, of: .black) ?? .systemBlue)
-        case .error:
-            return .orange.opacity(0.2)
-        default:
-            return Color(nsColor: .controlBackgroundColor)
-        }
-    }
+    // MARK: - Error formatting
 
-    var foregroundColor: Color {
-        if showsDetectedBackgroundUpdate {
-            return .white
-        }
-        switch effectiveState {
-        case .permissionRequest:
-            return .white
-        case .updateAvailable:
-            return .white
-        case .notFound:
-            return .white
-        case .error:
-            return .orange
-        default:
-            return .primary
-        }
-    }
-
-    static func userFacingErrorTitle(for error: Swift.Error) -> String {
+    /// A short, user-facing title for an update error.
+    public static func userFacingErrorTitle(for error: any Swift.Error) -> String {
         let nsError = error as NSError
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
@@ -295,7 +348,8 @@ class UpdateViewModel: ObservableObject {
         return String(localized: "update.error.failed.title", defaultValue: "Update Failed")
     }
 
-    static func userFacingErrorMessage(for error: Swift.Error) -> String {
+    /// A user-facing explanatory message for an update error.
+    public static func userFacingErrorMessage(for error: any Swift.Error) -> String {
         let nsError = error as NSError
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
@@ -337,10 +391,24 @@ class UpdateViewModel: ObservableObject {
                 break
             }
         }
-        return nsError.localizedDescription
+        // Catch-all: keep user-facing copy in cmux terms; raw vendor descriptions, domains, and
+        // codes stay in `errorDetails` (the copyable Details block + the update log), not here.
+        return String(localized: "update.error.failed.message", defaultValue: "Something went wrong while checking for updates. Try again, or check the update log for details.")
     }
 
-    static func errorDetails(for error: Swift.Error, technicalDetails: String?, feedURLString: String?) -> String {
+    /// Builds the multi-line technical detail block shown in the error popover.
+    ///
+    /// - Parameters:
+    ///   - error: The error to describe.
+    ///   - technicalDetails: Extra detail captured at failure time, if any.
+    ///   - feedURLString: The feed URL in effect at failure time, if any.
+    ///   - logPath: The path of the update log file (from ``UpdateLogging/logPath()``), appended
+    ///     so users can find the full trace.
+    /// - Returns: A newline-separated detail block.
+    public static func errorDetails(for error: any Swift.Error,
+                                    technicalDetails: String?,
+                                    feedURLString: String?,
+                                    logPath: String) -> String {
         let nsError = error as NSError
         var lines: [String] = []
         lines.append("Message: \(nsError.localizedDescription)")
@@ -375,7 +443,7 @@ class UpdateViewModel: ObservableObject {
             lines.append("Debug: \(technicalDetails)")
         }
 
-        lines.append("Log: \(UpdateLogStore.shared.logPath())")
+        lines.append("Log: \(logPath)")
         return lines.joined(separator: "\n")
     }
 
@@ -409,209 +477,9 @@ class UpdateViewModel: ObservableObject {
         }
     }
 
-    static func normalizedDetectedUpdateVersion(from version: String) -> String? {
+    /// Normalizes a Sparkle display version into a trimmed, non-empty string, or `nil`.
+    public static func normalizedDetectedUpdateVersion(from version: String) -> String? {
         let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private var detectedUpdateText: String? {
-        guard showsDetectedBackgroundUpdate, let version = detectedUpdateVersion else { return nil }
-        return String(localized: "update.available.withVersion", defaultValue: "Update Available: \(version)")
-    }
-}
-
-enum UpdateState: Equatable {
-    case idle
-    case permissionRequest(PermissionRequest)
-    case checking(Checking)
-    case updateAvailable(UpdateAvailable)
-    case notFound(NotFound)
-    case error(Error)
-    case downloading(Downloading)
-    case extracting(Extracting)
-    case installing(Installing)
-
-    var isIdle: Bool {
-        if case .idle = self { return true }
-        return false
-    }
-
-    var isInstallable: Bool {
-        switch self {
-        case .checking,
-                .updateAvailable,
-                .downloading,
-                .extracting,
-                .installing:
-            return true
-        default:
-            return false
-        }
-    }
-
-    func cancel() {
-        switch self {
-        case .checking(let checking):
-            checking.cancel()
-        case .updateAvailable(let available):
-            available.reply(.dismiss)
-        case .downloading(let downloading):
-            downloading.cancel()
-        case .notFound(let notFound):
-            notFound.acknowledgement()
-        case .error(let err):
-            err.dismiss()
-        default:
-            break
-        }
-    }
-
-    func confirm() {
-        switch self {
-        case .updateAvailable(let available):
-            available.reply(.install)
-        default:
-            break
-        }
-    }
-
-    static func == (lhs: UpdateState, rhs: UpdateState) -> Bool {
-        switch (lhs, rhs) {
-        case (.idle, .idle):
-            return true
-        case (.permissionRequest, .permissionRequest):
-            return true
-        case (.checking, .checking):
-            return true
-        case (.updateAvailable(let lUpdate), .updateAvailable(let rUpdate)):
-            return lUpdate.appcastItem.displayVersionString == rUpdate.appcastItem.displayVersionString
-        case (.notFound, .notFound):
-            return true
-        case (.error(let lErr), .error(let rErr)):
-            return lErr.error.localizedDescription == rErr.error.localizedDescription
-        case (.downloading(let lDown), .downloading(let rDown)):
-            return lDown.progress == rDown.progress && lDown.expectedLength == rDown.expectedLength
-        case (.extracting(let lExt), .extracting(let rExt)):
-            return lExt.progress == rExt.progress
-        case (.installing(let lInstall), .installing(let rInstall)):
-            return lInstall.isAutoUpdate == rInstall.isAutoUpdate
-        default:
-            return false
-        }
-    }
-
-    struct NotFound {
-        let acknowledgement: () -> Void
-    }
-
-    struct PermissionRequest {
-        let request: SPUUpdatePermissionRequest
-        let reply: @Sendable (SUUpdatePermissionResponse) -> Void
-    }
-
-    struct Checking {
-        let cancel: () -> Void
-    }
-
-    struct UpdateAvailable {
-        let appcastItem: SUAppcastItem
-        let reply: @Sendable (SPUUserUpdateChoice) -> Void
-
-        var releaseNotes: ReleaseNotes? {
-            ReleaseNotes(displayVersionString: appcastItem.displayVersionString)
-        }
-    }
-
-    enum ReleaseNotes {
-        case commit(URL)
-        case tagged(URL)
-
-        init?(displayVersionString: String) {
-            let version = displayVersionString
-
-            if let semver = Self.extractSemanticVersion(from: version) {
-                let tag = semver.hasPrefix("v") ? semver : "v\(semver)"
-                if let url = URL(string: "https://github.com/manaflow-ai/cmux/releases/tag/\(tag)") {
-                    self = .tagged(url)
-                    return
-                }
-            }
-
-            guard let newHash = Self.extractGitHash(from: version) else {
-                return nil
-            }
-
-            if let url = URL(string: "https://github.com/manaflow-ai/cmux/commit/\(newHash)") {
-                self = .commit(url)
-            } else {
-                return nil
-            }
-        }
-
-        private static func extractSemanticVersion(from version: String) -> String? {
-            let pattern = #"v?\d+\.\d+\.\d+"#
-            if let range = version.range(of: pattern, options: .regularExpression) {
-                return String(version[range])
-            }
-            return nil
-        }
-
-        private static func extractGitHash(from version: String) -> String? {
-            let pattern = #"[0-9a-f]{7,40}"#
-            if let range = version.range(of: pattern, options: .regularExpression) {
-                return String(version[range])
-            }
-            return nil
-        }
-
-        var url: URL {
-            switch self {
-            case .commit(let url): return url
-            case .tagged(let url): return url
-            }
-        }
-
-        var label: String {
-            switch self {
-            case .commit: return String(localized: "update.viewGitHubCommit", defaultValue: "View GitHub Commit")
-            case .tagged: return String(localized: "update.viewReleaseNotes", defaultValue: "View Release Notes")
-            }
-        }
-    }
-
-    struct Error {
-        let error: any Swift.Error
-        let retry: () -> Void
-        let dismiss: () -> Void
-        let technicalDetails: String?
-        let feedURLString: String?
-
-        init(error: any Swift.Error,
-             retry: @escaping () -> Void,
-             dismiss: @escaping () -> Void,
-             technicalDetails: String? = nil,
-             feedURLString: String? = nil) {
-            self.error = error
-            self.retry = retry
-            self.dismiss = dismiss
-            self.technicalDetails = technicalDetails
-            self.feedURLString = feedURLString
-        }
-    }
-
-    struct Downloading {
-        let cancel: () -> Void
-        let expectedLength: UInt64?
-        let progress: UInt64
-    }
-
-    struct Extracting {
-        let progress: Double
-    }
-
-    struct Installing {
-        var isAutoUpdate = false
-        let retryTerminatingApplication: () -> Void
-        let dismiss: () -> Void
     }
 }

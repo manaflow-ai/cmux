@@ -1,24 +1,33 @@
+public import SwiftUI
+public import CmuxUpdater
 import AppKit
-import Sparkle
-import SwiftUI
+@preconcurrency import Sparkle
 
 /// Popover view that displays detailed update information and actions.
-struct UpdatePopoverView: View {
-    @ObservedObject var model: UpdateViewModel
-    let dismiss: () -> Void
+public struct UpdatePopoverView: View {
+    private let model: UpdateStateModel
+    private let actions: any UpdateActionsHost
+    private let dismiss: () -> Void
 
-    init(model: UpdateViewModel, dismiss: @escaping () -> Void = {}) {
+    /// Creates the popover.
+    ///
+    /// - Parameters:
+    ///   - model: The observable update state.
+    ///   - actions: The host that performs update actions the popover triggers.
+    ///   - dismiss: Closes the popover.
+    public init(model: UpdateStateModel, actions: any UpdateActionsHost, dismiss: @escaping () -> Void = {}) {
         self.model = model
+        self.actions = actions
         self.dismiss = dismiss
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             switch model.effectiveState {
             case .idle:
                 if model.showsDetectedBackgroundUpdate,
                    let detectedItem = model.detectedUpdateItem {
-                    DetectedBackgroundUpdateView(item: detectedItem, dismiss: dismiss)
+                    DetectedBackgroundUpdateView(item: detectedItem, actions: actions, dismiss: dismiss)
                 } else if let detectedVersion = model.detectedUpdateVersion,
                           model.showsDetectedBackgroundUpdate {
                     DetectedBackgroundUpdatePendingView(version: detectedVersion)
@@ -48,14 +57,14 @@ struct UpdatePopoverView: View {
                 NotFoundView(notFound: notFound, dismiss: dismiss)
 
             case .error(let error):
-                UpdateErrorView(error: error, dismiss: dismiss)
+                UpdateErrorView(error: error, logPath: actions.updateLogPath, dismiss: dismiss)
             }
         }
         .frame(width: 300)
     }
 }
 
-fileprivate struct UpdateMetadataView: View {
+private struct UpdateMetadataView: View {
     let item: SUAppcastItem
     let labelWidth: CGFloat
 
@@ -93,7 +102,7 @@ fileprivate struct UpdateMetadataView: View {
     }
 }
 
-fileprivate struct UpdateReleaseNotesLink: View {
+private struct UpdateReleaseNotesLink: View {
     let notes: UpdateState.ReleaseNotes
 
     var body: some View {
@@ -117,8 +126,9 @@ fileprivate struct UpdateReleaseNotesLink: View {
     }
 }
 
-fileprivate struct DetectedBackgroundUpdateView: View {
+private struct DetectedBackgroundUpdateView: View {
     let item: SUAppcastItem
+    let actions: any UpdateActionsHost
     let dismiss: () -> Void
 
     private let labelWidth: CGFloat = 60
@@ -143,7 +153,7 @@ fileprivate struct DetectedBackgroundUpdateView: View {
                     Spacer()
 
                     Button(String(localized: "common.installAndRelaunch", defaultValue: "Install and Relaunch")) {
-                        AppDelegate.shared?.attemptUpdate(nil)
+                        actions.attemptUpdate()
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
@@ -161,7 +171,7 @@ fileprivate struct DetectedBackgroundUpdateView: View {
     }
 }
 
-fileprivate struct DetectedBackgroundUpdatePendingView: View {
+private struct DetectedBackgroundUpdatePendingView: View {
     let version: String
 
     var body: some View {
@@ -190,7 +200,7 @@ fileprivate struct DetectedBackgroundUpdatePendingView: View {
     }
 }
 
-fileprivate struct PermissionRequestView: View {
+private struct PermissionRequestView: View {
     let request: UpdateState.PermissionRequest
     let dismiss: () -> Void
 
@@ -233,7 +243,7 @@ fileprivate struct PermissionRequestView: View {
     }
 }
 
-fileprivate struct CheckingView: View {
+private struct CheckingView: View {
     let checking: UpdateState.Checking
     let dismiss: () -> Void
 
@@ -260,7 +270,7 @@ fileprivate struct CheckingView: View {
     }
 }
 
-fileprivate struct UpdateAvailableView: View {
+private struct UpdateAvailableView: View {
     let update: UpdateState.UpdateAvailable
     let dismiss: () -> Void
 
@@ -311,7 +321,7 @@ fileprivate struct UpdateAvailableView: View {
     }
 }
 
-fileprivate struct DownloadingView: View {
+private struct DownloadingView: View {
     let download: UpdateState.Downloading
     let dismiss: () -> Void
 
@@ -349,7 +359,7 @@ fileprivate struct DownloadingView: View {
     }
 }
 
-fileprivate struct ExtractingView: View {
+private struct ExtractingView: View {
     let extracting: UpdateState.Extracting
 
     var body: some View {
@@ -368,7 +378,7 @@ fileprivate struct ExtractingView: View {
     }
 }
 
-fileprivate struct InstallingView: View {
+private struct InstallingView: View {
     let installing: UpdateState.Installing
     let dismiss: () -> Void
 
@@ -407,7 +417,7 @@ fileprivate struct InstallingView: View {
     }
 }
 
-fileprivate struct NotFoundView: View {
+private struct NotFoundView: View {
     let notFound: UpdateState.NotFound
     let dismiss: () -> Void
 
@@ -437,17 +447,19 @@ fileprivate struct NotFoundView: View {
     }
 }
 
-fileprivate struct UpdateErrorView: View {
+private struct UpdateErrorView: View {
     let error: UpdateState.Error
+    let logPath: String
     let dismiss: () -> Void
 
     var body: some View {
-        let title = UpdateViewModel.userFacingErrorTitle(for: error.error)
-        let message = UpdateViewModel.userFacingErrorMessage(for: error.error)
-        let details = UpdateViewModel.errorDetails(
+        let title = UpdateStateModel.userFacingErrorTitle(for: error.error)
+        let message = UpdateStateModel.userFacingErrorMessage(for: error.error)
+        let details = UpdateStateModel.errorDetails(
             for: error.error,
             technicalDetails: error.technicalDetails,
-            feedURLString: error.feedURLString
+            feedURLString: error.feedURLString,
+            logPath: logPath
         )
 
         VStack(alignment: .leading, spacing: 16) {

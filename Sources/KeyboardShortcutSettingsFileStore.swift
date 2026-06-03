@@ -366,6 +366,9 @@ final class CmuxSettingsFileStore {
         if let markdownSection = root["markdown"] as? [String: Any] {
             parseMarkdownSection(markdownSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let fileEditorSection = root["fileEditor"] as? [String: Any] {
+            parseFileEditorSection(fileEditorSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
             parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -626,6 +629,18 @@ final class CmuxSettingsFileStore {
             }
         } else if section.keys.contains("maxWidth") {
             logInvalid("markdown.maxWidth", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseFileEditorSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section["wordWrap"]) {
+            snapshot.managedUserDefaults[FilePreviewWordWrapSettings.key] = .bool(value)
+        } else if section.keys.contains("wordWrap") {
+            logInvalid("fileEditor.wordWrap", sourcePath: sourcePath)
         }
     }
 
