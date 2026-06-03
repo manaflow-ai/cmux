@@ -561,13 +561,10 @@
 		C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */; };
 		D5037080000000000000003 /* WorkspaceGroupEmojiCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5037080000000000000002 /* WorkspaceGroupEmojiCatalog.swift */; };
 		D5037090000000000000003 /* WorkspaceGroupEmojiPickerButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5037090000000000000002 /* WorkspaceGroupEmojiPickerButton.swift */; };
-		D50370A0000000000000003 /* WorkspaceGroupIconPickerRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50370A0000000000000002 /* WorkspaceGroupIconPickerRow.swift */; };
 		D50370B0000000000000003 /* WorkspaceGroupIconPickerSectionTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50370B0000000000000002 /* WorkspaceGroupIconPickerSectionTitle.swift */; };
 		D5037020000000000000003 /* WorkspaceGroupIconPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5037020000000000000002 /* WorkspaceGroupIconPickerView.swift */; };
 		D5037050000000000000003 /* WorkspaceGroupIconPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5037050000000000000002 /* WorkspaceGroupIconPreview.swift */; };
 		C9A57203C9A57203C9A57203 /* WorkspaceGroupMenuSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57204C9A57204C9A57204 /* WorkspaceGroupMenuSnapshot.swift */; };
-		D5037060000000000000003 /* WorkspaceGroupSystemIconCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5037060000000000000002 /* WorkspaceGroupSystemIconCatalog.swift */; };
-		D5037070000000000000003 /* WorkspaceGroupSystemIconCatalogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5037070000000000000002 /* WorkspaceGroupSystemIconCatalogStore.swift */; };
 		C9A57001C9A57001C9A57001 /* WorkspaceGroupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */; };
 		0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */; };
 		D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */; };
@@ -1184,13 +1181,10 @@
 		C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFinderDirectoryResolver.swift; sourceTree = "<group>"; };
 		D5037080000000000000002 /* WorkspaceGroupEmojiCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupEmojiCatalog.swift; sourceTree = "<group>"; };
 		D5037090000000000000002 /* WorkspaceGroupEmojiPickerButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupEmojiPickerButton.swift; sourceTree = "<group>"; };
-		D50370A0000000000000002 /* WorkspaceGroupIconPickerRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupIconPickerRow.swift; sourceTree = "<group>"; };
 		D50370B0000000000000002 /* WorkspaceGroupIconPickerSectionTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupIconPickerSectionTitle.swift; sourceTree = "<group>"; };
 		D5037020000000000000002 /* WorkspaceGroupIconPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupIconPickerView.swift; sourceTree = "<group>"; };
 		D5037050000000000000002 /* WorkspaceGroupIconPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupIconPreview.swift; sourceTree = "<group>"; };
 		C9A57204C9A57204C9A57204 /* WorkspaceGroupMenuSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupMenuSnapshot.swift; sourceTree = "<group>"; };
-		D5037060000000000000002 /* WorkspaceGroupSystemIconCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupSystemIconCatalog.swift; sourceTree = "<group>"; };
-		D5037070000000000000002 /* WorkspaceGroupSystemIconCatalogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupSystemIconCatalogStore.swift; sourceTree = "<group>"; };
 		C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupTests.swift; sourceTree = "<group>"; };
 		1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManualUnreadTests.swift; sourceTree = "<group>"; };
 		D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePortalPaneDrop.swift; sourceTree = "<group>"; };
@@ -1454,11 +1448,8 @@
 				D5037090000000000000002 /* WorkspaceGroupEmojiPickerButton.swift */,
 				D5037080000000000000002 /* WorkspaceGroupEmojiCatalog.swift */,
 				D5037050000000000000002 /* WorkspaceGroupIconPreview.swift */,
-				D50370A0000000000000002 /* WorkspaceGroupIconPickerRow.swift */,
 				D50370B0000000000000002 /* WorkspaceGroupIconPickerSectionTitle.swift */,
 				D5037020000000000000002 /* WorkspaceGroupIconPickerView.swift */,
-				D5037060000000000000002 /* WorkspaceGroupSystemIconCatalog.swift */,
-				D5037070000000000000002 /* WorkspaceGroupSystemIconCatalogStore.swift */,
 				C9A57202C9A57202C9A57202 /* SidebarWorkspaceRenderItem.swift */,
 				C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */,
 				C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */,
@@ -2566,13 +2557,10 @@
 				C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */,
 				D5037080000000000000003 /* WorkspaceGroupEmojiCatalog.swift in Sources */,
 				D5037090000000000000003 /* WorkspaceGroupEmojiPickerButton.swift in Sources */,
-				D50370A0000000000000003 /* WorkspaceGroupIconPickerRow.swift in Sources */,
 				D50370B0000000000000003 /* WorkspaceGroupIconPickerSectionTitle.swift in Sources */,
 				D5037020000000000000003 /* WorkspaceGroupIconPickerView.swift in Sources */,
 				D5037050000000000000003 /* WorkspaceGroupIconPreview.swift in Sources */,
 				C9A57203C9A57203C9A57203 /* WorkspaceGroupMenuSnapshot.swift in Sources */,
-				D5037060000000000000003 /* WorkspaceGroupSystemIconCatalog.swift in Sources */,
-				D5037070000000000000003 /* WorkspaceGroupSystemIconCatalogStore.swift in Sources */,
 				D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */,
 				1A1B2C3D4E5F607180000001 /* WorkspacePromptSubmit.swift in Sources */,
 					E30780000000000000000002 /* WorkspaceRemoteConfiguration.swift in Sources */,

@@ -2,14 +2,10 @@ import AppKit
 import SwiftUI
 
 struct WorkspaceGroupIconPickerView: View {
-    private static let pageSize = 180
-
     let currentSymbol: String?
     let onSelect: (String?) -> Void
 
     @State private var searchText: String
-    @State private var resultLimit = Self.pageSize
-    @State private var systemCatalog = WorkspaceGroupSystemIconCatalog.fallback
 
     init(currentSymbol: String?, onSelect: @escaping (String?) -> Void) {
         self.currentSymbol = currentSymbol
@@ -21,46 +17,34 @@ struct WorkspaceGroupIconPickerView: View {
         RenderableSystemSymbol.normalizedWorkspaceGroupIcon(currentSymbol)
     }
 
-    private var typedIcon: RenderableWorkspaceGroupIcon? {
-        guard let normalized = RenderableSystemSymbol.normalizedWorkspaceGroupIcon(searchText) else { return nil }
-        if let emoji = RenderableSystemSymbol.normalizedEmoji(normalized) {
-            return .emoji(emoji)
-        }
-        return .systemSymbol(normalized)
+    private var typedEmoji: String? {
+        RenderableSystemSymbol.normalizedEmoji(searchText)
     }
 
     private var emojiSuggestions: [String] {
         WorkspaceGroupEmojiCatalog.matching(query: searchText)
     }
 
-    private var systemSymbols: [WorkspaceGroupSystemIconCatalog.Candidate] {
-        systemCatalog.matching(query: searchText, limit: resultLimit)
-    }
-
     var body: some View {
         VStack(spacing: 10) {
             TextField(
-                String(localized: "workspaceGroup.icon.search.placeholder", defaultValue: "Search icons"),
+                String(localized: "workspaceGroup.icon.search.placeholder", defaultValue: "Search emoji"),
                 text: $searchText
             )
             .textFieldStyle(.roundedBorder)
             .frame(height: 24)
-            .onChange(of: searchText) { _, _ in
-                resultLimit = Self.pageSize
-            }
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    if let typedIcon {
+                    if let typedEmoji {
                         WorkspaceGroupIconPickerSectionTitle(
                             title: String(localized: "workspaceGroup.icon.section.current", defaultValue: "Current")
                         )
-                        WorkspaceGroupIconPickerRow(
-                            icon: typedIcon,
-                            title: typedIcon.rawValue,
-                            isSelected: selectedIcon == typedIcon.rawValue
+                        WorkspaceGroupEmojiPickerButton(
+                            emoji: typedEmoji,
+                            isSelected: selectedIcon == typedEmoji
                         ) {
-                            onSelect(typedIcon.rawValue)
+                            onSelect(typedEmoji)
                         }
                     }
 
@@ -82,26 +66,7 @@ struct WorkspaceGroupIconPickerView: View {
                                 }
                             }
                         }
-                    }
-
-                    if !systemSymbols.isEmpty {
-                        WorkspaceGroupIconPickerSectionTitle(
-                            title: String(localized: "workspaceGroup.icon.section.symbols", defaultValue: "Symbols")
-                        )
-                        ForEach(systemSymbols) { candidate in
-                            WorkspaceGroupIconPickerRow(
-                                icon: .systemSymbol(candidate.name),
-                                title: candidate.name,
-                                isSelected: selectedIcon == candidate.name
-                            ) {
-                                onSelect(candidate.name)
-                            }
-                            .onAppear {
-                                guard candidate.id == systemSymbols.last?.id else { return }
-                                resultLimit += Self.pageSize
-                            }
-                        }
-                    } else if typedIcon == nil && emojiSuggestions.isEmpty {
+                    } else if typedEmoji == nil {
                         Text(String(localized: "workspaceGroup.icon.noResults", defaultValue: "No icons found"))
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
@@ -121,8 +86,5 @@ struct WorkspaceGroupIconPickerView: View {
         }
         .padding(12)
         .frame(width: 344, height: 394)
-        .task {
-            systemCatalog = await WorkspaceGroupSystemIconCatalogStore.shared.catalog()
-        }
     }
 }
