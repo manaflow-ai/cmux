@@ -198,7 +198,11 @@ const performanceSetupSettings = [
   "terminalSmoothResumedOutput",
   "terminalCursorBlink",
   "browserSuspendInactive",
-  "terminalScrollback"
+  "terminalScrollback",
+  "density",
+  "toolbarMode",
+  "paneActionMode",
+  "terminalPadding"
 ];
 const performanceSetupPreviewKeys = new Set(performanceSetupSettings);
 const performanceSetupBooleanSettings = new Set([
@@ -12978,7 +12982,7 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(scrollbackRow);
     const performanceActions = document.createElement("div");
     performanceActions.className = "settings-actions";
-    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save current balanced reset render stats clear copy paste setup background opacity effects diagnostics report lag debug");
+    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save current balanced reset render stats clear copy paste setup workspace chrome density toolbar padding background opacity effects diagnostics report lag debug");
     const speedPresetActive = isSettingsPresetIdActive("performance");
     const speedPreset = settingsActionButton(
       speedPresetActive ? "Speed active" : "Speed preset",
@@ -12997,8 +13001,8 @@ function renderSettingsInspector(options = {}) {
         settingsActionButton("Save current speed", saveCurrentPerformanceProfile, "", "performance save current speed lag settings profile reusable"),
         "Save current performance settings as a reusable profile."
       ),
-      settingsActionButton("Copy setup", copyPerformanceSetup, "", "performance setup copy speed lag motion background opacity effects terminal startup inactive browser suspend clipboard json"),
-      settingsActionButton("Paste setup", pastePerformanceSetup, "", "performance setup paste speed lag motion background opacity effects terminal startup inactive browser suspend clipboard json"),
+      settingsActionButton("Copy setup", copyPerformanceSetup, "", "performance setup copy speed lag motion workspace chrome density toolbar padding background opacity effects terminal startup inactive browser suspend clipboard json"),
+      settingsActionButton("Paste setup", pastePerformanceSetup, "", "performance setup paste speed lag motion workspace chrome density toolbar padding background opacity effects terminal startup inactive browser suspend clipboard json"),
       settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
       speedPreset,
       resetPerformanceStatsAction()
@@ -17362,6 +17366,9 @@ const performanceTuningPresets = [
       performanceMode: false,
       adaptivePerformance: true,
       reduceMotion: false,
+      density: "comfortable",
+      toolbarMode: "minimal",
+      paneActionMode: "essential",
       backgroundOpacity: 16,
       backgroundEffects: "flat",
       terminalStartupMode: "fast",
@@ -17369,6 +17376,7 @@ const performanceTuningPresets = [
       terminalSmoothResumedOutput: true,
       terminalCursorBlink: true,
       browserSuspendInactive: true,
+      terminalPadding: 8,
       terminalScrollback: 12000
     }
   },
@@ -17380,6 +17388,9 @@ const performanceTuningPresets = [
       performanceMode: true,
       adaptivePerformance: true,
       reduceMotion: true,
+      density: "compact",
+      toolbarMode: "minimal",
+      paneActionMode: "essential",
       backgroundOpacity: 8,
       backgroundEffects: "flat",
       terminalStartupMode: "fast",
@@ -17387,6 +17398,7 @@ const performanceTuningPresets = [
       terminalSmoothResumedOutput: true,
       terminalCursorBlink: false,
       browserSuspendInactive: true,
+      terminalPadding: 4,
       terminalScrollback: 6000
     }
   },
@@ -17398,6 +17410,9 @@ const performanceTuningPresets = [
       performanceMode: true,
       adaptivePerformance: true,
       reduceMotion: true,
+      density: "compact",
+      toolbarMode: "minimal",
+      paneActionMode: "essential",
       backgroundOpacity: 6,
       backgroundEffects: "flat",
       terminalStartupMode: "fast",
@@ -17405,6 +17420,7 @@ const performanceTuningPresets = [
       terminalSmoothResumedOutput: true,
       terminalCursorBlink: false,
       browserSuspendInactive: true,
+      terminalPadding: 4,
       terminalScrollback: 4000
     }
   },
@@ -17416,6 +17432,9 @@ const performanceTuningPresets = [
       performanceMode: true,
       adaptivePerformance: true,
       reduceMotion: true,
+      density: "compact",
+      toolbarMode: "minimal",
+      paneActionMode: "essential",
       backgroundOpacity: 8,
       backgroundEffects: "flat",
       terminalStartupMode: "fast",
@@ -17423,6 +17442,7 @@ const performanceTuningPresets = [
       terminalSmoothResumedOutput: true,
       terminalCursorBlink: false,
       browserSuspendInactive: true,
+      terminalPadding: 4,
       terminalScrollback: 8000
     }
   },
@@ -17434,6 +17454,9 @@ const performanceTuningPresets = [
       performanceMode: false,
       adaptivePerformance: true,
       reduceMotion: true,
+      density: "compact",
+      toolbarMode: "minimal",
+      paneActionMode: "essential",
       backgroundOpacity: 12,
       backgroundEffects: "flat",
       terminalStartupMode: "fast",
@@ -17441,6 +17464,7 @@ const performanceTuningPresets = [
       terminalSmoothResumedOutput: true,
       terminalCursorBlink: false,
       browserSuspendInactive: true,
+      terminalPadding: 6,
       terminalScrollback: 10000
     }
   },
@@ -17452,6 +17476,9 @@ const performanceTuningPresets = [
       performanceMode: false,
       adaptivePerformance: false,
       reduceMotion: false,
+      density: "comfortable",
+      toolbarMode: "minimal",
+      paneActionMode: "essential",
       backgroundOpacity: 16,
       backgroundEffects: "flat",
       terminalStartupMode: "fast",
@@ -17459,6 +17486,7 @@ const performanceTuningPresets = [
       terminalSmoothResumedOutput: false,
       terminalCursorBlink: true,
       browserSuspendInactive: false,
+      terminalPadding: 8,
       terminalScrollback: 20000
     }
   }
@@ -17518,6 +17546,31 @@ const performanceHealthCheckDefinitions = [
       backgroundOpacity: Math.min(state.settings.backgroundOpacity, performanceHealthBackgroundOpacityLimit)
     }),
     search: "background image opacity glass effects wallpaper slow"
+  },
+  {
+    id: "workspaceChrome",
+    label: "Workspace chrome",
+    body: "Uses compact rows, minimal toolbar controls, and tighter terminal padding.",
+    actionLabel: "Compact",
+    readyLabel: "Compact",
+    issue: () => state.settings.density !== "compact"
+      || state.settings.toolbarMode !== "minimal"
+      || state.settings.paneActionMode !== "essential"
+      || state.settings.terminalPadding > 6,
+    meta: () => {
+      const density = state.settings.density === "compact" ? "Compact rows" : "Comfortable rows";
+      const toolbar = optionLabel(toolbarModeOptions, state.settings.toolbarMode, state.settings.toolbarMode);
+      const controls = optionLabel(paneActionOptions, state.settings.paneActionMode, state.settings.paneActionMode);
+      const padding = state.settings.terminalPadding > 6 ? `${state.settings.terminalPadding}px pad` : "Tight pad";
+      return `${density} / ${toolbar} / ${controls} / ${padding}`;
+    },
+    updates: () => ({
+      density: "compact",
+      toolbarMode: "minimal",
+      paneActionMode: "essential",
+      terminalPadding: Math.min(state.settings.terminalPadding, 6)
+    }),
+    search: "workspace chrome compact density toolbar pane controls terminal padding lighter ui"
   },
   {
     id: "terminalStartup",
@@ -17756,16 +17809,21 @@ function performanceSetupSummaryForSettings(settings) {
     ...(settings || {})
   });
   const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, normalized.backgroundEffects);
+  const toolbar = optionLabel(toolbarModeOptions, normalized.toolbarMode, normalized.toolbarMode);
+  const controls = optionLabel(paneActionOptions, normalized.paneActionMode, normalized.paneActionMode);
   return {
     mode: normalized.performanceMode ? "Tuned" : "Balanced",
     adaptiveGuard: normalized.adaptivePerformance ? "On" : "Off",
     motion: normalized.performanceMode || normalized.reduceMotion ? "Reduced" : "Full",
+    chrome: `${normalized.density === "compact" ? "Compact" : "Comfortable"} / ${toolbar}`,
+    controls,
     background: `${backgroundEffects} ${normalized.backgroundOpacity}%`,
     terminalStartup: optionLabel(terminalStartupOptions, normalized.terminalStartupMode, normalized.terminalStartupMode),
     inactiveOutput: normalized.terminalPauseInactiveOutput ? "Paused" : "Live",
     resume: normalized.terminalSmoothResumedOutput ? "Smooth" : "Immediate",
     cursor: normalized.terminalCursorBlink ? "Blinking" : "Steady cursor",
     inactiveBrowsers: normalized.browserSuspendInactive ? "Suspended" : "Live",
+    padding: `${normalized.terminalPadding}px padding`,
     history: `${normalized.terminalScrollback.toLocaleString()} history`
   };
 }
@@ -17887,12 +17945,19 @@ async function copyPerformanceSetup() {
 
 function performanceSetupSettingUpdateFromValue(key, raw) {
   if (key === "terminalStartupMode") return optionIdAllowed(terminalStartupOptions, raw) ? raw : null;
+  if (key === "density") return ["comfortable", "compact"].includes(raw) ? raw : null;
+  if (key === "toolbarMode") return optionIdAllowed(toolbarModeOptions, raw) ? raw : null;
+  if (key === "paneActionMode") return optionIdAllowed(paneActionOptions, raw) ? raw : null;
   if (key === "backgroundOpacity") {
     if (raw === null || raw === "" || typeof raw === "boolean" || typeof raw === "object") return null;
     const value = Number(raw);
     return Number.isFinite(value) ? clamp(Math.round(value), 0, 42) : null;
   }
   if (key === "backgroundEffects") return optionIdAllowed(backgroundEffectsOptions, raw) ? raw : null;
+  if (key === "terminalPadding") {
+    const value = Number(raw);
+    return Number.isFinite(value) ? clamp(Math.round(value), 0, 16) : null;
+  }
   if (key === "terminalScrollback") {
     const value = Number(raw);
     return Number.isFinite(value) ? clamp(Math.round(value), 2000, 50000) : null;
@@ -17956,18 +18021,21 @@ function performanceTuningPresetSettings(preset) {
 function performanceTuningPresetSearchText(preset, settings = performanceTuningPresetSettings(preset)) {
   const summary = performanceSetupSummaryForSettings(settings || {});
   return normalizeSettingsQuery([
-    "performance tuning preset setup apply copy speed lag smooth low motion live panes background opacity effects glass flat terminal output browser preview suspend history scrollback",
+    "performance tuning preset setup apply copy speed lag smooth low motion live panes workspace chrome density toolbar controls padding background opacity effects glass flat terminal output browser preview suspend history scrollback",
     preset?.label,
     preset?.body,
     summary.mode,
     summary.adaptiveGuard,
     summary.motion,
+    summary.chrome,
+    summary.controls,
     summary.background,
     summary.terminalStartup,
     summary.inactiveOutput,
     summary.resume,
     summary.cursor,
     summary.inactiveBrowsers,
+    summary.padding,
     summary.history
   ].join(" "));
 }
@@ -20587,7 +20655,7 @@ function performanceHealthChecklist() {
   const panel = document.createElement("div");
   panel.className = "performance-health-panel";
   panel.dataset.performanceHealth = "true";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("performance health checklist fixes speed lag smooth background motion terminal browser adaptive guard");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("performance health checklist fixes speed lag smooth workspace chrome density toolbar padding background motion terminal browser adaptive guard");
   panel.innerHTML = `
     <div class="performance-health-head">
       <span class="performance-health-copy">
@@ -20670,7 +20738,7 @@ function refreshPerformanceHealthPanel(panel = elements.inspectorBody.querySelec
 function performanceTuningPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "performance-tune-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes background opacity effects glass flat browser preview apply copy setup history scrollback");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes workspace chrome density toolbar padding background opacity effects glass flat browser preview apply copy setup history scrollback");
   for (const preset of performanceTuningPresets) {
     const settings = performanceTuningPresetSettings(preset);
     if (!settings) continue;
