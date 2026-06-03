@@ -1694,6 +1694,14 @@ function isBuiltInCommandSnippetSaved(snippet) {
   return state.customCommandSnippets.some((candidate) => commandSnippetCommandKey(candidate.command) === commandKey);
 }
 
+function customCommandSnippetsFull() {
+  return state.customCommandSnippets.length >= customCommandSnippetsLimit;
+}
+
+function commandSnippetLimitTitle() {
+  return `Snippet limit is ${customCommandSnippetsLimit}. Delete one first.`;
+}
+
 function upsertCustomCommandSnippet(snippet) {
   const normalized = normalizeCustomCommandSnippet(snippet);
   if (!normalized) return null;
@@ -1702,8 +1710,8 @@ function upsertCustomCommandSnippet(snippet) {
   const replacing = state.customCommandSnippets.some((candidate) => (
     candidate.id === id || candidate.command.toLowerCase() === commandKey
   ));
-  if (!replacing && state.customCommandSnippets.length >= customCommandSnippetsLimit) {
-    toast(`Snippet limit is ${customCommandSnippetsLimit}. Delete one first.`);
+  if (!replacing && customCommandSnippetsFull()) {
+    toast(commandSnippetLimitTitle());
     return null;
   }
   state.customCommandSnippets = [
@@ -15404,7 +15412,8 @@ function commandSnippetsSettings() {
   const customTitle = document.createElement("span");
   customTitle.textContent = "Saved snippets";
   const add = settingsActionButton("Add", addCustomCommandSnippet, "", "custom terminal command snippet add create");
-  add.disabled = state.customCommandSnippets.length >= customCommandSnippetsLimit;
+  add.disabled = customCommandSnippetsFull();
+  add.title = add.disabled ? commandSnippetLimitTitle() : "Add a saved terminal command snippet.";
   customHeader.append(customTitle, add);
   wrapper.append(customHeader);
 
@@ -15452,9 +15461,19 @@ function commandSnippetCard(snippet) {
   actions.className = `recent-folder-actions command-snippet-actions${snippet.builtIn ? " is-built-in" : ""}`;
   actions.append(settingsActionButton("Run", () => runTerminalCommand(snippet.command), "", `run command snippet ${snippet.label} ${snippet.command}`));
   if (snippet.builtIn) {
-    const save = settingsActionButton(savedBuiltIn ? "Saved" : "Save", () => saveBuiltInCommandSnippet(snippet), savedBuiltIn ? "primary" : "", `save built in command snippet ${savedBuiltIn ? "saved active current " : ""}${snippet.label}`);
-    save.disabled = savedBuiltIn;
-    save.title = savedBuiltIn ? "This built-in snippet is already saved." : "Save this built-in snippet.";
+    const limitReached = !savedBuiltIn && customCommandSnippetsFull();
+    const save = settingsActionButton(
+      savedBuiltIn ? "Saved" : "Save",
+      () => saveBuiltInCommandSnippet(snippet),
+      savedBuiltIn ? "primary" : "",
+      `save built in command snippet ${savedBuiltIn ? "saved active current " : ""}${limitReached ? "limit full " : ""}${snippet.label}`
+    );
+    save.disabled = savedBuiltIn || limitReached;
+    save.title = savedBuiltIn
+      ? "This built-in snippet is already saved."
+      : limitReached
+        ? commandSnippetLimitTitle()
+        : "Save this built-in snippet.";
     actions.append(save);
   } else {
     actions.append(
@@ -15468,6 +15487,10 @@ function commandSnippetCard(snippet) {
 }
 
 async function addCustomCommandSnippet() {
+  if (customCommandSnippetsFull()) {
+    toast(commandSnippetLimitTitle());
+    return null;
+  }
   const details = await showCommandSnippetDialog({
     title: "Add command snippet",
     confirmLabel: "Save"
