@@ -2793,6 +2793,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             persistedWorkspace.panels.first { $0.id == originalPanelId }
         )
         XCTAssertEqual(persistedPanel.terminal?.isRemoteTerminal, false)
+        XCTAssertNil(persistedPanel.terminal?.workingDirectory)
         XCTAssertNil(persistedPanel.terminal?.remotePTYSessionID)
 
         let reservedSocketPath = reserveRemoteRestoreSocket()

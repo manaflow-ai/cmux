@@ -542,6 +542,9 @@ extension Workspace {
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
+            let didEndPersistentRemotePTYAttach =
+                remoteConfiguration?.preserveAfterTerminalExit == true &&
+                endedPersistentRemotePTYAttachSurfaceIds.contains(panelId)
             let restorableTmuxStartCommand = effectiveRestorableAgent == nil
                 ? Self.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
@@ -589,7 +592,7 @@ extension Workspace {
                 allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
-                workingDirectory: directory,
+                workingDirectory: didEndPersistentRemotePTYAttach ? nil : directory,
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
