@@ -15678,9 +15678,9 @@ function settingsPresetGrid() {
     button.className = `settings-preset${active ? " is-active" : ""}`;
     button.type = "button";
     button.title = `${preset.label}: ${settingsProfileSummary(normalized)}`;
-    button.setAttribute("aria-label", `${preset.label}. ${preset.body}. ${settingsProfileSummary(normalized)}.`);
+    button.setAttribute("aria-label", `${preset.label}. ${active ? "Active. " : ""}${preset.body}. ${settingsProfileSummary(normalized)}.`);
     button.setAttribute("aria-pressed", active ? "true" : "false");
-    button.dataset.settingsSearch = normalizeSettingsQuery(`preset ${preset.label} ${preset.body} ${settingsProfileSummary(normalized)}`);
+    button.dataset.settingsSearch = normalizeSettingsQuery(`preset ${active ? "active current " : ""}${preset.label} ${preset.body} ${settingsProfileSummary(normalized)}`);
     button.style.setProperty("--preset-canvas", themePreview.canvas);
     button.style.setProperty("--preset-pane", themePreview.pane);
     button.style.setProperty("--preset-rail", themePreview.rail);
@@ -15696,12 +15696,16 @@ function settingsPresetGrid() {
         <span class="settings-preset-preview-accent"></span>
       </span>
       <span class="settings-preset-copy">
-        <span class="settings-preset-title"></span>
+        <span class="settings-preset-title-row">
+          <span class="settings-preset-title"></span>
+          <span class="settings-preset-status"></span>
+        </span>
         <span class="settings-preset-body"></span>
         <span class="settings-preset-tags"></span>
       </span>
     `;
     button.querySelector(".settings-preset-title").textContent = preset.label;
+    button.querySelector(".settings-preset-status").textContent = active ? "Active" : "";
     button.querySelector(".settings-preset-body").textContent = preset.body;
     button.querySelector(".settings-preset-tags").replaceChildren(...settingsPresetTags(normalized));
     button.onclick = () => applySettingsPreset(preset);
