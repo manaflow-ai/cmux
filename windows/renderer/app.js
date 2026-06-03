@@ -1972,12 +1972,37 @@ function saveWorkspaceBlueprints() {
   localStorage.setItem(workspaceBlueprintsStorageKey, JSON.stringify(state.workspaceBlueprints));
 }
 
-function upsertWorkspaceBlueprint(blueprint) {
+function workspaceBlueprintsFull() {
+  return state.workspaceBlueprints.length >= workspaceBlueprintsLimit;
+}
+
+function workspaceBlueprintLimitTitle() {
+  return `Blueprint limit is ${workspaceBlueprintsLimit}. Delete one first.`;
+}
+
+function canSaveCurrentWorkspaceBlueprint(workspace = activeWorkspace()) {
+  return Boolean(workspace?.panels?.length && !workspaceBlueprintsFull());
+}
+
+function currentWorkspaceBlueprintSaveTitle(workspace = activeWorkspace(), availableTitle = "Save the current workspace pane layout as a reusable blueprint.") {
+  if (!workspace?.panels?.length) return "Open panes before saving a blueprint.";
+  if (workspaceBlueprintsFull()) return workspaceBlueprintLimitTitle();
+  return availableTitle;
+}
+
+function applyWorkspaceBlueprintSaveLimit(button, workspace = activeWorkspace(), availableTitle = "Save the current workspace pane layout as a reusable blueprint.") {
+  if (!button) return button;
+  button.disabled = !canSaveCurrentWorkspaceBlueprint(workspace);
+  button.title = currentWorkspaceBlueprintSaveTitle(workspace, availableTitle);
+  return button;
+}
+
+function upsertWorkspaceBlueprint(blueprint, options = {}) {
   const normalized = normalizeWorkspaceBlueprint(blueprint);
   if (!normalized) return null;
   const replacing = state.workspaceBlueprints.some((candidate) => candidate.id === normalized.id);
-  if (!replacing && state.workspaceBlueprints.length >= workspaceBlueprintsLimit) {
-    toast(`Blueprint limit is ${workspaceBlueprintsLimit}. Delete one first.`);
+  if (!replacing && workspaceBlueprintsFull()) {
+    if (options.toast !== false) toast(workspaceBlueprintLimitTitle());
     return null;
   }
   state.workspaceBlueprints = [
@@ -9762,12 +9787,7 @@ function renderSettingsInspector(options = {}) {
     layoutActions.className = "settings-actions";
     layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar sidebar footer inspector tabs status header title focus mode simple clean");
     const saveLayoutAction = settingsActionButton("Save layout", saveCurrentWorkspaceBlueprint, "", "save current split pane layout workspace blueprint reusable");
-    saveLayoutAction.disabled = !workspace?.panels?.length || state.workspaceBlueprints.length >= workspaceBlueprintsLimit;
-    saveLayoutAction.title = saveLayoutAction.disabled
-      ? state.workspaceBlueprints.length >= workspaceBlueprintsLimit
-        ? `Blueprint limit is ${workspaceBlueprintsLimit}. Delete one before saving another layout.`
-        : "Open a workspace before saving a layout."
-      : "Save the current workspace pane layout as a reusable blueprint.";
+    applyWorkspaceBlueprintSaveLimit(saveLayoutAction, workspace, "Save the current workspace pane layout as a reusable blueprint.");
     const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
     const resetChromeAction = settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", `workspace chrome toolbar sidebar footer inspector tabs status header title reset ${workspaceChromeDefault ? "active current " : ""}`);
     resetChromeAction.disabled = workspaceChromeDefault;
@@ -13065,6 +13085,8 @@ function quickSetupActionDefinitions() {
       meta: () => `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit}`,
       cta: "Save",
       search: "save layout workspace blueprint panes shape split",
+      disabled: () => !canSaveCurrentWorkspaceBlueprint(),
+      title: () => currentWorkspaceBlueprintSaveTitle(),
       run: () => saveCurrentWorkspaceBlueprint()
     }
   ];
@@ -13094,7 +13116,7 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   else if (activeTerminal && !normalizeBackgroundValue(activeTerminal.backgroundImage)) ids.push("pane-background");
   if (state.savedSettingsProfiles.length === 0 && !ids.includes("save-clean-fast-profile") && ids.length < 4) ids.push("save-profile");
   if (workspaceNeedsQuickRename(workspace)) ids.push("rename");
-  if (workspace && panels.length > 1 && state.workspaceBlueprints.length < workspaceBlueprintsLimit) ids.push("save-layout");
+  if (workspace && panels.length > 1 && !workspaceBlueprintsFull()) ids.push("save-layout");
   if (workspace && panels.length > 0 && ids.length < 4) ids.push("pane-settings");
 
   return [...new Set(ids)].slice(0, 4);
@@ -13151,9 +13173,10 @@ function quickSetupGuidePanel() {
     item.className = "quick-guide-item";
     item.type = "button";
     item.disabled = Boolean(action.disabled?.());
+    const title = action.title?.() || `${action.label}: ${action.body}`;
     item.dataset.quickGuideAction = action.id;
     item.dataset.settingsSearch = normalizeSettingsQuery(`quick recommended ${action.label} ${action.body} ${action.search}`);
-    item.title = `${action.label}: ${action.body}`;
+    item.title = title;
     item.setAttribute("aria-label", `${action.label}. ${action.body} Current: ${action.meta()}.`);
     item.innerHTML = `
       <span class="quick-guide-icon" aria-hidden="true"></span>
@@ -13192,7 +13215,7 @@ function quickSetupActionGrid() {
     button.className = `quick-settings-shortcut quick-action${active ? " is-active" : ""}`;
     button.type = "button";
     button.disabled = disabled;
-    button.title = `${action.label}: ${action.body}`;
+    button.title = action.title?.() || `${action.label}: ${action.body}`;
     button.dataset.quickAction = action.id;
     button.dataset.settingsSearch = normalizeSettingsQuery(`quick action ${action.label} ${action.body} ${action.search} ${active ? "active details" : ""}`);
     button.setAttribute("aria-label", `${action.label}. ${action.body} Current: ${action.meta()}.${active ? " Active." : ""}`);
@@ -16270,7 +16293,7 @@ function workspaceBlueprintsPanel() {
   const title = document.createElement("span");
   title.textContent = "Saved blueprints";
   const save = settingsActionButton("Save", saveCurrentWorkspaceBlueprint, "", "save current workspace blueprint layout");
-  save.disabled = state.workspaceBlueprints.length >= workspaceBlueprintsLimit || (activeWorkspace()?.panels.length || 0) === 0;
+  applyWorkspaceBlueprintSaveLimit(save, activeWorkspace(), "Save the current workspace pane setup as a blueprint.");
   header.append(title, save);
   wrapper.append(header);
 
@@ -16396,6 +16419,10 @@ async function saveCurrentWorkspaceBlueprint() {
   const workspace = activeWorkspace();
   if (!workspace || workspace.panels.length === 0) {
     toast("Open panes before saving a blueprint.");
+    return;
+  }
+  if (workspaceBlueprintsFull()) {
+    toast(workspaceBlueprintLimitTitle());
     return;
   }
   const label = await showTextDialog({
@@ -16910,7 +16937,11 @@ function showToolbarMenu(event) {
       contextMenuButton("Change workspace folder", () => chooseWorkspaceFolder(), !workspace),
       contextMenuButton("Open workspace folder", () => openWorkspaceFolder(), !workspace?.cwd),
       contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
-      contextMenuButton("Save workspace blueprint", saveCurrentWorkspaceBlueprint, !panel),
+      (() => {
+        const action = contextMenuButton("Save workspace blueprint", saveCurrentWorkspaceBlueprint, !canSaveCurrentWorkspaceBlueprint(workspace));
+        action.title = currentWorkspaceBlueprintSaveTitle(workspace, "Save the current workspace as a reusable blueprint.");
+        return action;
+      })(),
       contextMenuButton("Close extra empty workspaces", closeEmptyWorkspaces, !hasEmptyWorkspaceCleanupTargets(), "danger")
     ),
     contextMenuSectionTitle("Settings"),
