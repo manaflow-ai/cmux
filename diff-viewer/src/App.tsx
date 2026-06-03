@@ -349,18 +349,21 @@ function SourceControls({
       <NavigationSelect
         ariaLabel={label("diffTarget")}
         fallbackValue=""
+        id="source-select"
         options={payload.sourceOptions}
         onNavigate={onNavigate}
       />
       <NavigationSelect
         ariaLabel={label("repoPath")}
         fallbackValue={payload.repoRoot ?? ""}
+        id="repo-select"
         options={payload.repoOptions}
         onNavigate={onNavigate}
       />
       <NavigationSelect
         ariaLabel={label("branchBase")}
         fallbackValue={payload.branchBaseRef ?? ""}
+        id="base-select"
         options={payload.baseOptions}
         onNavigate={onNavigate}
       />
@@ -372,11 +375,13 @@ function SourceControls({
 function NavigationSelect({
   ariaLabel,
   fallbackValue,
+  id,
   onNavigate,
   options,
 }: {
   ariaLabel: string;
   fallbackValue: string;
+  id: string;
   onNavigate: (url: string) => void;
   options: any[] | undefined;
 }) {
@@ -386,6 +391,7 @@ function NavigationSelect({
   const selected = options.find((option) => option.selected) ?? options.find((option) => !option.disabled);
   return (
     <select
+      id={id}
       aria-label={ariaLabel}
       defaultValue={selected?.value ?? fallbackValue}
       title={ariaLabel}
