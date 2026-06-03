@@ -104,17 +104,21 @@ struct cmuxApp: App {
         // (which happens for any shell descended from this process), bare `cmux`
         // resolves here instead of the CLI. See
         // https://github.com/manaflow-ai/cmux/issues/4678.
-        CLIForwardingLaunchRouter.forwardToBundledCLIIfNeeded()
-
         // cmux ships a universal binary so it still supports Intel Macs, but a
         // stale LaunchServices architecture preference can pin the app to its
-        // x86_64 slice on Apple Silicon, running the whole terminal process tree
-        // under Rosetta (macOS 26 deprecation dialog; translated child shells and
-        // toolchains). `LSArchitecturePriority = (arm64)` in Info.plist fixes
-        // future launches; this corrects an already-mis-pinned install by
-        // re-execing the arm64 slice in place. No-op on Intel and on native
+        // x86_64 slice on Apple Silicon, running the whole process tree under
+        // Rosetta (macOS 26 deprecation dialog; translated child shells and
+        // toolchains). `LSArchitecturePriority` in Info.plist fixes future
+        // launches; this corrects an already-mis-pinned install by re-execing the
+        // arm64 slice in place. It runs *before* CLI forwarding so a translated
+        // GUI binary invoked with CLI-style arguments is re-execed natively first
+        // and the forwarded bundled CLI then inherits the native arch too. The
+        // re-exec preserves argv and re-enters this initializer, so forwarding
+        // proceeds normally in the native process. No-op on Intel and on native
         // launches. See https://github.com/manaflow-ai/cmux/issues/753.
         RosettaNativeRelaunch.relaunchNativelyIfNeeded()
+
+        CLIForwardingLaunchRouter.forwardToBundledCLIIfNeeded()
 
         StartupBreadcrumbLog.append("app.init.begin")
         UITestLaunchManifest.applyIfPresent()

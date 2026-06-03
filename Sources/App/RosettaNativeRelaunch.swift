@@ -99,8 +99,15 @@ enum RosettaNativeRelaunch {
         defer { posix_spawnattr_destroy(&attributes) }
 
         // Replace the current process image in place (like exec) so there is no
-        // orphaned translated process and the PID is preserved.
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETEXEC))
+        // orphaned translated process and the PID is preserved. If the flag
+        // cannot be set, `posix_spawn` would fork a second process instead of
+        // replacing this one, leaving a translated parent running alongside a
+        // native child — so bail out rather than spawn without SETEXEC.
+        guard posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETEXEC)) == 0 else {
+            rosettaRelaunchLogger.warning("failed to set POSIX_SPAWN_SETEXEC; continuing translated")
+            unsetenv(guardKey)
+            return
+        }
 
         // Force the arm64 slice of the universal binary so the replacement
         // process is native, not translated. Without an explicit preference the
@@ -126,12 +133,10 @@ enum RosettaNativeRelaunch {
 
         // With POSIX_SPAWN_SETEXEC a successful call never returns. Reaching
         // here means the re-exec failed; log and fall through so the app still
-        // launches (translated) instead of dying.
-        let errorText = String(cString: strerror(spawnResult))
-        rosettaRelaunchLogger.warning("native re-exec failed; continuing translated")
-        #if DEBUG
-        rosettaRelaunchLogger.debug("native re-exec failed at \(executablePath, privacy: .public): \(errorText, privacy: .public)")
-        #endif
+        // launches (translated) instead of dying. Only the errno is logged (not
+        // the executable path) to keep user-specific install paths out of the
+        // unified log.
+        rosettaRelaunchLogger.warning("native re-exec failed (errno \(spawnResult, privacy: .public)); continuing translated")
         unsetenv(guardKey)
     }
 }
