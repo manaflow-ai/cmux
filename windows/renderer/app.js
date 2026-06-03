@@ -1385,21 +1385,26 @@ function normalizeTerminalCommand(command) {
   return String(command || "").replace(/\r?\n/g, " ").trim().slice(0, 1000);
 }
 
+function normalizeRecentCommandList(entries = []) {
+  const commands = [];
+  const seen = new Set();
+  const list = typeof entries === "string" ? entries.split(/\r?\n/) : entries;
+  if (!Array.isArray(list)) return commands;
+  for (const entry of list) {
+    const command = normalizeTerminalCommand(entry);
+    const key = command.toLowerCase();
+    if (!command || seen.has(key)) continue;
+    seen.add(key);
+    commands.push(command);
+  }
+  return commands;
+}
+
 function loadRecentCommands() {
   try {
     const parsed = JSON.parse(localStorage.getItem(recentCommandsStorageKey) || "[]");
     if (!Array.isArray(parsed)) return [];
-    const unique = [];
-    const seen = new Set();
-    for (const entry of parsed) {
-      const command = normalizeTerminalCommand(entry);
-      const key = command.toLowerCase();
-      if (!command || seen.has(key)) continue;
-      seen.add(key);
-      unique.push(command);
-      if (unique.length >= recentCommandsLimit) break;
-    }
-    return unique;
+    return normalizeRecentCommandList(parsed).slice(0, recentCommandsLimit);
   } catch {
     return [];
   }
@@ -1430,6 +1435,87 @@ function clearRecentCommands() {
   renderSettingsInspector();
   toast("Recent commands cleared.");
   return true;
+}
+
+function recentCommandsPayload() {
+  return {
+    version: 1,
+    type: "cmux-recent-commands",
+    summary: {
+      commands: state.recentCommands.length,
+      limit: recentCommandsLimit
+    },
+    commands: state.recentCommands
+  };
+}
+
+async function copyRecentCommands() {
+  if (state.recentCommands.length === 0) {
+    toast("Recent commands are empty.");
+    return false;
+  }
+  const payload = JSON.stringify(recentCommandsPayload(), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Recent commands copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Recent terminal commands",
+    message: "Clipboard access is unavailable. The recent terminal commands are shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function recentCommandEntriesFromPayload(payload) {
+  const parsed = importedObject(payload);
+  if (Array.isArray(payload)) return normalizeRecentCommandList(payload);
+  if (parsed && Array.isArray(parsed.commands)) return normalizeRecentCommandList(parsed.commands);
+  if (parsed && Array.isArray(parsed.recentCommands)) return normalizeRecentCommandList(parsed.recentCommands);
+  if (typeof payload === "string") return normalizeRecentCommandList(payload);
+  return [];
+}
+
+function mergeRecentCommands(commands) {
+  const imported = normalizeRecentCommandList(commands);
+  if (imported.length === 0) {
+    toast("Clipboard does not contain recent commands.");
+    return false;
+  }
+  const next = [];
+  const seen = new Set();
+  for (const command of [...imported, ...state.recentCommands]) {
+    const key = command.toLowerCase();
+    if (!command || seen.has(key)) continue;
+    seen.add(key);
+    next.push(command);
+    if (next.length >= recentCommandsLimit) break;
+  }
+  if (stableJson(next) === stableJson(state.recentCommands)) {
+    toast("Recent commands already match.");
+    return false;
+  }
+  state.recentCommands = next;
+  saveRecentCommands();
+  renderSettingsInspector();
+  toast(`Recent commands updated (${state.recentCommands.length}/${recentCommandsLimit}).`);
+  return true;
+}
+
+async function pasteRecentCommands() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    return mergeRecentCommands(recentCommandEntriesFromPayload(JSON.parse(clipboard)));
+  } catch {
+    return mergeRecentCommands(recentCommandEntriesFromPayload(clipboard));
+  }
 }
 
 function loadRecentBrowserPages() {
@@ -4610,6 +4696,8 @@ const commands = [
   { id: "terminal.fontUp", label: "Active Pane Text Larger", shortcut: "Ctrl+=", run: () => changeTerminalFontSize(1) },
   { id: "terminal.fontDown", label: "Active Pane Text Smaller", shortcut: "Ctrl+-", run: () => changeTerminalFontSize(-1) },
   { id: "terminal.fontReset", label: "Reset Active Pane Text Size", shortcut: "Ctrl+0", run: () => resetTerminalFontSize() },
+  { id: "terminal.copyRecentCommands", label: "Copy Recent Commands", shortcut: "", run: () => copyRecentCommands() },
+  { id: "terminal.pasteRecentCommands", label: "Paste Recent Commands", shortcut: "", run: () => pasteRecentCommands() },
   { id: "browser.new", label: "Open Browser", shortcut: "Ctrl+Shift+L", run: () => openBrowserHome() },
   { id: "browser.newPane", label: "Open Browser Pane", shortcut: "", run: () => openBrowserHome(activeWorkspace()?.id, { mode: "pane" }) },
   { id: "browser.homeExternal", label: "Open Browser Home Externally", shortcut: "", run: () => openExternalBrowser(state.settings.browserHomeUrl) },
@@ -15666,7 +15754,7 @@ function recentCommandsDisclosurePanel() {
   return settingsDisclosurePanel({
     className: "data-recent-commands-disclosure",
     content: "data-recent-commands",
-    searchTerms: "data recent terminal commands shell command history run clear snippets",
+    searchTerms: "data recent terminal commands shell command history run clear copy paste clipboard json snippets",
     title: t("data.recentCommands"),
     body: t("data.recentCommands.body"),
     meta: formatMessage("data.recentCommandCount", {
@@ -17946,16 +18034,24 @@ function recentFoldersSettings() {
 function recentCommandsSettings() {
   const section = document.createElement("div");
   section.className = "recent-folder-list";
-  section.dataset.settingsSearch = normalizeSettingsQuery("recent terminal commands shell command history run clear snippets");
+  section.dataset.settingsSearch = normalizeSettingsQuery("recent terminal commands shell command history run clear copy paste clipboard json snippets");
 
   const header = document.createElement("div");
   header.className = "recent-folder-header";
   const title = document.createElement("span");
   title.textContent = "Recent terminal commands";
+  const copy = settingsActionButton("Copy", copyRecentCommands, "", "recent terminal commands copy shell command history clipboard json");
+  copy.disabled = state.recentCommands.length === 0;
+  copy.title = copy.disabled ? "Recent commands are empty." : "Copy recent terminal commands as JSON.";
+  const paste = settingsActionButton("Paste", pasteRecentCommands, "", "recent terminal commands paste shell command history clipboard json");
+  paste.title = "Merge copied terminal commands into recent commands.";
   const clear = settingsActionButton("Clear", clearRecentCommands, "danger", "recent terminal commands clear history");
   clear.disabled = state.recentCommands.length === 0;
   clear.title = clear.disabled ? "Recent commands are already clear." : "Clear recent terminal commands.";
-  header.append(title, clear);
+  const headerActions = document.createElement("div");
+  headerActions.className = "recent-folder-header-actions";
+  headerActions.append(copy, paste, clear);
+  header.append(title, headerActions);
   section.append(header);
 
   if (state.recentCommands.length === 0) {
@@ -19781,6 +19877,8 @@ function showToolbarMenu(event) {
     contextMenuSectionTitle("Terminal"),
     contextMenuActionGroup(
       toolbarAction("Run command...", promptRunTerminalCommand, !terminalActive, "Run a command in the focused terminal.", terminalRequiredTitle),
+      toolbarAction("Copy recent commands", copyRecentCommands, state.recentCommands.length === 0, "Copy recent terminal commands as JSON.", "Recent commands are empty."),
+      toolbarAction("Paste recent commands", pasteRecentCommands, false, "Merge copied terminal commands into recent commands."),
       toolbarAction("Git status", () => runTerminalCommandSnippet("gitStatus"), !terminalActive, "Run git status in the focused terminal.", terminalRequiredTitle),
       toolbarAction("GH PR status", () => runTerminalCommandSnippet("ghPrStatus"), !terminalActive, "Run GitHub PR status in the focused terminal.", terminalRequiredTitle),
       toolbarAction("Find in terminal", openTerminalSearch, !terminalActive, "Search the focused terminal.", terminalRequiredTitle),
@@ -20786,6 +20884,25 @@ function paletteEntries() {
       run: () => setWorkspaceFolderFromRecent(folder)
     });
   }
+  entries.push({
+    id: "recentCommand.copyAll",
+    label: "Copy recent commands",
+    meta: `${state.recentCommands.length}/${recentCommandsLimit} commands`,
+    shortcut: "Copy",
+    disabled: state.recentCommands.length === 0,
+    title: state.recentCommands.length === 0 ? "Recent commands are empty." : "Copy recent terminal commands as JSON.",
+    search: normalizeSettingsQuery("recent terminal commands shell copy clipboard json export history"),
+    run: copyRecentCommands
+  });
+  entries.push({
+    id: "recentCommand.pasteAll",
+    label: "Paste recent commands",
+    meta: "Merge copied command list",
+    shortcut: "Paste",
+    title: "Merge copied terminal commands into recent commands.",
+    search: normalizeSettingsQuery("recent terminal commands shell paste import clipboard json history"),
+    run: pasteRecentCommands
+  });
   for (const [commandIndex, command] of state.recentCommands.entries()) {
     entries.push({
       id: `recentCommand.${commandIndex}`,
