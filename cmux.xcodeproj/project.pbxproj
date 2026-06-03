@@ -99,6 +99,7 @@
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00005A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
+		A5B00006A1B2C3D4E5F60718 /* CMUXAgentLaunchStatic in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00007A1B2C3D4E5F60718 /* CMUXAgentLaunchStatic */; };
 		F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */ = {isa = PBXBuildFile; productRef = F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */; };
 		E3309A07 /* cmuxApp+EqualizeSplitsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */; };
 		C4160A010000000000000001 /* cmuxApp+HistoryMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A010000000000000002 /* cmuxApp+HistoryMenu.swift */; };
@@ -1251,7 +1252,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
+				A5B00006A1B2C3D4E5F60718 /* CMUXAgentLaunchStatic in Frameworks */,
 				C8000304C8000304C8000304 /* CmuxProcess in Frameworks */,
 				B900004CA1B2C3D4E5F60719 /* CmuxSocketControl in Frameworks */,
 				B9000024A1B2C3D4E5F60719 /* Sentry in Frameworks */,
@@ -1975,7 +1976,7 @@
 			name = "cmux-cli";
 			packageProductDependencies = (
 				A5001251 /* Sentry */,
-				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
+				A5B00007A1B2C3D4E5F60718 /* CMUXAgentLaunchStatic */,
 				A5354305A5354305A5354305 /* CmuxSocketControl */,
 				C8000302C8000302C8000302 /* CmuxProcess */,
 			);
@@ -3349,6 +3350,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */;
 			productName = CMUXAgentLaunch;
+		};
+		A5B00007A1B2C3D4E5F60718 /* CMUXAgentLaunchStatic */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */;
+			productName = CMUXAgentLaunchStatic;
 		};
 		A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */ = {
 			isa = XCSwiftPackageProductDependency;

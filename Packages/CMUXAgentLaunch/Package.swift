@@ -9,6 +9,11 @@ let package = Package(
     products: [
         .library(
             name: "CMUXAgentLaunch",
+            type: .dynamic,
+            targets: ["CMUXAgentLaunch"]
+        ),
+        .library(
+            name: "CMUXAgentLaunchStatic",
             type: .static,
             targets: ["CMUXAgentLaunch"]
         ),
