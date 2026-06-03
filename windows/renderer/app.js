@@ -5276,6 +5276,20 @@ const commands = [
   { id: "settings.pasteLook", label: "Paste Look Settings", shortcut: "", run: () => pasteLookSettings() },
   { id: "settings.performance", label: "Open Performance Settings", shortcut: "", run: () => openSettingsCategory("performance") },
   { id: "settings.tunePerformance", label: "Tune Performance Now", shortcut: "", run: () => tunePerformanceNow() },
+  { id: "settings.enablePerformanceMode", label: "Enable Performance Mode", shortcut: "", run: () => runPerformanceQuickAction("performanceMode.on") },
+  { id: "settings.disablePerformanceMode", label: "Disable Performance Mode", shortcut: "", run: () => runPerformanceQuickAction("performanceMode.off") },
+  { id: "settings.enableAdaptivePerformance", label: "Enable Adaptive Performance Guard", shortcut: "", run: () => runPerformanceQuickAction("adaptivePerformance.on") },
+  { id: "settings.disableAdaptivePerformance", label: "Disable Adaptive Performance Guard", shortcut: "", run: () => runPerformanceQuickAction("adaptivePerformance.off") },
+  { id: "settings.enableReduceMotion", label: "Enable Reduce Motion", shortcut: "", run: () => runPerformanceQuickAction("reduceMotion.on") },
+  { id: "settings.disableReduceMotion", label: "Disable Reduce Motion", shortcut: "", run: () => runPerformanceQuickAction("reduceMotion.off") },
+  { id: "settings.fastTerminalStartup", label: "Use Fast Terminal Startup", shortcut: "", run: () => runPerformanceQuickAction("terminalStartup.fast") },
+  { id: "settings.balancedTerminalStartup", label: "Use Balanced Terminal Startup", shortcut: "", run: () => runPerformanceQuickAction("terminalStartup.balanced") },
+  { id: "settings.pauseInactiveOutput", label: "Pause Inactive Terminal Output", shortcut: "", run: () => runPerformanceQuickAction("terminalPauseInactiveOutput.on") },
+  { id: "settings.keepInactiveOutputLive", label: "Keep Inactive Terminal Output Live", shortcut: "", run: () => runPerformanceQuickAction("terminalPauseInactiveOutput.off") },
+  { id: "settings.smoothResumedOutput", label: "Smooth Resumed Terminal Output", shortcut: "", run: () => runPerformanceQuickAction("terminalSmoothResumedOutput.on") },
+  { id: "settings.immediateResumedOutput", label: "Resume Terminal Output Immediately", shortcut: "", run: () => runPerformanceQuickAction("terminalSmoothResumedOutput.off") },
+  { id: "settings.suspendInactiveBrowsers", label: "Suspend Inactive Browsers", shortcut: "", run: () => runPerformanceQuickAction("browserSuspendInactive.on") },
+  { id: "settings.keepInactiveBrowsersLive", label: "Keep Inactive Browsers Live", shortcut: "", run: () => runPerformanceQuickAction("browserSuspendInactive.off") },
   { id: "settings.cleanFast", label: "Apply Clean + Fast Setup", shortcut: "", run: () => applySettingsPresetById("simpleFast") },
   { id: "settings.saveCleanFastProfile", label: "Save Clean + Fast Profile", shortcut: "", run: () => applyAndSaveCleanFastProfile() },
   { id: "settings.savePerformanceProfile", label: "Save Performance Profile", shortcut: "", run: () => saveCurrentPerformanceProfile() },
@@ -15200,6 +15214,169 @@ const performanceSetupBooleanSettings = new Set([
   "browserSuspendInactive"
 ]);
 
+const performanceQuickActionDefinitions = [
+  {
+    id: "performanceMode.on",
+    key: "performanceMode",
+    value: true,
+    label: "Enable performance mode",
+    title: "Reduce effects and background output for a faster workspace.",
+    applied: "Performance mode enabled.",
+    already: "Performance mode is already enabled."
+  },
+  {
+    id: "performanceMode.off",
+    key: "performanceMode",
+    value: false,
+    label: "Disable performance mode",
+    title: "Return to the normal performance preference.",
+    applied: "Performance mode disabled.",
+    already: "Performance mode is already disabled."
+  },
+  {
+    id: "adaptivePerformance.on",
+    key: "adaptivePerformance",
+    value: true,
+    label: "Enable adaptive guard",
+    title: "Let cmux tune performance automatically when rendering or output stalls.",
+    applied: "Adaptive performance guard enabled.",
+    already: "Adaptive performance guard is already enabled."
+  },
+  {
+    id: "adaptivePerformance.off",
+    key: "adaptivePerformance",
+    value: false,
+    label: "Disable adaptive guard",
+    title: "Stop automatic performance tuning.",
+    applied: "Adaptive performance guard disabled.",
+    already: "Adaptive performance guard is already disabled."
+  },
+  {
+    id: "reduceMotion.on",
+    key: "reduceMotion",
+    value: true,
+    label: "Enable reduce motion",
+    title: "Reduce animation and smooth scrolling.",
+    applied: "Reduced motion enabled.",
+    already: "Reduced motion is already enabled."
+  },
+  {
+    id: "reduceMotion.off",
+    key: "reduceMotion",
+    value: false,
+    label: "Disable reduce motion",
+    title: "Clear the reduce motion preference. Performance mode can still reduce motion while on.",
+    applied: "Reduced motion preference disabled.",
+    already: "Reduced motion preference is already disabled."
+  },
+  {
+    id: "terminalStartup.fast",
+    key: "terminalStartupMode",
+    value: "fast",
+    label: "Use fast terminal startup",
+    title: "Start visible cold terminals immediately.",
+    applied: "Fast terminal startup enabled.",
+    already: "Terminal startup is already fast."
+  },
+  {
+    id: "terminalStartup.balanced",
+    key: "terminalStartupMode",
+    value: "balanced",
+    label: "Use balanced terminal startup",
+    title: "Use the balanced terminal startup preference.",
+    applied: "Balanced terminal startup enabled.",
+    already: "Terminal startup is already balanced."
+  },
+  {
+    id: "terminalPauseInactiveOutput.on",
+    key: "terminalPauseInactiveOutput",
+    value: true,
+    label: "Pause inactive terminal output",
+    title: "Pause hidden terminal output to reduce rendering work.",
+    applied: "Inactive terminal output will pause.",
+    already: "Inactive terminal output is already paused."
+  },
+  {
+    id: "terminalPauseInactiveOutput.off",
+    key: "terminalPauseInactiveOutput",
+    value: false,
+    label: "Keep inactive output live",
+    title: "Keep hidden terminal output live.",
+    applied: "Inactive terminal output will stay live.",
+    already: "Inactive terminal output is already live."
+  },
+  {
+    id: "terminalSmoothResumedOutput.on",
+    key: "terminalSmoothResumedOutput",
+    value: true,
+    label: "Smooth resumed output",
+    title: "Throttle queued terminal output when returning to hidden panes.",
+    applied: "Resumed terminal output will be smoothed.",
+    already: "Resumed terminal output is already smoothed."
+  },
+  {
+    id: "terminalSmoothResumedOutput.off",
+    key: "terminalSmoothResumedOutput",
+    value: false,
+    label: "Resume output immediately",
+    title: "Flush queued terminal output immediately when panes resume.",
+    applied: "Resumed terminal output will flush immediately.",
+    already: "Resumed terminal output already flushes immediately."
+  },
+  {
+    id: "browserSuspendInactive.on",
+    key: "browserSuspendInactive",
+    value: true,
+    label: "Suspend inactive browsers",
+    title: "Suspend hidden browser panes to reduce background work.",
+    applied: "Inactive browsers will suspend.",
+    already: "Inactive browsers are already suspended."
+  },
+  {
+    id: "browserSuspendInactive.off",
+    key: "browserSuspendInactive",
+    value: false,
+    label: "Keep inactive browsers live",
+    title: "Keep hidden browser panes live.",
+    applied: "Inactive browsers will stay live.",
+    already: "Inactive browsers are already live."
+  }
+];
+
+const performanceQuickActionById = new Map(performanceQuickActionDefinitions.map((action) => [action.id, action]));
+
+const performanceToolbarToggleIds = [
+  ["performanceMode.on", "performanceMode.off", () => state.settings.performanceMode],
+  ["adaptivePerformance.on", "adaptivePerformance.off", () => state.settings.adaptivePerformance],
+  ["terminalStartup.fast", "terminalStartup.balanced", () => state.settings.terminalStartupMode === "fast"],
+  ["terminalPauseInactiveOutput.on", "terminalPauseInactiveOutput.off", () => state.settings.terminalPauseInactiveOutput],
+  ["terminalSmoothResumedOutput.on", "terminalSmoothResumedOutput.off", () => state.settings.terminalSmoothResumedOutput],
+  ["browserSuspendInactive.on", "browserSuspendInactive.off", () => state.settings.browserSuspendInactive],
+  ["reduceMotion.on", "reduceMotion.off", () => state.settings.reduceMotion]
+];
+
+function runPerformanceQuickAction(actionId) {
+  const action = performanceQuickActionById.get(actionId);
+  if (!action) return false;
+  const changed = updateSettings({ [action.key]: action.value });
+  if (!changed) {
+    toast(action.already);
+    return false;
+  }
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast(action.applied);
+  return true;
+}
+
+function performanceQuickToolbarActions(toolbarAction) {
+  return performanceToolbarToggleIds.map(([onId, offId, isOn]) => {
+    const action = performanceQuickActionById.get(isOn() ? offId : onId);
+    const button = toolbarAction(action.label, () => runPerformanceQuickAction(action.id), false, action.title);
+    button.dataset.performanceQuickAction = action.id;
+    return button;
+  });
+}
+
 function performanceSetupPayload() {
   const settings = {};
   for (const key of performanceSetupSettings) settings[key] = state.settings[key];
@@ -20704,6 +20881,7 @@ function showToolbarMenu(event) {
     contextMenuActionGroup(
       contextMenuButton("Performance settings", () => openSettingsCategory("performance")),
       contextMenuButton("Tune performance now", () => tunePerformanceNow()),
+      ...performanceQuickToolbarActions(toolbarAction),
       contextMenuButton("Copy performance setup", copyPerformanceSetup),
       contextMenuButton("Paste performance setup", pastePerformanceSetup),
       contextMenuButton("Copy performance diagnostics", copyPerformanceDiagnostics),
