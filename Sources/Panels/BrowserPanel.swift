@@ -4243,10 +4243,15 @@ final class BrowserPanel: Panel, ObservableObject {
     /// pane, and a view-scoped `@State` guard resets whenever the view changes
     /// identity (a remount re-runs it). A process-scoped guard runs the work once
     /// regardless of how many panels or view instances come and go.
-    static func bootstrapBrowserDefaultsIfNeeded(defaults: UserDefaults = .standard) {
+    ///
+    /// Always targets `UserDefaults.standard`: the guard is process-wide, so an
+    /// injectable suite here would silently no-op for every caller after the first.
+    /// Tests exercise ``normalizeBrowserDefaults(defaults:)`` directly with a
+    /// scratch suite instead.
+    static func bootstrapBrowserDefaultsIfNeeded() {
         guard !hasBootstrappedBrowserDefaults else { return }
         hasBootstrappedBrowserDefaults = true
-        normalizeBrowserDefaults(defaults: defaults)
+        normalizeBrowserDefaults(defaults: .standard)
     }
 
     /// Registers fallback defaults and writes back canonical values for any stored

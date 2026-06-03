@@ -794,7 +794,7 @@ struct BrowserPanelView: View {
     /// `.onAppear` is not a reliable once-or-on-transition signal for a portal-hosted
     /// browser pane — it can re-fire on every CoreAnimation commit (issue #5303).
     /// Default registration and settings normalization are app-once work and live in
-    /// ``BrowserPanel/bootstrapBrowserDefaultsIfNeeded(defaults:)`` (run from the model
+    /// ``BrowserPanel/bootstrapBrowserDefaultsIfNeeded()`` (run from the model
     /// init), not here. This method only seeds view-local state: the initial
     /// empty-state import list, which `handleCurrentURLChange` refreshes on subsequent
     /// new-tab navigations.
