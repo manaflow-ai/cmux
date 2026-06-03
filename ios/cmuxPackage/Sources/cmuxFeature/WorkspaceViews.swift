@@ -607,7 +607,7 @@ struct WorkspaceDetailView: View {
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
-                    autoFocusOnWindowAttach: !terminalAutoFocusSuppressedSurfaceIDs.contains(terminalID)
+                    autoFocusOnWindowAttach: shouldAutoFocusTerminalSurface(terminalID)
                 )
                 .id(terminalID)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -807,6 +807,11 @@ struct WorkspaceDetailView: View {
     private func dismissTerminalKeyboardForChrome() {
         GhosttySurfaceView.resignActiveInput()
         dismissKeyboard()
+    }
+
+    private func shouldAutoFocusTerminalSurface(_ terminalID: String) -> Bool {
+        !suppressNextTerminalAutoFocus
+            && !terminalAutoFocusSuppressedSurfaceIDs.contains(terminalID)
     }
 
     private func suppressPendingTerminalAutoFocusIfNeeded(for terminalID: MobileTerminalPreview.ID?) {
