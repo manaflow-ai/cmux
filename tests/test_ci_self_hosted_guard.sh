@@ -571,6 +571,19 @@ check_ui_regression_budget() {
     exit 1
   fi
 
+  if ! awk '
+    /^[[:space:]]*- name: Run display resolution churn UI regression$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /wait_for_pid_exit\(\)/ { saw_wait_pid=1 }
+    in_step && /stop_pid\(\)/ { saw_stop_pid=1 }
+    in_step && /wait_for_cmux_dev_exit\(\)/ { saw_wait_cmux=1 }
+    in_step && /^[[:space:]]*sleep 3$/ { saw_fixed_retry_sleep=1 }
+    END { exit(saw_wait_pid && saw_stop_pid && saw_wait_cmux && !saw_fixed_retry_sleep ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: ui-regressions must wait for app/helper cleanup before retrying instead of sleeping between attempts"
+    exit 1
+  fi
+
   echo "PASS: ui-regressions keeps enough time and cached DerivedData for both UI regressions"
 }
 

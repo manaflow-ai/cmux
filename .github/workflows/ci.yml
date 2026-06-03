@@ -1102,8 +1102,55 @@ jobs:
           DISPLAY_DONE="/tmp/cmux-ui-test-display-${TOKEN}.done"
           HELPER_LOG="/tmp/cmux-ui-test-display-${TOKEN}-helper.log"
 
+          wait_for_pid_exit() {
+            local pid="$1"
+            local label="$2"
+            for _ in $(seq 1 50); do
+              if ! kill -0 "$pid" 2>/dev/null; then
+                return 0
+              fi
+              if ps -p "$pid" -o stat= 2>/dev/null | grep -q '^Z'; then
+                wait "$pid" 2>/dev/null || true
+                return 0
+              fi
+              sleep 0.1
+            done
+            echo "WARNING: $label process $pid did not exit after termination" >&2
+            return 1
+          }
+
+          stop_pid() {
+            local pid="${1:-}"
+            local label="$2"
+            if [ -z "$pid" ]; then
+              return 0
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then
+              return 0
+            fi
+            kill "$pid" 2>/dev/null || true
+            if wait_for_pid_exit "$pid" "$label"; then
+              return 0
+            fi
+            kill -KILL "$pid" 2>/dev/null || true
+            wait_for_pid_exit "$pid" "$label" || true
+          }
+
+          wait_for_cmux_dev_exit() {
+            for _ in $(seq 1 50); do
+              if ! pgrep -x "cmux DEV" >/dev/null 2>&1; then
+                return 0
+              fi
+              sleep 0.1
+            done
+            echo "WARNING: cmux DEV processes are still running after cleanup" >&2
+            return 1
+          }
+
           cleanup() {
             pkill -x "cmux DEV" 2>/dev/null || true
+            wait_for_cmux_dev_exit || pkill -9 -x "cmux DEV" 2>/dev/null || true
+            wait_for_cmux_dev_exit || true
             rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG"
             rm -f /tmp/cmux-ui-test-prelaunch.json /tmp/cmux-ui-test-display-harness.json
           }
@@ -1149,12 +1196,12 @@ jobs:
             if [ ! -f "$DISPLAY_READY" ]; then
               echo "ERROR: Virtual display not ready after 12s" >&2
               cat "$HELPER_LOG" 2>/dev/null || true
-              kill "$HELPER_PID" 2>/dev/null || true
+              stop_pid "$HELPER_PID" "virtual display helper"
               if [ "$attempt" -eq 2 ]; then
                 echo "Display resolution UI regression failed to create a virtual display after 2 attempts" >&2
                 exit 1
               fi
-              sleep 3
+              cleanup
               continue
             fi
             DISPLAY_ID=$(cat "$DISPLAY_ID_PATH")
@@ -1190,8 +1237,8 @@ jobs:
 
             if [ "$APP_READY" != "true" ]; then
               echo "Attempt $attempt: App not ready after 15s"
-              pkill -x "cmux DEV" 2>/dev/null || true
-              kill "$HELPER_PID" 2>/dev/null || true
+              stop_pid "$APP_PID" "cmux DEV"
+              stop_pid "$HELPER_PID" "virtual display helper"
               if [ "$attempt" -eq 2 ]; then
                 echo "Display resolution UI regression failed after 2 attempts" >&2
                 echo "--- App log ---"
@@ -1202,7 +1249,7 @@ jobs:
                 cat "$DIAG_PATH" 2>/dev/null || echo "(not found)"
                 exit 1
               fi
-              sleep 3
+              cleanup
               continue
             fi
 
@@ -1257,13 +1304,13 @@ jobs:
               cat /tmp/cmux-ui-test-app.log 2>/dev/null | tail -50 || true
               echo "--- Helper log ---"
               cat "$HELPER_LOG" 2>/dev/null | tail -30 || true
-              pkill -x "cmux DEV" 2>/dev/null || true
-              kill "$HELPER_PID" 2>/dev/null || true
+              stop_pid "$APP_PID" "cmux DEV"
+              stop_pid "$HELPER_PID" "virtual display helper"
               if [ "$attempt" -eq 2 ]; then
                 echo "Display resolution UI regression failed after 2 attempts" >&2
                 exit 1
               fi
-              sleep 3
+              cleanup
               continue
             fi
 
@@ -1301,15 +1348,15 @@ jobs:
               exit 0
             fi
 
-            pkill -x "cmux DEV" 2>/dev/null || true
-            kill "$HELPER_PID" 2>/dev/null || true
+            stop_pid "$APP_PID" "cmux DEV"
+            stop_pid "$HELPER_PID" "virtual display helper"
 
             if [ "$attempt" -eq 2 ]; then
               echo "Display resolution UI regression failed after 2 attempts" >&2
               exit 1
             fi
             echo "Attempt $attempt failed, retrying..."
-            sleep 3
+            cleanup
           done
 
       - name: Run browser find focus UI regression
