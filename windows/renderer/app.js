@@ -17972,6 +17972,8 @@ function terminalPanelFromWheelEvent(event, options = {}) {
     if (pointedPanel?.type === "terminal") return pointedPanel;
   }
   if (!options.allowPaneFallback) return null;
+  const pointedPanel = panelFromPoint(event?.clientX, event?.clientY);
+  if (pointedPanel?.type === "terminal") return pointedPanel;
   const eventPanel = panelFromEvent(event);
   return eventPanel?.type === "terminal" ? eventPanel : null;
 }
