@@ -362,6 +362,7 @@ const profileSettingsSettingKeys = [...settingsPresetSettingKeys];
 const quickSettingsSettingKeys = [
   ...new Set([
     ...settingsPresetSettingKeys,
+    ...layoutSettingsPreviewKeys,
     "browserHomeUrl",
     "terminalProfile",
     "terminalCustomShell",
@@ -18042,6 +18043,64 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
   });
 }
 
+function quickLayoutControlsPanel(workspace = activeWorkspace()) {
+  const summary = workspaceChromeSummaryForSettings();
+  const activePreset = activeWorkspaceChromePresetLabel();
+  const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
+  const refreshQuick = (result) => {
+    if (result !== false && state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
+    return result;
+  };
+  const presetAction = (presetId, label) => {
+    const preset = workspaceChromePresetById(presetId);
+    const settings = workspaceChromePresetSettings(preset);
+    const active = Boolean(preset && isActiveWorkspaceChromePreset(preset));
+    return quickOverviewControlButton(label || preset?.label || presetId, () => refreshQuick(applyWorkspaceChromePreset(presetId)), {
+      disabled: !preset || active,
+      title: preset ? workspaceChromePresetTitle(preset, active) : "Workspace chrome preset not found.",
+      search: preset ? workspaceChromePresetSearchText(preset, settings) : `quick setup layout chrome preset ${presetId}`
+    });
+  };
+  const actions = [
+    quickOverviewControlButton(state.settings.focusMode ? "Leave focus" : "Focus mode", () => refreshQuick(toggleFocusMode()), {
+      title: state.settings.focusMode ? "Turn focus mode off." : "Turn focus mode on.",
+      search: "quick setup layout focus mode simple clean hide chrome workspace"
+    }),
+    presetAction("compact", "Compact"),
+    presetAction("focus", "Focus"),
+    presetAction("control", "Control room"),
+    presetAction("default", "Default"),
+    quickOverviewControlButton("Copy setup", copyLayoutSetup, {
+      title: workspace?.panels?.length
+        ? "Copy the current pane layout and workspace chrome as JSON."
+        : "Copy workspace chrome as JSON. Open panes to include a pane layout.",
+      search: "quick setup layout copy setup workspace chrome pane split blueprint clipboard json"
+    }),
+    quickOverviewControlButton("Paste setup", pasteLayoutSetup, {
+      title: "Apply copied layout setup and save any included pane blueprint.",
+      search: "quick setup layout paste setup workspace chrome pane split blueprint clipboard json"
+    }),
+    quickOverviewControlButton("Reset chrome", () => refreshQuick(resetWorkspaceChrome()), {
+      disabled: workspaceChromeDefault,
+      title: workspaceChromeDefault
+        ? "Workspace chrome already matches the default setup."
+        : "Reset toolbar, sidebar, tabs, status bar, and panel widths.",
+      search: `quick setup layout reset workspace chrome toolbar sidebar tabs status ${workspaceChromeDefault ? "default current" : ""}`
+    }),
+    quickOverviewControlButton("Layout", () => openSettingsCategory("layout"), {
+      title: "Open full layout and workspace chrome settings.",
+      search: "quick setup layout full settings workspace chrome toolbar sidebar tabs pane header density"
+    })
+  ];
+  return quickOverviewControlsPanel({
+    className: "quick-overview-layout",
+    title: "Layout controls",
+    meta: `${activePreset} / ${summary.toolbar} / ${summary.tabs}`,
+    search: `quick setup layout controls workspace chrome display simple compact focus density toolbar tabs status sidebar ${activePreset} ${summary.density} ${summary.toolbar} ${summary.paneHeaders} ${summary.paneControls} ${summary.tabs} ${summary.statusbar} ${summary.focusMode} ${summary.widths}`,
+    actions
+  });
+}
+
 function quickPaneControlsPanel(panel) {
   const hasPane = Boolean(panel);
   const pending = isPendingPanel(panel);
@@ -18488,6 +18547,7 @@ function quickSetupOverviewPanel() {
       <span><b>Performance</b><em data-quick-performance></em></span>
     </div>
     <div data-quick-workspace-controls></div>
+    <div data-quick-layout-controls></div>
     <div data-quick-pane-controls></div>
     <div data-quick-terminal-controls></div>
     <div data-quick-browser-controls></div>
@@ -18566,6 +18626,7 @@ function quickSetupOverviewPanel() {
   panel.querySelector("[data-quick-terminal]").textContent = `${optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono")} ${state.settings.terminalFontSize}px`;
   panel.querySelector("[data-quick-performance]").textContent = performanceModeLabel();
   panel.querySelector("[data-quick-workspace-controls]").replaceWith(quickWorkspaceControlsPanel(workspace, terminalCount, browserCount));
+  panel.querySelector("[data-quick-layout-controls]").replaceWith(quickLayoutControlsPanel(workspace));
   panel.querySelector("[data-quick-pane-controls]").replaceWith(quickPaneControlsPanel(activePane));
   panel.querySelector("[data-quick-terminal-controls]").replaceWith(quickTerminalControlsPanel(workspace, terminalCount));
   panel.querySelector("[data-quick-browser-controls]").replaceWith(quickBrowserControlsPanel(workspace, browserCount));
