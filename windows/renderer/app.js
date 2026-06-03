@@ -185,6 +185,8 @@ const performanceGuardStartupGraceMs = 2500;
 const performanceGuardStartupRenderCount = 3;
 const performanceGuardSlowPaneCreateMs = 2000;
 const performanceGuardSlowTerminalConnectMs = 1500;
+const performanceHealthBackgroundOpacityLimit = 16;
+const performanceHealthScrollbackLimit = 10000;
 const performanceSetupSettings = [
   "performanceMode",
   "adaptivePerformance",
@@ -203,6 +205,12 @@ const performanceSetupBooleanSettings = new Set([
   "terminalPauseInactiveOutput",
   "terminalSmoothResumedOutput",
   "browserSuspendInactive"
+]);
+const performanceHealthSettingKeys = new Set([
+  ...performanceSetupSettings,
+  "backgroundImage",
+  "backgroundOpacity",
+  "backgroundEffects"
 ]);
 const appearancePreviewKeys = new Set([
   "theme",
@@ -4885,6 +4893,9 @@ function updateSettings(updates, options = {}) {
   }
   if (changedKeys.some((key) => performanceSetupPreviewKeys.has(key))) {
     refreshPerformanceTuningPresetGrid();
+  }
+  if (changedKeys.some((key) => performanceHealthSettingKeys.has(key))) {
+    refreshPerformanceHealthPanel();
   }
   if (changedKeys.some((key) => browserSettingsPreviewKeys.has(key))) {
     scheduleBrowserSettingsPreviewRefresh();
@@ -12009,6 +12020,7 @@ function renderSettingsInspector(options = {}) {
   if (shouldBuildSection("performance")) {
     const performanceSection = settingsSection("Performance", "speed smooth lag render diagnostics optimize preset");
     performanceSection.append(performanceOverviewPanel());
+    performanceSection.append(performanceHealthChecklist());
     const performanceMetricGrid = settingsMetricGrid(performanceMetrics());
     performanceMetricGrid.dataset.performanceMetrics = "true";
     performanceSection.append(performanceMetricGrid);
@@ -15972,6 +15984,101 @@ const performanceTuningPresets = [
   }
 ];
 
+const performanceHealthCheckDefinitions = [
+  {
+    id: "adaptiveGuard",
+    label: "Adaptive guard",
+    body: "Automatically turns on speed tuning after slow renders or pane starts.",
+    actionLabel: "Enable",
+    readyLabel: "Watching",
+    issue: () => !state.settings.adaptivePerformance && !state.settings.performanceMode,
+    meta: () => state.settings.performanceMode ? "Tuned" : state.settings.adaptivePerformance ? "Watching" : "Off",
+    updates: () => ({ adaptivePerformance: true }),
+    search: "adaptive automatic guard slow render pane startup lag"
+  },
+  {
+    id: "motion",
+    label: "Motion",
+    body: "Cuts nonessential animation and smooth scrolling when the UI feels busy.",
+    actionLabel: "Reduce",
+    readyLabel: "Reduced",
+    issue: () => !state.settings.reduceMotion && !state.settings.performanceMode,
+    meta: () => state.settings.performanceMode || state.settings.reduceMotion ? "Reduced" : "Full motion",
+    updates: () => ({ reduceMotion: true }),
+    search: "reduce motion animation smooth scrolling transition"
+  },
+  {
+    id: "backgroundWeight",
+    label: "Background weight",
+    body: "Keeps images usable while removing glass and high-opacity background work.",
+    actionLabel: "Lighten",
+    readyLabel: "Light",
+    issue: () => Boolean(state.settings.backgroundImage) && (
+      state.settings.backgroundEffects !== "flat"
+      || state.settings.backgroundOpacity > performanceHealthBackgroundOpacityLimit
+    ),
+    meta: () => {
+      if (!state.settings.backgroundImage) return "No image";
+      if (state.settings.backgroundEffects !== "flat") return "Glass";
+      return `${state.settings.backgroundOpacity}% opacity`;
+    },
+    updates: () => ({
+      backgroundEffects: "flat",
+      backgroundOpacity: Math.min(state.settings.backgroundOpacity, performanceHealthBackgroundOpacityLimit)
+    }),
+    search: "background image opacity glass effects wallpaper slow"
+  },
+  {
+    id: "terminalStartup",
+    label: "Terminal startup",
+    body: "Starts visible terminal panes immediately instead of waiting for balanced startup.",
+    actionLabel: "Use fast",
+    readyLabel: "Fast",
+    issue: () => state.settings.terminalStartupMode !== "fast",
+    meta: () => optionLabel(terminalStartupOptions, state.settings.terminalStartupMode, state.settings.terminalStartupMode),
+    updates: () => ({ terminalStartupMode: "fast" }),
+    search: "terminal startup fast cold pane shell connect"
+  },
+  {
+    id: "scrollback",
+    label: "Terminal history",
+    body: "Caps scrollback so terminal panes keep less output in memory.",
+    actionLabel: "Trim",
+    readyLabel: "Capped",
+    issue: () => state.settings.terminalScrollback > performanceHealthScrollbackLimit,
+    meta: () => `${state.settings.terminalScrollback.toLocaleString()} lines`,
+    updates: () => ({ terminalScrollback: performanceHealthScrollbackLimit }),
+    search: "terminal history scrollback memory output lines"
+  },
+  {
+    id: "inactiveOutput",
+    label: "Hidden output",
+    body: "Pauses terminal output for hidden panes and smooths the resume burst.",
+    actionLabel: "Pause",
+    readyLabel: "Paused",
+    issue: () => !state.settings.terminalPauseInactiveOutput || !state.settings.terminalSmoothResumedOutput,
+    meta: () => state.settings.terminalPauseInactiveOutput
+      ? state.settings.terminalSmoothResumedOutput ? "Paused + smooth" : "Paused"
+      : "Live",
+    updates: () => ({
+      terminalPauseInactiveOutput: true,
+      terminalSmoothResumedOutput: true
+    }),
+    search: "terminal hidden inactive output pause smooth resume backlog"
+  },
+  {
+    id: "inactiveBrowsers",
+    label: "Hidden browsers",
+    body: "Suspends inactive browser panes to reduce background webview work.",
+    actionLabel: "Suspend",
+    readyLabel: "Suspended",
+    issue: () => !state.settings.browserSuspendInactive,
+    meta: () => state.settings.browserSuspendInactive ? "Suspended" : "Live",
+    updates: () => ({ browserSuspendInactive: true }),
+    search: "browser webview hidden inactive suspend memory lag"
+  }
+];
+
 const performanceQuickActionDefinitions = [
   {
     id: "performanceMode.on",
@@ -16150,6 +16257,70 @@ function performanceSetupSummaryForSettings(settings) {
     inactiveBrowsers: normalized.browserSuspendInactive ? "Suspended" : "Live",
     history: `${normalized.terminalScrollback.toLocaleString()} history`
   };
+}
+
+function performanceHealthCheckById(checkId) {
+  return performanceHealthCheckDefinitions.find((check) => check.id === checkId) || null;
+}
+
+function performanceHealthCheckNeedsFix(check) {
+  return Boolean(check?.issue?.());
+}
+
+function performanceHealthCheckUpdates(check) {
+  if (!performanceHealthCheckNeedsFix(check)) return null;
+  const updates = check.updates?.() || {};
+  return Object.keys(updates).length ? updates : null;
+}
+
+function performanceHealthIssueCount() {
+  return performanceHealthCheckDefinitions.filter(performanceHealthCheckNeedsFix).length;
+}
+
+function performanceHealthIssueCountLabel(count = performanceHealthIssueCount()) {
+  if (count === 0) return "Ready";
+  return `${count} fix${count === 1 ? "" : "es"}`;
+}
+
+function performanceHealthCombinedUpdates() {
+  const updates = {};
+  for (const check of performanceHealthCheckDefinitions) {
+    Object.assign(updates, performanceHealthCheckUpdates(check) || {});
+  }
+  return Object.keys(updates).length ? updates : null;
+}
+
+function applyPerformanceHealthFix(checkId) {
+  const check = performanceHealthCheckById(checkId);
+  const updates = performanceHealthCheckUpdates(check);
+  if (!check || !updates) {
+    toast(check ? `${check.label} is already tuned.` : "Performance fix not found.");
+    return false;
+  }
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast(`${check.label} is already tuned.`);
+    return false;
+  }
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast(`${check.label} tuned.`);
+  return true;
+}
+
+function applyPerformanceHealthFixes() {
+  const updates = performanceHealthCombinedUpdates();
+  if (!updates) {
+    toast("Performance health is already tuned.");
+    return false;
+  }
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Performance health is already tuned.");
+    return false;
+  }
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast("Performance health fixes applied.");
+  return true;
 }
 
 function performanceSetupPayload(settingsSource = state.settings) {
@@ -17750,6 +17921,90 @@ function settingsMetricCard(label, value, searchPrefix = "performance diagnostic
   card.querySelector(".settings-metric-value").textContent = value;
   card.querySelector(".settings-metric-label").textContent = label;
   return card;
+}
+
+function performanceHealthChecklist() {
+  const panel = document.createElement("div");
+  panel.className = "performance-health-panel";
+  panel.dataset.performanceHealth = "true";
+  panel.dataset.settingsSearch = normalizeSettingsQuery("performance health checklist fixes speed lag smooth background motion terminal browser adaptive guard");
+  panel.innerHTML = `
+    <div class="performance-health-head">
+      <span class="performance-health-copy">
+        <span class="performance-health-title">Performance health</span>
+        <span class="performance-health-subtitle"></span>
+      </span>
+      <span class="performance-health-actions"></span>
+    </div>
+    <div class="performance-health-grid"></div>
+  `;
+  const actions = panel.querySelector(".performance-health-actions");
+  const applyAll = settingsActionButton("Apply fixes", applyPerformanceHealthFixes, "primary", "performance health checklist apply all fixes speed lag tune");
+  applyAll.dataset.performanceHealthApplyAll = "true";
+  actions.append(applyAll);
+  const grid = panel.querySelector(".performance-health-grid");
+  for (const check of performanceHealthCheckDefinitions) {
+    grid.append(performanceHealthCheckCard(check));
+  }
+  refreshPerformanceHealthPanel(panel);
+  return panel;
+}
+
+function performanceHealthCheckCard(check) {
+  const card = document.createElement("div");
+  card.className = "performance-health-card";
+  card.dataset.performanceHealthCheck = check.id;
+  card.innerHTML = `
+    <span class="performance-health-card-head">
+      <span class="performance-health-card-title"></span>
+      <span class="performance-health-card-status"></span>
+    </span>
+    <span class="performance-health-card-body"></span>
+    <span class="performance-health-card-meta"></span>
+    <span class="performance-health-card-actions"></span>
+  `;
+  card.querySelector(".performance-health-card-title").textContent = check.label;
+  card.querySelector(".performance-health-card-body").textContent = check.body;
+  const action = settingsActionButton(check.actionLabel, () => applyPerformanceHealthFix(check.id), "", `performance health fix ${check.search}`);
+  action.dataset.performanceHealthAction = check.id;
+  card.querySelector(".performance-health-card-actions").append(action);
+  updatePerformanceHealthCheckCard(card, check);
+  return card;
+}
+
+function updatePerformanceHealthCheckCard(card, check) {
+  const needsFix = performanceHealthCheckNeedsFix(check);
+  const meta = check.meta?.() || "";
+  card.classList.toggle("is-ready", !needsFix);
+  card.classList.toggle("is-warning", needsFix);
+  setTextIfChanged(card.querySelector(".performance-health-card-status"), needsFix ? "Tune" : check.readyLabel);
+  setTextIfChanged(card.querySelector(".performance-health-card-meta"), meta);
+  card.dataset.settingsSearch = normalizeSettingsQuery(`performance health checklist ${needsFix ? "needs fix tune " : "ready tuned "}${check.label} ${check.body} ${check.search} ${meta}`);
+  const action = card.querySelector(`[data-performance-health-action="${check.id}"]`);
+  if (action) {
+    setSettingsActionLabel(action, needsFix ? check.actionLabel : "Ready");
+    setDisabledIfChanged(action, !needsFix);
+    setTitleIfChanged(action, needsFix ? `Apply the ${check.label.toLowerCase()} performance fix.` : `${check.label} is already tuned.`);
+  }
+}
+
+function refreshPerformanceHealthPanel(panel = elements.inspectorBody.querySelector("[data-performance-health]")) {
+  if (!panel) return false;
+  const issueCount = performanceHealthIssueCount();
+  setTextIfChanged(panel.querySelector(".performance-health-subtitle"), issueCount === 0
+    ? "Core speed settings are tuned."
+    : `${performanceHealthIssueCountLabel(issueCount)} available for a lighter workspace.`);
+  const applyAll = panel.querySelector("[data-performance-health-apply-all]");
+  if (applyAll) {
+    setDisabledIfChanged(applyAll, issueCount === 0);
+    setTitleIfChanged(applyAll, issueCount === 0 ? "Performance health is already tuned." : "Apply all recommended performance fixes.");
+    setSettingsActionLabel(applyAll, issueCount === 0 ? "Ready" : "Apply fixes");
+  }
+  for (const card of panel.querySelectorAll("[data-performance-health-check]")) {
+    const check = performanceHealthCheckById(card.dataset.performanceHealthCheck);
+    if (check) updatePerformanceHealthCheckCard(card, check);
+  }
+  return true;
 }
 
 function performanceTuningPresetGrid() {
