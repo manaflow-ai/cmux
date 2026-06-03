@@ -37,6 +37,7 @@
           "properties": {
             "color": {
               "type": "string",
+              "pattern": "^#?([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
               "description": "Divider color as a #RRGGBB or #RRGGBBAA hex string. When omitted, the divider falls back to the Ghostty split-divider-color, then to a theme-derived default.",
               "examples": ["#3478f6", "#80808066"]
             },

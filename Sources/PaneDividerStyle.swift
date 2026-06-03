@@ -10,8 +10,8 @@ import AppKit
 /// split-substrate migration tracked in #2289 / #4241 / #2096.
 struct PaneDividerStyle: Equatable {
     /// Explicit divider color. When `nil`, the divider color is derived from
-    /// the pane's chrome background (with a modest contrast boost) so the
-    /// default still adapts to light and dark themes.
+    /// the pane's chrome background (the theme separator color) so the default
+    /// still adapts to light and dark themes.
     var color: NSColor?
 
     /// Divider thickness in points.

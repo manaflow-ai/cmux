@@ -128,8 +128,13 @@ extension NSColor {
         var sanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
         sanitized = sanitized.replacingOccurrences(of: "#", with: "")
 
+        // Reject partial/invalid hex: `scanHexInt64` succeeds on a valid prefix
+        // (e.g. "12GG34" → "12"), so require the scanner to consume the whole
+        // string. Disable skipping so embedded whitespace also fails.
+        let scanner = Scanner(string: sanitized)
+        scanner.charactersToBeSkipped = nil
         var value: UInt64 = 0
-        guard Scanner(string: sanitized).scanHexInt64(&value) else { return nil }
+        guard scanner.scanHexInt64(&value), scanner.isAtEnd else { return nil }
 
         let r, g, b, a: CGFloat
         switch sanitized.count {

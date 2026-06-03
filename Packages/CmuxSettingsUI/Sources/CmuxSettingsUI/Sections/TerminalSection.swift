@@ -72,6 +72,17 @@ public struct TerminalSection: View {
     /// value; advanced fractional values remain editable in cmux.json.
     private static let maxDividerThickness: Double = 12
 
+    /// Resolves the color-well swatch for a stored pane-divider hex string.
+    ///
+    /// `Color(cmuxHex:)` only parses 6-digit `#RRGGBB`, but the stored value may
+    /// be 8-digit `#RRGGBBAA` (set via cmux.json). Drop the alpha byte for the
+    /// opaque swatch, and fall back to the theme separator when empty/invalid.
+    private static func swatchColor(for stored: String) -> Color {
+        var hex = stored.hasPrefix("#") ? String(stored.dropFirst()) : stored
+        if hex.count == 8 { hex = String(hex.prefix(6)) }
+        return Color(cmuxHex: hex) ?? Color(nsColor: .separatorColor)
+    }
+
     /// Formats a divider thickness for the value label: whole numbers show no
     /// decimal (`2`), half steps show one (`2.5`).
     private func formattedThickness(_ value: Double) -> String {
@@ -139,7 +150,7 @@ public struct TerminalSection: View {
                     ColorPicker(
                         "",
                         selection: Binding(
-                            get: { Color(cmuxHex: paneDividerColor.current) ?? Color(nsColor: .separatorColor) },
+                            get: { Self.swatchColor(for: paneDividerColor.current) },
                             set: { paneDividerColor.set($0.cmuxHexString) }
                         ),
                         supportsOpacity: false
