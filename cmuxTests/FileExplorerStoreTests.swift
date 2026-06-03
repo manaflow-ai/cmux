@@ -511,9 +511,10 @@ final class FileExplorerStoreTests: XCTestCase {
 @MainActor
 final class FileSearchControllerTests: XCTestCase {
     private struct WaitTimeout: Error {}
+    private struct RequiredToolUnavailable: Error {}
 
     func testSearchIncludesDotfilesWithoutSearchingGitInternals() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+        try Self.requireRipgrep()
 
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -564,7 +565,7 @@ final class FileSearchControllerTests: XCTestCase {
     }
 
     func testSearchPublishesAllMatchingFilesInFolder() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+        try Self.requireRipgrep()
 
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -604,7 +605,7 @@ final class FileSearchControllerTests: XCTestCase {
     }
 
     func testSearchLimitsHighVolumeResultsWithoutWaitingForRipgrepExit() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+        try Self.requireRipgrep()
 
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -631,7 +632,7 @@ final class FileSearchControllerTests: XCTestCase {
     }
 
     func testSearchRefreshesWhenContentRevisionChanges() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+        try Self.requireRipgrep()
 
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -660,7 +661,7 @@ final class FileSearchControllerTests: XCTestCase {
     }
 
     func testSearchRefreshesSameRequestAfterFileContentsChange() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+        try Self.requireRipgrep()
 
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -934,6 +935,22 @@ final class FileSearchControllerTests: XCTestCase {
 
     private static func hasRipgrep() -> Bool {
         RipgrepExecutableResolver.resolve(configuredPath: nil) != nil
+    }
+
+    private static func requireRipgrep(file: StaticString = #filePath, line: UInt = #line) throws {
+        guard hasRipgrep() else {
+            let message = "ripgrep is required for file search behavior tests"
+            if isHostedCI {
+                XCTFail("\(message); hosted CI must exercise FileExplorer search behavior", file: file, line: line)
+                throw RequiredToolUnavailable()
+            }
+            throw XCTSkip(message)
+        }
+    }
+
+    private static var isHostedCI: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true"
     }
 
     private static func findSearchField(in root: NSView) -> NSSearchField? {
