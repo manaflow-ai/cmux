@@ -118,6 +118,36 @@ public final class RecorderHostButton: NSButton {
     /// installing event monitors and racing for keystrokes.
     private static weak var activeRecorder: RecorderHostButton?
 
+    /// Whether a recorder is currently armed and capturing keystrokes for
+    /// rebinding.
+    ///
+    /// The app's global keyboard-shortcut monitor reads this to stand down
+    /// while a recorder is active, so app- and menu-level key equivalents
+    /// (⌘W, ⌃1…9, …) reach the armed recorder to be recorded instead of
+    /// firing their action. This mirrors the role the app-target
+    /// `KeyboardShortcutRecorderActivity.isAnyRecorderActive` flag plays for
+    /// the legacy `ShortcutRecorderNSButton`; the package recorder cannot
+    /// import that app-target type, so it publishes its own read-only signal
+    /// for the composition root to consult.
+    public static var isActivelyRecording: Bool {
+        activeRecorder?.isRecording ?? false
+    }
+
+    /// Posted (on the main thread) whenever ``isActivelyRecording`` changes —
+    /// i.e. a package recorder arms or disarms.
+    ///
+    /// The app-target's system-wide hotkey registrar (`GlobalHotkeyManager`)
+    /// is event-driven: it re-evaluates Carbon hotkey registration only when
+    /// it is told recorder activity changed. The legacy recorder drives that
+    /// via `KeyboardShortcutRecorderActivity.didChangeNotification`; the
+    /// package recorder cannot reach that app-target type, so it publishes
+    /// this notification. The composition root observes it and unregisters
+    /// system-wide hotkeys while ``isActivelyRecording`` is `true`, so a global
+    /// hotkey being rebound in Settings is captured instead of firing.
+    public static let activeRecordingDidChangeNotification = Notification.Name(
+        "com.cmux.settingsUI.recorderActiveRecordingDidChange"
+    )
+
     public var placeholder: String = ""
     public var chordsEnabled: Bool = false
     public var onStroke: ((ShortcutStroke) -> Void)?
@@ -214,6 +244,7 @@ public final class RecorderHostButton: NSButton {
         hasPendingRejection = false
         installEventMonitor()
         refreshTitle()
+        Self.postActiveRecordingDidChange()
     }
 
     private func stopRecording() {
@@ -225,6 +256,11 @@ public final class RecorderHostButton: NSButton {
         pendingFirst = nil
         removeEventMonitor()
         refreshTitle()
+        Self.postActiveRecordingDidChange()
+    }
+
+    private static func postActiveRecordingDidChange() {
+        NotificationCenter.default.post(name: activeRecordingDidChangeNotification, object: nil)
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {

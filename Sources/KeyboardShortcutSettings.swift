@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Carbon
+import CmuxSettingsUI
 import SwiftUI
 
 /// Stores customizable keyboard shortcuts (definitions + persistence).
@@ -1081,6 +1082,7 @@ final class SystemWideHotkeyController {
     private var defaultsObserver: NSObjectProtocol?
     private var shortcutObserver: NSObjectProtocol?
     private var recorderObserver: NSObjectProtocol?
+    private var packageRecorderObserver: NSObjectProtocol?
     private var inputSourceObserver: NSObjectProtocol?
     private var appHideObserver: NSObjectProtocol?
     private var registeredShortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
@@ -1114,6 +1116,19 @@ final class SystemWideHotkeyController {
         ) { [weak self] _ in
             self?.refreshRegistration()
         }
+        // The live Settings UI uses the CmuxSettingsUI package recorder, which
+        // signals arm/disarm through its own notification (it cannot post the
+        // app-target `KeyboardShortcutRecorderActivity` one). Without this,
+        // recording a system-wide hotkey in Settings would not unregister the
+        // existing Carbon hotkey, so the keystroke would fire the global action
+        // instead of being captured (issue #5189).
+        packageRecorderObserver = NotificationCenter.default.addObserver(
+            forName: RecorderHostButton.activeRecordingDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshRegistration()
+        }
         inputSourceObserver = DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name(rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String),
             object: nil,
@@ -1135,7 +1150,11 @@ final class SystemWideHotkeyController {
     }
 
     private func refreshRegistration() {
+        // Stand down while either recorder is armed (legacy app-target recorder
+        // or the CmuxSettingsUI package recorder) so a system-wide hotkey being
+        // rebound in Settings is captured rather than fired.
         let isShortcutRecordingActive = KeyboardShortcutRecorderActivity.isAnyRecorderActive
+            || RecorderHostButton.isActivelyRecording
 
         guard !isShortcutRecordingActive else {
             unregisterHotKeys()
