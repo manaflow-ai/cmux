@@ -363,7 +363,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     }
 
     var inlineStartupInput: String? {
-        let trimmed = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = startupCommandWithWorkingDirectoryGuard.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         guard let environment, !environment.isEmpty else {
             return trimmed + "\n"
@@ -378,6 +378,13 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     private var startupCommand: String {
         Self.sanitizedStartupCommand(command, cwd: cwd, source: source)
+    }
+
+    private var startupCommandWithWorkingDirectoryGuard: String {
+        TerminalStartupWorkingDirectoryPrefix.replacingChangeDirectoryPrefix(
+            in: startupCommand,
+            workingDirectory: cwd
+        )
     }
 
     private static func sanitizedStartupCommand(

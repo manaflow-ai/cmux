@@ -46,7 +46,7 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         return prefix + command
     }
 
-    static func replacingRequiredChangeDirectoryPrefix(
+    static func replacingChangeDirectoryPrefix(
         in command: String,
         workingDirectory: String?
     ) -> String {
@@ -56,6 +56,16 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
             from: trimmed,
             workingDirectory: workingDirectory
         )
+        return prefix(stripped, workingDirectory: workingDirectory)
+    }
+
+    static func replacingRequiredChangeDirectoryPrefix(
+        in command: String,
+        workingDirectory: String?
+    ) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let workingDirectory = normalized(workingDirectory) else { return trimmed }
+        let stripped = strippedRequiredChangeDirectoryPrefix(from: trimmed, workingDirectory: workingDirectory)
         let command = strippedSavedWorkingDirectoryOptions(
             from: stripped,
             workingDirectory: workingDirectory
