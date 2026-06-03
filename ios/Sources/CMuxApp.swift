@@ -1,3 +1,4 @@
+import CmuxiOSConfig
 import SwiftUI
 import Sentry
 import UIKit

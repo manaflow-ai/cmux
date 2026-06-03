@@ -1,17 +1,27 @@
 import Foundation
 import OSLog
-import CMUXAuthCore
+public import CMUXAuthCore
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "environment")
 
-enum Environment {
+/// The deploy environment the iOS app resolves configuration against.
+///
+/// ``Environment`` selects between development and production values for Stack Auth
+/// credentials and the API base URL, layering per-developer overrides from a gitignored
+/// `LocalConfig.plist` and from process environment variables on top of the built-in
+/// defaults. Use ``current`` to obtain the active environment, then read one of the
+/// computed configuration properties (``stackAuthConfig``, ``apiBaseURL``, etc.).
+public enum Environment {
+    /// The development environment, selected for `DEBUG` builds.
     case development
+    /// The production environment, selected for release builds.
     case production
 
     private static let secureAPIBaseURL = "https://api.cmux.sh"
     private static let processEnvironment = ProcessInfo.processInfo.environment
 
-    static var current: Environment {
+    /// The environment for the current build: `.development` in `DEBUG`, `.production` otherwise.
+    public static var current: Environment {
         #if DEBUG
         return .development
         #else
@@ -22,7 +32,8 @@ enum Environment {
     // MARK: - Local Config Override
 
     /// Reads from LocalConfig.plist (gitignored) for per-developer overrides
-    private static let localConfig: [String: Any]? = {
+    // Read-only after lazy initialization; the dictionary is never mutated, so concurrent reads are safe.
+    private nonisolated(unsafe) static let localConfig: [String: Any]? = {
         guard let path = Bundle.main.path(forResource: "LocalConfig", ofType: "plist"),
               let dict = NSDictionary(contentsOfFile: path) as? [String: Any] else {
             return nil
@@ -43,7 +54,8 @@ enum Environment {
 
     // MARK: - Stack Auth
 
-    var stackAuthConfig: CMUXAuthConfig {
+    /// The resolved Stack Auth configuration (project id + publishable key) for this environment.
+    public var stackAuthConfig: CMUXAuthConfig {
         CMUXAuthConfig.resolve(
             environment: currentAuthEnvironment,
             overrides: localConfigStringOverrides,
@@ -54,17 +66,24 @@ enum Environment {
         )
     }
 
-    var stackAuthProjectId: String {
+    /// The Stack Auth project id for this environment.
+    public var stackAuthProjectId: String {
         stackAuthConfig.projectId
     }
 
-    var stackAuthPublishableKey: String {
+    /// The Stack Auth publishable client key for this environment.
+    public var stackAuthPublishableKey: String {
         stackAuthConfig.publishableClientKey
     }
 
     // MARK: - API URLs
 
-    var apiBaseURL: String {
+    /// The resolved cmux API base URL for this environment.
+    ///
+    /// Honors `API_BASE_URL_DEV`/`API_BASE_URL_PROD` (and the legacy `API_BASE_URL`) overrides,
+    /// then validates the candidate: insecure (non-`https`) URLs are only honored when an insecure
+    /// local override is allowed (`DEBUG`), otherwise the secure fallback is used.
+    public var apiBaseURL: String {
         let configuredValue = localOverride(
             devKey: "API_BASE_URL_DEV",
             prodKey: "API_BASE_URL_PROD",
@@ -80,7 +99,8 @@ enum Environment {
 
     // MARK: - Debug Info
 
-    var name: String {
+    /// A human-readable name for this environment (`"Development"` or `"Production"`).
+    public var name: String {
         switch self {
         case .development: return "Development"
         case .production: return "Production"
@@ -127,7 +147,15 @@ enum Environment {
         #endif
     }
 
-    static func resolvedAPIBaseURL(
+    /// Validates and resolves an API base URL candidate for the given environment.
+    ///
+    /// - Parameters:
+    ///   - candidate: The configured URL string to validate.
+    ///   - environment: The environment whose secure fallback applies when the candidate is rejected.
+    ///   - allowInsecureLocalOverride: When `true`, non-`https` candidates are accepted as-is.
+    /// - Returns: The candidate when it is `https` (or insecure overrides are allowed), otherwise the
+    ///   secure fallback URL for the environment.
+    public static func resolvedAPIBaseURL(
         candidate: String,
         environment: Environment,
         allowInsecureLocalOverride: Bool
@@ -159,7 +187,17 @@ enum Environment {
         }
     }
 
-    static func stringOverride(
+    /// Resolves a string override from process environment variables, then `LocalConfig.plist`.
+    ///
+    /// - Parameters:
+    ///   - devKey: The override key consulted in `.development`.
+    ///   - prodKey: The override key consulted in `.production`.
+    ///   - legacyKey: An optional legacy key consulted after the environment-specific key.
+    ///   - environment: The active environment, selecting between `devKey` and `prodKey`.
+    ///   - environmentVariables: The process environment variables to search first.
+    ///   - localConfig: The optional `LocalConfig.plist` dictionary searched second.
+    /// - Returns: The first non-empty, whitespace-trimmed value found, or `nil` when none match.
+    public static func stringOverride(
         devKey: String,
         prodKey: String,
         legacyKey: String? = nil,

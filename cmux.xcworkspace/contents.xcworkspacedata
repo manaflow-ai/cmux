@@ -26,6 +26,9 @@
          location = "group:CmuxInboxCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxiOSConfig">
+      </FileRef>
+      <FileRef
          location = "group:CMUXDebugLog">
       </FileRef>
       <FileRef

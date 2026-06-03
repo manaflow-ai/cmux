@@ -27,6 +27,8 @@ packages:
     path: ../Packages/CmuxDaemonProtocol
   CmuxInboxCore:
     path: ../Packages/CmuxInboxCore
+  CmuxiOSConfig:
+    path: ../Packages/CmuxiOSConfig
   CmuxMobileContract:
     path: ../Packages/CmuxMobileContract
   CmuxTerminalCore:
@@ -64,6 +66,7 @@ targets:
       - package: CMUXAuthCore
       - package: CmuxDaemonProtocol
       - package: CmuxInboxCore
+      - package: CmuxiOSConfig
       - package: CmuxMobileContract
       - package: CmuxTerminalCore
       - package: GRDB
@@ -143,6 +146,7 @@ targets:
       - package: CMUXAuthCore
       - package: CmuxDaemonProtocol
       - package: CmuxInboxCore
+      - package: CmuxiOSConfig
       - package: CmuxMobileContract
       - package: CmuxTerminalCore
     settings:

@@ -7,9 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0089E8429BE438F9D8A4A0E9 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = FAC159C8764E24523C58FE4A /* CmuxTerminalCore */; };
+		0089E8429BE438F9D8A4A0E9 /* CmuxMobileContract in Frameworks */ = {isa = PBXBuildFile; productRef = 5247BA1F5F76D4A690D523E4 /* CmuxMobileContract */; };
 		02EA7FE606CF8B06C12B0330 /* CmuxInboxCore in Frameworks */ = {isa = PBXBuildFile; productRef = E1772D07D627CF01939FCCAE /* CmuxInboxCore */; };
-		065F180703DE72A0CCA8D5F9 /* CmuxMobileContract in Frameworks */ = {isa = PBXBuildFile; productRef = 6B2D3C49B6A093464F6C2019 /* CmuxMobileContract */; };
+		065F180703DE72A0CCA8D5F9 /* CmuxiOSConfig in Frameworks */ = {isa = PBXBuildFile; productRef = 2E3B0B3C51FC8FCB5C15EA93 /* CmuxiOSConfig */; };
 		0BDD226BF2A870F9E2B6B48E /* AppDatabaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 332FCBAF4BBD19F77DDE0FC9 /* AppDatabaseTests.swift */; };
 		0C6212EC501024F2C49110DF /* UnifiedInboxRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64750470099378D31D4BDD1 /* UnifiedInboxRow.swift */; };
 		0EEA1A5F0C688046D781B705 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BAF9334F41F6254A643208D /* NotificationManager.swift */; };
@@ -17,10 +17,10 @@
 		11F7995149AB9E9569CD8D4B /* LiveAnchormuxSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F0036E626FEB15B0BA455A /* LiveAnchormuxSupport.swift */; };
 		1636EA8C7059A6C28262ACA3 /* IOSMacWorkspaceSyncUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57BAAB8CB1A9DEC3A64FE209 /* IOSMacWorkspaceSyncUITests.swift */; };
 		16E18B3A5ADB0B56DB529773 /* TerminalUITestHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13C1E2DF31951062E23DA8B6 /* TerminalUITestHarness.swift */; };
+		17271D0FAD61F22A887E5AA2 /* NIOTransportServices in Frameworks */ = {isa = PBXBuildFile; productRef = 53B70A5F79698287F52C6841 /* NIOTransportServices */; };
 		18EA96F8C4A795E03188EF9A /* StackAuthApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAD5303B620E0A9963722367 /* StackAuthApp.swift */; };
 		19BE0124962AC51482497B1E /* TerminalCredentialsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C93A3C264A438944ACCF0BA /* TerminalCredentialsStore.swift */; };
 		1BFF5013C1BAA83E3CC784D9 /* TerminalDirectDaemonTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49C34E3038B8C3FFD032D71D /* TerminalDirectDaemonTransportTests.swift */; };
-		1CBA3B4ECD5E27E5F749B23B /* Environment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F3E4D1CC9AEF0C9137A977F /* Environment.swift */; };
 		1DA2C7FB4DE9A4E4D7C9B1E1 /* DebugLogsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B95880067ECC39B86C5CFDA5 /* DebugLogsView.swift */; };
 		21E893C47036E3C2B71AA84E /* NotificationTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA415A9D81F5189E4B8EB45 /* NotificationTokenStore.swift */; };
 		2419A28393E9E693F95756EA /* GhosttyRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2133FE68D880E1205177B511 /* GhosttyRuntime.swift */; };
@@ -46,7 +46,7 @@
 		4EE3B9913C87B3BA618C336D /* AppDatabaseMigrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89EC91AA4671ABE4E611F385 /* AppDatabaseMigrator.swift */; };
 		50F64D9F29CEFA79EE502840 /* TerminalRemoteDaemonBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4860186F7E006848253577A /* TerminalRemoteDaemonBootstrapTests.swift */; };
 		516341407A8F0045ADFE9305 /* ServerScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0012DD36A8108CDBCC7FFB /* ServerScannerView.swift */; };
-		552A6871270B9D007D875AF6 /* StackAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 17CB6F7349F63FE9A55AFCBA /* StackAuth */; };
+		552A6871270B9D007D875AF6 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 9757F8AA5AA13DA7D131699A /* GRDB */; };
 		5765C708A2DE94C86B96D8A0 /* WorkspaceLiveSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = E31DB7639E2682275F1ED39E /* WorkspaceLiveSync.swift */; };
 		58B0A93A8C6CF02D9225C04F /* TerminalRemoteDaemonBootstrapTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 647E49487CAEF1DF11AC3132 /* TerminalRemoteDaemonBootstrapTransportTests.swift */; };
 		58DCABFDFB1C2A57D253CDF1 /* UnifiedInboxSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A349A5B2BF892E746EC798 /* UnifiedInboxSyncService.swift */; };
@@ -56,7 +56,7 @@
 		60D2235A81BEF53FDB6544A3 /* TerminalDirectDaemonTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466D6BAD29A0685ECDB7F36D /* TerminalDirectDaemonTransport.swift */; };
 		6294572E64B3734F83BE7938 /* AuthPresentationContextProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = D122B00904D8EA85C4742AA6 /* AuthPresentationContextProvider.swift */; };
 		63B51F8ADC31CFCE9E25CF0F /* TerminalSidebarRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6E3907A041CB7A053C74EBF /* TerminalSidebarRootView.swift */; };
-		64212DD8EB19099526116B48 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 9757F8AA5AA13DA7D131699A /* GRDB */; };
+		64212DD8EB19099526116B48 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = FAC159C8764E24523C58FE4A /* CmuxTerminalCore */; };
 		68F1305E09406BC3B8FF0318 /* InputPillVisibilityAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ABFF24425D2184E8F78F463 /* InputPillVisibilityAssertions.swift */; };
 		6ABCF8FC10BBF3925DBEA014 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = BE635B9D811C6CA8EF9EE4DA /* CMUXAuthCore */; };
 		6E35C0524D1B433C975D4A73 /* CmuxDaemonProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = 09F44C615E912A99FD463BBB /* CmuxDaemonProtocol */; };
@@ -66,20 +66,20 @@
 		7269270FAC81979468EA33BD /* TerminalHostEditorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DE62A8D62C530AC1B0589FF /* TerminalHostEditorUITests.swift */; };
 		76AE81E3F2B85A22FF6B83E8 /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9087C0B8F1286CD0B19CD31F /* AuthManager.swift */; };
 		78E5E5FC258BA9C04DA2B08B /* TerminalRemoteDaemonBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA24C145FA908CF29936819A /* TerminalRemoteDaemonBootstrap.swift */; };
+		7A77116E7994F1892E8F29E8 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = 96CAD4EF7E9DB0261B9B6250 /* CmuxTerminalCore */; };
 		7D926446DDA0060093A5CCA0 /* KeyboardSyncUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EAF33CCBEC812756B9EB0DA /* KeyboardSyncUITests.swift */; };
 		846B4E8A6393D4EFA707C3AE /* GhosttySurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B849EF00D8D9D4D7CBECA71 /* GhosttySurfaceView.swift */; };
 		8690E1828AA69CEDA05F76C1 /* MobileSyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3AAD5011EC7691DB8BC1A90 /* MobileSyncModels.swift */; };
-		8A1A8A6238B1944E8746703F /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 3DC0750A2EC5460A69E1AFAE /* Sentry */; };
-		8FC4C2801CEA21DE58D16012 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = 96CAD4EF7E9DB0261B9B6250 /* CmuxTerminalCore */; };
-		97792144788B215B7063A7F3 /* NIOTransportServices in Frameworks */ = {isa = PBXBuildFile; productRef = 53B70A5F79698287F52C6841 /* NIOTransportServices */; };
-		9A574D169798E1DD76A1D49B /* UITestConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B7ED930E2B87982C4CEC9BA /* UITestConfig.swift */; };
+		8A1A8A6238B1944E8746703F /* StackAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 17CB6F7349F63FE9A55AFCBA /* StackAuth */; };
+		8FC4C2801CEA21DE58D16012 /* CmuxMobileContract in Frameworks */ = {isa = PBXBuildFile; productRef = 6B2D3C49B6A093464F6C2019 /* CmuxMobileContract */; };
+		97792144788B215B7063A7F3 /* NIOSSH in Frameworks */ = {isa = PBXBuildFile; productRef = FDD895A8470CE4ECEC55E1BE /* NIOSSH */; };
 		9B0D70457FC3D6051161B59A /* TerminalSessionControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5F8F2B0BAB1B57DC21EB21 /* TerminalSessionControllerTests.swift */; };
 		9B8783DD1BC57F42ED61A6F9 /* MultilineInputUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE62D28CE43B32188010398A /* MultilineInputUITests.swift */; };
 		9C47D316782CF6C6964A45CE /* CMuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2FC96D579C3A3B74DAB71B8 /* CMuxApp.swift */; };
 		A1E97AF11D264C091B454262 /* NotificationRouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8771A773DCD77CB895AC6D1B /* NotificationRouteStore.swift */; };
 		A3A5FF3072EB63CB5D4616DE /* SignInViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5BF7D54B8D44A99889F672 /* SignInViewTests.swift */; };
 		A584F68723DBCD3B9F984F20 /* TerminalServerDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04613339A0B059AF4CC301F6 /* TerminalServerDiscovery.swift */; };
-		A5FC62E4DAA13509944CF242 /* CmuxMobileContract in Frameworks */ = {isa = PBXBuildFile; productRef = 5247BA1F5F76D4A690D523E4 /* CmuxMobileContract */; };
+		A5FC62E4DAA13509944CF242 /* CmuxiOSConfig in Frameworks */ = {isa = PBXBuildFile; productRef = 5CD94D1AB7550E96B50488FE /* CmuxiOSConfig */; };
 		A635A7179B90AF97456AD6C9 /* TerminalWorkspaceMetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF97CC01F2F006852BC36489 /* TerminalWorkspaceMetadataService.swift */; };
 		A6EFC4A95CC0ED84F0513026 /* TerminalInputUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 304375C0A66E7A93BDDEE7F4 /* TerminalInputUITests.swift */; };
 		AB1C424D51F88B58A32D0FB6 /* TerminalUITestEchoFormatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702970D0D62B9A6143BECDAA /* TerminalUITestEchoFormatterTests.swift */; };
@@ -90,7 +90,7 @@
 		B760296B64D359B4E2ED93AB /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAFFEAB40EDD4BCBFEFD76FB /* SignInView.swift */; };
 		B8CF15C86C77DA0B57B4BAD6 /* TerminalDaemonConnectionPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CD2B50AB2128B8AE2BA2492 /* TerminalDaemonConnectionPool.swift */; };
 		BB060AEACD11BF92CC1CF715 /* StackAuthSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C886B3F5AAB7299E02D350A8 /* StackAuthSessionTests.swift */; };
-		BB71108C5A1F5F6DAFBD99E5 /* NIOSSH in Frameworks */ = {isa = PBXBuildFile; productRef = FDD895A8470CE4ECEC55E1BE /* NIOSSH */; };
+		BB71108C5A1F5F6DAFBD99E5 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = 4DB01F45CD0702537E918BA6 /* NIOCore */; };
 		BD32C5F0C45D6CAA00676AA7 /* TerminalRemoteDaemonClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58AF78B17031AAAB6C08339A /* TerminalRemoteDaemonClientTests.swift */; };
 		BE0E3F9B6EC73871820B04B5 /* TerminalDirectDaemonClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9379E1EEE6569DF0E0F219B8 /* TerminalDirectDaemonClientTests.swift */; };
 		C0F910B59E30B69AFFECC200 /* TerminalCacheRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B32866817E544170356801E9 /* TerminalCacheRepository.swift */; };
@@ -118,7 +118,7 @@
 		F2811BDA6B5CABDEC723DB30 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 01DF3D3A5E8E935C5518C800 /* CMUXAuthCore */; };
 		F3C1FD7DEBFE47603D6200DD /* TerminalReconnectUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A49C9E8F8EB74BE0942635DB /* TerminalReconnectUITests.swift */; };
 		F45A1672B309AB47264A5B19 /* TerminalDirectDaemonClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 400676CDDB4404C93AD0E2F1 /* TerminalDirectDaemonClient.swift */; };
-		F4667F593625F67204B1452C /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = 4DB01F45CD0702537E918BA6 /* NIOCore */; };
+		F4667F593625F67204B1452C /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 3DC0750A2EC5460A69E1AFAE /* Sentry */; };
 		F5F1FEA88BE3F7E3123BFB0D /* TerminalInboxUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A2BA73731782979511F08EA /* TerminalInboxUITests.swift */; };
 		FD7DEB39FB6802AA88884C3E /* TerminalDaemonTicketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CDECDA34EE5AD4F9B962F2F /* TerminalDaemonTicketService.swift */; };
 		FFD590D33286D4BCB370969C /* AuthPersistenceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B852E46E13849457AF82378B /* AuthPersistenceUITests.swift */; };
@@ -148,6 +148,7 @@
 		13C1E2DF31951062E23DA8B6 /* TerminalUITestHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalUITestHarness.swift; sourceTree = "<group>"; };
 		1417CA18232B39FBDDE85503 /* TerminalWebSocketDaemonTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWebSocketDaemonTransport.swift; sourceTree = "<group>"; };
 		17E46AF784D636FFF06F2F5F /* AuthError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthError.swift; sourceTree = "<group>"; };
+		18CD0BEAFBF9358BFDC11EE3 /* CmuxiOSConfig */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxiOSConfig; path = ../Packages/CmuxiOSConfig; sourceTree = SOURCE_ROOT; };
 		1E19C96FC32CC0A6BC0DE5A9 /* CmuxDaemonProtocol */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxDaemonProtocol; path = ../Packages/CmuxDaemonProtocol; sourceTree = SOURCE_ROOT; };
 		1E19E0127B00CCC94F5E35A7 /* cmuxTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = cmuxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		211B43F30E5F914700C7031C /* cmux.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -193,7 +194,6 @@
 		6A4403F22FB039151B7BA413 /* UnifiedInboxSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedInboxSyncServiceTests.swift; sourceTree = "<group>"; };
 		6D04796B335A4EF9472F3C7B /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		6DE62A8D62C530AC1B0589FF /* TerminalHostEditorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalHostEditorUITests.swift; sourceTree = "<group>"; };
-		6F3E4D1CC9AEF0C9137A977F /* Environment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Environment.swift; sourceTree = "<group>"; };
 		702970D0D62B9A6143BECDAA /* TerminalUITestEchoFormatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalUITestEchoFormatterTests.swift; sourceTree = "<group>"; };
 		73670DE438503675C69D50A7 /* TerminalTextInputPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTextInputPipelineTests.swift; sourceTree = "<group>"; };
 		799F0951A0197EC9879ABD05 /* TerminalDaemonTicketServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDaemonTicketServiceTests.swift; sourceTree = "<group>"; };
@@ -207,7 +207,6 @@
 		89A349A5B2BF892E746EC798 /* UnifiedInboxSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedInboxSyncService.swift; sourceTree = "<group>"; };
 		89EC91AA4671ABE4E611F385 /* AppDatabaseMigrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDatabaseMigrator.swift; sourceTree = "<group>"; };
 		8ABFF24425D2184E8F78F463 /* InputPillVisibilityAssertions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputPillVisibilityAssertions.swift; sourceTree = "<group>"; };
-		8B7ED930E2B87982C4CEC9BA /* UITestConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestConfig.swift; sourceTree = "<group>"; };
 		8B97F49D6DAB4938BBB02860 /* DebugLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogStore.swift; sourceTree = "<group>"; };
 		8EA415A9D81F5189E4B8EB45 /* NotificationTokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationTokenStore.swift; sourceTree = "<group>"; };
 		9087C0B8F1286CD0B19CD31F /* AuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthManager.swift; sourceTree = "<group>"; };
@@ -265,14 +264,15 @@
 				F2811BDA6B5CABDEC723DB30 /* CMUXAuthCore in Frameworks */,
 				AB4CF205C521C1E14EDFF4D1 /* CmuxDaemonProtocol in Frameworks */,
 				02EA7FE606CF8B06C12B0330 /* CmuxInboxCore in Frameworks */,
-				A5FC62E4DAA13509944CF242 /* CmuxMobileContract in Frameworks */,
-				0089E8429BE438F9D8A4A0E9 /* CmuxTerminalCore in Frameworks */,
-				64212DD8EB19099526116B48 /* GRDB in Frameworks */,
-				552A6871270B9D007D875AF6 /* StackAuth in Frameworks */,
-				8A1A8A6238B1944E8746703F /* Sentry in Frameworks */,
-				F4667F593625F67204B1452C /* NIOCore in Frameworks */,
-				BB71108C5A1F5F6DAFBD99E5 /* NIOSSH in Frameworks */,
-				97792144788B215B7063A7F3 /* NIOTransportServices in Frameworks */,
+				A5FC62E4DAA13509944CF242 /* CmuxiOSConfig in Frameworks */,
+				0089E8429BE438F9D8A4A0E9 /* CmuxMobileContract in Frameworks */,
+				64212DD8EB19099526116B48 /* CmuxTerminalCore in Frameworks */,
+				552A6871270B9D007D875AF6 /* GRDB in Frameworks */,
+				8A1A8A6238B1944E8746703F /* StackAuth in Frameworks */,
+				F4667F593625F67204B1452C /* Sentry in Frameworks */,
+				BB71108C5A1F5F6DAFBD99E5 /* NIOCore in Frameworks */,
+				97792144788B215B7063A7F3 /* NIOSSH in Frameworks */,
+				17271D0FAD61F22A887E5AA2 /* NIOTransportServices in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -283,8 +283,9 @@
 				6ABCF8FC10BBF3925DBEA014 /* CMUXAuthCore in Frameworks */,
 				6E35C0524D1B433C975D4A73 /* CmuxDaemonProtocol in Frameworks */,
 				E7393BDEFF055DA8AE244EEE /* CmuxInboxCore in Frameworks */,
-				065F180703DE72A0CCA8D5F9 /* CmuxMobileContract in Frameworks */,
-				8FC4C2801CEA21DE58D16012 /* CmuxTerminalCore in Frameworks */,
+				065F180703DE72A0CCA8D5F9 /* CmuxiOSConfig in Frameworks */,
+				8FC4C2801CEA21DE58D16012 /* CmuxMobileContract in Frameworks */,
+				7A77116E7994F1892E8F29E8 /* CmuxTerminalCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -401,6 +402,7 @@
 				FC5B2E6BCCFE003B9A64B0F0 /* CMUXAuthCore */,
 				1E19C96FC32CC0A6BC0DE5A9 /* CmuxDaemonProtocol */,
 				C77469C7D1694B2CDD59C7D3 /* CmuxInboxCore */,
+				18CD0BEAFBF9358BFDC11EE3 /* CmuxiOSConfig */,
 				882D472AFDF61A27715E33D3 /* CmuxMobileContract */,
 				87A8CA59C30A665A0B9F0669 /* CmuxTerminalCore */,
 				2C2E020CE863F4D2B2E54F85 /* stack-auth-swift-sdk-prerelease */,
@@ -526,9 +528,7 @@
 		CED1C5F9D91DF03CBE2D603F /* Config */ = {
 			isa = PBXGroup;
 			children = (
-				6F3E4D1CC9AEF0C9137A977F /* Environment.swift */,
 				3088F4C4959A46FE729E45B9 /* LocalConfig.example.plist */,
-				8B7ED930E2B87982C4CEC9BA /* UITestConfig.swift */,
 			);
 			path = Config;
 			sourceTree = "<group>";
@@ -599,6 +599,7 @@
 				01DF3D3A5E8E935C5518C800 /* CMUXAuthCore */,
 				A01415D2765A3EDFE8D6438F /* CmuxDaemonProtocol */,
 				E1772D07D627CF01939FCCAE /* CmuxInboxCore */,
+				5CD94D1AB7550E96B50488FE /* CmuxiOSConfig */,
 				5247BA1F5F76D4A690D523E4 /* CmuxMobileContract */,
 				FAC159C8764E24523C58FE4A /* CmuxTerminalCore */,
 				9757F8AA5AA13DA7D131699A /* GRDB */,
@@ -647,6 +648,7 @@
 				BE635B9D811C6CA8EF9EE4DA /* CMUXAuthCore */,
 				09F44C615E912A99FD463BBB /* CmuxDaemonProtocol */,
 				65B6EC1319D5D2D0B110A895 /* CmuxInboxCore */,
+				2E3B0B3C51FC8FCB5C15EA93 /* CmuxiOSConfig */,
 				6B2D3C49B6A093464F6C2019 /* CmuxMobileContract */,
 				96CAD4EF7E9DB0261B9B6250 /* CmuxTerminalCore */,
 			);
@@ -696,6 +698,7 @@
 				675DB4D8B3EC9713FA47257A /* XCLocalSwiftPackageReference "../Packages/CmuxInboxCore" */,
 				433406C7D92BB4CA941BECD0 /* XCLocalSwiftPackageReference "../Packages/CmuxMobileContract" */,
 				9C0DB067324E973A828B3945 /* XCLocalSwiftPackageReference "../Packages/CmuxTerminalCore" */,
+				C1A50CE783A6733D7B478D96 /* XCLocalSwiftPackageReference "../Packages/CmuxiOSConfig" */,
 				7E7B68A0FB7782A6068F5055 /* XCLocalSwiftPackageReference "vendor/stack-auth-swift-sdk-prerelease" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -761,7 +764,6 @@
 				2801BECDFC4D83ED7C2C3821 /* CrashReporter.swift in Sources */,
 				46F4D18F747BD9BC1C022CBE /* DebugLogStore.swift in Sources */,
 				1DA2C7FB4DE9A4E4D7C9B1E1 /* DebugLogsView.swift in Sources */,
-				1CBA3B4ECD5E27E5F749B23B /* Environment.swift in Sources */,
 				2419A28393E9E693F95756EA /* GhosttyRuntime.swift in Sources */,
 				846B4E8A6393D4EFA707C3AE /* GhosttySurfaceView.swift in Sources */,
 				C211BD6F721FB176E550E2DC /* InboxCacheRepository.swift in Sources */,
@@ -798,7 +800,6 @@
 				4788D5AB7F81447C478085E6 /* TerminalWorkspace.swift in Sources */,
 				C1B7D719350DC9705A9A038A /* TerminalWorkspaceIdentityService.swift in Sources */,
 				A635A7179B90AF97456AD6C9 /* TerminalWorkspaceMetadataService.swift in Sources */,
-				9A574D169798E1DD76A1D49B /* UITestConfig.swift in Sources */,
 				CE5D22A6F7D7581D33FD1373 /* UnifiedInboxItem.swift in Sources */,
 				0C6212EC501024F2C49110DF /* UnifiedInboxRow.swift in Sources */,
 				58DCABFDFB1C2A57D253CDF1 /* UnifiedInboxSyncService.swift in Sources */,
@@ -1359,6 +1360,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../Packages/CMUXAuthCore;
 		};
+		C1A50CE783A6733D7B478D96 /* XCLocalSwiftPackageReference "../Packages/CmuxiOSConfig" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Packages/CmuxiOSConfig;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -1417,6 +1422,10 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = StackAuth;
 		};
+		2E3B0B3C51FC8FCB5C15EA93 /* CmuxiOSConfig */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxiOSConfig;
+		};
 		3DC0750A2EC5460A69E1AFAE /* Sentry */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3CD775CDBD215413B48E868A /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
@@ -1435,6 +1444,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4A5A9FCC38439A1044D545C7 /* XCRemoteSwiftPackageReference "swift-nio-transport-services" */;
 			productName = NIOTransportServices;
+		};
+		5CD94D1AB7550E96B50488FE /* CmuxiOSConfig */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxiOSConfig;
 		};
 		65B6EC1319D5D2D0B110A895 /* CmuxInboxCore */ = {
 			isa = XCSwiftPackageProductDependency;
