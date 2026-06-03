@@ -253,20 +253,23 @@ final class RenderWorkerCoordinator {
     private func scroll(by event: RenderPointerEvent, at location: NSPoint, in hosting: NSView) {
         guard let scrollView = scrollView(at: location, in: hosting) else { return }
         let clip = scrollView.contentView
-        var origin = clip.bounds.origin
+        var target = clip.bounds
         let isFlipped = scrollView.documentView?.isFlipped ?? true
         // Natural scrolling deltas: positive deltaY means content moves down
         // (reveal earlier content).
         if isFlipped {
-            origin.y -= CGFloat(event.deltaY)
+            target.origin.y -= CGFloat(event.deltaY)
         } else {
-            origin.y += CGFloat(event.deltaY)
+            target.origin.y += CGFloat(event.deltaY)
         }
-        origin.x -= CGFloat(event.deltaX)
-        let documentSize = scrollView.documentView?.frame.size ?? .zero
-        origin.y = max(0, min(origin.y, max(0, documentSize.height - clip.bounds.height)))
-        origin.x = max(0, min(origin.x, max(0, documentSize.width - clip.bounds.width)))
-        clip.scroll(to: origin)
+        target.origin.x -= CGFloat(event.deltaX)
+        // Clamp through the clip view itself: the resting origin is NOT (0,0)
+        // when SwiftUI applies safe-area insets (it is -topInset), so a naive
+        // max(0, …) clamp pins content up under the host's titlebar chrome and
+        // never lets it scroll back. constrainBoundsRect honors content
+        // insets and the document bounds exactly like a real wheel event.
+        let constrained = clip.constrainBoundsRect(target)
+        clip.scroll(to: constrained.origin)
         scrollView.reflectScrolledClipView(clip)
     }
 
