@@ -12031,6 +12031,7 @@ function renderSettingsInspector(options = {}) {
   if (shouldBuildSection("terminal")) {
     const terminalSection = settingsSection("Terminal");
     terminalSection.append(terminalSettingsPreviewPanel());
+    terminalSection.append(terminalReadabilityPresetGrid());
     const fontSelect = document.createElement("select");
     fontSelect.className = "setting-select";
     fontSelect.dataset.settingControl = "terminalFontFamily";
@@ -18318,6 +18319,82 @@ function terminalFontChoiceGrid() {
   return grid;
 }
 
+function terminalReadabilityPresetGrid() {
+  const grid = document.createElement("div");
+  grid.className = "terminal-readability-preset-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("terminal readability typography presets font size line height padding history cursor apply save copy profile");
+  for (const preset of terminalReadabilityPresets) {
+    const settings = terminalReadabilityPresetSettings(preset);
+    if (!settings) continue;
+    const active = isActiveTerminalReadabilityPreset(preset);
+    const savedProfile = savedSettingsProfileForTerminalReadabilityPreset(preset);
+    const summary = terminalSetupSummaryForSettings(settings);
+    const colors = terminalTheme();
+    const search = terminalReadabilityPresetSearchText(preset, settings);
+    const card = document.createElement("div");
+    card.className = `terminal-readability-preset-card${active ? " is-active" : ""}`;
+    card.dataset.settingsSearch = search;
+    const button = document.createElement("button");
+    button.className = "terminal-readability-preset";
+    button.type = "button";
+    button.disabled = active;
+    button.title = terminalReadabilityPresetTitle(preset, active);
+    button.dataset.terminalReadabilityPreset = preset.id;
+    button.dataset.settingsSearch = search;
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.innerHTML = `
+      <span class="terminal-readability-preview" aria-hidden="true">
+        <span>PS&gt; cmux</span>
+        <span>git status --short</span>
+      </span>
+      <span class="terminal-readability-copy">
+        <span class="terminal-readability-title-row">
+          <span class="terminal-readability-title"></span>
+          <span class="terminal-readability-status"></span>
+        </span>
+        <span class="terminal-readability-body"></span>
+        <span class="terminal-readability-meta">
+          <span></span>
+          <span></span>
+          <span></span>
+        </span>
+      </span>
+    `;
+    button.style.setProperty("--terminal-readability-font", terminalFontStack(settings.terminalFontFamily));
+    button.style.setProperty("--terminal-readability-size", `${Math.min(16, settings.terminalFontSize)}px`);
+    button.style.setProperty("--terminal-readability-line", String(settings.terminalLineHeight));
+    button.style.setProperty("--terminal-readability-background", colors.background);
+    button.style.setProperty("--terminal-readability-foreground", colors.foreground);
+    button.querySelector(".terminal-readability-title").textContent = preset.label;
+    button.querySelector(".terminal-readability-status").textContent = active ? "Active" : "";
+    button.querySelector(".terminal-readability-body").textContent = preset.body;
+    const meta = button.querySelectorAll(".terminal-readability-meta span");
+    meta[0].textContent = summary.font;
+    meta[1].textContent = summary.lineHeight;
+    meta[2].textContent = summary.history;
+    button.onclick = () => {
+      if (!isActiveTerminalReadabilityPreset(preset)) applyTerminalReadabilityPreset(preset.id);
+    };
+    const actions = document.createElement("div");
+    actions.className = "terminal-readability-preset-actions";
+    const save = settingsActionButton(
+      savedProfile ? "Saved" : "Save",
+      () => saveTerminalReadabilityPresetProfile(preset.id),
+      savedProfile ? "primary" : "",
+      `terminal readability preset save profile reusable ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body}`
+    );
+    save.dataset.terminalReadabilitySave = preset.id;
+    save.disabled = Boolean(savedProfile) || savedSettingsProfilesFull();
+    save.title = terminalReadabilityPresetProfileSaveTitle(preset, savedProfile);
+    const copy = settingsActionButton("Copy", () => copyTerminalReadabilityPresetSetup(preset.id), "", `terminal readability preset copy setup clipboard json ${preset.label} ${preset.body}`);
+    copy.title = "Copy this terminal readability preset as terminal setup JSON.";
+    actions.append(save, copy);
+    card.append(button, actions);
+    grid.append(card);
+  }
+  return grid;
+}
+
 function refreshTerminalFontChoices() {
   const fontSelect = elements.inspectorBody.querySelector('[data-setting-control="terminalFontFamily"]');
   if (fontSelect && fontSelect.value !== state.settings.terminalFontFamily) {
@@ -18379,6 +18456,7 @@ function scheduleTerminalSettingsPreviewRefresh() {
 function refreshTerminalSettingsPreview() {
   const preview = elements.inspectorBody.querySelector(".terminal-settings-preview");
   if (preview) preview.replaceWith(terminalSettingsPreviewPanel());
+  refreshTerminalReadabilityPresetGrid();
   for (const button of elements.inspectorBody.querySelectorAll("[data-terminal-color-preset]")) {
     const preset = terminalColorPresets.find((candidate) => candidate.id === button.dataset.terminalColorPreset);
     if (!preset) continue;
@@ -19342,41 +19420,129 @@ const terminalSetupNumberSettings = {
   terminalScrollback: [2000, 50000]
 };
 
-function terminalSetupPayload() {
+const terminalReadabilityPresets = [
+  {
+    id: "compact",
+    label: "Compact",
+    body: "Dense terminal rows for split-heavy work.",
+    settings: {
+      terminalFontFamily: "consolas",
+      terminalFontSize: 12,
+      terminalLineHeight: 1.12,
+      terminalPadding: 4,
+      terminalScrollback: 8000,
+      terminalCursorStyle: "bar",
+      terminalCursorBlink: false
+    }
+  },
+  {
+    id: "comfortable",
+    label: "Comfortable",
+    body: "Balanced text size, spacing, and history for daily use.",
+    settings: {
+      terminalFontFamily: "cascadia",
+      terminalFontSize: 13,
+      terminalLineHeight: 1.22,
+      terminalPadding: 8,
+      terminalScrollback: 12000,
+      terminalCursorStyle: "bar",
+      terminalCursorBlink: true
+    }
+  },
+  {
+    id: "readable",
+    label: "Readable",
+    body: "Larger type and roomier rows for long sessions.",
+    settings: {
+      terminalFontFamily: "jetbrains",
+      terminalFontSize: 15,
+      terminalLineHeight: 1.28,
+      terminalPadding: 10,
+      terminalScrollback: 16000,
+      terminalCursorStyle: "block",
+      terminalCursorBlink: true
+    }
+  },
+  {
+    id: "presentation",
+    label: "Presentation",
+    body: "Big text, generous padding, and a steady cursor.",
+    settings: {
+      terminalFontFamily: "cascadia",
+      terminalFontSize: 18,
+      terminalLineHeight: 1.32,
+      terminalPadding: 12,
+      terminalScrollback: 10000,
+      terminalCursorStyle: "block",
+      terminalCursorBlink: false
+    }
+  }
+];
+
+function terminalSetupSummaryForSettings(settings) {
+  const normalized = normalizeSettings({
+    ...state.settings,
+    ...(settings || {})
+  });
+  return {
+    font: `${optionLabel(terminalFontOptions, normalized.terminalFontFamily, normalized.terminalFontFamily)} ${normalized.terminalFontSize}px`,
+    lineHeight: formatLineHeight(normalized.terminalLineHeight),
+    padding: `${normalized.terminalPadding}px`,
+    history: `${Number(normalized.terminalScrollback || 0).toLocaleString()} history`,
+    cursor: `${optionLabel(terminalCursorStyles, normalized.terminalCursorStyle, normalized.terminalCursorStyle)}${normalized.terminalCursorBlink ? " blink" : ""}`,
+    shell: optionLabel(terminalProfiles, normalized.terminalProfile, normalized.terminalProfile),
+    colors: terminalColorEffectiveForSettings(normalized)
+  };
+}
+
+function terminalColorEffectiveForSettings(settings) {
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--color-accent").trim()
+    || terminalColorDefaults.cursor;
+  return {
+    background: settings.terminalBackground || terminalColorDefaults.background,
+    foreground: settings.terminalForeground || terminalColorDefaults.foreground,
+    cursor: settings.terminalCursorColor || accent
+  };
+}
+
+function terminalSetupPayload(settingsSource = state.settings) {
+  const source = {
+    ...state.settings,
+    ...(settingsSource || {})
+  };
   const settings = {};
-  for (const key of terminalSetupSettings) settings[key] = state.settings[key];
-  const colors = terminalColorPalettePayload();
+  for (const key of terminalSetupSettings) settings[key] = source[key];
   return {
     version: 1,
     type: "cmux-terminal-setup",
-    summary: {
-      font: `${optionLabel(terminalFontOptions, state.settings.terminalFontFamily, state.settings.terminalFontFamily)} ${state.settings.terminalFontSize}px`,
-      lineHeight: formatLineHeight(state.settings.terminalLineHeight),
-      padding: `${state.settings.terminalPadding}px`,
-      history: String(state.settings.terminalScrollback),
-      cursor: `${optionLabel(terminalCursorStyles, state.settings.terminalCursorStyle, state.settings.terminalCursorStyle)}${state.settings.terminalCursorBlink ? " blink" : ""}`,
-      shell: optionLabel(terminalProfiles, state.settings.terminalProfile, state.settings.terminalProfile),
-      colors: colors.effective
-    },
+    summary: terminalSetupSummaryForSettings(settings),
     settings
   };
 }
 
-async function copyTerminalSetup() {
-  const payload = JSON.stringify(terminalSetupPayload(), null, 2);
+async function copyTerminalSetupPayload(
+  payloadModel = terminalSetupPayload(),
+  toastText = "Terminal setup copied.",
+  dialogMessage = "Clipboard access is unavailable. The current terminal setup is shown below."
+) {
+  const payload = JSON.stringify(payloadModel, null, 2);
   if (await writeClipboardText(payload)) {
-    toast("Terminal setup copied.");
+    toast(toastText);
     return true;
   }
   await showTextDialog({
     title: "Terminal setup",
-    message: "Clipboard access is unavailable. The current terminal setup is shown below.",
+    message: dialogMessage,
     value: payload,
     confirmLabel: "Close",
     multiline: true,
     readOnly: true
   });
   return false;
+}
+
+async function copyTerminalSetup() {
+  return copyTerminalSetupPayload(terminalSetupPayload(), "Terminal setup copied.");
 }
 
 function terminalSetupNumberUpdateFromValue(key, raw) {
@@ -19421,18 +19587,18 @@ function terminalSetupUpdatesFromPayload(payload) {
   return Object.keys(updates).length ? updates : null;
 }
 
-function applyTerminalSetupUpdates(updates) {
+function applyTerminalSetupUpdates(updates, options = {}) {
   if (!updates) {
     toast("Clipboard does not contain terminal setup.");
     return false;
   }
   const changed = updateSettings(updates, { immediate: true });
   if (!changed) {
-    toast("Terminal setup already matches.");
+    toast(options.alreadyText || "Terminal setup already matches.");
     return false;
   }
   if (state.inspectorMode === "settings") renderSettingsInspector();
-  toast("Terminal setup applied.");
+  toast(options.toastText || "Terminal setup applied.");
   return true;
 }
 
@@ -19449,6 +19615,168 @@ async function pasteTerminalSetup() {
     toast("Clipboard does not contain terminal setup.");
     return false;
   }
+}
+
+function terminalReadabilityPresetById(presetId) {
+  return terminalReadabilityPresets.find((candidate) => candidate.id === presetId) || null;
+}
+
+function terminalReadabilityPresetSettings(preset) {
+  return terminalSetupUpdatesFromPayload({ settings: preset?.settings });
+}
+
+function terminalReadabilityPresetProfileSettings(preset) {
+  const settings = terminalReadabilityPresetSettings(preset);
+  if (!settings) return null;
+  return normalizeSettings({
+    ...state.settings,
+    ...settings
+  });
+}
+
+function savedSettingsProfileForTerminalReadabilityPreset(preset) {
+  const settings = terminalReadabilityPresetProfileSettings(preset);
+  if (!settings) return null;
+  return state.savedSettingsProfiles.find((profile) => settingsProfileMatchesSettings(profile, settings)) || null;
+}
+
+function terminalReadabilityPresetSearchText(preset, settings = terminalReadabilityPresetSettings(preset)) {
+  const summary = terminalSetupSummaryForSettings(settings || {});
+  return normalizeSettingsQuery([
+    "terminal readability typography preset font size line height padding history cursor apply save copy setup profile",
+    preset?.label,
+    preset?.body,
+    summary.font,
+    summary.lineHeight,
+    summary.padding,
+    summary.history,
+    summary.cursor
+  ].join(" "));
+}
+
+function isActiveTerminalReadabilityPreset(preset) {
+  const settings = terminalReadabilityPresetSettings(preset);
+  if (!settings) return false;
+  return Object.entries(settings).every(([key, value]) => state.settings[key] === value);
+}
+
+function terminalReadabilityPresetTitle(preset, active) {
+  if (!preset) return "Choose a terminal readability preset first.";
+  if (active) return `${preset.label} terminal readability is already active.`;
+  return `Apply ${preset.label} terminal readability.`;
+}
+
+function terminalReadabilityPresetProfileSaveTitle(preset, savedProfile = savedSettingsProfileForTerminalReadabilityPreset(preset)) {
+  if (!preset) return "Choose a terminal readability preset first.";
+  if (savedProfile) return `${savedProfile.label} already saves ${preset.label}.`;
+  if (savedSettingsProfilesFull()) return settingsProfileLimitTitle();
+  return "Save this terminal readability preset as a reusable profile.";
+}
+
+function updateTerminalReadabilityPresetButton(button, preset) {
+  const settings = terminalReadabilityPresetSettings(preset);
+  if (!settings) return false;
+  const active = isActiveTerminalReadabilityPreset(preset);
+  const savedProfile = savedSettingsProfileForTerminalReadabilityPreset(preset);
+  const card = button.closest(".terminal-readability-preset-card");
+  const colors = terminalTheme();
+  let changed = false;
+  if (card) changed = toggleClassIfChanged(card, "is-active", active) || changed;
+  changed = setDisabledIfChanged(button, active) || changed;
+  changed = setTitleIfChanged(button, terminalReadabilityPresetTitle(preset, active)) || changed;
+  setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
+  const status = button.querySelector(".terminal-readability-preset-status");
+  if (status) changed = setTextIfChanged(status, active ? "Active" : "") || changed;
+  changed = setStylePropertyIfChanged(button, "--terminal-readability-background", colors.background) || changed;
+  changed = setStylePropertyIfChanged(button, "--terminal-readability-foreground", colors.foreground) || changed;
+  const search = terminalReadabilityPresetSearchText(preset, settings);
+  if (button.dataset.settingsSearch !== search) {
+    button.dataset.settingsSearch = search;
+    updateSettingsSearchIndexItemSearch(button, search);
+    changed = true;
+  }
+  if (card && card.dataset.settingsSearch !== search) {
+    card.dataset.settingsSearch = search;
+    updateSettingsSearchIndexItemSearch(card, search);
+    changed = true;
+  }
+  const save = card?.querySelector("[data-terminal-readability-save]");
+  if (save) {
+    changed = setTextIfChanged(save, savedProfile ? "Saved" : "Save") || changed;
+    changed = setDisabledIfChanged(save, Boolean(savedProfile) || savedSettingsProfilesFull()) || changed;
+    changed = setTitleIfChanged(save, terminalReadabilityPresetProfileSaveTitle(preset, savedProfile)) || changed;
+    changed = toggleClassIfChanged(save, "primary", Boolean(savedProfile)) || changed;
+  }
+  return changed;
+}
+
+function refreshTerminalReadabilityPresetGrid(root = elements.inspectorBody) {
+  if (!root?.querySelectorAll) return false;
+  let changed = false;
+  for (const button of root.querySelectorAll(".terminal-readability-preset[data-terminal-readability-preset]")) {
+    const preset = terminalReadabilityPresetById(button.dataset.terminalReadabilityPreset);
+    if (!preset) continue;
+    changed = updateTerminalReadabilityPresetButton(button, preset) || changed;
+  }
+  return changed;
+}
+
+function applyTerminalReadabilityPreset(presetId) {
+  const preset = terminalReadabilityPresetById(presetId);
+  const settings = terminalReadabilityPresetSettings(preset);
+  if (!preset || !settings) {
+    toast("Terminal readability preset not found.");
+    return false;
+  }
+  return applyTerminalSetupUpdates(settings, {
+    toastText: `${preset.label} terminal readability applied.`,
+    alreadyText: `${preset.label} terminal readability already active.`
+  });
+}
+
+function saveTerminalReadabilityPresetProfile(presetId) {
+  const preset = terminalReadabilityPresetById(presetId);
+  if (!preset) {
+    toast("Terminal readability preset not found.");
+    return null;
+  }
+  const existing = savedSettingsProfileForTerminalReadabilityPreset(preset);
+  if (existing) {
+    toast(`${existing.label} profile already saves ${preset.label}.`);
+    return existing;
+  }
+  if (savedSettingsProfilesFull()) {
+    toast(settingsProfileLimitTitle());
+    return null;
+  }
+  const saved = upsertSavedSettingsProfile({
+    id: createSettingsProfileId(),
+    label: defaultSettingsProfileName(`${preset.label} terminal`),
+    settings: terminalReadabilityPresetProfileSettings(preset),
+    createdAt: Date.now()
+  });
+  if (!saved) return null;
+  renderSettingsInspector();
+  toast(`${saved.label} profile saved.`);
+  return saved;
+}
+
+function copyTerminalReadabilityPresetSetup(presetId) {
+  const preset = terminalReadabilityPresetById(presetId);
+  const settings = terminalReadabilityPresetSettings(preset);
+  if (!preset || !settings) {
+    toast("Terminal readability preset not found.");
+    return false;
+  }
+  return copyTerminalSetupPayload(
+    terminalSetupPayload(settings),
+    `${preset.label} terminal setup copied.`,
+    "Clipboard access is unavailable. The terminal readability preset is shown below."
+  );
+}
+
+function terminalReadabilityPresetActiveSignature() {
+  return terminalSetupSettings.map((key) => state.settings[key]).join("\u001f");
 }
 
 function terminalColorPalettePayload() {
@@ -22807,6 +23135,7 @@ function paletteQuickActionsSignature() {
   appendSignatureValue(parts, Boolean(activeSavedSettingsProfile()));
   appendSignatureValue(parts, activeSettingsSetupLabel());
   appendSignatureValue(parts, performanceTuningPresetActiveSignature());
+  appendSignatureValue(parts, terminalReadabilityPresetActiveSignature());
   appendSignatureValue(parts, state.savedSettingsProfiles.length);
   appendSignatureValue(parts, paneCreationButtonsDisabled());
   return parts.join("");
@@ -22814,7 +23143,7 @@ function paletteQuickActionsSignature() {
 
 function paletteEntryKind(entry) {
   const id = String(entry?.id || "");
-  if (id.startsWith("terminal.") || id.startsWith("recentCommand.") || id.startsWith("commandSnippet.")) return "terminal";
+  if (id.startsWith("terminal.") || id.startsWith("terminalReadabilityPreset.") || id.startsWith("recentCommand.") || id.startsWith("commandSnippet.")) return "terminal";
   if (id.startsWith("browser.") || id.startsWith("recentBrowser.") || id.startsWith("browserHomePreset.")) return "browser";
   if (id.startsWith("workspace.") || id.startsWith("recentFolder.") || id.startsWith("workspaceBlueprint.") || id.startsWith("workspaceStarter.")) return "workspace";
   if (id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.") || id.startsWith("performanceTunePreset.")) return "settings";
@@ -23200,6 +23529,43 @@ function paletteEntries() {
     search: normalizeSettingsQuery("terminal setup paste apply font size line height padding history scrollback colors cursor shell profile json clipboard settings"),
     run: pasteTerminalSetup
   });
+  for (const preset of terminalReadabilityPresets) {
+    const settings = terminalReadabilityPresetSettings(preset);
+    if (!settings) continue;
+    const active = isActiveTerminalReadabilityPreset(preset);
+    const savedProfile = savedSettingsProfileForTerminalReadabilityPreset(preset);
+    const summary = terminalSetupSummaryForSettings(settings);
+    entries.push({
+      id: `terminalReadabilityPreset.${preset.id}`,
+      label: `Terminal readability: ${preset.label}`,
+      meta: active ? `Active / ${summary.font}` : `${summary.font} / ${summary.lineHeight}`,
+      shortcut: active ? "Active" : "Terminal",
+      active,
+      disabled: active,
+      title: terminalReadabilityPresetTitle(preset, active),
+      search: terminalReadabilityPresetSearchText(preset, settings),
+      run: () => applyTerminalReadabilityPreset(preset.id)
+    });
+    entries.push({
+      id: `terminalReadabilityPreset.save.${preset.id}`,
+      label: `Save terminal profile: ${preset.label}`,
+      meta: savedProfile ? `Already saved / ${savedProfile.label}` : savedSettingsProfileCountLabel(),
+      shortcut: savedProfile ? "Saved" : "Save",
+      disabled: Boolean(savedProfile) || savedSettingsProfilesFull(),
+      title: terminalReadabilityPresetProfileSaveTitle(preset, savedProfile),
+      search: normalizeSettingsQuery(`terminal readability typography preset save profile reusable ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${summary.font} ${summary.lineHeight} ${summary.padding} ${summary.history}`),
+      run: () => saveTerminalReadabilityPresetProfile(preset.id)
+    });
+    entries.push({
+      id: `terminalReadabilityPreset.copy.${preset.id}`,
+      label: `Copy terminal setup: ${preset.label}`,
+      meta: `${summary.font} / ${summary.history}`,
+      shortcut: "Copy",
+      title: "Copy this terminal readability preset as terminal setup JSON.",
+      search: normalizeSettingsQuery(`terminal readability typography preset copy setup clipboard json ${preset.label} ${preset.body} ${summary.font} ${summary.lineHeight} ${summary.padding} ${summary.history}`),
+      run: () => copyTerminalReadabilityPresetSetup(preset.id)
+    });
+  }
   entries.push({
     id: "terminalColor.copyCurrent",
     label: "Copy terminal colors",
