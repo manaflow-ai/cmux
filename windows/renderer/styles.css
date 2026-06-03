@@ -8296,11 +8296,17 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px;
+  max-width: min(62vw, 620px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
 .quick-overview-controls-actions .settings-action {
+  flex: 0 0 auto;
+  max-width: 132px;
   height: 26px;
   padding: 0 7px;
   font-size: 10px;
@@ -9384,10 +9390,14 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
   .quick-overview-controls-actions {
     justify-content: flex-start;
+    flex-wrap: wrap;
+    max-width: none;
+    overflow: visible;
   }
 
   .quick-overview-controls-actions .settings-action {
     flex: 1 1 calc(50% - 4px);
+    max-width: none;
   }
 
   .quick-overview-library-head {
