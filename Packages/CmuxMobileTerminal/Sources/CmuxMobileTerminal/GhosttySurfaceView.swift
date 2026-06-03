@@ -1085,7 +1085,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastProcessOutputLogTime: CFTimeInterval = 0
 
     public func processOutput(_ data: Data) {
-        guard let surface else { return }
+        guard let surface, !isDismantled else { return }
         #if DEBUG
         if lastInputTimestamp > 0 {
             let elapsed = (CACurrentMediaTime() - lastInputTimestamp) * 1000.0
@@ -1585,7 +1585,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// gates this on `needsDraw`/`pendingRenderFrames`, so it is not a
     /// per-frame loop that would flood the main queue with present blocks.
     private func requestRender() {
-        guard let surface else { return }
+        guard let surface, !isDismantled else { return }
         // Coalesce: never let more than one render_now sit on the serial queue.
         // (Called on main from the display link.)
         if renderInFlight {
@@ -1601,7 +1601,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             if lagMs > 150 { liveAnchormuxLog("oq.render.LAG \(Int(lagMs))ms") }
             ghostty_surface_render_now(surface)
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, !self.isDismantled else { return }
                 self.renderInFlight = false
                 if self.needsAnotherRender {
                     self.needsAnotherRender = false
@@ -2073,7 +2073,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func drawForWakeup() {
-        guard surface != nil, window != nil else { return }
+        guard surface != nil, window != nil, !isDismantled else { return }
         // Don't call `ghostty_surface_refresh` here: that wakes the renderer
         // thread to present asynchronously (`setSurface` → `dispatch_async` to
         // main → size-guard discard), which both blanks frames and competes
