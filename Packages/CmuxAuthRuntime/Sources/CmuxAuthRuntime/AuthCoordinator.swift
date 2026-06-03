@@ -46,6 +46,7 @@ public final class AuthCoordinator {
     private let config: AuthConfig
     private let launch: AuthLaunchOptions
     private let isOnline: @Sendable () async -> Bool
+    private let onSignedIn: @Sendable () async -> Void
     private let errorMapper = AuthErrorMapper()
 
     private var pendingNonce: String?
@@ -62,6 +63,9 @@ public final class AuthCoordinator {
     ///   - launch: Launch-time priming inputs (UI-test fixtures, dev-auth flag).
     ///   - isOnline: Connectivity probe; sign-in flows fail fast when offline.
     ///     Defaults to always-online so tests need not supply it.
+    ///   - onSignedIn: Hook run after a successful sign-in / session restore, for
+    ///     side effects above this package (e.g. push token re-upload). Defaults
+    ///     to a no-op.
     public init(
         client: any AuthClient,
         sessionCache: CMUXAuthSessionCache,
@@ -69,7 +73,8 @@ public final class AuthCoordinator {
         anchor: any AuthPresentationAnchoring,
         config: AuthConfig,
         launch: AuthLaunchOptions,
-        isOnline: @escaping @Sendable () async -> Bool = { true }
+        isOnline: @escaping @Sendable () async -> Bool = { true },
+        onSignedIn: @escaping @Sendable () async -> Void = {}
     ) {
         self.client = client
         self.sessionCache = sessionCache
@@ -78,6 +83,7 @@ public final class AuthCoordinator {
         self.config = config
         self.launch = launch
         self.isOnline = isOnline
+        self.onSignedIn = onSignedIn
         primeSessionState()
     }
 
@@ -382,6 +388,7 @@ public final class AuthCoordinator {
         isRestoringSession = false
         saveCachedUser(user)
         sessionCache.setHasTokens(true)
+        await onSignedIn()
     }
 
     private func clearAuthState() {

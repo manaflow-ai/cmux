@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxMobileAuth
+import CmuxAuthRuntime
 import CmuxMobileRPC
 import Foundation
 import Observation
@@ -22,14 +22,22 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     /// 750ms poll only when a connected Mac does not support events.
     public var supportsServerPushEvents: Bool
 
-    private static var defaultStackAccessTokenProvider: @Sendable () async throws -> String {
+    /// Builds the production access-token provider over an injected
+    /// ``TokenProviding`` (the app-root ``AuthCoordinator``), honoring the DEBUG
+    /// environment-token override. Replaces the removed `AuthManager.shared`
+    /// reach-in.
+    /// - Parameter tokenProvider: The injected token source.
+    /// - Returns: A `@Sendable` provider closure for the runtime.
+    public static func stackAccessTokenProvider(
+        from tokenProvider: any TokenProviding
+    ) -> @Sendable () async throws -> String {
         {
             #if DEBUG
             if let token = MobileShellDevStackAuthTokenProvider.token() {
                 return token
             }
             #endif
-            return try await AuthManager.shared.getAccessToken()
+            return try await tokenProvider.accessToken()
         }
     }
 
@@ -44,7 +52,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
-        self.stackAccessTokenProvider = stackAccessTokenProvider ?? Self.defaultStackAccessTokenProvider
+        self.stackAccessTokenProvider = stackAccessTokenProvider ?? { throw AuthError.unauthorized }
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.now = now
@@ -61,7 +69,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
-        self.stackAccessTokenProvider = stackAccessTokenProvider ?? Self.defaultStackAccessTokenProvider
+        self.stackAccessTokenProvider = stackAccessTokenProvider ?? { throw AuthError.unauthorized }
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.supportsServerPushEvents = supportsServerPushEvents

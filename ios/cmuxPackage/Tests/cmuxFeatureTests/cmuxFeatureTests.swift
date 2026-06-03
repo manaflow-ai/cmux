@@ -1,5 +1,5 @@
 import CMUXMobileCore
-@testable import CmuxMobileAuth
+import CmuxAuthRuntime
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 @testable import CmuxMobileShell
@@ -57,11 +57,9 @@ final class TerminalOutputCollector {
 }
 
 @Test func authAutoLoginPolicyUsesRealStoredTokenState() {
-    let credentials = AuthAutoLoginCredentials(email: "test@example.com", password: "pass")
-
-    #expect(MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: credentials, hasStoredTokens: false))
-    #expect(!MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: credentials, hasStoredTokens: true))
-    #expect(!MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: nil, hasStoredTokens: false))
+    #expect(AuthLaunchOptions.shouldStartAutoLogin(hasCredentials: true, hasStoredTokens: false))
+    #expect(!AuthLaunchOptions.shouldStartAutoLogin(hasCredentials: true, hasStoredTokens: true))
+    #expect(!AuthLaunchOptions.shouldStartAutoLogin(hasCredentials: false, hasStoredTokens: false))
 }
 
 #if DEBUG
@@ -76,67 +74,10 @@ final class TerminalOutputCollector {
 }
 #endif
 
-@Test func authDisplaySafeErrorPreservesUserFacingStackErrors() throws {
-    let userFacingCodes = [
-        "SCHEMA_ERROR",
-        "USER_EMAIL_ALREADY_EXISTS",
-        "VERIFICATION_CODE_ERROR",
-        "INVALID_OTP",
-        "OTP_EXPIRED",
-        "RATE_LIMIT",
-        "EMAIL_PASSWORD_MISMATCH",
-        "USER_NOT_FOUND",
-        "PASSKEY_AUTHENTICATION_FAILED",
-        "PASSKEY_WEBAUTHN_ERROR",
-        "INVALID_TOTP_CODE",
-        "REDIRECT_URL_NOT_WHITELISTED",
-        "OAUTH_PROVIDER_ACCOUNT_ID_ALREADY_USED_FOR_SIGN_IN",
-        "INVALID_APPLE_CREDENTIALS",
-    ]
-
-    for code in userFacingCodes {
-        let mapped = AuthManager.displaySafeAuthError(StackAuthError(code: code, message: "message"))
-        let stackError = try #require(mapped as? StackAuthErrorProtocol)
-        #expect(stackError.code == code)
-    }
-}
-
-@Test func authDisplaySafeErrorMapsCancellationAndUnknownStackErrors() throws {
-    let cancelled = AuthManager.displaySafeAuthError(StackAuthError(code: "oauth_cancelled", message: "cancelled"))
-    guard case AuthError.cancelled = cancelled else {
-        Issue.record("Expected OAuth cancellation to map to AuthError.cancelled")
-        return
-    }
-
-    let unknown = AuthManager.displaySafeAuthError(StackAuthError(code: "UNEXPECTED", message: "raw server detail"))
-    guard case AuthError.serverError(0, "auth_failed") = unknown else {
-        Issue.record("Expected unknown Stack errors to use the generic auth failure")
-        return
-    }
-}
-
-@Test func cachedSessionValidationClearsOnlyDefinitiveUnauthorizedFailures() {
-    #expect(
-        AuthManager.cachedSessionValidationFailureAction(
-            for: StackAuthError(code: "UNAUTHORIZED", message: "expired")
-        ) == .clearSession
-    )
-    #expect(
-        AuthManager.cachedSessionValidationFailureAction(
-            for: StackAuthError(code: "INVALID_TOKEN", message: "invalid")
-        ) == .clearSession
-    )
-    #expect(
-        AuthManager.cachedSessionValidationFailureAction(
-            for: URLError(.notConnectedToInternet)
-        ) == .preserveCachedSession
-    )
-    #expect(
-        AuthManager.cachedSessionValidationFailureAction(
-            for: StackAuthError(code: "RATE_LIMIT", message: "try later")
-        ) == .preserveCachedSession
-    )
-}
+// Auth error mapping + cached-session recovery are now owned and tested by
+// CmuxAuthRuntime (AuthErrorMapperTests). The display-safe error and
+// cached-session-validation assertions moved there with the AuthCoordinator
+// lift; see Packages/CmuxAuthRuntime/Tests.
 
 @Test func mobileRuntimeDefaultsToThirtySecondRPCTimeout() {
     let runtime = CMUXMobileRuntime(

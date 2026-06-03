@@ -16,8 +16,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Packages/CMUXAuthCore"),
+        .package(path: "../../Packages/CmuxAuthRuntime"),
         .package(path: "../../Packages/CMUXMobileCore"),
-        .package(path: "../../Packages/CmuxMobileAuth"),
         .package(path: "../../Packages/CmuxMobileDiagnostics"),
         .package(path: "../../Packages/CmuxMobilePairedMac"),
         .package(path: "../../Packages/CmuxMobileRPC"),
@@ -35,8 +35,8 @@ let package = Package(
             name: "cmuxFeature",
             dependencies: [
                 "CMUXAuthCore",
+                "CmuxAuthRuntime",
                 "CMUXMobileCore",
-                "CmuxMobileAuth",
                 "CmuxMobileDiagnostics",
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",
@@ -59,8 +59,8 @@ let package = Package(
             dependencies: [
                 "cmuxFeature",
                 "CMUXAuthCore",
+                "CmuxAuthRuntime",
                 "CMUXMobileCore",
-                "CmuxMobileAuth",
                 "CmuxMobileDiagnostics",
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",

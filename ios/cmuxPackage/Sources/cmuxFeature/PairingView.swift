@@ -1,7 +1,7 @@
 import Foundation
 @preconcurrency import AVFoundation
 import CMUXMobileCore
-import CmuxMobileAuth
+import CmuxAuthRuntime
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal
@@ -27,7 +27,7 @@ struct PairingView: View {
         ?? L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac")
     @State private var host = UITestConfig.addDeviceHost ?? ""
     @State private var port = UITestConfig.addDevicePort ?? "\(CmxMobileDefaults.defaultHostPort)"
-    @State private var authManager = AuthManager.shared
+    @Environment(AuthCoordinator.self) private var authManager
     @State private var validationError: String?
     @State private var isPairing = false
     @State private var pairingTaskID: UUID?

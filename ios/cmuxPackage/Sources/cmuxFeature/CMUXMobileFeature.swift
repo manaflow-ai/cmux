@@ -1,7 +1,7 @@
 import Foundation
 @preconcurrency import AVFoundation
 import CMUXMobileCore
-import CmuxMobileAuth
+import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -40,7 +40,10 @@ public struct CMUXMobileAppView: View {
 struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
-    @State private var authManager = AuthManager.shared
+    @Environment(AuthCoordinator.self) private var authManager
+    #if os(iOS)
+    @Environment(MobilePushCoordinator.self) private var pushCoordinator
+    #endif
     @State private var pendingAttachURL: String?
     @State private var didConsumeUITestAttachURL = false
     @State private var didAuthenticateWithAttachTicket = false
@@ -92,7 +95,7 @@ struct CMUXMobileRootView: View {
             store.resumeForegroundRefresh()
             connectUITestAttachURLIfNeeded()
             #if os(iOS)
-            MobilePushCoordinator.shared.bind(store: store)
+            pushCoordinator.bind(store: store)
             #endif
         }
         .onChange(of: scenePhase) { _, phase in
@@ -218,8 +221,14 @@ struct CMUXMobileRootView: View {
     }
 
     private func signOut() {
+        #if os(iOS)
+        let pushCoordinator = pushCoordinator
+        let onSignedOut: @Sendable () async -> Void = { await pushCoordinator.unregisterFromServer() }
+        #else
+        let onSignedOut: @Sendable () async -> Void = {}
+        #endif
         Task {
-            await authManager.signOut()
+            await authManager.signOut(onSignedOut: onSignedOut)
             didAuthenticateWithAttachTicket = false
             store.signOut()
         }

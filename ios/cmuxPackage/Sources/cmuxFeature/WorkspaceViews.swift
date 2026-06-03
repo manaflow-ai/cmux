@@ -1,7 +1,6 @@
 import Foundation
 @preconcurrency import AVFoundation
 import CMUXMobileCore
-import CmuxMobileAuth
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -248,6 +247,9 @@ struct WorkspaceListView: View {
     /// previews), the menu is hidden.
     var rescanQR: (() -> Void)?
     var signOut: (() -> Void)?
+    #if os(iOS)
+    @Environment(MobilePushCoordinator.self) private var pushCoordinator
+    #endif
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
 
@@ -327,18 +329,18 @@ struct WorkspaceListView: View {
             #if os(iOS)
             Button {
                 Task {
-                    if MobilePushCoordinator.shared.isEnabled {
-                        await MobilePushCoordinator.shared.disable()
+                    if pushCoordinator.isEnabled {
+                        await pushCoordinator.disable()
                     } else {
-                        _ = await MobilePushCoordinator.shared.enable()
+                        _ = await pushCoordinator.enable()
                     }
                 }
             } label: {
                 Label(
-                    MobilePushCoordinator.shared.isEnabled
+                    pushCoordinator.isEnabled
                         ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Agent Notifications")
                         : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me About Agents"),
-                    systemImage: MobilePushCoordinator.shared.isEnabled ? "bell.slash" : "bell"
+                    systemImage: pushCoordinator.isEnabled ? "bell.slash" : "bell"
                 )
             }
             .accessibilityIdentifier("MobileWorkspaceNotificationsMenuItem")

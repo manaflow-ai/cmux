@@ -1,7 +1,7 @@
 import Foundation
 @preconcurrency import AVFoundation
 import CMUXMobileCore
-import CmuxMobileAuth
+import CmuxAuthRuntime
 import CmuxMobileSupport
 import CmuxMobileTerminal
 import CmuxMobileWorkspace
@@ -16,7 +16,7 @@ import AppKit
 #endif
 
 struct SignInView: View {
-    @State private var authManager = AuthManager.shared
+    @Environment(AuthCoordinator.self) private var authManager
     @State private var email = ""
     @State private var code = ""
     @State private var showCodeEntry = false
@@ -318,7 +318,7 @@ struct SignInView: View {
     }
 
     private func detailedErrorMessage(_ error: Error) -> String {
-        let displayError = AuthManager.displaySafeAuthError(error)
+        let displayError = AuthErrorMapper().displaySafe(error)
         if let stackError = displayError as? StackAuthErrorProtocol {
             switch stackError.code {
             case "SCHEMA_ERROR":

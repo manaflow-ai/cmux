@@ -42,9 +42,6 @@
          location = "group:CmuxFoundation">
       </FileRef>
       <FileRef
-         location = "group:CmuxMobileAuth">
-      </FileRef>
-      <FileRef
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef

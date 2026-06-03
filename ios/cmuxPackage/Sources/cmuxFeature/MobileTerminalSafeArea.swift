@@ -1,7 +1,6 @@
 import Foundation
 @preconcurrency import AVFoundation
 import CMUXMobileCore
-import CmuxMobileAuth
 import CmuxMobileTerminal
 import CmuxMobileWorkspace
 import Observation
