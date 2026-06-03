@@ -6987,6 +6987,26 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         XCTAssertFalse(next.contains(c))
     }
 
+    func testDefaultPolicyKeepsWarmCacheBounded() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let d = UUID()
+        let e = UUID()
+        let orderedTabIds: [UUID] = [a, b, c, d, e]
+
+        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: [b, a, d, e],
+            selected: c,
+            pinnedIds: [],
+            orderedTabIds: orderedTabIds,
+            isCycleHot: false,
+            maxMounted: WorkspaceMountPolicy.maxMountedWorkspaces
+        )
+
+        XCTAssertEqual(next, [c, b, a, d])
+    }
+
     func testSelectedWorkspaceMovesToFrontAndMountCountIsBounded() {
         let a = UUID()
         let b = UUID()
