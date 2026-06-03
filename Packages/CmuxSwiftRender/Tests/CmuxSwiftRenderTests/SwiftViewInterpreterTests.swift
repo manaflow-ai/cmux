@@ -352,7 +352,10 @@ import Testing
         }
         """)
         #expect(node?.kind == .vstack)
-        #expect(node?.children.last?.text == "ok")
+        // Soft-fail: the bad division/modulo yields nil, so the interpolation
+        // segment drops and the literal prefix remains (not a crash, not a
+        // garbage number).
+        #expect(node?.children.map(\.text) == ["v=", "m=", "ok"])
     }
 
     @Test func logicalAndShortCircuitsPastOutOfBoundsRight() {
