@@ -13295,6 +13295,8 @@ function quickSettingsSignature() {
   appendSignatureValue(parts, state.savedSettingsProfiles.length);
   appendSignatureValue(parts, state.workspaceBlueprints.length);
   appendSignatureValue(parts, state.customColorPalette.length);
+  appendSignatureValue(parts, state.customColorPalette.join(","));
+  appendSignatureValue(parts, state.colorApplyTarget);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
   appendSignatureValue(parts, state.performanceGuardTriggered);
   appendSignatureValue(parts, state.performanceGuardReason || "");
@@ -18095,6 +18097,57 @@ function quickPaneControlsPanel(panel) {
   });
 }
 
+function quickColorControlsPanel(workspace = activeWorkspace()) {
+  const targetOption = colorApplyTargetOption(state.colorApplyTarget, workspace);
+  const accentSave = currentColorSaveModel("accent", workspace);
+  const workspaceSave = currentColorSaveModel("workspace", workspace);
+  const paneSave = currentColorSaveModel("pane", workspace);
+  const hasSavedColors = state.customColorPalette.length > 0;
+  const targetLabel = targetOption.label.toLowerCase();
+  const actions = [
+    quickOverviewControlButton("Save accent", () => saveCurrentColorToPalette("accent"), {
+      disabled: accentSave.disabled,
+      title: accentSave.title,
+      search: "quick setup color save accent custom reusable palette"
+    }),
+    quickOverviewControlButton("Save workspace", () => saveCurrentColorToPalette("workspace"), {
+      disabled: workspaceSave.disabled,
+      title: workspaceSave.title,
+      search: "quick setup color save workspace custom reusable palette"
+    }),
+    quickOverviewControlButton("Save pane", () => saveCurrentColorToPalette("pane"), {
+      disabled: paneSave.disabled,
+      title: paneSave.title,
+      search: "quick setup color save active pane custom reusable palette"
+    }),
+    quickOverviewControlButton("Paste target", () => pasteColorToTarget(state.colorApplyTarget), {
+      disabled: targetOption.disabled,
+      title: targetOption.disabled ? `${targetOption.label}: ${targetOption.meta}.` : `Paste copied color to ${targetLabel}.`,
+      search: `quick setup color paste copied target ${targetOption.label} ${targetOption.meta}`
+    }),
+    quickOverviewControlButton("Copy palette", copySavedColorPalette, {
+      disabled: !hasSavedColors,
+      title: hasSavedColors ? "Copy the saved color palette as JSON." : "Saved color palette is empty.",
+      search: "quick setup color copy saved palette reusable clipboard json"
+    }),
+    quickOverviewControlButton("Paste palette", pasteSavedColorPalette, {
+      title: "Merge copied colors into the saved palette.",
+      search: "quick setup color paste saved palette reusable clipboard json"
+    }),
+    quickOverviewControlButton("Colors", () => openSettingsCategory("appearance", { query: "color", focusSearch: false }), {
+      title: "Open full color settings.",
+      search: "quick setup open appearance colors full settings accent workspace pane saved palette"
+    })
+  ];
+  return quickOverviewControlsPanel({
+    className: "quick-overview-colors",
+    title: "Color controls",
+    meta: `${targetOption.label}: ${targetOption.status} / ${state.customColorPalette.length}/${customColorPaletteLimit} saved`,
+    search: `quick setup color controls accent workspace pane all saved palette paste target ${targetOption.label} ${targetOption.status} ${targetOption.meta}`,
+    actions
+  });
+}
+
 function quickPerformanceControlsPanel(performance = performanceOverviewModel()) {
   const tuneLabel = performance.status === "tuned" ? "Details" : "Tune";
   const tuneTitle = performance.status === "tuned"
@@ -18202,6 +18255,7 @@ function quickSetupOverviewPanel() {
     </div>
     <div data-quick-workspace-controls></div>
     <div data-quick-pane-controls></div>
+    <div data-quick-color-controls></div>
     <button class="quick-overview-speed" type="button" data-performance-status>
       <span class="quick-overview-speed-icon" aria-hidden="true"></span>
       <span class="quick-overview-speed-copy">
@@ -18276,6 +18330,7 @@ function quickSetupOverviewPanel() {
   panel.querySelector("[data-quick-performance]").textContent = performanceModeLabel();
   panel.querySelector("[data-quick-workspace-controls]").replaceWith(quickWorkspaceControlsPanel(workspace, terminalCount, browserCount));
   panel.querySelector("[data-quick-pane-controls]").replaceWith(quickPaneControlsPanel(activePane));
+  panel.querySelector("[data-quick-color-controls]").replaceWith(quickColorControlsPanel(workspace));
   const speed = panel.querySelector(".quick-overview-speed");
   speed.className = `quick-overview-speed is-${performance.status}`;
   speed.querySelector(".quick-overview-speed-icon").innerHTML = quickActionIconMarkup("speed");
