@@ -501,6 +501,116 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             .replacingOccurrences(of: ".", with: "-")
     }
 
+    // Spawn an agent, end it, spawn a new one on the same surface: restore must pick the NEWEST
+    // session (highest updatedAt), not the stale earlier one.
+    func testReplacementRestoresNewestSessionForSurface() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-newest-wins-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let ws = UUID()
+        let panel = UUID()
+        let oldId = "11111111-1111-1111-1111-111111111111"
+        let newId = "22222222-2222-2222-2222-222222222222"
+        try writeHookStore(
+            root: root,
+            storeFilename: "gemini-hook-sessions.json",
+            sessions: [
+                oldId: driftedAgentHookRecord(
+                    launcher: "gemini", sessionId: oldId, workspaceId: ws, panelId: panel,
+                    recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+                ),
+                newId: driftedAgentHookRecord(
+                    launcher: "gemini", sessionId: newId, workspaceId: ws, panelId: panel,
+                    recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 20
+                ),
+            ]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: ws, panelId: panel)
+        )
+        XCTAssertEqual(snapshot.sessionId, newId, "the surface must resume the newest session, not the replaced one")
+    }
+
+    // Reopening the app multiple times must restore the same session each time (load is pure over
+    // the on-disk store).
+    func testRestoreIsIdempotentAcrossReloads() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-idempotent-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let ws = UUID()
+        let panel = UUID()
+        let sid = "33333333-3333-3333-3333-333333333333"
+        try writeHookStore(
+            root: root,
+            storeFilename: "gemini-hook-sessions.json",
+            sessions: [
+                sid: driftedAgentHookRecord(
+                    launcher: "gemini", sessionId: sid, workspaceId: ws, panelId: panel,
+                    recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+                ),
+            ]
+        )
+
+        var ids: [String?] = []
+        var commands: [String?] = []
+        for _ in 0..<3 {
+            let snap = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: ws, panelId: panel)
+            ids.append(snap?.sessionId)
+            commands.append(snap?.resumeCommand)
+        }
+        XCTAssertEqual(ids, [sid, sid, sid])
+        XCTAssertEqual(Set(commands.compactMap { $0 }).count, 1, "resume command must be stable across reloads")
+    }
+
+    // A session whose recorded process is no longer alive (the agent was killed) must NOT restore
+    // from the hook index, even though the record is still on disk.
+    func testKilledSessionWithDeadProcessDoesNotRestore() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-killed-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let ws = UUID()
+        let panel = UUID()
+        let sid = "44444444-4444-4444-4444-444444444444"
+        try writeHookStore(
+            root: root,
+            storeFilename: "gemini-hook-sessions.json",
+            sessions: [
+                sid: driftedAgentHookRecord(
+                    launcher: "gemini", sessionId: sid, workspaceId: ws, panelId: panel,
+                    recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10, pid: 999_999
+                ),
+            ]
+        )
+
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: root.path, fileManager: fm)
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: registry,
+            detectedSnapshots: [:],
+            processArgumentsProvider: { _ in nil }
+        )
+        XCTAssertNil(
+            index.snapshot(workspaceId: ws, panelId: panel),
+            "a killed session whose recorded process is dead must not restore"
+        )
+    }
+
     private func driftedHookRecord(
         sessionId: String,
         workspaceId: UUID,
@@ -543,14 +653,15 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         panelId: UUID,
         recordedCwd: String,
         launchCwd: String,
-        updatedAt: TimeInterval
+        updatedAt: TimeInterval,
+        pid: Int? = nil
     ) -> [String: Any] {
         [
             "sessionId": sessionId,
             "workspaceId": workspaceId.uuidString,
             "surfaceId": panelId.uuidString,
             "cwd": recordedCwd,
-            "pid": NSNull(),
+            "pid": pid.map { $0 as Any } ?? NSNull(),
             "isRestorable": true,
             "updatedAt": updatedAt,
             "launchCommand": [

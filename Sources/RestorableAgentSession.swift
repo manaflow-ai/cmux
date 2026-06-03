@@ -721,7 +721,8 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
                   sessionId: sessionId,
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  returnToLoginShell: true
+                  returnToLoginShell: true,
+                  workingDirectory: workingDirectory ?? launchCommand?.workingDirectory
               ) else {
             return nil
         }
@@ -792,7 +793,8 @@ private enum AgentResumeScriptStore {
         sessionId: String,
         fileManager: FileManager,
         temporaryDirectory: URL,
-        returnToLoginShell: Bool = false
+        returnToLoginShell: Bool = false,
+        workingDirectory: String? = nil
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -814,7 +816,10 @@ private enum AgentResumeScriptStore {
                 "rm -f -- \"$0\" 2>/dev/null || true"
             ]
             if returnToLoginShell {
-                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(command: command))
+                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
+                    command: command,
+                    workingDirectory: workingDirectory
+                ))
             } else {
                 lines.append(command)
             }

@@ -622,6 +622,38 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         XCTAssertEqual(runningSnapshot.panels.first?.terminal?.resumeBinding?.kind, "tmux")
     }
 
+    // After a resumed agent is killed, the surface must return to the session's launch directory,
+    // not the surface default. The resume command's own `cd` runs inside the `-lic` child shell, so
+    // the outer login shell needs an explicit `cd` to the working directory before `exec -l`.
+    func testResumeLauncherReturnsToLaunchCwdAfterAgentExits() {
+        let dir = "/tmp/repo-resume"
+        let lines = TerminalStartupReturnShellScript.commandThenReturnLines(
+            command: "{ cd -- '\(dir)' 2>/dev/null || [ ! -d '\(dir)' ]; } && 'claude' '--resume' 'abc'",
+            workingDirectory: dir
+        )
+        let script = lines.joined(separator: "\n")
+
+        let outerCd = "{ cd -- '\(dir)' 2>/dev/null || true; }"
+        let exec = "exec -l \"$_cmux_resume_shell\""
+        let outerCdRange = script.range(of: outerCd)
+        let execRange = script.range(of: exec)
+        XCTAssertNotNil(outerCdRange, "launcher must cd the outer shell back to the launch dir; script:\n\(script)")
+        XCTAssertNotNil(execRange, script)
+        if let outerCdRange, let execRange {
+            XCTAssertTrue(
+                outerCdRange.lowerBound < execRange.lowerBound,
+                "the return-to-launch-dir cd must run before exec -l; script:\n\(script)"
+            )
+        }
+
+        // Back-compat: with no working directory, no extra outer cd is emitted.
+        let bare = TerminalStartupReturnShellScript
+            .commandThenReturnLines(command: "echo hi")
+            .joined(separator: "\n")
+        XCTAssertFalse(bare.contains("|| true; }"), bare)
+        XCTAssertTrue(bare.contains(exec), bare)
+    }
+
     private func withRestoredDefaults<T>(
         key: String,
         defaults: UserDefaults = .standard,
