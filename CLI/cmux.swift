@@ -1790,6 +1790,36 @@ final class SocketClient {
         return response
     }
 
+    func sendOneWay(command: String, writeTimeout: TimeInterval) throws {
+        if relayEndpoint != nil, socketFD < 0 {
+            try connect()
+        }
+        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        let shouldCloseAfterSend = relayEndpoint != nil
+        defer {
+            if shouldCloseAfterSend {
+                close()
+            }
+        }
+
+        try configureSocketWriteSafety(writeTimeout)
+        var operation = CLISocketOperationTelemetry.State(
+            name: CLISocketOperationTelemetry.operationName(for: command),
+            timeout: writeTimeout,
+            startedAt: Date(),
+            phase: .writeRequest
+        )
+        recordOperation(operation)
+
+        try writeAll(
+            Data((command + "\n").utf8),
+            timeoutMessage: "Command timed out",
+            failureMessage: "Failed to write to socket"
+        )
+        operation.phase = .completed
+        recordOperation(operation)
+    }
+
     private func connectOnce() throws {
         if let relayEndpoint {
             try connectToRelay(endpoint: relayEndpoint)
@@ -28311,7 +28341,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let line = String(data: data, encoding: .utf8)
         else { return }
-        _ = try? client.send(command: line, responseTimeout: 0.75)
+        _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
     }
 
     private func feedContextForEvent(
@@ -30290,11 +30320,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         ])
         let line = String(data: payload, encoding: .utf8) ?? "{}"
 
+        if waitTimeout == 0 {
+            _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
+            print("{}")
+            return
+        }
+
         let response: String
         do {
             response = try client.send(
                 command: line,
-                responseTimeout: waitTimeout > 0 ? waitTimeout + 5 : nil
+                responseTimeout: waitTimeout + 5
             )
         } catch {
             print("{}")
