@@ -263,6 +263,13 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         isClosed = true
         autoSaveTask?.cancel()
         autoSaveTask = nil
+        // Notes have no manual Save and the debounced autosave may not have fired
+        // yet; flush pending edits before teardown. saveTextContent reads the live
+        // textView, so flush before clearing it; the write Task captures content by
+        // value and completes even as this panel is released.
+        if isProjectNote, isDirty {
+            _ = saveTextContent()
+        }
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
@@ -394,6 +401,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
                 self.isDirty = self.textContent != currentContent
                 self.isFileUnavailable = false
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+                // Edits made while this save was in flight leave isDirty == true;
+                // reschedule so autosave continues without waiting for a new keystroke.
+                if self.isDirty {
+                    self.scheduleAutoSaveIfNeeded()
+                }
             case .failed(let fileExists):
                 self.isFileUnavailable = !fileExists
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)

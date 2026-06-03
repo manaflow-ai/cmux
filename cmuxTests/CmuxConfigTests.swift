@@ -329,6 +329,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
             CmuxSurfaceTabBarBuiltInAction.filesPane.configID,
             CmuxSurfaceTabBarBuiltInAction.findPane.configID,
             CmuxSurfaceTabBarBuiltInAction.diffViewer.configID,
+            CmuxSurfaceTabBarBuiltInAction.newNote.configID,
             CmuxSurfaceTabBarBuiltInAction.revealCurrentDirectoryInFinder.configID,
             CmuxSurfaceTabBarBuiltInAction.customizeSurfaceTabBar.configID,
         ])

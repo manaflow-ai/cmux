@@ -23,12 +23,27 @@ enum CmuxNoteStore {
     }
 
     static func absoluteBodyPath(bodyPath: String, projectRoot: String) -> String {
+        // `bodyPath` comes from project-controlled `.cmux/notes/index.json`, so an
+        // absolute path or `..` traversal must never let note read/write/append/rm
+        // escape the notes directory. Canonical body paths are `notes/<id>.md`
+        // relative to `.cmux`; anything resolving outside `.cmux/notes` is confined
+        // to that directory by its final path component.
+        let notesRoot = URL(fileURLWithPath: NoteSupport.notesDirectory(forProjectRoot: projectRoot))
+            .standardizedFileURL.path
+        let resolved: String
         if bodyPath.hasPrefix("/") {
-            return (bodyPath as NSString).standardizingPath
+            resolved = URL(fileURLWithPath: bodyPath).standardizedFileURL.path
+        } else {
+            let cmuxDir = (projectRoot as NSString).appendingPathComponent(".cmux")
+            let joined = (cmuxDir as NSString).appendingPathComponent(bodyPath)
+            resolved = URL(fileURLWithPath: joined).standardizedFileURL.path
         }
-        return (((projectRoot as NSString).appendingPathComponent(".cmux") as NSString)
-            .appendingPathComponent(bodyPath) as NSString)
-            .standardizingPath
+        if resolved == notesRoot || resolved.hasPrefix(notesRoot + "/") {
+            return resolved
+        }
+        let leaf = (bodyPath as NSString).lastPathComponent
+        let safeLeaf = (leaf.isEmpty || leaf == "." || leaf == "..") ? "untrusted-note.md" : leaf
+        return (notesRoot as NSString).appendingPathComponent(safeLeaf)
     }
 
     static func noteBodyPath(for note: CmuxNoteRecord, projectRoot: String) -> String {

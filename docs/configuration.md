@@ -8,7 +8,7 @@ Project-scoped action wiring can also live in `.cmux/cmux.json` inside a project
 
 Controls the buttons shown at the end of each pane tab bar. cmux appends the built-in More button unless `ui.surfaceTabBar.hideMoreButton` is `true`.
 
-The default More menu is pane-scoped: Vault pane, Files pane, Find pane, Diff Viewer, Reveal Current Directory in Finder, and Customize. Use the Customize item to open Settings and this documentation.
+The default More menu is pane-scoped: Vault pane, Files pane, Find pane, Diff Viewer, New Note, Reveal Current Directory in Finder, and Customize. Use the Customize item to open Settings and this documentation.
 
 ```json
 {
