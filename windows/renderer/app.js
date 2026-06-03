@@ -372,6 +372,7 @@ const browserLoadTimeoutMs = 15000;
 const browserSuspendStopDelayMs = 1200;
 const embeddedGooglePolishMinIntervalMs = 750;
 const paneCreationBusyAnimationDelayMs = 2000;
+const operationChromeRefreshMs = 1000;
 const browserLoadingStatusText = t("browser.loadingStatus");
 const browserPausedStatusText = t("browser.pausedStatus");
 const paneResizeFitThrottleMs = 90;
@@ -540,6 +541,7 @@ const state = {
   contextMenu: null,
   activeDialog: null,
   uiOperations: new Map(),
+  operationChromeTimer: 0,
   pendingFocusSync: null,
   focusSyncTimer: 0,
   focusSyncRevision: 0,
@@ -4266,15 +4268,36 @@ function updateOperationChrome() {
   updateVisibleEmptyWorkspaceControls();
 }
 
+function updateOperationChromeTimer() {
+  if (state.uiOperations.size === 0) {
+    stopOperationChromeTimerIfIdle();
+    return;
+  }
+  updateOperationChrome();
+}
+
+function ensureOperationChromeTimer() {
+  if (state.operationChromeTimer || state.uiOperations.size === 0) return;
+  state.operationChromeTimer = window.setInterval(updateOperationChromeTimer, operationChromeRefreshMs);
+}
+
+function stopOperationChromeTimerIfIdle() {
+  if (!state.operationChromeTimer || state.uiOperations.size > 0) return;
+  window.clearInterval(state.operationChromeTimer);
+  state.operationChromeTimer = 0;
+}
+
 async function withUiOperation(key, kind, label, task, metadata = {}) {
   if (state.uiOperations.has(key)) return null;
   state.uiOperations.set(key, { ...metadata, kind, label, startedAt: performance.now() });
   updateOperationChrome();
+  ensureOperationChromeTimer();
   try {
     return await task();
   } finally {
     state.uiOperations.delete(key);
     updateOperationChrome();
+    stopOperationChromeTimerIfIdle();
   }
 }
 
