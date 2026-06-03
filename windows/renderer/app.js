@@ -14253,6 +14253,44 @@ function activePaneLayoutPresetIds(workspace = activeWorkspace()) {
   return ids;
 }
 
+function paneLayoutPresetActiveForWorkspace(presetId, workspace = activeWorkspace(), activePanelId = workspace?.activePanelId) {
+  const preset = paneLayoutPresets.find((candidate) => candidate.id === presetId);
+  if (!preset || !workspace || workspace.panels.length <= 1) return false;
+  const currentTree = paneTreeForWorkspace(workspace);
+  const targetPanelId = workspace.panels.some((panel) => panel.id === activePanelId)
+    ? activePanelId
+    : workspace.panels.some((panel) => panel.id === workspace.activePanelId)
+      ? workspace.activePanelId
+      : workspace.panels[0]?.id;
+  const activeForPreset = (candidate) => {
+    if (candidate.id === "grid" && workspace.panels.length <= 2) return false;
+    const expected = paneLayoutPresetTreeForWorkspace(candidate, workspace, targetPanelId, currentTree);
+    return Boolean(expected && paneTreeEqual(currentTree, expected));
+  };
+  if (preset.id === "equal") {
+    return paneLayoutPresets.every((candidate) => (
+      candidate.id === "equal" || !activeForPreset(candidate)
+    )) && activeForPreset(preset);
+  }
+  return activeForPreset(preset);
+}
+
+function contextPaneLayoutButton(label, presetId, workspace = activeWorkspace(), options = {}) {
+  const preset = paneLayoutPresets.find((candidate) => candidate.id === presetId);
+  const targetPanelId = options.panelId || activePanel()?.id || "";
+  const unavailable = !preset || !workspace || workspace.panels.length <= 1 || !targetPanelId;
+  const active = !unavailable && paneLayoutPresetActiveForWorkspace(presetId, workspace, targetPanelId);
+  const button = contextMenuButton(
+    label,
+    () => applyPaneLayoutPreset(presetId, options.panelId ? { panelId: options.panelId } : {}),
+    unavailable || active,
+    "",
+    { icon: options.icon || "layout" }
+  );
+  button.title = paneLayoutPresetTitle(preset, active, unavailable);
+  return button;
+}
+
 function paneLayoutDirectionLabel(workspace = activeWorkspace()) {
   return paneLayoutDirection(workspace) === "down" ? t("paneShape.stackedRows") : t("paneShape.sideBySideColumns");
 }
@@ -16903,6 +16941,29 @@ function showPanelContextMenu(event, panel) {
   );
   const surfaceActions = [];
   if (isTerminal) {
+    const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
+    const paneBackground = normalizeBackgroundValue(panel.backgroundImage);
+    const paneUsesAppBackground = Boolean(appBackground && panelBackgroundMatches(panel, appBackground));
+    const useAppBackground = contextMenuButton(
+      paneUsesAppBackground ? "App background active" : "Use app background",
+      () => applyPanelBackgroundImage(appBackground, panel),
+      !appBackground || paneUsesAppBackground,
+      "",
+      { icon: "image" }
+    );
+    useAppBackground.title = !appBackground
+      ? "Choose an app background first."
+      : paneUsesAppBackground
+        ? "This pane already uses the app background."
+        : "Apply the app background to this pane.";
+    const clearPaneBackground = contextMenuButton(
+      "Clear pane background",
+      () => applyPanelBackgroundImage("", panel),
+      !paneBackground,
+      "",
+      { icon: "close" }
+    );
+    clearPaneBackground.title = paneBackground ? "Clear this pane background." : "Pane background is already clear.";
     surfaceActions.push(
       contextMenuButton("Find", () => openTerminalSearch(panel), false, "", { icon: "search" }),
       contextMenuButton("Find next", () => findNextInTerminal(panel), false, "", { icon: "arrowRight" }),
@@ -16914,13 +16975,13 @@ function showPanelContextMenu(event, panel) {
       contextMenuButton("Reset text size", () => resetPaneTerminalFontSize(panel.id), !panelHasTerminalFontSize(panel), "", { icon: "reload" }),
       contextMenuButton("Restart terminal", () => restartPanel(panel.id), false, "", { icon: "reload" }),
       contextMenuButton("Choose pane background", () => choosePanelBackgroundImage(panel), false, "", { icon: "image" }),
-      contextMenuButton("Use app background", () => applyPanelBackgroundImage(state.settings.backgroundImage, panel), !state.settings.backgroundImage, "", { icon: "image" }),
+      useAppBackground,
       (() => {
         const action = contextMenuButton("Save pane background", () => saveCustomBackgroundImage({ url: panel.backgroundImage }), !canSaveBackgroundImage(panel.backgroundImage), "", { icon: "plus" });
         action.title = savedBackgroundImageSaveTitle(panel.backgroundImage, "Save this pane background image.");
         return action;
       })(),
-      contextMenuButton("Clear pane background", () => applyPanelBackgroundImage("", panel), !panel.backgroundImage, "", { icon: "close" }),
+      clearPaneBackground,
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal"), false, "", { icon: "settings" })
     );
   }
@@ -16937,10 +16998,10 @@ function showPanelContextMenu(event, panel) {
   const layoutActions = contextMenuActionGroup(
     contextMenuButton("Set pane size", () => promptPanelLayoutPercent(panel), found.workspace.panels.length <= 1, "", { icon: "layout" }),
     contextMenuButton(isPanelZoomed(panel, found.workspace) ? "Show all panes" : "Focus pane", () => togglePaneZoom(panel.id), false, "", { icon: "maximize" }),
-    contextMenuButton("Equalize panes", () => applyPaneLayoutPreset("equal", { panelId: panel.id }), found.workspace.panels.length <= 1, "", { icon: "layout" }),
-    contextMenuButton("Grid layout", () => applyPaneLayoutPreset("grid", { panelId: panel.id }), found.workspace.panels.length <= 1, "", { icon: "layout" }),
-    contextMenuButton("Active pane wide", () => applyPaneLayoutPreset("activeWide", { panelId: panel.id }), found.workspace.panels.length <= 1, "", { icon: "splitRight" }),
-    contextMenuButton("Active pane tall", () => applyPaneLayoutPreset("activeTall", { panelId: panel.id }), found.workspace.panels.length <= 1, "", { icon: "splitDown" }),
+    contextPaneLayoutButton("Equalize panes", "equal", found.workspace, { panelId: panel.id, icon: "layout" }),
+    contextPaneLayoutButton("Grid layout", "grid", found.workspace, { panelId: panel.id, icon: "layout" }),
+    contextPaneLayoutButton("Active pane wide", "activeWide", found.workspace, { panelId: panel.id, icon: "splitRight" }),
+    contextPaneLayoutButton("Active pane tall", "activeTall", found.workspace, { panelId: panel.id, icon: "splitDown" }),
     contextMenuButton("Move left", () => movePanelLeft(found.workspace, index), index <= 0, "", { icon: "back" }),
     contextMenuButton("Move right", () => movePanelRight(found.workspace, index), index >= found.workspace.panels.length - 1, "", { icon: "arrowRight" })
   );
@@ -17049,12 +17110,39 @@ function showWorkspaceContextMenu(event, workspace) {
   });
   const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(workspace.color), !canSaveCustomColor(workspace.color));
   saveColor.title = customColorSaveTitle(workspace.color, "Save this workspace color to the reusable palette.");
-  const hasTerminalPanes = (workspace.panels || []).some((panel) => panel.type === "terminal");
+  const terminalPanels = workspaceTerminalPanels(workspace);
+  const hasTerminalPanes = terminalPanels.length > 0;
+  const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
+  const terminalBackgroundsUseApp = Boolean(appBackground && terminalBackgroundsMatch(workspace, appBackground));
+  const terminalBackgroundsClear = terminalBackgroundsMatch(workspace, "");
+  const useAppBackground = contextMenuButton(
+    terminalBackgroundsUseApp ? "App background active" : t("workspace.useAppBackground"),
+    () => applyWorkspaceBackgroundImageToTerminals(appBackground, workspace),
+    !hasTerminalPanes || !appBackground || terminalBackgroundsUseApp
+  );
+  useAppBackground.title = !hasTerminalPanes
+    ? "Open a terminal pane first."
+    : !appBackground
+      ? "Choose an app background first."
+      : terminalBackgroundsUseApp
+        ? "All terminal panes already use the app background."
+        : "Apply the app background to every terminal pane.";
+  const clearTerminalBackgrounds = contextMenuButton(
+    t("workspace.clearTerminalBackgrounds"),
+    () => applyWorkspaceBackgroundImageToTerminals("", workspace),
+    !hasTerminalPanes || terminalBackgroundsClear,
+    "danger"
+  );
+  clearTerminalBackgrounds.title = !hasTerminalPanes
+    ? "Open a terminal pane first."
+    : terminalBackgroundsClear
+      ? "Terminal pane backgrounds are already clear."
+      : "Clear every terminal pane background.";
   const backgroundActions = contextMenuActionGroup(
     contextMenuButton(t("workspace.chooseTerminalBackground"), () => chooseWorkspaceTerminalBackground(workspace), !hasTerminalPanes),
     contextMenuButton(t("workspace.pasteTerminalBackground"), () => pasteWorkspaceTerminalBackgroundFromClipboard(workspace), !hasTerminalPanes),
-    contextMenuButton(t("workspace.useAppBackground"), () => applyWorkspaceBackgroundImageToTerminals(state.settings.backgroundImage, workspace), !hasTerminalPanes || !state.settings.backgroundImage),
-    contextMenuButton(t("workspace.clearTerminalBackgrounds"), () => applyWorkspaceBackgroundImageToTerminals("", workspace), !hasTerminalPanes, "danger"),
+    useAppBackground,
+    clearTerminalBackgrounds,
     contextMenuButton(t("workspace.backgroundSettings"), () => openSettingsCategory("appearance", { query: "background", focusSearch: true }))
   );
   menu.replaceChildren(
@@ -17137,10 +17225,10 @@ function showToolbarMenu(event) {
     contextMenuActionGroup(
       contextMenuButton("Reset split layout", resetActivePaneLayout, !multiPane),
       contextMenuButton("Reset workspace chrome", resetWorkspaceChrome, workspaceChromeSettingsAreDefault()),
-      contextMenuButton("Equalize panes", () => applyPaneLayoutPreset("equal"), !multiPane),
-      contextMenuButton("Grid layout", () => applyPaneLayoutPreset("grid"), !multiPane),
-      contextMenuButton("Active pane wide", () => applyPaneLayoutPreset("activeWide"), !multiPane),
-      contextMenuButton("Active pane tall", () => applyPaneLayoutPreset("activeTall"), !multiPane),
+      contextPaneLayoutButton("Equalize panes", "equal", workspace, { icon: "layout" }),
+      contextPaneLayoutButton("Grid layout", "grid", workspace, { icon: "layout" }),
+      contextPaneLayoutButton("Active pane wide", "activeWide", workspace, { icon: "splitRight" }),
+      contextPaneLayoutButton("Active pane tall", "activeTall", workspace, { icon: "splitDown" }),
       contextMenuButton("Set active pane size", promptActivePaneLayoutPercent, !multiPane),
       contextMenuButton("Close other panes", () => closeOtherPanes(), !multiPane, "danger"),
       contextMenuButton("Close all panes", () => closeAllPanes(workspace), !workspace?.panels.length, "danger")
