@@ -215,6 +215,20 @@ private func writeMinimalGitRepository(
     )
 }
 
+@MainActor
+private func makeSidebarMetadataTabManager(
+    watchGitStatus: Bool = true,
+    pullRequestPolling: Bool = true,
+    commandRunner: any CommandRunning = CommandRunner()
+) -> TabManager {
+    let manager = TabManager(commandRunner: commandRunner)
+    manager.setSidebarMetadataSettingsForTesting(
+        watchGitStatus: watchGitStatus,
+        pullRequestPolling: pullRequestPolling
+    )
+    return manager
+}
+
 private func writeEmptyGitIndex(at repoURL: URL, signatureByte: UInt8) throws {
     var data = Data()
     data.append(contentsOf: [0x44, 0x49, 0x52, 0x43])
@@ -591,7 +605,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             )
         }
 
-        let manager = TabManager(commandRunner: commandRunner)
+        let manager = makeSidebarMetadataTabManager(commandRunner: commandRunner)
         var seededPanels: [(workspaceId: UUID, panelId: UUID)] = []
         let workspaceCount = 45
         var workspaces = manager.tabs
@@ -667,7 +681,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             observer.stop()
         }
 
-        let manager = TabManager(commandRunner: gitRunner)
+        let manager = makeSidebarMetadataTabManager(commandRunner: gitRunner)
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -707,7 +721,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
     }
 
     func testBranchOnlyGitReportDoesNotClearExistingDirtyState() throws {
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -733,7 +747,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
     }
 
     func testBranchOnlyGitReportClearsDirtyStateWhenBranchChanges() throws {
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -766,7 +780,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.gitBranch = SidebarGitBranchState(branch: "main", isDirty: true)
 
@@ -804,7 +818,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             "PR badges should be enabled by default so this covers the stale badge users see."
         )
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let url = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/2722"))
@@ -826,7 +840,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertFalse(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [panelId]).isEmpty)
 
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        manager.setSidebarMetadataSettingsForTesting(watchGitStatus: false, pullRequestPolling: false)
 
         XCTAssertNil(workspace.gitBranch)
         XCTAssertNil(workspace.pullRequest)
@@ -881,7 +895,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager(pullRequestPolling: false)
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -911,7 +925,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
 
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let url = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/2746"))
@@ -932,7 +946,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertNotNil(workspace.panelPullRequests[panelId])
 
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        manager.setSidebarMetadataSettingsForTesting(watchGitStatus: true, pullRequestPolling: false)
 
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
         XCTAssertNil(workspace.panelPullRequests[panelId])
@@ -943,7 +957,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        manager.setSidebarMetadataSettingsForTesting(watchGitStatus: true, pullRequestPolling: true)
 
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
         XCTAssertEqual(
@@ -971,7 +985,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager(watchGitStatus: false, pullRequestPolling: false)
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -983,7 +997,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertNil(workspace.panelGitBranches[panelId])
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        manager.setSidebarMetadataSettingsForTesting(watchGitStatus: true, pullRequestPolling: true)
 
         XCTAssertTrue(
             waitForCondition {
@@ -1016,7 +1030,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1068,7 +1082,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1114,7 +1128,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1170,7 +1184,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1241,7 +1255,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1312,7 +1326,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1396,7 +1410,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1434,7 +1448,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1489,7 +1503,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1534,7 +1548,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1583,7 +1597,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1683,7 +1697,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1741,7 +1755,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        let manager = TabManager()
+        let manager = makeSidebarMetadataTabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 

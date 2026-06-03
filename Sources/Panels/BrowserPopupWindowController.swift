@@ -273,6 +273,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     func closePopup() {
         WebViewInspectorTeardown.closeAllInspectors(in: panel)
+        webView.removeFromSuperview()
         panel.close() // triggers windowWillClose
     }
 

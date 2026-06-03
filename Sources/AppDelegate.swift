@@ -1654,7 +1654,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let windows = NSApp.windows
         let ids = windows.map { $0.identifier?.rawValue ?? "" }.joined(separator: ",")
         let vis = windows.map { $0.isVisible ? "1" : "0" }.joined(separator: ",")
-        let screenIDs = windows.map { $0.screen?.cmuxDisplayID.map(String.init) ?? "" }.joined(separator: ",")
+        let screenIDs = windows.map { uiTestDisplayID(for: $0).map(String.init) ?? "" }.joined(separator: ",")
         let keyWindowIdentifier = NSApp.keyWindow?.identifier?.rawValue ?? ""
         let mainWindowIdentifier = NSApp.mainWindow?.identifier?.rawValue ?? ""
         let settingsWindow = windows.first { $0.identifier?.rawValue == "cmux.settings" }
@@ -1675,8 +1675,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         payload["settingsWindowIsVisible"] = settingsWindow?.isVisible == true ? "1" : "0"
         payload["uiTestTargetDisplayID"] = targetDisplayID
         if let rawDisplayID = UInt32(targetDisplayID) {
-            let screenPresent = NSScreen.screens.contains(where: { $0.cmuxDisplayID == rawDisplayID })
-            let movedWindow = windows.contains(where: { $0.screen?.cmuxDisplayID == rawDisplayID })
+            let screenPresent = uiTestDisplayIsPresent(rawDisplayID)
+            let movedWindow = windows.contains(where: { uiTestDisplayID(for: $0) == rawDisplayID })
             payload["targetDisplayPresent"] = screenPresent ? "1" : "0"
             payload["targetDisplayMoveSucceeded"] = movedWindow ? "1" : "0"
         }
@@ -1698,6 +1698,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return [:]
         }
         return object
+    }
+
+    private func uiTestDisplayIsPresent(_ displayID: CGDirectDisplayID) -> Bool {
+        NSScreen.screens.contains(where: { $0.cmuxDisplayID == displayID }) || CGDisplayIsOnline(displayID) != 0
+    }
+
+    private func uiTestDisplayFrame(for displayID: CGDirectDisplayID) -> NSRect? {
+        if let screen = NSScreen.screens.first(where: { $0.cmuxDisplayID == displayID }) {
+            return screen.visibleFrame
+        }
+        guard CGDisplayIsOnline(displayID) != 0 else {
+            return nil
+        }
+        return NSRectFromCGRect(CGDisplayBounds(displayID))
+    }
+
+    private func uiTestDisplayID(for window: NSWindow) -> CGDirectDisplayID? {
+        if let displayID = window.screen?.cmuxDisplayID {
+            return displayID
+        }
+        let frame = window.frame
+        return Self.uiTestOnlineDisplayIDs().first { displayID in
+            NSRectFromCGRect(CGDisplayBounds(displayID)).intersects(frame)
+        }
+    }
+
+    private static func uiTestOnlineDisplayIDs() -> [CGDirectDisplayID] {
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(0, nil, &count) == .success, count > 0 else {
+            return []
+        }
+        var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        let result = displayIDs.withUnsafeMutableBufferPointer { buffer in
+            CGGetOnlineDisplayList(count, buffer.baseAddress, &count)
+        }
+        guard result == .success else {
+            return []
+        }
+        return Array(displayIDs.prefix(Int(count)))
     }
 
     private func writeUITestDiagnostics(_ updates: [String: String], at path: String) {
@@ -1874,7 +1913,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        guard let screen = NSScreen.screens.first(where: { $0.cmuxDisplayID == targetDisplayID }) else {
+        guard let visibleFrame = uiTestDisplayFrame(for: targetDisplayID) else {
             if attempt < 80 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                     self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
@@ -1894,7 +1933,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        let visibleFrame = screen.visibleFrame
         let width = min(window.frame.width, max(visibleFrame.width - 80, 480))
         let height = min(window.frame.height, max(visibleFrame.height - 80, 360))
         let frame = NSRect(
@@ -1907,7 +1945,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.setFrame(frame, display: true, animate: false)
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
-        if window.screen?.cmuxDisplayID != targetDisplayID, attempt < 80 {
+        if uiTestDisplayID(for: window) != targetDisplayID, attempt < 80 {
             self.writeUITestDiagnosticsIfNeeded(stage: "targetDisplayMovePending")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)

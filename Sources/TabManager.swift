@@ -1310,6 +1310,10 @@ class TabManager: ObservableObject {
     private var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
     private var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
     private var workspaceGitMetadataFallbackTimer: DispatchSourceTimer?
+#if DEBUG
+    private var sidebarGitMetadataWatchEnabledOverrideForTesting: Bool?
+    private var sidebarPullRequestPollingEnabledOverrideForTesting: Bool?
+#endif
     private var lastSidebarGitMetadataWatchEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     private var lastSidebarPullRequestPollingEnabled = SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
     private var workspacePullRequestProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
@@ -1588,11 +1592,21 @@ class TabManager: ObservableObject {
     }
 
     private var sidebarGitMetadataWatchEnabled: Bool {
-        SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
+#if DEBUG
+        if let sidebarGitMetadataWatchEnabledOverrideForTesting {
+            return sidebarGitMetadataWatchEnabledOverrideForTesting
+        }
+#endif
+        return SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     }
 
     private var sidebarPullRequestPollingEnabled: Bool {
-        SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
+#if DEBUG
+        if let sidebarPullRequestPollingEnabledOverrideForTesting {
+            return sidebarPullRequestPollingEnabledOverrideForTesting
+        }
+#endif
+        return SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
     }
 
     private func sidebarMetadataSettingsDidChange() {
@@ -2326,6 +2340,15 @@ class TabManager: ObservableObject {
     }
 
     func sidebarGitMetadataWatchSettingsDidChangeForTesting() {
+        sidebarMetadataSettingsDidChange()
+    }
+
+    func setSidebarMetadataSettingsForTesting(
+        watchGitStatus: Bool?,
+        pullRequestPolling: Bool?
+    ) {
+        sidebarGitMetadataWatchEnabledOverrideForTesting = watchGitStatus
+        sidebarPullRequestPollingEnabledOverrideForTesting = pullRequestPolling
         sidebarMetadataSettingsDidChange()
     }
 
