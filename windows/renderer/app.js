@@ -438,25 +438,29 @@ const workspaceStarters = [
     id: "terminalBrowser",
     label: "Terminal + Browser",
     body: "One shell beside the configured browser home page.",
-    panels: ["terminal", "browser"]
+    panels: ["terminal", "browser"],
+    titles: ["Shell", "Preview"]
   },
   {
     id: "twoTerminals",
     label: "Two Terminals",
     body: "Side-by-side shells for server and commands.",
-    panels: ["terminal", "terminal"]
+    panels: ["terminal", "terminal"],
+    titles: ["Server", "Commands"]
   },
   {
     id: "devTrio",
     label: "Dev Trio",
     body: "Two shells plus a browser pane for local app work.",
-    panels: ["terminal", "terminal", "browser"]
+    panels: ["terminal", "terminal", "browser"],
+    titles: ["Server", "Tasks", "Preview"]
   },
   {
     id: "fullStack",
     label: "Full Stack",
     body: "Three shells for server, tasks, and logs plus a browser preview.",
-    panels: ["terminal", "terminal", "terminal", "browser"]
+    panels: ["terminal", "terminal", "terminal", "browser"],
+    titles: ["Server", "Tasks", "Logs", "Preview"]
   }
 ];
 
@@ -3155,11 +3159,18 @@ function workspaceStarterById(starterId) {
   return workspaceStarters.find((candidate) => candidate.id === starterId) || null;
 }
 
-function workspaceStarterPanelTitle(type, index, panels) {
+function workspaceStarterPanelTitle(type, index, starterOrPanels) {
+  const customTitle = String(starterOrPanels?.titles?.[index] || "").trim().slice(0, 80);
+  if (customTitle) return customTitle;
+  const panels = Array.isArray(starterOrPanels) ? starterOrPanels : starterOrPanels?.panels || [];
   if (type === "browser") return "Browser";
   const terminalCount = panels.slice(0, index + 1).filter((panelType) => panelType === "terminal").length;
   const totalTerminals = panels.filter((panelType) => panelType === "terminal").length;
   return totalTerminals > 1 ? `Terminal ${terminalCount}` : "Terminal";
+}
+
+function workspaceStarterPanelLabels(starter) {
+  return starter?.panels?.map((type, index) => workspaceStarterPanelTitle(type, index, starter)) || [];
 }
 
 function workspaceStarterBlueprint(starter, options = {}) {
@@ -3174,7 +3185,7 @@ function workspaceStarterBlueprint(starter, options = {}) {
     createdAt: options.createdAt,
     panels: starter.panels.map((type, index) => ({
       type,
-      title: workspaceStarterPanelTitle(type, index, starter.panels),
+      title: workspaceStarterPanelTitle(type, index, starter),
       color: "",
       backgroundImage: "",
       cwd: "",
@@ -6274,8 +6285,9 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
     const starter = workspaceStarterById(starterCommand.starterId);
     const isNew = starterCommand.mode === "new";
     const paneCount = starter?.panels?.length || 0;
+    const panelLabels = workspaceStarterPanelLabels(starter);
     return {
-      meta: starter ? `${paneCount} pane${paneCount === 1 ? "" : "s"} / ${starter.panels.map((type) => type === "browser" ? "web" : "term").join(" + ")}` : "No starter",
+      meta: starter ? `${paneCount} pane${paneCount === 1 ? "" : "s"} / ${panelLabels.join(" + ")}` : "No starter",
       shortcut: isNew ? "New" : "Add",
       disabled: !starter || queueFull || (!isNew && !hasWorkspace),
       icon: "blueprints",
@@ -6289,7 +6301,7 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
               ? `Add ${starter.label} starter panes to ${workspaceTitle}.`
               : noWorkspaceTitle,
       search: starter
-        ? `workspace starter layout ${isNew ? "new create" : "add current"} ${starter.label} ${starter.body} ${starter.panels.join(" ")} ${workspaceTitle}`
+        ? `workspace starter layout ${isNew ? "new create" : "add current"} ${starter.label} ${starter.body} ${starter.panels.join(" ")} ${panelLabels.join(" ")} ${workspaceTitle}`
         : "workspace starter layout missing"
     };
   }
@@ -18392,8 +18404,9 @@ function quickBlueprintControlsPanel(workspace = activeWorkspace()) {
   const starter = workspaceStarterById("devTrio") || workspaceStarters[0] || null;
   const savedStarterBlueprint = starter ? workspaceStarterSavedBlueprint(starter) : null;
   const starterLabel = starter?.label || "Starter";
+  const starterPanelLabels = workspaceStarterPanelLabels(starter);
   const starterSearch = starter
-    ? `${starter.label} ${starter.body} ${starter.panels.join(" ")}`
+    ? `${starter.label} ${starter.body} ${starter.panels.join(" ")} ${starterPanelLabels.join(" ")}`
     : "";
   const saveStarterDisabled = !starter || Boolean(savedStarterBlueprint) || blueprintsFull;
   const creationDisabled = paneCreationButtonsDisabled();
@@ -23995,10 +24008,11 @@ function workspaceStarterGrid() {
   for (const starter of workspaceStarters) {
     const savedBlueprint = workspaceStarterSavedBlueprint(starter);
     const saveDisabled = Boolean(savedBlueprint) || workspaceBlueprintsFull();
+    const panelLabels = workspaceStarterPanelLabels(starter);
     const card = document.createElement("div");
     card.className = `workspace-starter${savedBlueprint ? " is-active" : ""}`;
     card.dataset.workspaceStarter = starter.id;
-    card.dataset.settingsSearch = normalizeSettingsQuery(`workspace starter layout preset blueprint save copy new add current ${savedBlueprint ? "saved active " : ""}${starter.label} ${starter.body} ${starter.panels.join(" ")}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`workspace starter layout preset blueprint save copy new add current ${savedBlueprint ? "saved active " : ""}${starter.label} ${starter.body} ${starter.panels.join(" ")} ${panelLabels.join(" ")}`);
     card.innerHTML = `
       <span class="workspace-starter-title-text"></span>
       <span class="workspace-starter-body"></span>
@@ -24006,9 +24020,7 @@ function workspaceStarterGrid() {
     `;
     card.querySelector(".workspace-starter-title-text").textContent = starter.label;
     card.querySelector(".workspace-starter-body").textContent = starter.body;
-    card.querySelector(".workspace-starter-panes").textContent = starter.panels
-      .map((type) => type === "browser" ? "web" : "term")
-      .join(" + ");
+    card.querySelector(".workspace-starter-panes").textContent = panelLabels.join(" + ");
     const actions = document.createElement("div");
     actions.className = "workspace-starter-actions";
     const save = settingsActionButton(
@@ -27927,10 +27939,11 @@ function paletteEntries() {
   for (const starter of workspaceStarters) {
     const savedBlueprint = workspaceStarterSavedBlueprint(starter);
     const saveDisabled = Boolean(savedBlueprint) || paletteBlueprintsFull;
+    const panelLabels = workspaceStarterPanelLabels(starter);
     entries.push({
       id: `workspaceStarter.save.${starter.id}`,
       label: `Save starter as blueprint: ${starter.label}`,
-      meta: savedBlueprint ? `Already saved / ${savedBlueprint.label}` : `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} saved blueprints`,
+      meta: savedBlueprint ? `Already saved / ${savedBlueprint.label}` : panelLabels.join(" + "),
       shortcut: savedBlueprint ? "Saved" : "Save",
       disabled: saveDisabled,
       title: savedBlueprint
@@ -27938,16 +27951,16 @@ function paletteEntries() {
         : paletteBlueprintsFull
           ? workspaceBlueprintLimitTitle()
           : "Save this starter as a reusable workspace blueprint.",
-      search: normalizeSettingsQuery(`workspace starter layout blueprint save reusable ${savedBlueprint ? "saved active current " : ""}${starter.label} ${starter.body} ${starter.panels.join(" ")}`),
+      search: normalizeSettingsQuery(`workspace starter layout blueprint save reusable ${savedBlueprint ? "saved active current " : ""}${starter.label} ${starter.body} ${starter.panels.join(" ")} ${panelLabels.join(" ")}`),
       run: () => saveWorkspaceStarterBlueprint(starter.id)
     });
     entries.push({
       id: `workspaceStarter.copy.${starter.id}`,
       label: `Copy starter blueprint: ${starter.label}`,
-      meta: starter.body,
+      meta: panelLabels.join(" + "),
       shortcut: "Copy",
       title: "Copy this starter as workspace blueprint JSON.",
-      search: normalizeSettingsQuery(`workspace starter layout blueprint copy clipboard json ${starter.label} ${starter.body} ${starter.panels.join(" ")}`),
+      search: normalizeSettingsQuery(`workspace starter layout blueprint copy clipboard json ${starter.label} ${starter.body} ${starter.panels.join(" ")} ${panelLabels.join(" ")}`),
       run: () => copyWorkspaceStarterBlueprint(starter.id)
     });
   }
@@ -28286,7 +28299,7 @@ async function applyWorkspaceStarter(starterId, workspaceId = activeWorkspace()?
           focus: false,
           reconcile: false,
           operation: false,
-          title: workspaceStarterPanelTitle(type, index, starter.panels),
+          title: workspaceStarterPanelTitle(type, index, starter),
           url: type === "browser" ? state.settings.browserHomeUrl : undefined
         })));
       if (results.some((result) => result.status === "rejected" || !result.value?.id)) {
