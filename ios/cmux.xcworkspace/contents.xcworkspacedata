@@ -5,6 +5,6 @@
       location = "group:cmuxPackage">
    </FileRef>
    <FileRef
-      location = "group:cmux.xcodeproj">
+      location = "group:cmux-ios.xcodeproj">
    </FileRef>
 </Workspace>

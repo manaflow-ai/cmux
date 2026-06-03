@@ -149,7 +149,7 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
           xcodebuild -workspace ios/cmux.xcworkspace \
-            -scheme cmux \
+            -scheme cmux-ios \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath /tmp/cmux-ios-${{ matrix.family }} \
             -resolvePackageDependencies
@@ -162,7 +162,7 @@ jobs:
           set -euo pipefail
           XCODEBUILD_ARGS=(
             -workspace ios/cmux.xcworkspace
-            -scheme cmux
+            -scheme cmux-ios
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
             -derivedDataPath /tmp/cmux-ios-${{ matrix.family }}
           )

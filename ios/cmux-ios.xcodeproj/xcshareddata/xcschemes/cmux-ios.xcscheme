@@ -18,7 +18,7 @@
                BlueprintIdentifier = "8B41F6442DEDD0D5001A66F9"
                BuildableName = "cmux.app"
                BlueprintName = "cmux"
-               ReferencedContainer = "container:cmux.xcodeproj">
+               ReferencedContainer = "container:cmux-ios.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -42,7 +42,7 @@
                BlueprintIdentifier = "8B41F65B2DEDD0D6001A66F9"
                BuildableName = "cmux.xctest"
                BlueprintName = "cmuxUITests"
-               ReferencedContainer = "container:cmux.xcodeproj">
+               ReferencedContainer = "container:cmux-ios.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -64,7 +64,7 @@
             BlueprintIdentifier = "8B41F6442DEDD0D5001A66F9"
             BuildableName = "cmux.app"
             BlueprintName = "cmux"
-            ReferencedContainer = "container:cmux.xcodeproj">
+            ReferencedContainer = "container:cmux-ios.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -81,7 +81,7 @@
             BlueprintIdentifier = "8B41F6442DEDD0D5001A66F9"
             BuildableName = "cmux.app"
             BlueprintName = "cmux"
-            ReferencedContainer = "container:cmux.xcodeproj">
+            ReferencedContainer = "container:cmux-ios.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>
