@@ -5382,7 +5382,9 @@ function renderPendingPane(panel, body) {
   setDatasetIfChanged(pending, "panelId", panel.id);
   const isBrowser = panel.type === "browser";
   const elapsedSeconds = pendingPanelElapsedSeconds(panel);
+  const waiting = elapsedSeconds >= 2;
   const slow = elapsedSeconds >= 8;
+  toggleClassIfChanged(pending, "is-waiting", waiting);
   toggleClassIfChanged(pending, "is-slow", slow);
   pending.setAttribute("role", "status");
   pending.setAttribute("aria-live", "polite");

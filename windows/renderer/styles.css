@@ -3201,12 +3201,16 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   border-radius: var(--radius-1);
   background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane) 90%);
   color: var(--color-text);
-  animation: cmux-pulse 1100ms var(--ease-in-out) infinite;
+  opacity: .9;
 }
 
 .pending-pane-icon svg {
   width: 17px;
   height: 17px;
+}
+
+.pending-pane.is-waiting .pending-pane-icon {
+  animation: cmux-pulse 1100ms var(--ease-in-out) infinite;
 }
 
 .pending-pane.is-slow .pending-pane-icon {
@@ -3245,15 +3249,27 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   overflow: hidden;
   border-radius: var(--radius-pill);
   background: color-mix(in oklch, var(--color-text) 9%, transparent);
+  opacity: .55;
 }
 
 .pending-pane-progress span {
   position: absolute;
   inset-block: 0;
-  left: -42%;
-  width: 42%;
+  left: 0;
+  width: 32%;
   border-radius: inherit;
   background: var(--color-accent);
+  opacity: .72;
+}
+
+.pending-pane.is-waiting .pending-pane-progress {
+  opacity: 1;
+}
+
+.pending-pane.is-waiting .pending-pane-progress span {
+  left: -42%;
+  width: 42%;
+  opacity: 1;
   animation: pending-pane-progress 1.2s var(--ease-in-out) infinite;
 }
 
@@ -3316,7 +3332,7 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
 @media (prefers-reduced-motion: reduce) {
   .pending-pane-icon,
   .pending-pane-progress span {
-    animation-duration: 1ms;
+    animation: none;
   }
 }
 
