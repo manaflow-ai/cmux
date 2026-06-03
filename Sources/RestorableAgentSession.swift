@@ -422,43 +422,15 @@ enum AgentResumeCommandBuilder {
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?
     ) -> [String]? {
-        switch launchCommand?.launcher {
-        case "claudeTeams":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "claude-teams" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: args) else { return nil }
-            return [original.executable, "claude-teams", "--resume", sessionId] + preserved
-        case "codexTeams":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "codex-teams" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else { return nil }
-            return [original.executable, "codex-teams", "resume", sessionId] + preserved
-        case "omo":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "omo" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: args) else { return nil }
-            return [original.executable, "omo", "--session", sessionId] + preserved
-        case "omx", "omc":
-            return nil
-        default:
+        switch AgentResumeArgv.launcherResolution(
+            launcher: launchCommand?.launcher,
+            sessionId: sessionId,
+            executablePath: launchCommand?.executablePath,
+            arguments: launchCommand?.arguments ?? []
+        ) {
+        case .resolved(let argv):
+            return argv
+        case .passthrough:
             break
         }
 
@@ -482,114 +454,12 @@ enum AgentResumeCommandBuilder {
             return arguments.isEmpty ? nil : arguments
         }
 
-        switch kind {
-        case .claude:
-            return resumeWithOption(
-                kind: "claude",
-                launchCommand: launchCommand,
-                fallbackExecutable: "claude",
-                option: "--resume",
-                sessionId: sessionId
-            )
-        case .codex:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
-            return [original.executable, "resume", sessionId] + preserved
-        case .grok:
-            return resumeWithOption(
-                kind: "grok",
-                launchCommand: launchCommand,
-                fallbackExecutable: "grok",
-                option: "-r",
-                sessionId: sessionId
-            )
-        case .pi:
-            return resumeWithOption(
-                kind: "pi",
-                launchCommand: launchCommand,
-                fallbackExecutable: "pi",
-                option: "--session",
-                sessionId: sessionId
-            )
-        case .amp:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "amp")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "amp", args: original.tail) else { return nil }
-            return [original.executable, "threads", "continue"] + preserved + [sessionId]
-        case .cursor:
-            return resumeWithOption(
-                kind: "cursor",
-                launchCommand: launchCommand,
-                fallbackExecutable: "cursor-agent",
-                option: "--resume",
-                sessionId: sessionId
-            )
-        case .gemini:
-            return resumeWithOption(
-                kind: "gemini",
-                launchCommand: launchCommand,
-                fallbackExecutable: "gemini",
-                option: "--resume",
-                sessionId: sessionId
-            )
-        case .kiro:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "kiro-cli")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "kiro", args: original.tail) else { return nil }
-            return [original.executable, "chat", "--resume-id", sessionId] + preserved
-        case .antigravity:
-            return resumeWithOption(
-                kind: "antigravity",
-                launchCommand: launchCommand,
-                fallbackExecutable: "agy",
-                option: "--conversation",
-                sessionId: sessionId
-            )
-        case .opencode:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
-            return [original.executable, "--session", sessionId] + preserved
-        case .rovodev:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "acli")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "rovodev", args: original.tail) else { return nil }
-            return [original.executable, "rovodev", "run", "--restore", sessionId] + preserved
-        case .hermesAgent:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "hermes")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "hermes-agent", args: original.tail) else { return nil }
-            return [original.executable] + preserved + ["--resume", sessionId]
-        case .copilot:
-            return resumeWithOption(
-                kind: "copilot",
-                launchCommand: launchCommand,
-                fallbackExecutable: "copilot",
-                option: "--resume",
-                sessionId: sessionId
-            )
-        case .codebuddy:
-            return resumeWithOption(
-                kind: "codebuddy",
-                launchCommand: launchCommand,
-                fallbackExecutable: "codebuddy",
-                option: "--resume",
-                sessionId: sessionId
-            )
-        case .factory:
-            return resumeWithOption(
-                kind: "factory",
-                launchCommand: launchCommand,
-                fallbackExecutable: "droid",
-                option: "--resume",
-                sessionId: sessionId
-            )
-        case .qoder:
-            return resumeWithOption(
-                kind: "qoder",
-                launchCommand: launchCommand,
-                fallbackExecutable: "qodercli",
-                option: "--resume",
-                sessionId: sessionId
-            )
-        case .custom:
-            return nil
-        }
+        return AgentResumeArgv.builtInKind(
+            kind: kind.rawValue,
+            sessionId: sessionId,
+            executablePath: launchCommand?.executablePath,
+            arguments: launchCommand?.arguments ?? []
+        )
     }
 
     private static func forkArguments(
