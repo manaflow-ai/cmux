@@ -81,7 +81,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
         case .paneTabBar: return "surface tab bar pane buttons more menu customize cmux json project local directory"
         case .sidebarAppearance: return "sidebar details branches material terminal background"
-        case .betaFeatures: return "beta experimental unstable dock right sidebar"
+        case .betaFeatures: return "beta experimental unstable feed dock right sidebar"
         case .automation: return "socket integrations hooks ports claude cursor gemini"
         case .browser: return "search engine links history theme"
         case .browserImport: return "browser import bookmarks history cookies"

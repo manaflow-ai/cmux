@@ -1632,6 +1632,13 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    // The watcher's leading-edge coalescing (a sustained FSEvents burst yields
+    // one refresh per window rather than waiting for the repo to go quiet) is now
+    // verified deterministically in CmuxWorkspaceGit's package tests
+    // (WorkspaceGitMetadataWatcherTests.burstCoalescesAndThrottleRearms), with an
+    // injected clock and no real waiting, instead of the previous timing-based
+    // semaphore storm helper.
+
     func testModeOnlyTrackedChangesMarkSidebarDirty() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)

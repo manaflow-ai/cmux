@@ -1,6 +1,6 @@
 import Foundation
 
-public struct CMUXSidebarWorkspace: Codable, Equatable, Identifiable, Sendable {
+public struct CmuxSidebarWorkspace: Codable, Equatable, Identifiable, Sendable {
     public var id: UUID
     public var title: String
     public var detail: String?
@@ -12,7 +12,7 @@ public struct CMUXSidebarWorkspace: Codable, Equatable, Identifiable, Sendable {
     public var latestNotification: String?
     public var listeningPorts: [Int]
     public var pullRequestURLs: [String]
-    public var surfaces: [CMUXSidebarSurface]
+    public var surfaces: [CmuxSidebarSurface]
 
     public init(
         id: UUID,
@@ -26,7 +26,7 @@ public struct CMUXSidebarWorkspace: Codable, Equatable, Identifiable, Sendable {
         latestNotification: String? = nil,
         listeningPorts: [Int] = [],
         pullRequestURLs: [String] = [],
-        surfaces: [CMUXSidebarSurface] = []
+        surfaces: [CmuxSidebarSurface] = []
     ) {
         self.id = id
         self.title = title
@@ -55,12 +55,13 @@ public struct CMUXSidebarWorkspace: Codable, Equatable, Identifiable, Sendable {
         latestNotification = try container.decodeIfPresent(String.self, forKey: .latestNotification)
         listeningPorts = try container.decode([Int].self, forKey: .listeningPorts)
         pullRequestURLs = try container.decode([String].self, forKey: .pullRequestURLs)
-        surfaces = try container.decodeIfPresent([CMUXSidebarSurface].self, forKey: .surfaces) ?? []
+        surfaces = try container.decodeIfPresent([CmuxSidebarSurface].self, forKey: .surfaces) ?? []
     }
 
-    public func filtered(for scopes: some Sequence<CMUXExtensionScope>) -> CMUXSidebarWorkspace {
+    @_spi(CmuxHostTransport)
+    public func filtered(for scopes: some Sequence<CmuxExtensionScope>) -> CmuxSidebarWorkspace {
         let scopeSet = Set(scopes)
-        return CMUXSidebarWorkspace(
+        return CmuxSidebarWorkspace(
             id: id,
             title: title,
             detail: detail,

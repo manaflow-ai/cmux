@@ -191,6 +191,18 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "markdown": [
+                    "fontSize": Int(MarkdownFontSizeSettings.defaultPointSize),
+                    "fontFamily": "",
+                    "maxWidth": Int(MarkdownMaxWidthSettings.defaultCSSPixels),
+                ],
+            ],
+            [
+                "fileEditor": [
+                    "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
+                ],
+            ],
+            [
                 "shortcuts": [
                     "bindings": shortcutsBindings,
                 ],

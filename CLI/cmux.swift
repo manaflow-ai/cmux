@@ -1,4 +1,7 @@
 import Foundation
+import CMUXAgentLaunch
+import CmuxFoundation
+import CmuxSocketControl
 import CoreFoundation
 import CryptoKit
 import Darwin
@@ -1407,8 +1410,6 @@ private enum TopTextFormat: Equatable {
 enum SocketPasswordResolver {
     private static let service = "com.cmuxterm.app.socket-control"
     private static let account = "local-socket-password"
-    private static let directoryName = "cmux"
-    private static let fileName = "socket-control-password"
 
     static func resolve(explicit: String?, socketPath: String) -> String? {
         if let explicit = normalized(explicit) {
@@ -1430,12 +1431,13 @@ enum SocketPasswordResolver {
     }
 
     private static func loadFromFile() -> String? {
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+        // Resolve through the shared store so the CLI reads the exact path the app
+        // writes — the non-TCC cmux state directory, not Application Support
+        // (https://github.com/manaflow-ai/cmux/issues/5146). The CLI is a
+        // composition root, so it names the concrete `FileManager.default` here.
+        guard let passwordURL = SocketControlPasswordStore.defaultPasswordFileURL(fileManager: .default) else {
             return nil
         }
-        let passwordURL = appSupport
-            .appendingPathComponent(directoryName, isDirectory: true)
-            .appendingPathComponent(fileName, isDirectory: false)
         guard let data = try? Data(contentsOf: passwordURL) else {
             return nil
         }
@@ -4578,6 +4580,17 @@ struct CMUXCLI {
         }
     }
 
+    /// Validates a `cmux markdown open --font-size <points>` value. The viewer
+    /// clamps the rendered size to 8...96 points, so reject anything outside
+    /// that range here instead of silently clamping the user's input.
+    private func parseMarkdownViewerFontSize(_ rawValue: String) throws -> Double {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let size = Double(trimmed), size >= 8, size <= 96 else {
+            throw CLIError(message: "--font-size must be a number between 8 and 96")
+        }
+        return (size * 100).rounded() / 100
+    }
+
     func resolvePath(_ path: String) -> String {
         let expanded = NSString(string: path).expandingTildeInPath
         if expanded.hasPrefix("/") { return expanded }
@@ -4640,7 +4653,10 @@ struct CMUXCLI {
         let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
         let (directionOpt, argsAfterDirection) = parseOption(argsAfterSurface, name: "--direction")
         let (focusOpt, argsAfterFocus) = parseOption(argsAfterDirection, name: "--focus")
-        args = argsAfterFocus
+        let (fontSizeOpt, argsAfterFontSize) = parseOption(argsAfterFocus, name: "--font-size")
+        args = argsAfterFontSize
+
+        let fontSize = try fontSizeOpt.map(parseMarkdownViewerFontSize)
 
         // Determine subcommand. Explicit "open" is supported, otherwise treat
         // a single positional argument as shorthand path.
@@ -4655,7 +4671,7 @@ struct CMUXCLI {
             if let first = args.first, first.hasPrefix("-") {
                 throw CLIError(
                     message:
-                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
+                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>] [--font-size <points>]"
                 )
             } else if let first = args.first, looksLikePath(first) || first.contains(".") {
                 subArgs = args
@@ -4673,13 +4689,13 @@ struct CMUXCLI {
         if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
             throw CLIError(
                 message:
-                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
+                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>] [--font-size <points>]"
             )
         }
         if let extraArg = trailingArgs.first {
             throw CLIError(
                 message:
-                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>]"
+                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--focus <true|false>] [--font-size <points>]"
             )
         }
 
@@ -4688,6 +4704,9 @@ struct CMUXCLI {
         // Build params
         let direction = directionOpt ?? "right"
         var params: [String: Any] = ["path": absolutePath, "direction": direction]
+        if let fontSize {
+            params["font_size"] = fontSize
+        }
         if let surfaceRaw = surfaceOpt {
             if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = surface
@@ -7759,6 +7778,7 @@ struct CMUXCLI {
         let noFocus: Bool
         let sshOptions: [String]
         let extraArguments: [String]
+        let agentSocketPath: String?
         let localSocketPath: String
         let remoteRelayPort: Int
         /// True when the remote is a cloud VM with cmuxd-remote pre-baked in the image.
@@ -7775,6 +7795,7 @@ struct CMUXCLI {
             noFocus: Bool,
             sshOptions: [String],
             extraArguments: [String],
+            agentSocketPath: String? = nil,
             localSocketPath: String,
             remoteRelayPort: Int,
             skipDaemonBootstrap: Bool = false
@@ -7788,6 +7809,7 @@ struct CMUXCLI {
             self.noFocus = noFocus
             self.sshOptions = sshOptions
             self.extraArguments = extraArguments
+            self.agentSocketPath = agentSocketPath
             self.localSocketPath = localSocketPath
             self.remoteRelayPort = remoteRelayPort
             self.skipDaemonBootstrap = skipDaemonBootstrap
@@ -8045,6 +8067,11 @@ struct CMUXCLI {
         var workspaceCreateParams: [String: Any] = [
             "initial_command": initialSSHStartupCommand,
         ]
+        if let agentSocketPath = sshOptions.agentSocketPath {
+            workspaceCreateParams["initial_env"] = [
+                "SSH_AUTH_SOCK": agentSocketPath,
+            ]
+        }
         try applyWindowOrCallerContext(to: &workspaceCreateParams, client: client, windowRaw: sshOptions.windowRaw)
 
         let workspaceCreateStartedAt = Date()
@@ -8108,6 +8135,9 @@ struct CMUXCLI {
             }
             if !remoteSSHOptions.isEmpty {
                 configureParams["ssh_options"] = remoteSSHOptions
+            }
+            if let agentSocketPath = sshOptions.agentSocketPath {
+                configureParams["ssh_auth_sock"] = agentSocketPath
             }
             if sshOptions.remoteRelayPort > 0 {
                 configureParams["relay_port"] = sshOptions.remoteRelayPort
@@ -8218,6 +8248,7 @@ struct CMUXCLI {
         var noFocus = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
+        var forwardAgentOverride: Bool?
 
         var passthrough = false
         var index = 0
@@ -8263,6 +8294,12 @@ struct CMUXCLI {
             case "--no-focus":
                 noFocus = true
                 index += 1
+            case "-A", "--forward-agent":
+                forwardAgentOverride = true
+                index += 1
+            case "-a", "--no-forward-agent":
+                forwardAgentOverride = false
+                index += 1
             case "--ssh-option":
                 guard index + 1 < commandArgs.count else {
                     throw CLIError(message: "ssh: --ssh-option requires a value")
@@ -8293,6 +8330,10 @@ struct CMUXCLI {
         guard let destination else {
             throw CLIError(message: "ssh requires a destination (example: cmux ssh user@host)")
         }
+        let agentForwarding = resolvedSSHAgentForwarding(
+            sshOptions: sshOptions,
+            override: forwardAgentOverride
+        )
         return SSHCommandOptions(
             destination: destination,
             port: port,
@@ -8300,11 +8341,55 @@ struct CMUXCLI {
             workspaceName: workspaceName,
             windowRaw: windowRaw ?? windowOverride,
             noFocus: noFocus,
-            sshOptions: sshOptions,
+            sshOptions: agentForwarding.sshOptions,
             extraArguments: extraArguments,
+            agentSocketPath: agentForwarding.agentSocketPath,
             localSocketPath: localSocketPath,
             remoteRelayPort: remoteRelayPort
         )
+    }
+
+    private func resolvedSSHAgentForwarding(
+        sshOptions: [String],
+        override: Bool?
+    ) -> (sshOptions: [String], agentSocketPath: String?) {
+        let forwardAgentValue: String?
+        var resolvedOptions = sshOptions
+
+        if let override {
+            resolvedOptions = sshOptionsRemovingForwardAgent(resolvedOptions)
+            resolvedOptions.append("ForwardAgent=\(override ? "yes" : "no")")
+            forwardAgentValue = override ? "yes" : nil
+        } else if let explicitForwardAgent = sshForwardAgentValue(in: resolvedOptions) {
+            forwardAgentValue = explicitForwardAgent
+        } else {
+            forwardAgentValue = nil
+        }
+
+        let resolver = SSHAgentSocketResolver()
+        let explicitAgentSocketPath = forwardAgentValue
+            .flatMap(resolver.agentSocketPath(forForwardAgentValue:))
+            .flatMap(existingSSHAgentSocketPath)
+        let agentSocketPath = explicitAgentSocketPath
+            ?? existingSSHAgentSocketPath(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"])
+        return (resolvedOptions, agentSocketPath)
+    }
+
+    private func sshOptionsRemovingForwardAgent(_ options: [String]) -> [String] {
+        SSHAgentSocketResolver().removingOptions(named: "ForwardAgent", from: options)
+    }
+
+    private func sshForwardAgentValue(in options: [String]) -> String? {
+        SSHAgentSocketResolver().optionValue(named: "ForwardAgent", in: options)
+    }
+
+    /// Returns a normalized agent socket path only when it currently exists.
+    private func existingSSHAgentSocketPath(_ value: String?) -> String? {
+        guard let path = SSHAgentSocketResolver().normalizedAgentSocketPath(value),
+              FileManager.default.fileExists(atPath: path) else {
+            return nil
+        }
+        return path
     }
 
     func buildSSHCommandText(
@@ -10690,6 +10775,15 @@ struct CMUXCLI {
         if lowered.contains("timed out") || lowered.contains("timeout") {
             return "remote daemon did not respond in time"
         }
+        // Surface the daemon's PTY-allocation diagnostic verbatim (it names the
+        // failing device and the devpts/ptmxmode cause) instead of collapsing it
+        // into a generic message. Key off the daemon's stable marker only, so an
+        // unrelated error that merely mentions a device path is not leaked. The
+        // peer branches in this CLI helper return plain English, so this branch
+        // does too. See issue #5185.
+        if lowered.contains("could not allocate a remote pty") {
+            return trimmed
+        }
         return "remote PTY operation failed"
     }
 
@@ -10983,23 +11077,14 @@ struct CMUXCLI {
     }
 
     private func remoteDaemonCacheURL(version: String, goOS: String, goArch: String) -> URL {
-        let root: URL
-        do {
-            root = try FileManager.default.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            )
-        } catch {
-            return URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-                .appendingPathComponent("cmux-remote-daemons", isDirectory: true)
-                .appendingPathComponent(version, isDirectory: true)
-                .appendingPathComponent("\(goOS)-\(goArch)", isDirectory: true)
-                .appendingPathComponent("cmuxd-remote", isDirectory: false)
-        }
-        return root
-            .appendingPathComponent("cmux", isDirectory: true)
+        // Cache under the non-TCC cmux state directory rather than Application
+        // Support: the separately-signed CLI downloads these on `cmux ssh`, and a
+        // cross-identity reach into the app's Application Support data triggers the
+        // macOS Sequoia "access data from other apps" prompt
+        // (https://github.com/manaflow-ai/cmux/issues/5146). The app's
+        // Workspace.remoteDaemonCachedBinaryURL resolves the same path. The CLI is
+        // a composition root, so it names the concrete `FileManager.default` here.
+        return CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
             .appendingPathComponent("remote-daemons", isDirectory: true)
             .appendingPathComponent(version, isDirectory: true)
             .appendingPathComponent("\(goOS)-\(goArch)", isDirectory: true)
@@ -11013,16 +11098,7 @@ struct CMUXCLI {
     }
 
     private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        for option in options {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let token = trimmed.split(whereSeparator: { $0 == "=" || $0.isWhitespace }).first.map(String.init)?.lowercased()
-            if token == loweredKey {
-                return true
-            }
-        }
-        return false
+        SSHAgentSocketResolver().hasOptionKey(options, key: key)
     }
 
     private func deferredRemoteReconnectLocalCommandScript(
@@ -11153,23 +11229,7 @@ struct CMUXCLI {
     }
 
     private func sshOptionValue(named key: String, in options: [String]) -> String? {
-        let loweredKey = key.lowercased()
-        for option in options {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let parts = trimmed.split(
-                maxSplits: 1,
-                omittingEmptySubsequences: true,
-                whereSeparator: { $0 == "=" || $0.isWhitespace }
-            )
-            if parts.count == 2, parts[0].lowercased() == loweredKey {
-                let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty {
-                    return value
-                }
-            }
-        }
-        return nil
+        SSHAgentSocketResolver().optionValue(named: key, in: options)
     }
 
     private func cliDebugLog(_ message: @autoclosure () -> String) {
@@ -13805,7 +13865,7 @@ struct CMUXCLI {
             via Settings → Keyboard.
             """
         case "ssh":
-            return """
+            return String(localized: "cli.help.ssh", defaultValue: """
             Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]
 
             Create a new workspace, mark it as remote-SSH, and start an SSH session in that workspace.
@@ -13815,6 +13875,8 @@ struct CMUXCLI {
               --name <title>          Optional workspace title
               --port <n>              SSH port
               --identity <path>       SSH identity file path
+              -A, --forward-agent     Forward the caller's SSH agent; also honors ForwardAgent yes from ssh_config
+              -a, --no-forward-agent  Disable SSH agent forwarding for this workspace
               --ssh-option <opt>      Extra SSH -o option (repeatable)
               --window <id|ref|index> Target window for the managed workspace
               --no-focus              Create workspace without switching to it
@@ -13822,8 +13884,9 @@ struct CMUXCLI {
             Example:
               cmux ssh dev@my-host
               cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
+              cmux ssh dev@my-host --forward-agent
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
-            """
+            """)
         case "ssh-session-list":
             return """
             Usage: cmux ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
@@ -22733,13 +22796,7 @@ struct CMUXCLI {
     }
 
     private func readTranscriptSummary(path: String) -> TranscriptSummary? {
-        let expandedPath = NSString(string: path).expandingTildeInPath
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: expandedPath)) else {
-            return nil
-        }
-        guard let content = String(data: data, encoding: .utf8) else { return nil }
-
-        let lines = content.components(separatedBy: "\n")
+        guard let lines = readRecentTextFileLines(path: path, maxBytes: 1_048_576) else { return nil }
 
         var lastAssistantMessage: String?
 
@@ -22761,6 +22818,63 @@ struct CMUXCLI {
 
         guard lastAssistantMessage != nil else { return nil }
         return TranscriptSummary(lastAssistantMessage: lastAssistantMessage)
+    }
+
+    private func readRecentTextFileLines(
+        path: String,
+        maxBytes: UInt64
+    ) -> [String]? {
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
+            return nil
+        }
+        defer { try? handle.close() }
+
+        func isASCIIWhitespace(_ byte: UInt8) -> Bool {
+            byte == 0x09 || byte == 0x0A || byte == 0x0D || byte == 0x20
+        }
+
+        func hasCompleteLineAfterLeadingBoundary(_ data: Data, readStart: UInt64) -> Bool {
+            guard readStart > 0 else { return true }
+            guard let newline = data.firstIndex(of: 0x0A) else { return false }
+            return data[data.index(after: newline)...].contains { !isASCIIWhitespace($0) }
+        }
+
+        let size: UInt64
+        do {
+            size = try handle.seekToEnd()
+            var readStart = size > maxBytes ? size - maxBytes : 0
+            try handle.seek(toOffset: readStart)
+            guard var data = try handle.readToEnd(), !data.isEmpty else {
+                return nil
+            }
+            let maxWindowBytes = maxBytes > UInt64.max / 8 ? UInt64.max : maxBytes * 8
+
+            while !hasCompleteLineAfterLeadingBoundary(data, readStart: readStart), readStart > 0 {
+                let currentWindowBytes = size - readStart
+                guard currentWindowBytes < maxWindowBytes else { break }
+                let remainingWindowBytes = maxWindowBytes - currentWindowBytes
+                let expansionBytes = min(readStart, maxBytes, remainingWindowBytes)
+                guard expansionBytes > 0 else { break }
+
+                readStart -= expansionBytes
+                try handle.seek(toOffset: readStart)
+                guard let expandedData = try handle.readToEnd(), !expandedData.isEmpty else {
+                    return nil
+                }
+                data = expandedData
+            }
+
+            if readStart > 0, let newline = data.firstIndex(of: 0x0A) {
+                data.removeSubrange(data.startIndex...newline)
+            }
+            guard let text = String(data: data, encoding: .utf8) else {
+                return nil
+            }
+            return text.components(separatedBy: "\n")
+        } catch {
+            return nil
+        }
     }
 
     private struct CodexHookFailureSummary {
@@ -22866,7 +22980,7 @@ struct CMUXCLI {
         turnId: String? = nil,
         requireTerminalCompletion: Bool = false
     ) -> CodexTranscriptFailureReadResult {
-        guard let content = readTextFileTail(path: path, maxBytes: 512 * 1024) else {
+        guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
             return .unavailable
         }
 
@@ -22875,7 +22989,7 @@ struct CMUXCLI {
         var sawAssistantMessage = false
         var sawTerminalTurn = false
         var sawRelevantTurn = turnId == nil
-        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
+        for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
                   let data = trimmed.data(using: .utf8),
@@ -22990,13 +23104,13 @@ struct CMUXCLI {
     private func codexTranscriptTerminalTurnIds(path: String, turnIds: Set<String>) -> Set<String> {
         let expectedTurnIds = Set(turnIds.compactMap { normalizedHookValue($0) })
         guard !expectedTurnIds.isEmpty,
-              let content = readTextFileTail(path: path, maxBytes: 512 * 1024) else {
+              let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
             return []
         }
 
         var terminalTurnIds = Set<String>()
         var currentTurnId: String?
-        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
+        for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
                   let data = trimmed.data(using: .utf8),
@@ -23041,13 +23155,13 @@ struct CMUXCLI {
         turnId: String?,
         excluding publishedCallIds: Set<String>
     ) -> CodexHookUserInputCandidate? {
-        guard let content = readTextFileTail(path: path, maxBytes: 512 * 1024) else {
+        guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
             return nil
         }
 
         var sawRelevantTurn = turnId == nil
         var candidate: CodexHookUserInputCandidate?
-        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
+        for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
                   let data = trimmed.data(using: .utf8),
@@ -23124,7 +23238,7 @@ struct CMUXCLI {
         path: String,
         turnId: String?
     ) -> CodexTranscriptSubagentSignals {
-        guard let content = readTextFileTail(path: path, maxBytes: 512 * 1024) else {
+        guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
             return CodexTranscriptSubagentSignals()
         }
 
@@ -23133,7 +23247,7 @@ struct CMUXCLI {
         var currentTurnId: String?
         var currentTurnRelevant = normalizedTurnId == nil
 
-        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
+        for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
                   let data = trimmed.data(using: .utf8),
@@ -23453,27 +23567,6 @@ struct CMUXCLI {
         }
         let trimmed = normalizedSingleLine(string)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func readTextFileTail(path: String, maxBytes: UInt64) -> String? {
-        let expandedPath = NSString(string: path).expandingTildeInPath
-        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
-            return nil
-        }
-        defer { try? handle.close() }
-
-        let endOffset = (try? handle.seekToEnd()) ?? 0
-        let startOffset = endOffset > maxBytes ? endOffset - maxBytes : 0
-        do {
-            try handle.seek(toOffset: startOffset)
-        } catch {
-            return nil
-        }
-        var data = handle.readDataToEndOfFile()
-        if startOffset > 0, let newline = data.firstIndex(of: 0x0A) {
-            data.removeSubrange(0...newline)
-        }
-        return String(data: data, encoding: .utf8)
     }
 
     private func findCodexTranscriptPath(sessionId: String, env: [String: String]) -> String? {
@@ -24153,12 +24246,12 @@ struct CMUXCLI {
             return nil
         }
         let historyURL = sessionURL.appendingPathComponent("chat_history.jsonl", isDirectory: false)
-        guard let tail = readTextFileTail(path: historyURL.path, maxBytes: 256 * 1024) else {
+        guard let lines = readRecentTextFileLines(path: historyURL.path, maxBytes: 256 * 1024) else {
             return nil
         }
 
-        for line in tail.split(separator: "\n", omittingEmptySubsequences: true).reversed() {
-            guard let data = String(line).data(using: .utf8),
+        for line in lines.reversed() {
+            guard let data = line.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   (object["type"] as? String) == "assistant",
                   let text = extractMessageText(from: object) else {
@@ -28998,19 +29091,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         path: String,
         matchingToolName: String?
     ) -> [String: Any]? {
-        let expandedPath = NSString(string: path).expandingTildeInPath
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: expandedPath)),
-              let content = String(data: data, encoding: .utf8)
-        else {
-            return nil
-        }
+        guard let lines = readRecentTextFileLines(path: path, maxBytes: 1_048_576) else { return nil }
 
         var lastUserMessage: String?
         var lastAssistantText: String?
         var permissionMode: String?
         var matchedContext: [String: Any]?
 
-        for line in content.components(separatedBy: "\n") {
+        for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
                   let lineData = trimmed.data(using: .utf8),
@@ -31833,7 +31921,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         Commands:
           welcome
-          docs [settings|shortcuts|api|browser|agents|dock]
+          docs [settings|shortcuts|api|browser|agents|dock|sidebars]
           settings [open [target]|path|docs|<target>]
           config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
@@ -31874,7 +31962,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
-          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
@@ -32014,7 +32102,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           CMUX_TAB_ID         Optional alias used by `tab-action`/`rename-tab` as default --tab.
           CMUX_SURFACE_ID     Auto-set in cmux terminals. Used as default --surface.
           CMUX_SOCKET_PATH    Override the Unix socket path. Without this, the CLI defaults
-                              to ~/Library/Application Support/cmux/cmux.sock and auto-discovers tagged/debug sockets.
+                              to ~/.local/state/cmux/cmux.sock and auto-discovers tagged/debug sockets.
         """
     }
 

@@ -20,7 +20,7 @@
          location = "group:CMUXDebugLog">
       </FileRef>
       <FileRef
-         location = "group:CMUXExtensionClient">
+         location = "group:CMUXExtensionHostSupport">
       </FileRef>
       <FileRef
          location = "group:CmuxExtensionKit">
