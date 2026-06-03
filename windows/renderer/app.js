@@ -5835,20 +5835,30 @@ const backgroundPaletteCommandIds = new Set([
 ]);
 
 const customizationPaletteCommandIds = new Set([
+  "settings.copyAppSetup",
+  "settings.pasteAppSetup",
+  "settings.copyRecentActivity",
+  "settings.pasteRecentActivity",
   "settings.copySavedLibrary",
+  "settings.pasteSavedLibrary",
   "settings.clearSavedLibrary",
+  "settings.clearRecentActivity",
   "settings.copySavedColors",
+  "settings.pasteSavedColors",
   "settings.saveAccentColor",
   "settings.saveWorkspaceColor",
   "settings.savePaneColor",
   "settings.saveAllPaneColors",
   "settings.saveBackground",
-  "settings.copySavedBackgrounds"
+  "settings.copySavedBackgrounds",
+  "settings.pasteSavedBackgrounds"
 ]);
 
 function customizationCommandPaletteSignature() {
   const parts = [];
+  appendSignatureValue(parts, totalDataStorageBytes());
   appendSignatureValue(parts, savedDataItemCount());
+  appendSignatureValue(parts, recentDataItemCount());
   appendSignatureValue(parts, state.customColorPalette.length);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
   for (const target of ["accent", "workspace", "pane", "all"]) {
@@ -5899,6 +5909,45 @@ function customizationCommandPaletteState(commandId) {
   if (colorState) return colorState;
   const savedCount = savedDataItemCount();
   const savedLabel = `${savedCount} saved item${savedCount === 1 ? "" : "s"}`;
+  const recentCount = recentDataItemCount();
+  const recentLabel = `${recentCount} recent item${recentCount === 1 ? "" : "s"}`;
+  if (commandId === "settings.copyAppSetup") {
+    return {
+      meta: formatBytes(totalDataStorageBytes()),
+      shortcut: "Copy",
+      icon: "data",
+      title: "Copy settings, profiles, blueprints, saved colors, backgrounds, snippets, and recent data as JSON.",
+      search: "app setup full backup export settings profiles blueprints snippets colors backgrounds recent clipboard json"
+    };
+  }
+  if (commandId === "settings.pasteAppSetup") {
+    return {
+      meta: "Full setup import",
+      shortcut: "Paste",
+      icon: "data",
+      title: "Paste exported cmux Windows app setup JSON.",
+      search: "app setup full restore import settings profiles blueprints snippets colors backgrounds recent clipboard json"
+    };
+  }
+  if (commandId === "settings.copyRecentActivity") {
+    return {
+      meta: recentCount ? recentLabel : "Recent empty",
+      shortcut: "Copy",
+      disabled: recentCount === 0,
+      icon: "data",
+      title: recentCount ? "Copy recent folders, commands, browser pages, and saved browser tabs as JSON." : "Recent activity is empty.",
+      search: "recent activity export copy folders commands browser pages tabs clipboard json"
+    };
+  }
+  if (commandId === "settings.pasteRecentActivity") {
+    return {
+      meta: "Recent import",
+      shortcut: "Paste",
+      icon: "data",
+      title: "Merge copied recent folders, commands, browser pages, and saved browser tabs.",
+      search: "recent activity import paste folders commands browser pages tabs clipboard json"
+    };
+  }
   if (commandId === "settings.copySavedLibrary") {
     return {
       meta: savedCount ? savedLabel : "Library empty",
@@ -5907,6 +5956,15 @@ function customizationCommandPaletteState(commandId) {
       icon: "data",
       title: savedCount ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON." : "Customization library is empty.",
       search: "saved customization library export copy snippets profiles blueprints colors backgrounds clipboard json"
+    };
+  }
+  if (commandId === "settings.pasteSavedLibrary") {
+    return {
+      meta: "Library import",
+      shortcut: "Paste",
+      icon: "data",
+      title: "Merge copied saved snippets, profiles, blueprints, colors, and backgrounds.",
+      search: "saved customization library import paste snippets profiles blueprints colors backgrounds clipboard json"
     };
   }
   if (commandId === "settings.clearSavedLibrary") {
@@ -5919,6 +5977,16 @@ function customizationCommandPaletteState(commandId) {
       search: "saved customization library clear delete snippets profiles blueprints colors backgrounds"
     };
   }
+  if (commandId === "settings.clearRecentActivity") {
+    return {
+      meta: recentCount ? recentLabel : "Recent clear",
+      shortcut: "Clear",
+      disabled: recentCount === 0,
+      icon: "data",
+      title: recentCount ? "Clear recent folders, commands, browser pages, and saved browser tabs." : "Recent activity is already clear.",
+      search: "recent activity clear privacy folders commands browser pages tabs history"
+    };
+  }
   if (commandId === "settings.copySavedColors") {
     const count = state.customColorPalette.length;
     return {
@@ -5928,6 +5996,15 @@ function customizationCommandPaletteState(commandId) {
       icon: "appearance",
       title: count ? "Copy the saved color palette as JSON." : "Saved color palette is empty.",
       search: "saved color palette copy export custom accent workspace pane reusable clipboard json"
+    };
+  }
+  if (commandId === "settings.pasteSavedColors") {
+    return {
+      meta: `${state.customColorPalette.length}/${customColorPaletteLimit} colors`,
+      shortcut: "Paste",
+      icon: "appearance",
+      title: "Merge copied saved colors into the palette.",
+      search: "saved color palette paste import custom accent workspace pane reusable clipboard json"
     };
   }
   if (commandId === "settings.saveBackground") {
@@ -5951,6 +6028,15 @@ function customizationCommandPaletteState(commandId) {
       icon: "background",
       title: count ? "Copy saved background images as JSON." : "Saved background library is empty.",
       search: "saved background image wallpaper copy export reusable library clipboard json"
+    };
+  }
+  if (commandId === "settings.pasteSavedBackgrounds") {
+    return {
+      meta: `${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} backgrounds`,
+      shortcut: "Paste",
+      icon: "background",
+      title: "Merge copied saved background images into the library.",
+      search: "saved background image wallpaper paste import reusable library clipboard json"
     };
   }
   return null;
