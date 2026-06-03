@@ -66,6 +66,24 @@ func makeOpenFolderEntries() -> [FixtureEntry] {
                 "browser",
             ]
         ),
+        FixtureEntry(
+            id: "palette.openFolderInJupyterInline",
+            rank: 4,
+            title: "Open Folder in Jupyter (Inline)...",
+            searchableTexts: [
+                "Open Folder in Jupyter (Inline)...",
+                "Jupyter Inline",
+                "open",
+                "folder",
+                "directory",
+                "project",
+                "jupyter",
+                "notebook",
+                "lab",
+                "inline",
+                "browser",
+            ]
+        ),
     ]
 }
 

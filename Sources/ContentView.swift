@@ -1497,6 +1497,9 @@ struct ContentView: View {
         static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> String {
             "terminal.openTarget.\(target.rawValue).available"
         }
+        static func terminalInlineWebModeAvailable(_ mode: TerminalDirectoryInlineWebMode) -> String {
+            "terminal.inlineWebMode.\(mode.id).available"
+        }
     }
 
     struct CommandPaletteCommandContribution {
@@ -6614,6 +6617,12 @@ struct ContentView: View {
                         availableTargets.contains(target)
                     )
                 }
+                for mode in TerminalDirectoryInlineWebModeRegistry.modes {
+                    snapshot.setBool(
+                        CommandPaletteContextKeys.terminalInlineWebModeAvailable(mode),
+                        mode.isAvailable()
+                    )
+                }
             }
         }
 
@@ -6726,25 +6735,17 @@ struct ContentView: View {
                 keywords: ["open", "folder", "repository", "project", "directory"]
             )
         )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.openFolderInVSCodeInline",
-                title: constant(
-                    String(
-                        localized: "command.openFolderInVSCodeInline.title",
-                        defaultValue: "Open Folder in VS Code (Inline)…"
-                    )
-                ),
-                subtitle: constant(
-                    String(
-                        localized: "command.openFolderInVSCodeInline.subtitle",
-                        defaultValue: "VS Code Inline"
-                    )
-                ),
-                keywords: ["open", "folder", "directory", "project", "vs", "code", "inline", "editor", "browser"],
-                when: { _ in TerminalDirectoryOpenTarget.vscodeInline.isAvailable() }
+        for mode in TerminalDirectoryInlineWebModeRegistry.modes {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: mode.openFolderCommandId,
+                    title: constant(mode.openFolderTitle()),
+                    subtitle: constant(mode.openFolderSubtitle()),
+                    keywords: mode.keywords,
+                    when: { _ in mode.isAvailable() }
+                )
             )
-        )
+        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.reopenPreviousSession",
@@ -7499,30 +7500,44 @@ struct ContentView: View {
                 )
             )
         }
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.vscodeServeWebStop",
-                title: constant(String(localized: "command.vscodeServeWebStop.title", defaultValue: "Stop VS Code Inline Server")),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["vscode", "inline", "serve-web", "stop", "server"],
-                when: { context in
-                    context.bool(CommandPaletteContextKeys.panelIsTerminal)
-                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscodeInline))
-                }
+        for mode in TerminalDirectoryInlineWebModeRegistry.modes {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: mode.terminalOpenCommandId,
+                    title: constant(mode.terminalOpenTitle()),
+                    subtitle: terminalPanelSubtitle,
+                    keywords: mode.keywords,
+                    when: { context in
+                        context.bool(CommandPaletteContextKeys.panelIsTerminal)
+                            && context.bool(CommandPaletteContextKeys.terminalInlineWebModeAvailable(mode))
+                    }
+                )
             )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.vscodeServeWebRestart",
-                title: constant(String(localized: "command.vscodeServeWebRestart.title", defaultValue: "Restart VS Code Inline Server")),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["vscode", "inline", "serve-web", "restart", "server"],
-                when: { context in
-                    context.bool(CommandPaletteContextKeys.panelIsTerminal)
-                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscodeInline))
-                }
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: mode.stopCommandId,
+                    title: constant(mode.stopTitle()),
+                    subtitle: terminalPanelSubtitle,
+                    keywords: mode.serverKeywords + ["stop"],
+                    when: { context in
+                        context.bool(CommandPaletteContextKeys.panelIsTerminal)
+                            && context.bool(CommandPaletteContextKeys.terminalInlineWebModeAvailable(mode))
+                    }
+                )
             )
-        )
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: mode.restartCommandId,
+                    title: constant(mode.restartTitle()),
+                    subtitle: terminalPanelSubtitle,
+                    keywords: mode.serverKeywords + ["restart"],
+                    when: { context in
+                        context.bool(CommandPaletteContextKeys.panelIsTerminal)
+                            && context.bool(CommandPaletteContextKeys.terminalInlineWebModeAvailable(mode))
+                    }
+                )
+            )
+        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.findInDirectory",
@@ -7903,9 +7918,14 @@ struct ContentView: View {
                 }
             }
         }
-        registry.register(commandId: "palette.openFolderInVSCodeInline") {
-            DispatchQueue.main.async {
-                AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(tabManager: tabManager)
+        for mode in TerminalDirectoryInlineWebModeRegistry.modes {
+            registry.register(commandId: mode.openFolderCommandId) {
+                DispatchQueue.main.async {
+                    AppDelegate.shared?.showOpenFolderInInlineWebModePanel(
+                        mode: mode,
+                        tabManager: tabManager
+                    )
+                }
             }
         }
         registry.register(commandId: "palette.reopenPreviousSession") {
@@ -8313,12 +8333,19 @@ struct ContentView: View {
                 }
             }
         }
-        registry.register(commandId: "palette.vscodeServeWebStop") {
-            stopInlineVSCodeServeWeb()
-        }
-        registry.register(commandId: "palette.vscodeServeWebRestart") {
-            if !restartInlineVSCodeServeWeb() {
-                NSSound.beep()
+        for mode in TerminalDirectoryInlineWebModeRegistry.modes {
+            registry.register(commandId: mode.terminalOpenCommandId) {
+                if !openFocusedDirectory(inInlineWebMode: mode) {
+                    NSSound.beep()
+                }
+            }
+            registry.register(commandId: mode.stopCommandId) {
+                mode.stopServer()
+            }
+            registry.register(commandId: mode.restartCommandId) {
+                if !restartInlineWebServer(mode: mode) {
+                    NSSound.beep()
+                }
             }
         }
         registry.register(commandId: "palette.terminalFind") {
@@ -9803,8 +9830,6 @@ struct ContentView: View {
         case .finder:
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
             return true
-        case .vscodeInline:
-            return openFocusedDirectoryInInlineVSCode(directoryURL)
         default:
             guard let applicationURL = target.applicationURL() else { return false }
             let configuration = NSWorkspace.OpenConfiguration()
@@ -9813,20 +9838,19 @@ struct ContentView: View {
         }
     }
 
-    private func openFocusedDirectoryInInlineVSCode(_ directoryURL: URL) -> Bool {
-        AppDelegate.shared?.openDirectoryInInlineVSCode(directoryURL, tabManager: tabManager) ?? false
+    private func openFocusedDirectory(inInlineWebMode mode: TerminalDirectoryInlineWebMode) -> Bool {
+        guard let directoryURL = focusedTerminalDirectoryURL() else { return false }
+        return AppDelegate.shared?.openDirectoryInInlineWebMode(
+            directoryURL,
+            mode: mode,
+            tabManager: tabManager
+        ) ?? false
     }
 
-    private func stopInlineVSCodeServeWeb() {
-        VSCodeServeWebController.shared.stop()
-    }
-
-    private func restartInlineVSCodeServeWeb() -> Bool {
-        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
-            return false
-        }
-        VSCodeServeWebController.shared.restart(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
-            if serveWebURL == nil {
+    private func restartInlineWebServer(mode: TerminalDirectoryInlineWebMode) -> Bool {
+        guard let directoryURL = focusedTerminalDirectoryURL() else { return false }
+        mode.restartServer(directoryURL) { serverURL in
+            if serverURL == nil {
                 NSSound.beep()
             }
         }

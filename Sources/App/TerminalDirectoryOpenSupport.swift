@@ -81,12 +81,14 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
 
     struct DetectionEnvironment {
         let homeDirectoryPath: String
+        let environmentVariables: [String: String]
         let fileExistsAtPath: (String) -> Bool
         let isExecutableFileAtPath: (String) -> Bool
         let applicationPathForName: (String) -> String?
 
         static let live = DetectionEnvironment(
             homeDirectoryPath: FileManager.default.homeDirectoryForCurrentUser.path,
+            environmentVariables: ProcessInfo.processInfo.environment,
             fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) },
             isExecutableFileAtPath: { FileManager.default.isExecutableFile(atPath: $0) },
             applicationPathForName: { NSWorkspace.shared.fullPath(forApplication: $0) }
@@ -94,7 +96,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     }
 
     static var commandPaletteShortcutTargets: [Self] {
-        Array(allCases)
+        allCases.filter { $0 != .vscodeInline }
     }
 
     static func availableTargets(in environment: DetectionEnvironment = .live) -> Set<Self> {
@@ -355,6 +357,100 @@ enum VSCodeCLILaunchConfigurationBuilder {
             executableURL: codeTunnelURL,
             argumentsPrefix: [],
             environment: environment
+        )
+    }
+}
+
+enum InlineWebServerURLBuilder {
+    static func extractLocalHTTPURL(from output: String) -> URL? {
+        let allowedHosts: Set<String> = ["127.0.0.1", "localhost"]
+        for token in output.split(whereSeparator: { $0.isWhitespace || $0 == "[" || $0 == "]" }) {
+            let candidate = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"'(),"))
+            guard candidate.hasPrefix("http://") || candidate.hasPrefix("https://"),
+                  let url = URL(string: candidate),
+                  let host = url.host,
+                  allowedHosts.contains(host) else {
+                continue
+            }
+            return url
+        }
+        return nil
+    }
+}
+
+enum CommandLineExecutableResolver {
+    static func executableURL(
+        named executableName: String,
+        environment: [String: String],
+        homeDirectoryPath: String,
+        isExecutableAtPath: (String) -> Bool
+    ) -> URL? {
+        let pathDirectories = (environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map(String.init)
+        let fallbackDirectories = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "\(homeDirectoryPath)/.local/bin",
+            "\(homeDirectoryPath)/miniconda3/bin",
+            "\(homeDirectoryPath)/anaconda3/bin",
+        ]
+
+        var seen: Set<String> = []
+        for directory in pathDirectories + fallbackDirectories {
+            let expandedDirectory = directory.replacingOccurrences(of: "~", with: homeDirectoryPath)
+            let candidate = (expandedDirectory as NSString).appendingPathComponent(executableName)
+            guard seen.insert(candidate).inserted, isExecutableAtPath(candidate) else { continue }
+            return URL(fileURLWithPath: candidate, isDirectory: false)
+        }
+        return nil
+    }
+}
+
+struct InlineCommandWebServerLaunchConfiguration {
+    let executableURL: URL
+    let arguments: [String]
+    let environment: [String: String]
+}
+
+enum JupyterInlineLaunchConfigurationBuilder {
+    static func executableURL(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path,
+        isExecutableAtPath: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> URL? {
+        CommandLineExecutableResolver.executableURL(
+            named: "jupyter",
+            environment: environment,
+            homeDirectoryPath: homeDirectoryPath,
+            isExecutableAtPath: isExecutableAtPath
+        )
+    }
+
+    static func launchConfiguration(
+        directoryURL: URL,
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path,
+        isExecutableAtPath: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> InlineCommandWebServerLaunchConfiguration? {
+        guard let executableURL = executableURL(
+            environment: baseEnvironment,
+            homeDirectoryPath: homeDirectoryPath,
+            isExecutableAtPath: isExecutableAtPath
+        ) else { return nil }
+
+        return InlineCommandWebServerLaunchConfiguration(
+            executableURL: executableURL,
+            arguments: [
+                "lab",
+                "--no-browser",
+                "--ServerApp.ip=127.0.0.1",
+                "--ServerApp.port=0",
+                "--ServerApp.open_browser=False",
+                "--ServerApp.root_dir=\(directoryURL.standardizedFileURL.path)",
+            ],
+            environment: baseEnvironment
         )
     }
 }
@@ -713,12 +809,494 @@ final class VSCodeServeWebController {
     }
 }
 
+final class InlineCommandWebServerController {
+    private let startupTimeoutSeconds: TimeInterval
+    private let launchConfiguration: (URL) -> InlineCommandWebServerLaunchConfiguration?
+    private let extractServerURL: (String) -> URL?
+    private let queue: DispatchQueue
+    private let launchQueue: DispatchQueue
+    private var serverProcess: Process?
+    private var launchingProcess: Process?
+    private var serverURL: URL?
+    private var serverDirectoryPath: String?
+    private var launchingDirectoryPath: String?
+    private var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
+    private var isLaunching = false
+    private var activeLaunchGeneration: UInt64?
+    private var lifecycleGeneration: UInt64 = 0
+
+    init(
+        id: String,
+        startupTimeoutSeconds: TimeInterval,
+        launchConfiguration: @escaping (URL) -> InlineCommandWebServerLaunchConfiguration?,
+        extractServerURL: @escaping (String) -> URL?
+    ) {
+        self.startupTimeoutSeconds = startupTimeoutSeconds
+        self.launchConfiguration = launchConfiguration
+        self.extractServerURL = extractServerURL
+        self.queue = DispatchQueue(label: "cmux.inlineWeb.\(id)")
+        self.launchQueue = DispatchQueue(label: "cmux.inlineWeb.\(id).launch")
+    }
+
+    func ensureServerURL(directoryURL: URL, completion: @escaping (URL?) -> Void) {
+        let normalizedDirectoryURL = directoryURL.standardizedFileURL
+        let requestedDirectoryPath = normalizedDirectoryURL.path
+        queue.async {
+            if let process = self.serverProcess,
+               process.isRunning,
+               self.serverDirectoryPath == requestedDirectoryPath,
+               let url = self.serverURL {
+                DispatchQueue.main.async {
+                    completion(url)
+                }
+                return
+            }
+
+            if let process = self.serverProcess, process.isRunning {
+                process.terminate()
+            }
+            self.serverProcess = nil
+            self.serverURL = nil
+            self.serverDirectoryPath = nil
+
+            if self.isLaunching {
+                if self.launchingDirectoryPath == requestedDirectoryPath {
+                    let completionGeneration = self.lifecycleGeneration
+                    self.pendingCompletions.append((generation: completionGeneration, completion: completion))
+                    return
+                }
+
+                self.lifecycleGeneration &+= 1
+                self.isLaunching = false
+                self.activeLaunchGeneration = nil
+                self.launchingDirectoryPath = nil
+                if let process = self.launchingProcess, process.isRunning {
+                    process.terminate()
+                }
+                self.launchingProcess = nil
+                let staleCompletions = self.pendingCompletions.map(\.completion)
+                self.pendingCompletions.removeAll()
+                if !staleCompletions.isEmpty {
+                    DispatchQueue.main.async {
+                        staleCompletions.forEach { $0(nil) }
+                    }
+                }
+            }
+
+            let completionGeneration = self.lifecycleGeneration
+            self.pendingCompletions.append((generation: completionGeneration, completion: completion))
+            guard !self.isLaunching else { return }
+
+            self.isLaunching = true
+            let launchGeneration = completionGeneration
+            self.activeLaunchGeneration = launchGeneration
+            self.launchingDirectoryPath = requestedDirectoryPath
+
+            self.launchQueue.async {
+                let shouldLaunch = self.queue.sync {
+                    self.lifecycleGeneration == launchGeneration
+                }
+                guard shouldLaunch else {
+                    self.queue.async {
+                        guard self.activeLaunchGeneration == launchGeneration else { return }
+                        self.isLaunching = false
+                        self.activeLaunchGeneration = nil
+                        self.launchingDirectoryPath = nil
+                    }
+                    return
+                }
+
+                let launchResult = self.launchServerProcess(
+                    directoryURL: normalizedDirectoryURL,
+                    expectedGeneration: launchGeneration
+                )
+                self.queue.async {
+                    guard self.activeLaunchGeneration == launchGeneration else {
+                        if let process = launchResult?.process, process.isRunning {
+                            process.terminate()
+                        }
+                        return
+                    }
+                    self.isLaunching = false
+                    self.activeLaunchGeneration = nil
+                    self.launchingDirectoryPath = nil
+
+                    guard self.lifecycleGeneration == launchGeneration else {
+                        if let launchedProcess = launchResult?.process,
+                           self.launchingProcess === launchedProcess {
+                            self.launchingProcess = nil
+                        }
+                        if let process = launchResult?.process, process.isRunning {
+                            process.terminate()
+                        }
+                        return
+                    }
+
+                    if let launchResult {
+                        self.launchingProcess = nil
+                        self.serverProcess = launchResult.process
+                        self.serverURL = launchResult.url
+                        self.serverDirectoryPath = requestedDirectoryPath
+                    } else {
+                        self.launchingProcess = nil
+                        self.serverProcess = nil
+                        self.serverURL = nil
+                        self.serverDirectoryPath = nil
+                    }
+
+                    var completions: [(URL?) -> Void] = []
+                    var remaining: [(generation: UInt64, completion: (URL?) -> Void)] = []
+                    for pending in self.pendingCompletions {
+                        if pending.generation == launchGeneration {
+                            completions.append(pending.completion)
+                        } else {
+                            remaining.append(pending)
+                        }
+                    }
+                    self.pendingCompletions = remaining
+                    let resolvedURL = self.serverURL
+                    DispatchQueue.main.async {
+                        completions.forEach { $0(resolvedURL) }
+                    }
+                }
+            }
+        }
+    }
+
+    func stop() {
+        let (processes, completions): ([Process], [(URL?) -> Void]) = queue.sync {
+            self.lifecycleGeneration &+= 1
+            self.isLaunching = false
+            self.activeLaunchGeneration = nil
+            self.launchingDirectoryPath = nil
+            var processes: [Process] = []
+            if let process = self.serverProcess {
+                processes.append(process)
+            }
+            if let process = self.launchingProcess,
+               !processes.contains(where: { $0 === process }) {
+                processes.append(process)
+            }
+            self.serverProcess = nil
+            self.launchingProcess = nil
+            self.serverURL = nil
+            self.serverDirectoryPath = nil
+            self.launchingDirectoryPath = nil
+            let completions = self.pendingCompletions.map(\.completion)
+            self.pendingCompletions.removeAll()
+            return (processes, completions)
+        }
+
+        for process in processes where process.isRunning {
+            process.terminate()
+        }
+
+        if !completions.isEmpty {
+            DispatchQueue.main.async {
+                completions.forEach { $0(nil) }
+            }
+        }
+    }
+
+    func restart(directoryURL: URL, completion: @escaping (URL?) -> Void) {
+        stop()
+        ensureServerURL(directoryURL: directoryURL, completion: completion)
+    }
+
+    private func launchServerProcess(
+        directoryURL: URL,
+        expectedGeneration: UInt64
+    ) -> (process: Process, url: URL)? {
+        guard let launchConfiguration = launchConfiguration(directoryURL) else { return nil }
+
+        let process = Process()
+        process.executableURL = launchConfiguration.executableURL
+        process.arguments = launchConfiguration.arguments
+        process.environment = launchConfiguration.environment
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let collector = ServeWebOutputCollector(extractURL: extractServerURL)
+        let outputReader: (FileHandle) -> Void = { fileHandle in
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            case .data(let data):
+                collector.append(data)
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                fileHandle.readabilityHandler = nil
+            }
+        }
+        stdoutPipe.fileHandleForReading.readabilityHandler = outputReader
+        stderrPipe.fileHandleForReading.readabilityHandler = outputReader
+
+        process.terminationHandler = { [weak self] terminatedProcess in
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
+            Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
+            collector.markProcessExited()
+            self?.queue.async {
+                guard let self else { return }
+                if self.launchingProcess === terminatedProcess {
+                    self.launchingProcess = nil
+                    self.launchingDirectoryPath = nil
+                }
+                if self.serverProcess === terminatedProcess {
+                    self.serverProcess = nil
+                    self.serverURL = nil
+                    self.serverDirectoryPath = nil
+                }
+            }
+        }
+
+        let didStart: Bool = queue.sync {
+            guard self.lifecycleGeneration == expectedGeneration,
+                  self.activeLaunchGeneration == expectedGeneration else {
+                return false
+            }
+            self.launchingProcess = process
+            do {
+                try process.run()
+                return true
+            } catch {
+                if self.launchingProcess === process {
+                    self.launchingProcess = nil
+                }
+                return false
+            }
+        }
+        guard didStart else {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            return nil
+        }
+
+        guard collector.waitForURL(timeoutSeconds: startupTimeoutSeconds),
+              let serverURL = collector.webUIURL else {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            if process.isRunning {
+                process.terminate()
+            } else {
+                queue.sync {
+                    if self.launchingProcess === process {
+                        self.launchingProcess = nil
+                    }
+                    if self.serverProcess === process {
+                        self.serverProcess = nil
+                        self.serverURL = nil
+                        self.serverDirectoryPath = nil
+                    }
+                }
+            }
+            return nil
+        }
+
+        return (process, serverURL)
+    }
+
+    private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
+        while true {
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            case .data(let data):
+                collector.append(data)
+            case .wouldBlock, .endOfFile:
+                return
+            }
+        }
+    }
+}
+
+struct TerminalDirectoryInlineWebMode: Identifiable {
+    let id: String
+    let openFolderCommandId: String
+    let terminalOpenCommandId: String
+    let stopCommandId: String
+    let restartCommandId: String
+    let menuTitle: () -> String
+    let openFolderTitle: () -> String
+    let openFolderSubtitle: () -> String
+    let panelTitle: () -> String
+    let panelPrompt: () -> String
+    let terminalOpenTitle: () -> String
+    let stopTitle: () -> String
+    let restartTitle: () -> String
+    let keywords: [String]
+    let serverKeywords: [String]
+    let isAvailable: (TerminalDirectoryOpenTarget.DetectionEnvironment) -> Bool
+    let ensureServerURL: (URL, @escaping (URL?) -> Void) -> Void
+    let stopServer: () -> Void
+    let restartServer: (URL, @escaping (URL?) -> Void) -> Void
+    let openFolderURL: (URL, URL) -> URL?
+
+    func isAvailable(in environment: TerminalDirectoryOpenTarget.DetectionEnvironment = .live) -> Bool {
+        isAvailable(environment)
+    }
+
+    func openURL(serverURL: URL, directoryURL: URL) -> URL? {
+        openFolderURL(serverURL, directoryURL.standardizedFileURL)
+    }
+}
+
+extension TerminalDirectoryInlineWebMode {
+    private static let jupyterController = InlineCommandWebServerController(
+        id: "jupyter",
+        startupTimeoutSeconds: 90,
+        launchConfiguration: { directoryURL in
+            JupyterInlineLaunchConfigurationBuilder.launchConfiguration(directoryURL: directoryURL)
+        },
+        extractServerURL: InlineWebServerURLBuilder.extractLocalHTTPURL(from:)
+    )
+
+    static let vscode = TerminalDirectoryInlineWebMode(
+        id: "vscode",
+        openFolderCommandId: "palette.openFolderInVSCodeInline",
+        terminalOpenCommandId: "palette.terminalOpenDirectory.vscodeInline",
+        stopCommandId: "palette.vscodeServeWebStop",
+        restartCommandId: "palette.vscodeServeWebRestart",
+        menuTitle: {
+            String(localized: "menu.file.openFolderInVSCodeInline", defaultValue: "Open Folder in VS Code (Inline)…")
+        },
+        openFolderTitle: {
+            String(localized: "command.openFolderInVSCodeInline.title", defaultValue: "Open Folder in VS Code (Inline)…")
+        },
+        openFolderSubtitle: {
+            String(localized: "command.openFolderInVSCodeInline.subtitle", defaultValue: "VS Code Inline")
+        },
+        panelTitle: {
+            String(localized: "menu.file.openFolderInVSCodeInline.panelTitle", defaultValue: "Open Folder in VS Code (Inline)")
+        },
+        panelPrompt: {
+            String(localized: "menu.file.openFolderInVSCodeInline.panelPrompt", defaultValue: "Open in VS Code")
+        },
+        terminalOpenTitle: {
+            String(localized: "menu.openInVSCode", defaultValue: "Open Current Directory in VS Code (Inline)")
+        },
+        stopTitle: {
+            String(localized: "command.vscodeServeWebStop.title", defaultValue: "Stop VS Code Inline Server")
+        },
+        restartTitle: {
+            String(localized: "command.vscodeServeWebRestart.title", defaultValue: "Restart VS Code Inline Server")
+        },
+        keywords: ["open", "folder", "directory", "project", "vs", "code", "inline", "editor", "browser"],
+        serverKeywords: ["vscode", "inline", "serve-web", "server"],
+        isAvailable: { environment in
+            TerminalDirectoryOpenTarget.vscodeInline.isAvailable(in: environment)
+        },
+        ensureServerURL: { _, completion in
+            guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
+                completion(nil)
+                return
+            }
+            VSCodeServeWebController.shared.ensureServeWebURL(
+                vscodeApplicationURL: vscodeApplicationURL,
+                completion: completion
+            )
+        },
+        stopServer: {
+            VSCodeServeWebController.shared.stop()
+        },
+        restartServer: { _, completion in
+            guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
+                completion(nil)
+                return
+            }
+            VSCodeServeWebController.shared.restart(
+                vscodeApplicationURL: vscodeApplicationURL,
+                completion: completion
+            )
+        },
+        openFolderURL: { serverURL, directoryURL in
+            VSCodeServeWebURLBuilder.openFolderURL(
+                baseWebUIURL: serverURL,
+                directoryPath: directoryURL.path
+            )
+        }
+    )
+
+    static let jupyter = TerminalDirectoryInlineWebMode(
+        id: "jupyter",
+        openFolderCommandId: "palette.openFolderInJupyterInline",
+        terminalOpenCommandId: "palette.terminalOpenDirectory.jupyterInline",
+        stopCommandId: "palette.jupyterInlineServerStop",
+        restartCommandId: "palette.jupyterInlineServerRestart",
+        menuTitle: {
+            String(localized: "menu.file.openFolderInJupyterInline", defaultValue: "Open Folder in Jupyter (Inline)…")
+        },
+        openFolderTitle: {
+            String(localized: "command.openFolderInJupyterInline.title", defaultValue: "Open Folder in Jupyter (Inline)…")
+        },
+        openFolderSubtitle: {
+            String(localized: "command.openFolderInJupyterInline.subtitle", defaultValue: "Jupyter Inline")
+        },
+        panelTitle: {
+            String(localized: "menu.file.openFolderInJupyterInline.panelTitle", defaultValue: "Open Folder in Jupyter (Inline)")
+        },
+        panelPrompt: {
+            String(localized: "menu.file.openFolderInJupyterInline.panelPrompt", defaultValue: "Open in Jupyter")
+        },
+        terminalOpenTitle: {
+            String(localized: "menu.openInJupyterInline", defaultValue: "Open Current Directory in Jupyter (Inline)")
+        },
+        stopTitle: {
+            String(localized: "command.jupyterInlineServerStop.title", defaultValue: "Stop Jupyter Inline Server")
+        },
+        restartTitle: {
+            String(localized: "command.jupyterInlineServerRestart.title", defaultValue: "Restart Jupyter Inline Server")
+        },
+        keywords: ["open", "folder", "directory", "project", "jupyter", "notebook", "lab", "inline", "browser"],
+        serverKeywords: ["jupyter", "notebook", "lab", "inline", "server"],
+        isAvailable: { environment in
+            JupyterInlineLaunchConfigurationBuilder.executableURL(
+                environment: environment.environmentVariables,
+                homeDirectoryPath: environment.homeDirectoryPath,
+                isExecutableAtPath: environment.isExecutableFileAtPath
+            ) != nil
+        },
+        ensureServerURL: { directoryURL, completion in
+            jupyterController.ensureServerURL(directoryURL: directoryURL, completion: completion)
+        },
+        stopServer: {
+            jupyterController.stop()
+        },
+        restartServer: { directoryURL, completion in
+            jupyterController.restart(directoryURL: directoryURL, completion: completion)
+        },
+        openFolderURL: { serverURL, _ in
+            serverURL
+        }
+    )
+
+    static var defaultModes: [TerminalDirectoryInlineWebMode] {
+        [.vscode, .jupyter]
+    }
+}
+
+enum TerminalDirectoryInlineWebModeRegistry {
+    static var modes: [TerminalDirectoryInlineWebMode] {
+        TerminalDirectoryInlineWebMode.defaultModes
+    }
+
+    static func mode(id: String) -> TerminalDirectoryInlineWebMode? {
+        modes.first { $0.id == id }
+    }
+}
+
 final class ServeWebOutputCollector {
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
+    private let extractURL: (String) -> URL?
     private var outputBuffer = ""
     private var resolvedURL: URL?
     private var didSignal = false
+
+    init(extractURL: @escaping (String) -> URL? = VSCodeServeWebURLBuilder.extractWebUIURL(from:)) {
+        self.extractURL = extractURL
+    }
 
     var webUIURL: URL? {
         lock.lock()
@@ -735,7 +1313,7 @@ final class ServeWebOutputCollector {
         while let newlineIndex = outputBuffer.firstIndex(where: \.isNewline) {
             let line = String(outputBuffer[..<newlineIndex])
             outputBuffer.removeSubrange(...newlineIndex)
-            guard let parsedURL = VSCodeServeWebURLBuilder.extractWebUIURL(from: line) else {
+            guard let parsedURL = extractURL(line) else {
                 continue
             }
             resolvedURL = parsedURL
@@ -752,7 +1330,7 @@ final class ServeWebOutputCollector {
         lock.lock()
         defer { lock.unlock() }
         if resolvedURL == nil, !outputBuffer.isEmpty,
-           let parsedURL = VSCodeServeWebURLBuilder.extractWebUIURL(from: outputBuffer) {
+           let parsedURL = extractURL(outputBuffer) {
             resolvedURL = parsedURL
             outputBuffer.removeAll(keepingCapacity: false)
         }
