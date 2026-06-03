@@ -254,9 +254,9 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
     func title(isMacRemote: Bool) -> String {
         switch self {
         case .control:
-            return isMacRemote ? "⌃" : "Ctrl"
+            return isMacRemote ? "⌃" : String(localized: "terminal.input_accessory.title.control", defaultValue: "Ctrl")
         case .alternate:
-            return isMacRemote ? "⌥" : "Alt"
+            return isMacRemote ? "⌥" : String(localized: "terminal.input_accessory.title.alt", defaultValue: "Alt")
         case .command:
             return "⌘"
         case .shift:
@@ -266,9 +266,9 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         case .zoomIn:
             return ""
         case .escape:
-            return "Esc"
+            return String(localized: "terminal.input_accessory.title.escape", defaultValue: "Esc")
         case .tab:
-            return "Tab"
+            return String(localized: "terminal.input_accessory.title.tab", defaultValue: "Tab")
         case .ctrlC:
             return "^C"
         case .ctrlD:
@@ -290,11 +290,11 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         case .codex:
             return "Codex"
         case .home:
-            return "Home"
+            return String(localized: "terminal.input_accessory.title.home", defaultValue: "Home")
         case .end:
-            return "End"
+            return String(localized: "terminal.input_accessory.title.end", defaultValue: "End")
         case .pageUp:
-            return "PgUp"
+            return String(localized: "terminal.input_accessory.title.pageUp", defaultValue: "PgUp")
         case .tilde:
             return "~"
         case .pipe:
@@ -306,7 +306,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         case .atSign:
             return "@"
         case .pageDown:
-            return "PgDn"
+            return String(localized: "terminal.input_accessory.title.pageDown", defaultValue: "PgDn")
         }
     }
 
