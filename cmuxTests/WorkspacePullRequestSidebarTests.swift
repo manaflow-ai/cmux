@@ -485,6 +485,8 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         let defaults = UserDefaults.standard
         previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defaults.synchronize()
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
     }
 
     override func tearDown() {
@@ -1766,4 +1768,6 @@ private func restoreUserDefault(_ value: Any?, key: String) {
     } else {
         defaults.removeObject(forKey: key)
     }
+    defaults.synchronize()
+    NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
 }

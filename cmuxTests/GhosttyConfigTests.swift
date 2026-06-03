@@ -2061,7 +2061,8 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
     ) {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if panel.hiddenWebViewDiscardBlockersForTesting().isEmpty {
+            if panel.webViewLifecycleState == .discarded ||
+                panel.hiddenWebViewDiscardBlockersForTesting().isEmpty {
                 return
             }
             RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
@@ -2285,7 +2286,9 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
             if panel.webViewLifecycleState != .discarded {
                 waitForHiddenDiscardEligibility(panel)
-                XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+                if panel.webViewLifecycleState != .discarded {
+                    XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+                }
             }
             XCTAssertFalse(panel.webView === originalWebView)
             XCTAssertFalse(panel.shouldRenderWebView)
@@ -2340,7 +2343,9 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
             if panel.webViewLifecycleState != .discarded {
                 waitForHiddenDiscardEligibility(panel)
-                XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+                if panel.webViewLifecycleState != .discarded {
+                    XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+                }
             }
             XCTAssertFalse(panel.webView === originalWebView)
             XCTAssertEqual(panel.webViewLifecycleState, .discarded)

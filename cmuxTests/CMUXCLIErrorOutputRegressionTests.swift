@@ -146,7 +146,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testBundledCLIInTaggedDebugAppDoesNotFallBackToStableEnvSocketWhenTaggedSocketIsMissing() throws {
         let cliPath = try bundledCLIPath()
-        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        let fixedHomeURL = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let stableSocketURL = fixedHomeURL
             .appendingPathComponent(".local/state/cmux", isDirectory: true)
@@ -192,7 +192,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testBundledCLIInTaggedDebugAppTreatsUserScopedStableEnvSocketAsImplicitDefault() throws {
         let cliPath = try bundledCLIPath()
-        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmux-cli-home-\(UUID().uuidString)", isDirectory: true)
+        let fixedHomeURL = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let stableSocketURL = fixedHomeURL
             .appendingPathComponent(".local/state/cmux", isDirectory: true)
@@ -255,7 +255,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testBundledStableCLIPreservesLiveUserScopedStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
-        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        let fixedHomeURL = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let socketDirectoryURL = fixedHomeURL
             .appendingPathComponent(".local/state/cmux", isDirectory: true)
@@ -319,7 +319,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testBundledStableCLIFallsBackFromStaleUserScopedStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
-        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        let fixedHomeURL = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let socketDirectoryURL = fixedHomeURL
             .appendingPathComponent(".local/state/cmux", isDirectory: true)
@@ -380,7 +380,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testBundledStableCLIFallsBackFromSymlinkedLegacyStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
-        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        let fixedHomeURL = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let socketDirectoryURL = fixedHomeURL
             .appendingPathComponent(".local/state/cmux", isDirectory: true)
@@ -445,7 +445,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testBundledStableCLIPreservesLiveLegacyStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
-        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        let fixedHomeURL = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let socketDirectoryURL = fixedHomeURL
             .appendingPathComponent(".local/state/cmux", isDirectory: true)
@@ -1283,8 +1283,8 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     /// spawned CLI via `CFFIXED_USER_HOME`, so they never touch (or bind over) the
     /// developer's real `~/.local/state/cmux` (issue #5146).
     private func makeTemporaryHome() throws -> URL {
-        let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-cli-home-\(UUID().uuidString)", isDirectory: true)
+        let token = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
+        let home = URL(fileURLWithPath: "/tmp/cxh-\(token)", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         return home
     }
