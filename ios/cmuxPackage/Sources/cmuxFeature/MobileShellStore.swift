@@ -666,21 +666,27 @@ public final class CMUXMobileShellStore {
         selectedTerminalID = workspace.terminals.first?.id
     }
 
-    public func createTerminal() {
+    public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
+        let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         guard remoteClient == nil else {
+            guard let targetWorkspaceID else { return }
             guard createTerminalTask == nil else { return }
+            selectedWorkspaceID = targetWorkspaceID
+            syncSelectedTerminalForWorkspace()
             let taskID = UUID()
             createTerminalTaskID = taskID
             createTerminalTask = Task { @MainActor [weak self] in
                 defer { self?.clearCreateTerminalTask(id: taskID) }
                 guard let self else { return }
-                await self.createRemoteTerminal()
+                await self.createRemoteTerminal(in: targetWorkspaceID)
             }
             return
         }
-        guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == selectedWorkspace?.id }) else {
+        guard let targetWorkspaceID,
+              let workspaceIndex = workspaces.firstIndex(where: { $0.id == targetWorkspaceID }) else {
             return
         }
+        selectedWorkspaceID = targetWorkspaceID
         let terminalIndex = workspaces[workspaceIndex].terminals.count + 1
         let terminal = MobileTerminalPreview(
             id: .init(rawValue: "\(workspaces[workspaceIndex].id.rawValue)-terminal-\(terminalIndex)"),
@@ -1148,10 +1154,9 @@ public final class CMUXMobileShellStore {
         }
     }
 
-    private func createRemoteTerminal() async {
-        guard let client = remoteClient,
-              let workspaceID = selectedWorkspace?.id.rawValue else { return }
-        let requestedWorkspaceID = MobileWorkspacePreview.ID(rawValue: workspaceID)
+    private func createRemoteTerminal(in requestedWorkspaceID: MobileWorkspacePreview.ID) async {
+        guard let client = remoteClient else { return }
+        let workspaceID = requestedWorkspaceID.rawValue
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
@@ -2087,4 +2092,3 @@ private extension MobileWorkspacePreview {
         terminals.contains(where: \.isReady)
     }
 }
-

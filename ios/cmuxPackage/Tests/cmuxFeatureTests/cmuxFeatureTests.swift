@@ -1810,6 +1810,22 @@ import UIKit
 }
 
 @MainActor
+@Test func createTerminalUsesExplicitWorkspaceContextWhenSelectionIsStale() {
+    let store = CMUXMobileShellStore.preview()
+    store.signIn()
+    store.pairingCode = "debug"
+    store.connectPreviewHost()
+    store.createWorkspace()
+
+    store.selectedWorkspaceID = "workspace-main"
+    store.createTerminal(in: "workspace-3")
+
+    #expect(store.selectedWorkspace?.id.rawValue == "workspace-3")
+    #expect(store.selectedWorkspace?.terminals.map(\.name) == ["Terminal 1", "Terminal 2"])
+    #expect(store.selectedTerminalID?.rawValue == "workspace-3-terminal-2")
+}
+
+@MainActor
 @Test func remoteCreateTerminalKeepsOtherWorkspacesWhenMacReturnsScopedList() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",

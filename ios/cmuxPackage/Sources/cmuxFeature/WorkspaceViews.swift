@@ -259,7 +259,7 @@ private struct WorkspaceDetailContainer: View {
                     set: { store.selectTerminal($0) }
                 ),
                 createWorkspace: createWorkspace,
-                createTerminal: store.createTerminal,
+                createTerminal: { store.createTerminal(in: workspace.id) },
                 reportTerminalViewport: store.reportTerminalViewport,
                 sendTerminalInput: store.sendTerminalRawInput,
                 safeAreaContext: safeAreaContext,
