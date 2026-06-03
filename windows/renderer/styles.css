@@ -7326,6 +7326,24 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   gap: var(--space-2);
 }
 
+.workspace-blueprint-card.is-active {
+  border-color: color-mix(in oklch, var(--color-success) 46%, var(--color-line) 54%);
+  background: color-mix(in oklch, var(--color-success) 8%, var(--color-pane) 92%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-success) 28%, transparent);
+}
+
+.workspace-blueprint-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.workspace-blueprint-name > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .workspace-blueprint-actions {
   grid-template-columns: repeat(auto-fit, minmax(min(76px, 100%), 1fr));
 }

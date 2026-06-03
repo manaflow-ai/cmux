@@ -15775,8 +15775,9 @@ function workspaceBlueprintsPanel() {
     empty.textContent = "Save a workspace pane setup, then recreate it later as a new workspace or add it to the current one.";
     wrapper.append(empty);
   } else {
+    const currentBlueprint = currentWorkspaceBlueprintSnapshot("Current setup");
     for (const blueprint of state.workspaceBlueprints) {
-      wrapper.append(workspaceBlueprintCard(blueprint));
+      wrapper.append(workspaceBlueprintCard(blueprint, currentBlueprint));
     }
   }
 
@@ -15787,16 +15788,26 @@ function workspaceBlueprintsPanel() {
   return wrapper;
 }
 
-function workspaceBlueprintCard(blueprint) {
+function workspaceBlueprintCard(blueprint, currentBlueprint = null) {
+  const active = workspaceBlueprintMatchesSnapshot(blueprint, currentBlueprint);
   const card = document.createElement("div");
-  card.className = "recent-folder-card workspace-blueprint-card";
-  card.dataset.settingsSearch = normalizeSettingsQuery(`workspace blueprint saved layout pane template ${blueprint.label} ${workspaceBlueprintSummary(blueprint)}`);
+  card.className = `recent-folder-card workspace-blueprint-card${active ? " is-active" : ""}`;
+  const activeSearch = active ? " active current" : "";
+  card.dataset.settingsSearch = normalizeSettingsQuery(`workspace blueprint saved layout pane template${activeSearch} ${blueprint.label} ${workspaceBlueprintSummary(blueprint)}`);
 
   const text = document.createElement("div");
   text.className = "recent-folder-text";
   const name = document.createElement("div");
-  name.className = "recent-folder-name";
-  name.textContent = blueprint.label;
+  name.className = "recent-folder-name workspace-blueprint-name";
+  const nameText = document.createElement("span");
+  nameText.textContent = blueprint.label;
+  name.append(nameText);
+  if (active) {
+    const status = document.createElement("span");
+    status.className = "settings-profile-status";
+    status.textContent = "Active";
+    name.append(status);
+  }
   name.title = blueprint.label;
   const summary = document.createElement("div");
   summary.className = "recent-folder-path workspace-blueprint-summary";
@@ -15806,9 +15817,11 @@ function workspaceBlueprintCard(blueprint) {
 
   const actions = document.createElement("div");
   actions.className = "recent-folder-actions workspace-blueprint-actions";
+  const add = settingsActionButton(active ? "Active" : "Add", () => applyWorkspaceBlueprint(blueprint.id), active ? "primary" : "", `${active ? "active current " : ""}add apply workspace blueprint ${blueprint.label}`);
+  add.disabled = active;
   actions.append(
     settingsActionButton("New", () => createWorkspaceFromBlueprint(blueprint.id), "", `new workspace from blueprint ${blueprint.label}`),
-    settingsActionButton("Add", () => applyWorkspaceBlueprint(blueprint.id), "", `add apply workspace blueprint ${blueprint.label}`),
+    add,
     settingsActionButton("Update", () => updateWorkspaceBlueprint(blueprint.id), "", `update workspace blueprint ${blueprint.label} current layout`),
     settingsActionButton("Rename", () => renameWorkspaceBlueprint(blueprint.id), "", `rename workspace blueprint ${blueprint.label}`),
     settingsActionButton("Delete", () => deleteWorkspaceBlueprint(blueprint.id), "danger", `delete workspace blueprint ${blueprint.label}`)
@@ -15845,6 +15858,33 @@ function currentWorkspaceBlueprintSnapshot(label, overrides = {}) {
       weight: storedPaneWeight(panel.id, direction) || equalWeight
     }))
   });
+}
+
+function workspaceBlueprintComparableModel(blueprint) {
+  if (!blueprint) return null;
+  return {
+    splitDirection: blueprint.splitDirection,
+    color: blueprint.color || "",
+    cwd: blueprint.cwd || "",
+    panels: (blueprint.panels || []).map((panel) => ({
+      type: panel.type,
+      title: panel.title || "",
+      color: panel.color || "",
+      backgroundImage: panel.backgroundImage || "",
+      cwd: panel.cwd || "",
+      shellProfile: panel.shellProfile || "",
+      shellPath: panel.shellPath || "",
+      terminalFontSize: panel.terminalFontSize || 0,
+      url: panel.url || "",
+      weight: panel.weight || paneLayoutScale
+    }))
+  };
+}
+
+function workspaceBlueprintMatchesSnapshot(blueprint, snapshot) {
+  if (!blueprint || !snapshot) return false;
+  return stableJson(workspaceBlueprintComparableModel(blueprint))
+    === stableJson(workspaceBlueprintComparableModel(snapshot));
 }
 
 async function saveCurrentWorkspaceBlueprint() {
