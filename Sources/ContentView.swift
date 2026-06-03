@@ -11152,6 +11152,9 @@ struct VerticalTabsSidebar: View {
             // the file; this view only hosts the worker's remote layer and
             // forwards input, so no file-derived view code runs in the host.
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                // No .id(customSidebarURL): the worker swaps files in place on
+                // the next scene message, so remounting the surface would only
+                // flash the previous sidebar's pixels during the switch.
                 RemoteCustomSidebarView(
                     fileURL: customSidebarURL,
                     dataContext: customSidebarDataContext(now: timeline.date),
@@ -11162,7 +11165,6 @@ struct VerticalTabsSidebar: View {
                     ),
                     client: sidebarRenderWorkerClient
                 )
-                    .id(customSidebarURL)
             }
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(

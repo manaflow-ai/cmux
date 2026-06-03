@@ -12,6 +12,10 @@ import SwiftUI
 /// presentation), but no code or data derived from the user's sidebar file is
 /// ever turned into views in the host process.
 ///
+/// Do **not** key the view by file URL: the worker swaps files in place on the
+/// next scene message, so the surface (and its hosted remote layer) should stay
+/// mounted across sidebar switches to avoid flashing the previous content.
+///
 /// ```swift
 /// RemoteCustomSidebarView(
 ///     fileURL: url,
@@ -20,7 +24,6 @@ import SwiftUI
 ///     contentInsets: insets,
 ///     client: renderWorkerClient
 /// )
-/// .id(url)
 /// ```
 public struct RemoteCustomSidebarView: View {
     private let fileURL: URL
