@@ -6,10 +6,14 @@ on:
       - "ios/**"
       - "Packages/CMUXAuthCore/**"
       - "Packages/CMUXMobileCore/**"
+      - "Packages/CmuxAuthRuntime/**"
+      - "Packages/CmuxMobile*/**"
+      - "Packages/CMUXMobile*/**"
       - "Sources/Mobile/**"
       - "Sources/GhosttyTerminalView.swift"
       - "Sources/TerminalController.swift"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
+      - "scripts/lint-ios-package-conventions.sh"
       - ".github/workflows/test-ios.yml"
   workflow_dispatch:
     inputs:
@@ -35,6 +39,25 @@ permissions:
   contents: read
 
 jobs:
+  package-conventions-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Lint iOS package conventions
+        run: |
+          # Mechanical enforcement of the modular-refactor conventions over the
+          # iOS line (no singletons / Combine / locks / timer hacks / KVO /
+          # namespace-enums). Exits non-zero on any unjustified ERROR; sanctioned
+          # exceptions carry a lint:allow / TRANSITIONAL / carve-out marker.
+          ./scripts/lint-ios-package-conventions.sh
+
   mobile-core-package:
     runs-on: macos-26
     timeout-minutes: 10
