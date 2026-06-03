@@ -1524,13 +1524,13 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   min-width: var(--surface-tab-min, 100px);
   max-width: var(--surface-tab-max, 210px);
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) 22px;
+  grid-template-columns: 20px minmax(0, 1fr) 22px;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   border: 1px solid transparent;
   border-bottom-color: transparent;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
-  padding: 0 4px 0 8px;
+  padding: 0 4px 0 6px;
   background: color-mix(in oklch, var(--color-pane) 28%, transparent);
   color: var(--color-muted);
   font: inherit;
@@ -1543,8 +1543,8 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   flex-basis: min(var(--surface-tab-basis, 160px), 118px);
   min-width: min(var(--surface-tab-min, 104px), 82px);
   max-width: min(var(--surface-tab-max, 220px), 142px);
-  grid-template-columns: 16px minmax(0, 1fr) 20px;
-  gap: 3px;
+  grid-template-columns: 18px minmax(0, 1fr) 20px;
+  gap: 4px;
   padding: 0 3px 0 5px;
 }
 
@@ -1558,8 +1558,8 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
     flex-basis: 118px;
     min-width: 78px;
     max-width: 148px;
-    grid-template-columns: 16px minmax(0, 1fr) 20px;
-    gap: 5px;
+    grid-template-columns: 18px minmax(0, 1fr) 20px;
+    gap: 4px;
     padding: 0 3px 0 5px;
   }
 
@@ -1585,20 +1585,43 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
 .surface-dot {
   display: grid;
   place-items: center;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--tab-color, var(--color-faint));
-  color: transparent;
+  width: 18px;
+  height: 18px;
+  border: 1px solid color-mix(in oklch, var(--tab-color, var(--color-faint)) 34%, var(--color-line) 66%);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--tab-color, var(--color-faint)) 12%, var(--color-pane) 88%);
+  color: var(--color-muted);
   font: 9px/1 var(--font-mono);
+  overflow: hidden;
+}
+
+.surface-kind {
+  display: grid;
+  place-items: center;
+  color: currentcolor;
+}
+
+.surface-kind svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .surface-tabs.is-crowded .surface-dot {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: var(--radius-1);
-  color: var(--color-canvas);
+  color: var(--color-text);
   font-weight: 760;
+}
+
+.surface-tabs.is-crowded .surface-kind {
+  display: none;
 }
 
 .surface-tabs.is-crowded .surface-dot::after {
@@ -1607,11 +1630,15 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
 
 @container (max-width: 520px) {
   .surface-dot {
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     border-radius: var(--radius-1);
-    color: var(--color-canvas);
+    color: var(--color-text);
     font-weight: 760;
+  }
+
+  .surface-kind {
+    display: none;
   }
 
   .surface-dot::after {
@@ -1634,8 +1661,8 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
 }
 
 .surface-tab.is-minimized .surface-dot {
-  background: transparent;
   border: 1px solid var(--color-line-strong);
+  background: transparent;
   color: var(--color-faint);
 }
 
@@ -1645,12 +1672,14 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
 }
 
 .shell:not(.pane-color-markers) .surface-tab:not(.has-attention):not(.is-zoomed):not(.is-pending):not(.is-minimized) .surface-dot {
-  background: color-mix(in oklch, var(--color-line-strong) 68%, var(--color-pane) 32%);
+  border-color: color-mix(in oklch, var(--color-line-strong) 72%, transparent);
+  background: color-mix(in oklch, var(--color-line) 44%, var(--color-pane) 56%);
   color: var(--color-muted);
 }
 
 .shell:not(.pane-color-markers) .surface-tab.is-active:not(.has-attention):not(.is-zoomed):not(.is-pending):not(.is-minimized) .surface-dot {
-  background: color-mix(in oklch, var(--color-text) 20%, var(--color-line-strong) 80%);
+  border-color: color-mix(in oklch, var(--color-text) 18%, var(--color-line-strong) 82%);
+  background: color-mix(in oklch, var(--color-text) 10%, var(--color-line-strong) 90%);
   color: var(--color-text);
 }
 
@@ -1719,10 +1748,10 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
 
   .surface-tab:not(.surface-new-tab),
   .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab) {
-    flex-basis: 54px;
-    min-width: 42px;
-    max-width: 64px;
-    grid-template-columns: 16px;
+    flex-basis: 56px;
+    min-width: 44px;
+    max-width: 66px;
+    grid-template-columns: 18px;
     justify-content: center;
     gap: 3px;
     padding: 0 2px;
@@ -1796,7 +1825,7 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab):hover,
   .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab):focus-within,
   .surface-tabs.is-crowded .surface-tab:not(.surface-new-tab).is-active {
-    grid-template-columns: 16px 18px;
+    grid-template-columns: 18px 18px;
     justify-content: center;
     gap: 2px;
     padding: 0 2px;

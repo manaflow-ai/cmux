@@ -4785,7 +4785,7 @@ function createSurfaceTab() {
   button.className = "surface-tab";
   button.draggable = true;
   button.innerHTML = `
-    <span class="surface-dot"></span>
+    <span class="surface-dot"><span class="surface-kind" aria-hidden="true"></span></span>
     <span class="surface-label"></span>
     <span class="surface-close" title="Close"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 7 10 10M17 7 7 17"></path></svg></span>
   `;
@@ -4851,6 +4851,7 @@ function createSurfaceTab() {
 function surfaceTabParts(button) {
   button._surfaceParts ||= {
     dot: button.querySelector(".surface-dot"),
+    kind: button.querySelector(".surface-kind"),
     label: button.querySelector(".surface-label"),
     close: button.querySelector(".surface-close")
   };
@@ -4874,7 +4875,13 @@ function updateSurfaceTab(button, workspace, panel, label = surfaceTabLabel(work
   setAttributeIfChanged(button, "aria-label", `${label}${active ? ", active" : ""}${pending ? ", starting" : ""}${minimized ? ", minimized" : ""}. Press Delete to ${closeActionLabel}.`);
   if (button.tabIndex !== (tabbable ? 0 : -1)) button.tabIndex = tabbable ? 0 : -1;
   setStylePropertyIfChanged(button, "--tab-color", panel.color || workspace.color || "var(--color-accent)");
+  setDatasetIfChanged(button, "paneKind", panel.type === "browser" ? "browser" : "terminal");
   setDatasetIfChanged(parts.dot, "tabIndex", String(ordinal));
+  const iconName = panel.type === "browser" ? "browser" : "terminal";
+  if (parts.kind && parts.kind.dataset.icon !== iconName) {
+    parts.kind.dataset.icon = iconName;
+    parts.kind.innerHTML = controlIconMarkup(iconName);
+  }
   setTextIfChanged(parts.label, label);
   setTitleIfChanged(parts.close, pending ? "Cancel pane" : closePaneActionLabel(workspace, panel.id));
 }
@@ -15356,6 +15363,8 @@ function showToolbarMenu(event) {
     title,
     contextMenuSectionTitle("Pane"),
     contextMenuActionGroup(
+      contextMenuButton("Customize active pane", () => openPaneSettings(panel), !panel),
+      contextMenuButton("Active pane appearance", () => openPaneAppearanceSettings(panel), !panel),
       contextMenuButton("Split right", () => splitActivePanel("right")),
       contextMenuButton("Split down", () => splitActivePanel("down")),
       contextMenuButton("Duplicate active pane", duplicateActivePanel, !panel),
@@ -15390,6 +15399,7 @@ function showToolbarMenu(event) {
       contextMenuButton("Paste to terminal", pasteClipboardToTerminal, !terminalActive),
       contextMenuButton("Clear active terminal", clearActiveTerminal, !terminalActive),
       contextMenuButton("Restart terminal", restartActiveTerminal, !terminalActive),
+      contextMenuButton("Choose terminal background", () => choosePanelBackgroundImage(panel), !terminalActive),
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
       contextMenuButton("Reset terminal colors", () => applyTerminalColorPresetById("cmux"))
     ),
