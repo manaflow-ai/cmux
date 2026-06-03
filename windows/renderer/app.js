@@ -13289,11 +13289,13 @@ function quickSettingsSignature() {
   appendSignatureValue(parts, panels.length);
   appendSignatureValue(parts, state.recentFolders.length);
   appendSignatureValue(parts, state.recentCommands.length);
+  appendSignatureValue(parts, state.recentCommands.join("\n"));
   appendSignatureValue(parts, state.recentBrowserPages.length);
   appendSignatureValue(parts, state.recentBrowserPages.join(","));
   appendSignatureValue(parts, browserTabSnapshotCount());
   appendSignatureData(parts, Object.fromEntries(state.browserTabSnapshots));
   appendSignatureValue(parts, state.customCommandSnippets.length);
+  appendSignatureData(parts, state.customCommandSnippets);
   appendSignatureValue(parts, state.savedSettingsProfiles.length);
   appendSignatureValue(parts, state.workspaceBlueprints.length);
   appendSignatureValue(parts, state.customColorPalette.length);
@@ -18100,6 +18102,86 @@ function quickPaneControlsPanel(panel) {
   });
 }
 
+function quickTerminalControlsPanel(workspace = activeWorkspace(), terminalCount = 0) {
+  const activeTerminal = activeTerminalPanelForSettings();
+  const hasWorkspace = Boolean(workspace);
+  const creationDisabled = paneCreationButtonsDisabled();
+  const profileLabel = optionLabel(terminalProfiles, state.settings.terminalProfile, "Auto");
+  const fontLabel = `${optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono")} ${state.settings.terminalFontSize}px`;
+  const activeTerminalTitle = activeTerminal ? panelDisplayTitle(activeTerminal, true) : "No active terminal";
+  const latestCommand = state.recentCommands[0] || "";
+  const latestCommandSaved = isCommandSavedAsCustomSnippet(latestCommand);
+  const snippetsFull = customCommandSnippetsFull();
+  const saveCommandDisabled = !latestCommand || latestCommandSaved || (!latestCommandSaved && snippetsFull);
+  const profilesFull = savedSettingsProfilesFull();
+  const terminalRequiredTitle = "Focus or create a terminal pane first.";
+  const workspaceRequiredTitle = "Open a workspace before starting a terminal.";
+  const saveCommandTitle = !latestCommand
+    ? "There are no recent terminal commands yet."
+    : latestCommandSaved
+      ? "The latest recent command is already saved as a snippet."
+      : snippetsFull
+        ? commandSnippetLimitTitle()
+        : "Save the latest recent terminal command as a reusable snippet.";
+  const actions = [
+    quickOverviewControlButton("New terminal", () => createTerminalPanel("right", { workspaceId: workspace?.id }), {
+      disabled: !hasWorkspace || creationDisabled,
+      title: !hasWorkspace
+        ? workspaceRequiredTitle
+        : paneCreationActionTitle("Start a terminal pane in this workspace.", `Uses ${profileLabel}.`),
+      search: `quick setup terminal new pane shell add ${profileLabel} ${paneCreationQueueStatusLabel()}`
+    }),
+    quickOverviewControlButton("Run", () => promptRunTerminalCommand(activeTerminal), {
+      disabled: !activeTerminal,
+      title: activeTerminal ? "Run a command in the active terminal." : terminalRequiredTitle,
+      search: "quick setup terminal run command active shell"
+    }),
+    quickOverviewControlButton("Restart", () => restartPanel(activeTerminal.id), {
+      disabled: !activeTerminal,
+      title: activeTerminal ? "Restart the active terminal pane." : terminalRequiredTitle,
+      search: "quick setup terminal restart active shell reload"
+    }),
+    quickOverviewControlButton("Copy recent", copyRecentCommands, {
+      disabled: state.recentCommands.length === 0,
+      title: state.recentCommands.length ? "Copy recent terminal commands as JSON." : "Recent commands are empty.",
+      search: "quick setup terminal recent commands copy history clipboard json"
+    }),
+    quickOverviewControlButton("Paste recent", pasteRecentCommands, {
+      title: "Merge copied terminal commands into recent commands.",
+      search: "quick setup terminal recent commands paste history clipboard json"
+    }),
+    quickOverviewControlButton("Save command", () => saveRecentCommandAsSnippet(latestCommand), {
+      disabled: saveCommandDisabled,
+      title: saveCommandTitle,
+      search: `quick setup terminal save recent command snippet reusable ${latestCommand}`
+    }),
+    quickOverviewControlButton("Copy setup", copyTerminalSetup, {
+      title: "Copy the current terminal font, spacing, colors, cursor, and shell setup.",
+      search: "quick setup terminal copy setup font size line height colors cursor shell clipboard json"
+    }),
+    quickOverviewControlButton("Paste setup", pasteTerminalSetup, {
+      title: "Apply a copied cmux terminal setup.",
+      search: "quick setup terminal paste setup font size line height colors cursor shell clipboard json"
+    }),
+    quickOverviewControlButton("Save profile", saveCurrentTerminalProfile, {
+      disabled: profilesFull,
+      title: profilesFull ? settingsProfileLimitTitle() : "Save this terminal setup as a reusable Settings profile.",
+      search: "quick setup terminal save profile reusable settings font color shell"
+    }),
+    quickOverviewControlButton("Terminal", () => openSettingsCategory("terminal"), {
+      title: "Open full terminal settings.",
+      search: "quick setup terminal full settings font cursor shell colors recent commands snippets"
+    })
+  ];
+  return quickOverviewControlsPanel({
+    className: "quick-overview-terminal",
+    title: "Terminal controls",
+    meta: `${profileLabel} / ${fontLabel} / ${state.recentCommands.length}/${recentCommandsLimit} recent`,
+    search: `quick setup terminal controls shell font recent commands snippets profile ${profileLabel} ${fontLabel} ${activeTerminalTitle} ${terminalCount} terminals`,
+    actions
+  });
+}
+
 function quickBrowserControlsPanel(workspace = activeWorkspace(), browserCount = 0) {
   const activeBrowser = resolveBrowserPanel(activePanel());
   const activeBrowserPage = activeBrowser ? browserPanelUrl(activeBrowser) : "";
@@ -18407,6 +18489,7 @@ function quickSetupOverviewPanel() {
     </div>
     <div data-quick-workspace-controls></div>
     <div data-quick-pane-controls></div>
+    <div data-quick-terminal-controls></div>
     <div data-quick-browser-controls></div>
     <div data-quick-color-controls></div>
     <button class="quick-overview-speed" type="button" data-performance-status>
@@ -18484,6 +18567,7 @@ function quickSetupOverviewPanel() {
   panel.querySelector("[data-quick-performance]").textContent = performanceModeLabel();
   panel.querySelector("[data-quick-workspace-controls]").replaceWith(quickWorkspaceControlsPanel(workspace, terminalCount, browserCount));
   panel.querySelector("[data-quick-pane-controls]").replaceWith(quickPaneControlsPanel(activePane));
+  panel.querySelector("[data-quick-terminal-controls]").replaceWith(quickTerminalControlsPanel(workspace, terminalCount));
   panel.querySelector("[data-quick-browser-controls]").replaceWith(quickBrowserControlsPanel(workspace, browserCount));
   panel.querySelector("[data-quick-color-controls]").replaceWith(quickColorControlsPanel(workspace));
   const speed = panel.querySelector(".quick-overview-speed");
