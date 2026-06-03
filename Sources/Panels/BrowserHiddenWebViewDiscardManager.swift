@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @MainActor
@@ -26,6 +27,7 @@ final class BrowserHiddenWebViewDiscardManager {
         let hasCurrentURL: Bool
         let isLoading: Bool
         let webViewIsLoading: Bool
+        let hasActiveMainFrameProvisionalNavigation: Bool
         let isDownloading: Bool
         let activeDownloadCount: Int
         let preferredDeveloperToolsVisible: Bool
@@ -40,8 +42,15 @@ final class BrowserHiddenWebViewDiscardManager {
 
     private var discardTimer: DispatchSourceTimer?
     private var policyObserver: NSObjectProtocol?
+    private var systemSleepObservers: [NSObjectProtocol] = []
+    private var systemSleepObserverCenter: NotificationCenter?
     private var policyState = BrowserHiddenWebViewDiscardPolicy.resolved()
     private var scheduleGeneration: UInt64 = 0
+
+    /// Sleep/wake state used to keep a hidden-webview discard from running in
+    /// the fragile window right after system wake (see issue #5261).
+    private(set) var isSystemSleeping = false
+    private(set) var lastSystemWakeAt: Date?
 
     private(set) var isDiscardedForMemory: Bool = false
     private(set) var discardedAt: Date?
@@ -113,6 +122,42 @@ final class BrowserHiddenWebViewDiscardManager {
         scheduleGeneration &+= 1
         discardTimer?.cancel()
         discardTimer = nil
+    }
+
+    /// Tracks system sleep/wake so discard countdowns armed before sleep do not
+    /// fire shortly after wake. Injectable center for tests.
+    func installSystemSleepObservers(center: NotificationCenter = NSWorkspace.shared.notificationCenter) {
+        guard systemSleepObservers.isEmpty else { return }
+        systemSleepObserverCenter = center
+        systemSleepObservers = [
+            center.addObserver(
+                forName: NSWorkspace.willSleepNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.noteSystemWillSleep()
+                }
+            },
+            center.addObserver(
+                forName: NSWorkspace.didWakeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.noteSystemDidWake()
+                }
+            }
+        ]
+    }
+
+    func noteSystemWillSleep() {
+        isSystemSleeping = true
+    }
+
+    func noteSystemDidWake(now: Date = Date()) {
+        isSystemSleeping = false
+        lastSystemWakeAt = now
     }
 
     func installPolicyObserver() {
@@ -197,5 +242,12 @@ final class BrowserHiddenWebViewDiscardManager {
             NotificationCenter.default.removeObserver(policyObserver)
             self.policyObserver = nil
         }
+        if let center = systemSleepObserverCenter {
+            for observer in systemSleepObservers {
+                center.removeObserver(observer)
+            }
+        }
+        systemSleepObservers.removeAll()
+        systemSleepObserverCenter = nil
     }
 }
