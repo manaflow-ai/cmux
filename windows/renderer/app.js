@@ -15562,7 +15562,7 @@ function settingsProfilesPanel() {
   const save = settingsActionButton("Save", saveCurrentSettingsProfile, "", "save current settings profile preset");
   save.disabled = state.savedSettingsProfiles.length >= savedSettingsProfilesLimit;
   header.append(title, save);
-  wrapper.append(header);
+  wrapper.append(header, settingsProfileCurrentSetupPanel());
 
   if (state.savedSettingsProfiles.length === 0) {
     const empty = document.createElement("div");
@@ -15580,6 +15580,32 @@ function settingsProfilesPanel() {
   builtInTitle.textContent = "Built-in profiles";
   wrapper.append(builtInTitle, settingsPresetGrid());
   return wrapper;
+}
+
+function settingsProfileCurrentSetupPanel() {
+  const setup = activeSettingsSetupModel();
+  const setupClass = setup.kind === "Saved profile"
+    ? " is-saved"
+    : setup.kind === "Unsaved setup"
+      ? " is-unsaved"
+      : " is-built-in";
+  const panel = document.createElement("div");
+  panel.className = `settings-profile-overview${setupClass}`;
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`current active settings setup profile ${setup.kind} ${setup.label} ${settingsProfileSummary(state.settings)} ${savedSettingsProfileCountLabel()}`);
+  panel.title = `${setup.kind}: ${setup.label}`;
+  panel.setAttribute("aria-label", `Current setup. ${setup.kind}: ${setup.label}. ${savedSettingsProfileCountLabel()} saved profiles.`);
+  panel.innerHTML = `
+    <span class="settings-profile-overview-copy">
+      <span class="settings-profile-overview-eyebrow">Current setup</span>
+      <span class="settings-profile-overview-label"></span>
+      <span class="settings-profile-overview-meta"></span>
+    </span>
+    <span class="settings-profile-overview-badge"></span>
+  `;
+  panel.querySelector(".settings-profile-overview-label").textContent = setup.label;
+  panel.querySelector(".settings-profile-overview-meta").textContent = `${savedSettingsProfileCountLabel()} saved / ${settingsProfileSummary(state.settings)}`;
+  panel.querySelector(".settings-profile-overview-badge").textContent = setup.kind;
+  return panel;
 }
 
 function settingsProfileCard(profile) {
