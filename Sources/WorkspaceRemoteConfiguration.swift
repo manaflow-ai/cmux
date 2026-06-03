@@ -336,6 +336,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
     let localSocketPath: String?
     let terminalStartupCommand: String?
     let foregroundAuthToken: String?
+    let agentSocketPath: String?
     let daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
     let preserveAfterTerminalExit: Bool
     let persistentDaemonSlot: String?
@@ -358,6 +359,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         localSocketPath: String?,
         terminalStartupCommand: String?,
         foregroundAuthToken: String? = nil,
+        agentSocketPath: String? = nil,
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
         preserveAfterTerminalExit: Bool = false,
         persistentDaemonSlot: String? = nil,
@@ -375,6 +377,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         self.localSocketPath = localSocketPath
         self.terminalStartupCommand = terminalStartupCommand
         self.foregroundAuthToken = foregroundAuthToken
+        self.agentSocketPath = WorkspaceRemoteSSHOptionFilter.normalizedOptional(agentSocketPath)
         self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
         self.preserveAfterTerminalExit = preserveAfterTerminalExit
         self.persistentDaemonSlot = preserveAfterTerminalExit
@@ -396,6 +399,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         let normalizedIdentity = WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile) ?? ""
         let normalizedLocalProxyPort = localProxyPort.map(String.init) ?? ""
         let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
+        let normalizedAgentSocketPath = WorkspaceRemoteSSHOptionFilter.normalizedOptional(agentSocketPath) ?? ""
         let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
         let normalizedRequiredCapabilities = preserveAfterTerminalExit ? "pty.session" : ""
         let normalizedPersistentDaemonSlot = persistentDaemonSlot ?? ""
@@ -406,6 +410,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
             normalizedPort,
             normalizedIdentity,
             normalizedOptions,
+            normalizedAgentSocketPath,
             normalizedLocalProxyPort,
             normalizedWebSocketDaemon,
             normalizedRequiredCapabilities,
@@ -435,6 +440,8 @@ struct WorkspaceRemoteConfiguration: Equatable {
             && WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile)
                 == WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(other.identityFile)
             && Self.proxyBrokerSSHOptions(sshOptions) == Self.proxyBrokerSSHOptions(other.sshOptions)
+            && WorkspaceRemoteSSHOptionFilter.normalizedOptional(agentSocketPath)
+                == WorkspaceRemoteSSHOptionFilter.normalizedOptional(other.agentSocketPath)
             && daemonWebSocketEndpoint?.proxyBrokerKeyComponent == other.daemonWebSocketEndpoint?.proxyBrokerKeyComponent
     }
 }
@@ -584,6 +591,22 @@ extension SessionRemoteWorkspaceSnapshot {
 }
 
 extension WorkspaceRemoteConfiguration {
+    var sshTerminalStartupEnvironment: [String: String]? {
+        guard let agentSocketPath = WorkspaceRemoteSSHOptionFilter.normalizedOptional(agentSocketPath) else {
+            return nil
+        }
+        return ["SSH_AUTH_SOCK": agentSocketPath]
+    }
+
+    var sshProcessEnvironment: [String: String]? {
+        guard let agentSocketPath = WorkspaceRemoteSSHOptionFilter.normalizedOptional(agentSocketPath) else {
+            return nil
+        }
+        var environment = ProcessInfo.processInfo.environment
+        environment["SSH_AUTH_SOCK"] = agentSocketPath
+        return environment
+    }
+
     static func forkedAgentSSHOptions(_ options: [String]) -> [String] {
         WorkspaceRemoteSSHOptionFilter.forkedWorkspaceOptions(options)
     }

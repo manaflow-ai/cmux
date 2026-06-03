@@ -7272,6 +7272,7 @@ struct CMUXCLI {
         let noFocus: Bool
         let sshOptions: [String]
         let extraArguments: [String]
+        let agentSocketPath: String?
         let localSocketPath: String
         let remoteRelayPort: Int
         /// True when the remote is a cloud VM with cmuxd-remote pre-baked in the image.
@@ -7288,6 +7289,7 @@ struct CMUXCLI {
             noFocus: Bool,
             sshOptions: [String],
             extraArguments: [String],
+            agentSocketPath: String? = nil,
             localSocketPath: String,
             remoteRelayPort: Int,
             skipDaemonBootstrap: Bool = false
@@ -7301,6 +7303,7 @@ struct CMUXCLI {
             self.noFocus = noFocus
             self.sshOptions = sshOptions
             self.extraArguments = extraArguments
+            self.agentSocketPath = agentSocketPath
             self.localSocketPath = localSocketPath
             self.remoteRelayPort = remoteRelayPort
             self.skipDaemonBootstrap = skipDaemonBootstrap
@@ -7558,6 +7561,11 @@ struct CMUXCLI {
         var workspaceCreateParams: [String: Any] = [
             "initial_command": initialSSHStartupCommand,
         ]
+        if let agentSocketPath = sshOptions.agentSocketPath {
+            workspaceCreateParams["initial_env"] = [
+                "SSH_AUTH_SOCK": agentSocketPath,
+            ]
+        }
         try applyWindowOrCallerContext(to: &workspaceCreateParams, client: client, windowRaw: sshOptions.windowRaw)
 
         let workspaceCreateStartedAt = Date()
@@ -7621,6 +7629,9 @@ struct CMUXCLI {
             }
             if !remoteSSHOptions.isEmpty {
                 configureParams["ssh_options"] = remoteSSHOptions
+            }
+            if let agentSocketPath = sshOptions.agentSocketPath {
+                configureParams["ssh_auth_sock"] = agentSocketPath
             }
             if sshOptions.remoteRelayPort > 0 {
                 configureParams["relay_port"] = sshOptions.remoteRelayPort
@@ -7731,6 +7742,7 @@ struct CMUXCLI {
         var noFocus = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
+        var forwardAgentOverride: Bool?
 
         var passthrough = false
         var index = 0
@@ -7776,6 +7788,12 @@ struct CMUXCLI {
             case "--no-focus":
                 noFocus = true
                 index += 1
+            case "-A", "--forward-agent":
+                forwardAgentOverride = true
+                index += 1
+            case "-a", "--no-forward-agent":
+                forwardAgentOverride = false
+                index += 1
             case "--ssh-option":
                 guard index + 1 < commandArgs.count else {
                     throw CLIError(message: "ssh: --ssh-option requires a value")
@@ -7806,6 +7824,13 @@ struct CMUXCLI {
         guard let destination else {
             throw CLIError(message: "ssh requires a destination (example: cmux ssh user@host)")
         }
+        let agentForwarding = resolvedSSHAgentForwarding(
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: sshOptions,
+            override: forwardAgentOverride
+        )
         return SSHCommandOptions(
             destination: destination,
             port: port,
@@ -7813,11 +7838,151 @@ struct CMUXCLI {
             workspaceName: workspaceName,
             windowRaw: windowRaw ?? windowOverride,
             noFocus: noFocus,
-            sshOptions: sshOptions,
+            sshOptions: agentForwarding.sshOptions,
             extraArguments: extraArguments,
+            agentSocketPath: agentForwarding.agentSocketPath,
             localSocketPath: localSocketPath,
             remoteRelayPort: remoteRelayPort
         )
+    }
+
+    private func resolvedSSHAgentForwarding(
+        destination: String,
+        port: Int?,
+        identityFile: String?,
+        sshOptions: [String],
+        override: Bool?
+    ) -> (sshOptions: [String], agentSocketPath: String?) {
+        let forwardAgentValue: String?
+        var resolvedOptions = sshOptions
+
+        if let override {
+            resolvedOptions = sshOptionsRemovingForwardAgent(resolvedOptions)
+            resolvedOptions.append("ForwardAgent=\(override ? "yes" : "no")")
+            forwardAgentValue = override ? "yes" : nil
+        } else if let explicitForwardAgent = sshForwardAgentValue(in: resolvedOptions) {
+            forwardAgentValue = Self.isSSHNoValue(explicitForwardAgent) ? nil : explicitForwardAgent
+        } else if let configuredForwardAgent = effectiveSSHConfigForwardAgent(
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: resolvedOptions
+        ), !Self.isSSHNoValue(configuredForwardAgent) {
+            resolvedOptions.append("ForwardAgent=\(configuredForwardAgent)")
+            forwardAgentValue = configuredForwardAgent
+        } else {
+            forwardAgentValue = nil
+        }
+
+        let agentSocketPath = forwardAgentValue.flatMap(defaultSSHAgentSocketPath(forForwardAgentValue:))
+        return (resolvedOptions, agentSocketPath)
+    }
+
+    private func effectiveSSHConfigForwardAgent(
+        destination: String,
+        port: Int?,
+        identityFile: String?,
+        sshOptions: [String]
+    ) -> String? {
+#if DEBUG
+        if let fixture = ProcessInfo.processInfo.environment["CMUX_TEST_SSH_G_OUTPUT"] {
+            return sshForwardAgentValue(fromSSHConfigDump: fixture)
+        }
+#endif
+
+        var arguments = ["-G"]
+        if let port {
+            arguments += ["-p", String(port)]
+        }
+        if let identityFile = normalizedSSHIdentityPath(identityFile) {
+            arguments += ["-i", identityFile]
+        }
+        for option in sshOptions {
+            arguments += ["-o", option]
+        }
+        arguments.append(destination)
+
+        let result = runProcess(executablePath: "/usr/bin/ssh", arguments: arguments, timeout: 3)
+        guard result.status == 0 else {
+            cliDebugLog(
+                "cli.ssh.forwardAgent.resolve.failed target=\(destination) " +
+                "status=\(result.status) stderr=\(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
+            )
+            return nil
+        }
+
+        return sshForwardAgentValue(fromSSHConfigDump: result.stdout)
+    }
+
+    private func sshForwardAgentValue(fromSSHConfigDump output: String) -> String? {
+        for line in output.split(whereSeparator: \.isNewline) {
+            let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+            guard parts.count == 2,
+                  parts[0].lowercased() == "forwardagent" else {
+                continue
+            }
+            let value = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        }
+        return nil
+    }
+
+    private func sshOptionsRemovingForwardAgent(_ options: [String]) -> [String] {
+        options.filter { option in
+            sshOptionKey(option) != "forwardagent"
+        }
+    }
+
+    private func sshOptionKey(_ option: String) -> String? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+            .first
+            .map(String.init)?
+            .lowercased()
+    }
+
+    private func sshForwardAgentValue(in options: [String]) -> String? {
+        sshOptionValue(named: "ForwardAgent", in: options)
+    }
+
+    private func defaultSSHAgentSocketPath(forForwardAgentValue value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("$") {
+            let variableName = String(trimmed.dropFirst())
+            return normalizedSSHAgentSocketPath(ProcessInfo.processInfo.environment[variableName])
+        }
+        guard Self.isSSHYesValue(trimmed) else {
+            return nil
+        }
+        return normalizedSSHAgentSocketPath(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"])
+    }
+
+    private func normalizedSSHAgentSocketPath(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func isSSHYesValue(_ value: String) -> Bool {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "yes", "true", "on", "1":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isSSHNoValue(_ value: String) -> Bool {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "no", "false", "off", "0":
+            return true
+        default:
+            return false
+        }
     }
 
     func buildSSHCommandText(
@@ -13318,7 +13483,7 @@ struct CMUXCLI {
             via Settings → Keyboard.
             """
         case "ssh":
-            return """
+            return String(localized: "cli.help.ssh", defaultValue: """
             Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]
 
             Create a new workspace, mark it as remote-SSH, and start an SSH session in that workspace.
@@ -13328,6 +13493,8 @@ struct CMUXCLI {
               --name <title>          Optional workspace title
               --port <n>              SSH port
               --identity <path>       SSH identity file path
+              -A, --forward-agent     Forward the caller's SSH agent; also honors ForwardAgent yes from ssh_config
+              -a, --no-forward-agent  Disable SSH agent forwarding for this workspace
               --ssh-option <opt>      Extra SSH -o option (repeatable)
               --window <id|ref|index> Target window for the managed workspace
               --no-focus              Create workspace without switching to it
@@ -13335,8 +13502,9 @@ struct CMUXCLI {
             Example:
               cmux ssh dev@my-host
               cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
+              cmux ssh dev@my-host --forward-agent
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
-            """
+            """)
         case "ssh-session-list":
             return """
             Usage: cmux ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
@@ -31363,7 +31531,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
-          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
