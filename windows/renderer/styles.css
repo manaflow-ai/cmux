@@ -9292,6 +9292,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .actions-overview-grid b,
 .actions-overview-grid em,
+.action-workflow-title,
+.action-workflow-meta,
 .actions-group-title,
 .actions-group-body,
 .actions-group-meta {
@@ -9310,6 +9312,71 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .actions-overview-grid em {
   color: var(--color-text);
   font-size: 12px;
+}
+
+.action-workflow-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.action-workflow-card {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+}
+
+.action-workflow-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.action-workflow-title {
+  flex: 1 1 auto;
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.action-workflow-meta {
+  flex: 0 0 auto;
+  max-width: 116px;
+  padding: 4px 6px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane-warm);
+  color: var(--color-faint);
+  font: 10px/1 var(--font-mono);
+}
+
+.action-workflow-body {
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.3;
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.action-workflow-command-list {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.action-workflow-command-list .settings-action {
+  width: 100%;
 }
 
 .actions-group-grid {
@@ -12581,8 +12648,13 @@ textarea.dialog-input {
   .quick-overview-grid,
   .quick-settings-shortcut-grid,
   .actions-overview-grid,
+  .action-workflow-grid,
   .actions-group-grid,
   .data-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .action-workflow-command-list {
     grid-template-columns: minmax(0, 1fr);
   }
 

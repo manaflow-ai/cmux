@@ -5564,6 +5564,45 @@ const commands = [
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() }
 ];
 
+const actionWorkflowDefinitions = [
+  {
+    id: "workspaceSetup",
+    label: "Workspace setup",
+    body: "Create, name, save, and export the active workspace without hunting through the full command list.",
+    commandIds: ["workspace.newFromFolder", "workspace.rename", "workspace.saveBlueprint", "workspace.copySetup"]
+  },
+  {
+    id: "paneControl",
+    label: "Pane control",
+    body: "Split, balance, and focus panes for a cleaner workspace layout.",
+    commandIds: ["terminal.splitRight", "terminal.splitDown", "layout.equalPanes", "terminal.focusPane"]
+  },
+  {
+    id: "browserReview",
+    label: "Browser review",
+    body: "Open a browser pane, jump to the address bar, then externalize or save the active page.",
+    commandIds: ["browser.newPane", "browser.focusAddress", "browser.openExternal", "browser.saveActiveProfile"]
+  },
+  {
+    id: "terminalTools",
+    label: "Terminal tools",
+    body: "Run commands, search output, and carry terminal setup between sessions.",
+    commandIds: ["terminal.runCommand", "terminal.find", "settings.copyTerminalSetup", "settings.terminal"]
+  },
+  {
+    id: "speedTune",
+    label: "Speed tune",
+    body: "Open performance controls, apply a clean setup, and copy diagnostics for lag work.",
+    commandIds: ["settings.performance", "settings.tunePerformance", "settings.cleanFast", "settings.copyDiagnostics"]
+  },
+  {
+    id: "customizeBackup",
+    label: "Customize + backup",
+    body: "Adjust colors and backgrounds, save the profile, then export the app setup.",
+    commandIds: ["settings.colors", "settings.backgrounds", "settings.saveProfile", "settings.copyAppSetup"]
+  }
+];
+
 const paneLayoutCommandPresetIds = new Map([
   ["layout.equalPanes", "equal"],
   ["layout.sideBySide", "sideBySide"],
@@ -12018,6 +12057,7 @@ function renderSettingsInspector(options = {}) {
   if (shouldBuildSection("actions")) {
     const actionsSection = settingsSection("Actions", "commands shortcuts keyboard palette run tools");
     actionsSection.append(settingsActionsOverviewPanel());
+    actionsSection.append(actionWorkflowGrid());
     actionsSection.append(settingsCommandGroupShortcutGrid());
     actionsSection.append(settingsCommandListDisclosurePanel());
     nodes.push(actionsSection);
@@ -18415,6 +18455,71 @@ function settingsActionsOverviewPanel() {
 
 function firstShortcutLabel(commandList) {
   return commandList.find((command) => command.shortcut)?.shortcut || "Palette";
+}
+
+function actionWorkflowCommandById(commandId) {
+  return commands.find((command) => command.id === commandId) || null;
+}
+
+function actionWorkflowCommands(workflow) {
+  if (!workflow) return [];
+  return workflow.commandIds
+    .map(actionWorkflowCommandById)
+    .filter(Boolean);
+}
+
+function actionWorkflowShortcutSummary(commandList) {
+  const shortcuts = commandList
+    .map((command) => command.shortcut)
+    .filter(Boolean);
+  if (!shortcuts.length) return "Palette";
+  return shortcuts.slice(0, 2).join(" / ");
+}
+
+function actionWorkflowSearchText(workflow, workflowCommands) {
+  return normalizeSettingsQuery([
+    "actions workflow launcher commands shortcuts keyboard palette run",
+    workflow?.label || "",
+    workflow?.body || "",
+    workflowCommands.map((command) => `${command.id} ${command.label} ${command.shortcut}`).join(" ")
+  ].join(" "));
+}
+
+function actionWorkflowGrid() {
+  const grid = document.createElement("div");
+  grid.className = "action-workflow-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("actions workflow launcher command bundles workspace panes browser terminal performance customize backup");
+  for (const workflow of actionWorkflowDefinitions) {
+    const workflowCommands = actionWorkflowCommands(workflow);
+    if (!workflowCommands.length) continue;
+    const card = document.createElement("div");
+    card.className = "action-workflow-card";
+    card.dataset.settingsSearch = actionWorkflowSearchText(workflow, workflowCommands);
+    card.innerHTML = `
+      <span class="action-workflow-title-row">
+        <span class="action-workflow-title"></span>
+        <span class="action-workflow-meta"></span>
+      </span>
+      <span class="action-workflow-body"></span>
+      <span class="action-workflow-command-list"></span>
+    `;
+    card.querySelector(".action-workflow-title").textContent = workflow.label;
+    card.querySelector(".action-workflow-meta").textContent = `${workflowCommands.length} / ${actionWorkflowShortcutSummary(workflowCommands)}`;
+    card.querySelector(".action-workflow-body").textContent = workflow.body;
+    const commandList = card.querySelector(".action-workflow-command-list");
+    for (const command of workflowCommands) {
+      const action = settingsActionButton(
+        command.label,
+        () => runSettingsCommand(command),
+        isDangerCommand(command) ? "danger" : "",
+        `actions workflow ${workflow.label} ${workflow.body} ${command.id} ${command.shortcut}`
+      );
+      action.title = command.shortcut ? `${command.label} / ${command.shortcut}` : command.label;
+      commandList.append(action);
+    }
+    grid.append(card);
+  }
+  return grid;
 }
 
 function settingsCommandGroupShortcutGrid() {
