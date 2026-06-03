@@ -21,7 +21,7 @@ final class TerminalControllerSocketWriteTests: XCTestCase {
         let result = TerminalController.terminalTextPayload(
             from: TerminalController.TerminalTextRawSnapshot(
                 viewport: nil,
-                screen: "old\nscreen\nline",
+                screen: "old\nscreen",
                 history: "one\ntwo\nthree",
                 active: "four\nfive"
             ),

@@ -10153,7 +10153,7 @@ class TerminalController {
         }
     }
 
-    static func terminalTextPayload(
+    nonisolated static func terminalTextPayload(
         from snapshot: TerminalTextRawSnapshot,
         includeScrollback: Bool,
         lineLimit: Int?
@@ -10202,7 +10202,7 @@ class TerminalController {
         return .success(TerminalTextPayload(text: output, base64: base64))
     }
 
-    private static func terminalTextCandidateScore(_ text: String) -> (lines: Int, bytes: Int) {
+    nonisolated private static func terminalTextCandidateScore(_ text: String) -> (lines: Int, bytes: Int) {
         if text.isEmpty { return (0, 0) }
         var newlineCount = 0
         var byteCount = 0
@@ -17044,7 +17044,7 @@ class TerminalController {
         )
     }
 
-    static func tailTerminalLines(_ text: String, maxLines: Int) -> String {
+    nonisolated static func tailTerminalLines(_ text: String, maxLines: Int) -> String {
         guard maxLines > 0 else { return "" }
         var newlineCount = 0
         var index = text.endIndex
