@@ -2601,21 +2601,26 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .pane-type {
-  min-width: 34px;
-  width: auto;
-  height: 16px;
+  width: 22px;
+  min-width: 22px;
+  height: 20px;
   display: grid;
   place-items: center;
-  padding: 0 4px;
+  padding: 0;
   border: 1px solid var(--color-line-strong);
   border-radius: 3px;
   color: var(--color-muted);
-  font: 10px/1 var(--font-mono);
 }
 
 .pane.is-active .pane-type {
   border-color: color-mix(in oklch, var(--panel-color, var(--color-accent)) 44%, var(--color-line-strong) 56%);
   color: var(--color-text);
+}
+
+.pane-type svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.8;
 }
 
 .shell:not(.pane-color-markers) .pane.is-active .pane-type {

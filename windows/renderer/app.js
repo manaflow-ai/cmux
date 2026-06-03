@@ -5513,6 +5513,18 @@ function updatePaneToolState(button, icon, label) {
   setAttributeIfChanged(button, "aria-label", label);
 }
 
+function updatePaneTypeBadge(badge, type) {
+  if (!badge) return;
+  const kind = type === "browser" ? "browser" : "terminal";
+  if (badge.dataset.paneTypeKind !== kind) {
+    badge.innerHTML = controlIconMarkup(kind);
+    badge.dataset.paneTypeKind = kind;
+  }
+  const label = kind === "browser" ? "Browser pane" : "Terminal pane";
+  setTitleIfChanged(badge, label);
+  setAttributeIfChanged(badge, "aria-label", label);
+}
+
 function renderPaneNode(panel, workspace, visibleCount) {
   let pane = state.paneCache.get(panel.id) || elements.paneGrid.querySelector(`[data-panel-id="${panel.id}"]`);
   if (!pane) pane = createPane(panel);
@@ -5539,7 +5551,7 @@ function renderPaneNode(panel, workspace, visibleCount) {
   const pending = isPendingPanel(panel);
   toggleClassIfChanged(pane, "is-pending", pending);
   if (visibleCount <= 1) clearPaneFlex(pane);
-  setTextIfChanged(parts.type, panel.type === "browser" ? "web" : "term");
+  updatePaneTypeBadge(parts.type, panel.type);
   const title = panelDisplayTitle(panel, false);
   setTextIfChanged(parts.title, title);
   setTitleIfChanged(parts.title, title);
@@ -6339,7 +6351,7 @@ function createPane(panel) {
   pane.innerHTML = `
     <div class="pane-header">
       <div class="pane-grip" title="Drag pane from the header" aria-hidden="true"></div>
-      <div class="pane-type"></div>
+      <div class="pane-type" role="img"></div>
       <div class="pane-title"></div>
       <div class="pane-toolbar">
         <button class="pane-tool split-right" type="button" title="Split right" aria-label="Split right"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14"></path></svg></button>
