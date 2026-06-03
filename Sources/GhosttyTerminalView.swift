@@ -1753,39 +1753,60 @@ private actor TerminalSurfaceRuntimeTeardownCoordinator {
 
     private let timeout: Duration = .seconds(5)
     private var pendingReasonsById: [UUID: String] = [:]
+    private var queuedRequests: [TerminalSurfaceRuntimeTeardownRequest] = []
+    private var isWorkerRunning = false
 
     func enqueue(_ request: TerminalSurfaceRuntimeTeardownRequest) {
         pendingReasonsById[request.id] = request.reason
-        let task = Task.detached(priority: .utility) {
-#if DEBUG
-            cmuxDebugLog(
-                "surface.lifecycle.nativeFree.begin surface=\(request.surfaceToken) " +
-                "workspace=\(request.workspaceToken) reason=\(request.reason)"
-            )
-#endif
-            request.freeSurface(request.surface)
-            if let callbackContext = request.callbackContext {
-                await MainActor.run {
-                    callbackContext.release()
-                }
+        queuedRequests.append(request)
+        if !isWorkerRunning {
+            isWorkerRunning = true
+            Task.detached(priority: .utility) {
+                await self.runSerialWorker()
             }
-#if DEBUG
-            cmuxDebugLog(
-                "surface.lifecycle.nativeFree.end surface=\(request.surfaceToken) " +
-                "workspace=\(request.workspaceToken) reason=\(request.reason)"
-            )
-#endif
-        }
-        Task {
-            await observeCompletion(id: request.id, task: task)
         }
         Task {
             await observeTimeout(id: request.id)
         }
     }
 
-    private func observeCompletion(id: UUID, task: Task<Void, Never>) async {
-        await task.value
+    private nonisolated func runSerialWorker() async {
+        while let request = await nextRequestForWorker() {
+            await Self.free(request)
+            await complete(id: request.id)
+        }
+    }
+
+    private func nextRequestForWorker() -> TerminalSurfaceRuntimeTeardownRequest? {
+        guard !queuedRequests.isEmpty else {
+            isWorkerRunning = false
+            return nil
+        }
+        return queuedRequests.removeFirst()
+    }
+
+    private nonisolated static func free(_ request: TerminalSurfaceRuntimeTeardownRequest) async {
+#if DEBUG
+        cmuxDebugLog(
+            "surface.lifecycle.nativeFree.begin surface=\(request.surfaceToken) " +
+            "workspace=\(request.workspaceToken) reason=\(request.reason)"
+        )
+#endif
+        request.freeSurface(request.surface)
+        if let callbackContext = request.callbackContext {
+            await MainActor.run {
+                callbackContext.release()
+            }
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "surface.lifecycle.nativeFree.end surface=\(request.surfaceToken) " +
+            "workspace=\(request.workspaceToken) reason=\(request.reason)"
+        )
+#endif
+    }
+
+    private func complete(id: UUID) {
         pendingReasonsById.removeValue(forKey: id)
     }
 
