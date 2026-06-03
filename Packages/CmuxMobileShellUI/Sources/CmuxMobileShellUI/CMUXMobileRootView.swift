@@ -1,5 +1,4 @@
 import Foundation
-@preconcurrency import AVFoundation
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileShell
@@ -8,34 +7,12 @@ import CmuxMobileSupport
 import CmuxMobileTerminal
 import CmuxMobileWorkspace
 import Observation
-import OSLog
-import StackAuth
 import SwiftUI
 #if os(iOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
 #endif
-
-#if DEBUG
-private let mobileShellUILog = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
-    category: "mobile-shell-ui"
-)
-#endif
-
-@MainActor
-public struct CMUXMobileAppView: View {
-    @State private var store: CMUXMobileShellStore
-
-    public init(store: CMUXMobileShellStore = .preview()) {
-        _store = State(initialValue: store)
-    }
-
-    public var body: some View {
-        CMUXMobileRootView(store: store)
-    }
-}
 
 struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
@@ -53,41 +30,7 @@ struct CMUXMobileRootView: View {
     #endif
 
     var body: some View {
-        Group {
-            if shouldShowRestoringSession {
-                RestoringSessionView()
-            } else if !isAuthenticated {
-                SignInView()
-            } else if store.connectionState != .connected {
-                DisconnectedWorkspaceShellView(
-                    showAddDevice: showAddDevice,
-                    signOut: signOut
-                )
-                .sheet(isPresented: $isShowingAddDeviceSheet) {
-                    PairingView(
-                        pairingCode: $store.pairingCode,
-                        connectionError: store.connectionError,
-                        connectPairingCode: {
-                            await store.connectPairingInput()
-                        },
-                        connectManualHost: { name, host, port in
-                            await store.connectManualHost(name: name, host: host, port: port)
-                        },
-                        cancelPairing: store.cancelPairing,
-                        cancel: { isShowingAddDeviceSheet = false }
-                    )
-                    #if os(iOS)
-                    .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
-                    .presentationDragIndicator(.visible)
-                    #endif
-                }
-                .onAppear {
-                    showAddDevice()
-                }
-            } else {
-                WorkspaceShellView(store: store, signOut: signOut)
-            }
-        }
+        rootContent
         .animation(.snappy(duration: 0.18), value: isAuthenticated)
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
@@ -156,6 +99,43 @@ struct CMUXMobileRootView: View {
             if !hasActiveUnexpiredAttachTicket {
                 clearAttachTicketAuthenticationIfNeeded()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var rootContent: some View {
+        if shouldShowRestoringSession {
+            RestoringSessionView()
+        } else if !isAuthenticated {
+            SignInView()
+        } else if store.connectionState != .connected {
+            DisconnectedWorkspaceShellView(
+                showAddDevice: showAddDevice,
+                signOut: signOut
+            )
+            .sheet(isPresented: $isShowingAddDeviceSheet) {
+                PairingView(
+                    pairingCode: $store.pairingCode,
+                    connectionError: store.connectionError,
+                    connectPairingCode: {
+                        await store.connectPairingInput()
+                    },
+                    connectManualHost: { name, host, port in
+                        await store.connectManualHost(name: name, host: host, port: port)
+                    },
+                    cancelPairing: store.cancelPairing,
+                    cancel: { isShowingAddDeviceSheet = false }
+                )
+                #if os(iOS)
+                .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
+                .presentationDragIndicator(.visible)
+                #endif
+            }
+            .onAppear {
+                showAddDevice()
+            }
+        } else {
+            WorkspaceShellView(store: store, signOut: signOut)
         }
     }
 
@@ -256,85 +236,5 @@ struct CMUXMobileRootView: View {
         #else
         return false
         #endif
-    }
-}
-
-extension MobileRootAuthGate {
-    /// Reflects Stack auth state into the legacy shell store's sign-in lifecycle.
-    ///
-    /// This bridge lives in the feature target because it reaches into the
-    /// `CMUXMobileShellStore` god object, which sits above the pure
-    /// ``MobileRootAuthGate`` policy in ``CmuxMobileWorkspace``.
-    @MainActor
-    static func syncShellAuthentication(
-        stackAuthenticated: Bool,
-        isRestoringSession: Bool = false,
-        store: CMUXMobileShellStore
-    ) {
-        if stackAuthenticated {
-            store.signIn()
-        } else if !isRestoringSession {
-            store.signOut()
-        }
-    }
-}
-
-private struct DisconnectedWorkspaceShellView: View {
-    let showAddDevice: () -> Void
-    let signOut: () -> Void
-
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView {
-                Label(
-                    L10n.string("mobile.devices.emptyTitle", defaultValue: "No devices"),
-                    systemImage: "desktopcomputer.and.iphone"
-                )
-            } description: {
-                Text(L10n.string("mobile.devices.emptyDescription", defaultValue: "Add a Mac to start syncing terminal workspaces."))
-            } actions: {
-                Button(action: showAddDevice) {
-                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.blue)
-                .accessibilityIdentifier("MobileShowAddDeviceButton")
-            }
-            .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
-            .mobileInlineNavigationTitle()
-            .toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .topBarLeading) {
-                    signOutButton
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    addDeviceToolbarButton
-                }
-                #else
-                ToolbarItem {
-                    signOutButton
-                }
-                ToolbarItem {
-                    addDeviceToolbarButton
-                }
-                #endif
-            }
-            .accessibilityIdentifier("MobileDisconnectedWorkspaceShell")
-        }
-    }
-
-    private var signOutButton: some View {
-        Button(action: signOut) {
-            Text(L10n.string("mobile.signOut", defaultValue: "Sign Out"))
-        }
-        .accessibilityIdentifier("MobileSignOutButton")
-    }
-
-    private var addDeviceToolbarButton: some View {
-        Button(action: showAddDevice) {
-            Image(systemName: "plus")
-        }
-        .accessibilityLabel(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
-        .accessibilityIdentifier("MobileShowAddDeviceToolbarButton")
     }
 }

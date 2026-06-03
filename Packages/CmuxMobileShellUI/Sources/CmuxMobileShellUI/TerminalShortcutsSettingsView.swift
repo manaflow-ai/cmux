@@ -8,6 +8,11 @@ import SwiftUI
 /// are structural and not listed here. Backed by ``TerminalAccessoryConfiguration``,
 /// so edits apply to the live bar immediately.
 struct TerminalShortcutsSettingsView: View {
+    // TRANSITIONAL: TerminalAccessoryConfiguration.shared is also read by the
+    // off-limits typing-latency render path (TerminalInputTextView); inverting it
+    // to an injected store requires threading it through that path, which is
+    // reserved for the terminal-surface wave. Until then this view keeps the
+    // singleton reach-in so behavior stays identical.
     private var configuration: TerminalAccessoryConfiguration { .shared }
     @Environment(\.dismiss) private var dismiss
 

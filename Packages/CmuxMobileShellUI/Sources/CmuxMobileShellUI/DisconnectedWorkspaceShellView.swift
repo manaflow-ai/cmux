@@ -1,0 +1,75 @@
+import Foundation
+import CMUXMobileCore
+import CmuxAuthRuntime
+import CmuxMobileShell
+import CmuxMobileShellModel
+import CmuxMobileSupport
+import CmuxMobileTerminal
+import CmuxMobileWorkspace
+import Observation
+import SwiftUI
+#if os(iOS)
+@preconcurrency import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
+
+struct DisconnectedWorkspaceShellView: View {
+    let showAddDevice: () -> Void
+    let signOut: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ContentUnavailableView {
+                Label(
+                    L10n.string("mobile.devices.emptyTitle", defaultValue: "No devices"),
+                    systemImage: "desktopcomputer.and.iphone"
+                )
+            } description: {
+                Text(L10n.string("mobile.devices.emptyDescription", defaultValue: "Add a Mac to start syncing terminal workspaces."))
+            } actions: {
+                Button(action: showAddDevice) {
+                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+                .accessibilityIdentifier("MobileShowAddDeviceButton")
+            }
+            .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
+            .mobileInlineNavigationTitle()
+            .toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .topBarLeading) {
+                    signOutButton
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    addDeviceToolbarButton
+                }
+                #else
+                ToolbarItem {
+                    signOutButton
+                }
+                ToolbarItem {
+                    addDeviceToolbarButton
+                }
+                #endif
+            }
+            .accessibilityIdentifier("MobileDisconnectedWorkspaceShell")
+        }
+    }
+
+    private var signOutButton: some View {
+        Button(action: signOut) {
+            Text(L10n.string("mobile.signOut", defaultValue: "Sign Out"))
+        }
+        .accessibilityIdentifier("MobileSignOutButton")
+    }
+
+    private var addDeviceToolbarButton: some View {
+        Button(action: showAddDevice) {
+            Image(systemName: "plus")
+        }
+        .accessibilityLabel(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
+        .accessibilityIdentifier("MobileShowAddDeviceToolbarButton")
+    }
+}
