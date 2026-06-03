@@ -25,6 +25,7 @@ export const defaultSettings = {
   tabSize: "balanced",
   addTabStyle: "compact",
   cornerStyle: "soft",
+  paneDividerSize: "balanced",
   titleDetailMode: "smart",
   paneColorMarkers: false,
   focusMode: false,
@@ -368,6 +369,12 @@ export const cornerStyleOptions = [
   ["round", label("cornerStyle.round", "Round"), label("cornerStyle.round.body", "Softer panels and controls")]
 ];
 
+export const paneDividerSizeOptions = [
+  ["slim", label("paneDividerSize.slim", "Slim"), label("paneDividerSize.slim.body", "More room for panes")],
+  ["balanced", label("paneDividerSize.balanced", "Balanced"), label("paneDividerSize.balanced.body", "Default resize grip")],
+  ["wide", label("paneDividerSize.wide", "Wide"), label("paneDividerSize.wide.body", "Easier split resizing")]
+];
+
 export const statusDetailOptions = [
   ["compact", label("statusDetail.compact", "Compact")],
   ["full", label("statusDetail.full", "Full")]
@@ -489,6 +496,7 @@ export const settingsPresets = [
       tabSize: "balanced",
       addTabStyle: "compact",
       cornerStyle: "soft",
+      paneDividerSize: "balanced",
       titleDetailMode: "smart",
       paneColorMarkers: false,
       focusMode: false,
@@ -539,6 +547,7 @@ export const settingsPresets = [
       tabSize: "compact",
       addTabStyle: "compact",
       cornerStyle: "crisp",
+      paneDividerSize: "slim",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: false,
@@ -589,6 +598,7 @@ export const settingsPresets = [
       tabSize: "compact",
       addTabStyle: "compact",
       cornerStyle: "crisp",
+      paneDividerSize: "slim",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: false,
@@ -640,6 +650,7 @@ export const settingsPresets = [
       tabSize: "balanced",
       addTabStyle: "compact",
       cornerStyle: "crisp",
+      paneDividerSize: "slim",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: true,
@@ -690,6 +701,7 @@ export const settingsPresets = [
       tabSize: "compact",
       addTabStyle: "hidden",
       cornerStyle: "crisp",
+      paneDividerSize: "slim",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: false,
@@ -740,6 +752,7 @@ export const settingsPresets = [
       tabSize: "balanced",
       addTabStyle: "compact",
       cornerStyle: "soft",
+      paneDividerSize: "wide",
       titleDetailMode: "compact",
       paneColorMarkers: true,
       focusMode: false,
@@ -790,6 +803,7 @@ export const settingsPresets = [
       tabSize: "roomy",
       addTabStyle: "labeled",
       cornerStyle: "round",
+      paneDividerSize: "balanced",
       titleDetailMode: "detailed",
       paneColorMarkers: true,
       focusMode: false,

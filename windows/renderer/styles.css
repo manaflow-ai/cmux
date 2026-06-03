@@ -2411,7 +2411,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .pane-splitter {
-  flex: 0 0 12px;
+  flex: 0 0 var(--pane-splitter-size, 12px);
   position: relative;
   z-index: 4;
   background: transparent;
