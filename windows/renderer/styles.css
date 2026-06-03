@@ -9892,8 +9892,17 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background: var(--saved-color);
 }
 
-.saved-color-swatch:hover {
+.saved-color-swatch:hover:not(:disabled) {
   border-color: var(--color-text);
+}
+
+.saved-color-swatch:disabled {
+  cursor: default;
+  opacity: .5;
+}
+
+.saved-color-card.is-active-target .saved-color-swatch:disabled {
+  opacity: 1;
 }
 
 .saved-color-value {

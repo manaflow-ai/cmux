@@ -2564,6 +2564,25 @@ function activePaneForColorTarget() {
   return focusedPanel() || activePanel();
 }
 
+function savedColorActiveForTarget(color, target = state.colorApplyTarget, workspace = activeWorkspace()) {
+  const colorValue = colorKey(color);
+  const scope = normalizeColorApplyTarget(target);
+  if (scope === "workspace") return colorKey(workspace?.color) === colorValue;
+  if (scope === "pane") return colorKey(activePaneForColorTarget()?.color) === colorValue;
+  if (scope === "all") {
+    return Boolean(workspace?.panels?.length)
+      && workspace.panels.every((panel) => colorKey(panel.color) === colorValue);
+  }
+  return colorKey(state.settings.accent) === colorValue;
+}
+
+function savedColorApplyTitle(color, targetOption, active) {
+  const label = String(color || "").toUpperCase();
+  if (targetOption.disabled) return `${targetOption.label}: ${targetOption.meta}.`;
+  if (active) return `${targetOption.label} already uses ${label}.`;
+  return `Apply ${label} to ${targetOption.label.toLowerCase()}.`;
+}
+
 async function applySavedColorToTarget(color, target = state.colorApplyTarget) {
   const normalized = normalizeCustomPaletteColor(color);
   if (!normalized) {
@@ -14775,7 +14794,6 @@ function savedColorPalettePanel() {
   const workspace = activeWorkspace();
   const colorTarget = normalizeColorApplyTarget(state.colorApplyTarget);
   const targetOption = colorApplyTargetOption(colorTarget, workspace);
-  const targetLabel = colorApplyTargetActionLabel(colorTarget, workspace);
 
   const addRow = document.createElement("div");
   addRow.className = "saved-color-add";
@@ -14784,13 +14802,23 @@ function savedColorPalettePanel() {
   colorInput.type = "color";
   colorInput.value = colorInputValue(targetOption.color || state.settings.accent);
   colorInput.dataset.settingsSearch = normalizeSettingsQuery("saved color custom color picker hex");
-  const applyPicked = settingsActionButton(colorApplyTargetPrimaryLabel(colorTarget), () => applySavedColorToTarget(colorInput.value, state.colorApplyTarget), "primary", "saved color custom picker apply selected target accent workspace pane all");
-  applyPicked.disabled = Boolean(targetOption.disabled);
-  applyPicked.title = `Apply picked color to ${targetLabel}`;
+  const applyPicked = settingsActionButton(colorApplyTargetPrimaryLabel(colorTarget), () => {
+    if (!savedColorActiveForTarget(colorInput.value, state.colorApplyTarget)) {
+      applySavedColorToTarget(colorInput.value, state.colorApplyTarget);
+    }
+  }, "primary", "saved color custom picker apply selected target accent workspace pane all");
   const savePicked = settingsActionButton("Save color", () => upsertCustomColorPalette(colorInput.value), "", "saved color custom palette add");
+  const refreshApplyPickedState = () => {
+    const active = savedColorActiveForTarget(colorInput.value, colorTarget, workspace);
+    applyPicked.disabled = Boolean(targetOption.disabled) || active;
+    applyPicked.title = savedColorApplyTitle(colorInput.value, targetOption, active);
+  };
   const refreshSavePickedState = () => applyCustomColorSaveLimit(savePicked, colorInput.value, "Save the picked color to the reusable palette.");
+  refreshApplyPickedState();
   refreshSavePickedState();
+  colorInput.addEventListener("input", refreshApplyPickedState);
   colorInput.addEventListener("input", refreshSavePickedState);
+  colorInput.addEventListener("change", refreshApplyPickedState);
   colorInput.addEventListener("change", refreshSavePickedState);
   addRow.append(colorInput, applyPicked, savePicked);
   panel.append(addRow);
@@ -14823,11 +14851,10 @@ function savedColorPalettePanel() {
   list.className = "saved-color-list";
   const activePane = activePaneForColorTarget();
   for (const color of state.customColorPalette) {
-    const colorValue = colorKey(color);
-    const activeAccent = colorKey(state.settings.accent) === colorValue;
-    const activeWorkspace = colorKey(workspace?.color) === colorValue;
-    const activePaneColor = colorKey(activePane?.color) === colorValue;
-    const activeAllPanes = Boolean(workspace?.panels?.length) && workspace.panels.every((panel) => colorKey(panel.color) === colorValue);
+    const activeAccent = savedColorActiveForTarget(color, "accent", workspace);
+    const activeWorkspace = savedColorActiveForTarget(color, "workspace", workspace);
+    const activePaneColor = savedColorActiveForTarget(color, "pane", workspace);
+    const activeAllPanes = savedColorActiveForTarget(color, "all", workspace);
     const activeTarget = colorTarget === "workspace"
       ? activeWorkspace
       : colorTarget === "pane"
@@ -14835,6 +14862,8 @@ function savedColorPalettePanel() {
         : colorTarget === "all"
           ? activeAllPanes
           : activeAccent;
+    const targetDisabled = Boolean(targetOption.disabled) || activeTarget;
+    const applyTitle = savedColorApplyTitle(color, targetOption, activeTarget);
     const card = document.createElement("div");
     card.className = [
       "saved-color-card",
@@ -14848,12 +14877,14 @@ function savedColorPalettePanel() {
     const swatch = document.createElement("button");
     swatch.className = "saved-color-swatch";
     swatch.type = "button";
-    swatch.title = `Apply ${color} to ${targetOption.label.toLowerCase()}`;
-    swatch.setAttribute("aria-label", `Apply ${color} to ${targetOption.label}.`);
+    swatch.title = applyTitle;
+    swatch.setAttribute("aria-label", applyTitle);
     swatch.setAttribute("aria-pressed", activeTarget ? "true" : "false");
-    swatch.disabled = Boolean(targetOption.disabled);
+    swatch.disabled = targetDisabled;
     swatch.style.setProperty("--saved-color", color);
-    swatch.onclick = () => applySavedColorToTarget(color, colorTarget);
+    swatch.onclick = () => {
+      if (!savedColorActiveForTarget(color, colorTarget)) applySavedColorToTarget(color, colorTarget);
+    };
     const value = document.createElement("div");
     value.className = "saved-color-value";
     value.textContent = color;
@@ -14876,8 +14907,11 @@ function savedColorPalettePanel() {
     addScopeChip(workspace?.panels?.length ? `All ${workspace.panels.length}` : "All", activeAllPanes, !workspace?.panels?.length);
     const cardActions = document.createElement("div");
     cardActions.className = "saved-color-card-actions";
-    const apply = settingsActionButton(colorApplyTargetPrimaryLabel(colorTarget), () => applySavedColorToTarget(color, colorTarget), "primary", `saved color apply selected target ${targetOption.label} ${color}`);
-    apply.disabled = Boolean(targetOption.disabled);
+    const apply = settingsActionButton(colorApplyTargetPrimaryLabel(colorTarget), () => {
+      if (!savedColorActiveForTarget(color, colorTarget)) applySavedColorToTarget(color, colorTarget);
+    }, "primary", `saved color apply selected target ${targetOption.label} ${color}`);
+    apply.disabled = targetDisabled;
+    apply.title = applyTitle;
     const more = settingsActionButton("More", (event) => showSavedColorMenu(event, color), "", `saved color more actions accent workspace pane all delete ${color}`);
     cardActions.append(apply, more);
     card.append(swatch, value, scope, cardActions);
@@ -14958,6 +14992,10 @@ function showSavedColorMenu(event, color) {
   const workspace = activeWorkspace();
   const panel = activePaneForColorTarget();
   const hasPanes = Boolean(workspace?.panels?.length);
+  const activeAccent = savedColorActiveForTarget(normalized, "accent", workspace);
+  const activeWorkspace = savedColorActiveForTarget(normalized, "workspace", workspace);
+  const activePane = savedColorActiveForTarget(normalized, "pane", workspace);
+  const activeAll = savedColorActiveForTarget(normalized, "all", workspace);
   const menu = ensureContextMenu();
   menu.className = "context-menu";
   const title = document.createElement("div");
@@ -14967,10 +15005,10 @@ function showSavedColorMenu(event, color) {
   meta.className = "context-meta";
   meta.textContent = "Choose where to apply this saved color.";
   const applyActions = contextMenuActionGroup(
-    contextMenuButton("Apply to accent", () => applySavedColorToTarget(normalized, "accent")),
-    contextMenuButton("Apply to workspace", () => applySavedColorToTarget(normalized, "workspace"), !workspace),
-    contextMenuButton("Apply to active pane", () => applySavedColorToTarget(normalized, "pane"), !panel),
-    contextMenuButton("Apply to all panes", () => applySavedColorToTarget(normalized, "all"), !hasPanes)
+    contextMenuButton(activeAccent ? "Accent active" : "Apply to accent", () => applySavedColorToTarget(normalized, "accent"), activeAccent),
+    contextMenuButton(activeWorkspace ? "Workspace active" : "Apply to workspace", () => applySavedColorToTarget(normalized, "workspace"), !workspace || activeWorkspace),
+    contextMenuButton(activePane ? "Pane active" : "Apply to active pane", () => applySavedColorToTarget(normalized, "pane"), !panel || activePane),
+    contextMenuButton(activeAll ? "All panes active" : "Apply to all panes", () => applySavedColorToTarget(normalized, "all"), !hasPanes || activeAll)
   );
   const manageActions = contextMenuActionGroup(
     contextMenuButton("Delete", () => deleteCustomColorPalette(normalized), false, "danger")
