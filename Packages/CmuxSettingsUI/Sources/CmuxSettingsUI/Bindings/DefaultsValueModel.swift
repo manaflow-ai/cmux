@@ -34,15 +34,34 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// - Parameters:
     ///   - store: The UserDefaults store to read from and write to.
     ///   - key: The setting to observe.
-    public init(store: UserDefaultsSettingsStore, key: DefaultsKey<Value>) {
+    public convenience init(store: UserDefaultsSettingsStore, key: DefaultsKey<Value>) {
+        self.init(store: store, key: key, makeStream: { store.values(for: key) })
+    }
+
+    /// Designated initializer with an injectable change-stream factory.
+    ///
+    /// The `makeStream` seam lets tests drive the observation with a stream
+    /// whose teardown they can observe, proving the model cancels its
+    /// observation on deallocation. Production code uses the public
+    /// `init(store:key:)`, which wires `makeStream` to the store.
+    ///
+    /// - Parameters:
+    ///   - store: The UserDefaults store used for writes (`set`/`reset`).
+    ///   - key: The setting to observe.
+    ///   - makeStream: Builds the change stream this model iterates.
+    init(
+        store: UserDefaultsSettingsStore,
+        key: DefaultsKey<Value>,
+        makeStream: @escaping () -> AsyncStream<Value>
+    ) {
         self.store = store
         self.key = key
         // Seed with the key default; the observation stream's first
         // element (the actual stored value) lands immediately after and
         // is the sole writer of `current` thereafter.
         self.current = key.defaultValue
-        Task { [weak self, store, key] in
-            for await value in store.values(for: key) {
+        Task { [weak self] in
+            for await value in makeStream() {
                 guard let self else { return }
                 if Task.isCancelled { break }
                 self.current = value
