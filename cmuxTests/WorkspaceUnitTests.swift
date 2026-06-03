@@ -6952,7 +6952,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
 
 final class WorkspaceMountPolicyTests: XCTestCase {
-    func testDefaultPolicyMountsOnlySelectedWorkspace() {
+    func testDefaultPolicyKeepsRecentlyMountedWorkspaceWarm() {
         let a = UUID()
         let b = UUID()
         let orderedTabIds: [UUID] = [a, b]
@@ -6966,7 +6966,25 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             maxMounted: WorkspaceMountPolicy.maxMountedWorkspaces
         )
 
-        XCTAssertEqual(next, [b])
+        XCTAssertEqual(next, [b, a])
+    }
+
+    func testDefaultPolicyDoesNotFillWarmSlotsWithUnvisitedWorkspaces() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let orderedTabIds: [UUID] = [a, b, c]
+
+        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: [a],
+            selected: b,
+            pinnedIds: [],
+            orderedTabIds: orderedTabIds,
+            isCycleHot: false,
+            maxMounted: WorkspaceMountPolicy.maxMountedWorkspaces
+        )
+
+        XCTAssertFalse(next.contains(c))
     }
 
     func testSelectedWorkspaceMovesToFrontAndMountCountIsBounded() {
