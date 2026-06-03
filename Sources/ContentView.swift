@@ -7,6 +7,7 @@ import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSidebarInterpreterClient
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import CmuxUpdater
@@ -10458,6 +10459,12 @@ struct VerticalTabsSidebar: View {
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    /// Out-of-process interpreter for custom sidebars: renders untrusted
+    /// vibe-coded source in a supervised worker (this app re-executing its own
+    /// binary in worker mode), so an interpreter crash kills only the worker.
+    /// Created once per sidebar; the worker spawns lazily on first render and
+    /// is reused, relaunching transparently after a crash or timeout.
+    @State private var sidebarInterpreterClient = InterpreterClient.reexecingCurrentBinary()
     /// Bumped whenever any workspace's currentDirectory changes; the group
     /// header's resolved cwd-based config (color/icon/context menu /
     /// newWorkspacePlacement) reads it through the body, so a state
@@ -11146,7 +11153,8 @@ struct VerticalTabsSidebar: View {
                     contentInsets: CustomSidebarContentInsets(
                         top: SidebarWorkspaceScrollInsets.workspaceList.top,
                         bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
-                    )
+                    ),
+                    interpreter: sidebarInterpreterClient
                 )
                     .id(customSidebarURL)
             }

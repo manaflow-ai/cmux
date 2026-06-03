@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSidebarInterpreterClient
 import CmuxSocketControl
 import CmuxSettings
 import CmuxSettingsUI
@@ -8,7 +9,22 @@ import Observation
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+
+/// The process entry point. When the binary is launched with the sidebar-
+/// interpreter worker flag (the app re-executes its own binary that way so a
+/// crash in the interpreter kills only the worker process), run the worker
+/// loop and exit before any AppKit/SwiftUI setup; otherwise start the app.
 @main
+enum CmuxMain {
+    static func main() {
+        if CommandLine.arguments.contains(InterpreterClient.workerModeArgument) {
+            runSidebarInterpreterWorker()
+            exit(0)
+        }
+        cmuxApp.main()
+    }
+}
+
 struct cmuxApp: App {
     /// Dependency container for the new settings packages. Constructed
     /// once at app launch and injected into the SwiftUI environment via

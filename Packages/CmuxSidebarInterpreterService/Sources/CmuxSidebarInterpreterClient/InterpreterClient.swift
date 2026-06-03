@@ -24,6 +24,9 @@ public actor InterpreterClient {
     nonisolated let extraEnvironment: [String: String]
     /// How long to wait for a single response before terminating the worker.
     nonisolated let timeout: Duration
+    /// Arguments passed to the worker process (e.g. the worker-mode flag when
+    /// re-executing the host app binary).
+    nonisolated let arguments: [String]
 
     private var child: Child?
     private var generation: Int = 0
@@ -36,13 +39,17 @@ public actor InterpreterClient {
     ///   - executableURL: The worker binary to run.
     ///   - timeout: Per-render deadline; on expiry the worker is killed and the
     ///     render returns `nil`. Defaults to 2 seconds.
+    ///   - arguments: Arguments for the worker process (defaults to none; the
+    ///     re-exec-self factory passes the worker-mode flag).
     ///   - extraEnvironment: Additional environment for the worker process.
     public init(
         executableURL: URL,
+        arguments: [String] = [],
         timeout: Duration = .seconds(2),
         environment extraEnvironment: [String: String] = [:]
     ) {
         self.executableURL = executableURL
+        self.arguments = arguments
         self.timeout = timeout
         self.extraEnvironment = extraEnvironment
     }
@@ -113,6 +120,7 @@ public actor InterpreterClient {
 
         let process = Process()
         process.executableURL = executableURL
+        if !arguments.isEmpty { process.arguments = arguments }
         let stdin = Pipe()
         let stdout = Pipe()
         process.standardInput = stdin
