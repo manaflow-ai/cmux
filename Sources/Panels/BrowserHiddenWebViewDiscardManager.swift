@@ -48,7 +48,8 @@ final class BrowserHiddenWebViewDiscardManager {
     private var scheduleGeneration: UInt64 = 0
 
     /// Sleep/wake state used to keep a hidden-webview discard from running in
-    /// the fragile window right after system wake (see issue #5261).
+    /// the fragile window right after system wake
+    /// (https://github.com/manaflow-ai/cmux/issues/5261).
     private(set) var isSystemSleeping = false
     private(set) var lastSystemWakeAt: Date?
 
@@ -72,6 +73,7 @@ final class BrowserHiddenWebViewDiscardManager {
         if snapshot.hasPendingRemoteNavigation { blockers.append("pending_remote_navigation") }
         if !snapshot.hasCurrentURL { blockers.append("no_url") }
         if snapshot.isLoading || snapshot.webViewIsLoading { blockers.append("loading") }
+        if snapshot.hasActiveMainFrameProvisionalNavigation { blockers.append("provisional_navigation") }
         if snapshot.isDownloading || snapshot.activeDownloadCount != 0 { blockers.append("download") }
         if snapshot.isCapturingMedia { blockers.append("media_capture") }
         if snapshot.preferredDeveloperToolsVisible || snapshot.isDeveloperToolsVisible {
@@ -88,13 +90,19 @@ final class BrowserHiddenWebViewDiscardManager {
         discardTimer?.cancel()
         discardTimer = nil
 
+        guard !isSystemSleeping else { return }
         guard let delegate else { return }
         guard blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else { return }
 
         let observedWebViewInstanceID = delegate.hiddenWebViewDiscardWebViewInstanceID
         let generation = scheduleGeneration
         let hiddenAt = delegate.hiddenWebViewDiscardHiddenAt ?? Date()
-        let elapsed = Date().timeIntervalSince(hiddenAt)
+        // Restart the countdown from the latest wake: WebKit pages reconnect and
+        // re-navigate right after wake, and replacing/releasing a WKWebView in
+        // that window crashed in WebPageProxy::updateActivityState
+        // (https://github.com/manaflow-ai/cmux/issues/5261).
+        let effectiveHiddenAt = lastSystemWakeAt.map { max(hiddenAt, $0) } ?? hiddenAt
+        let elapsed = Date().timeIntervalSince(effectiveHiddenAt)
         let remaining = max(0, BrowserHiddenWebViewDiscardPolicy.hiddenDelay - elapsed)
         if remaining <= 0 {
             delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)
@@ -106,6 +114,7 @@ final class BrowserHiddenWebViewDiscardManager {
         timer.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                guard !self.isSystemSleeping else { return }
                 guard self.scheduleGeneration == generation else { return }
                 guard let delegate = self.delegate else { return }
                 guard delegate.hiddenWebViewDiscardWebViewInstanceID == observedWebViewInstanceID else { return }
@@ -153,11 +162,22 @@ final class BrowserHiddenWebViewDiscardManager {
 
     func noteSystemWillSleep() {
         isSystemSleeping = true
+        let hadScheduledDiscard = hasScheduledDiscard
+        cancel()
+#if DEBUG
+        if hadScheduledDiscard {
+            cmuxDebugLog("browser.discard.sleep canceledArmedTimer=1")
+        }
+#endif
     }
 
     func noteSystemDidWake(now: Date = Date()) {
         isSystemSleeping = false
         lastSystemWakeAt = now
+        scheduleIfNeeded(reason: "system_did_wake")
+#if DEBUG
+        cmuxDebugLog("browser.discard.wake rearmed=\(hasScheduledDiscard ? 1 : 0)")
+#endif
     }
 
     func installPolicyObserver() {
