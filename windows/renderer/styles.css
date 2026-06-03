@@ -340,6 +340,8 @@ button {
   background-size: var(--background-size, cover);
   background-repeat: var(--background-repeat, repeat);
   background-position: var(--background-position, center);
+  filter: blur(var(--background-blur, 0px));
+  transform: scale(var(--background-scale, 1));
   opacity: 0;
   transition: opacity var(--dur-med) var(--ease-out);
 }
@@ -3146,6 +3148,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background-size: var(--pane-background-size, cover);
   background-repeat: var(--pane-background-repeat, no-repeat);
   background-position: var(--pane-background-position, center);
+  filter: blur(var(--pane-background-blur, 0px));
+  transform: scale(var(--pane-background-scale, 1));
   opacity: var(--pane-background-opacity, .18);
   pointer-events: none;
 }
@@ -5858,6 +5862,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .active-pane-background-chip-preview {
+  position: relative;
   width: 28px;
   height: 22px;
   display: block;
@@ -5868,11 +5873,27 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
     linear-gradient(135deg, color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%), var(--color-pane-warm));
 }
 
-.active-pane-summary.has-background .active-pane-background-chip-preview {
+.active-pane-background-chip-preview::before {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  pointer-events: none;
+  opacity: 0;
   background-image: var(--active-pane-background-image);
   background-size: var(--active-pane-background-size, cover);
   background-repeat: var(--active-pane-background-repeat, no-repeat);
   background-position: var(--active-pane-background-position, center);
+  filter: blur(var(--active-pane-background-blur, 0px));
+  transform: scale(var(--active-pane-background-scale, 1));
+  transform-origin: center;
+}
+
+.active-pane-summary.has-background .active-pane-background-chip-preview {
+  background: var(--color-canvas);
+}
+
+.active-pane-summary.has-background .active-pane-background-chip-preview::before {
+  opacity: 1;
 }
 
 .active-pane-background-chip-label {
@@ -6480,6 +6501,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background-size: var(--preview-background-size, cover);
   background-repeat: var(--preview-background-repeat, repeat);
   background-position: var(--preview-background-position, center);
+  filter: blur(var(--preview-background-blur, 0px));
+  transform: scale(var(--preview-background-scale, 1));
   pointer-events: none;
 }
 
@@ -11925,13 +11948,32 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-1);
   background-color: var(--color-canvas);
+  background-image: linear-gradient(135deg, color-mix(in oklch, var(--color-text) 8%, transparent), transparent);
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: center;
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-text) 5%, transparent);
+}
+
+.active-background-preview::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  pointer-events: none;
+  opacity: 0;
   background-image:
     var(--active-background-image),
     linear-gradient(135deg, color-mix(in oklch, var(--color-text) 8%, transparent), transparent);
   background-size: var(--active-background-size, cover), cover;
   background-repeat: var(--active-background-repeat, repeat), no-repeat;
   background-position: var(--active-background-position, center), center;
-  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-text) 5%, transparent);
+  filter: blur(var(--active-background-blur, 0px));
+  transform: scale(var(--active-background-scale, 1));
+  transform-origin: center;
+}
+
+.active-background-panel.has-image .active-background-preview::before {
+  opacity: 1;
 }
 
 .active-background-preview:hover {
@@ -12043,10 +12085,30 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .active-background-snapshot-item.has-image .active-background-snapshot-preview {
+  background: var(--color-canvas);
+}
+
+.active-background-snapshot-preview::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  pointer-events: none;
+  opacity: 0;
   background-image: var(--snapshot-background-image);
   background-size: var(--snapshot-background-size, cover);
   background-repeat: var(--snapshot-background-repeat, no-repeat);
   background-position: var(--snapshot-background-position, center);
+  filter: blur(var(--snapshot-background-blur, 0px));
+  transform: scale(var(--snapshot-background-scale, 1));
+  transform-origin: center;
+}
+
+.active-background-snapshot-item.has-image .active-background-snapshot-preview::before {
+  opacity: 1;
+}
+
+.active-background-snapshot-item.is-mixed .active-background-snapshot-preview::before {
+  opacity: 0;
 }
 
 .active-background-snapshot-item.is-mixed .active-background-snapshot-preview {

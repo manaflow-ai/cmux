@@ -193,6 +193,7 @@ const performanceSetupSettings = [
   "adaptivePerformance",
   "reduceMotion",
   "backgroundOpacity",
+  "backgroundBlur",
   "backgroundEffects",
   "terminalStartupMode",
   "terminalPauseInactiveOutput",
@@ -224,6 +225,7 @@ const appearancePreviewKeys = new Set([
   "accent",
   "backgroundImage",
   "backgroundOpacity",
+  "backgroundBlur",
   "backgroundFit",
   "backgroundPosition",
   "backgroundEffects",
@@ -292,6 +294,7 @@ const settingsInspectorSettingKeys = {
     "accent",
     "backgroundImage",
     "backgroundOpacity",
+    "backgroundBlur",
     "backgroundFit",
     "backgroundPosition",
     "backgroundEffects",
@@ -335,6 +338,7 @@ const settingsInspectorSettingKeys = {
     "terminalScrollback",
     "terminalStartupMode",
     "backgroundOpacity",
+    "backgroundBlur",
     "backgroundEffects",
     "density",
     "toolbarMode",
@@ -568,6 +572,7 @@ const lookPackDefinitions = [
       accent: "oklch(66% 0.13 175)",
       backgroundImage: "",
       backgroundOpacity: 10,
+      backgroundBlur: 0,
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
@@ -585,6 +590,7 @@ const lookPackDefinitions = [
       accent: "oklch(70% 0.16 145)",
       backgroundImage: "",
       backgroundOpacity: 10,
+      backgroundBlur: 0,
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
@@ -602,6 +608,7 @@ const lookPackDefinitions = [
       accent: "oklch(72% 0.17 230)",
       backgroundImage: "preset:blueprint-lines",
       backgroundOpacity: 18,
+      backgroundBlur: 0,
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
@@ -619,6 +626,7 @@ const lookPackDefinitions = [
       accent: "oklch(66% 0.13 175)",
       backgroundImage: "preset:dot-matrix",
       backgroundOpacity: 14,
+      backgroundBlur: 0,
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
@@ -636,6 +644,7 @@ const lookPackDefinitions = [
       accent: "oklch(74% 0.12 35)",
       backgroundImage: "preset:soft-aurora",
       backgroundOpacity: 22,
+      backgroundBlur: 4,
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "glass",
@@ -653,6 +662,7 @@ const lookPackDefinitions = [
       accent: "oklch(86% 0.11 70)",
       backgroundImage: "preset:signal-bands",
       backgroundOpacity: 10,
+      backgroundBlur: 0,
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
@@ -966,6 +976,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.terminalFontSize = clamp(next.terminalFontSize, terminalFontSizeMin, terminalFontSizeMax);
   next.terminalLineHeight = clamp(next.terminalLineHeight, 1, 1.5);
   next.backgroundOpacity = clamp(next.backgroundOpacity, 0, 42);
+  next.backgroundBlur = clamp(next.backgroundBlur, 0, 12);
   if (!backgroundFitOptions.some(([id]) => id === next.backgroundFit)) next.backgroundFit = defaultSettings.backgroundFit;
   if (!backgroundPositionOptions.some(([id]) => id === next.backgroundPosition)) next.backgroundPosition = defaultSettings.backgroundPosition;
   if (!backgroundEffectsOptions.some(([id]) => id === next.backgroundEffects)) next.backgroundEffects = defaultSettings.backgroundEffects;
@@ -2987,6 +2998,7 @@ function settingsProfileSummary(settings) {
     normalized.paneColorMarkers ? "colored pane markers" : "quiet pane markers",
     `${browserHomeHost} home`,
     `${backgroundEffects.toLowerCase()} background`,
+    `${normalized.backgroundBlur}px soften`,
     normalized.performanceMode ? "performance" : normalized.reduceMotion ? "reduced motion" : "balanced",
     `${startup.toLowerCase()} startup`,
     normalized.terminalPauseInactiveOutput ? "paused output" : "live output",
@@ -4675,6 +4687,7 @@ async function pasteColorToTarget(target = state.colorApplyTarget) {
 const backgroundSetupSettings = [
   "backgroundImage",
   "backgroundOpacity",
+  "backgroundBlur",
   "backgroundFit",
   "backgroundPosition",
   "backgroundEffects"
@@ -4706,7 +4719,8 @@ function backgroundSetupPayload(target = state.backgroundApplyTarget) {
       fit: optionLabel(backgroundFitOptions, state.settings.backgroundFit, state.settings.backgroundFit),
       position: optionLabel(backgroundPositionOptions, state.settings.backgroundPosition, state.settings.backgroundPosition),
       effects: optionLabel(backgroundEffectsOptions, state.settings.backgroundEffects, state.settings.backgroundEffects),
-      opacity: state.settings.backgroundOpacity
+      opacity: state.settings.backgroundOpacity,
+      blur: state.settings.backgroundBlur
     },
     settings
   };
@@ -4769,7 +4783,7 @@ function backgroundSetupUpdatesFromPayload(payload) {
     backgroundImage = normalized;
     break;
   }
-  for (const key of ["backgroundOpacity", "backgroundFit", "backgroundPosition", "backgroundEffects"]) {
+  for (const key of ["backgroundOpacity", "backgroundBlur", "backgroundFit", "backgroundPosition", "backgroundEffects"]) {
     if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
     const value = lookSettingUpdateFromValue(key, source[key]);
     if (value === null) return null;
@@ -5045,6 +5059,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.accent,
     settings.backgroundImage,
     settings.backgroundOpacity,
+    settings.backgroundBlur,
     settings.backgroundFit,
     settings.backgroundPosition,
     settings.backgroundEffects,
@@ -5130,6 +5145,8 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "has-background", css !== "none");
   setStylePropertyIfChanged(elements.shell, "--background-image", css);
   setStylePropertyIfChanged(elements.shell, "--background-opacity", String(state.settings.backgroundOpacity / 100));
+  setStylePropertyIfChanged(elements.shell, "--background-blur", `${state.settings.backgroundBlur}px`);
+  setStylePropertyIfChanged(elements.shell, "--background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
   setStylePropertyIfChanged(elements.shell, "--background-size", backgroundSizeCss(state.settings.backgroundFit));
   setStylePropertyIfChanged(elements.shell, "--background-repeat", backgroundRepeatCss(state.settings.backgroundImage));
   setStylePropertyIfChanged(elements.shell, "--background-position", backgroundPositionCss(state.settings.backgroundPosition));
@@ -8752,6 +8769,8 @@ function updatePaneChromeState(pane, panel, workspace) {
   setStylePropertyIfChanged(pane, "--pane-background-size", backgroundSizeCss(state.settings.backgroundFit));
   setStylePropertyIfChanged(pane, "--pane-background-position", backgroundPositionCss(state.settings.backgroundPosition));
   setStylePropertyIfChanged(pane, "--pane-background-opacity", String(Math.max(0.12, Math.min(0.42, state.settings.backgroundOpacity / 100 || 0.18))));
+  setStylePropertyIfChanged(pane, "--pane-background-blur", `${state.settings.backgroundBlur}px`);
+  setStylePropertyIfChanged(pane, "--pane-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
   toggleClassIfChanged(pane, "is-browser", panel.type === "browser");
   toggleClassIfChanged(pane, "is-terminal", panel.type === "terminal");
   updatePaneTypeBadge(parts.type, panel.type);
@@ -13009,7 +13028,7 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(scrollbackRow);
     const performanceActions = document.createElement("div");
     performanceActions.className = "settings-actions";
-    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save current balanced reset render stats clear copy paste setup workspace chrome density toolbar padding background opacity effects diagnostics report lag debug");
+    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save current balanced reset render stats clear copy paste setup workspace chrome density toolbar padding background opacity soften blur effects diagnostics report lag debug");
     const speedPresetActive = isSettingsPresetIdActive("performance");
     const speedPreset = settingsActionButton(
       speedPresetActive ? "Speed active" : "Speed preset",
@@ -13764,7 +13783,8 @@ function appearanceBackgroundLabel(value, settingsSource = state.settings) {
   const label = preset ? preset.label : defaultBackgroundLabel(normalized);
   const fit = optionLabel(backgroundFitOptions, settingsSource?.backgroundFit, t("config.backgroundFit.cover"));
   const effects = optionLabel(backgroundEffectsOptions, settingsSource?.backgroundEffects, t("config.backgroundEffects.flat"));
-  return `${label} / ${fit} / ${effects}`;
+  const blur = Math.max(0, Math.round(Number(settingsSource?.backgroundBlur) || 0));
+  return [label, fit, effects, blur ? `${blur}px soften` : ""].filter(Boolean).join(" / ");
 }
 
 function appearancePreviewPanel() {
@@ -13777,11 +13797,14 @@ function appearancePreviewPanel() {
     terminalFontStack: terminalFontStack(),
     terminalTheme: terminalTheme(),
     backgroundImage: backgroundCss(state.settings.backgroundImage),
+    backgroundBlur: state.settings.backgroundBlur,
     backgroundSize: backgroundSizeCss(state.settings.backgroundFit),
     backgroundRepeat: backgroundRepeatCss(state.settings.backgroundImage),
     backgroundPosition: backgroundPositionCss(state.settings.backgroundPosition)
   });
-  preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme gallery accent background image strength terminal colors font");
+  preview.style.setProperty("--preview-background-blur", `${state.settings.backgroundBlur}px`);
+  preview.style.setProperty("--preview-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
+  preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme gallery accent background image strength soften blur terminal colors font");
   return preview;
 }
 
@@ -13812,7 +13835,7 @@ function backgroundTuningSelect(label, settingKey, options, onCommit) {
 function backgroundTuningPanel(onCommit = null) {
   const panel = document.createElement("div");
   panel.className = "background-tuning-panel";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("background image fit position effects opacity strength wallpaper transparency tune");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("background image fit position effects opacity strength soften blur wallpaper transparency tune");
 
   const controls = document.createElement("div");
   controls.className = "background-tuning-grid";
@@ -13844,7 +13867,32 @@ function backgroundTuningPanel(onCommit = null) {
     }
   });
 
-  panel.append(controls, opacityRow);
+  const blurInput = document.createElement("input");
+  blurInput.className = "setting-control";
+  blurInput.type = "range";
+  blurInput.min = "0";
+  blurInput.max = "12";
+  blurInput.step = "1";
+  blurInput.value = String(state.settings.backgroundBlur);
+  blurInput.dataset.settingControl = "backgroundBlur";
+  const blurRow = document.createElement("label");
+  blurRow.className = "background-tuning-row background-tuning-row-wide";
+  const blurLabel = document.createElement("span");
+  blurLabel.className = "setting-label";
+  blurLabel.textContent = `Soften ${state.settings.backgroundBlur}px`;
+  blurRow.append(blurLabel, blurInput);
+  bindDeferredSettingRange(blurInput, blurRow, {
+    settingKey: "backgroundBlur",
+    formatLabel: (value) => `Soften ${value}px`,
+    preview: (value) => {
+      const blur = clamp(value, 0, 12);
+      elements.shell.style.setProperty("--background-blur", `${blur}px`);
+      elements.shell.style.setProperty("--background-scale", blur > 0 ? "1.03" : "1");
+      refreshAppearancePreviewBlur(blur);
+    }
+  });
+
+  panel.append(controls, opacityRow, blurRow);
   return panel;
 }
 
@@ -14032,6 +14080,8 @@ function updateActiveBackgroundScopeSnapshot(snapshot, workspace = activeWorkspa
     setStylePropertyIfChanged(button, "--snapshot-background-repeat", model.repeat);
     setStylePropertyIfChanged(button, "--snapshot-background-size", model.size);
     setStylePropertyIfChanged(button, "--snapshot-background-position", model.position);
+    setStylePropertyIfChanged(button, "--snapshot-background-blur", `${state.settings.backgroundBlur}px`);
+    setStylePropertyIfChanged(button, "--snapshot-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
     setTextIfChanged(button.querySelector(".active-background-snapshot-label"), option.label);
     setTextIfChanged(button.querySelector(".active-background-snapshot-value"), model.label);
   }
@@ -14042,11 +14092,13 @@ function activeBackgroundPanel(options = {}) {
   const model = activeBackgroundPanelViewModel();
   panel.className = `active-background-panel${model.hasBackground ? " has-image" : ""}`;
   panel.dataset.activeBackgroundTuning = options.tuning ? "true" : "false";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("active background image wallpaper current preview source choose save open clear copy paste setup fit position effects opacity strength transparency tune");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("active background image wallpaper current preview source choose save open clear copy paste setup fit position effects opacity strength soften blur transparency tune");
   panel.style.setProperty("--active-background-image", model.image);
   panel.style.setProperty("--active-background-repeat", model.repeat);
   panel.style.setProperty("--active-background-size", model.size);
   panel.style.setProperty("--active-background-position", model.position);
+  panel.style.setProperty("--active-background-blur", `${state.settings.backgroundBlur}px`);
+  panel.style.setProperty("--active-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
   panel.innerHTML = `
     <button class="active-background-preview" type="button" title="Choose background image"></button>
     <span class="active-background-copy">
@@ -14238,11 +14290,21 @@ function refreshAppearancePreviewOpacity(value = state.settings.backgroundOpacit
   }
 }
 
+function refreshAppearancePreviewBlur(value = state.settings.backgroundBlur) {
+  const blur = clamp(value, 0, 12);
+  for (const preview of elements.inspectorBody.querySelectorAll(".appearance-preview")) {
+    preview.style.setProperty("--preview-background-blur", `${blur}px`);
+    preview.style.setProperty("--preview-background-scale", blur > 0 ? "1.03" : "1");
+  }
+}
+
 function refreshBackgroundPreviewNodes() {
   const appModel = activeBackgroundViewModel();
   for (const preview of elements.inspectorBody.querySelectorAll(".appearance-preview")) {
     preview.style.setProperty("--preview-background-image", appModel.image);
     preview.style.setProperty("--preview-background-opacity", String(state.settings.backgroundOpacity / 100));
+    preview.style.setProperty("--preview-background-blur", `${state.settings.backgroundBlur}px`);
+    preview.style.setProperty("--preview-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
     preview.style.setProperty("--preview-background-size", appModel.size);
     preview.style.setProperty("--preview-background-repeat", appModel.repeat);
     preview.style.setProperty("--preview-background-position", appModel.position);
@@ -14256,6 +14318,8 @@ function refreshBackgroundPreviewNodes() {
     panel.style.setProperty("--active-background-repeat", model.repeat);
     panel.style.setProperty("--active-background-size", model.size);
     panel.style.setProperty("--active-background-position", model.position);
+    panel.style.setProperty("--active-background-blur", `${state.settings.backgroundBlur}px`);
+    panel.style.setProperty("--active-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
     const kicker = panel.querySelector(".active-background-kicker");
     const title = panel.querySelector(".active-background-title");
     const source = panel.querySelector(".active-background-source");
@@ -14335,6 +14399,8 @@ function refreshBackgroundPreviewNodes() {
       if (control.value !== value) control.value = value;
       if (key === "backgroundOpacity") {
         setTextIfChanged(control.closest(".background-tuning-row")?.querySelector(".setting-label"), `Strength ${value}%`);
+      } else if (key === "backgroundBlur") {
+        setTextIfChanged(control.closest(".background-tuning-row")?.querySelector(".setting-label"), `Soften ${value}px`);
       }
     }
   }
@@ -16042,6 +16108,8 @@ function paneBackgroundControlPanel(panel) {
   control.style.setProperty("--active-pane-background-repeat", backgroundRepeatCss(background));
   control.style.setProperty("--active-pane-background-size", backgroundSizeCss(state.settings.backgroundFit));
   control.style.setProperty("--active-pane-background-position", backgroundPositionCss(state.settings.backgroundPosition));
+  control.style.setProperty("--active-pane-background-blur", `${state.settings.backgroundBlur}px`);
+  control.style.setProperty("--active-pane-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
 
   const preview = document.createElement("button");
   preview.className = "active-pane-background-preview";
@@ -16593,6 +16661,8 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     backgroundChip.style.setProperty("--active-pane-background-repeat", backgroundRepeatCss(paneBackground));
     backgroundChip.style.setProperty("--active-pane-background-size", backgroundSizeCss(state.settings.backgroundFit));
     backgroundChip.style.setProperty("--active-pane-background-position", backgroundPositionCss(state.settings.backgroundPosition));
+    backgroundChip.style.setProperty("--active-pane-background-blur", `${state.settings.backgroundBlur}px`);
+    backgroundChip.style.setProperty("--active-pane-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
     backgroundChip.querySelector(".active-pane-background-chip-label").textContent = backgroundLabel;
     backgroundChip.title = `${backgroundTitle}. Click to choose.`;
     backgroundChip.setAttribute("aria-label", `${backgroundTitle}. Choose pane background.`);
@@ -17432,6 +17502,7 @@ function performanceDiagnosticsPayload() {
         ? isBackgroundPreset(state.settings.backgroundImage) ? state.settings.backgroundImage : "custom-image"
         : "none",
       backgroundOpacity: state.settings.backgroundOpacity,
+      backgroundBlur: state.settings.backgroundBlur,
       backgroundEffects: state.settings.backgroundEffects,
       terminalFontFamily: state.settings.terminalFontFamily,
       terminalFontSize: state.settings.terminalFontSize,
@@ -17481,6 +17552,7 @@ const performanceTuningPresets = [
       toolbarMode: "minimal",
       paneActionMode: "essential",
       backgroundOpacity: 16,
+      backgroundBlur: 0,
       backgroundEffects: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
@@ -17503,6 +17575,7 @@ const performanceTuningPresets = [
       toolbarMode: "minimal",
       paneActionMode: "essential",
       backgroundOpacity: 8,
+      backgroundBlur: 0,
       backgroundEffects: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
@@ -17525,6 +17598,7 @@ const performanceTuningPresets = [
       toolbarMode: "minimal",
       paneActionMode: "essential",
       backgroundOpacity: 6,
+      backgroundBlur: 0,
       backgroundEffects: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
@@ -17547,6 +17621,7 @@ const performanceTuningPresets = [
       toolbarMode: "minimal",
       paneActionMode: "essential",
       backgroundOpacity: 8,
+      backgroundBlur: 0,
       backgroundEffects: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
@@ -17569,6 +17644,7 @@ const performanceTuningPresets = [
       toolbarMode: "minimal",
       paneActionMode: "essential",
       backgroundOpacity: 12,
+      backgroundBlur: 0,
       backgroundEffects: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
@@ -17591,6 +17667,7 @@ const performanceTuningPresets = [
       toolbarMode: "minimal",
       paneActionMode: "essential",
       backgroundOpacity: 16,
+      backgroundBlur: 0,
       backgroundEffects: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: false,
@@ -17646,17 +17723,20 @@ const performanceHealthCheckDefinitions = [
     issue: () => Boolean(state.settings.backgroundImage) && (
       state.settings.backgroundEffects !== "flat"
       || state.settings.backgroundOpacity > performanceHealthBackgroundOpacityLimit
+      || state.settings.backgroundBlur > 0
     ),
     meta: () => {
       if (!state.settings.backgroundImage) return "No image";
       if (state.settings.backgroundEffects !== "flat") return optionLabel(backgroundEffectsOptions, state.settings.backgroundEffects, state.settings.backgroundEffects);
+      if (state.settings.backgroundBlur > 0) return `${state.settings.backgroundBlur}px soften`;
       return `${state.settings.backgroundOpacity}% opacity`;
     },
     updates: () => ({
       backgroundEffects: "flat",
-      backgroundOpacity: Math.min(state.settings.backgroundOpacity, performanceHealthBackgroundOpacityLimit)
+      backgroundOpacity: Math.min(state.settings.backgroundOpacity, performanceHealthBackgroundOpacityLimit),
+      backgroundBlur: 0
     }),
-    search: "background image opacity glass effects wallpaper slow"
+    search: "background image opacity soften blur glass effects wallpaper slow"
   },
   {
     id: "workspaceChrome",
@@ -17928,7 +18008,7 @@ function performanceSetupSummaryForSettings(settings) {
     motion: normalized.performanceMode || normalized.reduceMotion ? "Reduced" : "Full",
     chrome: `${normalized.density === "compact" ? "Compact" : "Comfortable"} / ${toolbar}`,
     controls,
-    background: `${backgroundEffects} ${normalized.backgroundOpacity}%`,
+    background: `${backgroundEffects} ${normalized.backgroundOpacity}% / ${normalized.backgroundBlur}px soften`,
     terminalStartup: optionLabel(terminalStartupOptions, normalized.terminalStartupMode, normalized.terminalStartupMode),
     inactiveOutput: normalized.terminalPauseInactiveOutput ? "Paused" : "Live",
     resume: normalized.terminalSmoothResumedOutput ? "Smooth" : "Immediate",
@@ -18063,6 +18143,11 @@ function performanceSetupSettingUpdateFromValue(key, raw) {
     if (raw === null || raw === "" || typeof raw === "boolean" || typeof raw === "object") return null;
     const value = Number(raw);
     return Number.isFinite(value) ? clamp(Math.round(value), 0, 42) : null;
+  }
+  if (key === "backgroundBlur") {
+    if (raw === null || raw === "" || typeof raw === "boolean" || typeof raw === "object") return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? clamp(Math.round(value), 0, 12) : null;
   }
   if (key === "backgroundEffects") return optionIdAllowed(backgroundEffectsOptions, raw) ? raw : null;
   if (key === "terminalPadding") {
@@ -20766,7 +20851,7 @@ function performanceHealthChecklist() {
   const panel = document.createElement("div");
   panel.className = "performance-health-panel";
   panel.dataset.performanceHealth = "true";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("performance health checklist fixes speed lag smooth workspace chrome density toolbar padding background motion terminal browser adaptive guard");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("performance health checklist fixes speed lag smooth workspace chrome density toolbar padding background soften blur motion terminal browser adaptive guard");
   panel.innerHTML = `
     <div class="performance-health-head">
       <span class="performance-health-copy">
@@ -20849,7 +20934,7 @@ function refreshPerformanceHealthPanel(panel = elements.inspectorBody.querySelec
 function performanceTuningPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "performance-tune-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes workspace chrome density toolbar padding background opacity effects glass flat browser preview apply copy setup history scrollback");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes workspace chrome density toolbar padding background opacity soften blur effects glass flat browser preview apply copy setup history scrollback");
   for (const preset of performanceTuningPresets) {
     const settings = performanceTuningPresetSettings(preset);
     if (!settings) continue;
@@ -30271,6 +30356,7 @@ const appearanceResetSettings = [
   "accent",
   "backgroundImage",
   "backgroundOpacity",
+  "backgroundBlur",
   "backgroundFit",
   "backgroundPosition",
   "backgroundEffects",
@@ -30555,6 +30641,11 @@ function lookSettingUpdateFromValue(key, raw) {
     if (raw === null || raw === "" || typeof raw === "boolean" || typeof raw === "object") return null;
     const value = Number(raw);
     return Number.isFinite(value) ? clamp(value, 0, 42) : null;
+  }
+  if (key === "backgroundBlur") {
+    if (raw === null || raw === "" || typeof raw === "boolean" || typeof raw === "object") return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? clamp(Math.round(value), 0, 12) : null;
   }
   if (key === "backgroundFit") return optionIdAllowed(backgroundFitOptions, raw) ? raw : null;
   if (key === "backgroundPosition") return optionIdAllowed(backgroundPositionOptions, raw) ? raw : null;
