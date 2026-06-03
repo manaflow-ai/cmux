@@ -9865,11 +9865,15 @@ function renderSettingsInspector(options = {}) {
       shellInput.addEventListener("blur", () => updateSettings({ terminalCustomShell: shellInput.value }));
       terminalSection.append(settingRow("Shell path", shellInput, true));
     }
-    const restart = document.createElement("button");
-    restart.className = "notification-action";
-    restart.textContent = "Restart active terminal";
-    restart.onclick = () => restartActiveTerminal();
-    terminalSection.append(restart);
+    const restartActions = document.createElement("div");
+    restartActions.className = "settings-actions";
+    restartActions.dataset.settingsSearch = normalizeSettingsQuery("terminal restart active shell reload");
+    const restartTarget = activeTerminalPanelForSettings();
+    const restart = settingsActionButton("Restart active terminal", restartSettingsTerminal, "", "terminal restart active shell reload");
+    restart.disabled = !restartTarget;
+    restart.title = restartTarget ? "Restart the active terminal pane." : "Focus or create a terminal pane before restarting.";
+    restartActions.append(restart);
+    terminalSection.append(restartActions);
     nodes.push(terminalSection);
   }
 
@@ -20132,6 +20136,16 @@ async function resetSettings() {
 async function restartActiveTerminal() {
   const panel = focusedPanel();
   if (panel?.type === "terminal") await restartPanel(panel.id);
+}
+
+async function restartSettingsTerminal() {
+  const panel = activeTerminalPanelForSettings();
+  if (!panel) {
+    toast("Focus a terminal pane first.");
+    return false;
+  }
+  await restartPanel(panel.id);
+  return true;
 }
 
 async function restartPanel(panelId) {
