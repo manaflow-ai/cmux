@@ -2850,6 +2850,92 @@ function currentWorkspaceBlueprintPayload() {
   return snapshot ? workspaceBlueprintPayload(snapshot) : null;
 }
 
+function layoutSetupPayload() {
+  const chromePayload = workspaceChromePayload();
+  const blueprintPayload = currentWorkspaceBlueprintPayload();
+  return {
+    version: 1,
+    type: "cmux-layout-setup",
+    summary: {
+      chrome: chromePayload.summary,
+      blueprint: blueprintPayload?.summary || {
+        label: "No pane layout",
+        layout: "Open panes to include a pane layout"
+      }
+    },
+    workspaceChrome: chromePayload.settings,
+    workspaceBlueprint: blueprintPayload?.blueprint || null
+  };
+}
+
+async function copyLayoutSetup() {
+  const payload = JSON.stringify(layoutSetupPayload(), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Layout setup copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Layout setup",
+    message: "Clipboard access is unavailable. The current layout setup is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function layoutSetupChromeUpdatesFromPayload(payload) {
+  const parsed = importedObject(payload);
+  if (!parsed) return null;
+  const source = importedObject(parsed.workspaceChrome)
+    || importedObject(parsed.workspaceChromeSettings)
+    || importedObject(parsed.chrome);
+  return workspaceChromeUpdatesFromPayload(source || parsed);
+}
+
+function applyLayoutSetupPayload(payload) {
+  const chromeUpdates = layoutSetupChromeUpdatesFromPayload(payload);
+  const blueprint = workspaceBlueprintFromPayload(payload);
+  if (!chromeUpdates && !blueprint) {
+    toast("Clipboard does not contain a layout setup.");
+    return false;
+  }
+  const chromeChanged = chromeUpdates ? updateSettings(chromeUpdates, { immediate: true }) : false;
+  const savedBlueprint = blueprint ? upsertWorkspaceBlueprint(blueprint) : null;
+  if (state.inspectorMode === "settings" && (chromeChanged || savedBlueprint)) {
+    renderSettingsInspector();
+  } else if (chromeChanged) {
+    refreshLayoutSettings();
+  }
+  if (chromeChanged && savedBlueprint) {
+    toast("Layout setup applied and blueprint saved.");
+  } else if (chromeChanged && blueprint) {
+    toast("Workspace chrome applied. Blueprint was not saved.");
+  } else if (chromeChanged) {
+    toast("Layout setup applied.");
+  } else if (savedBlueprint) {
+    toast(`${savedBlueprint.label} blueprint saved.`);
+  } else if (chromeUpdates && !blueprint) {
+    toast("Layout setup already matches.");
+  }
+  return Boolean(chromeChanged || savedBlueprint);
+}
+
+async function pasteLayoutSetup() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    return applyLayoutSetupPayload(JSON.parse(clipboard));
+  } catch {
+    toast("Clipboard does not contain a layout setup.");
+    return false;
+  }
+}
+
 async function copyWorkspaceBlueprintPayload(blueprint, toastText = "Workspace blueprint copied.") {
   const payloadModel = workspaceBlueprintPayload(blueprint);
   if (!payloadModel) {
@@ -5068,6 +5154,8 @@ const commands = [
   { id: "terminal.restoreMinimized", label: "Restore Minimized Panes", shortcut: "", run: () => restoreMinimizedPanes() },
   { id: "terminal.resetLayout", label: "Reset Split Layout", shortcut: "", run: () => resetActivePaneLayout() },
   { id: "layout.focusMode", label: "Toggle Focus Mode", shortcut: "Ctrl+Shift+F", run: () => toggleFocusMode() },
+  { id: "layout.copySetup", label: "Copy Layout Setup", shortcut: "", run: () => copyLayoutSetup() },
+  { id: "layout.pasteSetup", label: "Paste Layout Setup", shortcut: "", run: () => pasteLayoutSetup() },
   { id: "layout.copyChrome", label: "Copy Workspace Chrome Settings", shortcut: "", run: () => copyWorkspaceChromeSettings() },
   { id: "layout.pasteChrome", label: "Paste Workspace Chrome Settings", shortcut: "", run: () => pasteWorkspaceChromeSettings() },
   { id: "layout.resetChrome", label: "Reset Workspace Chrome", shortcut: "", run: () => resetWorkspaceChrome() },
@@ -11466,6 +11554,12 @@ function renderSettingsInspector(options = {}) {
     pasteLayoutAction.disabled = workspaceBlueprintsFull();
     pasteLayoutAction.title = pasteLayoutAction.disabled ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint into the reusable layout library.";
     const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
+    const copySetupAction = settingsActionButton("Copy setup", copyLayoutSetup, "", "layout setup copy workspace chrome blueprint pane split toolbar sidebar footer inspector tabs status header title focus clipboard json");
+    copySetupAction.title = workspace?.panels?.length
+      ? "Copy the current pane layout and workspace chrome as JSON."
+      : "Copy workspace chrome as JSON. Open panes to include a pane layout.";
+    const pasteSetupAction = settingsActionButton("Paste setup", pasteLayoutSetup, "", "layout setup paste workspace chrome blueprint pane split toolbar sidebar footer inspector tabs status header title focus clipboard json");
+    pasteSetupAction.title = "Apply copied layout setup and save any included pane blueprint.";
     const copyChromeAction = settingsActionButton("Copy chrome", copyWorkspaceChromeSettings, "", "workspace chrome layout copy toolbar sidebar footer inspector tabs status header title focus mode clipboard json");
     copyChromeAction.title = "Copy toolbar, sidebar, tabs, status bar, and panel widths as JSON.";
     const pasteChromeAction = settingsActionButton("Paste chrome", pasteWorkspaceChromeSettings, "", "workspace chrome layout paste toolbar sidebar footer inspector tabs status header title focus mode clipboard json");
@@ -11486,6 +11580,8 @@ function renderSettingsInspector(options = {}) {
       saveLayoutAction,
       copyLayoutAction,
       pasteLayoutAction,
+      copySetupAction,
+      pasteSetupAction,
       copyChromeAction,
       pasteChromeAction,
       settingsActionButton("Blueprints", () => openSettingsCategory("blueprints"), "", "open saved workspace blueprints layout templates"),
@@ -20271,6 +20367,8 @@ function showToolbarMenu(event) {
     contextMenuSectionTitle("Layout"),
     contextMenuActionGroup(
       toolbarAction("Reset split layout", resetActivePaneLayout, !multiPane, "Reset split sizes for the active workspace.", multiPaneRequiredTitle),
+      toolbarAction("Copy layout setup", copyLayoutSetup, false, "Copy the current pane layout and workspace chrome as JSON."),
+      toolbarAction("Paste layout setup", pasteLayoutSetup, false, "Apply copied layout setup and save any included pane blueprint."),
       toolbarAction("Copy workspace chrome", copyWorkspaceChromeSettings, false, "Copy toolbar, sidebar, tabs, status bar, and panel widths as JSON."),
       toolbarAction("Paste workspace chrome", pasteWorkspaceChromeSettings, false, "Apply copied cmux workspace chrome JSON."),
       toolbarAction("Reset workspace chrome", resetWorkspaceChrome, workspaceChromeDefault, "Reset toolbar, sidebar, tabs, status bar, and panel widths.", "Workspace chrome already matches the default setup."),
