@@ -460,9 +460,9 @@ struct BrowserPanelView: View {
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
     // `.onAppear` is not a reliable once-signal for a portal-hosted pane: it can
-    // re-fire on every CoreAnimation commit (issue #5303). This guards the one-time
-    // setup so default registration, settings normalization, and the initial
-    // empty-state populate run exactly once per view instance instead of per commit.
+    // re-fire on every CoreAnimation commit (issue #5303). This guards the first-
+    // appearance view-state seed (the empty-state import list) so a spurious appear
+    // does no work. App-once settings work lives in the model bootstrap, not here.
     @State private var didCompleteInitialBrowserPanelSetup = false
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
         for: .light,
@@ -787,52 +787,20 @@ struct BrowserPanelView: View {
         focusModeShortcutHintMonitor.start()
     }
 
-    /// Runs the work that must execute exactly once per `BrowserPanelView` instance,
-    /// independent of how many times SwiftUI fires `.onAppear`.
+    /// Runs the view-state initialization that should happen on first appearance,
+    /// independent of how many times SwiftUI fires `.onAppear` for the same view
+    /// instance.
     ///
     /// `.onAppear` is not a reliable once-or-on-transition signal for a portal-hosted
-    /// browser pane — it can re-fire on every CoreAnimation commit. Default
-    /// registration, settings normalization (which writes `@AppStorage` and would
-    /// otherwise re-enter the commit pass), and the initial empty-state import
-    /// populate all belong here so a spurious appear does no work (issue #5303).
+    /// browser pane — it can re-fire on every CoreAnimation commit (issue #5303).
+    /// Default registration and settings normalization are app-once work and live in
+    /// ``BrowserPanel/bootstrapBrowserDefaultsIfNeeded(defaults:)`` (run from the model
+    /// init), not here. This method only seeds view-local state: the initial
+    /// empty-state import list, which `handleCurrentURLChange` refreshes on subsequent
+    /// new-tab navigations.
     private func performInitialBrowserPanelSetupIfNeeded() {
         guard !didCompleteInitialBrowserPanelSetup else { return }
         didCompleteInitialBrowserPanelSetup = true
-
-        UserDefaults.standard.register(defaults: [
-            BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
-            BrowserSearchSettings.customSearchEngineNameKey: BrowserSearchSettings.defaultCustomSearchEngineName,
-            BrowserSearchSettings.customSearchEngineURLTemplateKey: BrowserSearchSettings.defaultCustomSearchEngineURLTemplate,
-            BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
-            BrowserToolbarAccessorySpacingDebugSettings.key: BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing,
-            BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
-            BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
-            BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
-        ])
-
-        let resolvedThemeMode = BrowserThemeSettings.mode(defaults: .standard)
-        if browserThemeModeRaw != resolvedThemeMode.rawValue {
-            browserThemeModeRaw = resolvedThemeMode.rawValue
-        }
-        let resolvedHintVariant = BrowserImportHintSettings.variant(for: browserImportHintVariantRaw)
-        if browserImportHintVariantRaw != resolvedHintVariant.rawValue {
-            browserImportHintVariantRaw = resolvedHintVariant.rawValue
-        }
-        let resolvedToolbarAccessorySpacing = BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
-        if browserToolbarAccessorySpacingRaw != resolvedToolbarAccessorySpacing {
-            browserToolbarAccessorySpacingRaw = resolvedToolbarAccessorySpacing
-        }
-        let resolvedProfilePopoverHorizontalPadding = BrowserProfilePopoverDebugSettings.resolvedHorizontalPadding(browserProfilePopoverHorizontalPaddingRaw)
-        if browserProfilePopoverHorizontalPaddingRaw != resolvedProfilePopoverHorizontalPadding {
-            browserProfilePopoverHorizontalPaddingRaw = resolvedProfilePopoverHorizontalPadding
-        }
-        let resolvedProfilePopoverVerticalPadding = BrowserProfilePopoverDebugSettings.resolvedVerticalPadding(browserProfilePopoverVerticalPaddingRaw)
-        if browserProfilePopoverVerticalPaddingRaw != resolvedProfilePopoverVerticalPadding {
-            browserProfilePopoverVerticalPaddingRaw = resolvedProfilePopoverVerticalPadding
-        }
-
-        // Populate the empty-state import list once; `handleCurrentURLChange`
-        // refreshes it on subsequent new-tab navigations.
         refreshEmptyStateImportBrowsers()
     }
 
