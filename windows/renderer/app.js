@@ -11726,6 +11726,7 @@ function renderSettingsInspector(options = {}) {
   if (shouldBuildSection("layout")) {
     const layoutSection = settingsSection("Layout");
     layoutSection.append(layoutSettingsPreviewPanel());
+    layoutSection.append(workspaceChromePresetGrid());
     layoutSection.append(settingRow(
       "Focus mode",
       toggleInput(state.settings.focusMode, (checked) => toggleFocusMode(checked, { toast: false })),
@@ -13484,6 +13485,62 @@ function themeChoiceGrid() {
   return grid;
 }
 
+function workspaceChromePresetGrid() {
+  const grid = document.createElement("div");
+  grid.className = "workspace-chrome-preset-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("workspace chrome layout display presets simple compact focus toolbar sidebar tabs status copy");
+  for (const preset of workspaceChromePresets) {
+    const settings = workspaceChromePresetSettings(preset);
+    if (!settings) continue;
+    const active = isActiveWorkspaceChromePreset(preset);
+    const summary = workspaceChromeSummaryForSettings(settings);
+    const search = workspaceChromePresetSearchText(preset, settings);
+    const card = document.createElement("div");
+    card.className = `workspace-chrome-preset-card${active ? " is-active" : ""}`;
+    card.dataset.settingsSearch = search;
+    const button = document.createElement("button");
+    button.className = "workspace-chrome-preset";
+    button.type = "button";
+    button.disabled = active;
+    button.title = workspaceChromePresetTitle(preset, active);
+    button.dataset.workspaceChromePreset = preset.id;
+    button.dataset.settingsSearch = search;
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.innerHTML = `
+      <span class="workspace-chrome-preset-copy">
+        <span class="workspace-chrome-preset-title-row">
+          <span class="workspace-chrome-preset-title"></span>
+          <span class="workspace-chrome-preset-status"></span>
+        </span>
+        <span class="workspace-chrome-preset-body"></span>
+      </span>
+      <span class="workspace-chrome-preset-meta">
+        <span></span>
+        <span></span>
+        <span></span>
+      </span>
+    `;
+    button.querySelector(".workspace-chrome-preset-title").textContent = preset.label;
+    button.querySelector(".workspace-chrome-preset-status").textContent = active ? "Active" : "";
+    button.querySelector(".workspace-chrome-preset-body").textContent = preset.body;
+    const meta = button.querySelectorAll(".workspace-chrome-preset-meta span");
+    meta[0].textContent = summary.toolbar;
+    meta[1].textContent = summary.tabs;
+    meta[2].textContent = summary.statusbar;
+    button.onclick = () => {
+      if (!isActiveWorkspaceChromePreset(preset)) applyWorkspaceChromePreset(preset.id);
+    };
+    const actions = document.createElement("div");
+    actions.className = "workspace-chrome-preset-actions";
+    const copy = settingsActionButton("Copy", () => copyWorkspaceChromePreset(preset.id), "", `workspace chrome preset copy clipboard json ${preset.label} ${preset.body}`);
+    copy.title = "Copy this chrome preset as workspace chrome JSON.";
+    actions.append(copy);
+    card.append(button, actions);
+    grid.append(card);
+  }
+  return grid;
+}
+
 function layoutSettingsPreviewPanel() {
   const settings = state.settings;
   const panel = document.createElement("div");
@@ -13573,6 +13630,11 @@ function scheduleLayoutSettingsPreviewRefresh() {
 function refreshLayoutSettingsPreview() {
   const preview = elements.inspectorBody.querySelector(".layout-settings-preview");
   if (preview) preview.replaceWith(layoutSettingsPreviewPanel());
+  for (const button of elements.inspectorBody.querySelectorAll(".workspace-chrome-preset[data-workspace-chrome-preset]")) {
+    const preset = workspaceChromePresetById(button.dataset.workspaceChromePreset);
+    if (!preset) continue;
+    updateWorkspaceChromePresetButton(button, preset);
+  }
   const workspace = activeWorkspace();
   const unavailable = !workspace || workspace.panels.length <= 1;
   const activePresetIds = unavailable ? new Set() : activePaneLayoutPresetIds(workspace);
@@ -22499,7 +22561,7 @@ function paletteEntryKind(entry) {
   if (id.startsWith("browser.") || id.startsWith("recentBrowser.") || id.startsWith("browserHomePreset.")) return "browser";
   if (id.startsWith("workspace.") || id.startsWith("recentFolder.") || id.startsWith("workspaceBlueprint.") || id.startsWith("workspaceStarter.")) return "workspace";
   if (id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.")) return "settings";
-  if (id.startsWith("layout.") || id.startsWith("paneLayoutPreset.")) return "layout";
+  if (id.startsWith("layout.") || id.startsWith("paneLayoutPreset.") || id.startsWith("workspaceChromePreset.")) return "layout";
   if (id.startsWith("background") || id.startsWith("savedBackground")) return "look";
   if (id.startsWith("themeChoice.") || id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("savedColorPalette.") || id.startsWith("terminalColor.")) return "color";
   return "command";
@@ -22578,6 +22640,32 @@ function paletteEntries() {
       run: command.run
     };
   });
+  for (const preset of workspaceChromePresets) {
+    const settings = workspaceChromePresetSettings(preset);
+    if (!settings) continue;
+    const active = isActiveWorkspaceChromePreset(preset);
+    const summary = workspaceChromeSummaryForSettings(settings);
+    entries.push({
+      id: `workspaceChromePreset.${preset.id}`,
+      label: `Chrome preset: ${preset.label}`,
+      meta: active ? `Active / ${summary.toolbar}` : `${summary.toolbar} / ${summary.tabs}`,
+      shortcut: active ? "Active" : "Layout",
+      active,
+      disabled: active,
+      title: workspaceChromePresetTitle(preset, active),
+      search: workspaceChromePresetSearchText(preset, settings),
+      run: () => applyWorkspaceChromePreset(preset.id)
+    });
+    entries.push({
+      id: `workspaceChromePreset.copy.${preset.id}`,
+      label: `Copy chrome preset: ${preset.label}`,
+      meta: `${summary.density} / ${summary.widths}`,
+      shortcut: "Copy",
+      title: "Copy this chrome preset as workspace chrome JSON.",
+      search: normalizeSettingsQuery(`workspace chrome layout display preset copy clipboard json ${preset.label} ${preset.body} ${summary.density} ${summary.toolbar} ${summary.tabs} ${summary.statusbar} ${summary.widths}`),
+      run: () => copyWorkspaceChromePreset(preset.id)
+    });
+  }
   const layoutPresetBlueprintsFull = workspaceBlueprintsFull();
   for (const preset of paneLayoutPresets) {
     const savedBlueprint = layoutUnavailable ? null : paneLayoutPresetSavedBlueprint(preset, paletteWorkspace);
@@ -25440,6 +25528,101 @@ const workspaceChromeWidthSettings = {
   inspectorWidth: [300, 480]
 };
 
+const workspaceChromePresets = [
+  {
+    id: "default",
+    label: "Default",
+    body: "Balanced sidebar, compact pane headers, visible tabs and status.",
+    settings: {
+      density: defaultSettings.density,
+      paneHeaderMode: defaultSettings.paneHeaderMode,
+      paneActionMode: defaultSettings.paneActionMode,
+      sidebarDetailMode: defaultSettings.sidebarDetailMode,
+      sidebarBranchMode: defaultSettings.sidebarBranchMode,
+      sidebarFooterMode: defaultSettings.sidebarFooterMode,
+      toolbarMode: defaultSettings.toolbarMode,
+      tabSize: defaultSettings.tabSize,
+      addTabStyle: defaultSettings.addTabStyle,
+      titleDetailMode: defaultSettings.titleDetailMode,
+      paneColorMarkers: defaultSettings.paneColorMarkers,
+      focusMode: defaultSettings.focusMode,
+      showTabs: defaultSettings.showTabs,
+      showStatusbar: defaultSettings.showStatusbar,
+      sidebarWidth: defaultSettings.sidebarWidth,
+      inspectorWidth: defaultSettings.inspectorWidth
+    }
+  },
+  {
+    id: "compact",
+    label: "Compact",
+    body: "Tighter rows, compact tabs, quiet footer, and narrower panels.",
+    settings: {
+      density: "compact",
+      paneHeaderMode: "compact",
+      paneActionMode: "essential",
+      sidebarDetailMode: "compact",
+      sidebarBranchMode: "hidden",
+      sidebarFooterMode: "compact",
+      toolbarMode: "minimal",
+      tabSize: "compact",
+      addTabStyle: "compact",
+      titleDetailMode: "compact",
+      paneColorMarkers: false,
+      focusMode: false,
+      showTabs: true,
+      showStatusbar: false,
+      sidebarWidth: 212,
+      inspectorWidth: 340
+    }
+  },
+  {
+    id: "control",
+    label: "Control room",
+    body: "More visible controls, roomier tabs, details, and pane markers.",
+    settings: {
+      density: "comfortable",
+      paneHeaderMode: "full",
+      paneActionMode: "full",
+      sidebarDetailMode: "detailed",
+      sidebarBranchMode: "active",
+      sidebarFooterMode: "full",
+      toolbarMode: "standard",
+      tabSize: "roomy",
+      addTabStyle: "labeled",
+      titleDetailMode: "detailed",
+      paneColorMarkers: true,
+      focusMode: false,
+      showTabs: true,
+      showStatusbar: true,
+      sidebarWidth: 260,
+      inspectorWidth: 400
+    }
+  },
+  {
+    id: "focus",
+    label: "Focus",
+    body: "Hide extra chrome while keeping the workspace easy to scan.",
+    settings: {
+      density: "compact",
+      paneHeaderMode: "hidden",
+      paneActionMode: "essential",
+      sidebarDetailMode: "compact",
+      sidebarBranchMode: "hidden",
+      sidebarFooterMode: "workspace",
+      toolbarMode: "minimal",
+      tabSize: "balanced",
+      addTabStyle: "compact",
+      titleDetailMode: "compact",
+      paneColorMarkers: false,
+      focusMode: true,
+      showTabs: true,
+      showStatusbar: false,
+      sidebarWidth: 216,
+      inspectorWidth: 328
+    }
+  }
+];
+
 const appearanceResetSettings = [
   "theme",
   "accent",
@@ -25498,42 +25681,63 @@ function optionIdAllowed(options, value) {
   return typeof value === "string" && options.some(([id]) => id === value);
 }
 
-function workspaceChromePayload() {
+function workspaceChromeSummaryForSettings(settings) {
+  const normalized = {
+    ...defaultSettings,
+    ...state.settings,
+    ...(settings || {})
+  };
+  return {
+    density: normalized.density === "compact" ? "Compact" : "Comfortable",
+    toolbar: optionLabel(toolbarModeOptions, normalized.toolbarMode, normalized.toolbarMode),
+    paneHeaders: optionLabel(paneHeaderOptions, normalized.paneHeaderMode, normalized.paneHeaderMode),
+    paneControls: optionLabel(paneActionOptions, normalized.paneActionMode, normalized.paneActionMode),
+    workspaceRows: optionLabel(sidebarDetailOptions, normalized.sidebarDetailMode, normalized.sidebarDetailMode),
+    tabs: normalized.showTabs ? optionLabel(tabSizeOptions, normalized.tabSize, normalized.tabSize) : "Hidden",
+    statusbar: normalized.showStatusbar ? "Visible" : "Hidden",
+    focusMode: normalized.focusMode ? "On" : "Off",
+    widths: `${normalized.sidebarWidth}px sidebar / ${normalized.inspectorWidth}px settings`
+  };
+}
+
+function workspaceChromePayload(settingsSource = state.settings) {
+  const source = {
+    ...state.settings,
+    ...(settingsSource || {})
+  };
   const settings = {};
-  for (const key of workspaceChromeSettings) settings[key] = state.settings[key];
+  for (const key of workspaceChromeSettings) settings[key] = source[key];
   return {
     version: 1,
     type: "cmux-workspace-chrome",
-    summary: {
-      density: state.settings.density === "compact" ? "Compact" : "Comfortable",
-      toolbar: optionLabel(toolbarModeOptions, state.settings.toolbarMode, state.settings.toolbarMode),
-      paneHeaders: optionLabel(paneHeaderOptions, state.settings.paneHeaderMode, state.settings.paneHeaderMode),
-      paneControls: optionLabel(paneActionOptions, state.settings.paneActionMode, state.settings.paneActionMode),
-      workspaceRows: optionLabel(sidebarDetailOptions, state.settings.sidebarDetailMode, state.settings.sidebarDetailMode),
-      tabs: state.settings.showTabs ? optionLabel(tabSizeOptions, state.settings.tabSize, state.settings.tabSize) : "Hidden",
-      statusbar: state.settings.showStatusbar ? "Visible" : "Hidden",
-      focusMode: state.settings.focusMode ? "On" : "Off",
-      widths: `${state.settings.sidebarWidth}px sidebar / ${state.settings.inspectorWidth}px settings`
-    },
+    summary: workspaceChromeSummaryForSettings(settings),
     settings
   };
 }
 
-async function copyWorkspaceChromeSettings() {
-  const payload = JSON.stringify(workspaceChromePayload(), null, 2);
+async function copyWorkspaceChromePayload(
+  payloadModel = workspaceChromePayload(),
+  toastText = "Workspace chrome copied.",
+  dialogMessage = "Clipboard access is unavailable. The workspace chrome setup is shown below."
+) {
+  const payload = JSON.stringify(payloadModel, null, 2);
   if (await writeClipboardText(payload)) {
-    toast("Workspace chrome copied.");
+    toast(toastText);
     return true;
   }
   await showTextDialog({
     title: "Workspace chrome settings",
-    message: "Clipboard access is unavailable. The current workspace chrome setup is shown below.",
+    message: dialogMessage,
     value: payload,
     confirmLabel: "Close",
     multiline: true,
     readOnly: true
   });
   return false;
+}
+
+async function copyWorkspaceChromeSettings() {
+  return copyWorkspaceChromePayload(workspaceChromePayload(), "Workspace chrome copied.");
 }
 
 function workspaceChromeSettingUpdateFromValue(key, raw) {
@@ -25571,18 +25775,18 @@ function workspaceChromeUpdatesFromPayload(payload) {
   return Object.keys(updates).length ? updates : null;
 }
 
-function applyWorkspaceChromeUpdates(updates) {
+function applyWorkspaceChromeUpdates(updates, options = {}) {
   if (!updates) {
     toast("Clipboard does not contain workspace chrome settings.");
     return false;
   }
   const changed = updateSettings(updates, { immediate: true });
   if (!changed) {
-    toast("Workspace chrome already matches.");
+    toast(options.alreadyText || "Workspace chrome already matches.");
     return false;
   }
   refreshLayoutSettings();
-  toast("Workspace chrome applied.");
+  toast(options.toastText || "Workspace chrome applied.");
   return true;
 }
 
@@ -25599,6 +25803,93 @@ async function pasteWorkspaceChromeSettings() {
     toast("Clipboard does not contain workspace chrome settings.");
     return false;
   }
+}
+
+function workspaceChromePresetById(presetId) {
+  return workspaceChromePresets.find((candidate) => candidate.id === presetId) || null;
+}
+
+function workspaceChromePresetSettings(preset) {
+  return workspaceChromeUpdatesFromPayload({ settings: preset?.settings });
+}
+
+function workspaceChromePresetSearchText(preset, settings = workspaceChromePresetSettings(preset)) {
+  const summary = workspaceChromeSummaryForSettings(settings || {});
+  return normalizeSettingsQuery([
+    "workspace chrome layout display preset apply copy simple clean compact focus toolbar sidebar tabs status pane header controls",
+    preset?.label,
+    preset?.body,
+    summary.density,
+    summary.toolbar,
+    summary.paneHeaders,
+    summary.paneControls,
+    summary.workspaceRows,
+    summary.tabs,
+    summary.statusbar,
+    summary.focusMode,
+    summary.widths
+  ].join(" "));
+}
+
+function isActiveWorkspaceChromePreset(preset) {
+  const settings = workspaceChromePresetSettings(preset);
+  if (!settings) return false;
+  return Object.entries(settings).every(([key, value]) => state.settings[key] === value);
+}
+
+function workspaceChromePresetTitle(preset, active) {
+  if (!preset) return "Choose a chrome preset first.";
+  if (active) return `${preset.label} chrome is already active.`;
+  return `Apply ${preset.label} workspace chrome.`;
+}
+
+function updateWorkspaceChromePresetButton(button, preset) {
+  const settings = workspaceChromePresetSettings(preset);
+  if (!settings) return;
+  const active = isActiveWorkspaceChromePreset(preset);
+  const card = button.closest(".workspace-chrome-preset-card");
+  if (card) card.classList.toggle("is-active", active);
+  setDisabledIfChanged(button, active);
+  setTitleIfChanged(button, workspaceChromePresetTitle(preset, active));
+  setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
+  const status = button.querySelector(".workspace-chrome-preset-status");
+  if (status) setTextIfChanged(status, active ? "Active" : "");
+  const search = workspaceChromePresetSearchText(preset, settings);
+  if (button.dataset.settingsSearch !== search) {
+    button.dataset.settingsSearch = search;
+    updateSettingsSearchIndexItemSearch(button, search);
+  }
+  if (card && card.dataset.settingsSearch !== search) {
+    card.dataset.settingsSearch = search;
+    updateSettingsSearchIndexItemSearch(card, search);
+  }
+}
+
+function applyWorkspaceChromePreset(presetId) {
+  const preset = workspaceChromePresetById(presetId);
+  const settings = workspaceChromePresetSettings(preset);
+  if (!preset || !settings) {
+    toast("Workspace chrome preset not found.");
+    return false;
+  }
+  return applyWorkspaceChromeUpdates(settings, {
+    toastText: `${preset.label} chrome applied.`,
+    alreadyText: `${preset.label} chrome already active.`
+  });
+}
+
+function copyWorkspaceChromePreset(presetId) {
+  const preset = workspaceChromePresetById(presetId);
+  const settings = workspaceChromePresetSettings(preset);
+  if (!preset || !settings) {
+    toast("Workspace chrome preset not found.");
+    return false;
+  }
+  return copyWorkspaceChromePayload(
+    workspaceChromePayload(settings),
+    `${preset.label} chrome copied.`,
+    "Clipboard access is unavailable. The chrome preset is shown below."
+  );
 }
 
 function lookSettingUpdateFromValue(key, raw) {
