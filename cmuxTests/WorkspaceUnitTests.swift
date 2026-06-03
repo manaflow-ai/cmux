@@ -3440,22 +3440,17 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
 @MainActor
 final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
     private final class UnsafeConfigSnapshotTabManager: TabManager {
-        private var injectedConfig: CmuxSurfaceConfigTemplate?
+        private var injectedFontSize: Float?
         var capturedConfigTemplate: CmuxSurfaceConfigTemplate?
 
         func installInjectedConfig(fontSize: Float) {
-            var config = CmuxSurfaceConfigTemplate()
-            config.fontSize = fontSize
-            config.workingDirectory = "/tmp/cmux-workspace-snapshot"
-            config.command = "echo snapshot"
-            config.environmentVariables = ["CMUX_INHERITED_ENV": "1"]
-            injectedConfig = config
+            injectedFontSize = fontSize
         }
 
-        override func inheritedTerminalConfigForNewWorkspace(
+        override func inheritedTerminalFontPointsForNewWorkspace(
             workspace: Workspace?
-        ) -> CmuxSurfaceConfigTemplate? {
-            injectedConfig ?? super.inheritedTerminalConfigForNewWorkspace(workspace: workspace)
+        ) -> Float? {
+            injectedFontSize ?? super.inheritedTerminalFontPointsForNewWorkspace(workspace: workspace)
         }
 
         override func makeWorkspaceForCreation(
@@ -6623,14 +6618,16 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             number: 101,
             label: "PR",
             url: URL(string: "https://github.com/manaflow-ai/cmux/pull/101")!,
-            status: .open
+            status: .open,
+            branch: "main"
         )
         workspace.updatePanelPullRequest(
             panelId: rightFirstPanel.id,
             number: 18,
             label: "MR",
             url: URL(string: "https://gitlab.com/manaflow/cmux/-/merge_requests/18")!,
-            status: .merged
+            status: .merged,
+            branch: "release/right"
         )
 
         let orderedPanelIds = workspace.sidebarOrderedPanelIds()
@@ -6651,20 +6648,20 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
                     label: "PR",
                     url: URL(string: "https://github.com/manaflow-ai/cmux/pull/101")!,
                     status: .open,
-                    branch: nil
+                    branch: "main"
                 ),
                 SidebarPullRequestState(
                     number: 18,
                     label: "MR",
                     url: URL(string: "https://gitlab.com/manaflow/cmux/-/merge_requests/18")!,
                     status: .merged,
-                    branch: nil
+                    branch: "release/right"
                 ),
             ]
         )
         XCTAssertEqual(
             workspace.sidebarPullRequestsInDisplayOrder(),
-            workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [leftFirstPanelId])
+            workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [rightFirstPanel.id])
         )
     }
 

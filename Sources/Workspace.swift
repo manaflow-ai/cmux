@@ -1889,7 +1889,8 @@ extension Workspace {
         } else {
             clearManualUnread(panelId: panelId)
         }
-        let hasUnreadPanelNotification = snapshot.notifications?.contains(where: { !$0.isRead }) == true
+        let hasUnreadPanelNotification = snapshot.hasUnreadIndicator != true &&
+            snapshot.notifications?.contains(where: { !$0.isRead }) == true
         if snapshot.hasUnreadIndicator == true, !hasUnreadPanelNotification {
             let contributesToWorkspaceUnread = snapshot.restoredUnreadContributesToWorkspace
                 ?? (snapshot.notifications?.isEmpty ?? true)
@@ -1970,12 +1971,16 @@ extension Workspace {
         for panelSnapshot in snapshot.panels {
             guard let newPanelId = oldToNewPanelIds[panelSnapshot.id] else { continue }
             notifications.append(
-                contentsOf: (panelSnapshot.notifications ?? []).map {
-                    $0.terminalNotification(
+                contentsOf: (panelSnapshot.notifications ?? []).map { notification in
+                    var restored = notification.terminalNotification(
                         tabId: id,
                         surfaceId: newPanelId,
                         panelId: newPanelId
                     )
+                    if panelSnapshot.hasUnreadIndicator == true {
+                        restored.isRead = true
+                    }
+                    return restored
                 }
             )
         }

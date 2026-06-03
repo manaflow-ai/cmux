@@ -478,6 +478,21 @@ final class GitRepositorySearchRootStopTests: XCTestCase {
 
 @MainActor
 final class WorkspacePullRequestSidebarTests: XCTestCase {
+    private var previousWatchGitStatus: Any?
+
+    override func setUp() {
+        super.setUp()
+        let defaults = UserDefaults.standard
+        previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+    }
+
+    override func tearDown() {
+        restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        previousWatchGitStatus = nil
+        super.tearDown()
+    }
+
     func testSidebarPullRequestsIgnoreStaleWorkspaceLevelCacheWithoutPanelState() throws {
         let workspace = Workspace(title: "Test")
         let panelId = UUID()

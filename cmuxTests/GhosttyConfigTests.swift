@@ -1571,53 +1571,51 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
 
 @MainActor
 final class WorkspaceChromeColorTests: XCTestCase {
-    func testBonsplitChromeHexIncludesAlphaWhenTranslucent() {
-        let color = NSColor(
+    private func fixtureColor() -> NSColor {
+        NSColor(
             srgbRed: 17.0 / 255.0,
             green: 34.0 / 255.0,
             blue: 51.0 / 255.0,
             alpha: 1.0
         )
+    }
+
+    private func expectedCompositedHex(for color: NSColor, opacity: Double) -> String {
+        let themedColor = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: color,
+            opacity: opacity
+        )
+        return themedColor.hexString(includeAlpha: themedColor.alphaComponent < 0.999)
+    }
+
+    func testBonsplitChromeHexCompositesTranslucentBackgroundOverWindowBackground() {
+        let color = fixtureColor()
 
         let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
-        XCTAssertEqual(hex, "#1122337F")
+        XCTAssertEqual(hex, expectedCompositedHex(for: color, opacity: 0.5))
     }
 
     func testBonsplitChromeHexOmitsAlphaWhenOpaque() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
+        let color = fixtureColor()
 
         let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
         XCTAssertEqual(hex, "#112233")
     }
 
     func testBonsplitChromeHexKeepsBackdropWhenSharingWindowBackdrop() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
+        let color = fixtureColor()
 
         let hex = Workspace.bonsplitChromeHex(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true
         )
-        XCTAssertEqual(hex, "#1122337F")
+        XCTAssertEqual(hex, expectedCompositedHex(for: color, opacity: 0.5))
     }
 
     func testBonsplitChromeColorsKeepPaneClearWhenTerminalUsesHostLayerBackground() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
+        let color = fixtureColor()
+        let expectedSurfaceHex = expectedCompositedHex(for: color, opacity: 0.5)
 
         let colors = Workspace.bonsplitChromeColors(
             backgroundColor: color,
@@ -1625,19 +1623,15 @@ final class WorkspaceChromeColorTests: XCTestCase {
             renderingMode: .windowHostBackdrop
         )
 
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
-        XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
-        XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
+        XCTAssertEqual(colors.backgroundHex, expectedSurfaceHex)
+        XCTAssertEqual(colors.tabBarBackgroundHex, expectedSurfaceHex)
+        XCTAssertEqual(colors.splitButtonBackdropHex, expectedSurfaceHex)
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
     }
 
     func testBonsplitChromeColorsKeepSemanticBackgroundButClearLocalBackdropsWhenSharingWindowBackdrop() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
+        let color = fixtureColor()
+        let expectedSurfaceHex = expectedCompositedHex(for: color, opacity: 0.5)
 
         let colors = Workspace.bonsplitChromeColors(
             backgroundColor: color,
@@ -1646,7 +1640,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             renderingMode: .windowHostBackdrop
         )
 
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
+        XCTAssertEqual(colors.backgroundHex, expectedSurfaceHex)
         XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
