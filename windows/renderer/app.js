@@ -17249,6 +17249,7 @@ function showToolbarMenu(event) {
   const terminalActive = panel?.type === "terminal";
   const browserActive = panel?.type === "browser";
   const latestBrowserPage = state.recentBrowserPages[0] || "";
+  const terminalBackground = terminalActive ? normalizeBackgroundValue(panel.backgroundImage) : "";
   const minimizedPanes = minimizedPanelCount(workspace);
   const cleanFastActive = isSettingsPresetIdActive("simpleFast");
   const speedPresetActive = isSettingsPresetIdActive("performance");
@@ -17311,6 +17312,8 @@ function showToolbarMenu(event) {
       toolbarAction("Clear active terminal", clearActiveTerminal, !terminalActive, "Clear the focused terminal.", terminalRequiredTitle),
       toolbarAction("Restart terminal", restartActiveTerminal, !terminalActive, "Restart the focused terminal.", terminalRequiredTitle),
       toolbarAction("Choose terminal background", () => choosePanelBackgroundImage(panel), !terminalActive, "Choose a background for the focused terminal.", terminalRequiredTitle),
+      toolbarAction("Paste terminal background", () => pastePanelBackgroundImageFromClipboard(panel), !terminalActive, "Paste an image URL, path, or copied image as the focused terminal background.", terminalRequiredTitle),
+      toolbarAction("Clear terminal background", () => applyPanelBackgroundImage("", panel), !terminalActive || !terminalBackground, "Clear the focused terminal background.", terminalActive ? "Focused terminal background is already clear." : terminalRequiredTitle),
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
       toolbarAction("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), terminalColorsDefault, "Reset background, text, and cursor colors to the cmux default.", "Terminal colors already match the cmux default.")
     ),
