@@ -1,4 +1,5 @@
 import Combine
+import CmuxFileWatch
 import CmuxSocketControl
 import Foundation
 import os
@@ -62,8 +63,8 @@ final class CmuxSettingsFileStore {
     private let appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment
     private let stateLock = NSLock()
 
-    private var primaryWatcher: ShortcutSettingsFileWatcher?
-    private var fallbackWatchers: [ShortcutSettingsFileWatcher] = []
+    private var watchers: [FileWatcher] = []
+    private var watchTasks: [Task<Void, Never>] = []
     private var defaultsCancellable: AnyCancellable?
     private var socketPasswordObserver: NSObjectProtocol?
 
@@ -105,15 +106,13 @@ final class CmuxSettingsFileStore {
         )
         guard startWatching else { return }
 
-        primaryWatcher = ShortcutSettingsFileWatcher(path: primaryPath, fileManager: fileManager) { [weak self] in
-            DispatchQueue.main.async {
-                self?.reload()
-            }
-        }
-        fallbackWatchers = fallbackPaths.map { fallbackPath in
-            ShortcutSettingsFileWatcher(path: fallbackPath, fileManager: fileManager) { [weak self] in
-                DispatchQueue.main.async {
-                    self?.reload()
+        watchers = ([primaryPath] + fallbackPaths).map { FileWatcher(path: $0) }
+        watchTasks = watchers.map { watcher in
+            let events = watcher.events
+            return Task { @MainActor [weak self] in
+                for await _ in events {
+                    guard let self else { break }
+                    self.reload()
                 }
             }
         }
@@ -125,8 +124,9 @@ final class CmuxSettingsFileStore {
     }
 
     deinit {
-        primaryWatcher?.stop()
-        fallbackWatchers.forEach { $0.stop() }
+        watchTasks.forEach { $0.cancel() }
+        // Dropping the watchers runs each deinit, cancelling its DispatchSources.
+        watchers.removeAll()
         defaultsCancellable?.cancel()
         if let socketPasswordObserver {
             notificationCenter.removeObserver(socketPasswordObserver)
@@ -1938,94 +1938,5 @@ private enum BackupValue: Codable, Equatable {
             try container.encode(Kind.stringDictionary, forKey: .kind)
             try container.encode(value, forKey: .stringDictionaryValue)
         }
-    }
-}
-
-private final class ShortcutSettingsFileWatcher {
-    private let path: String
-    private let fileManager: FileManager
-    private let onChange: () -> Void
-    private let watchQueue = DispatchQueue(label: "com.cmux.shortcut-settings-file-watch")
-
-    private var source: DispatchSourceFileSystemObject?
-
-    init(path: String, fileManager: FileManager = .default, onChange: @escaping () -> Void) {
-        self.path = path
-        self.fileManager = fileManager
-        self.onChange = onChange
-        start()
-    }
-
-    func stop() {
-        source?.cancel()
-        source = nil
-    }
-
-    private func start() {
-        stop()
-
-        if fileManager.fileExists(atPath: path) {
-            startFileWatcher()
-        } else {
-            startDirectoryWatcher()
-        }
-    }
-
-    private func startFileWatcher() {
-        let fd = open(path, O_EVTONLY)
-        guard fd >= 0 else {
-            startDirectoryWatcher()
-            return
-        }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename, .extend],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            let flags = source.data
-            if flags.contains(.delete) || flags.contains(.rename) {
-                self.start()
-            }
-            self.onChange()
-        }
-
-        source.setCancelHandler {
-            close(fd)
-        }
-
-        self.source = source
-        source.resume()
-    }
-
-    private func startDirectoryWatcher() {
-        let directoryPath = (path as NSString).deletingLastPathComponent
-        let fd = open(directoryPath, O_EVTONLY)
-        guard fd >= 0 else { return }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .rename, .delete],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            if self.fileManager.fileExists(atPath: self.path) {
-                self.start()
-            } else {
-                self.onChange()
-            }
-        }
-
-        source.setCancelHandler {
-            close(fd)
-        }
-
-        self.source = source
-        source.resume()
     }
 }

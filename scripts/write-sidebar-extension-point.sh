@@ -1,22 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# write-sidebar-extension-point.sh - emit the host's sidebar ExtensionKit point
-# declaration at build time, keyed for the effective extension point id.
-#
-# Because the id can be scoped per dev build tag (via the
-# CMUX_SIDEBAR_EXTENSION_POINT_ID build setting), a static checked-in bundle
-# declaration can't carry it. AppExtensionPoint.Definition is only available in
-# newer SDKs than cmux's macOS 14 floor, so this script writes the bundle-level
-# declaration directly and intentionally avoids private underscored keys.
-#
-# The committed default is com.manaflow.cmux.sidebar; reload.sh overrides
-# CMUX_SIDEBAR_EXTENSION_POINT_ID for tagged builds. The resolved id never
-# touches tracked source.
+# Emits the host's Sidebar ExtensionKit point declaration for Xcode 14-era
+# ExtensionKit. The point id may be scoped per tagged dev build.
 
-POINT_ID="${CMUX_SIDEBAR_EXTENSION_POINT_ID:-com.manaflow.cmux.sidebar}"
+POINT_ID="${CMUX_SIDEBAR_EXTENSION_POINT_ID:-com.cmuxterm.app.cmux.sidebar}"
 if [[ -z "$POINT_ID" ]]; then
-  POINT_ID="com.manaflow.cmux.sidebar"
+  POINT_ID="com.cmuxterm.app.cmux.sidebar"
 fi
 
 EXTENSIONS_DIR="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Extensions"
@@ -31,6 +21,8 @@ cat > "$DEST" <<EOF
 <dict>
   <key>${POINT_ID}</key>
   <dict>
+    <key>_EXScopeRestriction</key>
+    <string>none</string>
     <key>EXExtensionPointIsPublic</key>
     <true/>
     <key>EXPresentsUserInterface</key>

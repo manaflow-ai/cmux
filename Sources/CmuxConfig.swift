@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxFileWatch
 import Combine
 import CryptoKit
 import Foundation
@@ -1964,15 +1965,18 @@ final class CmuxConfigStore: ObservableObject {
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
     private var lifetimeCancellables = Set<AnyCancellable>()
     private var trackingCancellables = Set<AnyCancellable>()
+    // The local config still uses a bespoke DispatchSource watcher because it
+    // performs search-directory *path re-resolution* (not just reload-on-change).
+    // The global config and hook files use CmuxFileWatch.FileWatcher.
     private var localFileWatchSource: DispatchSourceFileSystemObject?
     private var localFileDescriptor: Int32 = -1
     private var localConfigSearchDirectory: String?
-    private var localHookFileWatchSources: [String: DispatchSourceFileSystemObject] = [:]
-    private var localHookFileDescriptors: [String: Int32] = [:]
+    private var hookWatchers: [String: FileWatcher] = [:]
+    private var hookWatchTasks: [String: Task<Void, Never>] = [:]
     private var localFallbackDirectoryWatchSource: DispatchSourceFileSystemObject?
     private var localFallbackDirectoryDescriptor: Int32 = -1
-    private var globalFileWatchSource: DispatchSourceFileSystemObject?
-    private var globalFileDescriptor: Int32 = -1
+    private var globalWatcher: FileWatcher?
+    private var globalWatchTask: Task<Void, Never>?
     private let watchQueue = DispatchQueue(label: "com.cmux.config-file-watch")
 
     private static let maxReattachAttempts = 5
@@ -2010,17 +2014,15 @@ final class CmuxConfigStore: ObservableObject {
             if localConfigPath != nil {
                 startLocalFileWatcher()
             }
-            startGlobalFileWatcher()
+            startGlobalWatching()
         }
     }
 
     deinit {
         localFileWatchSource?.cancel()
-        for source in localHookFileWatchSources.values {
-            source.cancel()
-        }
         localFallbackDirectoryWatchSource?.cancel()
-        globalFileWatchSource?.cancel()
+        hookWatchTasks.values.forEach { $0.cancel() }
+        globalWatchTask?.cancel()
     }
 
     // MARK: - Public API
@@ -3215,51 +3217,35 @@ final class CmuxConfigStore: ObservableObject {
         let desiredPaths = Set(paths.filter { path in
             path != primaryLocalPath && FileManager.default.fileExists(atPath: path)
         })
-        for path in Array(localHookFileWatchSources.keys) where !desiredPaths.contains(path) {
+        for path in Array(hookWatchers.keys) where !desiredPaths.contains(path) {
             stopLocalHookFileWatcher(at: path)
         }
-        for path in desiredPaths where localHookFileWatchSources[path] == nil {
+        for path in desiredPaths where hookWatchers[path] == nil {
             startLocalHookFileWatcher(at: path)
         }
     }
 
     private func startLocalHookFileWatcher(at path: String) {
-        let fd = open(path, O_EVTONLY)
-        guard fd >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename, .extend],
-            queue: watchQueue
-        )
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            let flags = source.data
-            DispatchQueue.main.async {
-                if flags.contains(.delete) || flags.contains(.rename) {
-                    self.stopLocalHookFileWatcher(at: path)
-                }
+        let watcher = FileWatcher(path: path)
+        hookWatchers[path] = watcher
+        let events = watcher.events
+        hookWatchTasks[path] = Task { @MainActor [weak self] in
+            for await _ in events {
+                guard let self else { break }
                 self.loadAll()
             }
         }
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-        source.resume()
-        localHookFileWatchSources[path] = source
-        localHookFileDescriptors[path] = fd
     }
 
     private func stopLocalHookFileWatcher(at path: String) {
-        localHookFileWatchSources.removeValue(forKey: path)?.cancel()
-        localHookFileDescriptors.removeValue(forKey: path)
+        hookWatchTasks.removeValue(forKey: path)?.cancel()
+        hookWatchers.removeValue(forKey: path)
     }
 
     private func stopLocalHookFileWatchers() {
-        for source in localHookFileWatchSources.values {
-            source.cancel()
-        }
-        localHookFileWatchSources.removeAll()
-        localHookFileDescriptors.removeAll()
+        hookWatchTasks.values.forEach { $0.cancel() }
+        hookWatchTasks.removeAll()
+        hookWatchers.removeAll()
     }
 
     private func startLocalDirectoryWatcher() {
@@ -3364,102 +3350,31 @@ final class CmuxConfigStore: ObservableObject {
 
     // MARK: - File watching (global)
 
-    private func startGlobalFileWatcher() {
-        let fd = open(globalConfigPath, O_EVTONLY)
-        guard fd >= 0 else {
-            startGlobalDirectoryWatcher()
-            return
-        }
-        globalFileDescriptor = fd
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename, .extend],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            let flags = source.data
-            if flags.contains(.delete) || flags.contains(.rename) {
-                DispatchQueue.main.async {
-                    self.stopGlobalFileWatcher()
-                    self.loadAll()
-                    self.scheduleGlobalReattach(attempt: 1)
-                }
-            } else {
-                DispatchQueue.main.async {
-                    self.loadAll()
-                }
-            }
-        }
-
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-
-        source.resume()
-        globalFileWatchSource = source
-    }
-
-    private func scheduleGlobalReattach(attempt: Int) {
-        guard attempt <= Self.maxReattachAttempts else {
-            startGlobalDirectoryWatcher()
-            return
-        }
-        watchQueue.asyncAfter(deadline: .now() + Self.reattachDelay) { [weak self] in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                if FileManager.default.fileExists(atPath: self.globalConfigPath) {
-                    self.loadAll()
-                    self.startGlobalFileWatcher()
-                } else {
-                    self.scheduleGlobalReattach(attempt: attempt + 1)
-                }
-            }
-        }
-    }
-
-    private func startGlobalDirectoryWatcher() {
+    /// Watches the global config via ``CmuxFileWatch/FileWatcher``, which handles
+    /// inode reattachment and nearest-existing-ancestor recovery internally; each
+    /// change reloads. Ensures the config directory exists first (the previous
+    /// directory-watcher created it).
+    private func startGlobalWatching() {
+        stopGlobalWatching()
         let dirPath = (globalConfigPath as NSString).deletingLastPathComponent
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: dirPath) {
-            try? fm.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: dirPath) {
+            try? FileManager.default.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
         }
-        let fd = open(dirPath, O_EVTONLY)
-        guard fd >= 0 else { return }
-        globalFileDescriptor = fd
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .link, .rename],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                guard FileManager.default.fileExists(atPath: self.globalConfigPath) else { return }
-                self.stopGlobalFileWatcher()
+        let watcher = FileWatcher(path: globalConfigPath)
+        globalWatcher = watcher
+        let events = watcher.events
+        globalWatchTask = Task { @MainActor [weak self] in
+            for await _ in events {
+                guard let self else { break }
                 self.loadAll()
-                self.startGlobalFileWatcher()
             }
         }
-
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-
-        source.resume()
-        globalFileWatchSource = source
     }
 
-    private func stopGlobalFileWatcher() {
-        if let source = globalFileWatchSource {
-            source.cancel()
-            globalFileWatchSource = nil
-        }
-        globalFileDescriptor = -1
+    private func stopGlobalWatching() {
+        globalWatchTask?.cancel()
+        globalWatchTask = nil
+        globalWatcher = nil
     }
 }
 
