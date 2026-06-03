@@ -8,6 +8,7 @@ private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.s
 
 enum TerminalInputDebugLog {
     private static let isEnabled = ProcessInfo.processInfo.environment["CMUX_INPUT_DEBUG"] == "1"
+    private static let logger = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.input")
 
     static func log(_ message: String) {
         #if DEBUG
@@ -16,7 +17,7 @@ enum TerminalInputDebugLog {
         }
         #endif
         guard isEnabled else { return }
-        TerminalSidebarStore.debugLog("input: \(message)")
+        logger.debug("input: \(message, privacy: .public)")
     }
 
     static func textSummary(_ text: String) -> String {
@@ -46,7 +47,6 @@ protocol TerminalSurfaceHosting: AnyObject {
     var currentGridSize: TerminalGridSize { get }
     func processOutput(_ data: Data)
     func focusInput()
-    func updateRemotePlatform(_ platform: RemotePlatform)
     /// Apply the daemon's authoritative rendering grid. Unconditional —
     /// implementations render at exactly cols × rows and letterbox any
     /// remaining container area. The daemon broadcasts this on every
@@ -61,7 +61,6 @@ protocol TerminalSurfaceHosting: AnyObject {
 
 extension TerminalSurfaceHosting {
     func focusInput() {}
-    func updateRemotePlatform(_ platform: RemotePlatform) {}
     func applyViewSize(cols _: Int, rows _: Int) {}
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)? {
@@ -1224,10 +1223,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setNeedsGeometrySync()
         inputProxy.updateAccessoryLayoutInsets()
         inputProxy.becomeFirstResponder()
-    }
-
-    func updateRemotePlatform(_ platform: RemotePlatform) {
-        inputProxy.updateModifierLabels(isMacRemote: platform.goOS == "darwin")
     }
 
     func simulateTextInputForTesting(_ text: String) {
