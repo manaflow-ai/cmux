@@ -45,6 +45,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        (uiView as? GhosttySurfaceView)?.resignInput()
         coordinator.detach()
     }
 

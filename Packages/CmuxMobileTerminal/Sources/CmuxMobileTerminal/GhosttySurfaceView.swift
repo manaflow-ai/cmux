@@ -571,6 +571,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
 }
 
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
+    private static weak var activeInputSurface: GhosttySurfaceView?
     private weak var runtime: GhosttyRuntime?
     private weak var delegate: GhosttySurfaceViewDelegate?
     private let fontSize: Float32
@@ -796,7 +797,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self?.performFontZoom(direction)
         }
         inputProxy.onHideKeyboard = { [weak self] in
-            self?.inputProxy.resignFirstResponder()
+            self?.resignInput()
         }
         inputProxy.accessoryLayoutInsetsProvider = { [weak self] in
             guard let self,
@@ -1070,6 +1071,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             startDisplayLink()
         } else {
+            resignInput()
             stopDisplayLink()
             setFocus(false)
         }
@@ -1221,9 +1223,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @objc
     func focusInput() {
         onFocusInputRequestedForTesting?()
+        Self.activeInputSurface = self
         setNeedsGeometrySync()
         inputProxy.updateAccessoryLayoutInsets()
         inputProxy.becomeFirstResponder()
+    }
+
+    public static func resignActiveInput() {
+        activeInputSurface?.resignInput()
+    }
+
+    public func resignInput() {
+        let wasFirstResponder = inputProxy.isFirstResponder
+        inputProxy.resignFirstResponder()
+        if Self.activeInputSurface === self {
+            Self.activeInputSurface = nil
+        }
+        guard wasFirstResponder, keyboardHeight != 0 else { return }
+        keyboardHeight = 0
+        setNeedsGeometrySync()
     }
 
     func updateRemotePlatform(_ platform: RemotePlatform) {

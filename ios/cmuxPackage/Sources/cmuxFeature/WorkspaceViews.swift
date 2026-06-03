@@ -794,6 +794,7 @@ struct WorkspaceDetailView: View {
     }
 
     private func dismissTerminalKeyboardForChrome() {
+        GhosttySurfaceView.resignActiveInput()
         dismissKeyboard()
     }
 }
