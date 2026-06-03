@@ -681,7 +681,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--budget-launch-socket-ready-ms", type=float, default=15000)
     parser.add_argument("--budget-restore-socket-ready-ms", type=float, default=15000)
     parser.add_argument("--budget-no-scrollback-snapshot-ms", type=float, default=250)
-    parser.add_argument("--budget-scrollback-snapshot-ms", type=float, default=1500)
+    parser.add_argument("--budget-scrollback-snapshot-ms", type=float, default=2500)
     parser.add_argument("--budget-min-scrollback-chars", type=int, default=1_000_000)
     parser.add_argument("--budget-min-terminal-surfaces", type=int, default=40)
     return parser.parse_args()
