@@ -2,8 +2,22 @@
 """
 Regression coverage for stale shell-side git branch payloads after cwd changes.
 
-The shell integrations must not let an async reporter for an old repository path
-repopulate the sidebar branch after the shell has moved to a non-git directory.
+When a cmux shell leaves a git repository for a non-git directory, an async
+reporter still holding the OLD repository path (the background HEAD-watch loop or
+a deferred prompt probe) must not repopulate the sidebar branch. The integrations
+guard every git-branch payload with ``_cmux_git_report_path_is_active`` so a
+report whose target path no longer matches the shell's current cwd is dropped.
+
+Each case drives that guard through the real integration functions: after the
+shell has moved to the non-git directory (so the active-cwd marker points there),
+a reporter for the old repo path is launched in a *background* subshell -- the
+same cross-process shape as the real HEAD-watch -- and must emit nothing, while a
+reporter for the current cwd must emit ``clear_git_branch``.
+
+The marker is rewritten with ``noclobber`` enabled so the case also covers the
+force-clobber redirect: a plain ``>`` would silently skip the update under
+``set -C`` and leave the stale path active. Removing the active-path guard, or
+weakening the force-clobber write, from either integration makes its case fail.
 """
 
 from __future__ import annotations
@@ -38,6 +52,12 @@ class BoundUnixSocket:
 
 
 def _shell_command(kind: str) -> str:
+    # Both cases are symmetric: leave the repo, record the non-git cwd as the
+    # active path via the real setter (with noclobber on, so the force-clobber
+    # write is exercised), fire a stale background reporter for the old repo path
+    # (must be suppressed), then report the current cwd (must clear).
+    # preexec/precmd are neutralized so only the functions under test write to
+    # the send log.
     if kind == "zsh":
         return textwrap.dedent(
             """\
@@ -45,12 +65,12 @@ def _shell_command(kind: str) -> str:
             precmd_functions=()
             preexec_functions=()
             _cmux_send() { print -r -- "$1" >> "$CMUX_TEST_SEND_LOG"; }
-            cd "$CMUX_TEST_REPO"
-            _cmux_start_git_head_watch
             cd "$CMUX_TEST_NONREPO"
-            printf '%s\\n' 'ref: refs/heads/new-old-branch' > "$CMUX_TEST_REPO/.git/HEAD"
-            sleep 2
-            _cmux_stop_git_head_watch
+            setopt noclobber
+            _cmux_set_git_active_pwd "$PWD"
+            unsetopt noclobber
+            _cmux_report_git_branch_for_path "$CMUX_TEST_REPO" &
+            wait
             _cmux_report_git_branch_for_path "$PWD"
             """
         )
@@ -61,15 +81,13 @@ def _shell_command(kind: str) -> str:
             source "$CMUX_TEST_SCRIPT"
             _cmux_send() { printf '%s\\n' "$1" >> "$CMUX_TEST_SEND_LOG"; }
             _cmux_send_bg() { _cmux_send "$1"; }
-            cd "$CMUX_TEST_REPO"
             cd "$CMUX_TEST_NONREPO"
-            _CMUX_TTY_REPORTED=1
-            _CMUX_PORTS_LAST_RUN=$(_cmux_now)
-            _CMUX_PWD_LAST_PWD="$PWD"
-            _cmux_prompt_command
-            _cmux_report_git_branch_for_path "$CMUX_TEST_REPO"
+            set -C
+            _cmux_set_git_active_pwd "$PWD"
+            set +C
+            _cmux_report_git_branch_for_path "$CMUX_TEST_REPO" &
+            wait
             _cmux_report_git_branch_for_path "$PWD"
-            sleep 1
             """
         )
 
@@ -107,15 +125,21 @@ def _run_case(
     env["CMUX_TEST_REPO"] = str(repo)
     env["CMUX_TEST_NONREPO"] = str(nonrepo)
     env["CMUX_TEST_SEND_LOG"] = str(send_log)
+    # Don't leak an inherited marker path into the integration; let it create its
+    # own secure temp marker so the force-clobber write is what's under test.
+    env.pop("_CMUX_GIT_ACTIVE_PWD_FILE", None)
 
     with BoundUnixSocket(socket_path):
-        result = subprocess.run(
-            [shell, *shell_args, _shell_command(shell)],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=12,
-        )
+        try:
+            result = subprocess.run(
+                [shell, *shell_args, _shell_command(shell)],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+        except FileNotFoundError:
+            return 1, f"{shell}: shell binary not found; cannot exercise integration guard"
 
     output = (result.stdout or "") + (result.stderr or "")
     if result.returncode != 0:
@@ -144,13 +168,20 @@ def main() -> int:
         base.mkdir(parents=True, exist_ok=True)
 
         failures: list[str] = []
+        ran = 0
         for shell, shell_args, script in cases:
             if not script.exists():
-                print(f"SKIP: missing integration script at {script}")
+                failures.append(f"{shell}: integration script missing at {script}")
                 continue
+            ran += 1
             rc, detail = _run_case(base, shell=shell, shell_args=shell_args, script=script)
             if rc != 0:
                 failures.append(detail)
+
+        # A green run with zero executed cases would silently stop guarding the
+        # fix (e.g. the integration scripts were renamed). Treat it as failure.
+        if ran == 0:
+            failures.append("no shell integration cases executed - regression coverage is a no-op")
 
         if failures:
             print("FAIL:")
@@ -158,7 +189,7 @@ def main() -> int:
                 print(failure)
             return 1
 
-        print("PASS: shell git branch reports are scoped to the current cwd")
+        print(f"PASS: {ran} shell integration(s) scope git branch reports to the current cwd")
         return 0
     finally:
         shutil.rmtree(base, ignore_errors=True)

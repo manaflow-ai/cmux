@@ -215,7 +215,7 @@ _CMUX_GIT_JOB_STARTED_AT="${_CMUX_GIT_JOB_STARTED_AT:-0}"
 _CMUX_GIT_HEAD_LAST_PWD="${_CMUX_GIT_HEAD_LAST_PWD:-}"
 _CMUX_GIT_HEAD_PATH="${_CMUX_GIT_HEAD_PATH:-}"
 _CMUX_GIT_HEAD_SIGNATURE="${_CMUX_GIT_HEAD_SIGNATURE:-}"
-_CMUX_GIT_ACTIVE_PWD_FILE="${_CMUX_GIT_ACTIVE_PWD_FILE:-${TMPDIR:-/tmp}/cmux-git-active-pwd-$$}"
+_CMUX_GIT_ACTIVE_PWD_FILE="${_CMUX_GIT_ACTIVE_PWD_FILE:-$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-git-active-pwd.XXXXXX" 2>/dev/null || true)}"
 _CMUX_PR_POLL_PID="${_CMUX_PR_POLL_PID:-}"
 _CMUX_PR_POLL_PWD="${_CMUX_PR_POLL_PWD:-}"
 _CMUX_PR_LAST_BRANCH="${_CMUX_PR_LAST_BRANCH:-}"
@@ -414,7 +414,7 @@ _cmux_set_git_active_pwd() {
     local active_pwd="$1"
     [[ -n "$active_pwd" ]] || return 0
     [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] || return 0
-    printf '%s\n' "$active_pwd" > "$_CMUX_GIT_ACTIVE_PWD_FILE" 2>/dev/null || true
+    printf '%s\n' "$active_pwd" >| "$_CMUX_GIT_ACTIVE_PWD_FILE" 2>/dev/null || true
 }
 
 _cmux_git_report_path_is_active() {
