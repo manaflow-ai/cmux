@@ -2,7 +2,6 @@
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import AppKit
 import ExtensionFoundation
-import Observation
 import SwiftUI
 
 private struct CMUXSidebarExtensionGrant: Codable, Equatable {
@@ -908,10 +907,6 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
     }
 
-    // Uses the macOS 13+ `AppExtensionIdentity` identity/availability streams on every OS
-    // version. The macOS 26-only `AppExtensionPoint.Monitor` required a compile-time
-    // `StaticString` point id, which is incompatible with the build-time-injected per-tag
-    // extension point id (see `CmuxSidebarExtensionPoint.identifier(in:)`).
     private func observeIdentitySequence(extensionPointIdentifier: String) async throws {
         var identities = try AppExtensionIdentity.matching(appExtensionPointIDs: extensionPointIdentifier)
             .makeAsyncIterator()
