@@ -8252,7 +8252,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   font-size: 12px;
 }
 
-.quick-overview-workspace {
+.quick-overview-controls {
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -8264,15 +8264,15 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background: color-mix(in oklch, var(--color-pane) 88%, var(--color-rail) 12%);
 }
 
-.quick-overview-workspace-copy {
+.quick-overview-controls-copy {
   min-width: 0;
   display: grid;
   gap: 1px;
   padding-left: 3px;
 }
 
-.quick-overview-workspace-copy b,
-.quick-overview-workspace-copy em {
+.quick-overview-controls-copy b,
+.quick-overview-controls-copy em {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -8280,18 +8280,18 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   font-style: normal;
 }
 
-.quick-overview-workspace-copy b {
+.quick-overview-controls-copy b {
   color: var(--color-text);
   font-size: 11px;
   font-weight: 760;
 }
 
-.quick-overview-workspace-copy em {
+.quick-overview-controls-copy em {
   color: var(--color-faint);
   font: 10px/1.2 var(--font-mono);
 }
 
-.quick-overview-workspace-actions {
+.quick-overview-controls-actions {
   min-width: 0;
   display: flex;
   align-items: center;
@@ -8300,7 +8300,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   gap: 4px;
 }
 
-.quick-overview-workspace-actions .settings-action {
+.quick-overview-controls-actions .settings-action {
   height: 26px;
   padding: 0 7px;
   font-size: 10px;
@@ -9378,15 +9378,15 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .quick-overview-workspace {
+  .quick-overview-controls {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .quick-overview-workspace-actions {
+  .quick-overview-controls-actions {
     justify-content: flex-start;
   }
 
-  .quick-overview-workspace-actions .settings-action {
+  .quick-overview-controls-actions .settings-action {
     flex: 1 1 calc(50% - 4px);
   }
 

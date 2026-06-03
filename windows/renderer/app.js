@@ -17603,7 +17603,7 @@ function openBackgroundTargetSettings(target = "app") {
   return true;
 }
 
-function quickWorkspaceActionButton(label, run, options = {}) {
+function quickOverviewControlButton(label, run, options = {}) {
   const button = settingsActionButton(label, run, "", options.search || "");
   button.disabled = Boolean(options.disabled);
   button.title = options.title || button.title;
@@ -17611,51 +17611,122 @@ function quickWorkspaceActionButton(label, run, options = {}) {
   return button;
 }
 
-function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount = 0) {
+function quickOverviewControlsPanel(options = {}) {
   const panel = document.createElement("div");
+  panel.className = ["quick-overview-controls", options.className || ""].filter(Boolean).join(" ");
+  panel.dataset.settingsSearch = normalizeSettingsQuery(options.search || "");
+  panel.innerHTML = `
+    <span class="quick-overview-controls-copy">
+      <b></b>
+      <em></em>
+    </span>
+    <span class="quick-overview-controls-actions"></span>
+  `;
+  panel.querySelector("b").textContent = options.title || "";
+  panel.querySelector("em").textContent = options.meta || "";
+  panel.querySelector(".quick-overview-controls-actions").append(...(options.actions || []));
+  return panel;
+}
+
+function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount = 0) {
   const hasWorkspace = Boolean(workspace);
   const workspaceName = workspaceDisplayTitle(workspace, "No workspace");
   const paneSummary = `${terminalCount} terminal${terminalCount === 1 ? "" : "s"} / ${browserCount} browser${browserCount === 1 ? "" : "s"}`;
-  panel.className = "quick-overview-workspace";
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup workspace controls rename folder layout copy paste setup ${workspaceName} ${paneSummary}`);
-  panel.innerHTML = `
-    <span class="quick-overview-workspace-copy">
-      <b>Workspace controls</b>
-      <em></em>
-    </span>
-    <span class="quick-overview-workspace-actions"></span>
-  `;
-  panel.querySelector("em").textContent = hasWorkspace ? `${workspaceName} / ${paneSummary}` : "Open a workspace first";
   const disabledTitle = "Open a workspace before changing workspace setup.";
   const actions = [
-    quickWorkspaceActionButton("Rename", renameActiveWorkspace, {
+    quickOverviewControlButton("Rename", renameActiveWorkspace, {
       disabled: !hasWorkspace,
       title: hasWorkspace ? "Rename the active workspace." : disabledTitle,
       search: "quick setup workspace rename name title"
     }),
-    quickWorkspaceActionButton("Folder", () => chooseWorkspaceFolder(workspace), {
+    quickOverviewControlButton("Folder", () => chooseWorkspaceFolder(workspace), {
       disabled: !hasWorkspace,
       title: hasWorkspace ? "Choose the active workspace folder." : disabledTitle,
       search: "quick setup workspace folder cwd directory choose change"
     }),
-    quickWorkspaceActionButton("Copy", () => copyWorkspaceSetup(workspace), {
+    quickOverviewControlButton("Copy", () => copyWorkspaceSetup(workspace), {
       disabled: !hasWorkspace,
       title: hasWorkspace ? "Copy this workspace name, color, and folder as JSON." : disabledTitle,
       search: "quick setup workspace copy setup export name color folder clipboard json"
     }),
-    quickWorkspaceActionButton("Paste", () => pasteWorkspaceSetup(workspace), {
+    quickOverviewControlButton("Paste", () => pasteWorkspaceSetup(workspace), {
       disabled: !hasWorkspace,
       title: hasWorkspace ? "Paste copied workspace setup into the active workspace." : disabledTitle,
       search: "quick setup workspace paste setup import name color folder clipboard json"
     }),
-    quickWorkspaceActionButton("Pane layout", () => openSettingsCategory("workspace", { query: "active pane", focusSearch: false }), {
+    quickOverviewControlButton("Pane layout", () => openSettingsCategory("workspace", { query: "active pane", focusSearch: false }), {
       disabled: !hasWorkspace,
       title: hasWorkspace ? "Open workspace and active pane layout settings." : disabledTitle,
       search: "quick setup workspace pane layout active pane split size color settings"
     })
   ];
-  panel.querySelector(".quick-overview-workspace-actions").append(...actions);
-  return panel;
+  return quickOverviewControlsPanel({
+    className: "quick-overview-workspace",
+    title: "Workspace controls",
+    meta: hasWorkspace ? `${workspaceName} / ${paneSummary}` : "Open a workspace first",
+    search: `quick setup workspace controls rename folder layout copy paste setup ${workspaceName} ${paneSummary}`,
+    actions
+  });
+}
+
+function quickPaneControlsPanel(panel) {
+  const hasPane = Boolean(panel);
+  const pending = isPendingPanel(panel);
+  const ready = hasPane && !pending;
+  const creationDisabled = paneCreationButtonsDisabled();
+  const typeLabel = panel?.type === "browser" ? "Browser" : "Terminal";
+  const paneTitle = hasPane ? panelDisplayTitle(panel, true) : "No pane";
+  const meta = !hasPane
+    ? "Open a pane first"
+    : pending
+      ? `${paneTitle} / Starting`
+      : `${paneTitle} / ${typeLabel}`;
+  const unavailableTitle = pending
+    ? "Wait for the pane to finish starting."
+    : "Open a terminal or browser pane first.";
+  const creationTitle = (title, hint) => {
+    if (!ready) return unavailableTitle;
+    return paneCreationActionTitle(title, hint);
+  };
+  const actions = [
+    quickOverviewControlButton("Rename", () => renameActivePanel(panel), {
+      disabled: !ready,
+      title: ready ? "Rename the active pane." : unavailableTitle,
+      search: "quick setup active pane rename title tab"
+    }),
+    quickOverviewControlButton("Duplicate", () => duplicatePanel(panel), {
+      disabled: !ready || creationDisabled,
+      title: creationTitle("Duplicate the active pane to the right.", "Copies its type and setup."),
+      search: "quick setup active pane duplicate clone terminal browser split"
+    }),
+    quickOverviewControlButton("Split", () => splitPanel(panel, "right"), {
+      disabled: !ready || creationDisabled,
+      title: creationTitle("Split this pane to the right.", "Creates a terminal pane beside it."),
+      search: "quick setup active pane split right terminal add"
+    }),
+    quickOverviewControlButton("Copy", () => copyActivePaneSetup(panel), {
+      disabled: !ready,
+      title: ready ? "Copy the active pane setup as JSON." : unavailableTitle,
+      search: "quick setup active pane copy setup export color title background text url clipboard json"
+    }),
+    quickOverviewControlButton("Paste", () => pasteActivePaneSetup(panel), {
+      disabled: !ready,
+      title: ready ? "Paste copied pane setup into the active pane." : unavailableTitle,
+      search: "quick setup active pane paste setup import color title background text url clipboard json"
+    }),
+    quickOverviewControlButton("Pane look", () => openPaneAppearanceSettings(panel), {
+      disabled: !ready,
+      title: ready ? "Open appearance controls for the active pane." : unavailableTitle,
+      search: "quick setup active pane appearance color background image settings"
+    })
+  ];
+  return quickOverviewControlsPanel({
+    className: "quick-overview-pane",
+    title: "Active pane controls",
+    meta,
+    search: `quick setup active pane controls rename duplicate split copy paste appearance ${paneTitle} ${typeLabel}`,
+    actions
+  });
 }
 
 function quickSetupOverviewPanel() {
@@ -17665,6 +17736,7 @@ function quickSetupOverviewPanel() {
   const browserCount = panels.filter((panel) => panel.type === "browser").length;
   const folder = workspace?.cwdShort || workspace?.cwd || "No folder";
   const scope = activeBackgroundScopeModel(state.settings.backgroundImage, workspace);
+  const activePane = activePanel();
   const activeTerminal = activeTerminalPanelForSettings();
   const activeTerminalBackground = activeTerminal ? normalizeBackgroundValue(activeTerminal.backgroundImage) : "";
   const performance = performanceOverviewModel();
@@ -17672,7 +17744,7 @@ function quickSetupOverviewPanel() {
   const librarySummary = quickCustomizationLibrarySummary(libraryEntries);
   const panel = document.createElement("div");
   panel.className = "quick-setup-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes theme layout terminal browser performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints colors backgrounds snippets data`);
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls theme layout terminal browser performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints colors backgrounds snippets data`);
   panel.innerHTML = `
     <div class="quick-overview-heading">
       <span class="quick-overview-copy">
@@ -17712,6 +17784,7 @@ function quickSetupOverviewPanel() {
       <span><b>Performance</b><em data-quick-performance></em></span>
     </div>
     <div data-quick-workspace-controls></div>
+    <div data-quick-pane-controls></div>
     <button class="quick-overview-speed" type="button" data-performance-status>
       <span class="quick-overview-speed-icon" aria-hidden="true"></span>
       <span class="quick-overview-speed-copy">
@@ -17784,6 +17857,7 @@ function quickSetupOverviewPanel() {
   panel.querySelector("[data-quick-terminal]").textContent = `${optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono")} ${state.settings.terminalFontSize}px`;
   panel.querySelector("[data-quick-performance]").textContent = performanceModeLabel();
   panel.querySelector("[data-quick-workspace-controls]").replaceWith(quickWorkspaceControlsPanel(workspace, terminalCount, browserCount));
+  panel.querySelector("[data-quick-pane-controls]").replaceWith(quickPaneControlsPanel(activePane));
   const speed = panel.querySelector(".quick-overview-speed");
   speed.className = `quick-overview-speed is-${performance.status}`;
   speed.querySelector(".quick-overview-speed-icon").innerHTML = quickActionIconMarkup("speed");
