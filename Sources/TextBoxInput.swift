@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CmuxSettingsUI
 import Observation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -4955,7 +4956,8 @@ final class TextBoxInputTextView: NSTextView {
 
     private func handleConfiguredTextBoxShortcut(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown,
-              !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
+              !KeyboardShortcutRecorderActivity.isAnyRecorderActive,
+              !RecorderHostButton.isActivelyRecording else {
             return false
         }
         if textBoxShortcut(event, matches: .focusTextBoxInput) {
