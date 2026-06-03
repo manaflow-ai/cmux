@@ -1213,5 +1213,11 @@
     "assetAlt": "معاينة {name}",
     "lightPreview": "أيقونة التطبيق للوضع الفاتح.",
     "darkPreview": "أيقونة التطبيق للوضع الداكن."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "تنزيل أيقونة الوضع الفاتح",
+    "downloadDark": "تنزيل أيقونة الوضع الداكن",
+    "brandPage": "أصول العلامة"
   }
 }

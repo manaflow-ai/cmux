@@ -1213,5 +1213,11 @@
     "assetAlt": "ตัวอย่าง {name}",
     "lightPreview": "ไอคอนแอปสำหรับโหมดสว่าง",
     "darkPreview": "ไอคอนแอปสำหรับโหมดมืด"
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "ดาวน์โหลดไอคอนโหมดสว่าง",
+    "downloadDark": "ดาวน์โหลดไอคอนโหมดมืด",
+    "brandPage": "แอสเซ็ตแบรนด์"
   }
 }

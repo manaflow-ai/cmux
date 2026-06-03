@@ -1213,5 +1213,11 @@
     "assetAlt": "មើលជាមុន {name}",
     "lightPreview": "រូបតំណាងកម្មវិធីសម្រាប់របៀបភ្លឺ។",
     "darkPreview": "រូបតំណាងកម្មវិធីសម្រាប់របៀបងងឹត។"
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "ទាញយករូបតំណាងភ្លឺ",
+    "downloadDark": "ទាញយករូបតំណាងងងឹត",
+    "brandPage": "ធនធានម៉ាក"
   }
 }

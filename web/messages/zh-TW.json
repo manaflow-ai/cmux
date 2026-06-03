@@ -1213,5 +1213,11 @@
     "assetAlt": "{name} 預覽",
     "lightPreview": "淺色模式應用程式圖示。",
     "darkPreview": "深色模式應用程式圖示。"
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "下載淺色圖示",
+    "downloadDark": "下載深色圖示",
+    "brandPage": "品牌素材"
   }
 }

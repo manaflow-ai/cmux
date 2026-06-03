@@ -1213,5 +1213,11 @@
     "assetAlt": "Pregled za {name}",
     "lightPreview": "Ikona aplikacije za svijetli način.",
     "darkPreview": "Ikona aplikacije za tamni način."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Preuzmi svijetlu ikonu",
+    "downloadDark": "Preuzmi tamnu ikonu",
+    "brandPage": "Materijali brenda"
   }
 }

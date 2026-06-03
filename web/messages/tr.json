@@ -1213,5 +1213,11 @@
     "assetAlt": "{name} önizlemesi",
     "lightPreview": "Açık mod uygulama ikonu.",
     "darkPreview": "Koyu mod uygulama ikonu."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Açık simgeyi indir",
+    "downloadDark": "Koyu simgeyi indir",
+    "brandPage": "Marka varlıkları"
   }
 }

@@ -1213,5 +1213,11 @@
     "assetAlt": "Предпросмотр {name}",
     "lightPreview": "Иконка приложения для светлого режима.",
     "darkPreview": "Иконка приложения для темного режима."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Скачать светлую иконку",
+    "downloadDark": "Скачать тёмную иконку",
+    "brandPage": "Материалы бренда"
   }
 }

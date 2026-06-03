@@ -1213,5 +1213,11 @@
     "assetAlt": "{name} 미리보기",
     "lightPreview": "라이트 모드 앱 아이콘.",
     "darkPreview": "다크 모드 앱 아이콘."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "라이트 아이콘 다운로드",
+    "downloadDark": "다크 아이콘 다운로드",
+    "brandPage": "브랜드 애셋"
   }
 }

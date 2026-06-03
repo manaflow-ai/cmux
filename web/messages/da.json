@@ -1213,5 +1213,11 @@
     "assetAlt": "Forhåndsvisning af {name}",
     "lightPreview": "Appikon til lys tilstand.",
     "darkPreview": "Appikon til mørk tilstand."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Download lyst ikon",
+    "downloadDark": "Download mørkt ikon",
+    "brandPage": "Brandassets"
   }
 }

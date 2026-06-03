@@ -1213,5 +1213,11 @@
     "assetAlt": "Aperçu de {name}",
     "lightPreview": "Icône d’app pour le mode clair.",
     "darkPreview": "Icône d’app pour le mode sombre."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Télécharger l’icône claire",
+    "downloadDark": "Télécharger l’icône sombre",
+    "brandPage": "Ressources de marque"
   }
 }

@@ -1507,5 +1507,11 @@
     "assetAlt": "{name} preview",
     "lightPreview": "Light mode app icon.",
     "darkPreview": "Dark mode app icon."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Download light icon",
+    "downloadDark": "Download dark icon",
+    "brandPage": "Brand assets"
   }
 }

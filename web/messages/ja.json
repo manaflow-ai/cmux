@@ -1453,5 +1453,11 @@
     "assetAlt": "{name} のプレビュー",
     "lightPreview": "ライトモード用アプリアイコン。",
     "darkPreview": "ダークモード用アプリアイコン。"
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "ライトアイコンをダウンロード",
+    "downloadDark": "ダークアイコンをダウンロード",
+    "brandPage": "ブランドアセット"
   }
 }
