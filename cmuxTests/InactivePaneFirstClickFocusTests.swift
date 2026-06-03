@@ -76,6 +76,29 @@ final class InactivePaneFirstClickFocusTests: XCTestCase {
         XCTAssertFalse(view.acceptsFirstMouse(for: nil))
     }
 
+    func testPaneBodyPointerPreflightHonorsFirstClickSettingForInactiveWindow() {
+        XCTAssertFalse(shouldActivatePaneBodyPointerFocusForFirstClick(
+            windowIsKey: false,
+            appIsActive: false,
+            paneFirstClickFocusEnabled: false
+        ))
+        XCTAssertFalse(shouldActivatePaneBodyPointerFocusForFirstClick(
+            windowIsKey: false,
+            appIsActive: true,
+            paneFirstClickFocusEnabled: false
+        ))
+        XCTAssertTrue(shouldActivatePaneBodyPointerFocusForFirstClick(
+            windowIsKey: true,
+            appIsActive: true,
+            paneFirstClickFocusEnabled: false
+        ))
+        XCTAssertTrue(shouldActivatePaneBodyPointerFocusForFirstClick(
+            windowIsKey: false,
+            appIsActive: false,
+            paneFirstClickFocusEnabled: true
+        ))
+    }
+
     func testTerminalPointerFocusUsesPortalRegistryWhenHitTestMisses() throws {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()

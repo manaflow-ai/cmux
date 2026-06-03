@@ -54,6 +54,17 @@ private func runMultiWindowRouteCLI(
     )
 }
 
+func shouldActivatePaneBodyPointerFocusForFirstClick(
+    windowIsKey: Bool,
+    appIsActive: Bool,
+    paneFirstClickFocusEnabled: Bool
+) -> Bool {
+    if appIsActive && windowIsKey {
+        return true
+    }
+    return paneFirstClickFocusEnabled
+}
+
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
 /// snapshot while the app window graph is unchanged. Only `.windows` is
 /// cached; `.children` and `.visibleChildren` fall through to AppKit so the
@@ -17550,6 +17561,13 @@ private extension NSWindow {
     private static func cmuxActivateMainPaneBodyPointerFocusIfNeeded(in window: NSWindow, event: NSEvent) -> Bool {
         guard let appDelegate = AppDelegate.shared else { return false }
         guard appDelegate.isCommandPaletteVisible(for: window) == false else { return false }
+        guard shouldActivatePaneBodyPointerFocusForFirstClick(
+            windowIsKey: window.isKeyWindow,
+            appIsActive: NSApp.isActive,
+            paneFirstClickFocusEnabled: PaneFirstClickFocusSettings.isEnabled()
+        ) else {
+            return false
+        }
         guard let target = cmuxMainPaneBodyPointerFocusTarget(in: window, event: event, appDelegate: appDelegate) else {
             return false
         }
