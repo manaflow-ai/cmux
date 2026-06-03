@@ -2657,6 +2657,151 @@ function upsertSavedBackgroundImage(background, options = {}) {
   return state.savedBackgroundImages[0];
 }
 
+function savedBackgroundImagePayloadEntry(background) {
+  const normalized = normalizeSavedBackgroundImage(background);
+  if (!normalized) return null;
+  return {
+    label: normalized.label,
+    url: normalized.url,
+    createdAt: normalized.createdAt
+  };
+}
+
+function savedBackgroundImagesPayload(backgrounds = state.savedBackgroundImages) {
+  const entries = backgrounds.map(savedBackgroundImagePayloadEntry).filter(Boolean);
+  return {
+    version: 1,
+    type: "cmux-saved-background-images",
+    summary: {
+      count: entries.length,
+      limit: savedBackgroundImagesLimit
+    },
+    backgrounds: entries
+  };
+}
+
+async function copySavedBackgroundImages() {
+  const payload = JSON.stringify(savedBackgroundImagesPayload(), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Saved backgrounds copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Saved backgrounds",
+    message: "Clipboard access is unavailable. The saved backgrounds are shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+async function copySavedBackgroundImage(backgroundId) {
+  const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
+  if (!background) {
+    toast("Saved background not found.");
+    return false;
+  }
+  const payload = JSON.stringify({
+    version: 1,
+    type: "cmux-saved-background-image",
+    summary: {
+      label: background.label,
+      source: background.url
+    },
+    background: savedBackgroundImagePayloadEntry(background)
+  }, null, 2);
+  if (await writeClipboardText(payload)) {
+    toast(`${background.label} background copied.`);
+    return true;
+  }
+  await showTextDialog({
+    title: "Saved background",
+    message: "Clipboard access is unavailable. The saved background is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function savedBackgroundImagesFromPayload(payload) {
+  if (typeof payload === "string") return [payload];
+  if (Array.isArray(payload)) return payload;
+  const parsed = importedObject(payload);
+  if (!parsed) return null;
+  if (Array.isArray(parsed.backgrounds)) return parsed.backgrounds;
+  if (Array.isArray(parsed.savedBackgroundImages)) return parsed.savedBackgroundImages;
+  if (Array.isArray(parsed.savedBackgrounds)) return parsed.savedBackgrounds;
+  if (importedObject(parsed.background)) return [parsed.background];
+  if (importedObject(parsed.savedBackground)) return [parsed.savedBackground];
+  if (typeof parsed.url === "string" || typeof parsed.value === "string" || typeof parsed.backgroundImage === "string") return [parsed];
+  return null;
+}
+
+function savedBackgroundImageImportsFromPayload(payload) {
+  const rawBackgrounds = savedBackgroundImagesFromPayload(payload);
+  if (!rawBackgrounds) return null;
+  const backgrounds = [];
+  const seenUrls = new Set();
+  for (const entry of rawBackgrounds) {
+    const normalized = normalizeSavedBackgroundImage(entry);
+    if (!normalized) continue;
+    const urlKey = normalized.url.toLowerCase();
+    if (seenUrls.has(urlKey)) continue;
+    seenUrls.add(urlKey);
+    backgrounds.push({
+      ...normalized,
+      id: createSavedBackgroundImageId(),
+      createdAt: Date.now()
+    });
+  }
+  return backgrounds.length ? backgrounds : null;
+}
+
+function applySavedBackgroundImageImports(backgrounds) {
+  if (!backgrounds) {
+    toast("Clipboard does not contain saved backgrounds.");
+    return false;
+  }
+  let savedCount = 0;
+  let skippedCount = 0;
+  for (const background of backgrounds) {
+    const exists = savedBackgroundImageExists(background.url);
+    if (!exists && savedBackgroundImagesFull()) {
+      skippedCount += 1;
+      continue;
+    }
+    if (upsertSavedBackgroundImage(background, { render: false, toast: false })) savedCount += 1;
+  }
+  if (savedCount > 0) {
+    renderSettingsInspector();
+    toast(skippedCount
+      ? `Saved ${savedCount} background${savedCount === 1 ? "" : "s"}; ${skippedCount} skipped by limit.`
+      : `${savedCount} background${savedCount === 1 ? "" : "s"} saved.`);
+    return true;
+  }
+  toast(skippedCount ? savedBackgroundImageLimitTitle() : "Saved backgrounds already match.");
+  return false;
+}
+
+async function pasteSavedBackgroundImages() {
+  const payload = await readBackgroundImageFromClipboard();
+  if (!payload) return false;
+  const raw = String(payload.value || "").trim();
+  let parsedPayload = payload.background;
+  if (!payload.pastedImage) {
+    try {
+      parsedPayload = JSON.parse(raw);
+    } catch {
+      parsedPayload = payload.background;
+    }
+  }
+  return applySavedBackgroundImageImports(savedBackgroundImageImportsFromPayload(parsedPayload));
+}
+
 async function saveCustomBackgroundImage(background, options = {}) {
   const input = typeof background === "string" ? { url: background } : background || {};
   const source = input.url || input.value || input.backgroundImage;
@@ -4320,6 +4465,8 @@ const commands = [
   { id: "settings.saveWorkspaceColor", label: "Save Current Workspace Color", shortcut: "", run: () => upsertCustomColorPalette(activeWorkspace()?.color) },
   { id: "settings.backgrounds", label: "Open Background Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "background", focusSearch: true }) },
   { id: "settings.saveBackground", label: "Save Current Background", shortcut: "", run: () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }) },
+  { id: "settings.copySavedBackgrounds", label: "Copy Saved Backgrounds", shortcut: "", run: () => copySavedBackgroundImages() },
+  { id: "settings.pasteSavedBackgrounds", label: "Paste Saved Backgrounds", shortcut: "", run: () => pasteSavedBackgroundImages() },
   { id: "settings.saveBrowserProfile", label: "Save Browser Profile", shortcut: "", run: () => saveCurrentBrowserProfile() },
   { id: "session.reset", label: "Reset Session", shortcut: "", run: () => resetSession() },
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() }
@@ -14785,7 +14932,7 @@ function savedBackgroundDisclosurePanel() {
   return settingsDisclosurePanel({
     className: "appearance-saved-background-disclosure",
     content: "saved-backgrounds",
-    searchTerms: "appearance saved backgrounds image wallpaper library apply rename delete save paste choose",
+    searchTerms: "appearance saved backgrounds image wallpaper library apply rename delete save copy paste choose clipboard json",
     title: t("appearance.savedBackgrounds"),
     body: t("appearance.savedBackgrounds.body"),
     meta: formatMessage("appearance.savedBackgroundCount", { count: state.savedBackgroundImages.length })
@@ -16615,7 +16762,7 @@ function applyBackgroundPreset(preset, options = {}) {
 function savedBackgroundImagesPanel() {
   const panel = document.createElement("div");
   panel.className = "saved-background-panel";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("saved background image wallpaper library url file apply rename delete save");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("saved background image wallpaper library url file apply rename delete save copy paste clipboard json");
 
   panel.append(activeBackgroundTargetControl());
 
@@ -16688,7 +16835,7 @@ function savedBackgroundImagesPanel() {
 
   const actions = document.createElement("div");
   actions.className = "settings-actions saved-background-actions";
-  actions.dataset.settingsSearch = normalizeSettingsQuery("saved background current choose local file wallpaper apply save");
+  actions.dataset.settingsSearch = normalizeSettingsQuery("saved background current choose local file wallpaper apply save copy paste clipboard json");
   const applyAndSave = settingsActionButton(backgroundApplyTargetSaveLabel(targetStatus.scope), applyAndSaveTypedImage, "primary", "saved background image apply save selected target url local path file wallpaper");
   const refreshTypedSaveState = () => {
     applySavedBackgroundImageSaveLimit(saveUrl, input.value, "Save the typed image to the reusable background library.");
@@ -16709,11 +16856,17 @@ function savedBackgroundImagesPanel() {
   applyUnknownBackgroundSaveLimit(pasteSave, `Paste, apply, and save an image to ${targetLabel}`);
   const chooseSave = settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "saved background image choose local file selected target wallpaper");
   applyUnknownBackgroundSaveLimit(chooseSave, `Choose, apply, and save an image to ${targetLabel}`);
+  const copyLibrary = settingsActionButton("Copy library", copySavedBackgroundImages, "", "saved background image library copy clipboard json");
+  copyLibrary.title = "Copy saved backgrounds as JSON.";
+  const pasteLibrary = settingsActionButton("Paste library", pasteSavedBackgroundImages, "", "saved background image library paste clipboard json image url path");
+  pasteLibrary.title = "Merge copied saved backgrounds into the library.";
   actions.append(
     applyAndSave,
     saveCurrent,
     pasteSave,
-    chooseSave
+    chooseSave,
+    copyLibrary,
+    pasteLibrary
   );
   addCard.append(addCopy, addRow, actions);
   panel.append(addCard);
@@ -16750,7 +16903,7 @@ function savedBackgroundImagesPanel() {
       activeAll ? "is-active-all" : "",
       activeTarget ? "is-active-target" : ""
     ].filter(Boolean).join(" ");
-    card.dataset.settingsSearch = normalizeSettingsQuery(`saved background image wallpaper scope app pane all terminals ${background.label} ${background.url}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`saved background image wallpaper scope app pane all terminals copy clipboard json ${background.label} ${background.url}`);
     const preview = document.createElement("button");
     preview.className = `saved-background-preview${activeTarget ? " is-active" : ""}`;
     preview.type = "button";
@@ -16844,6 +16997,7 @@ function showSavedBackgroundImageMenu(event, background) {
   openSource.title = backgroundImageOpenTitle(background.url, "Open this saved background source.");
   const manageActions = contextMenuActionGroup(
     openSource,
+    contextMenuButton("Copy background", () => copySavedBackgroundImage(background.id)),
     (() => {
       const action = contextMenuButton("Copy source", () => copySavedBackgroundImageSource(background), !canCopyBackgroundImageSource(background.url));
       action.title = backgroundImageCopyTitle(background.url, "Copy this saved background source.");
@@ -19158,6 +19312,8 @@ function showToolbarMenu(event) {
       toolbarAction("Copy current look", copyLookSettings, false, "Copy theme, accent, app background, and terminal colors as JSON."),
       toolbarAction("Paste look", pasteLookSettings, false, "Apply a copied cmux look JSON payload."),
       contextMenuButton("Background settings", () => openSettingsCategory("appearance", { query: "background", focusSearch: true })),
+      contextMenuButton("Copy saved backgrounds", copySavedBackgroundImages),
+      contextMenuButton("Paste saved backgrounds", pasteSavedBackgroundImages),
       (() => {
         const action = contextMenuButton("Save current background", () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }), !canSaveBackgroundImage(state.settings.backgroundImage));
         action.title = savedBackgroundImageSaveTitle(state.settings.backgroundImage, "Save the current background image.");
@@ -20298,10 +20454,37 @@ function paletteEntries() {
       run: () => applySavedColorToTarget(color, "all")
     });
   }
+  entries.push({
+    id: "savedBackground.copyLibrary",
+    label: "Copy saved backgrounds",
+    meta: `${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved backgrounds`,
+    shortcut: "Copy",
+    title: "Copy saved backgrounds as JSON.",
+    search: normalizeSettingsQuery("saved background image wallpaper library copy clipboard json reusable"),
+    run: copySavedBackgroundImages
+  });
+  entries.push({
+    id: "savedBackground.pasteLibrary",
+    label: "Paste saved backgrounds",
+    meta: "Merge copied backgrounds into saved backgrounds",
+    shortcut: "Paste",
+    title: "Merge copied saved backgrounds into the library.",
+    search: normalizeSettingsQuery("saved background image wallpaper library paste clipboard json import url file copied image reusable"),
+    run: pasteSavedBackgroundImages
+  });
   for (const background of state.savedBackgroundImages) {
     const activeApp = savedBackgroundImageActiveForTarget(background, "app", paletteWorkspace);
     const activePane = Boolean(paletteActiveTerminal && savedBackgroundImageActiveForTarget(background, "pane", paletteWorkspace));
     const activeAll = savedBackgroundImageActiveForTarget(background, "all", paletteWorkspace);
+    entries.push({
+      id: `savedBackground.copy.${background.id}`,
+      label: `Copy background: ${background.label}`,
+      meta: background.url,
+      shortcut: "Copy",
+      title: `Copy ${background.label} as saved background JSON.`,
+      search: normalizeSettingsQuery(`saved background image wallpaper library copy clipboard json ${background.label} ${background.url}`),
+      run: () => copySavedBackgroundImage(background.id)
+    });
     entries.push({
       id: `savedBackground.${background.id}`,
       label: `Background: ${background.label}`,
