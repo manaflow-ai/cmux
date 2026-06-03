@@ -1652,11 +1652,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
 
         let windows = NSApp.windows
+        let mainWindows = uiTestMainWindows()
         let ids = windows.map { $0.identifier?.rawValue ?? "" }.joined(separator: ",")
         let vis = windows.map { $0.isVisible ? "1" : "0" }.joined(separator: ",")
-        let screenIDs = windows.map { uiTestDisplayID(for: $0).map(String.init) ?? "" }.joined(separator: ",")
+        let screenIDs = mainWindows.map { uiTestDisplayID(for: $0).map(String.init) ?? "" }.joined(separator: ",")
         let keyWindowIdentifier = NSApp.keyWindow?.identifier?.rawValue ?? ""
-        let mainWindowIdentifier = NSApp.mainWindow?.identifier?.rawValue ?? ""
+        let mainWindowIdentifier = mainWindows.first?.identifier?.rawValue ?? ""
         let settingsWindow = windows.first { $0.identifier?.rawValue == "cmux.settings" }
         let targetDisplayID = env["CMUX_UI_TEST_TARGET_DISPLAY_ID"] ?? ""
 
@@ -1676,7 +1677,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         payload["uiTestTargetDisplayID"] = targetDisplayID
         if let rawDisplayID = UInt32(targetDisplayID) {
             let screenPresent = uiTestDisplayIsPresent(rawDisplayID)
-            let movedWindow = windows.contains(where: { uiTestDisplayID(for: $0) == rawDisplayID })
+            let movedWindow = mainWindows.contains(where: { uiTestDisplayID(for: $0) == rawDisplayID })
             payload["targetDisplayPresent"] = screenPresent ? "1" : "0"
             payload["targetDisplayMoveSucceeded"] = movedWindow ? "1" : "0"
         }
@@ -1700,15 +1701,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return object
     }
 
+    private func uiTestMainWindows() -> [NSWindow] {
+        mainWindowsForVisibilityController().filter(\.isVisible)
+    }
+
     private func uiTestDisplayIsPresent(_ displayID: CGDirectDisplayID) -> Bool {
-        NSScreen.screens.contains(where: { $0.cmuxDisplayID == displayID }) || CGDisplayIsOnline(displayID) != 0
+        NSScreen.screens.contains(where: { $0.cmuxDisplayID == displayID }) ||
+            Self.uiTestOnlineDisplayIDs().contains(displayID)
     }
 
     private func uiTestDisplayFrame(for displayID: CGDirectDisplayID) -> NSRect? {
         if let screen = NSScreen.screens.first(where: { $0.cmuxDisplayID == displayID }) {
             return screen.visibleFrame
         }
-        guard CGDisplayIsOnline(displayID) != 0 else {
+        guard Self.uiTestOnlineDisplayIDs().contains(displayID) else {
             return nil
         }
         return NSRectFromCGRect(CGDisplayBounds(displayID))
@@ -1719,9 +1725,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return displayID
         }
         let frame = window.frame
-        return Self.uiTestOnlineDisplayIDs().first { displayID in
-            NSRectFromCGRect(CGDisplayBounds(displayID)).intersects(frame)
+        var bestDisplayID: CGDirectDisplayID?
+        var bestOverlapArea: CGFloat = 0
+        for displayID in Self.uiTestOnlineDisplayIDs() {
+            let displayFrame = NSRectFromCGRect(CGDisplayBounds(displayID))
+            let overlapRect = frame.intersection(displayFrame)
+            let overlapWidth = Swift.max(CGFloat(0), overlapRect.width)
+            let overlapHeight = Swift.max(CGFloat(0), overlapRect.height)
+            let overlapArea = overlapWidth * overlapHeight
+            if overlapArea > bestOverlapArea {
+                bestDisplayID = displayID
+                bestOverlapArea = overlapArea
+            }
         }
+        return bestDisplayID
     }
 
     private static func uiTestOnlineDisplayIDs() -> [CGDirectDisplayID] {
@@ -1923,7 +1940,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        guard let window = NSApp.windows.first else {
+        guard let window = uiTestMainWindows().first ?? mainWindowsForVisibilityController().first else {
             if attempt < 80 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                     self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)

@@ -2343,6 +2343,7 @@ class TabManager: ObservableObject {
         sidebarMetadataSettingsDidChange()
     }
 
+#if DEBUG
     func setSidebarMetadataSettingsForTesting(
         watchGitStatus: Bool?,
         pullRequestPolling: Bool?
@@ -2351,6 +2352,7 @@ class TabManager: ObservableObject {
         sidebarPullRequestPollingEnabledOverrideForTesting = pullRequestPolling
         sidebarMetadataSettingsDidChange()
     }
+#endif
 
     func trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
         let activeProbeKeys = activeWorkspaceGitProbeKeys
