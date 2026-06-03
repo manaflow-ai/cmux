@@ -1190,7 +1190,8 @@ body.reduce-motion *::after {
 
 .workspace-title-block {
   min-width: 0;
-  flex: 0 1 380px;
+  flex: 1 1 320px;
+  max-width: min(42vw, 420px);
   display: grid;
   gap: 1px;
 }
@@ -1225,11 +1226,11 @@ body.reduce-motion *::after {
   justify-content: flex-end;
   gap: var(--space-1);
   min-width: 0;
-  max-width: none;
+  max-width: min(54vw, 640px);
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   margin-left: auto;
   padding: 0 1px;
 }
@@ -1271,13 +1272,22 @@ body.reduce-motion *::after {
 }
 
 .tool-button.add-tool {
+  --tool-accent: var(--color-accent);
   position: relative;
   gap: 7px;
   min-width: 104px;
   padding: 0 9px;
   font-weight: 720;
-  border-color: color-mix(in oklch, var(--color-accent) 36%, var(--color-line) 64%);
-  background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane) 90%);
+  border-color: color-mix(in oklch, var(--tool-accent) 36%, var(--color-line) 64%);
+  background: color-mix(in oklch, var(--tool-accent) 10%, var(--color-pane) 90%);
+}
+
+#newTerminalButton {
+  --tool-accent: var(--color-success);
+}
+
+#newBrowserButton {
+  --tool-accent: var(--color-accent);
 }
 
 .tool-add-mark {
@@ -1286,16 +1296,16 @@ body.reduce-motion *::after {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
-  border: 1px solid color-mix(in oklch, var(--color-accent) 44%, transparent);
+  border: 1px solid color-mix(in oklch, var(--tool-accent, var(--color-accent)) 44%, transparent);
   border-radius: 999px;
-  background: color-mix(in oklch, var(--color-accent) 24%, var(--color-pane) 76%);
+  background: color-mix(in oklch, var(--tool-accent, var(--color-accent)) 24%, var(--color-pane) 76%);
   color: var(--color-text);
   font: 850 11px/1 var(--font-ui);
 }
 
 .tool-button.add-tool:hover {
-  border-color: color-mix(in oklch, var(--color-accent) 52%, var(--color-line-strong) 48%);
-  background: color-mix(in oklch, var(--color-accent) 15%, var(--color-pane-active) 85%);
+  border-color: color-mix(in oklch, var(--tool-accent) 52%, var(--color-line-strong) 48%);
+  background: color-mix(in oklch, var(--tool-accent) 15%, var(--color-pane-active) 85%);
 }
 
 .tool-button.add-tool:active .tool-add-mark {
@@ -1304,6 +1314,11 @@ body.reduce-motion *::after {
 
 .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
   animation: cmux-pulse 900ms var(--ease-in-out) infinite;
+}
+
+.tool-button.add-tool.is-creating:not(:disabled) {
+  border-color: color-mix(in oklch, var(--tool-accent) 58%, var(--color-line-strong) 42%);
+  background: color-mix(in oklch, var(--tool-accent) 14%, var(--color-pane-active) 86%);
 }
 
 body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
