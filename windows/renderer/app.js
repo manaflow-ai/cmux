@@ -17249,6 +17249,7 @@ function showToolbarMenu(event) {
   const terminalActive = panel?.type === "terminal";
   const browserActive = panel?.type === "browser";
   const latestBrowserPage = state.recentBrowserPages[0] || "";
+  const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
   const terminalBackground = terminalActive ? normalizeBackgroundValue(panel.backgroundImage) : "";
   const minimizedPanes = minimizedPanelCount(workspace);
   const cleanFastActive = isSettingsPresetIdActive("simpleFast");
@@ -17262,6 +17263,12 @@ function showToolbarMenu(event) {
   const terminalRequiredTitle = "Focus or create a terminal pane first.";
   const browserRequiredTitle = "Focus or create a browser pane first.";
   const workspaceSwitchRequiredTitle = "Create another workspace before switching workspaces.";
+  const terminalUsesAppBackground = Boolean(
+    terminalActive && appBackground && panelBackgroundMatches(panel, appBackground)
+  );
+  const terminalBackgroundSaveTitle = terminalActive
+    ? savedBackgroundImageSaveTitle(panel.backgroundImage, "Save the focused terminal background image.")
+    : terminalRequiredTitle;
   const toolbarAction = (label, action, disabled, availableTitle, unavailableTitle, tone = "", options = {}) => {
     const button = contextMenuButton(label, action, disabled, tone, options);
     const titleText = disabled ? (unavailableTitle || availableTitle) : (availableTitle || unavailableTitle);
@@ -17313,6 +17320,24 @@ function showToolbarMenu(event) {
       toolbarAction("Restart terminal", restartActiveTerminal, !terminalActive, "Restart the focused terminal.", terminalRequiredTitle),
       toolbarAction("Choose terminal background", () => choosePanelBackgroundImage(panel), !terminalActive, "Choose a background for the focused terminal.", terminalRequiredTitle),
       toolbarAction("Paste terminal background", () => pastePanelBackgroundImageFromClipboard(panel), !terminalActive, "Paste an image URL, path, or copied image as the focused terminal background.", terminalRequiredTitle),
+      toolbarAction(
+        terminalUsesAppBackground ? "App background active" : "Use app background",
+        () => applyPanelBackgroundImage(appBackground, panel),
+        !terminalActive || !appBackground || terminalUsesAppBackground,
+        "Apply the app background to the focused terminal.",
+        !terminalActive
+          ? terminalRequiredTitle
+          : !appBackground
+            ? "Choose an app background first."
+            : "Focused terminal already uses the app background."
+      ),
+      toolbarAction(
+        "Save terminal background",
+        () => saveCustomBackgroundImage({ url: panel.backgroundImage }),
+        !terminalActive || !canSaveBackgroundImage(panel.backgroundImage),
+        "Save the focused terminal background image.",
+        terminalBackgroundSaveTitle
+      ),
       toolbarAction("Clear terminal background", () => applyPanelBackgroundImage("", panel), !terminalActive || !terminalBackground, "Clear the focused terminal background.", terminalActive ? "Focused terminal background is already clear." : terminalRequiredTitle),
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
       toolbarAction("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), terminalColorsDefault, "Reset background, text, and cursor colors to the cmux default.", "Terminal colors already match the cmux default.")
