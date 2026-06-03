@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh } from "../src/file-tree-refresh";
+import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh, selectPierreFileTreePath } from "../src/file-tree-refresh";
 
 describe("planPierreFileTreeRefresh", () => {
   test("appends suffix paths from the same streaming source", () => {
@@ -88,5 +88,46 @@ describe("applyPierreFileTreeGitStatus", () => {
     );
 
     expect(setStatuses).toEqual([gitStatus]);
+  });
+});
+
+describe("selectPierreFileTreePath", () => {
+  test("uses exclusive Pierre selection when supported", () => {
+    const calls: unknown[] = [];
+
+    selectPierreFileTreePath(
+      {
+        getItem: () => ({
+          select: () => calls.push("select"),
+        }),
+        scrollToPath: (path, options) => calls.push(["scroll", path, options]),
+        selectOnlyPath: (path) => calls.push(["selectOnlyPath", path]),
+      },
+      "src/App.tsx",
+    );
+
+    expect(calls).toEqual([
+      ["selectOnlyPath", "src/App.tsx"],
+      ["scroll", "src/App.tsx", { focus: false, offset: "nearest" }],
+    ]);
+  });
+
+  test("falls back to item selection for older Pierre models", () => {
+    const calls: unknown[] = [];
+
+    selectPierreFileTreePath(
+      {
+        getItem: (path) => ({
+          select: () => calls.push(["select", path]),
+        }),
+        scrollToPath: (path, options) => calls.push(["scroll", path, options]),
+      },
+      "src/App.tsx",
+    );
+
+    expect(calls).toEqual([
+      ["select", "src/App.tsx"],
+      ["scroll", "src/App.tsx", { focus: false, offset: "nearest" }],
+    ]);
   });
 });

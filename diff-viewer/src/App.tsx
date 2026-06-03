@@ -6,7 +6,7 @@ import { useEffect, useReducer, useRef } from "react";
 import { copyGitApplyCommand, diffSourceDetail, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
 import { fileName, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
-import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh } from "./file-tree-refresh";
+import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh, selectPierreFileTreePath } from "./file-tree-refresh";
 import { Icon, type IconName } from "./icons";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 import {
@@ -805,11 +805,7 @@ function usePierreFileTreeSearch(model: ReturnType<typeof useFileTree>["model"],
 
 function usePierreFileTreeSelection(model: ReturnType<typeof useFileTree>["model"], selectedPath: string): void {
   useEffect(() => {
-    if (!selectedPath) {
-      return;
-    }
-    model.getItem(selectedPath)?.select();
-    model.scrollToPath(selectedPath, { focus: false, offset: "nearest" });
+    selectPierreFileTreePath(model, selectedPath);
   }, [model, selectedPath]);
 }
 

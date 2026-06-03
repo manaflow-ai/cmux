@@ -24,6 +24,12 @@ export type PierreFileTreeGitStatusModel = {
   setGitStatus: (gitStatus: readonly unknown[]) => void;
 };
 
+export type PierreFileTreeSelectionModel = {
+  getItem?: (path: string) => { select: () => void } | null;
+  scrollToPath: (path: string, options: { focus: boolean; offset: "nearest" }) => void;
+  selectOnlyPath?: (path: string) => void;
+};
+
 export function planPierreFileTreeRefresh(
   previousSource: FileTreeRefreshSource | null | undefined,
   source: FileTreeRefreshSource,
@@ -59,6 +65,18 @@ export function applyPierreFileTreeGitStatus(
   if (resetTree || source.statsChanged === true || source.gitStatusPatch) {
     model.setGitStatus(source.gitStatus);
   }
+}
+
+export function selectPierreFileTreePath(model: PierreFileTreeSelectionModel, selectedPath: string): void {
+  if (!selectedPath) {
+    return;
+  }
+  if (typeof model.selectOnlyPath === "function") {
+    model.selectOnlyPath(selectedPath);
+  } else {
+    model.getItem?.(selectedPath)?.select();
+  }
+  model.scrollToPath(selectedPath, { focus: false, offset: "nearest" });
 }
 
 function isPathPrefix(previousSource: FileTreeRefreshSource, nextSource: FileTreeRefreshSource): boolean {
