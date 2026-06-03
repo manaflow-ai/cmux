@@ -1329,7 +1329,7 @@ class TabManager: ObservableObject {
     private var shouldRecordFocusHistory: Bool {
         focusHistoryRecordingSuppressionDepth == 0
     }
-    private let maxHistorySize = 50
+    private let focusHistoryStore = FocusHistoryStore.shared
     private var selectionSideEffectsGeneration: UInt64 = 0
     private var workspaceCycleGeneration: UInt64 = 0
     private var workspaceCycleCooldownTask: Task<Void, Never>?
@@ -1374,6 +1374,7 @@ class TabManager: ObservableObject {
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: autoWelcomeIfNeeded
         )
+        loadPersistedFocusHistory()
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -8715,12 +8716,9 @@ class TabManager: ObservableObject {
                 }
 
                 focusHistory.insert(FocusHistoryRecord(entry: entry), at: insertionIndex)
-                let overflow = max(0, focusHistory.count - maxHistorySize)
-                if overflow > 0 {
-                    focusHistory.removeFirst(overflow)
-                }
-                historyIndex = max(-1, insertionIndex - overflow)
+                historyIndex = insertionIndex
                 focusHistoryRevision &+= 1
+                syncFocusHistoryToStore()
                 return
             } else {
                 focusHistory = Array(focusHistory.prefix(historyIndex + 1))
@@ -8737,12 +8735,9 @@ class TabManager: ObservableObject {
         }
 
         focusHistory.append(FocusHistoryRecord(entry: entry))
-        if focusHistory.count > maxHistorySize {
-            focusHistory.removeFirst(focusHistory.count - maxHistorySize)
-        }
-
         historyIndex = focusHistory.count - 1
         focusHistoryRevision &+= 1
+        syncFocusHistoryToStore()
     }
 
     private func recordFocusInHistory(
@@ -8768,6 +8763,7 @@ class TabManager: ObservableObject {
             if focusHistory[historyIndex].entry != entry {
                 focusHistory[historyIndex] = FocusHistoryRecord(entry: entry)
                 focusHistoryRevision &+= 1
+                syncFocusHistoryToStore()
             }
             return
         }
@@ -8781,6 +8777,7 @@ class TabManager: ObservableObject {
                 return
             }
             focusHistoryRevision &+= 1
+            syncFocusHistoryToStore()
             return
         }
 
@@ -8802,6 +8799,18 @@ class TabManager: ObservableObject {
             historyIndex = min(max(-1, historyIndex), focusHistory.count - 1)
         }
         focusHistoryRevision &+= 1
+        syncFocusHistoryToStore()
+    }
+
+    private func syncFocusHistoryToStore() {
+        focusHistoryStore.replaceAll(focusHistory)
+    }
+
+    private func loadPersistedFocusHistory() {
+        let persisted = focusHistoryStore.allRecords
+        guard !persisted.isEmpty else { return }
+        focusHistory = persisted
+        historyIndex = persisted.count - 1
     }
 
     private func panelIdForFocusHistorySurface(_ surfaceId: UUID, workspaceId: UUID) -> UUID {
@@ -8980,6 +8989,7 @@ class TabManager: ObservableObject {
 
         let currentEntry = currentFocusHistoryEntry
         var targetIndex = historyIndex - 1
+        var didMutate = false
         while targetIndex >= 0 {
             let entry = focusHistory[targetIndex].entry
             guard focusHistoryWorkspace(for: entry) != nil else {
@@ -8987,6 +8997,7 @@ class TabManager: ObservableObject {
                 historyIndex -= 1
                 targetIndex -= 1
                 focusHistoryRevision &+= 1
+                didMutate = true
                 continue
             }
             if focusHistoryEntryResolvesToCurrent(entry, currentEntry: currentEntry) {
@@ -8994,13 +9005,16 @@ class TabManager: ObservableObject {
                 continue
             }
             if navigateToFocusHistoryEntry(entry, targetIndex: targetIndex) {
+                if didMutate { syncFocusHistoryToStore() }
                 return true
             }
             focusHistory.remove(at: targetIndex)
             historyIndex -= 1
             targetIndex -= 1
             focusHistoryRevision &+= 1
+            didMutate = true
         }
+        if didMutate { syncFocusHistoryToStore() }
         return false
     }
 
@@ -9010,11 +9024,13 @@ class TabManager: ObservableObject {
 
         let currentEntry = currentFocusHistoryEntry
         var targetIndex = historyIndex + 1
+        var didMutate = false
         while targetIndex < focusHistory.count {
             let entry = focusHistory[targetIndex].entry
             guard focusHistoryWorkspace(for: entry) != nil else {
                 focusHistory.remove(at: targetIndex)
                 focusHistoryRevision &+= 1
+                didMutate = true
                 continue
             }
             if focusHistoryEntryResolvesToCurrent(entry, currentEntry: currentEntry) {
@@ -9022,11 +9038,14 @@ class TabManager: ObservableObject {
                 continue
             }
             if navigateToFocusHistoryEntry(entry, targetIndex: targetIndex) {
+                if didMutate { syncFocusHistoryToStore() }
                 return true
             }
             focusHistory.remove(at: targetIndex)
             focusHistoryRevision &+= 1
+            didMutate = true
         }
+        if didMutate { syncFocusHistoryToStore() }
         return false
     }
 
@@ -11259,6 +11278,7 @@ extension TabManager {
         lastFocusedPanelByTab.removeAll()
         pendingPanelTitleUpdates.removeAll()
         focusHistory.removeAll()
+        focusHistoryStore.removeAll()
         historyIndex = -1
         focusHistoryRecordingSuppressionDepth = 0
         focusHistorySuppressedSelectionSideEffectGenerations.removeAll()

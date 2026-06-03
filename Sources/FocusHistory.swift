@@ -1,11 +1,11 @@
 import Foundation
 
-struct FocusHistoryEntry: Equatable {
+struct FocusHistoryEntry: Equatable, Codable, Sendable {
     let workspaceId: UUID
     let panelId: UUID?
 }
 
-struct FocusHistoryRecord: Equatable {
+struct FocusHistoryRecord: Equatable, Codable, Sendable {
     let entry: FocusHistoryEntry
     var focusedAt: Date
 
