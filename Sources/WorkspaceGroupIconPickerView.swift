@@ -13,11 +13,19 @@ struct WorkspaceGroupIconPickerView: View {
     init(currentSymbol: String?, onSelect: @escaping (String?) -> Void) {
         self.currentSymbol = currentSymbol
         self.onSelect = onSelect
-        _searchText = State(initialValue: RenderableSystemSymbol.normalizedEmoji(currentSymbol ?? "") ?? "")
+        _searchText = State(initialValue: "")
     }
 
     private var selectedIcon: String? {
         RenderableSystemSymbol.normalizedWorkspaceGroupIcon(currentSymbol)
+    }
+
+    private var currentIcon: RenderableWorkspaceGroupIcon? {
+        guard let selectedIcon else { return nil }
+        if let emoji = RenderableSystemSymbol.normalizedEmoji(selectedIcon) {
+            return .emoji(emoji)
+        }
+        return .systemSymbol(selectedIcon)
     }
 
     private var typedEmoji: String? {
@@ -51,16 +59,33 @@ struct WorkspaceGroupIconPickerView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    if let typedEmoji {
+                    if let selectedIcon,
+                       let currentIcon {
                         WorkspaceGroupIconPickerSectionTitle(
                             title: String(localized: "workspaceGroup.icon.section.current", defaultValue: "Current")
                         )
-                        WorkspaceGroupEmojiPickerButton(
-                            emoji: typedEmoji,
-                            isSelected: selectedIcon == typedEmoji
-                        ) {
-                            onSelect(typedEmoji)
+                        Button {
+                            onSelect(selectedIcon)
+                        } label: {
+                            HStack(spacing: 8) {
+                                WorkspaceGroupIconPreview(icon: currentIcon)
+                                    .frame(width: 22, height: 22)
+                                Text(selectedIcon)
+                                    .font(.system(size: 12))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 8)
+                            .frame(height: 32)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(Color.accentColor.opacity(0.16))
+                        )
+                        .help(selectedIcon)
                     }
 
                     if let typedSystemSymbol {
