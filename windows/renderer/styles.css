@@ -6601,6 +6601,22 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   gap: var(--space-2);
 }
 
+.browser-home-preset-card {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.browser-home-preset-card .browser-home-preset {
+  width: 100%;
+}
+
+.browser-home-preset-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
 .browser-home-preset {
   min-width: 0;
   min-height: 74px;

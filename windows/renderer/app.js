@@ -13551,6 +13551,31 @@ function isActiveBrowserHomePreset(preset) {
   return browserHomeKey(preset.url) === browserHomeKey(state.settings.browserHomeUrl);
 }
 
+function browserHomePresetById(presetId) {
+  return browserHomePresets.find((candidate) => candidate.id === presetId) || null;
+}
+
+function browserHomePresetProfileSettings(preset) {
+  if (!preset) return null;
+  return normalizeSettings({
+    ...state.settings,
+    browserHomeUrl: preset.url
+  });
+}
+
+function savedSettingsProfileForBrowserHomePreset(preset) {
+  const settings = browserHomePresetProfileSettings(preset);
+  if (!settings) return null;
+  return state.savedSettingsProfiles.find((profile) => settingsProfileMatchesSettings(profile, settings)) || null;
+}
+
+function browserHomePresetProfileSaveTitle(preset, savedProfile = savedSettingsProfileForBrowserHomePreset(preset)) {
+  if (!preset) return "Choose a browser home preset first.";
+  if (savedProfile) return `${savedProfile.label} already saves ${preset.label}.`;
+  if (savedSettingsProfilesFull()) return settingsProfileLimitTitle();
+  return "Save this browser home preset as a reusable profile.";
+}
+
 function browserHomePresetTitle(preset, active) {
   return active ? `${preset.label} is already the browser home.` : preset.url;
 }
@@ -13558,9 +13583,13 @@ function browserHomePresetTitle(preset, active) {
 function browserHomePresetGrid() {
   const grid = document.createElement("div");
   grid.className = "browser-home-preset-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("browser home preset quick start google github localhost vite web url");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("browser home preset quick start google github localhost vite web url save profile copy");
   for (const preset of browserHomePresets) {
     const active = isActiveBrowserHomePreset(preset);
+    const savedProfile = savedSettingsProfileForBrowserHomePreset(preset);
+    const card = document.createElement("div");
+    card.className = "browser-home-preset-card";
+    card.dataset.settingsSearch = normalizeSettingsQuery(`browser home preset save profile copy ${active ? "active current " : ""}${savedProfile ? "saved " : ""}${preset.label} ${preset.body} ${preset.url}`);
     const button = document.createElement("button");
     button.className = `browser-home-preset${active ? " is-active" : ""}`;
     button.type = "button";
@@ -13584,7 +13613,21 @@ function browserHomePresetGrid() {
     button.onclick = () => {
       if (!isActiveBrowserHomePreset(preset)) applyBrowserHomePreset(preset);
     };
-    grid.append(button);
+    const actions = document.createElement("div");
+    actions.className = "browser-home-preset-actions";
+    const save = settingsActionButton(
+      savedProfile ? "Saved" : "Save",
+      () => saveBrowserHomePresetProfile(preset.id),
+      savedProfile ? "primary" : "",
+      `browser home preset save profile reusable ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${preset.url}`
+    );
+    save.disabled = Boolean(savedProfile) || savedSettingsProfilesFull();
+    save.title = browserHomePresetProfileSaveTitle(preset, savedProfile);
+    const copy = settingsActionButton("Copy", () => copyBrowserHomePresetProfile(preset.id), "", `browser home preset copy settings profile clipboard json ${preset.label} ${preset.body} ${preset.url}`);
+    copy.title = "Copy this browser home preset as a Settings profile JSON.";
+    actions.append(save, copy);
+    card.append(button, actions);
+    grid.append(card);
   }
   return grid;
 }
@@ -20146,6 +20189,46 @@ function saveBrowserProfileForHome(url = state.recentBrowserPages[0]) {
   });
 }
 
+function saveBrowserHomePresetProfile(presetId) {
+  const preset = browserHomePresetById(presetId);
+  if (!preset) {
+    toast("Browser home preset not found.");
+    return null;
+  }
+  const existing = savedSettingsProfileForBrowserHomePreset(preset);
+  if (existing) {
+    toast(`${existing.label} profile already saves ${preset.label}.`);
+    return existing;
+  }
+  if (savedSettingsProfilesFull()) {
+    toast(settingsProfileLimitTitle());
+    return null;
+  }
+  const saved = upsertSavedSettingsProfile({
+    id: createSettingsProfileId(),
+    label: defaultSettingsProfileName(`Browser: ${preset.label}`),
+    settings: browserHomePresetProfileSettings(preset),
+    createdAt: Date.now()
+  });
+  if (!saved) return null;
+  renderSettingsInspector();
+  toast(`${saved.label} profile saved.`);
+  return saved;
+}
+
+function copyBrowserHomePresetProfile(presetId) {
+  const preset = browserHomePresetById(presetId);
+  if (!preset) {
+    toast("Browser home preset not found.");
+    return false;
+  }
+  return copySettingsProfilePayload({
+    label: `Browser: ${preset.label}`,
+    settings: browserHomePresetProfileSettings(preset),
+    createdAt: Date.now()
+  }, `${preset.label} browser profile copied.`);
+}
+
 function saveCurrentPerformanceProfile() {
   return saveCurrentSettingsProfile({
     title: "Save performance profile",
@@ -22584,6 +22667,7 @@ function paletteEntries() {
   }
   for (const preset of browserHomePresets) {
     const active = isActiveBrowserHomePreset(preset);
+    const savedProfile = savedSettingsProfileForBrowserHomePreset(preset);
     entries.push({
       id: `browserHomePreset.${preset.id}`,
       label: `Browser home: ${preset.label}`,
@@ -22594,6 +22678,25 @@ function paletteEntries() {
       title: active ? `${preset.label} is already the browser home.` : `Use ${preset.label} as the browser home.`,
       search: normalizeSettingsQuery(`browser home preset start page homepage apply active ${preset.label} ${preset.body} ${preset.url}`),
       run: () => applyBrowserHomePreset(preset)
+    });
+    entries.push({
+      id: `browserHomePreset.save.${preset.id}`,
+      label: `Save browser profile: ${preset.label}`,
+      meta: savedProfile ? `Already saved / ${savedProfile.label}` : savedSettingsProfileCountLabel(),
+      shortcut: savedProfile ? "Saved" : "Save",
+      disabled: Boolean(savedProfile) || savedSettingsProfilesFull(),
+      title: browserHomePresetProfileSaveTitle(preset, savedProfile),
+      search: normalizeSettingsQuery(`browser home preset start page homepage save profile reusable ${savedProfile ? "saved active current " : ""}${preset.label} ${preset.body} ${preset.url}`),
+      run: () => saveBrowserHomePresetProfile(preset.id)
+    });
+    entries.push({
+      id: `browserHomePreset.copy.${preset.id}`,
+      label: `Copy browser profile: ${preset.label}`,
+      meta: preset.url,
+      shortcut: "Copy",
+      title: "Copy this browser home preset as a Settings profile JSON.",
+      search: normalizeSettingsQuery(`browser home preset start page homepage copy profile clipboard json ${preset.label} ${preset.body} ${preset.url}`),
+      run: () => copyBrowserHomePresetProfile(preset.id)
     });
   }
   const paletteActivePane = activePaneForColorTarget();
