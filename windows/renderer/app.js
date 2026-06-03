@@ -15550,10 +15550,19 @@ function showSavedBackgroundImageMenu(event, background) {
   const activeApp = savedBackgroundImageActiveForTarget(background, "app", workspace);
   const activePane = savedBackgroundImageActiveForTarget(background, "pane", workspace);
   const activeAll = savedBackgroundImageActiveForTarget(background, "all", workspace);
+  const appTargetOption = backgroundApplyTargetOption("app", workspace);
+  const paneTargetOption = backgroundApplyTargetOption("pane", workspace);
+  const allTargetOption = backgroundApplyTargetOption("all", workspace);
+  const applyApp = contextMenuButton(activeApp ? "App active" : "Apply to app", () => applySavedBackgroundImage(background.id), activeApp);
+  applyApp.title = savedBackgroundImageApplyTitle(background, appTargetOption, activeApp);
+  const applyPane = contextMenuButton(activePane ? "Terminal active" : "Apply to active terminal", () => applySavedBackgroundImageToPanel(background.id), !activeTerminal || activePane);
+  applyPane.title = savedBackgroundImageApplyTitle(background, paneTargetOption, activePane);
+  const applyAll = contextMenuButton(activeAll ? "All terminals active" : "Apply to all terminals", () => applySavedBackgroundImageToWorkspaceTerminals(background.id), !hasTerminalPanes || activeAll);
+  applyAll.title = savedBackgroundImageApplyTitle(background, allTargetOption, activeAll);
   const applyActions = contextMenuActionGroup(
-    contextMenuButton(activeApp ? "App active" : "Apply to app", () => applySavedBackgroundImage(background.id), activeApp),
-    contextMenuButton(activePane ? "Terminal active" : "Apply to active terminal", () => applySavedBackgroundImageToPanel(background.id), !activeTerminal || activePane),
-    contextMenuButton(activeAll ? "All terminals active" : "Apply to all terminals", () => applySavedBackgroundImageToWorkspaceTerminals(background.id), !hasTerminalPanes || activeAll)
+    applyApp,
+    applyPane,
+    applyAll
   );
   const openSource = contextMenuButton(
     "Open source",
@@ -15563,7 +15572,11 @@ function showSavedBackgroundImageMenu(event, background) {
   openSource.title = backgroundImageOpenTitle(background.url, "Open this saved background source.");
   const manageActions = contextMenuActionGroup(
     openSource,
-    contextMenuButton("Copy source", () => copySavedBackgroundImageSource(background)),
+    (() => {
+      const action = contextMenuButton("Copy source", () => copySavedBackgroundImageSource(background), !canCopyBackgroundImageSource(background.url));
+      action.title = backgroundImageCopyTitle(background.url, "Copy this saved background source.");
+      return action;
+    })(),
     contextMenuButton("Rename", () => renameSavedBackgroundImage(background.id)),
     contextMenuButton("Delete", () => deleteSavedBackgroundImage(background.id), false, "danger")
   );

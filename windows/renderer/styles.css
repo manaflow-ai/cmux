@@ -10450,7 +10450,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .background-action-group {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(92px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(76px, 100%), 1fr));
   gap: var(--space-1);
   align-items: center;
   padding: var(--space-2);
@@ -10473,6 +10473,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .background-action-group .settings-action {
+  width: 100%;
   height: 30px;
   min-width: 0;
   padding-inline: var(--space-1);
