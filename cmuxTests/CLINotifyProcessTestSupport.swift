@@ -1,5 +1,18 @@
 import XCTest
 import Darwin
+import Foundation
+
+func bundledCLINotFoundError(appBundleURL: URL, file: StaticString = #filePath, line: UInt = #line) -> Error {
+    let message = "Bundled cmux CLI not found in \(appBundleURL.path)"
+    let environment = ProcessInfo.processInfo.environment
+    if environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true" {
+        XCTFail(message, file: file, line: line)
+        return NSError(domain: "cmux.tests", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: message,
+        ])
+    }
+    return XCTSkip(message)
+}
 
 extension CLINotifyProcessIntegrationRegressionTests {
     struct ProcessRunResult {
@@ -53,7 +66,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return item.path
         }
 
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        throw bundledCLINotFoundError(appBundleURL: appBundleURL)
     }
 
     func makeSocketPath(_ name: String) -> String {

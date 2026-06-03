@@ -73,7 +73,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
             guard item.lastPathComponent == "cmux", item.path.contains(".app/Contents/Resources/bin/cmux") else { continue }
             return item.path
         }
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        throw bundledCLINotFoundError(appBundleURL: appBundleURL)
     }
 
     private func runProcess(
