@@ -7765,6 +7765,8 @@ function renderBrowserTabs(session) {
   if (!session.tabButtons) session.tabButtons = new Map();
   const tabLabels = browserTabLabels(session);
   const signature = browserTabsSignature(session, tabLabels);
+  const layoutSignature = browserTabsLayoutSignature(session, tabLabels);
+  const layoutChanged = layoutSignature !== session.tabLayoutSignature;
   if (
     signature === session.tabSignature
     && session.tabButtons.size === session.tabs.length
@@ -7772,8 +7774,8 @@ function renderBrowserTabs(session) {
     && session.tabNew
   ) {
     updateBrowserTabNewButton(session);
-    scheduleActiveBrowserTabIntoView(session);
-    scheduleBrowserTabOverflowRefresh(session);
+    session.tabLayoutSignature = layoutSignature;
+    scheduleActiveBrowserTabIntoView(session, { refreshOverflow: layoutChanged || !session.tabOverflowSignature });
     return;
   }
   const validTabIds = new Set(session.tabs.map((tab) => tab.id));
@@ -7794,13 +7796,25 @@ function renderBrowserTabs(session) {
   replaceChildrenIfChanged(session.tabList, nodes);
   updateBrowserTabNewButton(session);
   session.tabSignature = signature;
-  scheduleActiveBrowserTabIntoView(session);
-  scheduleBrowserTabOverflowRefresh(session);
+  session.tabLayoutSignature = layoutSignature;
+  scheduleActiveBrowserTabIntoView(session, { refreshOverflow: layoutChanged || !session.tabOverflowSignature });
 }
 
 function browserTabsSignature(session, tabLabels = browserTabLabels(session)) {
   const parts = [];
   appendSignatureValue(parts, session?.activeTabId || "");
+  appendSignatureValue(parts, browserTabAtLimit(session));
+  appendSignatureArray(parts, session?.tabs || [], (nextParts, tab) => {
+    appendSignatureValue(nextParts, tab.id);
+    appendSignatureValue(nextParts, tab.url || "");
+    appendSignatureValue(nextParts, tab.title || "");
+    appendSignatureValue(nextParts, tabLabels.get(tab.id) || browserTabBaseLabel(tab));
+  });
+  return parts.join("");
+}
+
+function browserTabsLayoutSignature(session, tabLabels = browserTabLabels(session)) {
+  const parts = [];
   appendSignatureValue(parts, browserTabAtLimit(session));
   appendSignatureArray(parts, session?.tabs || [], (nextParts, tab) => {
     appendSignatureValue(nextParts, tab.id);
@@ -7885,13 +7899,17 @@ function updateBrowserTabOverflow(session) {
   session.tabOverflowSignature = tabOverflowStateSignature(tabList, tabCount);
 }
 
-function scheduleActiveBrowserTabIntoView(session) {
+function scheduleActiveBrowserTabIntoView(session, options = {}) {
   if (!session?.tabList || !session.activeTabId) return;
   if (session.tabScrollFrame) return;
+  const refreshOverflow = options.refreshOverflow !== false;
   session.tabScrollFrame = requestAnimationFrame(() => {
     session.tabScrollFrame = 0;
     const activeButton = session.tabButtons?.get(session.activeTabId);
-    if (!activeButton) return;
+    if (!activeButton) {
+      if (refreshOverflow) scheduleBrowserTabOverflowRefresh(session);
+      return;
+    }
     const inset = 8;
     const minLeft = activeButton.offsetLeft - inset;
     const maxRight = activeButton.offsetLeft + activeButton.offsetWidth - session.tabList.clientWidth + inset;
@@ -7906,7 +7924,8 @@ function scheduleActiveBrowserTabIntoView(session) {
     if (Math.abs(nextLeft - session.tabList.scrollLeft) >= 1) {
       session.tabList.scrollTo({ left: nextLeft, behavior: "auto" });
     }
-    scheduleBrowserTabOverflowRefresh(session);
+    if (refreshOverflow) scheduleBrowserTabOverflowRefresh(session);
+    else scheduleBrowserTabScrollStateRefresh(session);
   });
 }
 
@@ -8786,6 +8805,7 @@ function ensureBrowser(panel, body) {
     activeTabId: tabSnapshot.activeTabId,
     tabButtons: new Map(),
     tabSignature: "",
+    tabLayoutSignature: "",
     tabOverflowSignature: "",
     tabScrollStateFrame: 0,
     tabDropTargetId: "",
