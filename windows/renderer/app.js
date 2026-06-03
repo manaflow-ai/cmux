@@ -3109,7 +3109,7 @@ function adjustActivePaneLayoutPercent(delta) {
     activePaneLayoutPercent(workspace) + Number(delta || 0),
     { save: true, toast: true }
   );
-  refreshLayoutSettings();
+  scheduleLayoutSettingsRefresh({ ifChanged: true });
   return nextPercent;
 }
 
@@ -5773,8 +5773,8 @@ function setPaneSplitterPercent(splitter, percent, options = {}) {
   applyVisiblePaneSplitRatio(splitId, nextPercent / 100);
   scheduleRender();
   scheduleWorkspaceTerminalFits(workspace.id, true);
+  scheduleLayoutSettingsRefresh({ ifChanged: true });
   if (options.toast) {
-    refreshLayoutSettings();
     toast(`${splitter.dataset.resizeLabel || `${nextPercent}% / ${100 - nextPercent}%`}.`);
   }
   return true;
@@ -6045,7 +6045,7 @@ function finishPaneResize(event) {
   }
   state.resizing = null;
   flushPendingRender();
-  refreshLayoutSettings();
+  scheduleLayoutSettingsRefresh({ ifChanged: true });
   requestAnimationFrame(() => {
     if (splitId) {
       applyVisiblePaneSplitRatio(splitId, persistedSplitRatio);
@@ -9688,6 +9688,10 @@ function refreshLayoutSettings(options = {}) {
   if (shouldRefreshLayoutSettings()) renderSettingsInspector(options);
 }
 
+function scheduleLayoutSettingsRefresh(options = {}) {
+  if (shouldRefreshLayoutSettings()) scheduleSettingsInspectorRender(options);
+}
+
 function unmountSettingsChrome() {
   const reactSettings = window.CmuxSettingsUi;
   if (!reactSettings?.unmountSettingsShell) return;
@@ -12968,7 +12972,7 @@ function paneShapePanel(workspace = activeWorkspace()) {
     }
   };
   const quick = wrapper.querySelector(".pane-shape-quick");
-  quickButtons = [10, 25, 50, 75, 90].map((quickPercent) => {
+  quickButtons = [10, 25, 33, 50, 67, 75, 90].map((quickPercent) => {
     const button = document.createElement("button");
     button.className = "pane-shape-quick-button";
     button.type = "button";
