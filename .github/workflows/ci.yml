@@ -1329,6 +1329,7 @@ jobs:
             # Run test — app is already launched from shell. Start display churn
             # when the test case begins, without requiring the sandboxed XCTest
             # process to write outside its container.
+            XCODE_OUTPUT="$(mktemp /tmp/cmux-display-xcodebuild.XXXXXX.log)"
             set +e
             xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
@@ -1336,7 +1337,7 @@ jobs:
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
-              test-without-building 2>&1 | while IFS= read -r line; do
+              test-without-building 2>&1 | tee "$XCODE_OUTPUT" | while IFS= read -r line; do
                 printf '%s\n' "$line"
                 if [[ "$line" == *"Test Case '-[cmuxUITests.DisplayResolutionRegressionUITests testRapidDisplayResolutionChangesKeepTerminalResponsive]' started."* ]] && [ ! -f "$DISPLAY_START" ]; then
                   printf 'start\n' > "$DISPLAY_START"
@@ -1346,7 +1347,10 @@ jobs:
             xcode_status=${PIPESTATUS[0]}
             set -e
             if [ "$xcode_status" -eq 0 ]; then
-              exit 0
+              if grep -Eq 'Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$XCODE_OUTPUT"; then
+                exit 0
+              fi
+              echo "Display resolution UI regression completed without executing any tests" >&2
             fi
 
             stop_pid "$APP_PID" "cmux DEV"
