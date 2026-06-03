@@ -11417,6 +11417,10 @@ function isActiveBrowserHomePreset(preset) {
   return browserHomeKey(preset.url) === browserHomeKey(state.settings.browserHomeUrl);
 }
 
+function browserHomePresetTitle(preset, active) {
+  return active ? `${preset.label} is already the browser home.` : preset.url;
+}
+
 function browserHomePresetGrid() {
   const grid = document.createElement("div");
   grid.className = "browser-home-preset-grid";
@@ -11426,7 +11430,8 @@ function browserHomePresetGrid() {
     const button = document.createElement("button");
     button.className = `browser-home-preset${active ? " is-active" : ""}`;
     button.type = "button";
-    button.title = preset.url;
+    button.disabled = active;
+    button.title = browserHomePresetTitle(preset, active);
     button.dataset.browserHomePreset = preset.id;
     button.dataset.settingsSearch = normalizeSettingsQuery(`browser home preset ${active ? "active current " : ""}${preset.label} ${preset.body} ${preset.url}`);
     button.setAttribute("aria-pressed", active ? "true" : "false");
@@ -11442,7 +11447,9 @@ function browserHomePresetGrid() {
     button.querySelector(".browser-home-preset-status").textContent = active ? "Active" : "";
     button.querySelector(".browser-home-preset-body").textContent = preset.body;
     button.querySelector(".browser-home-preset-url").textContent = preset.url;
-    button.onclick = () => applyBrowserHomePreset(preset);
+    button.onclick = () => {
+      if (!isActiveBrowserHomePreset(preset)) applyBrowserHomePreset(preset);
+    };
     grid.append(button);
   }
   return grid;
@@ -11500,10 +11507,12 @@ function refreshBrowserSettingsPreview() {
     const preset = browserHomePresets.find((candidate) => candidate.id === button.dataset.browserHomePreset);
     const active = Boolean(preset && isActiveBrowserHomePreset(preset));
     button.classList.toggle("is-active", active);
+    setDisabledIfChanged(button, active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
     const status = button.querySelector(".browser-home-preset-status");
     if (status) setTextIfChanged(status, active ? "Active" : "");
     if (preset) {
+      setTitleIfChanged(button, browserHomePresetTitle(preset, active));
       const search = normalizeSettingsQuery(`browser home preset ${active ? "active current " : ""}${preset.label} ${preset.body} ${preset.url}`);
       if (button.dataset.settingsSearch !== search) {
         button.dataset.settingsSearch = search;

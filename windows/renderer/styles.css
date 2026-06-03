@@ -6615,9 +6615,13 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   text-align: left;
 }
 
-.browser-home-preset:hover {
+.browser-home-preset:hover:not(:disabled) {
   border-color: var(--color-line-strong);
   background: var(--color-pane-warm);
+}
+
+.browser-home-preset:disabled {
+  cursor: default;
 }
 
 .browser-home-preset.is-active {
