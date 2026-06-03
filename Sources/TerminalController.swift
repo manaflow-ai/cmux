@@ -6997,7 +6997,10 @@ class TerminalController {
                 localSocketPath: localSocketPath,
                 terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
                 foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
-                agentSocketPath: agentSocketPath?.isEmpty == true ? nil : agentSocketPath,
+                agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
+                    sshOptions: sshOptions,
+                    explicitAgentSocketPath: agentSocketPath
+                ),
                 daemonWebSocketEndpoint: daemonWebSocketEndpoint,
                 preserveAfterTerminalExit: preserveAfterTerminalExit,
                 persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,

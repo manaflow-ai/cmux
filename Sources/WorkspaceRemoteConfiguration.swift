@@ -55,6 +55,13 @@ private enum WorkspaceRemoteSSHOptionFilter {
         return normalizedOptional((trimmed as NSString).expandingTildeInPath) ?? trimmed
     }
 
+    /// Normalizes an SSH agent socket path and expands `~` so environment injection receives a usable path.
+    static func normalizedAgentSocketPath(_ value: String?) -> String? {
+        guard let trimmed = normalizedOptional(value) else { return nil }
+        guard trimmed.hasPrefix("~") else { return trimmed }
+        return normalizedOptional((trimmed as NSString).expandingTildeInPath) ?? trimmed
+    }
+
     static func hasOptionKey(_ options: [String], key: String) -> Bool {
         let loweredKey = key.lowercased()
         return options.contains { option in
@@ -75,16 +82,16 @@ private enum WorkspaceRemoteSSHOptionFilter {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("$") {
             let variableName = String(trimmed.dropFirst())
-            return normalizedOptional(ProcessInfo.processInfo.environment[variableName])
+            return normalizedAgentSocketPath(ProcessInfo.processInfo.environment[variableName])
         }
         if isSSHYesValue(trimmed) {
-            return normalizedOptional(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"])
+            return normalizedAgentSocketPath(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"])
         }
         guard !isSSHNoValue(trimmed),
               isPathLikeSSHAgentSocketValue(trimmed) else {
             return nil
         }
-        return normalizedOptional(trimmed)
+        return normalizedAgentSocketPath(trimmed)
     }
 
     /// Reads the first non-empty value for an OpenSSH-style `-o key=value` or `-o key value` option.
@@ -448,13 +455,19 @@ struct WorkspaceRemoteConfiguration: Equatable {
         self.localSocketPath = localSocketPath
         self.terminalStartupCommand = terminalStartupCommand
         self.foregroundAuthToken = foregroundAuthToken
-        self.agentSocketPath = WorkspaceRemoteSSHOptionFilter.normalizedOptional(agentSocketPath)
+        self.agentSocketPath = WorkspaceRemoteSSHOptionFilter.normalizedAgentSocketPath(agentSocketPath)
         self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
         self.preserveAfterTerminalExit = preserveAfterTerminalExit
         self.persistentDaemonSlot = preserveAfterTerminalExit
             ? WorkspaceRemoteSSHOptionFilter.normalizedPersistentDaemonSlot(persistentDaemonSlot)
             : nil
         self.skipDaemonBootstrap = skipDaemonBootstrap
+    }
+
+    /// Resolves the SSH agent socket to use for a remote configuration from an explicit socket or durable options.
+    static func resolvedAgentSocketPath(sshOptions: [String], explicitAgentSocketPath: String? = nil) -> String? {
+        WorkspaceRemoteSSHOptionFilter.normalizedAgentSocketPath(explicitAgentSocketPath)
+            ?? WorkspaceRemoteSSHOptionFilter.sshAgentSocketPath(for: sshOptions)
     }
 
     var displayTarget: String {
@@ -598,7 +611,10 @@ extension SessionRemoteWorkspaceSnapshot {
                     sshOptions: restoredSSHOptions
                 ),
             foregroundAuthToken: foregroundAuthToken,
-            agentSocketPath: overrideAgentSocketPath ?? WorkspaceRemoteSSHOptionFilter.sshAgentSocketPath(for: restoredSSHOptions),
+            agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
+                sshOptions: restoredSSHOptions,
+                explicitAgentSocketPath: overrideAgentSocketPath
+            ),
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession,
             persistentDaemonSlot: preservePTYSession ? normalizedPersistentDaemonSlot : nil,

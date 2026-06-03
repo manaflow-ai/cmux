@@ -2575,6 +2575,25 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
 
+    func testSSHForwardAgentConfigTildeSocketPathExpandsSocketPath() throws {
+        let tildeSocketPath = "~/.ssh/cmux-test-agent.sock"
+        let expandedSocketPath = (tildeSocketPath as NSString).expandingTildeInPath
+        let run = try runMockedSSH(
+            arguments: [],
+            environmentOverrides: [
+                "CMUX_TEST_SSH_G_OUTPUT": "forwardagent \(tildeSocketPath)\n",
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
+
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=\(tildeSocketPath)"), "ssh_options: \(sshOptions)")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], expandedSocketPath)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, expandedSocketPath)
+    }
+
     func testSSHForwardAgentAskDoesNotPropagateInvalidSocketPath() throws {
         let run = try runMockedSSH(
             arguments: ["--ssh-option", "ForwardAgent=ask"],

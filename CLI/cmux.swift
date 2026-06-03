@@ -7977,7 +7977,14 @@ struct CMUXCLI {
               !trimmed.isEmpty else {
             return nil
         }
-        return trimmed
+        guard trimmed.hasPrefix("~") else {
+            return trimmed
+        }
+        let expanded = (trimmed as NSString).expandingTildeInPath
+        guard !expanded.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return trimmed
+        }
+        return expanded
     }
 
     /// Returns whether an SSH option value enables a boolean-style OpenSSH setting.
