@@ -121,6 +121,63 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Node-backed launchers resume through fallback executable after the real script entrypoint")
+    func nodeWrapperEntrypointUsesFallbackExecutable() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "gemini",
+                sessionId: "SID",
+                executablePath: "/Users/example/.nvm/versions/node/v22.0.0/bin/node",
+                arguments: [
+                    "/Users/example/.nvm/versions/node/v22.0.0/bin/node",
+                    "-r",
+                    "/tmp/cmux/preload.js",
+                    "/Users/example/.npm/lib/node_modules/@google/gemini-cli/dist/gemini.js",
+                    "--model",
+                    "gemini-2.5-pro",
+                    "--resume",
+                    "old-session",
+                    "--sandbox",
+                    "danger-full-access",
+                ]
+            ) == [
+                "gemini",
+                "--resume",
+                "SID",
+                "--model",
+                "gemini-2.5-pro",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
+    @Test("Non-Node executables ending with node are not rewritten")
+    func nonNodeExecutableEndingWithNodeIsPreserved() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "gemini",
+                sessionId: "SID",
+                executablePath: "/usr/local/bin/pandanode",
+                arguments: [
+                    "/usr/local/bin/pandanode",
+                    "--model",
+                    "gemini-2.5-pro",
+                    "--config=app.js",
+                    "--resume",
+                    "old-session",
+                ]
+            ) == [
+                "/usr/local/bin/pandanode",
+                "--resume",
+                "SID",
+                "--model",
+                "gemini-2.5-pro",
+                "--config=app.js",
+            ]
+        )
+    }
+
     @Test("cmux wrapper launchers resolve before per-kind verbs")
     func launcherWrappers() {
         #expect(
