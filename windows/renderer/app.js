@@ -13298,6 +13298,7 @@ function quickSettingsSignature() {
   appendSignatureValue(parts, state.customColorPalette.join(","));
   appendSignatureValue(parts, state.colorApplyTarget);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
+  appendSignatureValue(parts, state.savedBackgroundImages.map((background) => background.url).join(","));
   appendSignatureValue(parts, state.performanceGuardTriggered);
   appendSignatureValue(parts, state.performanceGuardReason || "");
   appendSignatureValue(parts, hasPerformanceStats());
@@ -18199,6 +18200,72 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
   });
 }
 
+function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
+  const scope = activeBackgroundScopeModel(state.settings.backgroundImage, workspace);
+  const appSave = quickAppBackgroundSaveModel();
+  const terminalSave = quickTerminalBackgroundSaveModel();
+  const paneOption = backgroundApplyTargetOption("pane", workspace);
+  const allOption = backgroundApplyTargetOption("all", workspace);
+  const hasSavedBackgrounds = state.savedBackgroundImages.length > 0;
+  const appLabel = appSave.background ? appearanceBackgroundLabel(appSave.background) : "No app image";
+  const paneTitle = paneOption.disabled
+    ? "Focus a terminal pane before choosing its background."
+    : `Choose a background image for ${paneOption.meta}.`;
+  const allTitle = allOption.disabled
+    ? "Open a terminal pane before choosing all terminal backgrounds."
+    : `Choose one background image for ${allOption.meta}.`;
+  const actions = [
+    quickOverviewControlButton("Choose app", () => chooseBackgroundImageForTarget({ target: "app" }), {
+      title: "Choose a background image for the whole app.",
+      search: "quick setup background app image choose wallpaper whole window"
+    }),
+    quickOverviewControlButton("Paste app", () => pasteBackgroundImageFromClipboard({ target: "app" }), {
+      title: "Paste an image URL, path, or copied image as the app background.",
+      search: "quick setup background app image paste clipboard url path copied wallpaper"
+    }),
+    quickOverviewControlButton("Save app", () => saveCustomBackgroundImage({ url: appSave.background }), {
+      disabled: appSave.disabled,
+      title: appSave.title,
+      search: "quick setup background app image save saved library reusable wallpaper"
+    }),
+    quickOverviewControlButton("Terminal", () => chooseBackgroundImageForTarget({ target: "pane" }), {
+      disabled: paneOption.disabled,
+      title: paneTitle,
+      search: `quick setup background active terminal pane image choose wallpaper ${paneOption.meta}`
+    }),
+    quickOverviewControlButton("All terminals", () => chooseWorkspaceTerminalBackground(workspace), {
+      disabled: allOption.disabled,
+      title: allTitle,
+      search: `quick setup background all terminals panes image choose wallpaper ${allOption.meta}`
+    }),
+    quickOverviewControlButton("Save terminal", () => saveCustomBackgroundImage({ url: terminalSave.background }), {
+      disabled: terminalSave.disabled,
+      title: terminalSave.title,
+      search: "quick setup background active terminal image save saved library reusable wallpaper"
+    }),
+    quickOverviewControlButton("Copy library", copySavedBackgroundImages, {
+      disabled: !hasSavedBackgrounds,
+      title: hasSavedBackgrounds ? "Copy saved background images as JSON." : "Saved background library is empty.",
+      search: "quick setup background saved library copy export clipboard json"
+    }),
+    quickOverviewControlButton("Paste library", pasteSavedBackgroundImages, {
+      title: "Merge copied saved background images into the library.",
+      search: "quick setup background saved library paste import clipboard json"
+    }),
+    quickOverviewControlButton("Backgrounds", () => openSettingsCategory("appearance", { query: "background", focusSearch: false }), {
+      title: "Open full background image settings.",
+      search: "quick setup background image full appearance settings opacity fit position saved library"
+    })
+  ];
+  return quickOverviewControlsPanel({
+    className: "quick-overview-backgrounds",
+    title: "Background controls",
+    meta: `${appLabel} / ${scope.all} / ${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved`,
+    search: `quick setup background controls app terminal all panes wallpaper image saved library copy paste ${appLabel} ${scope.pane} ${scope.all}`,
+    actions
+  });
+}
+
 function quickSetupOverviewPanel() {
   const workspace = activeWorkspace();
   const panels = workspace?.panels || [];
@@ -18268,6 +18335,7 @@ function quickSetupOverviewPanel() {
       </span>
     </button>
     <div data-quick-performance-controls></div>
+    <div data-quick-background-controls></div>
     <div class="quick-overview-scope" aria-label="Background scope">
       <button class="quick-overview-scope-item" type="button" data-quick-scope-item="app">
         <span class="quick-overview-scope-preview" aria-hidden="true"></span>
@@ -18351,6 +18419,7 @@ function quickSetupOverviewPanel() {
     if (state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
   };
   panel.querySelector("[data-quick-performance-controls]").replaceWith(quickPerformanceControlsPanel(performance));
+  panel.querySelector("[data-quick-background-controls]").replaceWith(quickBackgroundControlsPanel(workspace));
   panel.querySelector("[data-quick-scope-app]").textContent = scope.hasBackground
     ? appearanceBackgroundLabel(state.settings.backgroundImage)
     : "None";
