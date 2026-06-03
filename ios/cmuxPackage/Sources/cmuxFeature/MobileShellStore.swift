@@ -1,5 +1,7 @@
 import CMUXMobileCore
 import CmuxMobileAuth
+import CmuxMobileDiagnostics
+import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation
 import Observation

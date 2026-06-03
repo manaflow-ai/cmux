@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxMobileDiagnostics
 import GhosttyKit
 import OSLog
 import UIKit

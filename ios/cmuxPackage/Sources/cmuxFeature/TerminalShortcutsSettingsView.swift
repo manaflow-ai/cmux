@@ -1,5 +1,5 @@
 #if os(iOS)
-import CMUXMobileCore
+import CmuxMobileSupport
 import CmuxMobileTerminal
 import SwiftUI
 

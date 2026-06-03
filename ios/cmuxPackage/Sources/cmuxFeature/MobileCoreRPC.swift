@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileSupport
 import Foundation
 
 enum MobileShellConnectionError: LocalizedError {

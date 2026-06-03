@@ -1,5 +1,6 @@
 #if canImport(UIKit) && DEBUG
 import CMUXMobileCore
+import CmuxMobileDiagnostics
 import SwiftUI
 import UIKit
 

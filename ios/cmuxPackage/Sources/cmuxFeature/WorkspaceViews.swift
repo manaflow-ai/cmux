@@ -2,6 +2,8 @@ import Foundation
 @preconcurrency import AVFoundation
 import CMUXMobileCore
 import CmuxMobileAuth
+import CmuxMobileDiagnostics
+import CmuxMobileSupport
 import CmuxMobileTerminal
 import Observation
 import OSLog
@@ -763,9 +765,11 @@ struct WorkspaceDetailView: View {
         // Include "what the user sees" (the visible terminal text) above the
         // debug log so a pasted bug report shows the on-screen content too.
         let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
-        let count = MobileDebugLog.shared.copyToPasteboard(prepending: terminalText)
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)
+        Task { @MainActor in
+            let count = await MobileDebugLog.shared.copyToPasteboard(prepending: terminalText)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)
+        }
     }
     #endif
 

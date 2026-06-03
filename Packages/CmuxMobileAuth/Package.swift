@@ -17,6 +17,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CMUXAuthCore"),
         .package(path: "../CMUXMobileCore"),
+        .package(path: "../CmuxMobileSupport"),
         .package(path: "../CmuxMobileTransport"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
@@ -26,6 +27,7 @@ let package = Package(
             dependencies: [
                 "CMUXAuthCore",
                 "CMUXMobileCore",
+                "CmuxMobileSupport",
                 "CmuxMobileTransport",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],

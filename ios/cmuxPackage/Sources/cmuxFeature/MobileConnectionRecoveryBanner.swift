@@ -1,4 +1,4 @@
-import CMUXMobileCore
+import CmuxMobileSupport
 import SwiftUI
 
 /// Top overlay that surfaces mobile-shell connection recovery after a network

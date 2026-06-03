@@ -45,6 +45,12 @@
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileDiagnostics">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileSupport">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileTerminal">
       </FileRef>
       <FileRef

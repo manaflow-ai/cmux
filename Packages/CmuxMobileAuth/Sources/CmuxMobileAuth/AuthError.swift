@@ -1,4 +1,4 @@
-import CMUXMobileCore
+import CmuxMobileSupport
 import Foundation
 
 public enum AuthError: Error, LocalizedError {
