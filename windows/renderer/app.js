@@ -15068,6 +15068,7 @@ function recentFoldersSettings() {
     return section;
   }
 
+  const hasWorkspace = Boolean(activeWorkspace());
   for (const folder of state.recentFolders) {
     const card = document.createElement("div");
     card.className = "recent-folder-card";
@@ -15089,6 +15090,8 @@ function recentFoldersSettings() {
     create.dataset.recentFolderAction = "new";
     const use = settingsActionButton("Use", () => setWorkspaceFolderFromRecent(folder), "", `recent folder use current workspace ${folder}`);
     use.dataset.recentFolderAction = "use";
+    use.disabled = !hasWorkspace;
+    use.title = hasWorkspace ? "Use this folder for the active workspace." : "Open a workspace before using a recent folder.";
     const open = settingsActionButton("Open", () => openFolderPath(folder), "", `recent folder open explorer ${folder}`);
     open.dataset.recentFolderAction = "open";
     actions.append(create, use, open);
