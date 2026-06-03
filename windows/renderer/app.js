@@ -9708,11 +9708,20 @@ function renderSettingsInspector(options = {}) {
     const performanceActions = document.createElement("div");
     performanceActions.className = "settings-actions";
     performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save current balanced reset render stats clear copy diagnostics report lag debug");
+    const speedPresetActive = isSettingsPresetIdActive("performance");
+    const speedPreset = settingsActionButton(
+      speedPresetActive ? "Speed active" : "Speed preset",
+      () => applySettingsPresetById("performance"),
+      speedPresetActive ? "primary" : "",
+      `performance speed preset optimize ${speedPresetActive ? "active current " : ""}`
+    );
+    speedPreset.disabled = speedPresetActive;
+    speedPreset.title = speedPresetActive ? "Fast performance settings are already active." : "Apply the fast performance preset.";
     performanceActions.append(
       settingsActionButton("Save clean + fast", applyAndSaveCleanFastProfile, "primary", "performance clean fast simple speed preset save settings profile reusable"),
       settingsActionButton("Save current speed", saveCurrentPerformanceProfile, "", "performance save current speed lag settings profile reusable"),
       settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
-      settingsActionButton("Speed preset", () => applySettingsPresetById("performance"), "", "performance speed preset optimize"),
+      speedPreset,
       settingsActionButton("Reset stats", resetRenderStats, "", "performance render stats reset")
     );
     performanceSection.append(performanceActions);
