@@ -10884,8 +10884,19 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background-position: center;
 }
 
-.saved-background-preview:hover {
+.saved-background-preview:hover:not(:disabled) {
   border-color: var(--color-text);
+}
+
+.saved-background-preview:disabled {
+  cursor: default;
+  opacity: .5;
+}
+
+.saved-background-card.is-active-target .saved-background-preview:disabled {
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 68%, transparent);
+  opacity: 1;
 }
 
 .saved-background-text {
