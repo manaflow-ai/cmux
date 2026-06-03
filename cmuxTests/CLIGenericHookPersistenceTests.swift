@@ -1271,6 +1271,53 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(waitTimeout.doubleValue, 0)
     }
 
+    func testNonActionableFeedHookDoesNotWaitForSocketResponse() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("generic-feed-no-response")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-generic-feed-no-response-\(UUID().uuidString)", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServerAllowingNoResponse(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  payload["method"] as? String == "feed.push" else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            return nil
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "gemini", "--event", "PreToolUse"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
+                "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
+                "CMUX_GEMINI_PID": "626262",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"hook_event_name":"PreToolUse","session_id":"gemini-session-123","cwd":"\#(root.path)","tool_name":"write","tool_input":{"path":"\#(root.appendingPathComponent("README.md").path)"}}"#,
+            timeout: 0.5
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertEqual(state.commands.filter { $0.contains(#""method":"feed.push""#) }.count, 1)
+    }
+
     func testAntigravityFeedHookMissingSessionIdUsesStableFallback() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("antigravity-feed-stable-session")
