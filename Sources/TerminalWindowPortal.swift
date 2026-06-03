@@ -1109,8 +1109,11 @@ final class WindowTerminalPortal: NSObject {
             "anchor=\(portalDebugToken(entry.anchorView)) hadSuperview=\(hadSuperview)"
         )
 #endif
-        if let hostedView = entry.hostedView, hostedView.superview === hostView {
-            hostedView.removeFromSuperview()
+        if let hostedView = entry.hostedView {
+            hostedView.isHidden = true
+            if hostedView.superview === hostView {
+                hostedView.removeFromSuperview()
+            }
         }
     }
 
@@ -1701,6 +1704,16 @@ final class WindowTerminalPortal: NSObject {
             entry.anchorView.map { ObjectIdentifier($0) }
         })
         hostedByAnchorId = hostedByAnchorId.filter { validAnchorIds.contains($0.key) }
+
+        let validHostedIds = Set(entriesByHostedId.keys)
+        for subview in hostView.subviews {
+            guard let hostedView = subview as? GhosttySurfaceScrollView,
+                  !validHostedIds.contains(ObjectIdentifier(hostedView)) else {
+                continue
+            }
+            hostedView.isHidden = true
+            hostedView.removeFromSuperview()
+        }
     }
 
     func hostedIds() -> Set<ObjectIdentifier> {
