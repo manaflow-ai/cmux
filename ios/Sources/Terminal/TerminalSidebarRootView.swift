@@ -1,3 +1,4 @@
+import CmuxTerminalCore
 import OSLog
 import SwiftUI
 import UIKit

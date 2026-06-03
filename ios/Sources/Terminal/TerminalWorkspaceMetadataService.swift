@@ -1,3 +1,4 @@
+import CmuxTerminalCore
 import Combine
 import Foundation
 

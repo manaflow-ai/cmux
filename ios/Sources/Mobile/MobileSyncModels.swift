@@ -1,4 +1,5 @@
 import CmuxMobileContract
+import CmuxTerminalCore
 import Foundation
 
 // MobileMachineStatus, MobileMachineRow, and MobileInboxWorkspaceRow now live in

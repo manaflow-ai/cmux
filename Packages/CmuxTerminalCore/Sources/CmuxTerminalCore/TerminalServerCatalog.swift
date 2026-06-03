@@ -1,9 +1,16 @@
-import Foundation
+public import Foundation
 
-struct TerminalServerCatalog {
-    let hosts: [TerminalHost]
+/// Parses server metadata JSON into ``TerminalHost`` records and merges them with local hosts.
+public struct TerminalServerCatalog {
+    /// The hosts decoded from the server metadata.
+    public let hosts: [TerminalHost]
 
-    init(metadataJSON: String, teamID: String? = nil) throws {
+    /// Decodes discovered hosts from a server metadata JSON document.
+    /// - Parameters:
+    ///   - metadataJSON: The metadata JSON text.
+    ///   - teamID: The team identifier to scope decoded hosts to, if any.
+    /// - Throws: A decoding error if the metadata is malformed.
+    public init(metadataJSON: String, teamID: String? = nil) throws {
         let data = Data(metadataJSON.utf8)
         let payload = try JSONDecoder().decode(MetadataPayload.self, from: data)
         self.hosts = payload.cmux.servers.map { server in
@@ -26,7 +33,17 @@ struct TerminalServerCatalog {
         }
     }
 
-    static func merge(discovered: [TerminalHost], local: [TerminalHost]) -> [TerminalHost] {
+    /// Merges discovered hosts with local hosts, preserving user edits and custom hosts.
+    ///
+    /// Discovered hosts are reconciled against any matching local record (by stable id, server
+    /// id, hostname, or a placeholder shadow), carrying over user-set fields like saved keys and
+    /// sort order. Configured custom hosts that are not shadowed by a discovery are retained.
+    ///
+    /// - Parameters:
+    ///   - discovered: The freshly discovered hosts.
+    ///   - local: The locally stored hosts.
+    /// - Returns: The merged host list, sorted by sort index then name.
+    public static func merge(discovered: [TerminalHost], local: [TerminalHost]) -> [TerminalHost] {
         let discoveredStableIDs = Set(discovered.map(\.stableID))
         var nextSortIndex = (local.map(\.sortIndex).max() ?? -1) + 1
 
@@ -95,7 +112,15 @@ struct TerminalServerCatalog {
         return (retainedCustomHosts + mergedDiscovered).sorted(by: TerminalServerCatalog.sortHosts)
     }
 
-    static func representsSameMachine(_ lhs: TerminalHost, _ rhs: TerminalHost) -> Bool {
+    /// Whether two hosts represent the same physical machine.
+    ///
+    /// Matches by stable id, then by non-empty server id, then by non-empty hostname.
+    ///
+    /// - Parameters:
+    ///   - lhs: The first host.
+    ///   - rhs: The second host.
+    /// - Returns: `true` if the hosts represent the same machine.
+    public static func representsSameMachine(_ lhs: TerminalHost, _ rhs: TerminalHost) -> Bool {
         if normalized(lhs.stableID) == normalized(rhs.stableID) {
             return true
         }

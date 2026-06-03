@@ -1,3 +1,4 @@
+import CmuxTerminalCore
 import Foundation
 import XCTest
 @testable import cmux_DEV

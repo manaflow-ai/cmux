@@ -47,6 +47,9 @@
          location = "group:CmuxSocketControl">
       </FileRef>
       <FileRef
+         location = "group:CmuxTerminalCore">
+      </FileRef>
+      <FileRef
          location = "group:CMUXWorkstream">
       </FileRef>
    </Group>

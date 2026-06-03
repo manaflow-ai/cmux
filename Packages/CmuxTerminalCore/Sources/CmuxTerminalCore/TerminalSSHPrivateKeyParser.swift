@@ -1,46 +1,20 @@
 import CryptoKit
-import Foundation
+public import Foundation
 @preconcurrency import NIOSSH
 
-struct TerminalParsedSSHPrivateKey {
-    let privateKey: NIOSSHPrivateKey
-    let openSSHPublicKey: String
-}
-
-enum TerminalSSHPrivateKeyParserError: LocalizedError, Equatable {
-    case invalidFormat
-    case encryptedKeysUnsupported
-    case unsupportedKeyType
-    case invalidKeyMaterial
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidFormat:
-            return String(
-                localized: "terminal.ssh.private_key_invalid",
-                defaultValue: "The SSH private key is not a valid OpenSSH key."
-            )
-        case .encryptedKeysUnsupported:
-            return String(
-                localized: "terminal.ssh.private_key_encrypted_unsupported",
-                defaultValue: "Encrypted SSH private keys are not supported yet."
-            )
-        case .unsupportedKeyType:
-            return String(
-                localized: "terminal.ssh.private_key_unsupported_type",
-                defaultValue: "This SSH private key type is not supported yet."
-            )
-        case .invalidKeyMaterial:
-            return String(
-                localized: "terminal.ssh.private_key_invalid_material",
-                defaultValue: "The SSH private key material is invalid."
-            )
-        }
-    }
-}
-
-enum TerminalSSHPrivateKeyParser {
-    static func parse(_ privateKeyText: String) throws -> TerminalParsedSSHPrivateKey {
+/// Parses unencrypted OpenSSH private keys (Ed25519 and ECDSA P-256/P-384/P-521).
+public enum TerminalSSHPrivateKeyParser {
+    /// Parses an OpenSSH private key from its PEM text.
+    ///
+    /// Supports unencrypted `openssh-key-v1` keys of type `ssh-ed25519` and
+    /// `ecdsa-sha2-nistp{256,384,521}`. The embedded public key is validated against the
+    /// derived public key.
+    ///
+    /// - Parameter privateKeyText: The OpenSSH PEM private key text.
+    /// - Returns: The parsed key and its OpenSSH public key string.
+    /// - Throws: ``TerminalSSHPrivateKeyParserError`` if the key is malformed, encrypted, or
+    ///   uses an unsupported type.
+    public static func parse(_ privateKeyText: String) throws -> TerminalParsedSSHPrivateKey {
         let pemBody = try extractPEMBody(from: privateKeyText)
         guard let payload = Data(base64Encoded: pemBody) else {
             throw TerminalSSHPrivateKeyParserError.invalidFormat

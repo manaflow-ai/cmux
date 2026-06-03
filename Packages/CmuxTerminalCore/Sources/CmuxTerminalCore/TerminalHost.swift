@@ -1,113 +1,89 @@
-import CmuxMobileContract
-import Foundation
+public import CmuxMobileContract
+public import Foundation
 
-enum TerminalHostPalette: String, Codable, CaseIterable, Sendable {
-    case sky
-    case mint
-    case amber
-    case rose
-}
+/// A configured terminal host (a remote machine cmux can open terminal workspaces on).
+///
+/// A host carries its connection identity (hostname, port, username), transport preference,
+/// SSH authentication method, optional WebSocket/daemon endpoint, and the latest known
+/// ``MobileMachineStatus`` reported by mobile sync.
+public struct TerminalHost: Identifiable, Codable, Equatable, Sendable {
+    /// The stable identity type for a host.
+    public typealias ID = UUID
 
-enum TerminalConnectionPhase: String, Codable, CaseIterable, Sendable {
-    case needsConfiguration
-    case idle
-    case connecting
-    case connected
-    case reconnecting
-    case disconnected
-    case failed
-}
+    /// The locally-unique identifier for this host record.
+    public let id: ID
+    /// A stable, cross-device identifier derived from the host's identity (defaults to ``id``).
+    public var stableID: String
+    /// The user-visible display name.
+    public var name: String
+    /// The SSH hostname or IP address.
+    public var hostname: String
+    /// The SSH port.
+    public var port: Int
+    /// The SSH username.
+    public var username: String
+    /// The SF Symbol name used to represent the host.
+    public var symbolName: String
+    /// The accent palette used to color the host.
+    public var palette: TerminalHostPalette
+    /// The command run to bootstrap a session (defaults to a tmux attach-or-create).
+    public var bootstrapCommand: String
+    /// The host key the user has trusted, if any.
+    public var trustedHostKey: String?
+    /// A host key awaiting trust confirmation, if any.
+    public var pendingHostKey: String?
+    /// The sort position of the host in the sidebar.
+    public var sortIndex: Int
+    /// Whether the host was discovered or user-created.
+    public var source: TerminalHostSource
+    /// The preferred transport used to reach the host.
+    public var transportPreference: TerminalTransportPreference
+    /// The SSH authentication method to use.
+    public var sshAuthenticationMethod: TerminalSSHAuthenticationMethod
+    /// The team identifier this host is scoped to, if any.
+    public var teamID: String?
+    /// The backend server identifier for this host, if any.
+    public var serverID: String?
+    /// Whether SSH fallback is permitted when a direct/daemon transport fails.
+    public var allowsSSHFallback: Bool
+    /// The direct-TLS certificate pins trusted for this host.
+    public var directTLSPins: [String]
+    /// The WebSocket port for the cmuxd-remote endpoint, if any.
+    public var wsPort: Int?
+    /// The WebSocket secret for the cmuxd-remote endpoint, if any.
+    public var wsSecret: String?
+    /// The latest reachability status reported by mobile sync, if any.
+    public var machineStatus: MobileMachineStatus?
+    /// The latest workspace change sequence observed from the daemon, if any.
+    public var daemonWorkspaceChangeSeq: UInt64?
 
-enum TerminalHostSource: String, Codable, CaseIterable, Sendable {
-    case discovered
-    case custom
-}
-
-enum TerminalTransportPreference: String, Codable, CaseIterable, Sendable {
-    case rawSSH = "raw-ssh"
-    case remoteDaemon = "cmuxd-remote"
-}
-
-enum TerminalSSHAuthenticationMethod: String, Codable, CaseIterable, Sendable {
-    case password
-    case privateKey = "private-key"
-}
-
-struct TerminalSSHCredentials: Equatable, Sendable {
-    var password: String?
-    var privateKey: String?
-
-    var hasPassword: Bool {
-        !(password?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-    }
-
-    var hasPrivateKey: Bool {
-        !(privateKey?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-    }
-
-    func hasCredential(for method: TerminalSSHAuthenticationMethod) -> Bool {
-        switch method {
-        case .password:
-            hasPassword
-        case .privateKey:
-            hasPrivateKey
-        }
-    }
-
-    var normalized: Self {
-        Self(
-            password: password?.trimmingCharacters(in: .whitespacesAndNewlines),
-            privateKey: privateKey?.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-    }
-}
-
-extension Array where Element == String {
-    var normalizedTerminalPins: [String] {
-        var seen = Set<String>()
-        return compactMap { value in
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            guard seen.insert(trimmed).inserted else { return nil }
-            return trimmed
-        }
-    }
-}
-
-struct TerminalRemoteDaemonResumeState: Codable, Equatable, Sendable {
-    var sessionID: String
-    var attachmentID: String
-    var readOffset: UInt64
-}
-
-struct TerminalHost: Identifiable, Codable, Equatable, Sendable {
-    typealias ID = UUID
-
-    let id: ID
-    var stableID: String
-    var name: String
-    var hostname: String
-    var port: Int
-    var username: String
-    var symbolName: String
-    var palette: TerminalHostPalette
-    var bootstrapCommand: String
-    var trustedHostKey: String?
-    var pendingHostKey: String?
-    var sortIndex: Int
-    var source: TerminalHostSource
-    var transportPreference: TerminalTransportPreference
-    var sshAuthenticationMethod: TerminalSSHAuthenticationMethod
-    var teamID: String?
-    var serverID: String?
-    var allowsSSHFallback: Bool
-    var directTLSPins: [String]
-    var wsPort: Int?
-    var wsSecret: String?
-    var machineStatus: MobileMachineStatus?
-    var daemonWorkspaceChangeSeq: UInt64?
-
-    init(
+    /// Creates a terminal host.
+    ///
+    /// - Parameters:
+    ///   - id: The local identifier (defaults to a fresh UUID).
+    ///   - stableID: The stable cross-device identifier (defaults to `id.uuidString`).
+    ///   - name: The display name.
+    ///   - hostname: The SSH hostname or IP.
+    ///   - port: The SSH port (defaults to `22`).
+    ///   - username: The SSH username.
+    ///   - symbolName: The SF Symbol name.
+    ///   - palette: The accent palette.
+    ///   - bootstrapCommand: The session bootstrap command.
+    ///   - trustedHostKey: The trusted host key, if any.
+    ///   - pendingHostKey: A host key awaiting trust, if any.
+    ///   - sortIndex: The sidebar sort position.
+    ///   - source: Whether discovered or custom (defaults to `.custom`).
+    ///   - transportPreference: The preferred transport (defaults to `.rawSSH`).
+    ///   - sshAuthenticationMethod: The SSH auth method (defaults to `.password`).
+    ///   - teamID: The team scope, if any.
+    ///   - serverID: The backend server id, if any.
+    ///   - allowsSSHFallback: Whether SSH fallback is permitted (defaults to `true`).
+    ///   - directTLSPins: The direct-TLS pins (normalized on assignment).
+    ///   - wsPort: The WebSocket port, if any.
+    ///   - wsSecret: The WebSocket secret, if any.
+    ///   - machineStatus: The latest mobile-sync status, if any.
+    ///   - daemonWorkspaceChangeSeq: The latest daemon workspace change sequence, if any.
+    public init(
         id: ID = UUID(),
         stableID: String? = nil,
         name: String,
@@ -157,11 +133,13 @@ struct TerminalHost: Identifiable, Codable, Equatable, Sendable {
         self.daemonWorkspaceChangeSeq = daemonWorkspaceChangeSeq
     }
 
-    var hasWebSocketEndpoint: Bool {
+    /// Whether the host exposes a usable WebSocket (cmuxd-remote) endpoint.
+    public var hasWebSocketEndpoint: Bool {
         wsPort != nil && !(wsSecret?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
     }
 
-    var subtitle: String {
+    /// A user-visible `username@hostname` subtitle, or an SSH-setup-required prompt when unconfigured.
+    public var subtitle: String {
         guard !hostname.isEmpty, !username.isEmpty else {
             return String(
                 localized: "terminal.host.setup_required",
@@ -171,31 +149,37 @@ struct TerminalHost: Identifiable, Codable, Equatable, Sendable {
         return "\(username)@\(hostname)"
     }
 
-    var isConfigured: Bool {
+    /// Whether the host has the minimum configuration (hostname and username) to connect.
+    public var isConfigured: Bool {
         !hostname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    var accessibilitySlug: String {
+    /// A slugified form of the host name suitable for accessibility labels.
+    public var accessibilitySlug: String {
         name.lowercased().replacingOccurrences(of: " ", with: "-")
     }
 
-    var accessibilityIdentifierSlug: String {
+    /// A slugified form of the stable identifier suitable for accessibility identifiers.
+    public var accessibilityIdentifierSlug: String {
         stableID
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: " ", with: "-")
             .lowercased()
     }
 
-    var effectiveServerID: String {
+    /// The backend server identifier, falling back to ``stableID`` when none is set.
+    public var effectiveServerID: String {
         serverID ?? stableID
     }
 
-    var hasDirectDaemonTeamScope: Bool {
+    /// Whether the host is scoped to a non-empty team identifier (a direct-daemon team scope).
+    public var hasDirectDaemonTeamScope: Bool {
         !(teamID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
     }
 
-    var requiresSavedSSHPassword: Bool {
+    /// Whether a saved SSH password is required to connect with the current settings.
+    public var requiresSavedSSHPassword: Bool {
         if hasWebSocketEndpoint { return false }
         return switch transportPreference {
         case .rawSSH:
@@ -205,7 +189,8 @@ struct TerminalHost: Identifiable, Codable, Equatable, Sendable {
         }
     }
 
-    var requiresSavedSSHPrivateKey: Bool {
+    /// Whether a saved SSH private key is required to connect with the current settings.
+    public var requiresSavedSSHPrivateKey: Bool {
         if hasWebSocketEndpoint { return false }
         return switch transportPreference {
         case .rawSSH:
@@ -241,7 +226,8 @@ struct TerminalHost: Identifiable, Codable, Equatable, Sendable {
         case daemonWorkspaceChangeSeq
     }
 
-    init(from decoder: Decoder) throws {
+    /// Decodes a host, backfilling a legacy stable identifier and defaults for newer fields.
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let id = try container.decode(ID.self, forKey: .id)
         let hostname = try container.decode(String.self, forKey: .hostname)

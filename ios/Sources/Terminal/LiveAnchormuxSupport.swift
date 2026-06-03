@@ -1,3 +1,4 @@
+import CmuxTerminalCore
 import Foundation
 import Network
 import OSLog

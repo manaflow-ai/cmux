@@ -1,3 +1,4 @@
+import CmuxTerminalCore
 import Foundation
 
 enum TerminalWorkspaceIdentityError: Error, Sendable {

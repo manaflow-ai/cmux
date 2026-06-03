@@ -1,3 +1,4 @@
+import CmuxTerminalCore
 import Foundation
 @preconcurrency import NIOCore
 @preconcurrency import NIOSSH

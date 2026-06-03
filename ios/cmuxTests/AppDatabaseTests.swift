@@ -1,3 +1,4 @@
+import CmuxTerminalCore
 import XCTest
 import GRDB
 @testable import cmux_DEV

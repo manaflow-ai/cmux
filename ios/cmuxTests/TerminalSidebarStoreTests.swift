@@ -1,3 +1,4 @@
+import CmuxTerminalCore
 import CmuxMobileContract
 import Combine
 import XCTest

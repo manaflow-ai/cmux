@@ -25,6 +25,8 @@ packages:
     path: ../Packages/CMUXAuthCore
   CmuxMobileContract:
     path: ../Packages/CmuxMobileContract
+  CmuxTerminalCore:
+    path: ../Packages/CmuxTerminalCore
   GRDB:
     url: https://github.com/groue/GRDB.swift.git
     from: "7.8.0"
@@ -57,6 +59,7 @@ targets:
     dependencies:
       - package: CMUXAuthCore
       - package: CmuxMobileContract
+      - package: CmuxTerminalCore
       - package: GRDB
       - package: StackAuth
       - package: Sentry
@@ -133,6 +136,7 @@ targets:
       - target: cmux
       - package: CMUXAuthCore
       - package: CmuxMobileContract
+      - package: CmuxTerminalCore
     settings:
       base:
         GENERATE_INFOPLIST_FILE: "YES"
