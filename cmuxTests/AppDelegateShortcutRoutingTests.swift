@@ -5568,6 +5568,24 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 "←",
                 123
             ),
+            (
+                .growPaneRight,
+                [.command, .option, .shift],
+                "→",
+                124
+            ),
+            (
+                .growPaneUp,
+                [.command, .option, .shift],
+                "↑",
+                126
+            ),
+            (
+                .growPaneDown,
+                [.command, .option, .shift],
+                "↓",
+                125
+            ),
         ]
 
         for testCase in cases {

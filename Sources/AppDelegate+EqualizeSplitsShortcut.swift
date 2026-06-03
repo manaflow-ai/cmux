@@ -31,6 +31,12 @@ extension AppDelegate {
 #if DEBUG
         cmuxDebugLog("shortcut.action name=growPane direction=\(direction.debugName) workspaceId=\(workspace.id)")
 #endif
+        if shouldSuppressSplitShortcutForTransientTerminalFocusState(
+            direction: direction.splitDirection,
+            tabManager: tabManager
+        ) {
+            return false
+        }
         let didResize = tabManager.resizeFocusedSplit(direction: direction)
 #if DEBUG
         if !didResize {
@@ -42,6 +48,15 @@ extension AppDelegate {
 }
 
 extension ResizeDirection {
+    var splitDirection: SplitDirection {
+        switch self {
+        case .left: return .left
+        case .right: return .right
+        case .up: return .up
+        case .down: return .down
+        }
+    }
+
     var debugName: String {
         switch self {
         case .left: return "left"

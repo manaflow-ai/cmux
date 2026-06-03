@@ -7725,7 +7725,7 @@ struct ContentView: View {
                 }
             )
         )
-        let growPaneSubtitle = constant(String(localized: "command.terminalSplitDown.subtitle", defaultValue: "Terminal Layout"))
+        let growPaneSubtitle = constant(String(localized: "command.growPane.subtitle", defaultValue: "Pane Resize"))
         let growPaneCommands: [(commandId: String, action: KeyboardShortcutSettings.Action, keywords: [String])] = [
             ("palette.growPaneLeft", .growPaneLeft, ["terminal", "pane", "split", "resize", "grow", "left", "width"]),
             ("palette.growPaneRight", .growPaneRight, ["terminal", "pane", "split", "resize", "grow", "right", "width"]),
