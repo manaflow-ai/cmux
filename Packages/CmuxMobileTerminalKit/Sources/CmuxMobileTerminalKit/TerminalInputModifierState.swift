@@ -78,6 +78,16 @@ public struct TerminalInputModifierState: Equatable, Sendable {
         }
     }
 
+    /// Clears the pending double-tap window without changing armed/sticky state.
+    ///
+    /// A subsequent ``tap(_:now:interval:)`` on the currently armed modifier is
+    /// then treated as a fresh single tap rather than a sticky promotion. Used
+    /// by deterministic tests that drive taps without controlling wall-clock
+    /// time.
+    public mutating func clearDoubleTapWindow() {
+        lastTapTime = nil
+    }
+
     /// Consumes a one-shot (non-sticky) modifier after it applies to a key.
     ///
     /// Disarms the active modifier unless it is sticky. The UI calls this after

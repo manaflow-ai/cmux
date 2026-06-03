@@ -97,6 +97,20 @@ struct TerminalInputModifierStateTests {
         }
     }
 
+    @Test("clearDoubleTapWindow keeps armed state but blocks sticky promotion")
+    func clearDoubleTapWindow() {
+        var state = TerminalInputModifierState()
+        state.tap(.control, now: 0)
+        #expect(state.isArmed(.control))
+        state.clearDoubleTapWindow()
+        // Still armed...
+        #expect(state.isArmed(.control))
+        // ...but a tap that would have stickied (within interval) now just
+        // toggles the armed modifier off instead, because the window is gone.
+        state.tap(.control, now: 0.1)
+        #expect(state.armedModifier == nil)
+    }
+
     @Test("double-tap window is exclusive at the boundary")
     func doubleTapBoundaryExclusive() {
         var state = TerminalInputModifierState()
