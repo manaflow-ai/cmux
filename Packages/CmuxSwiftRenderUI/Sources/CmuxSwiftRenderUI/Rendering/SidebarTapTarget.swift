@@ -14,6 +14,11 @@ public struct SidebarTapTarget: Equatable, Sendable {
     /// The action a tap inside ``frame`` fires.
     public let action: ButtonAction
 
+    /// Creates a tap target.
+    ///
+    /// - Parameters:
+    ///   - frame: The region's frame in the root coordinate space.
+    ///   - action: The action a tap inside the frame fires.
     public init(frame: CGRect, action: ButtonAction) {
         self.frame = frame
         self.action = action
@@ -22,8 +27,10 @@ public struct SidebarTapTarget: Equatable, Sendable {
 
 /// Accumulates every ``SidebarTapTarget`` in the rendered sidebar.
 public struct SidebarTapTargetsKey: PreferenceKey {
+    /// No targets until the render tree reports some.
     public static let defaultValue: [SidebarTapTarget] = []
 
+    /// Concatenates targets from sibling subtrees.
     public static func reduce(value: inout [SidebarTapTarget], nextValue: () -> [SidebarTapTarget]) {
         value.append(contentsOf: nextValue())
     }

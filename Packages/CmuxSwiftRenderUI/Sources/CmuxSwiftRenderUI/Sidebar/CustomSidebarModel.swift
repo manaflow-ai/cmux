@@ -122,13 +122,13 @@ public final class CustomSidebarModel {
         if let decoding = error as? DecodingError {
             switch decoding {
             case let .keyNotFound(key, ctx):
-                return "Missing key '\(key.stringValue)' at \(path(ctx))"
+                return String(localized: "sidebar.custom.decode.missingKey", defaultValue: "Missing key '\(key.stringValue)' at \(path(ctx))", bundle: .module)
             case let .typeMismatch(_, ctx):
-                return "Type mismatch at \(path(ctx)): \(ctx.debugDescription)"
+                return String(localized: "sidebar.custom.decode.typeMismatch", defaultValue: "Type mismatch at \(path(ctx)): \(ctx.debugDescription)", bundle: .module)
             case let .valueNotFound(_, ctx):
-                return "Missing value at \(path(ctx))"
+                return String(localized: "sidebar.custom.decode.missingValue", defaultValue: "Missing value at \(path(ctx))", bundle: .module)
             case let .dataCorrupted(ctx):
-                return "Invalid JSON at \(path(ctx)): \(ctx.debugDescription)"
+                return String(localized: "sidebar.custom.decode.invalidJSON", defaultValue: "Invalid JSON at \(path(ctx)): \(ctx.debugDescription)", bundle: .module)
             @unknown default:
                 return decoding.localizedDescription
             }
@@ -138,6 +138,8 @@ public final class CustomSidebarModel {
 
     private static func path(_ ctx: DecodingError.Context) -> String {
         let parts = ctx.codingPath.map(\.stringValue)
-        return parts.isEmpty ? "root" : parts.joined(separator: " › ")
+        return parts.isEmpty
+            ? String(localized: "sidebar.custom.decode.root", defaultValue: "root", bundle: .module)
+            : parts.joined(separator: " › ")
     }
 }

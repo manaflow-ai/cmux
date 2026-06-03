@@ -55,7 +55,7 @@ public struct CustomSidebarContentView: View {
         switch state {
         case .missing:
             scrollWrap(
-                Text(String(localized: "sidebar.custom.missing", defaultValue: "Sidebar file is empty or missing."))
+                Text(String(localized: "sidebar.custom.missing", defaultValue: "Sidebar file is empty or missing.", bundle: .module))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             )
@@ -79,7 +79,7 @@ public struct CustomSidebarContentView: View {
                     scrollWrap(RenderNodeView(node: node))
                 }
             } else if hasRenderedSwift {
-                scrollWrap(errorView(String(localized: "sidebar.custom.noView", defaultValue: "No supported SwiftUI view found.")))
+                scrollWrap(errorView(String(localized: "sidebar.custom.noView", defaultValue: "No supported SwiftUI view found.", bundle: .module)))
             } else {
                 // First render in flight; an empty placeholder avoids flashing
                 // the error state before the interpreter has answered.
@@ -116,7 +116,7 @@ public struct CustomSidebarContentView: View {
     private func errorView(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Label(
-                String(localized: "sidebar.custom.error", defaultValue: "Sidebar error"),
+                String(localized: "sidebar.custom.error", defaultValue: "Sidebar error", bundle: .module),
                 systemImage: "exclamationmark.triangle.fill"
             )
             .font(.caption.bold())

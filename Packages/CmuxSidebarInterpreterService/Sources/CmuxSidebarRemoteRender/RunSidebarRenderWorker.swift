@@ -49,5 +49,7 @@ public func runSidebarRenderWorker() -> Never {
 
         app.run()
     }
+    // Backstop satisfying `-> Never`: reached only if something stops the run
+    // loop (the EOF path above exits directly).
     exit(0)
 }
