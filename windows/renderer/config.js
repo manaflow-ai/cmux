@@ -225,6 +225,7 @@ export const backgroundPositionOptions = [
 
 export const backgroundEffectsOptions = [
   ["flat", label("backgroundEffects.flat", "Flat")],
+  ["tinted", label("backgroundEffects.tinted", "Tinted")],
   ["glass", label("backgroundEffects.glass", "Glass")]
 ];
 

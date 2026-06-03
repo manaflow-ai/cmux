@@ -344,8 +344,25 @@ button {
   transition: opacity var(--dur-med) var(--ease-out);
 }
 
+.shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    linear-gradient(135deg, color-mix(in oklch, var(--color-accent) 9%, transparent), transparent 44%),
+    color-mix(in oklch, var(--color-canvas) 72%, transparent);
+  transition: opacity var(--dur-med) var(--ease-out);
+}
+
 .shell.has-background::before {
   opacity: var(--background-opacity, .16);
+}
+
+.shell.background-effects-tinted.has-background::after {
+  opacity: .64;
 }
 
 .shell.has-background .sidebar,
@@ -375,6 +392,35 @@ button {
 .shell.has-background .browser-tab.is-active,
 .shell.has-background .surface-tab.is-active {
   background: color-mix(in oklch, var(--color-pane-warm) 94%, transparent);
+}
+
+.shell.background-effects-tinted.has-background .sidebar,
+.shell.background-effects-tinted.has-background .topbar,
+.shell.background-effects-tinted.has-background .surface-tabs,
+.shell.background-effects-tinted.has-background .statusbar,
+.shell.background-effects-tinted.has-background .inspector {
+  background: color-mix(in oklch, var(--color-chrome) 98%, transparent);
+}
+
+.shell.background-effects-tinted.has-background .main,
+.shell.background-effects-tinted.has-background .pane-grid {
+  background: color-mix(in oklch, var(--color-canvas) 93%, transparent);
+}
+
+.shell.background-effects-tinted.has-background .pane,
+.shell.background-effects-tinted.has-background .terminal-host {
+  background: color-mix(in oklch, var(--color-pane) 97%, transparent);
+}
+
+.shell.background-effects-tinted.has-background .pane-header,
+.shell.background-effects-tinted.has-background .browser-tabs,
+.shell.background-effects-tinted.has-background .browser-bar {
+  background: color-mix(in oklch, var(--color-pane-warm) 97%, transparent);
+}
+
+.shell.background-effects-tinted.has-background .browser-tab.is-active,
+.shell.background-effects-tinted.has-background .surface-tab.is-active {
+  background: color-mix(in oklch, var(--color-pane-warm) 98%, transparent);
 }
 
 .shell.background-effects-glass.has-background .sidebar,

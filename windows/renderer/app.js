@@ -5112,6 +5112,7 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "show-advanced", state.settings.showAdvanced);
   toggleClassIfChanged(elements.shell, "performance-mode", state.settings.performanceMode);
   toggleClassIfChanged(elements.shell, "background-effects-flat", state.settings.backgroundEffects === "flat");
+  toggleClassIfChanged(elements.shell, "background-effects-tinted", state.settings.backgroundEffects === "tinted");
   toggleClassIfChanged(elements.shell, "background-effects-glass", state.settings.backgroundEffects === "glass");
   const reduceMotion = state.settings.reduceMotion || state.settings.performanceMode;
   toggleClassIfChanged(document.body, "reduce-motion", reduceMotion);
@@ -17538,7 +17539,7 @@ const performanceHealthCheckDefinitions = [
     ),
     meta: () => {
       if (!state.settings.backgroundImage) return "No image";
-      if (state.settings.backgroundEffects !== "flat") return "Glass";
+      if (state.settings.backgroundEffects !== "flat") return optionLabel(backgroundEffectsOptions, state.settings.backgroundEffects, state.settings.backgroundEffects);
       return `${state.settings.backgroundOpacity}% opacity`;
     },
     updates: () => ({
