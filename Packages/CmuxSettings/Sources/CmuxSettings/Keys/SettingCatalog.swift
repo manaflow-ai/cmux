@@ -31,6 +31,10 @@ public struct SettingCatalog: SettingCatalogSection {
     public let ui = UICatalogSection()
     public let automation = AutomationCatalogSection()
     public let browser = BrowserCatalogSection()
+    /// Settings for the built-in markdown viewer (the `markdown.*` keys).
+    public let markdown = MarkdownCatalogSection()
+    /// Settings for the built-in plain-text file editor (the `fileEditor.*` keys).
+    public let fileEditor = FileEditorCatalogSection()
     public let betaFeatures = BetaFeaturesCatalogSection()
     public let shortcuts = KeyboardShortcutsCatalogSection()
     public let integrations = IntegrationsCatalogSection()

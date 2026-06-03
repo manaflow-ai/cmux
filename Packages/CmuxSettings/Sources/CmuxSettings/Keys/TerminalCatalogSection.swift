@@ -38,6 +38,18 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.agentHibernation.maxLiveTerminals"
     )
 
+    public let showTextBoxOnNewTerminals = DefaultsKey<Bool>(
+        id: "terminal.showTextBoxOnNewTerminals",
+        defaultValue: false,
+        userDefaultsKey: "terminal.showTextBoxOnNewTerminals"
+    )
+
+    public let focusTextBoxOnNewTerminals = DefaultsKey<Bool>(
+        id: "terminal.focusTextBoxOnNewTerminals",
+        defaultValue: false,
+        userDefaultsKey: "terminal.focusTextBoxOnNewTerminals"
+    )
+
     public let textBoxMaxLines = DefaultsKey<Int>(
         id: "terminal.textBoxMaxLines",
         defaultValue: 10,
