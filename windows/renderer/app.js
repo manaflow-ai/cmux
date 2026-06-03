@@ -645,6 +645,8 @@ const state = {
   settingsQuery: "",
   inspectorSignature: "",
   settingsInspectorSignature: "",
+  settingsInspectorRenderFrame: 0,
+  deferSettingsInspectorForWorkspaceSwitch: false,
   settingsScrollResetPending: false,
   settingsSearchAutoScrollQuery: "",
   browserProfiles: [{ id: "system", label: t("browser.systemDefault"), browser: t("browser.system"), profileName: t("browser.defaultProfile") }],
@@ -3945,7 +3947,12 @@ function render(previousState) {
   renderWorkspaces();
   renderSurfaceTabs(workspace);
   renderPanes(workspace);
-  renderInspector();
+  const deferSettingsInspector = Boolean(
+    state.deferSettingsInspectorForWorkspaceSwitch
+    && state.inspectorMode === "settings"
+  );
+  state.deferSettingsInspectorForWorkspaceSwitch = false;
+  renderInspector({ deferSettings: deferSettingsInspector });
   renderPalette();
   announceNewAttention(previousState, state.data);
   recordRenderDuration(performance.now() - renderStartedAt);
@@ -8640,7 +8647,15 @@ function ensureBrowser(panel, body) {
   updateNavState();
 }
 
-function renderInspector() {
+function scheduleSettingsInspectorRender(options = {}) {
+  if (state.settingsInspectorRenderFrame) return;
+  state.settingsInspectorRenderFrame = requestAnimationFrame(() => {
+    state.settingsInspectorRenderFrame = 0;
+    renderSettingsInspector(options);
+  });
+}
+
+function renderInspector(options = {}) {
   if (!state.inspectorMode) {
     state.inspectorSignature = "";
     return;
@@ -8677,6 +8692,10 @@ function renderInspector() {
     }));
   } else if (state.inspectorMode === "settings") {
     state.inspectorSignature = "settings";
+    if (options.deferSettings && elements.inspectorBody.querySelector(".settings-react-host")) {
+      scheduleSettingsInspectorRender({ ifChanged: true });
+      return;
+    }
     renderSettingsInspector({ ifChanged: true });
   } else {
     const signature = inspectorContentSignature();
@@ -16998,6 +17017,7 @@ function optimisticFocusWorkspace(workspaceId, options = {}) {
     else render();
   };
   if (state.data.activeWorkspaceId !== workspaceId) {
+    state.deferSettingsInspectorForWorkspaceSwitch = true;
     state.data.activeWorkspaceId = workspaceId;
     refreshAppStateSignature();
     renderFocusChange();
@@ -17020,6 +17040,9 @@ function optimisticFocusPanel(panelId, options = {}) {
   const zoomChanged = clearDifferentZoomedPanelOnFocus(found.workspace, panelId);
   found.workspace.activePanelId = panelId;
   state.data.activeWorkspaceId = found.workspace.id;
+  if (previousWorkspaceId !== found.workspace.id) {
+    state.deferSettingsInspectorForWorkspaceSwitch = true;
+  }
   const changed = previousWorkspaceId !== found.workspace.id
     || previousPanelId !== panelId
     || previousFocusedPanelId !== panelId
