@@ -127,7 +127,7 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
   };
 
   function makeItem(fileDiff: any, patchPrefix: string | undefined): DiffItem | undefined {
-    const result = appendFileDiffToModel(model, fileDiff, patchPrefix, options.getCollapsed());
+    const result = appendFileDiffToModel(model, fileDiff, patchPrefix, options.getCollapsed(), options.label("untitled"));
     if (result?.renamedItem) {
       options.onRename(result.renamedItem);
     }
@@ -274,11 +274,12 @@ function appendFileDiffToModel(
   fileDiff: any,
   patchPrefix: string | undefined,
   collapsed: boolean,
+  fallbackFileName: string,
 ): { item: DiffItem; renamedItem?: RenameDiffItem } | null {
   if (!fileDiff) {
     return null;
   }
-  const path = fileName(fileDiff);
+  const path = fileName(fileDiff, fallbackFileName);
   const treePath = patchPrefix == null ? path : `${patchPrefix}/${path}`;
   const previousState = path.length === 0 ? undefined : model.pathStateByTreePath.get(treePath);
   const renamedItem = previousState == null ? undefined : moveCurrentPathItemToPrevious(model, treePath, previousState);

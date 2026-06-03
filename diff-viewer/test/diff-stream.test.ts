@@ -56,3 +56,37 @@ test("streamPatch replaces already-flushed repeated-path items immutably", async
   expect(batches[0][0].id).toBe("README.md");
   expect(batches[1][0].id).toBe("README.md?2");
 });
+
+test("streamPatch uses localized fallback for unnamed file tree paths", async () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>");
+  (globalThis as any).document = dom.window.document;
+  (globalThis as any).window = dom.window;
+  (globalThis as any).fetch = () => Promise.resolve({
+    ok: true,
+    text: () => Promise.resolve("patch"),
+  });
+  dom.window.document.hasFocus = () => false;
+
+  const label = createDiffViewerLabelResolver({ untitled: "Localized untitled" });
+  const treePaths: string[][] = [];
+
+  await streamPatch({
+    getCollapsed: () => false,
+    initialFileTreeRowCount: 1,
+    label,
+    onBatch: () => {},
+    onComplete: () => {},
+    onMetrics: () => {},
+    onRename: () => {},
+    onTreeSource: (source) => treePaths.push(source.paths),
+    parsePatchFiles: () => [{
+      files: [
+        { type: "modified", hunks: [] },
+      ],
+    }],
+    patchURL: "/patch.diff",
+    processFile: (patchText) => ({ name: patchText, type: "modified", hunks: [] }),
+  });
+
+  expect(treePaths.at(-1)).toEqual(["Localized untitled"]);
+});
