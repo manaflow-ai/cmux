@@ -13448,7 +13448,7 @@ function renderSettingsChrome(host) {
       state.settingsQuery = query;
       const isSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
       state.settingsSearchResultText = isSearching ? t("settings.searching") : "";
-      if (isSearching) queueSettingsSearchAutoScroll();
+      if (!wasSearching && isSearching) queueSettingsSearchAutoScroll();
       if (wasSearching !== isSearching) {
         state.settingsSearchFocusPending = true;
         scheduleSettingsInspectorRender({ resetScroll: true });
@@ -13484,7 +13484,7 @@ function settingsSearch() {
     const isSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
     state.settingsSearchResultText = isSearching ? t("settings.searching") : "";
     setSettingsSearchResultText(state.settingsSearchResultText);
-    if (isSearching) queueSettingsSearchAutoScroll();
+    if (!wasSearching && isSearching) queueSettingsSearchAutoScroll();
     if (wasSearching !== isSearching) {
       state.settingsSearchFocusPending = true;
       scheduleSettingsInspectorRender({ resetScroll: true });
