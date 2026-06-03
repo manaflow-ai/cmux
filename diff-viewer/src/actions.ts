@@ -8,7 +8,7 @@ export function resolveDiffNavigationURL(rawURL: string): string {
       (target.protocol === "http:" || target.protocol === "https:")
     ) {
       const rest = target.pathname.split("/").filter(Boolean).slice(1).join("/");
-      return `cmux-diff-viewer://${window.location.host}/${rest}${target.search}${target.hash}`;
+      return `cmux-diff-viewer://${window.location.host}/${rest}`;
     }
     return target.href;
   } catch {

@@ -226,6 +226,7 @@ export function App({ config, initialStatus }: ConfigProps) {
               <WorkerRenderOptionsSync highlighterOptions={highlighterOptions} />
               <CodeView
                 ref={codeViewRef}
+                className="code-view-root"
                 containerRef={viewerContainerRef}
                 items={state.items}
                 options={codeViewOptions(state.options, appearance)}

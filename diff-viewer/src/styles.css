@@ -521,6 +521,18 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   border-bottom: 1px solid var(--cmux-diff-border);
   background: transparent;
 }
+.code-view-root {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  overflow-y: auto;
+  overflow-x: clip;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+  contain: strict;
+}
 @media (max-width: 520px) {
   #content,
   body[data-files-hidden="true"] #content {

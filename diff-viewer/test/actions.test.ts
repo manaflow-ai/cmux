@@ -77,13 +77,13 @@ test("copyGitApplyCommand fails when the textarea fallback cannot copy", async (
   await expect(copyGitApplyCommand("/patch.diff", label, textarea)).rejects.toThrow("Clipboard copy failed");
 });
 
-test("resolveDiffNavigationURL preserves query and fragment for custom scheme rewrites", () => {
+test("resolveDiffNavigationURL strips query and fragment for custom scheme rewrites", () => {
   const dom = new JSDOM("<!doctype html><html><body></body></html>", {
     url: "cmux-diff-viewer://local/current",
   });
   (globalThis as any).window = dom.window;
 
   expect(resolveDiffNavigationURL("https://example.com/diff/target?source=worktree#file")).toBe(
-    "cmux-diff-viewer://local/target?source=worktree#file",
+    "cmux-diff-viewer://local/target",
   );
 });
