@@ -182,76 +182,40 @@ enum TerminalHardwareKeyResolver {
         }
     }
 
-    static func data(input: String, modifierFlags: UIKeyModifierFlags) -> Data? {
-        let normalizedFlags = modifierFlags.intersection(supportedModifierFlags)
-
-        switch (input, normalizedFlags) {
-        case (UIKeyCommand.inputLeftArrow, [.alternate]):
-            return Data([0x1B, 0x62])
-        case (UIKeyCommand.inputRightArrow, [.alternate]):
-            return Data([0x1B, 0x66])
-        case (UIKeyCommand.inputUpArrow, []):
-            return Data([0x1B, 0x5B, 0x41])
-        case (UIKeyCommand.inputDownArrow, []):
-            return Data([0x1B, 0x5B, 0x42])
-        case (UIKeyCommand.inputRightArrow, []):
-            return Data([0x1B, 0x5B, 0x43])
-        case (UIKeyCommand.inputLeftArrow, []):
-            return Data([0x1B, 0x5B, 0x44])
-        case (UIKeyCommand.inputHome, []):
-            return Data([0x1B, 0x5B, 0x48])
-        case (UIKeyCommand.inputEnd, []):
-            return Data([0x1B, 0x5B, 0x46])
-        case (UIKeyCommand.inputPageUp, []):
-            return Data([0x1B, 0x5B, 0x35, 0x7E])
-        case (UIKeyCommand.inputPageDown, []):
-            return Data([0x1B, 0x5B, 0x36, 0x7E])
-        case (UIKeyCommand.inputDelete, []):
-            return Data([0x1B, 0x5B, 0x33, 0x7E])
-        case (UIKeyCommand.inputDelete, [.alternate]):
-            return Data([0x1B, 0x7F])
-        case (UIKeyCommand.inputEscape, []):
-            return Data([0x1B])
-        case ("\t", []):
-            return Data([0x09])
-        case ("\t", [.shift]):
-            return Data([0x1B, 0x5B, 0x5A])
-        case let (input, flags) where flags == [.control] || flags == [.control, .shift]:
-            return controlCharacter(for: input)
-        default:
-            return nil
+    /// Maps a `UIKeyCommand.input*` string to a platform-neutral special key.
+    /// Returns `nil` for ordinary character inputs.
+    private static func specialKey(for input: String) -> TerminalSpecialKey? {
+        switch input {
+        case UIKeyCommand.inputUpArrow: return .upArrow
+        case UIKeyCommand.inputDownArrow: return .downArrow
+        case UIKeyCommand.inputLeftArrow: return .leftArrow
+        case UIKeyCommand.inputRightArrow: return .rightArrow
+        case UIKeyCommand.inputHome: return .home
+        case UIKeyCommand.inputEnd: return .end
+        case UIKeyCommand.inputPageUp: return .pageUp
+        case UIKeyCommand.inputPageDown: return .pageDown
+        case UIKeyCommand.inputDelete: return .delete
+        case UIKeyCommand.inputEscape: return .escape
+        case "\t": return .tab
+        default: return nil
         }
     }
 
-    private static func controlCharacter(for input: String) -> Data? {
-        switch input {
-        case " ":
-            return Data([0x00])
-        case "2":
-            return Data([0x00])
-        case "3":
-            return Data([0x1B])
-        case "4":
-            return Data([0x1C])
-        case "5":
-            return Data([0x1D])
-        case "6":
-            return Data([0x1E])
-        case "7":
-            return Data([0x1F])
-        case "/":
-            return Data([0x1F])
-        case "?":
-            return Data([0x7F])
-        default:
-            break
+    /// Translates `UIKeyModifierFlags` into the kit's platform-neutral set.
+    private static func kitModifiers(_ flags: UIKeyModifierFlags) -> TerminalKeyModifier {
+        var result: TerminalKeyModifier = []
+        if flags.contains(.shift) { result.insert(.shift) }
+        if flags.contains(.control) { result.insert(.control) }
+        if flags.contains(.alternate) { result.insert(.alternate) }
+        return result
+    }
+
+    static func data(input: String, modifierFlags: UIKeyModifierFlags) -> Data? {
+        let modifiers = kitModifiers(modifierFlags)
+        if let key = specialKey(for: input) {
+            return TerminalKeyEncoder.encode(specialKey: key, modifiers: modifiers)
         }
-
-        guard let scalar = input.uppercased().unicodeScalars.first,
-              input.unicodeScalars.count == 1 else { return nil }
-
-        guard (0x40...0x5F).contains(scalar.value) else { return nil }
-        return Data([UInt8(scalar.value & 0x1F)])
+        return TerminalKeyEncoder.encode(character: input, modifiers: modifiers)
     }
 }
 
