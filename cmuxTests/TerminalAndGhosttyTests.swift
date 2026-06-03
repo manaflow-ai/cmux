@@ -1289,6 +1289,31 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
         )
     }
 
+    func testVimKeysResolveUnderNonASCIIKeyboardLayout() {
+        // Korean 2-set (두벌식) reports "ㅓ" for the physical 'j' key (keyCode 38)
+        // and "ㅏ" for 'k' (keyCode 40). Copy-mode vim keys must still resolve to a
+        // scroll action via the ASCII-capable layout fallback, exactly as they do on
+        // an ASCII layout — without forcing the user to switch input sources.
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 38,
+                charactersIgnoringModifiers: "ㅓ",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .scrollLines(1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 40,
+                charactersIgnoringModifiers: "ㅏ",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .scrollLines(-1)
+        )
+    }
+
     func testCapsLockDoesNotBlockLetterMappings() {
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
