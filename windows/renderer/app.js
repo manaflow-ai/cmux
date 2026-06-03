@@ -4110,6 +4110,26 @@ function paneCreationActionTitle(baseTitle, readyHint = "") {
   return [titleSentence, queueLabel, readyHint].filter(Boolean).join(" ");
 }
 
+function paneCreationBusyLabel(type = "") {
+  return type === "browser" ? "Opening" : "Starting";
+}
+
+function paneCreationButtonBaseLabel(button) {
+  const label = button?.querySelector?.(".tool-label");
+  if (!label) return "";
+  if (!button.dataset.paneCreationBaseLabel) {
+    button.dataset.paneCreationBaseLabel = label.textContent || "";
+  }
+  return button.dataset.paneCreationBaseLabel;
+}
+
+function updatePaneCreationButtonLabel(button, type, creating) {
+  const label = button?.querySelector?.(".tool-label");
+  if (!label) return;
+  const next = creating ? paneCreationBusyLabel(type) : paneCreationButtonBaseLabel(button);
+  setTextIfChanged(label, next);
+}
+
 function paneCreationButtonBaseTitle(button) {
   if (!button) return "Add pane";
   if (!button.dataset.paneCreationBaseTitle) {
@@ -4130,6 +4150,7 @@ function updatePaneCreationButtonState(button) {
   setDisabledIfChanged(button, disabled);
   toggleClassIfChanged(button, "is-creating", creating && !disabled);
   toggleClassIfChanged(button, "is-waiting", waiting && !disabled);
+  updatePaneCreationButtonLabel(button, buttonType, creating && !disabled);
   setTitleIfChanged(button, title);
   setAttributeIfChanged(button, "aria-label", title);
 }
@@ -5180,7 +5201,7 @@ function updateSurfaceAddButtonState(button, config) {
   const addKind = button.dataset.addKind || "";
   const creating = paneCreationOperationCount(addKind) > 0;
   const waiting = creating && paneCreationOperationWaiting(addKind);
-  setTextIfChanged(parts.label, config.label);
+  setTextIfChanged(parts.label, creating && !disabled ? paneCreationBusyLabel(addKind) : config.label);
   setDisabledIfChanged(button, disabled);
   toggleClassIfChanged(button, "is-creating", creating && !disabled);
   toggleClassIfChanged(button, "is-waiting", waiting && !disabled);

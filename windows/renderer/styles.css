@@ -1347,6 +1347,11 @@ body.reduce-motion *::after {
   background: color-mix(in oklch, var(--tool-accent) 14%, var(--color-pane-active) 86%);
 }
 
+.tool-button.is-creating:not(:disabled) .tool-label,
+.surface-new-tab.is-creating:not(:disabled) .surface-new-label {
+  color: var(--color-text);
+}
+
 body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
   animation: none;
 }
