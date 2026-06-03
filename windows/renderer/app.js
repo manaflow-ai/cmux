@@ -4421,6 +4421,9 @@ const commands = [
   { id: "browser.homeExternal", label: "Open Browser Home Externally", shortcut: "", run: () => openExternalBrowser(state.settings.browserHomeUrl) },
   { id: "browser.copySetup", label: "Copy Browser Setup", shortcut: "", run: () => copyBrowserSetup() },
   { id: "browser.pasteSetup", label: "Paste Browser Setup", shortcut: "", run: () => pasteBrowserSetup() },
+  { id: "browser.copyTabs", label: "Copy Active Browser Tabs", shortcut: "", run: () => copyActiveBrowserTabSession() },
+  { id: "browser.copyAllTabs", label: "Copy All Browser Tab Sessions", shortcut: "", run: () => copyBrowserTabSessions() },
+  { id: "browser.pasteTabs", label: "Paste Browser Tabs", shortcut: "", run: () => pasteBrowserTabSessions() },
   { id: "browser.newTab", label: "New Browser Tab", shortcut: "", run: () => newBrowserTabFromPanel() },
   { id: "browser.focusAddress", label: "Focus Browser Address", shortcut: "Ctrl+L", run: () => focusBrowserAddress() },
   { id: "browser.reload", label: "Reload Active Browser", shortcut: "Ctrl+R", run: () => reloadBrowserPanel() },
@@ -10629,6 +10632,7 @@ function renderSettingsInspector(options = {}) {
     );
     browserSection.append(homeActions);
     browserSection.append(recentBrowserPagesDisclosurePanel());
+    browserSection.append(browserTabSessionsDisclosurePanel());
     nodes.push(browserSection);
   }
 
@@ -12607,6 +12611,336 @@ async function pasteBrowserSetup() {
     toast("Clipboard does not contain browser setup.");
     return false;
   }
+}
+
+function browserTabSessionModelFromSnapshot(snapshot, fallbackUrl = state.settings.browserHomeUrl) {
+  const normalized = normalizeBrowserTabSnapshot(snapshot, fallbackUrl);
+  const activeIndex = Math.max(0, normalized.tabs.findIndex((tab) => tab.id === normalized.activeTabId));
+  return {
+    activeIndex,
+    tabs: normalized.tabs.map((tab) => ({
+      title: tab.title || browserTabTitle(tab.url),
+      url: tab.url
+    }))
+  };
+}
+
+function browserTabSessionSnapshotFromValue(value, fallbackUrl = state.settings.browserHomeUrl) {
+  const source = typeof value === "string" ? { url: value } : importedObject(value);
+  if (!source) return null;
+  const hasTabList = Array.isArray(source.tabs);
+  if (!hasTabList && !source.url && !source.value) return null;
+  const rawTabs = hasTabList ? source.tabs : [source];
+  const tabs = [];
+  for (const raw of rawTabs) {
+    const entry = typeof raw === "string" ? { url: raw } : raw;
+    const tab = normalizeBrowserTab(entry, fallbackUrl);
+    if (tab) tabs.push(tab);
+  }
+  if (tabs.length === 0) return null;
+  let activeIndex = Number.isInteger(Number(source.activeIndex)) ? Number(source.activeIndex) : -1;
+  if (activeIndex < 0 && source.activeTabId) {
+    activeIndex = rawTabs.findIndex((raw) => String(raw?.id || "") === String(source.activeTabId));
+  }
+  activeIndex = Math.max(0, Math.min(tabs.length - 1, activeIndex));
+  return normalizeBrowserTabSnapshot({
+    activeTabId: tabs[activeIndex]?.id || tabs[0]?.id || "",
+    tabs
+  }, fallbackUrl);
+}
+
+function browserTabSessionActiveTab(snapshot) {
+  const normalized = normalizeBrowserTabSnapshot(snapshot, state.settings.browserHomeUrl);
+  return normalized.tabs.find((tab) => tab.id === normalized.activeTabId) || normalized.tabs[0] || null;
+}
+
+function browserTabSessionCountLabel(snapshot) {
+  const count = normalizeBrowserTabSnapshot(snapshot, state.settings.browserHomeUrl).tabs.length;
+  return `${count} tab${count === 1 ? "" : "s"}`;
+}
+
+function browserTabSessionEntriesTabCount(entries = browserTabSessionEntries()) {
+  return entries.reduce((sum, entry) => sum + normalizeBrowserTabSnapshot(entry.snapshot, entry.activeUrl).tabs.length, 0);
+}
+
+function browserTabSessionsMeta(entries = browserTabSessionEntries()) {
+  return `${entries.length} panes / ${browserTabSessionEntriesTabCount(entries)} tabs`;
+}
+
+function browserTabSessionEntries() {
+  const entries = [];
+  for (const workspace of state.data?.workspaces || []) {
+    for (const panel of workspace.panels || []) {
+      if (panel.type !== "browser" || isPendingPanel(panel)) continue;
+      const fallbackUrl = panel.url || state.settings.browserHomeUrl;
+      const snapshot = browserTabSnapshotForPanelId(panel.id, fallbackUrl);
+      const activeTab = browserTabSessionActiveTab(snapshot);
+      const label = panel.title || hostnameOf(activeTab?.url || fallbackUrl) || "Browser tabs";
+      entries.push({
+        id: panel.id,
+        panel,
+        workspace,
+        label,
+        snapshot,
+        activeUrl: activeTab?.url || fallbackUrl,
+        activeHost: hostnameOf(activeTab?.url || fallbackUrl) || activeTab?.url || fallbackUrl
+      });
+    }
+  }
+  return entries;
+}
+
+function browserTabSessionEntryForPanel(panel = focusedPanel()) {
+  const target = resolveBrowserPanel(panel);
+  if (!target) return null;
+  const found = findPanelState(target.id);
+  const fallbackUrl = target.url || state.settings.browserHomeUrl;
+  const snapshot = browserTabSnapshotForPanelId(target.id, fallbackUrl);
+  const activeTab = browserTabSessionActiveTab(snapshot);
+  return {
+    id: target.id,
+    panel: target,
+    workspace: found?.workspace || activeWorkspace(),
+    label: target.title || hostnameOf(activeTab?.url || fallbackUrl) || "Browser tabs",
+    snapshot,
+    activeUrl: activeTab?.url || fallbackUrl,
+    activeHost: hostnameOf(activeTab?.url || fallbackUrl) || activeTab?.url || fallbackUrl
+  };
+}
+
+function browserTabSessionPayload(entry) {
+  const model = browserTabSessionModelFromSnapshot(entry.snapshot, entry.activeUrl);
+  return {
+    label: entry.label,
+    workspace: entry.workspace?.title || "Workspace",
+    activeUrl: entry.activeUrl,
+    ...model
+  };
+}
+
+function browserTabSessionPayloadEnvelope(entry) {
+  const session = browserTabSessionPayload(entry);
+  return {
+    version: 1,
+    type: "cmux-browser-tab-session",
+    summary: {
+      label: session.label,
+      tabs: session.tabs.length,
+      active: session.tabs[session.activeIndex]?.url || session.activeUrl
+    },
+    session
+  };
+}
+
+function browserTabSessionsPayloadEnvelope(entries = browserTabSessionEntries()) {
+  const sessions = entries.map(browserTabSessionPayload);
+  return {
+    version: 1,
+    type: "cmux-browser-tab-sessions",
+    summary: {
+      sessions: sessions.length,
+      tabs: sessions.reduce((sum, session) => sum + session.tabs.length, 0)
+    },
+    sessions
+  };
+}
+
+async function copyBrowserTabPayload(payload, toastText, fallbackTitle, fallbackMessage) {
+  const text = JSON.stringify(payload, null, 2);
+  if (await writeClipboardText(text)) {
+    toast(toastText);
+    return true;
+  }
+  await showTextDialog({
+    title: fallbackTitle,
+    message: fallbackMessage,
+    value: text,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+async function copyActiveBrowserTabSession(panel = focusedPanel()) {
+  const entry = browserTabSessionEntryForPanel(panel);
+  if (!entry) {
+    toast("Focus a browser pane first.");
+    return false;
+  }
+  return copyBrowserTabPayload(
+    browserTabSessionPayloadEnvelope(entry),
+    "Browser tabs copied.",
+    "Browser tabs",
+    "Clipboard access is unavailable. The active browser tabs are shown below."
+  );
+}
+
+function copyBrowserTabSessionByPanelId(panelId) {
+  const panel = findPanelState(panelId)?.panel || null;
+  return copyActiveBrowserTabSession(panel);
+}
+
+async function copyBrowserTabSessions() {
+  const entries = browserTabSessionEntries();
+  if (entries.length === 0) {
+    toast("Open a browser pane before copying tab sessions.");
+    return false;
+  }
+  return copyBrowserTabPayload(
+    browserTabSessionsPayloadEnvelope(entries),
+    "Browser tab sessions copied.",
+    "Browser tab sessions",
+    "Clipboard access is unavailable. The browser tab sessions are shown below."
+  );
+}
+
+function browserTabSessionItemsFromPayload(payload) {
+  const parsed = importedObject(payload);
+  if (!parsed) return [];
+  const items = [];
+  const pushSession = (value, label = "Browser tabs") => {
+    const snapshot = browserTabSessionSnapshotFromValue(value);
+    if (!snapshot) return;
+    items.push({
+      label: String(value?.label || label || "Browser tabs").trim().slice(0, 80) || "Browser tabs",
+      snapshot
+    });
+  };
+  if (Array.isArray(parsed.sessions)) {
+    parsed.sessions.forEach((session, index) => pushSession(session, `Browser session ${index + 1}`));
+  } else if (importedObject(parsed.session)) {
+    pushSession(parsed.session, parsed.session.label || parsed.summary?.label || "Browser tabs");
+  } else if (Array.isArray(parsed.tabs)) {
+    pushSession(parsed, parsed.label || "Browser tabs");
+  }
+  const browserTabs = importedObject(parsed.browserTabs || parsed.browserTabSnapshots);
+  if (browserTabs) {
+    let index = 0;
+    for (const snapshot of Object.values(browserTabs)) {
+      index += 1;
+      pushSession(snapshot, `Browser session ${index}`);
+    }
+  }
+  return items;
+}
+
+function applyBrowserTabSessionToPanel(panel, item) {
+  const target = resolveBrowserPanel(panel);
+  if (!target) {
+    toast("Focus a browser pane first.");
+    return false;
+  }
+  const snapshot = normalizeBrowserTabSnapshot(item?.snapshot, target.url || state.settings.browserHomeUrl);
+  const previous = browserTabSessionModelFromSnapshot(browserTabSnapshotForPanelId(target.id, target.url || state.settings.browserHomeUrl));
+  const next = browserTabSessionModelFromSnapshot(snapshot, target.url || state.settings.browserHomeUrl);
+  if (stableJson(previous) === stableJson(next)) {
+    toast("Browser tabs already match.");
+    return false;
+  }
+  const activeTab = browserTabSessionActiveTab(snapshot);
+  state.browserTabSnapshots.set(target.id, snapshot);
+  saveBrowserTabSnapshots(state.browserTabSnapshots);
+  const session = state.browserViews.get(target.id);
+  if (session) {
+    session.tabs = snapshot.tabs.map((tab) => ({ ...tab }));
+    session.activeTabId = snapshot.activeTabId;
+    if (session.address && activeTab?.url && session.address.value !== activeTab.url) {
+      session.address.value = activeTab.url;
+    }
+    clearDeferredBrowserSession(session);
+    if (session.view && activeTab?.url) {
+      const sourceUrl = browserViewSourceUrl(activeTab.url, state.settings.browserHomeUrl);
+      if (session.view.src !== sourceUrl) {
+        session.content?.classList?.remove("has-loaded");
+        session.setLoading?.(true);
+        session.setStatus?.(browserLoadingStatusText);
+        session.view.src = sourceUrl;
+      }
+    }
+    session.updateNavState?.();
+    renderBrowserTabs(session);
+  }
+  if (activeTab?.url) queueBrowserUrlSync(target.id, activeTab.url);
+  focusPanel(target.id);
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast(`Browser tabs applied (${browserTabSessionCountLabel(snapshot)}).`);
+  return true;
+}
+
+async function createBrowserTabSessionPane(item, workspaceId = activeWorkspace()?.id) {
+  if (!workspaceId) {
+    toast("Open a workspace before restoring browser tabs.");
+    return null;
+  }
+  const snapshot = normalizeBrowserTabSnapshot(item?.snapshot, state.settings.browserHomeUrl);
+  const activeTab = browserTabSessionActiveTab(snapshot);
+  return createPanel("browser", "right", {
+    workspaceId,
+    url: activeTab?.url || state.settings.browserHomeUrl,
+    browserTabs: snapshot
+  });
+}
+
+async function duplicateBrowserTabSessionByPanelId(panelId) {
+  const entry = browserTabSessionEntries().find((candidate) => candidate.id === panelId);
+  if (!entry) {
+    toast("Browser tab session not found.");
+    return false;
+  }
+  try {
+    const created = await createBrowserTabSessionPane({ label: entry.label, snapshot: entry.snapshot }, entry.workspace?.id);
+    if (!created) return false;
+    toast("Browser tab session duplicated.");
+    return true;
+  } catch {
+    toast("Could not duplicate browser tab session.");
+    return false;
+  }
+}
+
+async function pasteBrowserTabSessions() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  let parsed = null;
+  try {
+    parsed = JSON.parse(clipboard);
+  } catch {
+    toast("Clipboard does not contain browser tabs.");
+    return false;
+  }
+  const items = browserTabSessionItemsFromPayload(parsed);
+  if (items.length === 0) {
+    toast("Clipboard does not contain browser tabs.");
+    return false;
+  }
+  if (items.length === 1) {
+    const target = resolveBrowserPanel(focusedPanel());
+    if (target) return applyBrowserTabSessionToPanel(target, items[0]);
+    const created = await createBrowserTabSessionPane(items[0]);
+    if (!created) return false;
+    toast(`Browser tabs restored (${browserTabSessionCountLabel(items[0].snapshot)}).`);
+    return true;
+  }
+  const workspace = activeWorkspace();
+  if (!workspace) {
+    toast("Open a workspace before restoring browser tabs.");
+    return false;
+  }
+  let restored = 0;
+  for (const item of items) {
+    const created = await createBrowserTabSessionPane(item, workspace.id);
+    if (created) restored += 1;
+  }
+  if (restored === 0) {
+    toast("No browser tab sessions restored.");
+    return false;
+  }
+  toast(`Restored ${restored} browser tab sessions.`);
+  return true;
 }
 
 function scheduleBrowserSettingsPreviewRefresh() {
@@ -14832,6 +15166,7 @@ function ensureSettingsDisclosureContent(disclosure) {
     "background-presets": backgroundPresetGrid,
     "browser-home-presets": browserHomePresetGrid,
     "browser-recent-pages": recentBrowserPagesSettings,
+    "browser-tab-sessions": browserTabSessionsSettings,
     "command-snippets": commandSnippetsSettings,
     "data-recent-commands": recentCommandsSettings,
     "data-storage-breakdown": dataStorageBreakdownPanel,
@@ -15086,6 +15421,18 @@ function recentBrowserPagesDisclosurePanel() {
       count: state.recentBrowserPages.length,
       limit: recentBrowserPagesLimit
     })
+  });
+}
+
+function browserTabSessionsDisclosurePanel() {
+  const entries = browserTabSessionEntries();
+  return settingsDisclosurePanel({
+    className: "browser-tab-sessions-disclosure",
+    content: "browser-tab-sessions",
+    searchTerms: "browser tabs sessions saved restore duplicate copy paste clipboard json",
+    title: "Browser tab sessions",
+    body: "Copy, paste, and duplicate saved browser tab groups.",
+    meta: browserTabSessionsMeta(entries)
   });
 }
 
@@ -17540,6 +17887,65 @@ function refreshRecentBrowserHomeActions() {
   }
 }
 
+function browserTabSessionsSettings() {
+  const section = document.createElement("div");
+  section.className = "recent-folder-list";
+  section.dataset.settingsSearch = normalizeSettingsQuery("browser tab sessions saved restore duplicate copy paste clipboard json active pane");
+  const entries = browserTabSessionEntries();
+
+  const header = document.createElement("div");
+  header.className = "recent-folder-header";
+  const title = document.createElement("span");
+  title.textContent = "Browser tab sessions";
+  const copyAll = settingsActionButton("Copy all", copyBrowserTabSessions, "", "browser tab sessions copy all saved clipboard json");
+  copyAll.disabled = entries.length === 0;
+  copyAll.title = copyAll.disabled ? "Open a browser pane before copying tab sessions." : "Copy all browser tab sessions as JSON.";
+  const paste = settingsActionButton("Paste", pasteBrowserTabSessions, "", "browser tab sessions paste restore clipboard json");
+  paste.title = "Paste copied browser tabs. Applies to the focused browser, or restores panes when none is focused.";
+  const headerActions = document.createElement("div");
+  headerActions.className = "recent-folder-header-actions";
+  headerActions.append(copyAll, paste);
+  header.append(title, headerActions);
+  section.append(header);
+
+  if (entries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "recent-folder-empty";
+    empty.textContent = "Open browser panes and their tab sessions will appear here.";
+    section.append(empty);
+    return section;
+  }
+
+  for (const entry of entries) {
+    const card = document.createElement("div");
+    card.className = "recent-folder-card";
+    card.dataset.settingsSearch = normalizeSettingsQuery(`browser tab session saved restore duplicate copy paste clipboard json ${entry.label} ${entry.workspace?.title || ""} ${entry.activeUrl}`);
+    const text = document.createElement("div");
+    text.className = "recent-folder-text";
+    const name = document.createElement("div");
+    name.className = "recent-folder-name";
+    name.textContent = entry.label;
+    name.title = entry.activeUrl;
+    const path = document.createElement("div");
+    path.className = "recent-folder-path";
+    path.textContent = `${entry.workspace?.title || "Workspace"} / ${browserTabSessionCountLabel(entry.snapshot)} / ${entry.activeHost}`;
+    path.title = entry.activeUrl;
+    text.append(name, path);
+
+    const actions = document.createElement("div");
+    actions.className = "recent-folder-actions command-snippet-actions is-built-in";
+    actions.append(
+      settingsActionButton("Focus", () => focusPanel(entry.id), "", `browser tab session focus active pane ${entry.label}`),
+      settingsActionButton("Copy", () => copyBrowserTabSessionByPanelId(entry.id), "", `browser tab session copy clipboard json ${entry.label}`),
+      settingsActionButton("Duplicate", () => duplicateBrowserTabSessionByPanelId(entry.id), "", `browser tab session duplicate restore open pane ${entry.label}`)
+    );
+    card.append(text, actions);
+    section.append(card);
+  }
+
+  return section;
+}
+
 function commandSnippetsSettings() {
   const wrapper = document.createElement("div");
   wrapper.className = "command-snippet-list";
@@ -19082,6 +19488,7 @@ function showToolbarMenu(event) {
   const terminalActive = panel?.type === "terminal";
   const browserActive = panel?.type === "browser";
   const latestBrowserPage = state.recentBrowserPages[0] || "";
+  const browserSessionEntries = browserTabSessionEntries();
   const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
   const terminalBackground = terminalActive ? normalizeBackgroundValue(panel.backgroundImage) : "";
   const minimizedPanes = minimizedPanelCount(workspace);
@@ -19212,8 +19619,11 @@ function showToolbarMenu(event) {
       toolbarAction("Reload active page", () => reloadBrowserPanel(panel), !browserActive, "Reload the focused browser page.", browserRequiredTitle),
       toolbarAction("Open active externally", () => openBrowserPanelExternally(panel), !browserActive, "Open the focused browser URL externally.", browserRequiredTitle),
       toolbarAction("Copy active URL", () => copyBrowserPanelUrl(panel), !browserActive, "Copy the focused browser URL.", browserRequiredTitle),
+      toolbarAction("Copy active tabs", () => copyActiveBrowserTabSession(panel), !browserActive, "Copy the focused browser tab session as JSON.", browserRequiredTitle),
+      toolbarAction("Paste browser tabs", pasteBrowserTabSessions, !workspace, "Paste copied browser tabs into the focused browser or restore them as panes.", workspaceRequiredTitle),
       toolbarAction("Open home page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: state.settings.browserHomeUrl }), !workspace, "Open the home page in a browser pane.", workspaceRequiredTitle),
       toolbarAction(latestBrowserPage ? `Open recent: ${hostnameOf(latestBrowserPage)}` : "Open recent page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: latestBrowserPage }), !latestBrowserPage || !workspace, "Open the most recent browser page.", !workspace ? workspaceRequiredTitle : "There are no recent browser pages yet."),
+      toolbarAction("Copy all tab sessions", copyBrowserTabSessions, browserSessionEntries.length === 0, "Copy all browser tab sessions as JSON.", "Open a browser pane before copying tab sessions."),
       toolbarAction("Copy browser setup", copyBrowserSetup, false, "Copy browser home, launch mode, external profile, and suspend setting as JSON."),
       toolbarAction("Paste browser setup", pasteBrowserSetup, false, "Apply copied cmux browser setup."),
       contextMenuButton("Browser settings", () => openSettingsCategory("browser"))
@@ -20151,6 +20561,46 @@ function paletteEntries() {
       shortcut: "Browser",
       search: normalizeSettingsQuery(`recent browser page web url open ${pageIndex + 1} ${hostnameOf(url)} ${url}`),
       run: () => createPanel("browser", "right", { url })
+    });
+  }
+  const browserSessions = browserTabSessionEntries();
+  entries.push({
+    id: "browser.tabs.copyAll",
+    label: "Copy all browser tab sessions",
+    meta: browserTabSessionsMeta(browserSessions),
+    shortcut: "Copy",
+    disabled: browserSessions.length === 0,
+    title: browserSessions.length === 0 ? "Open a browser pane before copying tab sessions." : "Copy all browser tab sessions as JSON.",
+    search: normalizeSettingsQuery("browser tabs sessions saved copy all clipboard json restore panes"),
+    run: copyBrowserTabSessions
+  });
+  entries.push({
+    id: "browser.tabs.paste",
+    label: "Paste browser tabs",
+    meta: "Apply to focused browser or restore panes",
+    shortcut: "Paste",
+    title: "Paste copied browser tabs.",
+    search: normalizeSettingsQuery("browser tabs sessions paste restore import clipboard json active pane"),
+    run: pasteBrowserTabSessions
+  });
+  for (const entry of browserSessions) {
+    entries.push({
+      id: `browser.tabs.copy.${entry.id}`,
+      label: `Copy browser tabs: ${entry.label}`,
+      meta: `${entry.workspace?.title || "Workspace"} / ${browserTabSessionCountLabel(entry.snapshot)}`,
+      shortcut: "Copy",
+      title: `Copy ${entry.label} browser tabs as JSON.`,
+      search: normalizeSettingsQuery(`browser tabs session copy saved clipboard json ${entry.label} ${entry.workspace?.title || ""} ${entry.activeUrl}`),
+      run: () => copyBrowserTabSessionByPanelId(entry.id)
+    });
+    entries.push({
+      id: `browser.tabs.duplicate.${entry.id}`,
+      label: `Duplicate browser tabs: ${entry.label}`,
+      meta: `${entry.workspace?.title || "Workspace"} / ${entry.activeHost}`,
+      shortcut: "Browser",
+      title: `Open a new browser pane with ${entry.label} tabs.`,
+      search: normalizeSettingsQuery(`browser tabs session duplicate restore open pane ${entry.label} ${entry.workspace?.title || ""} ${entry.activeUrl}`),
+      run: () => duplicateBrowserTabSessionByPanelId(entry.id)
     });
   }
   entries.push({
