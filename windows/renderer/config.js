@@ -26,6 +26,7 @@ export const defaultSettings = {
   addTabStyle: "compact",
   cornerStyle: "soft",
   paneDividerSize: "balanced",
+  activePaneEmphasis: "line",
   titleDetailMode: "smart",
   paneColorMarkers: false,
   focusMode: false,
@@ -375,6 +376,12 @@ export const paneDividerSizeOptions = [
   ["wide", label("paneDividerSize.wide", "Wide"), label("paneDividerSize.wide.body", "Easier split resizing")]
 ];
 
+export const activePaneEmphasisOptions = [
+  ["quiet", label("activePaneEmphasis.quiet", "Quiet"), label("activePaneEmphasis.quiet.body", "Subtle current pane")],
+  ["line", label("activePaneEmphasis.line", "Line"), label("activePaneEmphasis.line.body", "Accent edge")],
+  ["strong", label("activePaneEmphasis.strong", "Strong"), label("activePaneEmphasis.strong.body", "High-contrast focus")]
+];
+
 export const statusDetailOptions = [
   ["compact", label("statusDetail.compact", "Compact")],
   ["full", label("statusDetail.full", "Full")]
@@ -497,6 +504,7 @@ export const settingsPresets = [
       addTabStyle: "compact",
       cornerStyle: "soft",
       paneDividerSize: "balanced",
+      activePaneEmphasis: "line",
       titleDetailMode: "smart",
       paneColorMarkers: false,
       focusMode: false,
@@ -548,6 +556,7 @@ export const settingsPresets = [
       addTabStyle: "compact",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
+      activePaneEmphasis: "quiet",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: false,
@@ -599,6 +608,7 @@ export const settingsPresets = [
       addTabStyle: "compact",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
+      activePaneEmphasis: "quiet",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: false,
@@ -651,6 +661,7 @@ export const settingsPresets = [
       addTabStyle: "compact",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
+      activePaneEmphasis: "quiet",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: true,
@@ -702,6 +713,7 @@ export const settingsPresets = [
       addTabStyle: "hidden",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
+      activePaneEmphasis: "quiet",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       focusMode: false,
@@ -753,6 +765,7 @@ export const settingsPresets = [
       addTabStyle: "compact",
       cornerStyle: "soft",
       paneDividerSize: "wide",
+      activePaneEmphasis: "strong",
       titleDetailMode: "compact",
       paneColorMarkers: true,
       focusMode: false,
@@ -804,6 +817,7 @@ export const settingsPresets = [
       addTabStyle: "labeled",
       cornerStyle: "round",
       paneDividerSize: "balanced",
+      activePaneEmphasis: "strong",
       titleDetailMode: "detailed",
       paneColorMarkers: true,
       focusMode: false,

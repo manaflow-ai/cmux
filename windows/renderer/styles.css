@@ -2553,6 +2553,17 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   outline-color: var(--color-line);
 }
 
+.shell.active-pane-emphasis-line .pane.is-active:not(.has-attention),
+.shell.active-pane-emphasis-line .pane.is-zoomed.is-active:not(.has-attention) {
+  outline-color: color-mix(in oklch, var(--color-accent) 52%, var(--color-line) 48%);
+}
+
+.shell.active-pane-emphasis-strong .pane.is-active:not(.has-attention),
+.shell.active-pane-emphasis-strong .pane.is-zoomed.is-active:not(.has-attention) {
+  outline-color: color-mix(in oklch, var(--color-accent) 76%, var(--color-line-strong) 24%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 18%, transparent);
+}
+
 .pane.is-minimized {
   flex: 0 0 34px !important;
   min-width: 34px;
@@ -2651,8 +2662,26 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   opacity: .9;
 }
 
+.shell.active-pane-emphasis-quiet .pane.is-active:not(.has-attention) .pane-header::before {
+  opacity: .55;
+}
+
+.shell.active-pane-emphasis-strong .pane.is-active:not(.has-attention) .pane-header::before {
+  opacity: 1;
+}
+
 .shell:not(.pane-color-markers) .pane.is-active:not(.has-attention) .pane-header::before {
   opacity: 0;
+}
+
+.shell:not(.pane-color-markers).active-pane-emphasis-line .pane.is-active:not(.has-attention) .pane-header::before,
+.shell:not(.pane-color-markers).active-pane-emphasis-strong .pane.is-active:not(.has-attention) .pane-header::before {
+  background: var(--color-accent);
+  opacity: .72;
+}
+
+.shell:not(.pane-color-markers).active-pane-emphasis-strong .pane.is-active:not(.has-attention) .pane-header::before {
+  opacity: 1;
 }
 
 .shell:not(.pane-color-markers) .pane.has-attention .pane-header::before {
@@ -7508,6 +7537,15 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background: var(--color-terminal-gutter);
 }
 
+.layout-settings-preview.active-pane-line .layout-preview-pane {
+  border-color: color-mix(in oklch, var(--color-accent) 50%, var(--color-line) 50%);
+}
+
+.layout-settings-preview.active-pane-strong .layout-preview-pane {
+  border-color: color-mix(in oklch, var(--color-accent) 72%, var(--color-line-strong) 28%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 16%, transparent);
+}
+
 .layout-settings-preview.pane-header-full .layout-preview-pane {
   grid-template-rows: 24px 1fr 1fr;
 }
@@ -7536,6 +7574,14 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .layout-preview-pane-header::after {
   background: color-mix(in oklch, var(--color-text) 15%, transparent);
+}
+
+.layout-settings-preview.active-pane-line .layout-preview-pane-header::before {
+  background: color-mix(in oklch, var(--color-accent) 30%, var(--color-pane) 70%);
+}
+
+.layout-settings-preview.active-pane-strong .layout-preview-pane-header::before {
+  background: color-mix(in oklch, var(--color-accent) 48%, var(--color-pane) 52%);
 }
 
 .layout-settings-preview.pane-actions-full .layout-preview-pane-header {
