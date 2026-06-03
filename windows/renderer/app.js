@@ -3397,6 +3397,14 @@ const commands = [
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() }
 ];
 
+const paneLayoutCommandPresetIds = new Map([
+  ["layout.equalPanes", "equal"],
+  ["layout.sideBySide", "sideBySide"],
+  ["layout.stacked", "stacked"],
+  ["layout.activeWide", "activeWide"],
+  ["layout.activeTall", "activeTall"]
+]);
+
 function activeWorkspace() {
   return state.data?.workspaces.find((workspace) => workspace.id === state.data.activeWorkspaceId)
     || state.data?.workspaces[0];
@@ -13788,6 +13796,16 @@ function activePaneLayoutPresetIds(workspace = activeWorkspace()) {
   return ids;
 }
 
+function activePaneLayoutCommandIds(workspace = activeWorkspace()) {
+  const ids = new Set();
+  if (!workspace || workspace.panels.length <= 1) return ids;
+  const activePresetIds = activePaneLayoutPresetIds(workspace);
+  for (const [commandId, presetId] of paneLayoutCommandPresetIds.entries()) {
+    if (activePresetIds.has(presetId)) ids.add(commandId);
+  }
+  return ids;
+}
+
 function resetRenderStats() {
   state.renderStats = {
     count: 0,
@@ -16903,7 +16921,14 @@ function paletteEntriesForOpenSession() {
 
 function paletteEntriesSignature() {
   const parts = [];
+  const workspace = activeWorkspace();
   appendSignatureValue(parts, state.dataSignature || "");
+  if (workspace) {
+    appendSignatureValue(parts, workspace.id);
+    appendSignatureValue(parts, workspace.activePanelId);
+    appendSignatureValue(parts, workspace.splitDirection);
+    appendSignatureData(parts, state.paneTrees.get(workspace.id) || null);
+  }
   appendSignatureData(parts, state.recentFolders);
   appendSignatureData(parts, state.recentCommands);
   appendSignatureData(parts, state.recentBrowserPages);
@@ -17171,14 +17196,19 @@ function paletteEntryScore(entry, query, tokens) {
 }
 
 function paletteEntries() {
-  const entries = commands.map((command) => ({
-    id: command.id,
-    label: command.label,
-    meta: "Command",
-    shortcut: command.shortcut,
-    search: normalizeSettingsQuery(`${command.label} ${command.shortcut} command`),
-    run: command.run
-  }));
+  const activeLayoutCommandIds = activePaneLayoutCommandIds();
+  const entries = commands.map((command) => {
+    const active = activeLayoutCommandIds.has(command.id);
+    return {
+      id: command.id,
+      label: command.label,
+      meta: active ? "Active layout command" : "Command",
+      shortcut: active ? "Active" : command.shortcut,
+      active,
+      search: normalizeSettingsQuery(`${command.label} ${command.shortcut} command ${active ? "active current layout" : ""}`),
+      run: command.run
+    };
+  });
   for (const [workspaceIndex, workspace] of (state.data?.workspaces || []).entries()) {
     entries.push({
       id: `workspace.${workspace.id}`,
