@@ -10955,6 +10955,17 @@ function refreshAppearancePreview() {
     const active = button.dataset.themeChoice === state.settings.theme;
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
+    const status = button.querySelector(".theme-choice-status");
+    if (status) setTextIfChanged(status, active ? "Active" : "");
+    const theme = themePreviewOptions.find((candidate) => candidate.id === button.dataset.themeChoice);
+    if (theme) {
+      const label = optionLabel(themeOptions, theme.id, theme.id);
+      const search = normalizeSettingsQuery(`theme visual gallery preview ${active ? "active current " : ""}${label} ${theme.id}`);
+      if (button.dataset.settingsSearch !== search) {
+        button.dataset.settingsSearch = search;
+        updateSettingsSearchIndexItemSearch(button, search);
+      }
+    }
   }
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
@@ -10971,7 +10982,7 @@ function themeChoiceGrid() {
     button.type = "button";
     button.title = label;
     button.dataset.themeChoice = theme.id;
-    button.dataset.settingsSearch = normalizeSettingsQuery(`theme visual gallery preview ${label} ${theme.id}`);
+    button.dataset.settingsSearch = normalizeSettingsQuery(`theme visual gallery preview ${active ? "active current " : ""}${label} ${theme.id}`);
     button.setAttribute("aria-pressed", active ? "true" : "false");
     button.style.setProperty("--theme-preview-canvas", theme.canvas);
     button.style.setProperty("--theme-preview-pane", theme.pane);
@@ -10984,9 +10995,13 @@ function themeChoiceGrid() {
         <span class="theme-choice-pane"></span>
         <span class="theme-choice-accent"></span>
       </span>
-      <span class="theme-choice-label"></span>
+      <span class="theme-choice-label-row">
+        <span class="theme-choice-label"></span>
+        <span class="theme-choice-status"></span>
+      </span>
     `;
     button.querySelector(".theme-choice-label").textContent = label;
+    button.querySelector(".theme-choice-status").textContent = active ? "Active" : "";
     button.onclick = () => {
       const changed = updateSettings({ theme: theme.id });
       if (!changed) toast(`${label} theme already active.`);
