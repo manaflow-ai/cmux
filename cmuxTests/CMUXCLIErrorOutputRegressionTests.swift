@@ -24,11 +24,14 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     private enum JSONResponseLineError: Error, CustomStringConvertible {
         case unexpectedStdoutLine(String)
+        case unexpectedJSONValue(Any)
 
         var description: String {
             switch self {
             case let .unexpectedStdoutLine(line):
                 return "Unexpected non-JSON stdout line: \(line)"
+            case let .unexpectedJSONValue(value):
+                return "Unexpected JSON stdout value: \(value)"
             }
         }
     }
@@ -1187,14 +1190,17 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stdout)
         XCTAssertEqual(result.status, 0, result.stdout)
-        let responses = try jsonResponseLines(from: result.stdout)
-        XCTAssertEqual(responses.count, 2, result.stdout)
-        let parseError = try XCTUnwrap(responses[0]["error"] as? [String: Any])
+        let outputs = try jsonValueLines(from: result.stdout)
+        XCTAssertEqual(outputs.count, 2, result.stdout)
+        let parseErrorResponse = try XCTUnwrap(outputs[0] as? [String: Any])
+        let parseError = try XCTUnwrap(parseErrorResponse["error"] as? [String: Any])
         XCTAssertEqual(parseError["code"] as? Int, -32700)
-        XCTAssertTrue(responses[0]["id"] is NSNull, result.stdout)
-        let invalidRequestError = try XCTUnwrap(responses[1]["error"] as? [String: Any])
+        XCTAssertTrue(parseErrorResponse["id"] is NSNull, result.stdout)
+        let batchResponses = try XCTUnwrap(outputs[1] as? [[String: Any]])
+        XCTAssertEqual(batchResponses.count, 1, result.stdout)
+        let invalidRequestError = try XCTUnwrap(batchResponses[0]["error"] as? [String: Any])
         XCTAssertEqual(invalidRequestError["code"] as? Int, -32600)
-        XCTAssertTrue(responses[1]["id"] is NSNull, result.stdout)
+        XCTAssertTrue(batchResponses[0]["id"] is NSNull, result.stdout)
     }
 
     func testBrowserMCPResponseParserRejectsNonJSONStdoutLines() {
@@ -1228,17 +1234,79 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stdout)
         XCTAssertEqual(result.status, 0, result.stdout)
-        let responses = try jsonResponseLines(from: result.stdout)
-        XCTAssertEqual(responses.count, 3, result.stdout)
+        let outputs = try jsonValueLines(from: result.stdout)
+        XCTAssertEqual(outputs.count, 2, result.stdout)
 
-        let invalidElementError = try XCTUnwrap(responses[0]["error"] as? [String: Any])
+        let batchResponses = try XCTUnwrap(outputs[0] as? [[String: Any]])
+        XCTAssertEqual(batchResponses.count, 2, result.stdout)
+        let invalidElementError = try XCTUnwrap(batchResponses[0]["error"] as? [String: Any])
         XCTAssertEqual(invalidElementError["code"] as? Int, -32600)
-        XCTAssertTrue(responses[0]["id"] is NSNull, result.stdout)
-        XCTAssertEqual(responses[1]["id"] as? Int, 2)
-        XCTAssertNotNil(responses[1]["result"], result.stdout)
-        let emptyBatchError = try XCTUnwrap(responses[2]["error"] as? [String: Any])
+        XCTAssertTrue(batchResponses[0]["id"] is NSNull, result.stdout)
+        XCTAssertEqual(batchResponses[1]["id"] as? Int, 2)
+        XCTAssertNotNil(batchResponses[1]["result"], result.stdout)
+        let emptyBatchResponse = try XCTUnwrap(outputs[1] as? [String: Any])
+        let emptyBatchError = try XCTUnwrap(emptyBatchResponse["error"] as? [String: Any])
         XCTAssertEqual(emptyBatchError["code"] as? Int, -32600)
-        XCTAssertTrue(responses[2]["id"] is NSNull, result.stdout)
+        XCTAssertTrue(emptyBatchResponse["id"] is NSNull, result.stdout)
+    }
+
+    func testBrowserMCPServerSuppressesNotificationOnlyBatchResponses() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"[{"jsonrpc":"2.0","method":"notifications/initialized"}]"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, result.stdout)
+    }
+
+    func testBrowserMCPServerRejectsNonScalarJSONRPCIDs() throws {
+        let cliPath = try bundledCLIPath()
+        let testEnvironment = try browserMCPTestEnvironment()
+        defer { try? FileManager.default.removeItem(at: testEnvironment.homeURL) }
+
+        let input = [
+            #"{"jsonrpc":"2.0","id":{},"method":"ping"}"#,
+            #"[{"jsonrpc":"2.0","id":[],"method":"ping"},{"jsonrpc":"2.0","id":3,"method":"ping"}]"#,
+        ].joined(separator: "\n") + "\n"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server"],
+            environment: testEnvironment.environment,
+            stdinText: input,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let outputs = try jsonValueLines(from: result.stdout)
+        XCTAssertEqual(outputs.count, 2, result.stdout)
+
+        let objectResponse = try XCTUnwrap(outputs[0] as? [String: Any])
+        let objectError = try XCTUnwrap(objectResponse["error"] as? [String: Any])
+        XCTAssertEqual(objectError["code"] as? Int, -32600)
+        XCTAssertTrue(objectResponse["id"] is NSNull, result.stdout)
+
+        let batchResponses = try XCTUnwrap(outputs[1] as? [[String: Any]])
+        XCTAssertEqual(batchResponses.count, 2, result.stdout)
+        let arrayIDError = try XCTUnwrap(batchResponses[0]["error"] as? [String: Any])
+        XCTAssertEqual(arrayIDError["code"] as? Int, -32600)
+        XCTAssertTrue(batchResponses[0]["id"] is NSNull, result.stdout)
+        XCTAssertEqual(batchResponses[1]["id"] as? Int, 3)
+        XCTAssertNotNil(batchResponses[1]["result"], result.stdout)
     }
 
     func testBrowserMCPServerReturnsInvalidParamsForMalformedToolCall() throws {
@@ -2142,22 +2210,37 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     }
 
     private func jsonResponseLines(from output: String) throws -> [[String: Any]] {
+        try jsonValueLines(from: output)
+            .map { value -> [String: Any] in
+                guard let object = value as? [String: Any] else {
+                    throw JSONResponseLineError.unexpectedJSONValue(value)
+                }
+                return object
+            }
+    }
+
+    private func jsonValueLines(from output: String) throws -> [Any] {
         try output
             .split(separator: "\n", omittingEmptySubsequences: false)
-            .compactMap { rawLine -> [String: Any]? in
+            .compactMap { rawLine -> Any? in
                 let line = String(rawLine)
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return nil }
-                guard trimmed.hasPrefix("{") else {
+                guard trimmed.hasPrefix("{") || trimmed.hasPrefix("[") else {
                     throw JSONResponseLineError.unexpectedStdoutLine(line)
                 }
-                return try jsonObject(fromLine: line)
+                return try jsonValue(fromLine: line)
             }
     }
 
     private func jsonObject(fromLine line: String) throws -> [String: Any] {
         let data = try XCTUnwrap(line.data(using: .utf8))
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+    }
+
+    private func jsonValue(fromLine line: String) throws -> Any {
+        let data = try XCTUnwrap(line.data(using: .utf8))
+        return try JSONSerialization.jsonObject(with: data, options: [])
     }
 
     private func fakeOpenScript() -> String {

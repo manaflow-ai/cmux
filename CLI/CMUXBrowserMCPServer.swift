@@ -57,16 +57,22 @@ final class CMUXBrowserMCPServer {
                 )
                 return
             }
+            var responses: [[String: Any]] = []
             for element in batch {
                 guard let message = element as? [String: Any] else {
-                    writeError(
+                    responses.append(errorObject(
                         id: nil,
                         code: -32600,
                         message: String(localized: "cli.browserMCP.error.invalidMessage", defaultValue: "Invalid MCP message")
-                    )
+                    ))
                     continue
                 }
-                handleMessage(message)
+                if let response = handleMessageResponse(message) {
+                    responses.append(response)
+                }
+            }
+            if !responses.isEmpty {
+                writeJSON(responses)
             }
             return
         }
@@ -79,19 +85,34 @@ final class CMUXBrowserMCPServer {
     }
 
     func handleMessage(_ message: [String: Any]) {
-        let id = message["id"]
-        if id == nil {
+        if let response = handleMessageResponse(message) {
+            writeJSON(response)
+        }
+    }
+
+    func handleMessageResponse(_ message: [String: Any]) -> [String: Any]? {
+        let hasID = message.keys.contains("id")
+        let rawID = message["id"]
+        guard isValidJSONRPCID(rawID, hasID: hasID) else {
+            return errorObject(
+                id: nil,
+                code: -32600,
+                message: String(localized: "cli.browserMCP.error.invalidRequest", defaultValue: "Invalid Request")
+            )
+        }
+        let id = rawID
+        if !hasID {
             guard message["jsonrpc"] as? String == "2.0",
                   let method = message["method"] as? String else {
                 logDiagnostic("cmux browser MCP ignored invalid notification")
-                return
+                return nil
             }
             handleNotification(method: method)
-            return
+            return nil
         }
 
         guard message["jsonrpc"] as? String == "2.0" else {
-            writeError(
+            return errorObject(
                 id: id,
                 code: -32600,
                 message: String(
@@ -99,15 +120,13 @@ final class CMUXBrowserMCPServer {
                     defaultValue: "Invalid Request: jsonrpc must be \"2.0\""
                 )
             )
-            return
         }
         guard let method = message["method"] as? String else {
-            writeError(
+            return errorObject(
                 id: id,
                 code: -32600,
                 message: String(localized: "cli.browserMCP.error.invalidRequest", defaultValue: "Invalid Request")
             )
-            return
         }
 
         do {
@@ -123,11 +142,10 @@ final class CMUXBrowserMCPServer {
                 do {
                     result = try handleToolCall(params: message["params"] as? [String: Any])
                 } catch let error as CLIError {
-                    writeError(id: id, code: -32602, message: sanitizedErrorMessage(error))
-                    return
+                    return errorObject(id: id, code: -32602, message: sanitizedErrorMessage(error))
                 }
             default:
-                writeError(
+                return errorObject(
                     id: id,
                     code: -32601,
                     message: String(
@@ -135,11 +153,21 @@ final class CMUXBrowserMCPServer {
                         defaultValue: "Method not found: \(method)"
                     )
                 )
-                return
             }
-            writeResponse(id: id, result: result)
+            return responseObject(id: id, result: result)
         } catch {
-            writeError(id: id, code: -32603, message: sanitizedErrorMessage(error))
+            return errorObject(id: id, code: -32603, message: sanitizedErrorMessage(error))
+        }
+    }
+
+    func isValidJSONRPCID(_ rawID: Any?, hasID: Bool) -> Bool {
+        guard hasID else { return true }
+        guard let rawID else { return true }
+        switch rawID {
+        case is NSNull, is String, is NSNumber:
+            return true
+        default:
+            return false
         }
     }
 

@@ -27,22 +27,30 @@ extension CMUXBrowserMCPServer {
     }
 
     func writeResponse(id: Any?, result: Any) {
-        writeJSON([
-            "jsonrpc": "2.0",
-            "id": id ?? NSNull(),
-            "result": result,
-        ])
+        writeJSON(responseObject(id: id, result: result))
     }
 
     func writeError(id: Any?, code: Int, message: String) {
-        writeJSON([
+        writeJSON(errorObject(id: id, code: code, message: message))
+    }
+
+    func responseObject(id: Any?, result: Any) -> [String: Any] {
+        [
+            "jsonrpc": "2.0",
+            "id": id ?? NSNull(),
+            "result": result,
+        ]
+    }
+
+    func errorObject(id: Any?, code: Int, message: String) -> [String: Any] {
+        [
             "jsonrpc": "2.0",
             "id": id ?? NSNull(),
             "error": [
                 "code": code,
                 "message": message,
             ],
-        ])
+        ]
     }
 
     func writeJSON(_ object: Any) {
