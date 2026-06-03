@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { planPierreFileTreeRefresh } from "../src/file-tree-refresh";
+import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh } from "../src/file-tree-refresh";
 
 describe("planPierreFileTreeRefresh", () => {
   test("appends suffix paths from the same streaming source", () => {
@@ -47,5 +47,46 @@ describe("planPierreFileTreeRefresh", () => {
     expect(planPierreFileTreeRefresh(previousSource, { paths: ["a.ts"] }, ["a.ts"])).toEqual({
       kind: "reset",
     });
+  });
+});
+
+describe("applyPierreFileTreeGitStatus", () => {
+  test("uses incremental patches when the Pierre model supports them", () => {
+    const appliedPatches: unknown[] = [];
+    const setStatuses: unknown[] = [];
+    const patch = { set: [{ path: "added.ts", status: "added" }] };
+
+    applyPierreFileTreeGitStatus(
+      {
+        applyGitStatusPatch: (nextPatch) => appliedPatches.push(nextPatch),
+        setGitStatus: (gitStatus) => setStatuses.push(gitStatus),
+      },
+      {
+        gitStatus: [{ path: "added.ts", status: "added" }],
+        gitStatusPatch: patch,
+      },
+      false,
+    );
+
+    expect(appliedPatches).toEqual([patch]);
+    expect(setStatuses).toEqual([]);
+  });
+
+  test("falls back to full status replacement for appended patches on older Pierre models", () => {
+    const setStatuses: unknown[] = [];
+    const gitStatus = [{ path: "added.ts", status: "added" }];
+
+    applyPierreFileTreeGitStatus(
+      {
+        setGitStatus: (nextGitStatus) => setStatuses.push(nextGitStatus),
+      },
+      {
+        gitStatus,
+        gitStatusPatch: { set: gitStatus },
+      },
+      false,
+    );
+
+    expect(setStatuses).toEqual([gitStatus]);
   });
 });

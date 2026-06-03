@@ -6,7 +6,7 @@ import { useEffect, useReducer, useRef } from "react";
 import { copyGitApplyCommand, diffSourceDetail, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
 import { fileName, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
-import { planPierreFileTreeRefresh } from "./file-tree-refresh";
+import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh } from "./file-tree-refresh";
 import { Icon, type IconName } from "./icons";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 import {
@@ -789,11 +789,7 @@ function usePierreFileTreeSource(
       model.resetPaths(source.paths, { preparedInput });
       resetTree = true;
     }
-    if (source.gitStatusPatch && typeof (model as any).applyGitStatusPatch === "function") {
-      (model as any).applyGitStatusPatch(source.gitStatusPatch);
-    } else if (resetTree || source.statsChanged === true) {
-      model.setGitStatus(source.gitStatus as any);
-    }
+    applyPierreFileTreeGitStatus(model as any, source, resetTree);
   }, [model, preparedInput, source]);
 }
 

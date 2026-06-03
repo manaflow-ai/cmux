@@ -13,6 +13,17 @@ export type FileTreeRefreshPlan =
       kind: "reset";
     };
 
+export type FileTreeGitStatusSource = {
+  gitStatus: readonly unknown[];
+  gitStatusPatch?: unknown;
+  statsChanged?: boolean;
+};
+
+export type PierreFileTreeGitStatusModel = {
+  applyGitStatusPatch?: (patch: unknown) => void;
+  setGitStatus: (gitStatus: readonly unknown[]) => void;
+};
+
 export function planPierreFileTreeRefresh(
   previousSource: FileTreeRefreshSource | null | undefined,
   source: FileTreeRefreshSource,
@@ -34,6 +45,20 @@ export function planPierreFileTreeRefresh(
     addedPaths: paths.slice(previousPathCount, sourcePathCount),
     kind: "append",
   };
+}
+
+export function applyPierreFileTreeGitStatus(
+  model: PierreFileTreeGitStatusModel,
+  source: FileTreeGitStatusSource,
+  resetTree: boolean,
+): void {
+  if (source.gitStatusPatch && typeof model.applyGitStatusPatch === "function") {
+    model.applyGitStatusPatch(source.gitStatusPatch);
+    return;
+  }
+  if (resetTree || source.statsChanged === true || source.gitStatusPatch) {
+    model.setGitStatus(source.gitStatus);
+  }
 }
 
 function isPathPrefix(previousSource: FileTreeRefreshSource, nextSource: FileTreeRefreshSource): boolean {
