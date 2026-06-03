@@ -249,5 +249,9 @@ jobs:
       - name: Cleanup tagged app
         if: always()
         run: |
-          pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
-          rm -f "/tmp/cmux-debug-${PERF_TAG}.sock"
+          set -euo pipefail
+          CONSOLE_USER="$(stat -f %Su /dev/console)"
+          CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+          sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
+            pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
+          sudo -n rm -f "/tmp/cmux-debug-${PERF_TAG}.sock"

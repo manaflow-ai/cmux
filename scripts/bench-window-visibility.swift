@@ -279,15 +279,19 @@ private func launchApplicationExecutable(appURL: URL, bundleIdentifier: String) 
     let deadline = Date().addingTimeInterval(10)
     while Date() < deadline {
         if let app = NSRunningApplication(processIdentifier: processIdentifier) {
+            app.activate(options: [.activateAllWindows])
             return app
         }
         if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first {
+            app.activate(options: [.activateAllWindows])
             return app
         }
         Thread.sleep(forTimeInterval: 0.05)
     }
-    return NSRunningApplication(processIdentifier: processIdentifier)
+    let app = NSRunningApplication(processIdentifier: processIdentifier)
         ?? NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first
+    app?.activate(options: [.activateAllWindows])
+    return app
 }
 
 @discardableResult
