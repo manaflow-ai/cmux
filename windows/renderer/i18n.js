@@ -194,6 +194,7 @@ const windowsMessages = {
     "config.theme.blueprint": "Blueprint",
     "config.theme.harbor": "Harbor",
     "config.theme.orchid": "Orchid",
+    "config.theme.ruby": "Ruby",
     "config.theme.ember": "Ember",
     "config.theme.contrast": "High Contrast",
     "config.theme.paper": "Paper Dark",

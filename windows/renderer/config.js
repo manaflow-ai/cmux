@@ -58,6 +58,7 @@ export const themeOptions = [
   ["blueprint", label("theme.blueprint", "Blueprint")],
   ["harbor", label("theme.harbor", "Harbor")],
   ["orchid", label("theme.orchid", "Orchid")],
+  ["ruby", label("theme.ruby", "Ruby")],
   ["ember", label("theme.ember", "Ember")],
   ["contrast", label("theme.contrast", "High Contrast")],
   ["paper", label("theme.paper", "Paper Dark")]
@@ -113,6 +114,14 @@ export const themePreviewOptions = [
     accent: "oklch(74% 0.18 305)"
   },
   {
+    id: "ruby",
+    canvas: "oklch(12% 0.018 355)",
+    pane: "oklch(17% 0.018 355)",
+    rail: "oklch(15% 0.02 355)",
+    line: "oklch(34% 0.036 355)",
+    accent: "oklch(68% 0.18 350)"
+  },
+  {
     id: "ember",
     canvas: "oklch(13% 0.018 35)",
     pane: "oklch(17% 0.02 35)",
@@ -143,6 +152,7 @@ export const accentOptions = [
   "oklch(70% 0.16 145)",
   "oklch(78% 0.15 82)",
   "oklch(68% 0.18 330)",
+  "oklch(68% 0.18 350)",
   "oklch(70% 0.14 195)",
   "oklch(64% 0.17 28)",
   "oklch(74% 0.18 305)",

@@ -140,6 +140,16 @@ body.theme-orchid {
   --color-line: oklch(34% 0.035 315);
 }
 
+body.theme-ruby {
+  --color-canvas: oklch(12% 0.018 355);
+  --color-chrome: oklch(17% 0.022 355);
+  --color-rail: oklch(15% 0.02 355);
+  --color-pane: oklch(17% 0.018 355);
+  --color-pane-warm: oklch(21% 0.026 355);
+  --color-pane-active: oklch(25% 0.032 355);
+  --color-line: oklch(34% 0.036 355);
+}
+
 body.theme-ember {
   --color-canvas: oklch(13% 0.018 35);
   --color-chrome: oklch(18% 0.024 35);
