@@ -2199,10 +2199,15 @@ final class TerminalArrowNubView: UIView {
 
     private let nubSize: CGFloat = 34
     private let deadZone: CGFloat = 8
-    private let repeatInterval: TimeInterval = 0.08
+    private let repeatInterval: Duration = .milliseconds(80)
     private let innerDot = UIView()
     private var dragOrigin: CGPoint = .zero
-    private var repeatTimer: Timer?
+    /// Drives the immediate + interval arrow repeats off an injected `Clock`
+    /// (replacing the run-loop `Timer`); cancellation is wired to the gesture.
+    private let arrowRepeatService = TerminalArrowRepeatService()
+    /// The in-flight repeat stream consumer. Cancelled on direction change /
+    /// gesture end, which terminates the service stream's cadence.
+    private var repeatTask: Task<Void, Never>?
     private var lastDirection: Direction?
     private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
 
@@ -2214,6 +2219,15 @@ final class TerminalArrowNubView: UIView {
             case .down:  return Data([0x1B, 0x5B, 0x42])
             case .right: return Data([0x1B, 0x5B, 0x43])
             case .left:  return Data([0x1B, 0x5B, 0x44])
+            }
+        }
+
+        var repeatDirection: TerminalArrowRepeatService.Direction {
+            switch self {
+            case .up:    return .upArrow
+            case .down:  return .downArrow
+            case .right: return .rightArrow
+            case .left:  return .leftArrow
             }
         }
     }
@@ -2242,7 +2256,7 @@ final class TerminalArrowNubView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if repeatTimer == nil {
+        if repeatTask == nil {
             innerDot.center = CGPoint(x: bounds.midX, y: bounds.midY)
         }
     }
@@ -2268,7 +2282,6 @@ final class TerminalArrowNubView: UIView {
                 lastDirection = direction
                 stopRepeat()
                 if let direction {
-                    fireArrow(direction)
                     startRepeat(direction)
                 }
             }
@@ -2293,20 +2306,27 @@ final class TerminalArrowNubView: UIView {
         }
     }
 
-    private func fireArrow(_ direction: Direction) {
-        feedbackGenerator.impactOccurred()
-        onArrowKey?(direction.escapeSequence)
-    }
-
+    /// Consume the service's repeat stream for `direction`: it emits the first
+    /// arrow immediately and one per interval. Each emission fires haptics and
+    /// forwards the bytes on the main actor. Cancelled by ``stopRepeat()``.
     private func startRepeat(_ direction: Direction) {
-        repeatTimer = Timer.scheduledTimer(withTimeInterval: repeatInterval, repeats: true) { [weak self] _ in
-            self?.fireArrow(direction)
+        let stream = arrowRepeatService.repeats(
+            of: direction.repeatDirection,
+            every: repeatInterval,
+            clock: ContinuousClock()
+        )
+        repeatTask = Task { @MainActor [weak self] in
+            for await bytes in stream {
+                guard let self else { return }
+                self.feedbackGenerator.impactOccurred()
+                self.onArrowKey?(bytes)
+            }
         }
     }
 
     private func stopRepeat() {
-        repeatTimer?.invalidate()
-        repeatTimer = nil
+        repeatTask?.cancel()
+        repeatTask = nil
     }
 }
 
