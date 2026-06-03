@@ -21,4 +21,21 @@ struct ShortcutActionNumberedDigitTests {
             )
         )
     }
+
+    @Test func onlyDiffViewerContentActionsAllowBareFirstStrokes() {
+        let bareFirstStrokeActions: Set<ShortcutAction> = [
+            .diffViewerScrollDown,
+            .diffViewerScrollUp,
+            .diffViewerScrollToBottom,
+            .diffViewerScrollToTop,
+            .diffViewerOpenFileSearch,
+        ]
+
+        for action in ShortcutAction.allCases {
+            #expect(
+                action.allowsBareFirstStroke == bareFirstStrokeActions.contains(action),
+                "\(action) allowsBareFirstStroke should match diff-viewer content shortcut policy"
+            )
+        }
+    }
 }

@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxSettingsUI
 import Foundation
 
 extension KeyboardShortcutSettings {
@@ -24,7 +25,8 @@ extension KeyboardShortcutSettings {
     }
 
     static func menuShortcut(for action: Action) -> StoredShortcut {
-        guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
+        guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive,
+              !RecorderHostButton.isActivelyRecording else {
             return .unbound
         }
 

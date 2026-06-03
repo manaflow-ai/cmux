@@ -194,6 +194,26 @@ extension ShortcutAction {
         }
     }
 
+    /// Whether the recorder may accept a shortcut whose first stroke has no modifier.
+    ///
+    /// Most cmux-owned shortcuts require a modifier on the first stroke to avoid
+    /// accidentally stealing plain typing from terminals, editors, and browser
+    /// content. Diff-viewer navigation is intentionally modeled after vim-style
+    /// content shortcuts, so those actions can be rebound to bare first strokes
+    /// such as `j`, `k`, `g`, and `/`.
+    public var allowsBareFirstStroke: Bool {
+        switch self {
+        case .diffViewerScrollDown,
+             .diffViewerScrollUp,
+             .diffViewerScrollToBottom,
+             .diffViewerScrollToTop,
+             .diffViewerOpenFileSearch:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// The action's built-in focus context expressed as a ``ShortcutWhenClause``,
     /// used when no `shortcuts.when` override applies.
     ///

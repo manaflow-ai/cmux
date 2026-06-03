@@ -1,5 +1,6 @@
 import XCTest
 import CmuxSettings
+@testable import CmuxSettingsUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -245,6 +246,24 @@ final class KeyboardShortcutContextTests: XCTestCase {
 
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserBack), KeyboardShortcutSettings.shortcut(for: .browserBack))
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserForward), KeyboardShortcutSettings.shortcut(for: .browserForward))
+    }
+
+    @MainActor
+    func testMenuShortcutsStandDownWhilePackageRecorderIsActive() {
+        let button = RecorderHostButton(frame: .zero)
+        defer {
+            if RecorderHostButton.isActivelyRecording {
+                button.debugStopRecording()
+            }
+        }
+
+        XCTAssertFalse(RecorderHostButton.isActivelyRecording)
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .closeTab), KeyboardShortcutSettings.shortcut(for: .closeTab))
+
+        button.debugStartRecording()
+
+        XCTAssertTrue(RecorderHostButton.isActivelyRecording)
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .closeTab), .unbound)
     }
 
     func testFocusHistoryTitlebarHintUsesConfiguredShortcutAndCanBeUnbound() throws {

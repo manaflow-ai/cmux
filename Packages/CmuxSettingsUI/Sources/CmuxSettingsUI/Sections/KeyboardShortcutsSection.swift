@@ -210,6 +210,7 @@ public struct KeyboardShortcutsSection: View {
                     ),
                     chordsEnabled: chordModeActions.contains(action.rawValue),
                     hasPendingRejection: bareKeyRejected || numberedDigitRejected,
+                    firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
                     onStroke: { stroke in Task { await assign(stroke: stroke, to: action) } },
                     onChord: { chord in Task { await assignChord(chord, to: action) } },
                     onBareKeyRejected: { bareKeyRejections.insert(action.rawValue) }
