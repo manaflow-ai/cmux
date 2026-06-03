@@ -7952,10 +7952,10 @@ struct CMUXCLI {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("$") {
             let variableName = String(trimmed.dropFirst())
-            return normalizedSSHAgentSocketPath(ProcessInfo.processInfo.environment[variableName])
+            return existingSSHAgentSocketPath(ProcessInfo.processInfo.environment[variableName])
         }
         if Self.isSSHYesValue(trimmed) {
-            return normalizedSSHAgentSocketPath(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"])
+            return existingSSHAgentSocketPath(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"])
         }
         guard !Self.isSSHNoValue(trimmed) else {
             return nil
@@ -7963,7 +7963,7 @@ struct CMUXCLI {
         guard isPathLikeSSHAgentSocketValue(trimmed) else {
             return nil
         }
-        return normalizedSSHAgentSocketPath(trimmed)
+        return existingSSHAgentSocketPath(trimmed)
     }
 
     /// Returns whether a literal `ForwardAgent` value looks like a socket path rather than a mode such as `ask`.
@@ -7985,6 +7985,15 @@ struct CMUXCLI {
             return trimmed
         }
         return expanded
+    }
+
+    /// Returns a normalized agent socket path only when it currently exists.
+    private func existingSSHAgentSocketPath(_ value: String?) -> String? {
+        guard let path = normalizedSSHAgentSocketPath(value),
+              FileManager.default.fileExists(atPath: path) else {
+            return nil
+        }
+        return path
     }
 
     /// Returns whether an SSH option value enables a boolean-style OpenSSH setting.

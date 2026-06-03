@@ -62,6 +62,15 @@ private enum WorkspaceRemoteSSHOptionFilter {
         return normalizedOptional((trimmed as NSString).expandingTildeInPath) ?? trimmed
     }
 
+    /// Returns a normalized agent socket path only when it currently exists.
+    static func existingAgentSocketPath(_ value: String?) -> String? {
+        guard let path = normalizedAgentSocketPath(value),
+              FileManager.default.fileExists(atPath: path) else {
+            return nil
+        }
+        return path
+    }
+
     static func hasOptionKey(_ options: [String], key: String) -> Bool {
         let loweredKey = key.lowercased()
         return options.contains { option in
@@ -465,9 +474,18 @@ struct WorkspaceRemoteConfiguration: Equatable {
     }
 
     /// Resolves the SSH agent socket to use for a remote configuration from an explicit socket or durable options.
-    static func resolvedAgentSocketPath(sshOptions: [String], explicitAgentSocketPath: String? = nil) -> String? {
-        WorkspaceRemoteSSHOptionFilter.normalizedAgentSocketPath(explicitAgentSocketPath)
-            ?? WorkspaceRemoteSSHOptionFilter.sshAgentSocketPath(for: sshOptions)
+    static func resolvedAgentSocketPath(
+        sshOptions: [String],
+        explicitAgentSocketPath: String? = nil,
+        explicitAgentSocketPathIsSet: Bool = false
+    ) -> String? {
+        if explicitAgentSocketPathIsSet {
+            return WorkspaceRemoteSSHOptionFilter.existingAgentSocketPath(explicitAgentSocketPath)
+        }
+        return WorkspaceRemoteSSHOptionFilter.existingAgentSocketPath(explicitAgentSocketPath)
+            ?? WorkspaceRemoteSSHOptionFilter.existingAgentSocketPath(
+                WorkspaceRemoteSSHOptionFilter.sshAgentSocketPath(for: sshOptions)
+            )
     }
 
     var displayTarget: String {

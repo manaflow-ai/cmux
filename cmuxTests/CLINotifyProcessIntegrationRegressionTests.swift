@@ -2507,7 +2507,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     func testSSHForwardAgentFlagPropagatesCallerAgentSocket() throws {
-        let agentSocketPath = "/tmp/cmux-test-agent-\(UUID().uuidString).sock"
+        let agentSocketPath = try makeExistingAgentSocketPath()
         let run = try runMockedSSH(
             arguments: ["--forward-agent"],
             environmentOverrides: ["SSH_AUTH_SOCK": agentSocketPath]
@@ -2523,7 +2523,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     func testSSHForwardAgentOptionPropagatesCallerAgentSocket() throws {
-        let agentSocketPath = "/tmp/cmux-test-agent-\(UUID().uuidString).sock"
+        let agentSocketPath = try makeExistingAgentSocketPath()
         let run = try runMockedSSH(
             arguments: ["--ssh-option", "ForwardAgent=yes"],
             environmentOverrides: ["SSH_AUTH_SOCK": agentSocketPath]
@@ -2561,7 +2561,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     func testSSHForwardAgentConfigPropagatesCallerAgentSocket() throws {
-        let agentSocketPath = "/tmp/cmux-test-agent-\(UUID().uuidString).sock"
+        let agentSocketPath = try makeExistingAgentSocketPath()
         let run = try runMockedSSH(
             arguments: [],
             environmentOverrides: [
@@ -2580,7 +2580,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     func testSSHForwardAgentConfigLiteralSocketPathPropagatesSocketPath() throws {
-        let agentSocketPath = "/tmp/cmux-test-agent-\(UUID().uuidString).sock"
+        let agentSocketPath = try makeExistingAgentSocketPath()
         let run = try runMockedSSH(
             arguments: [],
             environmentOverrides: [
@@ -2598,12 +2598,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     func testSSHForwardAgentConfigTildeSocketPathExpandsSocketPath() throws {
+        let homeURL = try makeTemporaryDirectory(prefix: "cmux-ssh-home")
         let tildeSocketPath = "~/.ssh/cmux-test-agent.sock"
-        let expandedSocketPath = (tildeSocketPath as NSString).expandingTildeInPath
+        let expandedSocketURL = homeURL.appendingPathComponent(".ssh/cmux-test-agent.sock")
+        try createExistingFile(at: expandedSocketURL)
         let run = try runMockedSSH(
             arguments: [],
             environmentOverrides: [
                 "CMUX_TEST_SSH_G_OUTPUT": "forwardagent \(tildeSocketPath)\n",
+                "HOME": homeURL.path,
             ]
         )
         let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
@@ -2612,8 +2615,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
 
         XCTAssertTrue(sshOptions.contains("ForwardAgent=\(tildeSocketPath)"), "ssh_options: \(sshOptions)")
-        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], expandedSocketPath)
-        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, expandedSocketPath)
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], expandedSocketURL.path)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, expandedSocketURL.path)
     }
 
     func testSSHForwardAgentAskDoesNotPropagateInvalidSocketPath() throws {
@@ -8240,6 +8243,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     ) throws -> MockedSSHRun {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh")
+        let homeURL = try makeTemporaryDirectory(prefix: "cmux-ssh-home")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let workspaceId = "11111111-1111-1111-1111-111111111111"
@@ -8308,6 +8312,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
         for (key, value) in environmentOverrides {
             environment[key] = value
         }
@@ -8336,6 +8341,34 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             stdout: result.stdout,
             workspaceId: workspaceId,
             surfaceId: surfaceId
+        )
+    }
+
+    private func makeExistingAgentSocketPath() throws -> String {
+        let directory = try makeTemporaryDirectory(prefix: "cmux-agent")
+        let url = directory.appendingPathComponent("agent.sock")
+        try createExistingFile(at: url)
+        return url.path
+    }
+
+    private func makeTemporaryDirectory(prefix: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: url)
+        }
+        return url
+    }
+
+    private func createExistingFile(at url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        XCTAssertTrue(
+            FileManager.default.createFile(atPath: url.path, contents: Data()),
+            "Expected to create \(url.path)"
         )
     }
 

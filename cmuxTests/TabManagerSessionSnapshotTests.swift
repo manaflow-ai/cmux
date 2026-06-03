@@ -1957,7 +1957,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let identityFile = "~/.ssh/id_ed25519"
         let expandedIdentityFile = (identityFile as NSString).expandingTildeInPath
         let originalAgentSocketPath = "/tmp/cmux-original-restore-agent.sock"
-        let restoredAgentSocketPath = "/tmp/cmux-current-restore-agent.sock"
+        let restoredAgentSocketPath = "/tmp/cmux-current-restore-agent-\(UUID().uuidString).sock"
+        XCTAssertTrue(FileManager.default.createFile(atPath: restoredAgentSocketPath, contents: Data()))
+        defer { try? FileManager.default.removeItem(atPath: restoredAgentSocketPath) }
         let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
         setenv("SSH_AUTH_SOCK", restoredAgentSocketPath, 1)
         defer {
