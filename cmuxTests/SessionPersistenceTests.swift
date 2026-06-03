@@ -3893,7 +3893,7 @@ final class SidebarDragFailsafePolicyTests: XCTestCase {
 }
 
 extension SessionPersistenceTests {
-    func testSurfaceResumeBindingStartupInputUsesExactCommand() {
+    func testSurfaceResumeBindingStartupInputPrependsWorkingDirectoryGuard() throws {
         let binding = SurfaceResumeBindingSnapshot(
             name: "OpenCode",
             kind: "opencode",
@@ -3904,7 +3904,55 @@ extension SessionPersistenceTests {
             updatedAt: 1_777_777_777
         )
 
-        XCTAssertEqual(binding.startupInput, "opencode --session ses_123\n")
+        let startupInput = try XCTUnwrap(binding.startupInput)
+        let cdRange = try XCTUnwrap(startupInput.range(of: "cd -- '/tmp/project'"))
+        let commandRange = try XCTUnwrap(startupInput.range(of: "opencode --session ses_123"))
+        XCTAssertLessThan(cdRange.lowerBound, commandRange.lowerBound)
+    }
+
+    func testSurfaceResumeBindingStartupInputOmitsWorkingDirectoryGuardWhenCwdIsNilOrEmpty() throws {
+        let nilCwdBinding = SurfaceResumeBindingSnapshot(
+            command: "opencode --session ses_123",
+            cwd: nil
+        )
+        let emptyCwdBinding = SurfaceResumeBindingSnapshot(
+            command: "opencode --session ses_123",
+            cwd: "   "
+        )
+
+        XCTAssertFalse(try XCTUnwrap(nilCwdBinding.startupInput).contains("cd --"))
+        XCTAssertFalse(try XCTUnwrap(emptyCwdBinding.startupInput).contains("cd --"))
+    }
+
+    func testSurfaceResumeBindingStartupInputQuotesWorkingDirectory() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "codex resume session",
+            cwd: "/tmp/it's repo"
+        )
+
+        let startupInput = try XCTUnwrap(binding.startupInput)
+        XCTAssertTrue(startupInput.contains("cd -- '/tmp/it'\\''s repo'"), startupInput)
+    }
+
+    func testSurfaceResumeBindingStartupInputKeepsEnvironmentScopedToCommandAfterWorkingDirectoryGuard() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "codex resume session",
+            cwd: "/tmp/project",
+            environment: [
+                "SPACED": "  keep exact  ",
+                "CODEX_HOME": "/tmp/codex home",
+                "ANTHROPIC_API_KEY": "should-not-persist",
+            ]
+        )
+
+        let startupInput = try XCTUnwrap(binding.startupInput)
+        let cdRange = try XCTUnwrap(startupInput.range(of: "cd -- '/tmp/project'"))
+        let envRange = try XCTUnwrap(startupInput.range(of: "'/usr/bin/env'"))
+        let commandRange = try XCTUnwrap(startupInput.range(of: "'codex resume session'"))
+        XCTAssertLessThan(cdRange.lowerBound, envRange.lowerBound)
+        XCTAssertLessThan(envRange.lowerBound, commandRange.lowerBound)
+        XCTAssertTrue(startupInput.contains("'CODEX_HOME=/tmp/codex home'"), startupInput)
+        XCTAssertFalse(startupInput.contains("ANTHROPIC_API_KEY"), startupInput)
     }
 
     func testSurfaceResumeBindingStartupInputScopesEnvironmentToCommand() {
@@ -4083,6 +4131,7 @@ extension SessionPersistenceTests {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
             command: "codex resume session --add-dir \(longPath)",
+            cwd: "/tmp/project with spaces",
             environment: [
                 "CODEX_HOME": "/tmp/codex home",
             ]
@@ -4100,9 +4149,11 @@ extension SessionPersistenceTests {
         let prefix = "/bin/zsh '"
         let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
         let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        let cdRange = try XCTUnwrap(scriptContents.range(of: "cd -- '/tmp/project with spaces'"))
+        let commandRange = try XCTUnwrap(scriptContents.range(of: "codex resume session"))
+        XCTAssertLessThan(cdRange.lowerBound, commandRange.lowerBound)
         XCTAssertTrue(scriptContents.contains(longPath))
         XCTAssertTrue(scriptContents.contains("'CODEX_HOME=/tmp/codex home'"))
-        XCTAssertTrue(scriptContents.contains("codex resume session"))
     }
 
     @MainActor
