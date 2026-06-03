@@ -459,6 +459,11 @@ struct BrowserPanelView: View {
     @State private var suppressNextFocusGainedSelectAll: Bool = false
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
+    // `.onAppear` is not a reliable once-signal for a portal-hosted pane: it can
+    // re-fire on every CoreAnimation commit (issue #5303). This guards the one-time
+    // setup so default registration, settings normalization, and the initial
+    // empty-state populate run exactly once per view instance instead of per commit.
+    @State private var didCompleteInitialBrowserPanelSetup = false
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
         for: .light,
         themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
@@ -755,7 +760,45 @@ struct BrowserPanelView: View {
     }
 
     private func handleBrowserPanelAppear() {
+        // One-time setup must not re-run on every commit; `.onAppear` can re-fire
+        // repeatedly for a portal-hosted pane (issue #5303). Everything below the
+        // setup call is idempotent and cheap, and genuine state transitions are
+        // already handled by the dedicated `.onChange` observers on `body`, so
+        // re-running this per appear is harmless once the heavy/one-time work is
+        // gated out.
+        performInitialBrowserPanelSetupIfNeeded()
         startOmnibarSuggestionRefreshConsumer()
+        refreshBrowserChromeStyle()
+        panel.noteWebViewVisibility(
+            isVisibleInUI && isCurrentPaneOwner,
+            reason: "view.onAppear"
+        )
+        panel.refreshAppearanceDrivenColors()
+        panel.setBrowserThemeMode(browserThemeMode)
+        applyPendingAddressBarFocusRequestIfNeeded()
+        syncURLFromPanel()
+        // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
+        autoFocusOmnibarIfBlank()
+        syncWebViewResponderPolicyWithViewState(reason: "onAppear")
+        panel.historyStore.loadIfNeeded()
+#if DEBUG
+        logBrowserFocusState(event: "view.onAppear")
+#endif
+        focusModeShortcutHintMonitor.start()
+    }
+
+    /// Runs the work that must execute exactly once per `BrowserPanelView` instance,
+    /// independent of how many times SwiftUI fires `.onAppear`.
+    ///
+    /// `.onAppear` is not a reliable once-or-on-transition signal for a portal-hosted
+    /// browser pane — it can re-fire on every CoreAnimation commit. Default
+    /// registration, settings normalization (which writes `@AppStorage` and would
+    /// otherwise re-enter the commit pass), and the initial empty-state import
+    /// populate all belong here so a spurious appear does no work (issue #5303).
+    private func performInitialBrowserPanelSetupIfNeeded() {
+        guard !didCompleteInitialBrowserPanelSetup else { return }
+        didCompleteInitialBrowserPanelSetup = true
+
         UserDefaults.standard.register(defaults: [
             BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
             BrowserSearchSettings.customSearchEngineNameKey: BrowserSearchSettings.defaultCustomSearchEngineName,
@@ -766,7 +809,7 @@ struct BrowserPanelView: View {
             BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
             BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
         ])
-        refreshBrowserChromeStyle()
+
         let resolvedThemeMode = BrowserThemeSettings.mode(defaults: .standard)
         if browserThemeModeRaw != resolvedThemeMode.rawValue {
             browserThemeModeRaw = resolvedThemeMode.rawValue
@@ -787,23 +830,10 @@ struct BrowserPanelView: View {
         if browserProfilePopoverVerticalPaddingRaw != resolvedProfilePopoverVerticalPadding {
             browserProfilePopoverVerticalPaddingRaw = resolvedProfilePopoverVerticalPadding
         }
-        panel.noteWebViewVisibility(
-            isVisibleInUI && isCurrentPaneOwner,
-            reason: "view.onAppear"
-        )
-        panel.refreshAppearanceDrivenColors()
-        panel.setBrowserThemeMode(browserThemeMode)
-        applyPendingAddressBarFocusRequestIfNeeded()
-        syncURLFromPanel()
-        // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
-        autoFocusOmnibarIfBlank()
-        syncWebViewResponderPolicyWithViewState(reason: "onAppear")
+
+        // Populate the empty-state import list once; `handleCurrentURLChange`
+        // refreshes it on subsequent new-tab navigations.
         refreshEmptyStateImportBrowsers()
-        panel.historyStore.loadIfNeeded()
-#if DEBUG
-        logBrowserFocusState(event: "view.onAppear")
-#endif
-        focusModeShortcutHintMonitor.start()
     }
 
     private func handleOmnibarVisibilityChange(_ isVisible: Bool) {
