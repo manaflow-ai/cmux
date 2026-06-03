@@ -16797,6 +16797,7 @@ function paletteEntriesSignature() {
   appendSignatureData(parts, state.savedSettingsProfiles);
   appendSignatureData(parts, state.workspaceBlueprints);
   appendSignatureValue(parts, state.settings.browserHomeUrl);
+  appendSignatureValue(parts, settingsKeysSignature(profileSettingsSettingKeys));
   return parts.join("");
 }
 
@@ -16924,8 +16925,9 @@ function renderPalette() {
     const button = document.createElement("button");
     const kind = paletteEntryKind(entry);
     button.type = "button";
-    button.className = `palette-item palette-kind-${kind}${index === state.paletteIndex ? " is-selected" : ""}`;
+    button.className = `palette-item palette-kind-${kind}${entry.active ? " is-active-entry" : ""}${index === state.paletteIndex ? " is-selected" : ""}`;
     button.setAttribute("aria-selected", String(index === state.paletteIndex));
+    if (entry.active) button.setAttribute("aria-current", "true");
     button.innerHTML = `
       <span class="palette-icon" aria-hidden="true"></span>
       <span class="palette-main">
@@ -17165,12 +17167,14 @@ function paletteEntries() {
   }
   for (const preset of settingsPresets) {
     const summary = settingsProfileSummary(preset.settings);
+    const active = isActiveSettingsPreset(preset);
     entries.push({
       id: `settingsPreset.${preset.id}`,
       label: `Preset: ${preset.label}`,
-      meta: preset.body || summary,
-      shortcut: "Preset",
-      search: normalizeSettingsQuery(`settings preset profile setup apply ${preset.label} ${preset.body} ${summary}`),
+      meta: active ? `Active / ${preset.body || summary}` : preset.body || summary,
+      shortcut: active ? "Active" : "Preset",
+      active,
+      search: normalizeSettingsQuery(`settings preset profile setup apply active ${preset.label} ${preset.body} ${summary}`),
       run: () => applySettingsPreset(preset)
     });
   }
@@ -17272,12 +17276,15 @@ function paletteEntries() {
     });
   }
   for (const profile of state.savedSettingsProfiles) {
+    const summary = settingsProfileSummary(profile.settings);
+    const active = isActiveSettingsProfile(profile);
     entries.push({
       id: `settingsProfile.${profile.id}`,
       label: `Profile: ${profile.label}`,
-      meta: settingsProfileSummary(profile.settings),
-      shortcut: "Profile",
-      search: normalizeSettingsQuery(`settings profile preset saved apply ${profile.label} ${settingsProfileSummary(profile.settings)}`),
+      meta: active ? `Active / ${summary}` : summary,
+      shortcut: active ? "Active" : "Profile",
+      active,
+      search: normalizeSettingsQuery(`settings profile preset saved apply active ${profile.label} ${summary}`),
       run: () => applySavedSettingsProfile(profile.id)
     });
   }

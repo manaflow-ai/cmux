@@ -11260,6 +11260,20 @@ textarea.dialog-input {
   color: var(--color-accent-hover);
 }
 
+.palette-item.is-active-entry {
+  border-color: color-mix(in oklch, var(--color-success) 40%, var(--color-line) 60%);
+  background: color-mix(in oklch, var(--color-success) 7%, transparent);
+}
+
+.palette-item.is-active-entry .palette-icon {
+  color: color-mix(in oklch, var(--color-success) 68%, var(--color-text) 32%);
+  background: color-mix(in oklch, var(--color-success) 12%, var(--color-pane) 88%);
+}
+
+.palette-item.is-active-entry .palette-shortcut {
+  color: color-mix(in oklch, var(--color-success) 70%, var(--color-text) 30%);
+}
+
 .palette-main {
   min-width: 0;
   display: grid;
