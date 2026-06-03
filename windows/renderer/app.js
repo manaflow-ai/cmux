@@ -4177,6 +4177,137 @@ function backgroundApplyTargetOption(target = state.backgroundApplyTarget, works
     || backgroundApplyTargetOptions(workspace)[0];
 }
 
+function backgroundCommandPaletteSignature() {
+  const workspace = activeWorkspace();
+  const terminal = activeTerminalPanelForSettings();
+  const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
+  const terminalBackground = normalizeBackgroundValue(terminal?.backgroundImage);
+  const terminalCount = workspaceTerminalPanels(workspace).length;
+  const parts = [];
+  appendSignatureValue(parts, workspace?.id || "");
+  appendSignatureValue(parts, terminal?.id || "");
+  appendSignatureValue(parts, appBackground);
+  appendSignatureValue(parts, terminalBackground);
+  appendSignatureValue(parts, terminalCount);
+  appendSignatureValue(parts, terminalBackgroundsMatch(workspace, ""));
+  appendSignatureValue(parts, Boolean(appBackground && terminalBackgroundsMatch(workspace, appBackground)));
+  return parts.join("");
+}
+
+function backgroundCommandPaletteState(commandId, workspace = activeWorkspace()) {
+  if (!backgroundPaletteCommandIds.has(commandId)) return null;
+  const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
+  const terminal = activeTerminalPanelForSettings();
+  const terminalBackground = normalizeBackgroundValue(terminal?.backgroundImage);
+  const terminalLabel = terminal ? panelDisplayTitle(terminal, true) : "Select a terminal";
+  const terminalCount = workspaceTerminalPanels(workspace).length;
+  const allClear = terminalBackgroundsMatch(workspace, "");
+  const allUseApp = Boolean(appBackground && terminalBackgroundsMatch(workspace, appBackground));
+  const terminalMeta = terminal ? terminalLabel : "No terminal";
+  const allMeta = terminalCount ? `${terminalCount} terminal${terminalCount === 1 ? "" : "s"}` : "No terminals";
+  const base = {
+    meta: "Background",
+    shortcut: "Background",
+    icon: "background",
+    search: "background image wallpaper customize appearance terminal pane app"
+  };
+  if (commandId === "background.chooseApp") {
+    return { ...base, meta: "Whole app", title: "Choose a background image for the whole app." };
+  }
+  if (commandId === "background.pasteApp") {
+    return { ...base, meta: "Whole app", title: "Paste an image URL, path, or copied image as the app background." };
+  }
+  if (commandId === "background.clearApp") {
+    return {
+      ...base,
+      meta: appBackground ? appearanceBackgroundLabel(appBackground) : "App background clear",
+      disabled: !appBackground,
+      title: appBackground ? "Clear the app background." : "App background is already clear.",
+      search: `${base.search} clear remove whole app`
+    };
+  }
+  if (commandId === "background.chooseActiveTerminal") {
+    return {
+      ...base,
+      icon: "paneBackground",
+      meta: terminalMeta,
+      disabled: !terminal,
+      title: terminal ? `Choose a background image for ${terminalLabel}.` : "Focus a terminal pane before choosing a background.",
+      search: `${base.search} active focused terminal choose`
+    };
+  }
+  if (commandId === "background.pasteActiveTerminal") {
+    return {
+      ...base,
+      icon: "paneBackground",
+      meta: terminalMeta,
+      disabled: !terminal,
+      title: terminal ? `Paste a background image for ${terminalLabel}.` : "Focus a terminal pane before pasting a background.",
+      search: `${base.search} active focused terminal paste clipboard`
+    };
+  }
+  if (commandId === "background.clearActiveTerminal") {
+    return {
+      ...base,
+      icon: "paneBackground",
+      meta: terminal ? (terminalBackground ? appearanceBackgroundLabel(terminalBackground) : "Terminal clear") : "No terminal",
+      disabled: !terminal || !terminalBackground,
+      title: !terminal
+        ? "Focus a terminal pane before clearing its background."
+        : terminalBackground ? `Clear the background for ${terminalLabel}.` : "Active terminal background is already clear.",
+      search: `${base.search} active focused terminal clear remove`
+    };
+  }
+  if (commandId === "background.chooseAllTerminals") {
+    return {
+      ...base,
+      icon: "terminalGroup",
+      meta: allMeta,
+      disabled: terminalCount === 0,
+      title: terminalCount ? "Choose one background image for every terminal pane." : "Open a terminal pane before setting terminal backgrounds.",
+      search: `${base.search} all terminals choose workspace`
+    };
+  }
+  if (commandId === "background.pasteAllTerminals") {
+    return {
+      ...base,
+      icon: "terminalGroup",
+      meta: allMeta,
+      disabled: terminalCount === 0,
+      title: terminalCount ? "Paste one background image for every terminal pane." : "Open a terminal pane before pasting terminal backgrounds.",
+      search: `${base.search} all terminals paste clipboard workspace`
+    };
+  }
+  if (commandId === "background.useAppForAllTerminals") {
+    return {
+      ...base,
+      icon: "terminalGroup",
+      meta: allUseApp ? "App background active" : allMeta,
+      active: allUseApp,
+      disabled: terminalCount === 0 || !appBackground || allUseApp,
+      title: terminalCount === 0
+        ? "Open a terminal pane before applying the app background."
+        : !appBackground
+          ? "Choose an app background first."
+          : allUseApp ? "All terminal panes already use the app background." : "Apply the app background to every terminal pane.",
+      search: `${base.search} all terminals use app active workspace`
+    };
+  }
+  if (commandId === "background.clearAllTerminals") {
+    return {
+      ...base,
+      icon: "terminalGroup",
+      meta: allClear ? "All terminal backgrounds clear" : allMeta,
+      disabled: terminalCount === 0 || allClear,
+      title: terminalCount === 0
+        ? "Open a terminal pane before clearing terminal backgrounds."
+        : allClear ? "Terminal backgrounds are already clear." : "Clear every terminal pane background.",
+      search: `${base.search} all terminals clear remove workspace`
+    };
+  }
+  return base;
+}
+
 function backgroundApplyTargetPrimaryLabel(target = state.backgroundApplyTarget) {
   const scope = normalizeBackgroundApplyTarget(target);
   if (scope === "pane") return "Apply to pane";
@@ -5658,6 +5789,12 @@ const commands = [
   { id: "settings.saveBackground", label: "Save Current Background", shortcut: "", run: () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }) },
   { id: "settings.copySavedBackgrounds", label: "Copy Saved Backgrounds", shortcut: "", run: () => copySavedBackgroundImages() },
   { id: "settings.pasteSavedBackgrounds", label: "Paste Saved Backgrounds", shortcut: "", run: () => pasteSavedBackgroundImages() },
+  { id: "background.chooseApp", label: "Choose App Background", shortcut: "", run: () => chooseBackgroundImageForTarget({ target: "app" }) },
+  { id: "background.pasteApp", label: "Paste App Background", shortcut: "", run: () => pasteBackgroundImageFromClipboard({ target: "app" }) },
+  { id: "background.clearApp", label: "Clear App Background", shortcut: "", run: () => applyBackgroundValueToTarget("", "app", { toast: true }) },
+  { id: "background.chooseActiveTerminal", label: "Choose Active Terminal Background", shortcut: "", run: () => chooseBackgroundImageForTarget({ target: "pane" }) },
+  { id: "background.pasteActiveTerminal", label: "Paste Active Terminal Background", shortcut: "", run: () => pasteBackgroundImageFromClipboard({ target: "pane" }) },
+  { id: "background.clearActiveTerminal", label: "Clear Active Terminal Background", shortcut: "", run: () => applyBackgroundValueToTarget("", "pane", { toast: true }) },
   { id: "background.chooseAllTerminals", label: "Choose All Terminal Backgrounds", shortcut: "", run: () => chooseWorkspaceTerminalBackground() },
   { id: "background.pasteAllTerminals", label: "Paste All Terminal Backgrounds", shortcut: "", run: () => pasteWorkspaceTerminalBackgroundFromClipboard() },
   { id: "background.useAppForAllTerminals", label: "Use App Background For All Terminals", shortcut: "", run: () => useAppBackgroundForWorkspaceTerminals() },
@@ -5682,6 +5819,19 @@ const commandPerformanceQuickActionIds = new Map([
   ["settings.immediateResumedOutput", "terminalSmoothResumedOutput.off"],
   ["settings.suspendInactiveBrowsers", "browserSuspendInactive.on"],
   ["settings.keepInactiveBrowsersLive", "browserSuspendInactive.off"]
+]);
+
+const backgroundPaletteCommandIds = new Set([
+  "background.chooseApp",
+  "background.pasteApp",
+  "background.clearApp",
+  "background.chooseActiveTerminal",
+  "background.pasteActiveTerminal",
+  "background.clearActiveTerminal",
+  "background.chooseAllTerminals",
+  "background.pasteAllTerminals",
+  "background.useAppForAllTerminals",
+  "background.clearAllTerminals"
 ]);
 
 const actionWorkflowDefinitions = [
@@ -5719,7 +5869,7 @@ const actionWorkflowDefinitions = [
     id: "customizeBackup",
     label: "Customize + backup",
     body: "Adjust colors and backgrounds, save the profile, then export the app setup.",
-    commandIds: ["settings.colors", "settings.backgrounds", "settings.saveProfile", "settings.copyAppSetup"]
+    commandIds: ["settings.colors", "background.chooseApp", "settings.backgrounds", "settings.saveProfile", "settings.copyAppSetup"]
   }
 ];
 
@@ -24458,6 +24608,7 @@ function paletteEntriesSignature() {
   appendSignatureValue(parts, state.settings.browserHomeUrl);
   appendSignatureValue(parts, settingsKeysSignature(profileSettingsSettingKeys));
   appendSignatureValue(parts, quickSettingsSignature());
+  appendSignatureValue(parts, backgroundCommandPaletteSignature());
   appendSignatureValue(parts, performanceQuickActionPaletteSignature());
   appendSignatureValue(parts, performanceHealthPaletteSignature());
   appendPalettePaneTargetSignature(parts);
@@ -24831,26 +24982,29 @@ function paletteEntries() {
   const entries = commands.map((command) => {
     const performanceAction = performanceQuickActionForCommand(command.id);
     const performanceActive = performanceQuickActionIsActive(performanceAction);
+    const backgroundState = backgroundCommandPaletteState(command.id, paletteWorkspace);
     const layoutActive = activeLayoutCommandIds.has(command.id);
-    const active = layoutActive || performanceActive;
+    const active = layoutActive || performanceActive || Boolean(backgroundState?.active);
     const layoutPreset = paneLayoutPresets.find((preset) => preset.id === paneLayoutCommandPresetIds.get(command.id));
     const unavailable = Boolean(layoutPreset && layoutUnavailable);
     const performanceSearch = performanceAction
       ? `performance speed lag smooth quick action ${performanceAction.title} ${performanceAction.applied} ${performanceAction.already}`
       : "";
+    const backgroundSearch = backgroundState?.search || "";
     return {
       id: command.id,
       label: command.label,
       meta: performanceAction
         ? performanceActive ? "Active performance setting" : "Performance quick action"
-        : layoutActive ? "Active layout command" : "Command",
-      shortcut: active ? "Active" : performanceAction ? "Speed" : command.shortcut,
+        : backgroundState?.meta || (layoutActive ? "Active layout command" : "Command"),
+      shortcut: active ? "Active" : performanceAction ? "Speed" : backgroundState?.shortcut || command.shortcut,
       active,
-      disabled: active || unavailable,
+      disabled: active || unavailable || Boolean(backgroundState?.disabled),
+      icon: backgroundState?.icon,
       title: performanceAction
         ? performanceActive ? performanceAction.already : performanceAction.title
-        : layoutPreset ? paneLayoutPresetTitle(layoutPreset, layoutActive, unavailable) : command.label,
-      search: normalizeSettingsQuery(`${command.label} ${command.shortcut} command ${active ? "active current" : ""} ${layoutActive ? "layout" : ""} ${performanceSearch}`),
+        : backgroundState?.title || (layoutPreset ? paneLayoutPresetTitle(layoutPreset, layoutActive, unavailable) : command.label),
+      search: normalizeSettingsQuery(`${command.label} ${command.shortcut} command ${active ? "active current" : ""} ${layoutActive ? "layout" : ""} ${performanceSearch} ${backgroundSearch}`),
       run: command.run
     };
   });
