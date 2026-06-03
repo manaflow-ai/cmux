@@ -1936,6 +1936,39 @@ function workspaceColorPalette() {
   return uniqueColors([...(state.data?.palette || workspaceColorOptions), ...state.customColorPalette]);
 }
 
+function terminalColorPalette(field = "background", activeColor = "") {
+  const key = ["background", "foreground", "cursor"].includes(field) ? field : "background";
+  return uniqueColors([
+    normalizeTerminalColor(activeColor),
+    terminalColorDefaults[key],
+    ...terminalColorPresets.map((preset) => normalizeTerminalColor(preset[key])),
+    ...state.customColorPalette.map(normalizeTerminalColor)
+  ].filter(Boolean));
+}
+
+function terminalColorControlPanel({
+  settingKey,
+  field,
+  label,
+  fallbackColor,
+  searchTerms
+}) {
+  const activeColor = state.settings[settingKey];
+  return colorControlPanel({
+    colors: terminalColorPalette(field, activeColor),
+    activeColor,
+    fallbackColor,
+    onPick: (color) => updateSettings({ [settingKey]: color }),
+    onClear: () => updateSettings({ [settingKey]: "" }),
+    clearLabel: "Default",
+    clearDisabled: !activeColor,
+    saveLabel: "Save",
+    targetLabel: label,
+    targetMeta: activeColor ? "Custom override" : "Default terminal color",
+    searchTerms
+  });
+}
+
 function settingsProfileSummary(settings) {
   const normalized = normalizeSettings(settings);
   const theme = themeOptions.find(([id]) => id === normalized.theme)?.[1] || normalized.theme;
@@ -10139,21 +10172,39 @@ function renderSettingsInspector(options = {}) {
     terminalSection.append(terminalColorDisclosurePanel());
     terminalSection.append(settingRow(
       "Background color",
-      colorPicker(state.settings.terminalBackground, (terminalBackground) => updateSettings({ terminalBackground }), terminalColorDefaults.background),
-      false,
-      "terminal background color custom hex"
+      terminalColorControlPanel({
+        settingKey: "terminalBackground",
+        field: "background",
+        label: "Terminal background",
+        fallbackColor: terminalColorDefaults.background,
+        searchTerms: "terminal background color custom hex palette copy save reset default clear"
+      }),
+      true,
+      "terminal background color custom hex palette swatch copy save reset default clear"
     ));
     terminalSection.append(settingRow(
       "Text color",
-      colorPicker(state.settings.terminalForeground, (terminalForeground) => updateSettings({ terminalForeground }), terminalColorDefaults.foreground),
-      false,
-      "terminal foreground text color custom hex"
+      terminalColorControlPanel({
+        settingKey: "terminalForeground",
+        field: "foreground",
+        label: "Terminal text",
+        fallbackColor: terminalColorDefaults.foreground,
+        searchTerms: "terminal foreground text color custom hex palette copy save reset default clear"
+      }),
+      true,
+      "terminal foreground text color custom hex palette swatch copy save reset default clear"
     ));
     terminalSection.append(settingRow(
       "Cursor color",
-      colorPicker(state.settings.terminalCursorColor, (terminalCursorColor) => updateSettings({ terminalCursorColor }), terminalColorDefaults.cursor),
-      false,
-      "terminal cursor color custom hex"
+      terminalColorControlPanel({
+        settingKey: "terminalCursorColor",
+        field: "cursor",
+        label: "Terminal cursor",
+        fallbackColor: terminalColorDefaults.cursor,
+        searchTerms: "terminal cursor color custom hex palette copy save reset default clear"
+      }),
+      true,
+      "terminal cursor color custom hex palette swatch copy save reset default clear"
     ));
     const colorActions = document.createElement("div");
     colorActions.className = "settings-actions";
@@ -14914,7 +14965,7 @@ function colorControlPanel({
     summary.append(target);
   }
   panel.append(summary);
-  panel.append(swatchGrid(colors, activeColor, onPick));
+  panel.append(swatchGrid(colors, activeColor || fallbackColor, onPick));
 
   const custom = document.createElement("div");
   custom.className = "settings-color-custom";
