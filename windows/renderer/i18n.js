@@ -2,6 +2,7 @@ const windowsMessages = {
   en: {
     "appearance.theme": "Theme",
     "appearance.accent": "Accent",
+    "appearance.contrast": "Contrast",
     "appearance.background": "Background",
     "appearance.terminal": "Terminal",
     "appearance.themeGallery": "Theme gallery",

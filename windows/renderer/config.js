@@ -11,6 +11,7 @@ export const defaultSettings = {
   backgroundFit: "cover",
   backgroundPosition: "center",
   backgroundEffects: "flat",
+  interfaceContrast: "balanced",
   browserHomeUrl: "https://www.google.com",
   browserLaunchMode: "pane",
   externalBrowserProfileId: "system",
@@ -233,6 +234,12 @@ export const backgroundEffectsOptions = [
   ["flat", label("backgroundEffects.flat", "Flat")],
   ["tinted", label("backgroundEffects.tinted", "Tinted")],
   ["glass", label("backgroundEffects.glass", "Glass")]
+];
+
+export const interfaceContrastOptions = [
+  ["soft", label("interfaceContrast.soft", "Soft"), label("interfaceContrast.soft.body", "Quieter borders")],
+  ["balanced", label("interfaceContrast.balanced", "Balanced"), label("interfaceContrast.balanced.body", "Default separation")],
+  ["strong", label("interfaceContrast.strong", "Strong"), label("interfaceContrast.strong.body", "Clearer boundaries")]
 ];
 
 export const browserHomePresets = [
@@ -500,6 +507,7 @@ export const settingsPresets = [
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
+      interfaceContrast: "balanced",
       density: "comfortable",
       paneHeaderMode: "compact",
       paneActionMode: "essential",
@@ -553,6 +561,7 @@ export const settingsPresets = [
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
+      interfaceContrast: "soft",
       density: "compact",
       paneHeaderMode: "compact",
       paneActionMode: "essential",
@@ -606,6 +615,7 @@ export const settingsPresets = [
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
+      interfaceContrast: "soft",
       density: "compact",
       paneHeaderMode: "compact",
       paneActionMode: "essential",
@@ -660,6 +670,7 @@ export const settingsPresets = [
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
+      interfaceContrast: "soft",
       density: "compact",
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
@@ -713,6 +724,7 @@ export const settingsPresets = [
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
+      interfaceContrast: "soft",
       density: "compact",
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
@@ -766,6 +778,7 @@ export const settingsPresets = [
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "flat",
+      interfaceContrast: "strong",
       density: "comfortable",
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
@@ -819,6 +832,7 @@ export const settingsPresets = [
       backgroundFit: "cover",
       backgroundPosition: "center",
       backgroundEffects: "glass",
+      interfaceContrast: "balanced",
       density: "comfortable",
       paneHeaderMode: "full",
       paneActionMode: "full",

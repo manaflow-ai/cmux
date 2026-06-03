@@ -192,6 +192,22 @@ body.theme-paper {
   --color-muted: oklch(74% 0.015 95);
 }
 
+body.interface-contrast-soft {
+  --color-line: color-mix(in oklch, var(--color-pane) 76%, var(--color-muted) 24%);
+  --color-line-strong: color-mix(in oklch, var(--color-pane) 56%, var(--color-muted) 44%);
+  --color-faint: color-mix(in oklch, var(--color-muted) 74%, var(--color-pane) 26%);
+  --scrollbar-thumb: color-mix(in oklch, var(--color-muted) 46%, transparent);
+  --scrollbar-thumb-hover: color-mix(in oklch, var(--color-muted) 58%, transparent);
+}
+
+body.interface-contrast-strong {
+  --color-line: color-mix(in oklch, var(--color-muted) 44%, var(--color-pane) 56%);
+  --color-line-strong: color-mix(in oklch, var(--color-text) 42%, var(--color-muted) 58%);
+  --color-faint: color-mix(in oklch, var(--color-muted) 88%, var(--color-text) 12%);
+  --scrollbar-thumb: color-mix(in oklch, var(--color-muted) 68%, transparent);
+  --scrollbar-thumb-hover: color-mix(in oklch, var(--color-text) 72%, transparent);
+}
+
 button,
 input,
 select {
