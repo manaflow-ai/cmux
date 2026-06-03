@@ -8,6 +8,7 @@ import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
+// lint:allow namespace-enum — file-local DEBUG input-trace logger on the off-limits typing-latency render path; type reshape deferred to the GhosttySurfaceView UI-god-object split wave.
 enum TerminalInputDebugLog {
     private static let isEnabled = ProcessInfo.processInfo.environment["CMUX_INPUT_DEBUG"] == "1"
     private static let logger = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.input")
@@ -128,6 +129,7 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
     }
 }
 
+// lint:allow namespace-enum — surface-teardown helper on the off-limits render path; its serial DispatchQueue is the sanctioned libghostty free-after-detach carve-out. Reshape deferred to the GhosttySurfaceView split wave.
 private enum GhosttySurfaceDisposer {
     static let queue = DispatchQueue(label: "GhosttySurfaceDisposer.queue")
 

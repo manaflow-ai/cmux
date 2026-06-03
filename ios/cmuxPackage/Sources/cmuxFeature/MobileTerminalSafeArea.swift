@@ -14,13 +14,17 @@ import SwiftUI
 import AppKit
 #endif
 
-enum TerminalPalette {
+struct TerminalPalette {
+    private init() {}
+
     static let background = Color(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0)
     static let foreground = Color(red: 0xf8 / 255.0, green: 0xf8 / 255.0, blue: 0xf2 / 255.0)
     static let dimForeground = Color(red: 0xc8 / 255.0, green: 0xc8 / 255.0, blue: 0xc0 / 255.0)
 }
 
-enum PlatformPalette {
+struct PlatformPalette {
+    private init() {}
+
     static var systemBackground: Color {
         #if os(iOS)
         Color(uiColor: .systemBackground)

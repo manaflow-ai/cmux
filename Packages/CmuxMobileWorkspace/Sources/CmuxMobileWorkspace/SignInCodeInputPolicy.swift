@@ -1,7 +1,9 @@
 import Foundation
 
 /// Pure policy normalizing and validating the magic-link sign-in code as the user types.
-public enum SignInCodeInputPolicy {
+public struct SignInCodeInputPolicy {
+    private init() {}
+
     /// The maximum number of characters a sign-in code may contain.
     public static let maximumCodeLength = 6
 

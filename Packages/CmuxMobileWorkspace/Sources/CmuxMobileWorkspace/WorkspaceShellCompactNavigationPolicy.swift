@@ -6,7 +6,9 @@ import Foundation
 /// changes or when a brand-new workspace is created, without referencing any view
 /// or store. Generic over the workspace identifier so it can be tested with any
 /// `Hashable` ID type.
-public enum WorkspaceShellCompactNavigationPolicy {
+public struct WorkspaceShellCompactNavigationPolicy {
+    private init() {}
+
     /// Computes the navigation path after the selected workspace changes.
     /// - Parameters:
     ///   - currentPath: The current navigation path.

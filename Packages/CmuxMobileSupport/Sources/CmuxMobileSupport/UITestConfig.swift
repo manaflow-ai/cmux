@@ -6,7 +6,9 @@ import Foundation
 /// The instance-free static accessors read `ProcessInfo.processInfo.environment`;
 /// the `...(from:)` overloads take an explicit environment dictionary so the
 /// policy is testable without mutating the process environment.
-public enum UITestConfig {
+public struct UITestConfig {
+    private init() {}
+
     /// Whether mock data is enabled for the current process.
     public static var mockDataEnabled: Bool {
         mockDataEnabled(from: ProcessInfo.processInfo.environment)

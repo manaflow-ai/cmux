@@ -70,7 +70,9 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
 }
 
 #if DEBUG
-enum MobileShellDevStackAuthTokenProvider {
+struct MobileShellDevStackAuthTokenProvider {
+    private init() {}
+
     static let environmentKey = "CMUX_MOBILE_DEV_STACK_AUTH_TOKEN"
 
     static func token(

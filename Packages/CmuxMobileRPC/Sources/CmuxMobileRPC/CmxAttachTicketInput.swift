@@ -3,7 +3,9 @@ import Foundation
 
 /// Decodes a scanned or pasted `cmux-ios://` pairing/attach URL into a
 /// validated ``CmxAttachTicket``.
-public enum CmxAttachTicketInput {
+public struct CmxAttachTicketInput {
+    private init() {}
+
     /// Decode and validate a `cmux-ios://pair` or `cmux-ios://attach` URL.
     /// - Parameter rawValue: The scanned/pasted URL string.
     /// - Returns: A validated attach ticket.

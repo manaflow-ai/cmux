@@ -1,6 +1,10 @@
 import Foundation
 
-public enum CmxMobileDefaults {
+/// Shared default constants for the mobile sync protocol.
+public struct CmxMobileDefaults {
+    private init() {}
+
+    /// The default daemon host port mobile clients dial when none is supplied.
     public static let defaultHostPort = 58_465
 }
 
@@ -162,7 +166,10 @@ public enum MobileSyncFrameCodecError: Error, Equatable, Sendable {
     case frameTooLarge(Int)
 }
 
-public enum MobileSyncFrameCodec {
+/// Length-prefixed frame codec for the mobile sync wire protocol.
+public struct MobileSyncFrameCodec {
+    private init() {}
+
     public static let headerByteCount = 4
     public static let defaultMaximumFrameByteCount = 8 * 1024 * 1024
 

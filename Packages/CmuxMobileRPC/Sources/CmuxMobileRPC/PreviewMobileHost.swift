@@ -1,7 +1,9 @@
 public import CmuxMobileShellModel
 
 /// Static preview fixtures used for SwiftUI previews and disconnected fallback.
-public enum PreviewMobileHost {
+public struct PreviewMobileHost {
+    private init() {}
+
     /// The placeholder host name shown when previewing.
     public static let hostName = "cmux-macbook"
 

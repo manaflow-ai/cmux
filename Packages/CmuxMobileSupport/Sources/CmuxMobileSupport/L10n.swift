@@ -2,9 +2,23 @@ public import Foundation
 
 /// Localized-string helpers shared across the mobile packages.
 ///
-/// Strings live in the app target's `Localizable.xcstrings`, so lookups use
-/// `Bundle.main`; this resolves correctly from any module at runtime.
-public enum L10n {
+/// Strings live in the app target's `Localizable.xcstrings`, so lookups default
+/// to `Bundle.main`; this resolves correctly from any module at runtime. The
+/// `bundle`-taking overloads let tests point lookups at a fixture bundle.
+public struct L10n {
+    private init() {}
+
+    /// Resolve a localized string by key from an explicit bundle.
+    ///
+    /// - Parameters:
+    ///   - key: The localization key present in the bundle's string catalog.
+    ///   - defaultValue: The English source value used when the key is missing.
+    ///   - bundle: The bundle whose string catalog to read.
+    /// - Returns: The localized string from `bundle`.
+    public static func string(_ key: StaticString, defaultValue: String.LocalizationValue, bundle: Bundle) -> String {
+        String(localized: key, defaultValue: defaultValue, bundle: bundle)
+    }
+
     /// Resolve a localized string by key, falling back to a default value.
     ///
     /// - Parameters:
@@ -12,7 +26,7 @@ public enum L10n {
     ///   - defaultValue: The English source value used when the key is missing.
     /// - Returns: The localized string from `Bundle.main`.
     public static func string(_ key: StaticString, defaultValue: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: defaultValue, bundle: .main)
+        string(key, defaultValue: defaultValue, bundle: .main)
     }
 
     /// A localized "N terminals" count label with singular/plural handling.

@@ -2,7 +2,9 @@ public import SwiftUI
 
 /// Pure layout policy deciding whether the workspace shell uses the compact
 /// (stacked) navigation style based on the current size classes.
-public enum MobileWorkspaceShellLayoutPolicy {
+public struct MobileWorkspaceShellLayoutPolicy {
+    private init() {}
+
     /// Whether the shell should use a compact, stacked navigation layout.
     /// - Parameters:
     ///   - horizontalSizeClass: The current horizontal size class.
