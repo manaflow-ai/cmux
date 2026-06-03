@@ -315,6 +315,34 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(workerError["code"] as? String, "not_found")
     }
 
+    func testWorkspaceWorkerMethodRejectsWindowAliasInsteadOfDefaultWindowFallback() async throws {
+        let socketPath = makeSocketPath("alias-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let params: [String: Any] = ["window": "window:2"]
+        let requestLine = try makeV2RequestLine(
+            method: "workspace.remote.pty_sessions",
+            params: params
+        )
+
+        let mainEnvelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+        let mainError = try XCTUnwrap(mainEnvelope["error"] as? [String: Any])
+        XCTAssertEqual(mainError["code"] as? String, "invalid_dispatch")
+
+        let workerEnvelope = try await sendV2RequestAsync(
+            method: "workspace.remote.pty_sessions",
+            params: params,
+            to: socketPath
+        )
+        try assertUnsupportedWorkspaceWindowAlias(workerEnvelope)
+    }
+
     func testHeartbeatMethodsSupportInProcessAndSocketDispatch() async throws {
         let socketPath = makeSocketPath("heartbeat-worker")
         let tabManager = TabManager()
@@ -1371,6 +1399,19 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
     ) throws -> [String: Any] {
         let requestLine = try makeV2RequestLine(method: method, params: params)
         return try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+    }
+
+    private func assertUnsupportedWorkspaceWindowAlias(
+        _ envelope: [String: Any],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertEqual(envelope["ok"] as? Bool, false, file: file, line: line)
+        let error = try XCTUnwrap(envelope["error"] as? [String: Any], file: file, line: line)
+        XCTAssertEqual(error["code"] as? String, "invalid_params", file: file, line: line)
+        let data = try XCTUnwrap(error["data"] as? [String: Any], file: file, line: line)
+        XCTAssertEqual(data["unsupported_param"] as? String, "window", file: file, line: line)
+        XCTAssertEqual(data["supported_param"] as? String, "window_id", file: file, line: line)
     }
 
     private nonisolated func sendV2Request(

@@ -1324,17 +1324,23 @@ extension CMUXCLI {
             }
             let env = ProcessInfo.processInfo.environment
             let baselineStorePath = CMUXAgentTurnDiffBaselineFile.path(env: env)
-            let record = try latestAgentTurnDiffBaseline(
+            if let record = try latestAgentTurnDiffBaseline(
                 repoRoot: repoRoot,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 env: env
-            )
-            _ = try gitStdout(["cat-file", "-e", "\(record.baseCommit)^{tree}"], in: repoRoot)
-            patch = try joinedGitDiffPatches([
-                gitStdout(gitDiffPatchArguments([record.baseCommit, "--"]), in: repoRoot),
-                gitUntrackedPatchSinceBaseline(record: record, in: repoRoot, storePath: baselineStorePath)
-            ])
+            ) {
+                _ = try gitStdout(["cat-file", "-e", "\(record.baseCommit)^{tree}"], in: repoRoot)
+                patch = try joinedGitDiffPatches([
+                    gitStdout(gitDiffPatchArguments([record.baseCommit, "--"]), in: repoRoot),
+                    gitUntrackedPatchSinceBaseline(record: record, in: repoRoot, storePath: baselineStorePath)
+                ])
+            } else {
+                // No last-turn baseline recorded yet: emit an empty patch so the
+                // viewer renders the friendly empty diff state (with the source
+                // switcher) instead of throwing a developer-facing CLI error.
+                patch = ""
+            }
             sourceLabel = "git last-turn \(workspaceId) \(surfaceId)"
         }
         return DiffInput(
@@ -2301,12 +2307,18 @@ extension CMUXCLI {
         "refs/cmux/last-turn/untracked/\(blob)"
     }
 
+    /// Returns the most recent last-turn diff baseline recorded for the given
+    /// workspace/surface, or `nil` when no baseline has been recorded yet.
+    ///
+    /// A missing baseline is not an error: it means there is simply nothing to
+    /// diff for the last turn, so callers render the friendly empty diff state
+    /// (with the source switcher) rather than surfacing a raw CLI error.
     private func latestAgentTurnDiffBaseline(
         repoRoot: String,
         workspaceId: String,
         surfaceId: String,
         env: [String: String]
-    ) throws -> CMUXAgentTurnDiffBaselineRecord {
+    ) throws -> CMUXAgentTurnDiffBaselineRecord? {
         let store = try readAgentTurnDiffBaselineStore(path: CMUXAgentTurnDiffBaselineFile.path(env: env))
         let repoRoot = standardizedDiffSourcePath(repoRoot)
         let candidates = store.records.filter { record in
@@ -2314,10 +2326,7 @@ extension CMUXCLI {
                 && diffScopeIdentifierEquals(record.workspaceId, workspaceId)
                 && diffScopeIdentifierEquals(record.surfaceId, surfaceId)
         }
-        guard let record = candidates.max(by: { $0.capturedAt < $1.capturedAt }) else {
-            throw CLIError(message: "No last-turn diff baseline recorded for this workspace and surface yet. Run another agent turn with cmux hooks active, or use --unstaged, --staged, or --branch.")
-        }
-        return record
+        return candidates.max(by: { $0.capturedAt < $1.capturedAt })
     }
 
     private func readAgentTurnDiffBaselineStore(path: String) throws -> CMUXAgentTurnDiffBaselineStore {
@@ -3189,26 +3198,39 @@ extension CMUXCLI {
         }
         var selectedContext = try sourceContext(for: selectedSource, repoRoot: repoRoot)
         var selectedInput: DiffInput?
+        // When non-nil, the selected source has no changes: render the friendly,
+        // non-error empty diff state (with the source switcher) instead of failing.
+        var selectedEmptyMessage: String?
         if !shouldDeferSelectedSource {
             do {
                 selectedInput = try nonEmptyGitDiffInput(source: selectedSource, context: selectedContext)
             } catch let error as EmptyDiffSourceError {
-                guard selectedSource != .lastTurn else {
-                    throw CLIError(message: error.message)
-                }
-                var fallback: (source: DiffSource, context: DiffSourceContext, input: DiffInput)?
-                for candidate in DiffSource.allCases where candidate != selectedSource {
-                    guard let candidateContext = try? sourceContext(for: candidate, repoRoot: repoRoot),
-                          let candidateInput = try? nonEmptyGitDiffInput(source: candidate, context: candidateContext) else {
-                        continue
+                if selectedSource == .lastTurn {
+                    // Last turn is the user's explicit intent, so never silently
+                    // switch sources; show its empty state and keep the switcher.
+                    selectedEmptyMessage = error.message
+                    selectedInput = nil
+                } else {
+                    var fallback: (source: DiffSource, context: DiffSourceContext, input: DiffInput)?
+                    for candidate in DiffSource.allCases where candidate != selectedSource {
+                        guard let candidateContext = try? sourceContext(for: candidate, repoRoot: repoRoot),
+                              let candidateInput = try? nonEmptyGitDiffInput(source: candidate, context: candidateContext) else {
+                            continue
+                        }
+                        fallback = (candidate, candidateContext, candidateInput)
+                        break
                     }
-                    fallback = (candidate, candidateContext, candidateInput)
-                    break
+                    if let fallback {
+                        selectedSource = fallback.source
+                        selectedContext = fallback.context
+                        selectedInput = fallback.input
+                    } else {
+                        // Every source is empty: show the originally selected
+                        // source's empty state rather than a raw error.
+                        selectedEmptyMessage = error.message
+                        selectedInput = nil
+                    }
                 }
-                guard let fallback else { throw CLIError(message: error.message) }
-                selectedSource = fallback.source
-                selectedContext = fallback.context
-                selectedInput = fallback.input
             }
         }
         let fileURLs = Dictionary(uniqueKeysWithValues: DiffSource.allCases.map { source in
@@ -3504,6 +3526,24 @@ extension CMUXCLI {
                 repoRoot: repoRoot,
                 branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil
             )
+        } else if let selectedEmptyMessage {
+            // Friendly, non-error empty diff state: the panel shows plain-language
+            // text plus the source switcher so the user can pick another diff.
+            try writeDiffViewerStatusHTML(
+                to: selectedFileURL,
+                title: titleOverride ?? selectedSource.title,
+                sourceLabel: "git \(selectedSource.slug)",
+                message: selectedEmptyMessage,
+                isError: false,
+                pollForReplacement: false,
+                layout: layout,
+                appearance: appearance,
+                sourceOptions: sourceOptions,
+                repoOptions: selectedRepoOptions,
+                baseOptions: selectedSource == .branch ? baseOptions : [],
+                repoRoot: repoRoot,
+                branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil
+            )
         }
         let assets = try ensureDiffViewerAssets(nextTo: selectedFileURL)
         let pageURLs = [selectedFileURL] + deferredPages.map(\.url)
@@ -3674,21 +3714,11 @@ extension CMUXCLI {
                         baseOptions: fallback.baseOptions,
                         sourceSet: sourceSet
                     )
-                    try? writeDiffViewerStatusHTML(
-                        to: page.url,
-                        title: page.titleOverride ?? page.source.title,
-                        sourceLabel: "git \(page.source.slug)",
-                        message: error.message,
-                        isError: true,
-                        pollForReplacement: false,
-                        layout: sourceSet.layout,
-                        appearance: sourceSet.appearance,
-                        sourceOptions: page.sourceOptions,
-                        repoOptions: page.repoOptions,
-                        baseOptions: page.baseOptions,
-                        repoRoot: page.context.repoRoot,
-                        branchBaseRef: page.source == .branch ? page.context.branchBaseRef : nil
-                    )
+                    // The originally selected source is empty; leave its own page as
+                    // a friendly empty state so switching back to it never shows a
+                    // raw error. This is a secondary page (the fallback page is the
+                    // returned result), so a write failure here is best-effort.
+                    try? writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
                     completion.completedPageURLs.insert(page.url)
                     return completion
                 } catch is EmptyDiffSourceError {
@@ -3697,8 +3727,67 @@ extension CMUXCLI {
                     throw fallbackError
                 }
             }
-            throw error
+            // No source has changes: render the selected source's friendly empty
+            // state. A write failure must propagate so the deferred pipeline does
+            // not report success while a stale loading page remains.
+            try writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
+            return deferredDiffViewerEmptyStateCompletion(message: error.message, page: page)
+        } catch let error as EmptyDiffSourceError {
+            // Sources that never fall back (last turn) still render their own
+            // friendly empty state rather than surfacing a developer-facing error.
+            try writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
+            return deferredDiffViewerEmptyStateCompletion(message: error.message, page: page)
         }
+    }
+
+    /// Writes the friendly, non-error empty diff state for a deferred source page.
+    ///
+    /// Used when a source has no changes to show: the panel renders plain-language
+    /// text plus the source switcher instead of a raw error, and the CLI exits
+    /// successfully so the launcher never emits an error beep. Throws if the
+    /// replacement page cannot be written, so callers never report success while a
+    /// stale loading page remains.
+    private func writeDiffViewerEmptyStatePage(
+        message: String,
+        page: DiffViewerDeferredSourcePage,
+        sourceSet: DiffViewerDeferredSourceSet
+    ) throws {
+        try writeDiffViewerStatusHTML(
+            to: page.url,
+            title: page.titleOverride ?? page.source.title,
+            sourceLabel: "git \(page.source.slug)",
+            message: message,
+            isError: false,
+            pollForReplacement: false,
+            layout: sourceSet.layout,
+            appearance: sourceSet.appearance,
+            sourceOptions: page.sourceOptions,
+            repoOptions: page.repoOptions,
+            baseOptions: page.source == .branch ? page.baseOptions : [],
+            repoRoot: page.context.repoRoot,
+            branchBaseRef: page.source == .branch ? page.context.branchBaseRef : nil
+        )
+    }
+
+    /// Builds the completion describing a rendered empty diff state for a deferred
+    /// source page. Pure value construction; the page must already be written via
+    /// ``writeDiffViewerEmptyStatePage(message:page:sourceSet:)``.
+    private func deferredDiffViewerEmptyStateCompletion(
+        message: String,
+        page: DiffViewerDeferredSourcePage
+    ) -> DiffViewerDeferredCompletion {
+        DiffViewerDeferredCompletion(
+            input: DiffInput(
+                patch: "",
+                sourceLabel: "git \(page.source.slug)",
+                defaultTitle: page.titleOverride ?? page.source.title,
+                emptyMessage: message,
+                externalURL: nil
+            ),
+            fileURL: page.url,
+            viewerURL: page.viewerURL,
+            completedPageURLs: [page.url]
+        )
     }
 
     private func writeDeferredDiffViewerSource(

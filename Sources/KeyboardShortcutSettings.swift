@@ -150,7 +150,9 @@ enum KeyboardShortcutSettings {
         case useSelectionForFind
         case toggleBrowserDeveloperTools
         case showBrowserJavaScriptConsole
+        case toggleBrowserFocusMode
         case toggleReactGrab
+        case openDiffViewer
         case diffViewerScrollDown
         case diffViewerScrollUp
         case diffViewerScrollToBottom
@@ -243,7 +245,9 @@ enum KeyboardShortcutSettings {
             case .useSelectionForFind: return String(localized: "menu.find.useSelectionForFind", defaultValue: "Use Selection for Find")
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
+            case .toggleBrowserFocusMode: return String(localized: "shortcut.toggleBrowserFocusMode.label", defaultValue: "Enter Browser Focus Mode")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
+            case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
             case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
             case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Diff Viewer: Scroll Up")
             case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Diff Viewer: Scroll to Bottom")
@@ -451,8 +455,23 @@ enum KeyboardShortcutSettings {
             case .showBrowserJavaScriptConsole:
                 // Safari default: Show JavaScript Console.
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
+            case .toggleBrowserFocusMode:
+                // Option+Cmd+Return: "enter" focus mode mnemonic. Option+Cmd is a
+                // modifier tier web pages rarely bind, so it stays out of the page's
+                // way while focus mode is off and cmux owns the shortcut, and it
+                // avoids the Ctrl+Cmd+Return global hotkey some screen recorders use.
+                // Exit stays double-Escape; rebind in Settings or cmux.json.
+                return StoredShortcut(key: "\r", command: true, shift: false, option: true, control: false)
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+            case .openDiffViewer:
+                // Cmd+Ctrl+Shift+D. The plain Cmd+Ctrl+D chord is reserved by macOS for
+                // "Look Up & data detectors" — the OS swallows it before it reaches the
+                // app's key monitor — and the rest of the Cmd-based "D" family is taken
+                // by split actions (Cmd+D, Cmd+Shift+D, Cmd+Opt+D, Cmd+Shift+Opt+D).
+                // Adding Shift yields a chord that reaches cmux while keeping the "D for
+                // Diff" mnemonic. Rebindable in Settings → Keyboard Shortcuts.
+                return StoredShortcut(key: "d", command: true, shift: true, option: false, control: true)
             case .diffViewerScrollDown:
                 return StoredShortcut(key: "j", command: false, shift: false, option: false, control: false)
             case .diffViewerScrollUp:

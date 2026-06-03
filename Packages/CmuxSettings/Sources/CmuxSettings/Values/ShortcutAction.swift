@@ -78,6 +78,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleRightSidebar = "toggleFileExplorer"
 
     // MARK: Browser & Find
+    case openDiffViewer
     case saveFilePreview
     case openBrowser
     case focusBrowserAddressBar
@@ -98,6 +99,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case useSelectionForFind
     case toggleBrowserDeveloperTools
     case showBrowserJavaScriptConsole
+    case toggleBrowserFocusMode
     case toggleReactGrab
 }
 
@@ -145,12 +147,12 @@ extension ShortcutAction {
              .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
              .toggleRightSidebar:
             return .panes
-        case .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
+        case .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
              .browserForward, .browserReload, .browserZoomIn, .browserZoomOut,
              .browserZoomReset, .markdownZoomIn, .markdownZoomOut, .markdownZoomReset,
              .find, .findInDirectory, .findNext, .findPrevious,
              .hideFind, .useSelectionForFind, .toggleBrowserDeveloperTools,
-             .showBrowserJavaScriptConsole, .toggleReactGrab:
+             .showBrowserJavaScriptConsole, .toggleBrowserFocusMode, .toggleReactGrab:
             return .browser
         }
     }
@@ -234,6 +236,7 @@ extension ShortcutAction {
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"
         case .toggleRightSidebar: return "Toggle Right Sidebar"
+        case .openDiffViewer: return "Open Diff Viewer"
         case .saveFilePreview: return "Save File Preview"
         case .openBrowser: return "Open Browser"
         case .focusBrowserAddressBar: return "Focus Address Bar"
@@ -254,6 +257,7 @@ extension ShortcutAction {
         case .useSelectionForFind: return "Use Selection for Find"
         case .toggleBrowserDeveloperTools: return "Toggle Browser Developer Tools"
         case .showBrowserJavaScriptConsole: return "Show Browser JavaScript Console"
+        case .toggleBrowserFocusMode: return "Enter Browser Focus Mode"
         case .toggleReactGrab: return "Toggle React Grab"
         }
     }
