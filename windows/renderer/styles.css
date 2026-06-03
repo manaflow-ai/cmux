@@ -663,6 +663,7 @@ body.reduce-motion *::after {
 .quick-settings-shortcut,
 .actions-group-card,
 .data-storage-row,
+.browser-workflow-preset,
 .browser-home-preset,
 .pane-layout-preset,
 .terminal-color-preset,
@@ -784,6 +785,7 @@ body.reduce-motion *::after {
 .quick-overview-scope-item:focus-visible,
 .actions-group-card:focus-visible,
 .data-storage-row:focus-visible,
+.browser-workflow-preset:focus-visible,
 .browser-home-preset:focus-visible,
 .pane-layout-preset:focus-visible,
 .terminal-color-preset:focus-visible,
@@ -826,6 +828,7 @@ body.reduce-motion *::after {
 .quick-settings-shortcut:active,
 .actions-group-card:active,
 .data-storage-row:active,
+.browser-workflow-preset:active,
 .browser-home-preset:active,
 .pane-layout-preset:active,
 .terminal-color-preset:active,
@@ -6525,6 +6528,9 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .browser-preview-line,
 .browser-preview-meta b,
 .browser-preview-meta em,
+.browser-workflow-preset-title,
+.browser-workflow-preset-body,
+.browser-workflow-preset-meta span,
 .browser-home-preset-title,
 .browser-home-preset-body,
 .browser-home-preset-url {
@@ -6614,6 +6620,116 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .browser-preview-meta em {
   color: var(--color-text);
   font-size: 12px;
+}
+
+.browser-workflow-preset-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.browser-workflow-preset-card {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.browser-workflow-preset {
+  min-width: 0;
+  min-height: 96px;
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-text);
+  text-align: left;
+}
+
+.browser-workflow-preset-card .browser-workflow-preset {
+  width: 100%;
+}
+
+.browser-workflow-preset:hover:not(:disabled) {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+}
+
+.browser-workflow-preset:disabled {
+  cursor: default;
+}
+
+.browser-workflow-preset-card.is-active .browser-workflow-preset,
+.browser-workflow-preset.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 60%, var(--color-line) 40%);
+  background: color-mix(in oklch, var(--color-accent) 9%, var(--color-pane) 91%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 36%, transparent);
+}
+
+.browser-workflow-preset-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.browser-workflow-preset-title {
+  flex: 1 1 auto;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.browser-workflow-preset-status {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  border: 1px solid color-mix(in oklch, var(--color-accent) 48%, var(--color-line) 52%);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane) 86%);
+  color: var(--color-text);
+  font-size: 9px;
+  font-weight: 760;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.browser-workflow-preset-status:empty {
+  display: none;
+}
+
+.browser-workflow-preset-body {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.3;
+  display: -webkit-box;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.browser-workflow-preset-meta {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.browser-workflow-preset-meta span {
+  padding: 4px 5px;
+  border: 1px solid color-mix(in oklch, var(--color-line) 70%, transparent);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-rail) 42%, transparent);
+  color: var(--color-muted);
+  font: 10px/1 var(--font-mono);
+}
+
+.browser-workflow-preset-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
 }
 
 .browser-home-preset-grid {
@@ -12459,6 +12575,7 @@ textarea.dialog-input {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .browser-workflow-preset-grid,
   .browser-home-preset-grid,
   .browser-preview-meta,
   .quick-overview-grid,

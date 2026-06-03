@@ -11680,6 +11680,7 @@ function renderSettingsInspector(options = {}) {
       homeInput.value = state.settings.browserHomeUrl;
     });
     browserSection.append(settingRow("Home page", homeInput, true));
+    browserSection.append(browserWorkflowPresetGrid());
     browserSection.append(browserHomePresetsDisclosurePanel());
     const launchModeSelect = document.createElement("select");
     launchModeSelect.className = "setting-select";
@@ -13693,6 +13694,55 @@ function browserHomeParts(value) {
   }
 }
 
+const browserSetupSettings = ["browserHomeUrl", "browserLaunchMode", "externalBrowserProfileId", "browserSuspendInactive"];
+
+const browserWorkflowPresets = [
+  {
+    id: "paneSearch",
+    label: "Pane search",
+    body: "Use the default search page inside cmux and suspend hidden browser panes.",
+    settings: {
+      browserHomeUrl: "https://www.google.com",
+      browserLaunchMode: "pane",
+      externalBrowserProfileId: "system",
+      browserSuspendInactive: true
+    }
+  },
+  {
+    id: "githubReview",
+    label: "GitHub review",
+    body: "Open GitHub externally through the system browser profile for PR work.",
+    settings: {
+      browserHomeUrl: "https://github.com",
+      browserLaunchMode: "external",
+      externalBrowserProfileId: "system",
+      browserSuspendInactive: true
+    }
+  },
+  {
+    id: "viteApp",
+    label: "Vite app",
+    body: "Keep the Vite dev server live in a browser pane while iterating.",
+    settings: {
+      browserHomeUrl: "http://localhost:5173",
+      browserLaunchMode: "pane",
+      externalBrowserProfileId: "system",
+      browserSuspendInactive: false
+    }
+  },
+  {
+    id: "nodeApp",
+    label: "Node app",
+    body: "Use localhost 3000 as the pane home and keep inactive browser panes live.",
+    settings: {
+      browserHomeUrl: "http://localhost:3000",
+      browserLaunchMode: "pane",
+      externalBrowserProfileId: "system",
+      browserSuspendInactive: false
+    }
+  }
+];
+
 function browserSettingsPreviewPanel() {
   const home = browserHomeParts(state.settings.browserHomeUrl);
   const recent = state.recentBrowserPages[0] ? browserHomeParts(state.recentBrowserPages[0]) : null;
@@ -13731,6 +13781,193 @@ function browserSettingsPreviewPanel() {
     ? `${state.recentBrowserPages.length} / ${recent.host}`
     : "None";
   return panel;
+}
+
+function browserWorkflowPresetById(presetId) {
+  return browserWorkflowPresets.find((candidate) => candidate.id === presetId) || null;
+}
+
+function browserWorkflowPresetSettings(preset) {
+  if (!preset) return null;
+  return browserSetupUpdatesFromPayload(preset.settings);
+}
+
+function browserWorkflowPresetSummary(settings) {
+  if (!settings) return [];
+  return [
+    hostnameOf(settings.browserHomeUrl) || "Home",
+    optionLabel(browserLaunchModeOptions, settings.browserLaunchMode, settings.browserLaunchMode),
+    settings.browserSuspendInactive ? "Suspend" : "Live"
+  ];
+}
+
+function browserWorkflowPresetSearchText(preset, settings, active = false, savedProfile = null) {
+  return normalizeSettingsQuery([
+    "browser workflow preset setup home launch external profile suspend save copy",
+    active ? "active current" : "",
+    savedProfile ? "saved" : "",
+    preset?.label || "",
+    preset?.body || "",
+    settings?.browserHomeUrl || "",
+    settings?.browserLaunchMode || "",
+    browserProfileLabel(settings?.externalBrowserProfileId),
+    settings?.browserSuspendInactive ? "suspend inactive" : "live inactive"
+  ].join(" "));
+}
+
+function isActiveBrowserWorkflowPreset(preset) {
+  const settings = browserWorkflowPresetSettings(preset);
+  if (!settings) return false;
+  return browserHomeKey(settings.browserHomeUrl) === browserHomeKey(state.settings.browserHomeUrl)
+    && settings.browserLaunchMode === state.settings.browserLaunchMode
+    && settings.externalBrowserProfileId === state.settings.externalBrowserProfileId
+    && settings.browserSuspendInactive === state.settings.browserSuspendInactive;
+}
+
+function browserWorkflowPresetProfileSettings(preset) {
+  const settings = browserWorkflowPresetSettings(preset);
+  if (!settings) return null;
+  return normalizeSettings({
+    ...state.settings,
+    ...settings
+  });
+}
+
+function savedSettingsProfileForBrowserWorkflowPreset(preset) {
+  const settings = browserWorkflowPresetProfileSettings(preset);
+  if (!settings) return null;
+  return state.savedSettingsProfiles.find((profile) => settingsProfileMatchesSettings(profile, settings)) || null;
+}
+
+function browserWorkflowPresetTitle(preset, active) {
+  if (!preset) return "Browser workflow preset not found.";
+  return active
+    ? `${preset.label} browser workflow is already active.`
+    : `Apply ${preset.label} browser workflow.`;
+}
+
+function browserWorkflowPresetProfileSaveTitle(preset, savedProfile = savedSettingsProfileForBrowserWorkflowPreset(preset)) {
+  if (!preset) return "Choose a browser workflow preset first.";
+  if (savedProfile) return `${savedProfile.label} already saves ${preset.label}.`;
+  if (savedSettingsProfilesFull()) return settingsProfileLimitTitle();
+  return "Save this browser workflow as a reusable Settings profile.";
+}
+
+function browserWorkflowPresetGrid() {
+  const grid = document.createElement("div");
+  grid.className = "browser-workflow-preset-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("browser workflow presets setup home launch external profile suspend live save copy");
+  for (const preset of browserWorkflowPresets) {
+    const settings = browserWorkflowPresetSettings(preset);
+    if (!settings) continue;
+    const active = isActiveBrowserWorkflowPreset(preset);
+    const savedProfile = savedSettingsProfileForBrowserWorkflowPreset(preset);
+    const card = document.createElement("div");
+    card.className = `browser-workflow-preset-card${active ? " is-active" : ""}`;
+    card.dataset.browserWorkflowPresetCard = preset.id;
+    card.dataset.settingsSearch = browserWorkflowPresetSearchText(preset, settings, active, savedProfile);
+    const button = document.createElement("button");
+    button.className = "browser-workflow-preset";
+    button.type = "button";
+    button.disabled = active;
+    button.title = browserWorkflowPresetTitle(preset, active);
+    button.dataset.browserWorkflowPreset = preset.id;
+    button.dataset.settingsSearch = browserWorkflowPresetSearchText(preset, settings, active, savedProfile);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.innerHTML = `
+      <span class="browser-workflow-preset-title-row">
+        <span class="browser-workflow-preset-title"></span>
+        <span class="browser-workflow-preset-status"></span>
+      </span>
+      <span class="browser-workflow-preset-body"></span>
+      <span class="browser-workflow-preset-meta">
+        <span data-browser-workflow-home></span>
+        <span data-browser-workflow-launch></span>
+        <span data-browser-workflow-inactive></span>
+      </span>
+    `;
+    button.querySelector(".browser-workflow-preset-title").textContent = preset.label;
+    button.querySelector(".browser-workflow-preset-status").textContent = active ? "Active" : "";
+    button.querySelector(".browser-workflow-preset-body").textContent = preset.body;
+    const [home, launch, inactive] = browserWorkflowPresetSummary(settings);
+    button.querySelector("[data-browser-workflow-home]").textContent = home;
+    button.querySelector("[data-browser-workflow-launch]").textContent = launch;
+    button.querySelector("[data-browser-workflow-inactive]").textContent = inactive;
+    button.onclick = () => applyBrowserWorkflowPreset(preset.id);
+    const actions = document.createElement("div");
+    actions.className = "browser-workflow-preset-actions";
+    const save = settingsActionButton(
+      savedProfile ? "Saved" : "Save",
+      () => saveBrowserWorkflowPresetProfile(preset.id),
+      savedProfile ? "primary" : "",
+      browserWorkflowPresetSearchText(preset, settings, active, savedProfile)
+    );
+    save.dataset.browserWorkflowPresetSave = preset.id;
+    save.disabled = Boolean(savedProfile) || savedSettingsProfilesFull();
+    save.title = browserWorkflowPresetProfileSaveTitle(preset, savedProfile);
+    const copy = settingsActionButton(
+      "Copy setup",
+      () => copyBrowserWorkflowPresetSetup(preset.id),
+      "",
+      `browser workflow preset copy setup clipboard json ${preset.label} ${preset.body} ${settings.browserHomeUrl}`
+    );
+    copy.title = "Copy this browser workflow as cmux browser setup JSON.";
+    actions.append(save, copy);
+    card.append(button, actions);
+    grid.append(card);
+  }
+  return grid;
+}
+
+function updateBrowserWorkflowPresetCard(card, preset) {
+  const settings = browserWorkflowPresetSettings(preset);
+  if (!card || !settings) return false;
+  const active = isActiveBrowserWorkflowPreset(preset);
+  const savedProfile = savedSettingsProfileForBrowserWorkflowPreset(preset);
+  let changed = toggleClassIfChanged(card, "is-active", active);
+  const cardSearch = browserWorkflowPresetSearchText(preset, settings, active, savedProfile);
+  if (card.dataset.settingsSearch !== cardSearch) {
+    card.dataset.settingsSearch = cardSearch;
+    updateSettingsSearchIndexItemSearch(card, cardSearch);
+    changed = true;
+  }
+  const button = card.querySelector("[data-browser-workflow-preset]");
+  if (button) {
+    changed = toggleClassIfChanged(button, "is-active", active) || changed;
+    changed = setDisabledIfChanged(button, active) || changed;
+    const ariaPressed = active ? "true" : "false";
+    if (button.getAttribute("aria-pressed") !== ariaPressed) {
+      button.setAttribute("aria-pressed", ariaPressed);
+      changed = true;
+    }
+    changed = setTitleIfChanged(button, browserWorkflowPresetTitle(preset, active)) || changed;
+    const buttonSearch = browserWorkflowPresetSearchText(preset, settings, active, savedProfile);
+    if (button.dataset.settingsSearch !== buttonSearch) {
+      button.dataset.settingsSearch = buttonSearch;
+      updateSettingsSearchIndexItemSearch(button, buttonSearch);
+      changed = true;
+    }
+    const status = button.querySelector(".browser-workflow-preset-status");
+    if (status) changed = setTextIfChanged(status, active ? "Active" : "") || changed;
+  }
+  const save = card.querySelector("[data-browser-workflow-preset-save]");
+  if (save) {
+    changed = setTextIfChanged(save, savedProfile ? "Saved" : "Save") || changed;
+    changed = setDisabledIfChanged(save, Boolean(savedProfile) || savedSettingsProfilesFull()) || changed;
+    changed = toggleClassIfChanged(save, "primary", Boolean(savedProfile)) || changed;
+    changed = setTitleIfChanged(save, browserWorkflowPresetProfileSaveTitle(preset, savedProfile)) || changed;
+  }
+  return changed;
+}
+
+function refreshBrowserWorkflowPresetGrid() {
+  let changed = false;
+  for (const card of elements.inspectorBody.querySelectorAll("[data-browser-workflow-preset-card]")) {
+    const preset = browserWorkflowPresetById(card.dataset.browserWorkflowPresetCard);
+    if (!preset) continue;
+    changed = updateBrowserWorkflowPresetCard(card, preset) || changed;
+  }
+  return changed;
 }
 
 function isActiveBrowserHomePreset(preset) {
@@ -13850,41 +14087,49 @@ function useBrowserPageAsHome(url, label = "Browser home") {
   return changed;
 }
 
-function browserSetupPayload() {
+function browserSetupSummaryForSettings(settingsSource = state.settings) {
+  return {
+    home: settingsSource.browserHomeUrl,
+    launch: optionLabel(browserLaunchModeOptions, settingsSource.browserLaunchMode, settingsSource.browserLaunchMode),
+    profile: browserProfileLabel(settingsSource.externalBrowserProfileId),
+    inactivePanes: settingsSource.browserSuspendInactive ? "Suspended" : "Kept live"
+  };
+}
+
+function browserSetupPayload(settingsSource = state.settings) {
   const settings = {
-    browserHomeUrl: state.settings.browserHomeUrl,
-    browserLaunchMode: state.settings.browserLaunchMode,
-    externalBrowserProfileId: state.settings.externalBrowserProfileId,
-    browserSuspendInactive: state.settings.browserSuspendInactive
+    browserHomeUrl: settingsSource.browserHomeUrl,
+    browserLaunchMode: settingsSource.browserLaunchMode,
+    externalBrowserProfileId: settingsSource.externalBrowserProfileId,
+    browserSuspendInactive: settingsSource.browserSuspendInactive
   };
   return {
     version: 1,
     type: "cmux-browser-setup",
-    summary: {
-      home: state.settings.browserHomeUrl,
-      launch: optionLabel(browserLaunchModeOptions, state.settings.browserLaunchMode, state.settings.browserLaunchMode),
-      profile: browserProfileLabel(state.settings.externalBrowserProfileId),
-      inactivePanes: state.settings.browserSuspendInactive ? "Suspended" : "Kept live"
-    },
+    summary: browserSetupSummaryForSettings(settings),
     settings
   };
 }
 
-async function copyBrowserSetup() {
-  const payload = JSON.stringify(browserSetupPayload(), null, 2);
-  if (await writeClipboardText(payload)) {
-    toast("Browser setup copied.");
+async function copyBrowserSetupPayload(payload, toastText = "Browser setup copied.", fallbackMessage = "Clipboard access is unavailable. The current browser setup is shown below.") {
+  const serialized = JSON.stringify(payload, null, 2);
+  if (await writeClipboardText(serialized)) {
+    toast(toastText);
     return true;
   }
   await showTextDialog({
     title: "Browser setup",
-    message: "Clipboard access is unavailable. The current browser setup is shown below.",
-    value: payload,
+    message: fallbackMessage,
+    value: serialized,
     confirmLabel: "Close",
     multiline: true,
     readOnly: true
   });
   return false;
+}
+
+async function copyBrowserSetup() {
+  return copyBrowserSetupPayload(browserSetupPayload());
 }
 
 function browserSetupSettingUpdateFromValue(key, raw) {
@@ -13907,9 +14152,8 @@ function browserSetupUpdatesFromPayload(payload) {
   const parsed = importedObject(payload);
   const source = importedObject(parsed?.settings) || parsed;
   if (!source) return null;
-  const keys = ["browserHomeUrl", "browserLaunchMode", "externalBrowserProfileId", "browserSuspendInactive"];
   const updates = {};
-  for (const key of keys) {
+  for (const key of browserSetupSettings) {
     if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
     const value = browserSetupSettingUpdateFromValue(key, source[key]);
     if (value === null) return null;
@@ -13918,18 +14162,18 @@ function browserSetupUpdatesFromPayload(payload) {
   return Object.keys(updates).length ? updates : null;
 }
 
-function applyBrowserSetupUpdates(updates) {
+function applyBrowserSetupUpdates(updates, options = {}) {
   if (!updates) {
-    toast("Clipboard does not contain browser setup.");
+    toast(options.invalidText || "Clipboard does not contain browser setup.");
     return false;
   }
   const changed = updateSettings(updates, { immediate: true });
   if (!changed) {
-    toast("Browser setup already matches.");
+    toast(options.alreadyText || "Browser setup already matches.");
     return false;
   }
   if (state.inspectorMode === "settings") renderSettingsInspector();
-  toast("Browser setup applied.");
+  toast(options.toastText || "Browser setup applied.");
   return true;
 }
 
@@ -13946,6 +14190,37 @@ async function pasteBrowserSetup() {
     toast("Clipboard does not contain browser setup.");
     return false;
   }
+}
+
+function applyBrowserWorkflowPreset(presetId) {
+  const preset = browserWorkflowPresetById(presetId);
+  const settings = browserWorkflowPresetSettings(preset);
+  if (!preset || !settings) {
+    toast("Browser workflow preset not found.");
+    return false;
+  }
+  return applyBrowserSetupUpdates(settings, {
+    toastText: `${preset.label} browser workflow applied.`,
+    alreadyText: `${preset.label} browser workflow already active.`
+  });
+}
+
+function copyBrowserWorkflowPresetSetup(presetId) {
+  const preset = browserWorkflowPresetById(presetId);
+  const settings = browserWorkflowPresetSettings(preset);
+  if (!preset || !settings) {
+    toast("Browser workflow preset not found.");
+    return false;
+  }
+  return copyBrowserSetupPayload(
+    browserSetupPayload({ ...state.settings, ...settings }),
+    `${preset.label} browser workflow copied.`,
+    "Clipboard access is unavailable. The browser workflow preset is shown below."
+  );
+}
+
+function browserWorkflowPresetActiveSignature() {
+  return browserSetupSettings.map((key) => state.settings[key]).join("\u001f");
 }
 
 function browserTabSessionModelFromSnapshot(snapshot, fallbackUrl = state.settings.browserHomeUrl) {
@@ -14322,6 +14597,7 @@ function refreshBrowserSettingsPreview() {
       }
     }
   }
+  refreshBrowserWorkflowPresetGrid();
   refreshRecentBrowserHomeActions();
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
@@ -21147,6 +21423,33 @@ function saveBrowserHomePresetProfile(presetId) {
   return saved;
 }
 
+function saveBrowserWorkflowPresetProfile(presetId) {
+  const preset = browserWorkflowPresetById(presetId);
+  if (!preset) {
+    toast("Browser workflow preset not found.");
+    return null;
+  }
+  const existing = savedSettingsProfileForBrowserWorkflowPreset(preset);
+  if (existing) {
+    toast(`${existing.label} profile already saves ${preset.label}.`);
+    return existing;
+  }
+  if (savedSettingsProfilesFull()) {
+    toast(settingsProfileLimitTitle());
+    return null;
+  }
+  const saved = upsertSavedSettingsProfile({
+    id: createSettingsProfileId(),
+    label: defaultSettingsProfileName(`Browser workflow: ${preset.label}`),
+    settings: browserWorkflowPresetProfileSettings(preset),
+    createdAt: Date.now()
+  });
+  if (!saved) return null;
+  renderSettingsInspector();
+  toast(`${saved.label} profile saved.`);
+  return saved;
+}
+
 function copyBrowserHomePresetProfile(presetId) {
   const preset = browserHomePresetById(presetId);
   if (!preset) {
@@ -23134,6 +23437,7 @@ function paletteQuickActionsSignature() {
   appendSignatureValue(parts, isSettingsPresetIdActive("simpleFast"));
   appendSignatureValue(parts, Boolean(activeSavedSettingsProfile()));
   appendSignatureValue(parts, activeSettingsSetupLabel());
+  appendSignatureValue(parts, browserWorkflowPresetActiveSignature());
   appendSignatureValue(parts, performanceTuningPresetActiveSignature());
   appendSignatureValue(parts, terminalReadabilityPresetActiveSignature());
   appendSignatureValue(parts, state.savedSettingsProfiles.length);
@@ -23144,7 +23448,7 @@ function paletteQuickActionsSignature() {
 function paletteEntryKind(entry) {
   const id = String(entry?.id || "");
   if (id.startsWith("terminal.") || id.startsWith("terminalReadabilityPreset.") || id.startsWith("recentCommand.") || id.startsWith("commandSnippet.")) return "terminal";
-  if (id.startsWith("browser.") || id.startsWith("recentBrowser.") || id.startsWith("browserHomePreset.")) return "browser";
+  if (id.startsWith("browser.") || id.startsWith("recentBrowser.") || id.startsWith("browserHomePreset.") || id.startsWith("browserWorkflowPreset.")) return "browser";
   if (id.startsWith("workspace.") || id.startsWith("recentFolder.") || id.startsWith("workspaceBlueprint.") || id.startsWith("workspaceStarter.")) return "workspace";
   if (id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.") || id.startsWith("performanceTunePreset.")) return "settings";
   if (id.startsWith("layout.") || id.startsWith("paneLayoutPreset.") || id.startsWith("workspaceChromePreset.")) return "layout";
@@ -23815,6 +24119,43 @@ function paletteEntries() {
       title: preset.value ? "Copy this template as saved background JSON." : "This template has no reusable background.",
       search: normalizeSettingsQuery(`background preset template image wallpaper copy reusable saved background library clipboard json ${preset.label} ${preset.value}`),
       run: () => copyBackgroundPresetImage(preset)
+    });
+  }
+  for (const preset of browserWorkflowPresets) {
+    const settings = browserWorkflowPresetSettings(preset);
+    if (!settings) continue;
+    const active = isActiveBrowserWorkflowPreset(preset);
+    const savedProfile = savedSettingsProfileForBrowserWorkflowPreset(preset);
+    const summary = browserWorkflowPresetSummary(settings).join(" / ");
+    entries.push({
+      id: `browserWorkflowPreset.${preset.id}`,
+      label: `Browser workflow: ${preset.label}`,
+      meta: active ? `Active / ${summary}` : summary,
+      shortcut: active ? "Active" : "Browser",
+      active,
+      disabled: active,
+      title: browserWorkflowPresetTitle(preset, active),
+      search: browserWorkflowPresetSearchText(preset, settings, active, savedProfile),
+      run: () => applyBrowserWorkflowPreset(preset.id)
+    });
+    entries.push({
+      id: `browserWorkflowPreset.save.${preset.id}`,
+      label: `Save browser workflow: ${preset.label}`,
+      meta: savedProfile ? `Already saved / ${savedProfile.label}` : savedSettingsProfileCountLabel(),
+      shortcut: savedProfile ? "Saved" : "Save",
+      disabled: Boolean(savedProfile) || savedSettingsProfilesFull(),
+      title: browserWorkflowPresetProfileSaveTitle(preset, savedProfile),
+      search: browserWorkflowPresetSearchText(preset, settings, active, savedProfile),
+      run: () => saveBrowserWorkflowPresetProfile(preset.id)
+    });
+    entries.push({
+      id: `browserWorkflowPreset.copy.${preset.id}`,
+      label: `Copy browser workflow: ${preset.label}`,
+      meta: settings.browserHomeUrl,
+      shortcut: "Copy",
+      title: "Copy this browser workflow as cmux browser setup JSON.",
+      search: normalizeSettingsQuery(`browser workflow preset setup copy clipboard json ${preset.label} ${preset.body} ${settings.browserHomeUrl}`),
+      run: () => copyBrowserWorkflowPresetSetup(preset.id)
     });
   }
   for (const preset of browserHomePresets) {
