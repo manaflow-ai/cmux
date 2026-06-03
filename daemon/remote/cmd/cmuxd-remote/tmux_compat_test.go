@@ -733,13 +733,151 @@ func TestMergeNodeOptions(t *testing.T) {
 	}
 
 	existing := "--max-old-space-size=2048 --trace-warnings"
-	if got := mergeNodeOptions(existing, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
-		t.Fatalf("mergeNodeOptions should replace existing size flag = %q", got)
+	if got := mergeNodeOptions(existing, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size=2048 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should preserve existing size flag = %q", got)
 	}
 
 	spaceSeparated := "--max-old-space-size 2048 --trace-warnings"
-	if got := mergeNodeOptions(spaceSeparated, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
-		t.Fatalf("mergeNodeOptions should replace space-separated size flag = %q", got)
+	if got := mergeNodeOptions(spaceSeparated, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size=2048 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should preserve space-separated size flag = %q", got)
+	}
+
+	staleRestore := "--require=/var/folders/session/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings"
+	if got := mergeNodeOptions(staleRestore, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should drop stale cmux restore module = %q", got)
+	}
+
+	persistentRestore := "--require /Users/test/.claude/cmux/restore-node-options.cjs --max-old-space-size 4096 --trace-warnings"
+	if got := mergeNodeOptions(persistentRestore, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should drop persistent cmux restore module = %q", got)
+	}
+}
+
+func TestConfigureClaudeNodeOptionsStoresCleanOriginal(t *testing.T) {
+	const restoreModulePath = "/Users/test/.claude/cmux/restore-node-options.cjs"
+	wantInjected := "--require=/Users/test/.claude/cmux/restore-node-options.cjs --max-old-space-size=4096"
+
+	tests := []struct {
+		name            string
+		existing        string
+		wantNodeOptions string
+		wantPresent     string
+		wantOriginal    string
+	}{
+		{
+			name:            "drops stale temp restore preload",
+			existing:        "--require=/var/folders/session/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings",
+			wantNodeOptions: wantInjected + " --trace-warnings",
+			wantPresent:     "1",
+			wantOriginal:    "--trace-warnings",
+		},
+		{
+			name:            "drops persistent restore preload",
+			existing:        "--require /Users/test/.claude/cmux/restore-node-options.cjs --max-old-space-size 4096 --trace-warnings",
+			wantNodeOptions: wantInjected + " --trace-warnings",
+			wantPresent:     "1",
+			wantOriginal:    "--trace-warnings",
+		},
+		{
+			name:            "drops empty cmux-only restore preload",
+			existing:        "--require=/var/folders/session/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096",
+			wantNodeOptions: wantInjected,
+			wantPresent:     "0",
+			wantOriginal:    "",
+		},
+		{
+			name:            "normalizes original heap flag shape",
+			existing:        "--max-old-space-size 2048 --trace-warnings",
+			wantNodeOptions: wantInjected + " --max-old-space-size=2048 --trace-warnings",
+			wantPresent:     "1",
+			wantOriginal:    "--max-old-space-size=2048 --trace-warnings",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("NODE_OPTIONS", tt.existing)
+			t.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "before")
+			t.Setenv("CMUX_ORIGINAL_NODE_OPTIONS", "before")
+
+			configureClaudeNodeOptions(restoreModulePath)
+
+			if got := os.Getenv("NODE_OPTIONS"); got != tt.wantNodeOptions {
+				t.Fatalf("NODE_OPTIONS = %q, want %q", got, tt.wantNodeOptions)
+			}
+			if got := os.Getenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT"); got != tt.wantPresent {
+				t.Fatalf("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT = %q, want %q", got, tt.wantPresent)
+			}
+			gotOriginal, ok := os.LookupEnv("CMUX_ORIGINAL_NODE_OPTIONS")
+			if tt.wantOriginal == "" {
+				if ok {
+					t.Fatalf("CMUX_ORIGINAL_NODE_OPTIONS = %q, want unset", gotOriginal)
+				}
+			} else if !ok || gotOriginal != tt.wantOriginal {
+				t.Fatalf("CMUX_ORIGINAL_NODE_OPTIONS = %q (present=%v), want %q", gotOriginal, ok, tt.wantOriginal)
+			}
+		})
+	}
+}
+
+func TestEnsureClaudeNodeOptionsRestoreModuleUsesHome(t *testing.T) {
+	home := t.TempDir()
+	tmp := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("TMPDIR", tmp)
+
+	path, err := ensureClaudeNodeOptionsRestoreModule()
+	if err != nil {
+		t.Fatalf("ensureClaudeNodeOptionsRestoreModule() error = %v", err)
+	}
+
+	want := filepath.Join(home, ".claude", "cmux", "restore-node-options.cjs")
+	if path != want {
+		t.Fatalf("restore module path = %q, want %q", path, want)
+	}
+	if strings.HasPrefix(path, tmp+string(os.PathSeparator)) {
+		t.Fatalf("restore module path should not be under TMPDIR %q: %q", tmp, path)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("restore module was not written at %q: %v", path, err)
+	}
+}
+
+func TestEnsureClaudeNodeOptionsRestoreModuleSkipsHomeWithWhitespace(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		home string
+	}{
+		{name: "space", home: "home with space"},
+		{name: "vertical-tab", home: "home\vwith\vtab"},
+		{name: "form-feed", home: "home\fwith\ffeed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			home := filepath.Join(root, tc.home)
+			tmp := filepath.Join(root, "tmp")
+			if err := os.MkdirAll(home, 0755); err != nil {
+				t.Fatalf("create home: %v", err)
+			}
+			if err := os.MkdirAll(tmp, 0755); err != nil {
+				t.Fatalf("create tmp: %v", err)
+			}
+			t.Setenv("HOME", home)
+			t.Setenv("TMPDIR", tmp)
+
+			path, err := ensureClaudeNodeOptionsRestoreModule()
+			if err != nil {
+				t.Fatalf("ensureClaudeNodeOptionsRestoreModule() error = %v", err)
+			}
+
+			want := filepath.Join(tmp, "cmux-claude-node-options", "restore-node-options.cjs")
+			if path != want {
+				t.Fatalf("restore module path = %q, want %q", path, want)
+			}
+			if strings.HasPrefix(path, home+string(os.PathSeparator)) {
+				t.Fatalf("restore module path should not be under whitespace HOME %q: %q", home, path)
+			}
+		})
 	}
 }
 
