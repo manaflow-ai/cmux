@@ -553,7 +553,6 @@ const state = {
   inspectorResizing: null,
   panePointerDrag: null,
   lastInteractedPanelId: null,
-  suppressPaneHeaderClick: false,
   renderFrame: 0,
   paneLayoutFrame: 0,
   workspaceTerminalFitFrames: new Map(),
@@ -6057,10 +6056,6 @@ function createPane(panel) {
   const header = parts.header;
   header.draggable = false;
   header.addEventListener("click", () => {
-    if (state.suppressPaneHeaderClick) {
-      state.suppressPaneHeaderClick = false;
-      return;
-    }
     focusPanel(pane.dataset.panelId);
   });
   header.addEventListener("dblclick", (event) => {
@@ -6208,21 +6203,34 @@ function finishPanePointerDrag(event) {
     const targetPanelId = target?.dataset.panelId || "";
     const placement = target?.dataset.dropPosition || (target ? paneDropPosition(event, target) : "");
     const targetWorkspaceId = target === elements.paneGrid ? activeWorkspace()?.id || "" : "";
-    state.suppressPaneHeaderClick = true;
+    suppressNextPaneHeaderClick(drag.sourcePane);
     if (targetPanelId && targetPanelId !== drag.panelId && placement) {
       movePanelRelative(drag.panelId, targetPanelId, placement);
     } else if (targetWorkspaceId) {
       movePanelToWorkspace(drag.panelId, targetWorkspaceId);
     }
-    setTimeout(() => {
-      state.suppressPaneHeaderClick = false;
-    }, 0);
   }
   drag.sourcePane.classList.remove("is-dragging");
   if (drag.targetPane) clearPaneDropTarget(drag.targetPane);
   document.body.classList.remove("pane-drag-active");
   state.dragPanelId = null;
   state.panePointerDrag = null;
+}
+
+function suppressNextPaneHeaderClick(sourcePane) {
+  const sourceHeader = sourcePane?.querySelector?.(".pane-header") || null;
+  const controller = new AbortController();
+  const cleanup = () => controller.abort();
+  document.addEventListener("click", (event) => {
+    const header = event.target?.closest?.(".pane-header");
+    if (header && (!sourceHeader || header === sourceHeader)) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+    }
+    cleanup();
+  }, { capture: true, once: true, signal: controller.signal });
+  document.addEventListener("pointerdown", cleanup, { capture: true, once: true, signal: controller.signal });
 }
 
 function cancelPanePointerDrag(event) {
