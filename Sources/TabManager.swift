@@ -6702,7 +6702,9 @@ class TabManager: ObservableObject {
             reordered.append(tab)
         }
         tabs = reordered
-        normalizeWorkspaceGroupRunsPreservingOrder(desiredIds)
+        normalizeWorkspaceGroupContiguity(
+            preservingTopLevelIds: topLevelWorkspaceIdsPreservingOrder(desiredIds)
+        )
         if workspaceGroups.contains(where: { $0.id == groupId }) {
             syncWorkspaceGroupsOrderToAnchorOrder()
         }
