@@ -62,6 +62,77 @@ private enum WorkspaceRemoteSSHOptionFilter {
         }
     }
 
+    /// Resolves a durable `ForwardAgent` SSH option into the current local agent socket path, when one is usable.
+    static func sshAgentSocketPath(for options: [String]) -> String? {
+        guard let forwardAgentValue = optionValue(named: "ForwardAgent", in: options) else {
+            return nil
+        }
+        return sshAgentSocketPath(forForwardAgentValue: forwardAgentValue)
+    }
+
+    /// Maps OpenSSH `ForwardAgent` forms to a socket path without treating modes like `ask` as paths.
+    private static func sshAgentSocketPath(forForwardAgentValue value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("$") {
+            let variableName = String(trimmed.dropFirst())
+            return normalizedOptional(ProcessInfo.processInfo.environment[variableName])
+        }
+        if isSSHYesValue(trimmed) {
+            return normalizedOptional(ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"])
+        }
+        guard !isSSHNoValue(trimmed),
+              isPathLikeSSHAgentSocketValue(trimmed) else {
+            return nil
+        }
+        return normalizedOptional(trimmed)
+    }
+
+    /// Reads the first non-empty value for an OpenSSH-style `-o key=value` or `-o key value` option.
+    private static func optionValue(named key: String, in options: [String]) -> String? {
+        let loweredKey = key.lowercased()
+        for option in options {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let parts = trimmed.split(
+                maxSplits: 1,
+                omittingEmptySubsequences: true,
+                whereSeparator: { $0 == "=" || $0.isWhitespace }
+            )
+            if parts.count == 2, parts[0].lowercased() == loweredKey {
+                let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    return value
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Returns whether an SSH option value enables a boolean-style OpenSSH setting.
+    private static func isSSHYesValue(_ value: String) -> Bool {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "yes", "true", "on", "1":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Returns whether an SSH option value should avoid cmux-managed agent socket injection.
+    private static func isSSHNoValue(_ value: String) -> Bool {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "no", "false", "off", "0", "ask":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Returns whether a literal `ForwardAgent` value looks like a socket path rather than a mode.
+    private static func isPathLikeSSHAgentSocketValue(_ value: String) -> Bool {
+        value.hasPrefix("/") || value.hasPrefix("~")
+    }
+
     private static func optionKey(_ option: String) -> String? {
         let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -88,7 +159,6 @@ nonisolated struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable 
     var skipDaemonBootstrap: Bool?
     var relayPort: Int? = nil
     var persistentDaemonSlot: String? = nil
-    var agentSocketPath: String? = nil
 }
 
 struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable {
@@ -528,7 +598,7 @@ extension SessionRemoteWorkspaceSnapshot {
                     sshOptions: restoredSSHOptions
                 ),
             foregroundAuthToken: foregroundAuthToken,
-            agentSocketPath: overrideAgentSocketPath ?? agentSocketPath,
+            agentSocketPath: overrideAgentSocketPath ?? WorkspaceRemoteSSHOptionFilter.sshAgentSocketPath(for: restoredSSHOptions),
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession,
             persistentDaemonSlot: preservePTYSession ? normalizedPersistentDaemonSlot : nil,
@@ -627,8 +697,7 @@ extension WorkspaceRemoteConfiguration {
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap,
             relayPort: preserveAfterTerminalExit ? relayPort : nil,
-            persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil,
-            agentSocketPath: agentSocketPath
+            persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil
         )
     }
 }

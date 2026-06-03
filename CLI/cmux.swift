@@ -7947,6 +7947,7 @@ struct CMUXCLI {
         sshOptionValue(named: "ForwardAgent", in: options)
     }
 
+    /// Resolves a supported `ForwardAgent` value into the local socket path to inject into the remote workspace.
     private func defaultSSHAgentSocketPath(forForwardAgentValue value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("$") {
@@ -7959,9 +7960,18 @@ struct CMUXCLI {
         guard !Self.isSSHNoValue(trimmed) else {
             return nil
         }
+        guard isPathLikeSSHAgentSocketValue(trimmed) else {
+            return nil
+        }
         return normalizedSSHAgentSocketPath(trimmed)
     }
 
+    /// Returns whether a literal `ForwardAgent` value looks like a socket path rather than a mode such as `ask`.
+    private func isPathLikeSSHAgentSocketValue(_ value: String) -> Bool {
+        value.hasPrefix("/") || value.hasPrefix("~")
+    }
+
+    /// Normalizes a candidate SSH agent socket path while preserving the original path spelling.
     private func normalizedSSHAgentSocketPath(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -7970,6 +7980,7 @@ struct CMUXCLI {
         return trimmed
     }
 
+    /// Returns whether an SSH option value enables a boolean-style OpenSSH setting.
     private static func isSSHYesValue(_ value: String) -> Bool {
         switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "yes", "true", "on", "1":
@@ -7979,9 +7990,10 @@ struct CMUXCLI {
         }
     }
 
+    /// Returns whether an SSH option value disables agent socket injection for cmux-managed environments.
     private static func isSSHNoValue(_ value: String) -> Bool {
         switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "no", "false", "off", "0":
+        case "no", "false", "off", "0", "ask":
             return true
         default:
             return false
