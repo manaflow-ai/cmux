@@ -28,27 +28,31 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         NSLog("cmux.push registration failed: %@", error.localizedDescription)
     }
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         let ids = Self.cmuxIDs(from: notification.request.content.userInfo)
-        let present = MobilePushCoordinator.shared.shouldPresentInForeground(
-            workspaceId: ids.workspaceId,
-            surfaceId: ids.surfaceId
-        )
+        let present = await MainActor.run {
+            MobilePushCoordinator.shared.shouldPresentInForeground(
+                workspaceId: ids.workspaceId,
+                surfaceId: ids.surfaceId
+            )
+        }
         return present ? [.banner, .sound, .badge] : []
     }
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
         let ids = Self.cmuxIDs(from: response.notification.request.content.userInfo)
-        MobilePushCoordinator.shared.handleTap(
-            workspaceId: ids.workspaceId,
-            surfaceId: ids.surfaceId
-        )
+        await MainActor.run {
+            MobilePushCoordinator.shared.handleTap(
+                workspaceId: ids.workspaceId,
+                surfaceId: ids.surfaceId
+            )
+        }
     }
 
     private nonisolated static func cmuxIDs(
