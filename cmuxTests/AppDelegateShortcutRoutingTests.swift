@@ -126,6 +126,85 @@ extension AppDelegate {
     }
 }
 
+private struct TextBoxMentionFileIndexCache {
+    private struct CachedIndex {
+        let index: TextBoxMentionCandidateIndex
+        let createdAt: Date
+        var lastAccessedAt: Date
+
+        func isFresh(now: Date) -> Bool {
+            now.timeIntervalSince(createdAt) < TextBoxMentionFileIndexCache.fileIndexTTL
+        }
+    }
+
+    private static let fileIndexTTL: TimeInterval = 2
+    static let maxRootIndexes = 8
+    private static let suggestionLimit = 8
+
+    private var indexesByRoot: [String: CachedIndex] = [:]
+
+    mutating func suggestions(
+        for query: TextBoxMentionQuery,
+        rootDirectory: String,
+        now: Date = Date(),
+        scanFiles: (URL) -> [TextBoxMentionCandidate]
+    ) -> [TextBoxMentionSuggestion] {
+        pruneExpired(now: now)
+        let index = fileIndex(rootDirectory: rootDirectory, now: now, scanFiles: scanFiles)
+        return index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
+            .map { $0.suggestion(trigger: query.trigger) }
+    }
+
+    private mutating func fileIndex(
+        rootDirectory: String,
+        now: Date,
+        scanFiles: (URL) -> [TextBoxMentionCandidate]
+    ) -> TextBoxMentionCandidateIndex {
+        if var cached = indexesByRoot[rootDirectory], cached.isFresh(now: now) {
+            cached.lastAccessedAt = now
+            indexesByRoot[rootDirectory] = cached
+            return cached.index
+        }
+        return refreshFileIndex(rootDirectory: rootDirectory, now: now, scanFiles: scanFiles)
+    }
+
+    private mutating func refreshFileIndex(
+        rootDirectory: String,
+        now: Date,
+        scanFiles: (URL) -> [TextBoxMentionCandidate]
+    ) -> TextBoxMentionCandidateIndex {
+        let rootURL = URL(fileURLWithPath: rootDirectory, isDirectory: true)
+        let index = TextBoxMentionCandidateIndex(candidates: scanFiles(rootURL))
+        indexesByRoot[rootDirectory] = CachedIndex(index: index, createdAt: now, lastAccessedAt: now)
+        pruneOverflow()
+        return index
+    }
+
+    private mutating func pruneExpired(now: Date) {
+        indexesByRoot = indexesByRoot.filter { _, cached in
+            cached.isFresh(now: now)
+        }
+    }
+
+    private mutating func pruneOverflow() {
+        guard indexesByRoot.count > Self.maxRootIndexes else { return }
+        let overflowCount = indexesByRoot.count - Self.maxRootIndexes
+        let rootsToRemove = indexesByRoot
+            .sorted { lhs, rhs in
+                if lhs.value.lastAccessedAt == rhs.value.lastAccessedAt {
+                    return lhs.key < rhs.key
+                }
+                return lhs.value.lastAccessedAt < rhs.value.lastAccessedAt
+            }
+            .prefix(overflowCount)
+            .map(\.key)
+
+        for root in rootsToRemove {
+            indexesByRoot.removeValue(forKey: root)
+        }
+    }
+}
+
 @MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
     private static var retainedTextBoxUndoWindows: [NSWindow] = []
@@ -5709,6 +5788,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             atomically: true,
             encoding: .utf8
         )
+        let scanFiles: (URL) -> [TextBoxMentionCandidate] = { scannedRootURL in
+            XCTAssertEqual(scannedRootURL.path, root.path)
+            return [
+                self.makeTextBoxMentionFileCandidate(
+                    relativePath: "Sources/TextBoxInput.swift",
+                    rootDirectory: root.path
+                ),
+                self.makeTextBoxMentionFileCandidate(
+                    relativePath: "README.md",
+                    rootDirectory: root.path
+                )
+            ]
+        }
 
         let suggestions = cache.suggestions(
             for: TextBoxMentionQuery(
@@ -5718,7 +5810,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 trigger: "@"
             ),
             rootDirectory: root.path,
-            scanFiles: TextBoxMentionIndexStore.scanFiles
+            scanFiles: scanFiles
         )
 
         XCTAssertEqual(suggestions.first?.title, "@Sources/TextBoxInput.swift")
