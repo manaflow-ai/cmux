@@ -1,12 +1,5 @@
-import Foundation
-import CMUXMobileCore
-import CmuxAuthRuntime
 import CmuxMobileShell
-import CmuxMobileShellModel
-import CmuxMobileSupport
-import CmuxMobileTerminal
 import CmuxMobileWorkspace
-import Observation
 import SwiftUI
 #if os(iOS)
 @preconcurrency import UIKit

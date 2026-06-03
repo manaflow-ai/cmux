@@ -1,8 +1,6 @@
 import Foundation
-import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileSupport
-import CmuxMobileTerminal
 import CmuxMobileWorkspace
 import StackAuth
 import SwiftUI

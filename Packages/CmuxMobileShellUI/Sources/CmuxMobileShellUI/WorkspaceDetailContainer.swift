@@ -1,10 +1,6 @@
-import Foundation
-import CMUXMobileCore
-import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
-import CmuxMobileTerminal
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)

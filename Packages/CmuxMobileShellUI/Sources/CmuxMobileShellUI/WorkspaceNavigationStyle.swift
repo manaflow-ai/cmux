@@ -1,18 +1,5 @@
-import Foundation
-import CMUXMobileCore
-import CmuxMobileDiagnostics
-import CmuxMobileShell
-import CmuxMobileShellModel
-import CmuxMobileSupport
-import CmuxMobileTerminal
-import CmuxMobileWorkspace
-import SwiftUI
-#if os(iOS)
-@preconcurrency import UIKit
-#elseif os(macOS)
-import AppKit
-#endif
-
+/// How a workspace row navigates: pushed onto a compact stack, or selected in a
+/// split-view sidebar.
 enum WorkspaceNavigationStyle {
     case push
     case sidebar

@@ -1,16 +1,5 @@
-import Foundation
-import CMUXMobileCore
-import CmuxAuthRuntime
 import CmuxMobileSupport
-import CmuxMobileTerminal
-import CmuxMobileWorkspace
-import StackAuth
 import SwiftUI
-#if os(iOS)
-@preconcurrency import UIKit
-#elseif os(macOS)
-import AppKit
-#endif
 
 struct RestoringSessionView: View {
     var body: some View {

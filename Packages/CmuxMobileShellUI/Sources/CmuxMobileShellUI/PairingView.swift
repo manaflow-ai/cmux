@@ -1,13 +1,8 @@
-import Foundation
-@preconcurrency import AVFoundation
 import CMUXMobileCore
 import CmuxAuthRuntime
-import CmuxMobileCamera
 import CmuxMobileShellModel
 import CmuxMobileSupport
-import CmuxMobileTerminal
-import Observation
-import OSLog
+import Foundation
 import StackAuth
 import SwiftUI
 #if os(iOS)

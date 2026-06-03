@@ -1,5 +1,3 @@
-import Foundation
-import CMUXMobileCore
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
