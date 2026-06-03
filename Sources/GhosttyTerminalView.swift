@@ -1490,6 +1490,23 @@ private func terminalKeyboardCopyModeChars(
     return String(scalar).lowercased()
 }
 
+private func terminalKeyboardCopyModeResolvedCharacters(
+    charactersIgnoringModifiers: String?,
+    normalizedCharacters: String?
+) -> (characters: String?, shouldPassIfUnmatched: Bool) {
+    let raw = charactersIgnoringModifiers ?? ""
+    if !raw.isEmpty, raw.allSatisfy(\.isASCII) {
+        return (raw, false)
+    }
+
+    let normalized = normalizedCharacters ?? ""
+    if !normalized.isEmpty, normalized.allSatisfy(\.isASCII) {
+        return (normalized, false)
+    }
+
+    return (normalized.isEmpty ? charactersIgnoringModifiers : normalized, true)
+}
+
 func terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: NSEvent.ModifierFlags) -> Bool {
     let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
     return normalized.contains(.command)
@@ -1606,7 +1623,11 @@ func terminalKeyboardCopyModeResolve(
     state: inout TerminalKeyboardCopyModeInputState
 ) -> TerminalKeyboardCopyModeResolution {
     let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
-    let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers)
+    let resolvedCharacters = terminalKeyboardCopyModeResolvedCharacters(
+        charactersIgnoringModifiers: charactersIgnoringModifiers,
+        normalizedCharacters: normalizedCharacters
+    )
+    let chars = terminalKeyboardCopyModeChars(resolvedCharacters.characters)
 
     if keyCode == 53 { // Escape
         state.reset()
@@ -1665,12 +1686,12 @@ func terminalKeyboardCopyModeResolve(
 
     guard let action = terminalKeyboardCopyModeAction(
         keyCode: keyCode,
-        charactersIgnoringModifiers: charactersIgnoringModifiers,
+        charactersIgnoringModifiers: resolvedCharacters.characters,
         modifierFlags: modifierFlags,
         hasSelection: hasSelection
     ) else {
         state.reset()
-        return .consume
+        return resolvedCharacters.shouldPassIfUnmatched ? .pass : .consume
     }
 
     let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
@@ -8403,14 +8424,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let resolution = terminalKeyboardCopyModeResolve(
             keyCode: event.keyCode,
             charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            normalizedCharacters: KeyboardLayout.normalizedCharacters(for: event),
             modifierFlags: event.modifierFlags,
             hasSelection: hasSelection,
             state: &keyboardCopyModeInputState
         )
-        guard case let .perform(action, count) = resolution else {
+        switch resolution {
+        case .pass:
+            return false
+        case .consume:
             return true
+        case let .perform(action, count):
+            return performKeyboardCopyModeAction(action, count: count, surface: surface)
         }
+    }
 
+    private func performKeyboardCopyModeAction(
+        _ action: TerminalKeyboardCopyModeAction,
+        count: Int,
+        surface: ghostty_surface_t
+    ) -> Bool {
         switch action {
         case .exit:
             _ = ghostty_surface_clear_selection_compat(surface)
