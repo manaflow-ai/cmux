@@ -269,8 +269,13 @@ check_command_palette_nucleo_ffi_coverage() {
   fi
 
   local script="$ROOT_DIR/scripts/test-command-palette-nucleo-ffi.sh"
-  if ! grep -Fq 'CMUX_SKIP_ZIG_BUILD=0' "$script"; then
-    echo "FAIL: test-command-palette-nucleo-ffi.sh must force the real nucleo FFI build instead of inheriting the broad unit-test CMUX_SKIP_ZIG_BUILD=1 setting"
+  if ! grep -Fq 'CMUX_NUCLEO_FFI_REQUIRE_CARGO=1' "$script"; then
+    echo "FAIL: test-command-palette-nucleo-ffi.sh must force the real nucleo FFI build before running FFI-backed assertions"
+    exit 1
+  fi
+
+  if ! grep -Fq 'CMUX_SKIP_ZIG_BUILD=1' "$script"; then
+    echo "FAIL: test-command-palette-nucleo-ffi.sh must skip the unrelated Ghostty helper Zig build so this focused lane cannot fail on Zig dependency network fetches"
     exit 1
   fi
 

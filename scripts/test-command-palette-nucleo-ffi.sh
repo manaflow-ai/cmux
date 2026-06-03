@@ -37,7 +37,7 @@ only_testing=(
 NSUnbufferedIO=YES \
 CMUX_NUCLEO_FFI_LIB="${LIB_PATH}" \
 CMUX_NUCLEO_FFI_REQUIRE_CARGO=1 \
-CMUX_SKIP_ZIG_BUILD=0 \
+CMUX_SKIP_ZIG_BUILD=1 \
   "${xcodebuild_command[@]}" \
   -project "${ROOT}/cmux.xcodeproj" \
   -scheme cmux-unit \
@@ -45,7 +45,7 @@ CMUX_SKIP_ZIG_BUILD=0 \
   -clonedSourcePackagesDirPath "${SOURCE_PACKAGES_DIR}" \
   -derivedDataPath "${DERIVED_DATA}" \
   -destination 'platform=macOS' \
-  CMUX_SKIP_ZIG_BUILD=0 \
+  CMUX_SKIP_ZIG_BUILD=1 \
   "${only_testing[@]}" \
   test | tee "${LOG_PATH}"
 
