@@ -58,7 +58,7 @@ type AppAction =
 
 const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
-const workerURL = new URL("@pierre/diffs/worker/worker-portable.js", import.meta.url);
+const defaultWorkerModuleURL = "./assets/pierre-diffs-1.2.1-trees-1.0.0-beta.4/worker-pool/worker-portable.mjs";
 
 function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStatus): AppState {
   const payload = config.payload ?? {};
@@ -160,6 +160,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
+  const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
 
   usePageDataAttributes(state);
   usePendingReplacement(payload, label, dispatch);
@@ -218,7 +219,7 @@ export function App({ config, initialStatus }: ConfigProps) {
         <main id="viewer" aria-label={label("diffViewer")}>
           {state.items.length > 0 ? (
             <WorkerPoolContextProvider
-              poolOptions={{ workerFactory: () => new Worker(workerURL, { type: "module" }) }}
+              poolOptions={{ workerFactory: () => new Worker(workerModuleURL, { type: "module" }) }}
               highlighterOptions={workerHighlighterOptions(state.options, appearance)}
             >
               <CodeView
@@ -241,6 +242,10 @@ export function App({ config, initialStatus }: ConfigProps) {
       />
     </div>
   );
+}
+
+function resolveDiffViewerAssetURL(rawURL: string | undefined): URL {
+  return new URL(rawURL || defaultWorkerModuleURL, window.location.href);
 }
 
 function Toolbar({
