@@ -12,8 +12,17 @@ import Foundation
 ///
 /// The first candidate that is an executable file wins.
 func interpreterWorkerURL() -> URL {
+    builtExecutableURL(named: "cmux-sidebar-interpreter")
+}
+
+/// Locates the built `cmux-sidebar-render-fixture` protocol fixture for the
+/// `RenderWorkerClient` supervision tests (same lookup rules as the worker).
+func renderFixtureURL() -> URL {
+    builtExecutableURL(named: "cmux-sidebar-render-fixture")
+}
+
+private func builtExecutableURL(named workerName: String) -> URL {
     let fileManager = FileManager.default
-    let workerName = "cmux-sidebar-interpreter"
     var candidates: [URL] = []
 
     #if os(macOS)
