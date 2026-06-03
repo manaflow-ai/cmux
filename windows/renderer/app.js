@@ -17247,6 +17247,22 @@ const performanceTuningPresets = [
     }
   },
   {
+    id: "terminalHeavy",
+    label: "Terminal heavy",
+    body: "Prioritizes busy terminal work with minimal motion and smaller history.",
+    settings: {
+      performanceMode: true,
+      adaptivePerformance: true,
+      reduceMotion: true,
+      terminalStartupMode: "fast",
+      terminalPauseInactiveOutput: true,
+      terminalSmoothResumedOutput: true,
+      terminalCursorBlink: false,
+      browserSuspendInactive: true,
+      terminalScrollback: 4000
+    }
+  },
+  {
     id: "lowMotion",
     label: "Low motion",
     body: "Keeps the app calm without forcing the full speed tune.",
