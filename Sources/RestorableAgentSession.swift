@@ -1398,14 +1398,15 @@ struct RestorableAgentSessionIndex: Sendable {
 
     /// The directory cmux must `cd` into to resume or fork this session.
     ///
-    /// Claude stores a transcript under the project directory derived from the cwd the session
-    /// was *created* in, and `claude --resume` / `--fork-session` only locate it from that same
-    /// directory. The hook-reported `cwd` drifts when the agent `cd`s elsewhere mid-session
-    /// (e.g. starting in a repo root, then moving into a worktree for the rest of the session),
-    /// so trusting it makes fork/resume fail with "No conversation found". For Claude, prefer the
-    /// candidate directory whose project folder actually holds the transcript: the launch cwd or
-    /// the recorded cwd, matched first against the transcript's known storage path, then against
-    /// the config directory on disk. Falls back to the recorded cwd when neither can be verified.
+    /// Many agents store their session under a directory derived from the cwd the session was
+    /// *launched* in (Claude `projects/<encode(cwd)>/`, plus the Grok/Pi/Gemini/Cursor/Qoder
+    /// cwd-keyed buckets), and `--resume` / `--fork` only locate it from that same directory. The
+    /// hook-reported `cwd` drifts when the agent `cd`s elsewhere mid-session (e.g. starting in a
+    /// repo root, then moving into a worktree), so trusting it makes resume fail with "No
+    /// conversation found". For directory-namespaced kinds, prefer the stable launch cwd (it matches
+    /// the namespace and never drifts); for Claude, first verify which candidate actually holds the
+    /// transcript. For kinds that key sessions by id and record the cwd inside the session file
+    /// (Codex, OpenCode, Amp, …), keep the recorded cwd so the resumed agent reopens where it was.
     private static func restorableWorkingDirectory(
         for record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
@@ -1413,12 +1414,44 @@ struct RestorableAgentSessionIndex: Sendable {
         lookup: ClaudeTranscriptLookupCache
     ) -> String? {
         let recordedCwd = normalizedWorkingDirectory(record.cwd)
-        guard kind == .claude else { return recordedCwd }
-
         let launchCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
+
+        switch kind.cwdNamespacing {
+        case .cwdInFile:
+            // Resume is addressed by id and the cwd lives inside the record, so the runtime cwd is
+            // fine — keeping it preserves the directory the agent was working in.
+            return recordedCwd ?? launchCwd
+        case .byDirectory:
+            if kind == .claude,
+               let verified = claudeVerifiedRestorableWorkingDirectory(
+                   record: record,
+                   recordedCwd: recordedCwd,
+                   launchCwd: launchCwd,
+                   fileManager: fileManager,
+                   lookup: lookup
+               ) {
+                return verified
+            }
+            // The launch cwd matches the session namespace and never drifts; fall back to the
+            // recorded cwd only when no launch cwd was captured.
+            return launchCwd ?? recordedCwd
+        }
+    }
+
+    /// For Claude, returns the candidate directory whose project folder actually holds the
+    /// transcript — matched first against the transcript's known storage path, then against the
+    /// config directory on disk — or `nil` when neither can be verified (so the caller prefers the
+    /// launch cwd instead of the drift-prone recorded cwd).
+    private static func claudeVerifiedRestorableWorkingDirectory(
+        record: RestorableAgentHookSessionRecord,
+        recordedCwd: String?,
+        launchCwd: String?,
+        fileManager: FileManager,
+        lookup: ClaudeTranscriptLookupCache
+    ) -> String? {
         guard let sessionId = normalizedNonEmptyValue(record.sessionId),
               claudeSessionIdIsSafeFilename(sessionId) else {
-            return recordedCwd ?? launchCwd
+            return nil
         }
         let candidates = [launchCwd, recordedCwd].compactMap { $0 }
 
@@ -1436,7 +1469,7 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
 
-        // No transcript path on record: probe the config directory for the candidate that holds it.
+        // Probe the config directory for the candidate that holds the transcript on disk.
         let roots = lookup.configRoots(for: record)
         if !roots.isEmpty {
             for candidate in candidates {
@@ -1451,7 +1484,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 }
             }
         }
-        return recordedCwd ?? launchCwd
+        return nil
     }
 
     private static func claudeSessionIdIsSafeFilename(_ sessionId: String) -> Bool {

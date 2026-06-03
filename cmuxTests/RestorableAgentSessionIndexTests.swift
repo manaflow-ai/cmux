@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import XCTest
 
@@ -419,6 +420,19 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             resumeCommand.contains(driftedCwd.path),
             "resume must not cd into the drifted cwd; got: \(resumeCommand)"
         )
+    }
+
+    // RestorableAgentKind.cwdNamespacing delegates to the shared AgentResumeWorkingDirectory
+    // classifier (in CMUXAgentLaunch) so the app-side resolver and the CLI surface-restore publisher
+    // apply one policy. The shared resolver's own behavior is covered in CMUXAgentLaunchTests.
+    func testRestorableAgentKindCwdNamespacingMatchesSharedClassifier() {
+        for kind in RestorableAgentKind.allCases {
+            XCTAssertEqual(
+                kind.cwdNamespacing,
+                AgentResumeWorkingDirectory.cwdNamespacing(forKind: kind.rawValue),
+                "\(kind.rawValue) namespacing must match the shared classifier"
+            )
+        }
     }
 
     func testClaudeWorkflowDirectorySessionUsesSiblingJsonlSessionForResume() throws {
