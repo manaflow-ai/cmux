@@ -9621,8 +9621,9 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(scrollbackRow);
     const performanceActions = document.createElement("div");
     performanceActions.className = "settings-actions";
-    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset balanced reset render stats clear copy diagnostics report lag debug");
+    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save balanced reset render stats clear copy diagnostics report lag debug");
     performanceActions.append(
+      settingsActionButton("Save clean + fast", applyAndSaveCleanFastProfile, "primary", "performance clean fast simple speed preset save settings profile reusable"),
       settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
       settingsActionButton("Speed preset", () => applySettingsPresetById("performance"), "", "performance speed preset optimize"),
       settingsActionButton("Reset stats", resetRenderStats, "", "performance render stats reset")
@@ -12213,6 +12214,34 @@ function saveQuickSetupProfile() {
     message: "Save the current colors, layout, terminal, browser, and performance settings as a reusable profile.",
     baseName: presetLabel === "Custom" ? "Custom setup" : `${presetLabel} setup`
   });
+}
+
+async function applyAndSaveCleanFastProfile() {
+  const preset = settingsPresetById("simpleFast");
+  const changed = preset ? updateSettings(preset.settings) : false;
+  const label = await showTextDialog({
+    title: "Save clean + fast setup",
+    message: "Apply the clean speed preset now, then save it as a reusable Settings profile.",
+    value: defaultSettingsProfileName("Clean + fast setup"),
+    placeholder: "Clean + fast setup",
+    confirmLabel: "Save"
+  });
+  if (!label) {
+    if (changed) {
+      renderSettingsInspector();
+      toast("Clean + fast settings applied.");
+    }
+    return;
+  }
+  const saved = upsertSavedSettingsProfile({
+    id: createSettingsProfileId(),
+    label,
+    settings: state.settings,
+    createdAt: Date.now()
+  });
+  renderSettingsInspector();
+  if (!saved) return;
+  toast(changed ? "Clean + fast profile saved and applied." : "Clean + fast profile saved.");
 }
 
 function settingsPresetById(presetId) {
