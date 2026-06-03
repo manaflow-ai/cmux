@@ -34,10 +34,18 @@ func numberedAwareStrokesConflict(
         // requires both sides to be digit-keyed with the same modifiers. A
         // non-digit binding (e.g. ⌃⌥T) never collides with the digit family.
         guard isNumberedDigitKey(lhs.key), isNumberedDigitKey(rhs.key) else { return false }
-        return lhs.command == rhs.command
-            && lhs.shift == rhs.shift
-            && lhs.option == rhs.option
-            && lhs.control == rhs.control
+        return sameModifiers(lhs, rhs)
     }
-    return lhs == rhs
+    // Exact match on key + modifiers, ignoring `keyCode`: the same logical
+    // keystroke can be stored with or without a resolved virtual key code (e.g.
+    // recorded vs. hand-written cmux.json), so a full `ShortcutStroke` equality
+    // would miss those collisions.
+    return lhs.key == rhs.key && sameModifiers(lhs, rhs)
+}
+
+private func sameModifiers(_ lhs: ShortcutStroke, _ rhs: ShortcutStroke) -> Bool {
+    lhs.command == rhs.command
+        && lhs.shift == rhs.shift
+        && lhs.option == rhs.option
+        && lhs.control == rhs.control
 }

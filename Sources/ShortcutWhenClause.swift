@@ -108,8 +108,13 @@ indirect enum ShortcutWhenClause: Equatable {
     }
 
     /// Parses a `when` expression, returning `nil` on malformed input so callers
-    /// can fall back to a default context rather than silently mis-gating.
+    /// can fall back to a default context rather than silently mis-gating. An
+    /// empty or whitespace-only clause imposes no restriction and parses to
+    /// ``always``.
     static func parse(_ raw: String) -> ShortcutWhenClause? {
+        if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .always
+        }
         var parser = Parser(raw)
         guard let clause = parser.parseExpression() else { return nil }
         guard parser.isAtEnd else { return nil }

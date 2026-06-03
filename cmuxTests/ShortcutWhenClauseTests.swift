@@ -36,9 +36,9 @@ final class ShortcutWhenClauseTests: XCTestCase {
     }
 
     func testEmptyClauseParsesToAlways() {
-        // An empty string yields no tokens; the parser treats that as a failure,
-        // so callers fall back to a default. (Whitespace-only is the same.)
-        XCTAssertNil(ShortcutWhenClause.parse(""))
+        // An empty or whitespace-only clause imposes no restriction.
+        XCTAssertEqual(ShortcutWhenClause.parse(""), .always)
+        XCTAssertEqual(ShortcutWhenClause.parse("   "), .always)
     }
 
     func testEvaluateAtoms() {
