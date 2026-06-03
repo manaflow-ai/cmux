@@ -10925,9 +10925,13 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   text-align: left;
 }
 
-.terminal-color-preset:hover {
+.terminal-color-preset:hover:not(:disabled) {
   border-color: var(--color-line-strong);
   background: var(--color-pane-warm);
+}
+
+.terminal-color-preset:disabled {
+  cursor: default;
 }
 
 .terminal-color-preset.is-active {
@@ -10995,6 +10999,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   font-weight: 760;
   line-height: 1;
   text-transform: uppercase;
+}
+
+.terminal-color-preset-status:empty {
+  display: none;
 }
 
 .terminal-color-preset-body {

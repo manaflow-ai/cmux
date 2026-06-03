@@ -14616,6 +14616,22 @@ function scheduleTerminalSettingsPreviewRefresh() {
 function refreshTerminalSettingsPreview() {
   const preview = elements.inspectorBody.querySelector(".terminal-settings-preview");
   if (preview) preview.replaceWith(terminalSettingsPreviewPanel());
+  for (const button of elements.inspectorBody.querySelectorAll("[data-terminal-color-preset]")) {
+    const preset = terminalColorPresets.find((candidate) => candidate.id === button.dataset.terminalColorPreset);
+    if (!preset) continue;
+    const active = isActiveTerminalColorPreset(preset);
+    button.classList.toggle("is-active", active);
+    setDisabledIfChanged(button, active);
+    setTitleIfChanged(button, terminalColorPresetTitle(preset, active));
+    setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
+    const status = button.querySelector(".terminal-color-preset-status");
+    if (status) setTextIfChanged(status, active ? "Active" : "");
+    const search = normalizeSettingsQuery(`terminal color preset theme ${active ? "active current " : ""}${preset.label} ${preset.body}`);
+    if (button.dataset.settingsSearch !== search) {
+      button.dataset.settingsSearch = search;
+      updateSettingsSearchIndexItemSearch(button, search);
+    }
+  }
   const cursorSelect = elements.inspectorBody.querySelector('[data-setting-control="terminalCursorStyle"]');
   if (cursorSelect && cursorSelect.value !== state.settings.terminalCursorStyle) {
     cursorSelect.value = state.settings.terminalCursorStyle;
@@ -15356,6 +15372,10 @@ function isTerminalColorPresetIdActive(presetId) {
   return Boolean(preset && isActiveTerminalColorPreset(preset));
 }
 
+function terminalColorPresetTitle(preset, active) {
+  return active ? `${preset.label} terminal colors already active.` : preset.body;
+}
+
 function applyTerminalColorPreset(preset) {
   if (!preset) return;
   const changed = updateSettings({
@@ -15384,7 +15404,9 @@ function terminalColorPresetGrid() {
     const active = isActiveTerminalColorPreset(preset);
     button.className = `terminal-color-preset${active ? " is-active" : ""}`;
     button.type = "button";
-    button.title = preset.body;
+    button.disabled = active;
+    button.title = terminalColorPresetTitle(preset, active);
+    button.dataset.terminalColorPreset = preset.id;
     button.setAttribute("aria-pressed", String(active));
     button.dataset.settingsSearch = normalizeSettingsQuery(`terminal color preset theme ${active ? "active current " : ""}${preset.label} ${preset.body}`);
     button.style.setProperty("--terminal-preset-background", preset.background || terminalColorDefaults.background);
@@ -15398,6 +15420,7 @@ function terminalColorPresetGrid() {
       <span class="terminal-color-preset-text">
         <span class="terminal-color-preset-title-row">
           <span class="terminal-color-preset-title"></span>
+          <span class="terminal-color-preset-status"></span>
         </span>
         <span class="terminal-color-preset-body"></span>
       </span>
@@ -15405,14 +15428,11 @@ function terminalColorPresetGrid() {
     button.querySelector(".terminal-color-preset-line").textContent = "> cmux";
     button.querySelector(".terminal-color-preset-prompt").textContent = "_";
     button.querySelector(".terminal-color-preset-title").textContent = preset.label;
-    if (active) {
-      const status = document.createElement("span");
-      status.className = "terminal-color-preset-status";
-      status.textContent = "Active";
-      button.querySelector(".terminal-color-preset-title-row").append(status);
-    }
+    button.querySelector(".terminal-color-preset-status").textContent = active ? "Active" : "";
     button.querySelector(".terminal-color-preset-body").textContent = preset.body;
-    button.onclick = () => applyTerminalColorPreset(preset);
+    button.onclick = () => {
+      if (!isActiveTerminalColorPreset(preset)) applyTerminalColorPreset(preset);
+    };
     grid.append(button);
   }
   return grid;
