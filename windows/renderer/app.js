@@ -498,6 +498,7 @@ const state = {
   surfaceTabsSignature: "",
   surfaceTabOverflowSignature: "",
   paneRenderSignature: "",
+  paneStructureSignature: "",
   paneFitSignature: "",
   visiblePanePanelIds: new Set(),
   newSurfaceAddButtons: {
@@ -5149,6 +5150,7 @@ function renderPanes(workspace) {
   const panels = workspace?.panels || [];
   if (!workspace) {
     state.paneRenderSignature = "";
+    state.paneStructureSignature = "";
     state.paneFitSignature = "";
     state.visiblePanePanelIds = new Set();
     renderEmptyWorkspace(null);
@@ -5159,17 +5161,35 @@ function renderPanes(workspace) {
   const visiblePanels = zoomedPanel ? [zoomedPanel] : panels;
   const tree = zoomedPanel ? paneTreeLeaf(zoomedPanel.id) : paneTreeForWorkspace(workspace, visiblePanels);
   const signature = paneRenderSignature(workspace, visiblePanels, tree);
+  const structureSignature = paneStructureSignature(workspace, visiblePanels, tree);
   const fitSignature = paneFitSignature(workspace, visiblePanels, tree);
   const shouldFitVisibleTerminals = fitSignature !== state.paneFitSignature;
   const liveVisiblePanelIds = new Set(visiblePanels.filter((panel) => !isPanelMinimized(panel)).map((panel) => panel.id));
   state.visiblePanePanelIds = liveVisiblePanelIds;
-  if (signature === state.paneRenderSignature && paneGridContainsPanels(visiblePanels)) {
+  const gridHasVisiblePanes = paneGridContainsPanels(visiblePanels);
+  if (signature === state.paneRenderSignature && gridHasVisiblePanes) {
     updateBrowserPaneActivity(liveVisiblePanelIds);
     resumeTerminalOutputAfterActivityChange(liveVisiblePanelIds);
     if (shouldFitVisibleTerminals) {
       state.paneFitSignature = fitSignature;
       scheduleVisibleTerminalFits(visiblePanels);
     }
+    return;
+  }
+  if (
+    structureSignature === state.paneStructureSignature
+    && gridHasVisiblePanes
+    && canUpdatePaneActiveStateInPlace(workspace, visiblePanels)
+  ) {
+    updateVisiblePaneActiveState(workspace, visiblePanels);
+    updateBrowserPaneActivity(liveVisiblePanelIds);
+    resumeTerminalOutputAfterActivityChange(liveVisiblePanelIds);
+    if (shouldFitVisibleTerminals) {
+      state.paneFitSignature = fitSignature;
+      scheduleVisibleTerminalFits(visiblePanels);
+    }
+    state.paneRenderSignature = signature;
+    state.paneStructureSignature = structureSignature;
     return;
   }
   toggleClassIfChanged(elements.paneGrid, "direction-down", false);
@@ -5185,6 +5205,7 @@ function renderPanes(workspace) {
   }
   if (panels.length === 0) {
     state.paneRenderSignature = "";
+    state.paneStructureSignature = "";
     state.paneFitSignature = "";
     state.visiblePanePanelIds = new Set();
     renderEmptyWorkspace(workspace);
@@ -5196,6 +5217,7 @@ function renderPanes(workspace) {
   const node = renderPaneTreeNode(tree, workspace, panelById, visiblePanels.length);
   replaceChildrenIfChanged(elements.paneGrid, node ? [node] : []);
   state.paneRenderSignature = signature;
+  state.paneStructureSignature = structureSignature;
   state.paneFitSignature = fitSignature;
   updateBrowserPaneActivity(liveVisiblePanelIds);
   resumeTerminalOutputAfterActivityChange(liveVisiblePanelIds);
@@ -5214,7 +5236,7 @@ function paneGridContainsPanels(panels) {
 
 function scheduleVisibleTerminalFits(visiblePanels) {
   for (const panel of visiblePanels) {
-    if (!panel?.id || isPanelMinimized(panel)) continue;
+    if (!panel?.id || panel.type !== "terminal" || isPanelMinimized(panel)) continue;
     state.visibleTerminalFitPanelIds.add(panel.id);
   }
   if (state.visibleTerminalFitFrame || state.visibleTerminalFitPanelIds.size === 0) return;
@@ -5232,10 +5254,100 @@ function scheduleVisibleTerminalFits(visiblePanels) {
   });
 }
 
+function canUpdatePaneActiveStateInPlace(workspace, visiblePanels) {
+  for (const panel of visiblePanels) {
+    if (isPendingPanel(panel)) return false;
+    if (panel.type === "terminal") {
+      if (
+        state.immediateTerminalInitPanelIds.has(panel.id)
+        || state.paintDeferredTerminalInitPanelIds.has(panel.id)
+      ) {
+        return false;
+      }
+      if (!state.terminals.has(panel.id) && panel.id === workspace.activePanelId) return false;
+    }
+    if (
+      panel.type === "browser"
+      && !state.browserViews.has(panel.id)
+      && !shouldRenderDeferredBrowserShell(panel)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function updateVisiblePaneActiveState(workspace, visiblePanels) {
+  const visibleCount = visiblePanels.length;
+  for (const panel of visiblePanels) {
+    const pane = state.paneCache.get(panel.id);
+    if (!pane?.isConnected) continue;
+    updatePaneActiveState(pane, panel, workspace, visibleCount);
+  }
+}
+
+function updatePaneActiveState(pane, panel, workspace, visibleCount = workspace?.panels?.length || 0) {
+  const parts = paneParts(pane);
+  const zoomed = isPanelZoomed(panel, workspace);
+  const minimized = isPanelMinimized(panel);
+  const pending = isPendingPanel(panel);
+  toggleClassIfChanged(pane, "is-active", panel.id === workspace.activePanelId);
+  toggleClassIfChanged(pane, "is-zoomed", zoomed);
+  toggleClassIfChanged(pane, "has-attention", Boolean(panel.needsAttention));
+  toggleClassIfChanged(pane, "is-minimized", minimized);
+  toggleClassIfChanged(pane, "is-pending", pending);
+  if (visibleCount <= 1) clearPaneFlex(pane);
+  updatePaneToolState(parts.zoom, zoomed ? "showAll" : "focus", zoomed ? "Show all panes" : "Focus pane");
+  updatePaneToolState(parts.minimize, minimized ? "restore" : "minimize", minimized ? "Restore pane" : "Minimize pane");
+  for (const button of parts.tools) {
+    const terminalOnly = button === parts.fontDown || button === parts.fontUp || button === parts.restart;
+    setDisabledIfChanged(button, (pending && !button.classList.contains("close"))
+      || (terminalOnly && panel.type !== "terminal"));
+  }
+  const closeActionLabel = pending ? "Cancel pane" : closePaneActionLabel(workspace, panel.id);
+  setTitleIfChanged(parts.close, closeActionLabel);
+  setAttributeIfChanged(parts.close, "aria-label", closeActionLabel);
+  if (panel.type === "terminal" && !pending) {
+    const deferred = parts.body.querySelector(".terminal-deferred");
+    if (deferred) renderDeferredTerminal(panel, parts.body);
+  }
+}
+
 function paneRenderSignature(workspace, visiblePanels, tree) {
   const parts = [];
   appendSignatureValue(parts, workspace.id);
   appendSignatureValue(parts, workspace.activePanelId || "");
+  appendSignatureValue(parts, workspace.color || "");
+  appendSignatureValue(parts, Boolean(zoomedPanelIdForWorkspace(workspace)));
+  appendSignatureValue(parts, state.settings.titleDetailMode);
+  appendSignatureValue(parts, state.settings.browserSuspendInactive);
+  appendSignatureValue(parts, state.settings.browserHomeUrl);
+  appendSignatureValue(parts, state.settings.terminalProfile);
+  appendSignatureValue(parts, paneTreeSignature(tree));
+  appendSignatureArray(parts, visiblePanels, (nextParts, panel) => {
+    appendSignatureValue(nextParts, panel.id);
+    appendSignatureValue(nextParts, panel.type);
+    appendSignatureValue(nextParts, panelDisplayTitle(panel, false));
+    appendSignatureValue(nextParts, panel.title || "");
+    appendSignatureValue(nextParts, panel.titleLocked || false);
+    appendSignatureValue(nextParts, panel.color || "");
+    appendSignatureValue(nextParts, panel.backgroundImage || "");
+    appendSignatureValue(nextParts, panel.cwd || "");
+    appendSignatureValue(nextParts, panel.cwdShort || "");
+    appendSignatureValue(nextParts, panel.url || "");
+    appendSignatureValue(nextParts, panel.shellProfile || "");
+    appendSignatureValue(nextParts, panel.shellPath || "");
+    appendSignatureValue(nextParts, terminalFontSizeForPanel(panel));
+    appendSignatureValue(nextParts, Boolean(panel.needsAttention));
+    appendSignatureValue(nextParts, isPanelMinimized(panel));
+    appendSignatureValue(nextParts, isPendingPanel(panel));
+  });
+  return parts.join("");
+}
+
+function paneStructureSignature(workspace, visiblePanels, tree) {
+  const parts = [];
+  appendSignatureValue(parts, workspace.id);
   appendSignatureValue(parts, workspace.color || "");
   appendSignatureValue(parts, Boolean(zoomedPanelIdForWorkspace(workspace)));
   appendSignatureValue(parts, state.settings.titleDetailMode);
@@ -5285,6 +5397,7 @@ function refreshVisiblePaneSignatures(workspaceId = activeWorkspace()?.id) {
   const visiblePanels = zoomedPanel ? [zoomedPanel] : (workspace.panels || []);
   const tree = zoomedPanel ? paneTreeLeaf(zoomedPanel.id) : paneTreeForWorkspace(workspace, visiblePanels);
   state.paneRenderSignature = paneRenderSignature(workspace, visiblePanels, tree);
+  state.paneStructureSignature = paneStructureSignature(workspace, visiblePanels, tree);
   state.paneFitSignature = paneFitSignature(workspace, visiblePanels, tree);
   return true;
 }
