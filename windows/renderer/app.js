@@ -9623,9 +9623,18 @@ function renderSettingsInspector(options = {}) {
     layoutSection.append(paneShapePanel(workspace));
     const layoutActions = document.createElement("div");
     layoutActions.className = "settings-actions";
-    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal workspace chrome toolbar sidebar footer inspector tabs status header title focus mode simple clean");
+    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar sidebar footer inspector tabs status header title focus mode simple clean");
+    const saveLayoutAction = settingsActionButton("Save layout", saveCurrentWorkspaceBlueprint, "", "save current split pane layout workspace blueprint reusable");
+    saveLayoutAction.disabled = !workspace?.panels?.length || state.workspaceBlueprints.length >= workspaceBlueprintsLimit;
+    saveLayoutAction.title = saveLayoutAction.disabled
+      ? state.workspaceBlueprints.length >= workspaceBlueprintsLimit
+        ? `Blueprint limit is ${workspaceBlueprintsLimit}. Delete one before saving another layout.`
+        : "Open a workspace before saving a layout."
+      : "Save the current workspace pane layout as a reusable blueprint.";
     layoutActions.append(
       settingsActionButton(state.settings.focusMode ? "Leave focus" : "Focus mode", () => toggleFocusMode(), "", "focus mode simple clean hide chrome"),
+      saveLayoutAction,
+      settingsActionButton("Blueprints", () => openSettingsCategory("blueprints"), "", "open saved workspace blueprints layout templates"),
       settingsActionButton("Reset split layout", resetActivePaneLayout, "", "split layout pane splitter resize reset equal"),
       settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", "workspace chrome toolbar sidebar footer inspector tabs status header title reset")
     );
