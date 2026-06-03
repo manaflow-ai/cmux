@@ -3924,6 +3924,16 @@ extension SessionPersistenceTests {
         XCTAssertFalse(try XCTUnwrap(emptyCwdBinding.startupInput).contains("cd --"))
     }
 
+    func testSurfaceResumeBindingStartupInputOmitsWhitespaceOnlyCommandWithCwd() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "  \n\t  ",
+            cwd: "/tmp/project"
+        )
+
+        XCTAssertNil(binding.startupInput)
+        XCTAssertNil(binding.startupInputWithLauncherScript())
+    }
+
     func testSurfaceResumeBindingStartupInputQuotesWorkingDirectory() throws {
         let binding = SurfaceResumeBindingSnapshot(
             command: "codex resume session",
