@@ -131,21 +131,31 @@ const controlIconSvg = {
   arrowRight: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14"></path><path d="m13 6 6 6-6 6"></path></svg>`,
   back: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"></path></svg>`,
   caseMatch: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 17 9 7l5 10"></path><path d="M6 13h6"></path><path d="M17 13h2a2 2 0 0 1 0 4h-3V9a2 2 0 0 1 4 0"></path></svg>`,
+  clipboard: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 5h6"></path><path d="M9 4h6a1 1 0 0 1 1 1v2H8V5a1 1 0 0 1 1-1Z"></path><rect x="5" y="6" width="14" height="16" rx="2"></rect></svg>`,
   close: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 7 10 10M17 7 7 17"></path></svg>`,
+  copy: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M4 16V6a2 2 0 0 1 2-2h10"></path></svg>`,
   down: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"></path></svg>`,
   external: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 4h6v6"></path><path d="M10 14 20 4"></path><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"></path></svg>`,
   forward: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 6 6 6-6 6"></path></svg>`,
   history: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12a8 8 0 1 0 2.34-5.66"></path><path d="M4 5v6h6"></path><path d="M12 8v5l3 2"></path></svg>`,
   home: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m4 11 8-7 8 7"></path><path d="M6 10v10h12V10"></path></svg>`,
+  image: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><circle cx="9" cy="10" r="1.5"></circle><path d="m4 16 4-4 3 3 2-2 7 7"></path></svg>`,
   layout: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14M4 12h16"></path></svg>`,
+  maximize: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4H4v4"></path><path d="M16 4h4v4"></path><path d="M8 20H4v-4"></path><path d="M16 20h4v-4"></path></svg>`,
+  minimize: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 12h10"></path></svg>`,
+  palette: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4c4 0 8 3 8 7 0 3-2 5-5 5h-1.5a1.5 1.5 0 0 0 0 3H12a8 8 0 1 1 0-16Z"></path><circle cx="8.5" cy="10" r="1"></circle><circle cx="12" cy="8" r="1"></circle><circle cx="15.5" cy="10" r="1"></circle></svg>`,
   plus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"></path></svg>`,
   reload: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 1 1-2.34-5.66"></path><path d="M20 4v6h-6"></path></svg>`,
+  rename: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5h12M12 5v14M9 19h6"></path></svg>`,
+  search: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6"></circle><path d="m16 16 4 4"></path></svg>`,
   browser: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"></circle><path d="M4 12h16M12 4c2.2 2.3 2.2 13.7 0 16M12 4c-2.2 2.3-2.2 13.7 0 16"></path></svg>`,
   terminal: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="m8 10 3 3-3 3"></path><path d="M13 16h4"></path></svg>`,
   browserPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="12" r="6.5"></circle><path d="M4 12h13M10.5 5.5c1.8 1.9 1.8 11.1 0 13M10.5 5.5c-1.8 1.9-1.8 11.1 0 13"></path><path d="M18 13v6M15 16h6"></path></svg>`,
   terminalPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="13" height="14" rx="2"></rect><path d="m7 10 2.5 2.5L7 15"></path><path d="M11 15h3"></path><path d="M18 13v6M15 16h6"></path></svg>`,
+  splitDown: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M4 12h16"></path></svg>`,
   splitRight: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14"></path></svg>`,
   settings: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"></path></svg>`,
+  textSize: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 7V4h14v3"></path><path d="M12 4v16"></path><path d="M9 20h6"></path></svg>`,
   up: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"></path></svg>`
 };
 
@@ -15636,28 +15646,50 @@ function hideContextMenu() {
   state.contextMenu.replaceChildren();
 }
 
+function contextPaneSummary(panel, workspace) {
+  const title = panelDisplayTitle(panel, true);
+  const fullTitle = panelDisplayTitle(panel, false);
+  const isBrowser = panel.type === "browser";
+  const typeLabel = isBrowser ? "Browser" : "Terminal";
+  const meta = isBrowser
+    ? browserPanelUrl(panel) || panel.url || state.settings.browserHomeUrl
+    : `${workspace?.title || "Workspace"} / ${panel.cwdShort || workspace?.cwdShort || "~"} / ${optionLabel(terminalProfiles, panel.shellProfile || state.settings.terminalProfile, "Shell")}`;
+  const summary = document.createElement("div");
+  summary.className = "context-pane-summary";
+  summary.style.setProperty("--context-pane-color", panel.color || workspace?.color || state.settings.accent);
+  summary.innerHTML = `
+    <span class="context-pane-summary-icon" aria-hidden="true"></span>
+    <span class="context-pane-summary-copy">
+      <span class="context-pane-summary-title"></span>
+      <span class="context-pane-summary-meta"></span>
+    </span>
+    <span class="context-pane-summary-kind"></span>
+  `;
+  summary.querySelector(".context-pane-summary-icon").innerHTML = controlIconMarkup(isBrowser ? "browser" : "terminal");
+  summary.querySelector(".context-pane-summary-title").textContent = title;
+  summary.querySelector(".context-pane-summary-title").title = fullTitle;
+  summary.querySelector(".context-pane-summary-meta").textContent = meta;
+  summary.querySelector(".context-pane-summary-meta").title = meta;
+  summary.querySelector(".context-pane-summary-kind").textContent = typeLabel;
+  return summary;
+}
+
 function showPanelContextMenu(event, panel) {
   event.preventDefault();
   event.stopPropagation();
   const menu = ensureContextMenu();
-  menu.className = "context-menu";
+  menu.className = "context-menu context-menu-pane";
   const found = findPanelState(panel.id);
   if (!found) return;
   const index = found.workspace.panels.findIndex((candidate) => candidate.id === panel.id);
   const panesToRight = found.workspace.panels.slice(index + 1);
-  const title = document.createElement("div");
-  title.className = "context-title";
-  title.textContent = panelDisplayTitle(panel, true);
-  const meta = document.createElement("div");
-  meta.className = "context-meta";
-  meta.textContent = panel.type === "browser"
-    ? browserPanelUrl(panel)
-    : `${optionLabel(terminalProfiles, panel.shellProfile || state.settings.terminalProfile, "Shell")} / ${panel.cwdShort || "~"}`;
+  const summary = contextPaneSummary(panel, found.workspace);
   if (isPendingPanel(panel)) {
     menu.replaceChildren(
-      title,
-      meta,
-      contextMenuButton(panel.type === "browser" ? "Opening..." : "Starting...", () => {}, true)
+      summary,
+      contextMenuButton(panel.type === "browser" ? "Opening..." : "Starting...", () => {}, true, "", {
+        icon: panel.type === "browser" ? "browserPlus" : "terminalPlus"
+      })
     );
     showContextMenuAt(menu, event.clientX, event.clientY);
     return;
@@ -15665,61 +15697,63 @@ function showPanelContextMenu(event, panel) {
   const isTerminal = panel.type === "terminal";
   const isBrowser = panel.type === "browser";
   const generalActions = contextMenuActionGroup(
-    contextMenuButton("Rename", () => renamePanel(panel)),
-    contextMenuButton("Use default name", () => updatePanel(panel.id, { title: "" }), !panel.titleLocked),
-    contextMenuButton("Customize tab", () => openPaneAppearanceSettings(panel)),
-    contextMenuButton("Duplicate", () => duplicatePanel(panel)),
+    contextMenuButton("Rename", () => renamePanel(panel), false, "", { icon: "rename" }),
+    contextMenuButton("Use default name", () => updatePanel(panel.id, { title: "" }), !panel.titleLocked, "", { icon: "reload" }),
+    contextMenuButton("Customize tab", () => openPaneAppearanceSettings(panel), false, "", { icon: "palette" }),
+    contextMenuButton("Duplicate", () => duplicatePanel(panel), false, "", { icon: "copy" }),
     isTerminal
-      ? contextMenuButton("New terminal tab", () => createTerminalPanel("right", { anchorPanelId: panel.id }))
-      : contextMenuButton("New browser tab", () => newBrowserTabFromPanel(panel)),
-    contextMenuButton("Split right", () => splitPanel(panel, "right")),
-    contextMenuButton("Split down", () => splitPanel(panel, "down")),
-    contextMenuButton(isPanelMinimized(panel) ? "Restore pane" : "Minimize pane", () => togglePaneMinimized(panel.id))
+      ? contextMenuButton("New terminal tab", () => createTerminalPanel("right", { anchorPanelId: panel.id }), false, "", { icon: "terminalPlus" })
+      : contextMenuButton("New browser tab", () => newBrowserTabFromPanel(panel), false, "", { icon: "browserPlus" }),
+    contextMenuButton("Split right", () => splitPanel(panel, "right"), false, "", { icon: "splitRight" }),
+    contextMenuButton("Split down", () => splitPanel(panel, "down"), false, "", { icon: "splitDown" }),
+    contextMenuButton(isPanelMinimized(panel) ? "Restore pane" : "Minimize pane", () => togglePaneMinimized(panel.id), false, "", {
+      icon: isPanelMinimized(panel) ? "maximize" : "minimize"
+    })
   );
   const surfaceActions = [];
   if (isTerminal) {
     surfaceActions.push(
-      contextMenuButton("Find", () => openTerminalSearch(panel)),
-      contextMenuButton("Find next", () => findNextInTerminal(panel)),
-      contextMenuButton("Copy selection", () => copyActiveTerminalSelection(panel)),
-      contextMenuButton("Paste", () => pasteClipboardToTerminal(panel)),
-      contextMenuButton("Clear terminal", () => clearTerminalPanel(panel)),
-      contextMenuButton("Text larger", () => changePaneTerminalFontSize(panel.id, 1)),
-      contextMenuButton("Text smaller", () => changePaneTerminalFontSize(panel.id, -1)),
-      contextMenuButton("Reset text size", () => resetPaneTerminalFontSize(panel.id), !panelHasTerminalFontSize(panel)),
-      contextMenuButton("Restart terminal", () => restartPanel(panel.id)),
-      contextMenuButton("Choose pane background", () => choosePanelBackgroundImage(panel)),
-      contextMenuButton("Use app background", () => applyPanelBackgroundImage(state.settings.backgroundImage, panel), !state.settings.backgroundImage),
-      contextMenuButton("Save pane background", () => saveCustomBackgroundImage({ url: panel.backgroundImage }), !isCustomBackgroundImage(panel.backgroundImage)),
-      contextMenuButton("Clear pane background", () => applyPanelBackgroundImage("", panel), !panel.backgroundImage),
-      contextMenuButton("Terminal settings", () => openSettingsCategory("terminal"))
+      contextMenuButton("Find", () => openTerminalSearch(panel), false, "", { icon: "search" }),
+      contextMenuButton("Find next", () => findNextInTerminal(panel), false, "", { icon: "arrowRight" }),
+      contextMenuButton("Copy selection", () => copyActiveTerminalSelection(panel), false, "", { icon: "copy" }),
+      contextMenuButton("Paste", () => pasteClipboardToTerminal(panel), false, "", { icon: "clipboard" }),
+      contextMenuButton("Clear terminal", () => clearTerminalPanel(panel), false, "", { icon: "close" }),
+      contextMenuButton("Text larger", () => changePaneTerminalFontSize(panel.id, 1), false, "", { icon: "textSize" }),
+      contextMenuButton("Text smaller", () => changePaneTerminalFontSize(panel.id, -1), false, "", { icon: "textSize" }),
+      contextMenuButton("Reset text size", () => resetPaneTerminalFontSize(panel.id), !panelHasTerminalFontSize(panel), "", { icon: "reload" }),
+      contextMenuButton("Restart terminal", () => restartPanel(panel.id), false, "", { icon: "reload" }),
+      contextMenuButton("Choose pane background", () => choosePanelBackgroundImage(panel), false, "", { icon: "image" }),
+      contextMenuButton("Use app background", () => applyPanelBackgroundImage(state.settings.backgroundImage, panel), !state.settings.backgroundImage, "", { icon: "image" }),
+      contextMenuButton("Save pane background", () => saveCustomBackgroundImage({ url: panel.backgroundImage }), !isCustomBackgroundImage(panel.backgroundImage), "", { icon: "plus" }),
+      contextMenuButton("Clear pane background", () => applyPanelBackgroundImage("", panel), !panel.backgroundImage, "", { icon: "close" }),
+      contextMenuButton("Terminal settings", () => openSettingsCategory("terminal"), false, "", { icon: "settings" })
     );
   }
   if (isBrowser) {
     surfaceActions.push(
-      contextMenuButton("Focus address", () => focusBrowserAddress(panel)),
-      contextMenuButton("Reload page", () => reloadBrowserPanel(panel)),
-      contextMenuButton("Open externally", () => openBrowserPanelExternally(panel)),
-      contextMenuButton(t("browser.openWithProfile"), () => showExternalBrowserProfileMenuAt(event.clientX, event.clientY, browserPanelUrl(panel)), false, "", { keepOpen: true }),
-      contextMenuButton("Copy URL", () => copyBrowserPanelUrl(panel)),
-      contextMenuButton("Browser settings", () => openSettingsCategory("browser"))
+      contextMenuButton("Focus address", () => focusBrowserAddress(panel), false, "", { icon: "search" }),
+      contextMenuButton("Reload page", () => reloadBrowserPanel(panel), false, "", { icon: "reload" }),
+      contextMenuButton("Open externally", () => openBrowserPanelExternally(panel), false, "", { icon: "external" }),
+      contextMenuButton(t("browser.openWithProfile"), () => showExternalBrowserProfileMenuAt(event.clientX, event.clientY, browserPanelUrl(panel)), false, "", { keepOpen: true, icon: "browser" }),
+      contextMenuButton("Copy URL", () => copyBrowserPanelUrl(panel), false, "", { icon: "copy" }),
+      contextMenuButton("Browser settings", () => openSettingsCategory("browser"), false, "", { icon: "settings" })
     );
   }
   const layoutActions = contextMenuActionGroup(
-    contextMenuButton("Set pane size", () => promptPanelLayoutPercent(panel), found.workspace.panels.length <= 1),
-    contextMenuButton(isPanelZoomed(panel, found.workspace) ? "Show all panes" : "Focus pane", () => togglePaneZoom(panel.id)),
-    contextMenuButton("Equalize panes", () => applyPaneLayoutPreset("equal", { panelId: panel.id }), found.workspace.panels.length <= 1),
-    contextMenuButton("Grid layout", () => applyPaneLayoutPreset("grid", { panelId: panel.id }), found.workspace.panels.length <= 1),
-    contextMenuButton("Active pane wide", () => applyPaneLayoutPreset("activeWide", { panelId: panel.id }), found.workspace.panels.length <= 1),
-    contextMenuButton("Active pane tall", () => applyPaneLayoutPreset("activeTall", { panelId: panel.id }), found.workspace.panels.length <= 1),
-    contextMenuButton("Move left", () => movePanelLeft(found.workspace, index), index <= 0),
-    contextMenuButton("Move right", () => movePanelRight(found.workspace, index), index >= found.workspace.panels.length - 1)
+    contextMenuButton("Set pane size", () => promptPanelLayoutPercent(panel), found.workspace.panels.length <= 1, "", { icon: "layout" }),
+    contextMenuButton(isPanelZoomed(panel, found.workspace) ? "Show all panes" : "Focus pane", () => togglePaneZoom(panel.id), false, "", { icon: "maximize" }),
+    contextMenuButton("Equalize panes", () => applyPaneLayoutPreset("equal", { panelId: panel.id }), found.workspace.panels.length <= 1, "", { icon: "layout" }),
+    contextMenuButton("Grid layout", () => applyPaneLayoutPreset("grid", { panelId: panel.id }), found.workspace.panels.length <= 1, "", { icon: "layout" }),
+    contextMenuButton("Active pane wide", () => applyPaneLayoutPreset("activeWide", { panelId: panel.id }), found.workspace.panels.length <= 1, "", { icon: "splitRight" }),
+    contextMenuButton("Active pane tall", () => applyPaneLayoutPreset("activeTall", { panelId: panel.id }), found.workspace.panels.length <= 1, "", { icon: "splitDown" }),
+    contextMenuButton("Move left", () => movePanelLeft(found.workspace, index), index <= 0, "", { icon: "back" }),
+    contextMenuButton("Move right", () => movePanelRight(found.workspace, index), index >= found.workspace.panels.length - 1, "", { icon: "arrowRight" })
   );
   const closeActions = contextMenuActionGroup(
-    contextMenuButton("Close other panes", () => closeOtherPanes(panel.id), found.workspace.panels.length <= 1, "danger"),
-    contextMenuButton("Close panes to right", () => closePanelsById(panesToRight.map((candidate) => candidate.id)), panesToRight.length === 0, "danger"),
-    contextMenuButton("Close all panes", () => closeAllPanes(found.workspace), found.workspace.panels.length === 0, "danger"),
-    contextMenuButton(closePaneActionLabel(found.workspace, panel.id), () => closePanel(panel.id), false, "danger")
+    contextMenuButton("Close other panes", () => closeOtherPanes(panel.id), found.workspace.panels.length <= 1, "danger", { icon: "close" }),
+    contextMenuButton("Close panes to right", () => closePanelsById(panesToRight.map((candidate) => candidate.id)), panesToRight.length === 0, "danger", { icon: "close" }),
+    contextMenuButton("Close all panes", () => closeAllPanes(found.workspace), found.workspace.panels.length === 0, "danger", { icon: "close" }),
+    contextMenuButton(closePaneActionLabel(found.workspace, panel.id), () => closePanel(panel.id), false, "danger", { icon: "close" })
   );
   const colorTitle = document.createElement("div");
   colorTitle.className = "context-section-title";
@@ -15741,16 +15775,15 @@ function showPanelContextMenu(event, panel) {
     };
     colors.append(button);
   }
-  const appearanceSettings = contextMenuButton("All appearance settings", () => openSettingsCategory("appearance"));
-  const clear = contextMenuButton("Clear color", () => updatePanel(panel.id, { color: "" }), !panel.color);
-  const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(panel.color), !normalizeCustomPaletteColor(panel.color));
+  const appearanceSettings = contextMenuButton("All appearance settings", () => openSettingsCategory("appearance"), false, "", { icon: "settings" });
+  const clear = contextMenuButton("Clear color", () => updatePanel(panel.id, { color: "" }), !panel.color, "", { icon: "close" });
+  const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(panel.color), !normalizeCustomPaletteColor(panel.color), "", { icon: "plus" });
   const customColor = contextColorPicker(panel.color, (color) => {
     updatePanel(panel.id, { color });
     upsertCustomColorPalette(color, { render: false, toast: false });
   });
   const nodes = [
-    title,
-    meta,
+    summary,
     contextMenuSectionTitle("Tab"),
     generalActions,
     colorTitle,
@@ -16010,9 +16043,17 @@ function contextMenuActionGroup(...actions) {
 
 function contextMenuButton(label, action, disabled = false, tone = "", options = {}) {
   const button = document.createElement("button");
-  button.className = `context-action${tone ? ` ${tone}` : ""}`;
+  button.className = `context-action${options.icon ? " has-icon" : ""}${tone ? ` ${tone}` : ""}`;
   button.type = "button";
-  button.textContent = label;
+  if (options.icon) {
+    button.innerHTML = `
+      <span class="context-action-icon" aria-hidden="true">${controlIconMarkup(options.icon)}</span>
+      <span class="context-action-label"></span>
+    `;
+    button.querySelector(".context-action-label").textContent = label;
+  } else {
+    button.textContent = label;
+  }
   button.disabled = disabled;
   button.onclick = (event) => {
     event.preventDefault();
