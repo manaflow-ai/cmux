@@ -6546,6 +6546,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         keyboardFocusCoordinator(for: window)?.noteMainPanelInteraction(workspaceId: workspaceId, panelId: panelId)
     }
 
+    @discardableResult
+    fileprivate func activateMainPaneBodyPointerFocus(
+        workspaceId: UUID,
+        panelId: UUID,
+        focusIntent: PanelFocusIntent,
+        in window: NSWindow
+    ) -> Bool {
+        guard let located = workspaceContainingPanel(panelId: panelId, preferredWorkspaceId: workspaceId) else {
+            return false
+        }
+        let workspace = located.workspace
+        guard located.tabManager.selectedTabId == workspace.id else {
+            return false
+        }
+
+        setActiveMainWindow(window)
+        noteMainPanelKeyboardFocusIntent(workspaceId: workspace.id, panelId: panelId, in: window)
+        workspace.focusPanel(panelId, trigger: .paneBodyPointer, focusIntent: focusIntent)
+        return true
+    }
+
     func noteRightSidebarKeyboardFocusIntent(mode: RightSidebarMode, in window: NSWindow?) {
         keyboardFocusCoordinator(for: window)?.noteRightSidebarInteraction(mode: mode)
     }
@@ -16761,6 +16782,10 @@ private extension NSWindow {
             cmuxFirstResponderGuardContextWindowNumber = previousContextWindowNumber
         }
 
+        if event.type == .leftMouseDown {
+            Self.cmuxActivateMainPaneBodyPointerFocusIfNeeded(in: self, event: event)
+        }
+
         let suppressionReason = beginOrContinueWindowMoveSuppressionSequenceForEvent(window: self, event: event)
         let hasActiveSuppressionSequence = activeWindowMoveSuppressionSequenceReason(window: self) != nil
         guard suppressionReason != nil || hasActiveSuppressionSequence else {
@@ -17504,10 +17529,147 @@ private extension NSWindow {
     private static func cmuxPointerHitGhosttyView(in window: NSWindow, event: NSEvent) -> GhosttyNSView? {
         guard cmuxEventAllowsFirstResponderHitTesting(event) else { return nil }
         guard cmuxPointerEventTargetsWindow(event, window) else { return nil }
-        guard let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) else {
+        if let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) {
+            if let ghosttyView = cmuxOwningGhosttyView(for: hitView) {
+                return ghosttyView
+            }
+            if !cmuxHitViewAllowsPortalPaneBodyFallback(hitView) {
+                return nil
+            }
+        }
+        if let portalTerminal = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(
+            event.locationInWindow,
+            in: window
+        ) {
+            return portalTerminal
+        }
+        return nil
+    }
+
+    @discardableResult
+    private static func cmuxActivateMainPaneBodyPointerFocusIfNeeded(in window: NSWindow, event: NSEvent) -> Bool {
+        guard let appDelegate = AppDelegate.shared else { return false }
+        guard appDelegate.isCommandPaletteVisible(for: window) == false else { return false }
+        guard let target = cmuxMainPaneBodyPointerFocusTarget(in: window, event: event, appDelegate: appDelegate) else {
+            return false
+        }
+        return appDelegate.activateMainPaneBodyPointerFocus(
+            workspaceId: target.workspaceId,
+            panelId: target.panelId,
+            focusIntent: target.focusIntent,
+            in: window
+        )
+    }
+
+    private static func cmuxMainPaneBodyPointerFocusTarget(
+        in window: NSWindow,
+        event: NSEvent,
+        appDelegate: AppDelegate
+    ) -> (workspaceId: UUID, panelId: UUID, focusIntent: PanelFocusIntent)? {
+        guard event.type == .leftMouseDown else { return nil }
+        guard cmuxEventAllowsFirstResponderHitTesting(event) else { return nil }
+        guard cmuxPointerEventTargetsWindow(event, window) else { return nil }
+
+        if let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) {
+            if let target = cmuxMainPaneBodyPointerFocusTarget(
+                forHitView: hitView,
+                appDelegate: appDelegate
+            ) {
+                return target
+            }
+            guard cmuxHitViewAllowsPortalPaneBodyFallback(hitView) else {
+                return nil
+            }
+        }
+
+        if let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(
+            event.locationInWindow,
+            in: window
+        ),
+           let target = cmuxMainPaneBodyPointerFocusTarget(forTerminalView: terminalView) {
+            return target
+        }
+
+        if let webView = BrowserWindowPortalRegistry.webViewAtWindowPoint(
+            event.locationInWindow,
+            in: window
+        ) as? CmuxWebView,
+           let target = cmuxMainPaneBodyPointerFocusTarget(forWebView: webView, appDelegate: appDelegate) {
+            return target
+        }
+
+        return nil
+    }
+
+    private static func cmuxMainPaneBodyPointerFocusTarget(
+        forHitView hitView: NSView,
+        appDelegate: AppDelegate
+    ) -> (workspaceId: UUID, panelId: UUID, focusIntent: PanelFocusIntent)? {
+        if let terminalView = cmuxOwningGhosttyView(for: hitView) {
+            return cmuxMainPaneBodyPointerFocusTarget(forTerminalView: terminalView)
+        }
+        if let webView = cmuxOwningWebView(for: hitView) {
+            return cmuxMainPaneBodyPointerFocusTarget(forWebView: webView, appDelegate: appDelegate)
+        }
+        return nil
+    }
+
+    private static func cmuxMainPaneBodyPointerFocusTarget(
+        forTerminalView terminalView: GhosttyNSView
+    ) -> (workspaceId: UUID, panelId: UUID, focusIntent: PanelFocusIntent)? {
+        guard let workspaceId = terminalView.tabId,
+              let panelId = terminalView.terminalSurface?.id else {
             return nil
         }
-        return cmuxOwningGhosttyView(for: hitView)
+        guard !TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) else {
+            return nil
+        }
+        return (workspaceId, panelId, .terminal(.surface))
+    }
+
+    private static func cmuxMainPaneBodyPointerFocusTarget(
+        forWebView webView: CmuxWebView,
+        appDelegate: AppDelegate
+    ) -> (workspaceId: UUID, panelId: UUID, focusIntent: PanelFocusIntent)? {
+        guard let panel = appDelegate.browserPanelOwning(webView),
+              let located = appDelegate.workspaceContainingPanel(panelId: panel.id) else {
+            return nil
+        }
+        return (located.workspace.id, panel.id, .browser(.webView))
+    }
+
+    private static func cmuxNativeTextEntryOwnsPointerHit(_ hitView: NSView) -> Bool {
+        var current: NSView? = hitView
+        while let candidate = current {
+            if let textView = candidate as? NSTextView,
+               textView.isEditable || textView.isSelectable || textView.isFieldEditor {
+                return true
+            }
+            if let textField = candidate as? NSTextField,
+               textField.isEditable || textField.acceptsFirstResponder {
+                return true
+            }
+            current = candidate.superview
+        }
+        return false
+    }
+
+    private static func cmuxHitViewAllowsPortalPaneBodyFallback(_ hitView: NSView) -> Bool {
+        if cmuxNativeTextEntryOwnsPointerHit(hitView) {
+            return false
+        }
+
+        var current: NSView? = hitView
+        while let candidate = current {
+            if candidate is WindowTerminalHostView ||
+                candidate is WindowBrowserHostView ||
+                candidate is WindowBrowserSlotView ||
+                candidate is GhosttySurfaceScrollView {
+                return true
+            }
+            current = candidate.superview
+        }
+        return false
     }
 
     private static func cmuxShouldAllowPointerInitiatedTerminalFocus(
