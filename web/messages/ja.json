@@ -1439,6 +1439,25 @@
       "fallback": "cmux は最初にルールを表示し、現在のワークスペースに貼り付ける前に質問します。 cmux が開かない場合は、cmux をインストールし、もう一度 cmux で開くをクリックします。"
     }
   },
+  "download": {
+    "section": "ダウンロード",
+    "metaTitle": "cmux をダウンロードいただきありがとうございます",
+    "metaDescription": "cmux のダウンロードを開始しています。ドキュメントを見たり、Discord に参加したり、X で cmux をフォローしてください。",
+    "heading": "cmux をダウンロードいただきありがとうございます！",
+    "subtext": "ダウンロードが始まらない場合は<link>こちら</link>をクリックしてください。",
+    "docs": {
+      "title": "ドキュメント",
+      "description": "ステップバイステップのガイドと例で cmux の機能を学び、すぐに使い始められます。"
+    },
+    "discord": {
+      "title": "Discord",
+      "description": "何千人もの cmux ユーザーがリアルタイムでヒントを共有し、問題を解決し、質問に答えています。"
+    },
+    "x": {
+      "title": "X",
+      "description": "最新のアップデート、ヒント、お知らせは X で cmux をフォローしてください。"
+    }
+  },
   "testimonialSubtitles": {
     "steipete": "OpenClaw の開発者。PSPDFKit の創業者。"
   }

@@ -1437,6 +1437,25 @@
       "fallback": "cmux shows the rules first and asks before pasting them into the current workspace. If cmux does not open, install cmux and click Open in cmux again."
     }
   },
+  "download": {
+    "section": "Download",
+    "metaTitle": "Thanks for downloading cmux",
+    "metaDescription": "Your cmux download is starting. Explore the docs, join the Discord, and follow cmux on X.",
+    "heading": "Thanks for downloading cmux!",
+    "subtext": "Click <link>here</link> if your download hasn't started.",
+    "docs": {
+      "title": "Documentation",
+      "description": "Explore cmux's features with step-by-step guides and examples to help you get started."
+    },
+    "discord": {
+      "title": "Discord",
+      "description": "Join thousands of cmux users sharing tips, solving problems, and answering questions in real time."
+    },
+    "x": {
+      "title": "X",
+      "description": "Follow cmux on X for the latest updates, tips, and announcements."
+    }
+  },
   "legal": {
     "privacyPolicy": "Privacy Policy",
     "termsOfService": "Terms of Service",
