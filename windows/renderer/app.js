@@ -7857,6 +7857,14 @@ function renderBrowserTabs(session) {
     scheduleActiveBrowserTabIntoView(session, { refreshOverflow: !session.tabOverflowSignature });
     return;
   }
+  if (browserTabOrderReady(session)) {
+    updateBrowserTabButtonsInPlace(session, tabLabels);
+    updateBrowserTabNewButton(session);
+    session.tabSignature = signature;
+    session.tabLayoutSignature = layoutSignature;
+    scheduleActiveBrowserTabIntoView(session, { refreshOverflow: layoutChanged || !session.tabOverflowSignature });
+    return;
+  }
   const validTabIds = new Set(session.tabs.map((tab) => tab.id));
   for (const [tabId, button] of [...session.tabButtons.entries()]) {
     if (validTabIds.has(tabId)) continue;
@@ -7886,6 +7894,22 @@ function browserTabStructureReady(session) {
     && session.tabButtons?.size === tabCount
     && session.tabList?.children.length === tabCount
   );
+}
+
+function browserTabOrderReady(session) {
+  if (!browserTabStructureReady(session)) return false;
+  return (session.tabs || []).every((tab, index) => session.tabList.children[index] === session.tabButtons.get(tab.id));
+}
+
+function updateBrowserTabButtonsInPlace(session, tabLabels = browserTabLabels(session)) {
+  if (!session?.tabList || !session.tabButtons) return false;
+  let changed = false;
+  for (const tab of session.tabs || []) {
+    const button = session.tabButtons.get(tab.id);
+    if (!button) continue;
+    changed = updateBrowserTabButton(session, button, tab, tabLabels.get(tab.id)) || changed;
+  }
+  return changed;
 }
 
 function browserTabsSignature(session, tabLabels = browserTabLabels(session)) {
@@ -8161,17 +8185,22 @@ function updateBrowserTabButton(session, button, tab, label = browserTabLabel(se
   };
   const parts = button._browserTabParts;
   const active = tab.id === session.activeTabId;
-  if (!button.classList.contains("browser-tab")) button.classList.add("browser-tab");
-  toggleClassIfChanged(button, "is-active", active);
-  setDatasetIfChanged(button, "browserTabId", tab.id);
-  setDatasetIfChanged(button, "tabIndex", String(ordinal));
-  setAttributeIfChanged(button, "role", "tab");
-  updateBrowserTabSelectionState(button, active);
-  setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""} - ${tab.url}`);
+  let changed = false;
+  if (!button.classList.contains("browser-tab")) {
+    button.classList.add("browser-tab");
+    changed = true;
+  }
+  changed = toggleClassIfChanged(button, "is-active", active) || changed;
+  changed = setDatasetIfChanged(button, "browserTabId", tab.id) || changed;
+  changed = setDatasetIfChanged(button, "tabIndex", String(ordinal)) || changed;
+  changed = setAttributeIfChanged(button, "role", "tab") || changed;
+  changed = updateBrowserTabSelectionState(button, active) || changed;
+  changed = setTitleIfChanged(button, `${label}${label !== fullTitle ? ` - ${fullTitle}` : ""} - ${tab.url}`) || changed;
   const ariaLabel = `${label}. ${tab.url}. ${closeLabel} with Delete.`;
-  setAttributeIfChanged(button, "aria-label", ariaLabel);
-  setTextIfChanged(parts.label, label);
-  setTitleIfChanged(parts.close, closeLabel);
+  changed = setAttributeIfChanged(button, "aria-label", ariaLabel) || changed;
+  changed = setTextIfChanged(parts.label, label) || changed;
+  changed = setTitleIfChanged(parts.close, closeLabel) || changed;
+  return changed;
 }
 
 function browserTabBaseLabel(tab) {

@@ -3548,7 +3548,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   gap: var(--space-1);
   padding: 3px var(--space-2) 0;
   border-bottom: 1px solid var(--color-line);
-  background: color-mix(in oklch, var(--color-pane-warm) 78%, var(--color-chrome) 22%);
+  background: color-mix(in oklch, var(--color-terminal-gutter) 76%, var(--color-canvas) 24%);
 }
 
 .browser-tab-list {
@@ -3599,9 +3599,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border: 1px solid transparent;
   border-bottom: 0;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
-  background: color-mix(in oklch, var(--color-pane) 68%, var(--color-chrome) 32%);
+  background: color-mix(in oklch, var(--color-pane) 42%, transparent);
   color: var(--color-muted);
   font-size: 11px;
+  cursor: pointer;
   transition:
     background var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out),
@@ -3631,16 +3632,15 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .browser-tab:hover {
   color: var(--color-text);
-  background: var(--color-pane);
+  background: color-mix(in oklch, var(--color-pane) 76%, transparent);
 }
 
 .browser-tab.is-active {
   border-color: var(--color-line);
+  border-bottom-color: var(--color-pane);
   background: var(--color-pane-warm);
   color: var(--color-text);
-  box-shadow:
-    inset 0 -2px 0 var(--color-accent),
-    inset 0 1px 0 color-mix(in oklch, var(--color-text) 6%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 5%, transparent);
 }
 
 .browser-tab-list.is-crowded .browser-tab.is-active::before {
@@ -3775,13 +3775,14 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   gap: 0;
   margin-bottom: 2px;
   padding: 0;
-  border: 1px solid color-mix(in oklch, var(--color-line) 42%, transparent);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
   color: var(--color-muted);
-  background: color-mix(in oklch, var(--color-pane) 58%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 88%, var(--color-canvas) 12%);
   font-size: 11px;
   font-weight: 760;
-  box-shadow: none;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 6%, transparent);
   z-index: 1;
 }
 
@@ -3790,9 +3791,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   place-items: center;
   width: 22px;
   height: 22px;
-  border: 1px solid color-mix(in oklch, var(--color-line) 72%, transparent);
+  border: 1px solid color-mix(in oklch, var(--color-accent) 30%, var(--color-line) 70%);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-pane) 64%, transparent);
+  background: color-mix(in oklch, var(--color-accent) 9%, var(--color-pane) 91%);
+  color: color-mix(in oklch, var(--color-accent) 72%, var(--color-text) 28%);
 }
 
 .browser-tab-new svg {
@@ -3829,15 +3831,14 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .browser-tab-new:hover {
-  border-color: var(--color-line-strong);
+  border-color: color-mix(in oklch, var(--color-accent) 42%, var(--color-line-strong) 58%);
   color: var(--color-text);
-  background: color-mix(in oklch, var(--color-pane-active) 78%, transparent);
-  box-shadow: none;
+  background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane-active) 90%);
 }
 
 .browser-tab-new:hover .browser-tab-new-icon {
-  border-color: color-mix(in oklch, var(--color-accent) 42%, var(--color-line-strong) 58%);
-  background: color-mix(in oklch, var(--color-accent) 10%, var(--color-pane-active) 90%);
+  border-color: color-mix(in oklch, var(--color-accent) 54%, var(--color-line-strong) 46%);
+  background: color-mix(in oklch, var(--color-accent) 15%, var(--color-pane-active) 85%);
 }
 
 .browser-tab-list.is-crowded + .browser-tab-new {
