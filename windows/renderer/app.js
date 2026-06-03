@@ -500,6 +500,27 @@ const builtInTerminalCommandSnippets = [
   { id: "ghPrMergeHelp", label: "GH PR Merge Help", command: "gh pr merge --help" }
 ];
 
+const commandSnippetPackDefinitions = [
+  {
+    id: "gitBasics",
+    label: "Git basics",
+    body: "Status, pull, and push commands for everyday repository work.",
+    snippetIds: ["gitStatus", "gitPull", "gitPush"]
+  },
+  {
+    id: "prReview",
+    label: "PR review",
+    body: "GitHub CLI commands for PR status, checks, web review, and merge help.",
+    snippetIds: ["ghPrStatus", "ghPrChecks", "ghPrViewWeb", "ghPrMergeHelp"]
+  },
+  {
+    id: "nodeApp",
+    label: "Node app",
+    body: "List workspace files and inspect available package scripts.",
+    snippetIds: ["listFiles", "npmScripts"]
+  }
+];
+
 const initialSettings = loadSettings();
 
 const state = {
@@ -20814,6 +20835,11 @@ function commandSnippetsSettings() {
     }
   }
 
+  const packHeader = document.createElement("div");
+  packHeader.className = "command-snippet-group-title";
+  packHeader.textContent = "Snippet packs";
+  wrapper.append(packHeader, commandSnippetPackGrid());
+
   const builtInHeader = document.createElement("div");
   builtInHeader.className = "command-snippet-group-title";
   builtInHeader.textContent = "Built-in snippets";
@@ -20823,6 +20849,112 @@ function commandSnippetsSettings() {
   }
 
   return wrapper;
+}
+
+function commandSnippetPackById(packId) {
+  return commandSnippetPackDefinitions.find((candidate) => candidate.id === packId) || null;
+}
+
+function commandSnippetPackSnippets(pack) {
+  if (!pack) return [];
+  return pack.snippetIds
+    .map((snippetId) => builtInTerminalCommandSnippets.find((snippet) => snippet.id === snippetId))
+    .filter(Boolean);
+}
+
+function commandSnippetPackMissingSnippets(pack) {
+  return commandSnippetPackSnippets(pack).filter((snippet) => !isBuiltInCommandSnippetSaved(snippet));
+}
+
+function commandSnippetPackSaved(pack) {
+  const snippets = commandSnippetPackSnippets(pack);
+  return snippets.length > 0 && snippets.every(isBuiltInCommandSnippetSaved);
+}
+
+function commandSnippetPackSaveTitle(pack, missing = commandSnippetPackMissingSnippets(pack)) {
+  if (!pack) return "Choose a snippet pack first.";
+  if (missing.length === 0) return `${pack.label} snippets are already saved.`;
+  const remainingSlots = customCommandSnippetsLimit - state.customCommandSnippets.length;
+  if (missing.length > remainingSlots) return `Delete ${missing.length - remainingSlots} saved snippet${missing.length - remainingSlots === 1 ? "" : "s"} first.`;
+  return `Save ${missing.length} ${pack.label} snippet${missing.length === 1 ? "" : "s"}.`;
+}
+
+function saveCommandSnippetPack(packId) {
+  const pack = commandSnippetPackById(packId);
+  const snippets = commandSnippetPackSnippets(pack);
+  if (!pack || snippets.length === 0) {
+    toast("Command snippet pack not found.");
+    return;
+  }
+  const missing = commandSnippetPackMissingSnippets(pack);
+  if (missing.length === 0) {
+    toast(`${pack.label} pack already saved.`);
+    return;
+  }
+  const remainingSlots = customCommandSnippetsLimit - state.customCommandSnippets.length;
+  if (missing.length > remainingSlots) {
+    toast(`Delete ${missing.length - remainingSlots} saved snippet${missing.length - remainingSlots === 1 ? "" : "s"} first.`);
+    return;
+  }
+  for (let index = missing.length - 1; index >= 0; index -= 1) {
+    const snippet = missing[index];
+    upsertCustomCommandSnippet({
+      id: createCustomCommandSnippetId(),
+      label: snippet.label,
+      command: snippet.command
+    });
+  }
+  renderSettingsInspector();
+  toast(`${pack.label} pack saved.`);
+}
+
+function commandSnippetPackGrid() {
+  const grid = document.createElement("div");
+  grid.className = "command-snippet-pack-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("command snippet packs starter git github pr node npm save run built in reusable");
+  for (const pack of commandSnippetPackDefinitions) {
+    const snippets = commandSnippetPackSnippets(pack);
+    if (!snippets.length) continue;
+    const missing = commandSnippetPackMissingSnippets(pack);
+    const saved = commandSnippetPackSaved(pack);
+    const card = document.createElement("div");
+    card.className = `command-snippet-pack-card${saved ? " is-active" : ""}`;
+    card.dataset.settingsSearch = normalizeSettingsQuery(`command snippet pack ${saved ? "saved active current " : ""}${pack.label} ${pack.body} ${snippets.map((snippet) => `${snippet.label} ${snippet.command}`).join(" ")}`);
+    card.innerHTML = `
+      <span class="command-snippet-pack-title-row">
+        <span class="command-snippet-pack-title"></span>
+        <span class="command-snippet-pack-status"></span>
+      </span>
+      <span class="command-snippet-pack-body"></span>
+      <span class="command-snippet-pack-list"></span>
+      <span class="command-snippet-pack-actions"></span>
+    `;
+    card.querySelector(".command-snippet-pack-title").textContent = pack.label;
+    card.querySelector(".command-snippet-pack-status").textContent = saved ? "Saved" : "";
+    card.querySelector(".command-snippet-pack-body").textContent = pack.body;
+    const list = card.querySelector(".command-snippet-pack-list");
+    for (const snippet of snippets) {
+      const pill = document.createElement("span");
+      pill.className = "command-snippet-pack-pill";
+      pill.textContent = snippet.label;
+      pill.title = snippet.command;
+      list.append(pill);
+    }
+    const actions = card.querySelector(".command-snippet-pack-actions");
+    const run = settingsActionButton("Run first", () => runTerminalCommandSnippet(snippets[0].id), "", `command snippet pack run first ${pack.label} ${snippets[0].label}`);
+    run.title = `Run ${snippets[0].label}.`;
+    const save = settingsActionButton(
+      saved ? "Saved" : "Save pack",
+      () => saveCommandSnippetPack(pack.id),
+      saved ? "primary" : "",
+      `command snippet pack save all reusable ${saved ? "saved active current " : ""}${pack.label}`
+    );
+    save.disabled = saved || missing.length > (customCommandSnippetsLimit - state.customCommandSnippets.length);
+    save.title = commandSnippetPackSaveTitle(pack, missing);
+    actions.append(run, save);
+    grid.append(card);
+  }
+  return grid;
 }
 
 function commandSnippetCard(snippet) {
