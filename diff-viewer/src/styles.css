@@ -611,6 +611,14 @@ body[data-status-only="true"] #status-text {
   font-weight: 500;
   letter-spacing: 0.005em;
 }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 /* Icon badge: only for the friendly empty state, not errors or while loading. */
 #status-icon {
   display: none;

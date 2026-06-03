@@ -313,14 +313,17 @@ function Toolbar({
           id="options-button"
           className="toolbar-icon"
           type="button"
-          title={state.copyFeedback || label("options")}
-          aria-label={state.copyFeedback || label("options")}
+          title={label("options")}
+          aria-label={label("options")}
           aria-expanded={state.optionsOpen}
           aria-haspopup="menu"
           onClick={() => dispatch({ type: "set-options-open", open: !state.optionsOpen })}
         >
           <Icon name="dots" />
         </button>
+        <span id="copy-feedback" className="visually-hidden" aria-live="polite">
+          {state.copyFeedback}
+        </span>
       </div>
       {state.optionsOpen ? (
         <OptionsMenu

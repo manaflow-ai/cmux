@@ -8,7 +8,7 @@ export function resolveDiffNavigationURL(rawURL: string): string {
       (target.protocol === "http:" || target.protocol === "https:")
     ) {
       const rest = target.pathname.split("/").filter(Boolean).slice(1).join("/");
-      return `cmux-diff-viewer://${window.location.host}/${rest}`;
+      return `cmux-diff-viewer://${window.location.host}/${rest}${target.search}${target.hash}`;
     }
     return target.href;
   } catch {
@@ -52,7 +52,9 @@ export async function copyGitApplyCommand(
   }
   fallbackTextarea.value = command;
   fallbackTextarea.select();
-  document.execCommand("copy");
+  if (!document.execCommand("copy")) {
+    throw new Error("Clipboard copy failed");
+  }
   return label("copiedGitApplyCommand");
 }
 

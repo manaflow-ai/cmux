@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { copyGitApplyCommand } from "../src/actions";
+import { copyGitApplyCommand, resolveDiffNavigationURL } from "../src/actions";
 import { createDiffViewerLabelResolver } from "../src/labels";
 
 const originalGlobals = new Map<string, any>();
-for (const key of ["document", "fetch", "navigator"]) {
+for (const key of ["document", "fetch", "navigator", "window"]) {
   originalGlobals.set(key, (globalThis as any)[key]);
 }
 
@@ -61,4 +61,29 @@ test("copyGitApplyCommand falls back when clipboard writeText rejects", async ()
 
   expect(message).toBe(label("copiedGitApplyCommand"));
   expect(copied).toBe(true);
+});
+
+test("copyGitApplyCommand fails when the textarea fallback cannot copy", async () => {
+  const dom = new JSDOM("<!doctype html><html><body><textarea></textarea></body></html>");
+  const textarea = dom.window.document.querySelector("textarea");
+  expect(textarea).toBeTruthy();
+  (globalThis as any).navigator = {};
+  (globalThis as any).document = dom.window.document;
+  dom.window.document.execCommand = () => false;
+  (globalThis as any).fetch = () => Promise.resolve(new Response("diff --git a/a b/a\n", { status: 200 }));
+
+  const label = createDiffViewerLabelResolver(undefined);
+
+  await expect(copyGitApplyCommand("/patch.diff", label, textarea)).rejects.toThrow("Clipboard copy failed");
+});
+
+test("resolveDiffNavigationURL preserves query and fragment for custom scheme rewrites", () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+    url: "cmux-diff-viewer://local/current",
+  });
+  (globalThis as any).window = dom.window;
+
+  expect(resolveDiffNavigationURL("https://example.com/diff/target?source=worktree#file")).toBe(
+    "cmux-diff-viewer://local/target?source=worktree#file",
+  );
 });
