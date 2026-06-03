@@ -885,7 +885,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var keyboardHeight: CGFloat = 0
-    var autoFocusOnWindowAttach = true
+    /// Whether the hidden terminal input should become first responder when the surface attaches to a window.
+    public var autoFocusOnWindowAttach = true
 
     @objc private func handleKeyboardWillShow(_ notification: Notification) {
         guard let frameEnd = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,

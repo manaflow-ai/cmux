@@ -583,6 +583,8 @@ struct WorkspaceDetailView: View {
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
     @State private var isTerminalPickerPresented = false
+    @State private var suppressNextTerminalAutoFocus = false
+    @State private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
 
     private var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == selectedTerminalID } ?? workspace.terminals.first
@@ -604,7 +606,8 @@ struct WorkspaceDetailView: View {
                 GhosttySurfaceRepresentable(
                     surfaceID: terminalID,
                     store: store,
-                    fontSize: MobileTerminalFontPreference.defaultSize
+                    fontSize: MobileTerminalFontPreference.defaultSize,
+                    autoFocusOnWindowAttach: !terminalAutoFocusSuppressedSurfaceIDs.contains(terminalID)
                 )
                 .id(terminalID)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -632,6 +635,9 @@ struct WorkspaceDetailView: View {
         .background(TerminalPalette.background)
         #endif
         .navigationTitle(workspace.name)
+        .onChange(of: selectedTerminal?.id) { _, terminalID in
+            suppressPendingTerminalAutoFocusIfNeeded(for: terminalID)
+        }
         .mobileTerminalNavigationChrome()
         .toolbar {
             #if os(iOS)
@@ -772,29 +778,41 @@ struct WorkspaceDetailView: View {
 
     private func createWorkspaceFromToolbar() {
         dismissTerminalKeyboardForChrome()
+        suppressNextTerminalAutoFocus = true
         createWorkspace()
     }
 
     private func createWorkspaceFromTerminalPicker() {
         dismissTerminalKeyboardForChrome()
         isTerminalPickerPresented = false
+        suppressNextTerminalAutoFocus = true
         createWorkspace()
     }
 
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
         isTerminalPickerPresented = false
+        suppressNextTerminalAutoFocus = true
         createTerminal()
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
         isTerminalPickerPresented = false
+        terminalAutoFocusSuppressedSurfaceIDs.insert(terminalID.rawValue)
+        suppressNextTerminalAutoFocus = false
         selectedTerminalID = terminalID
     }
 
     private func dismissTerminalKeyboardForChrome() {
         GhosttySurfaceView.resignActiveInput()
         dismissKeyboard()
+    }
+
+    private func suppressPendingTerminalAutoFocusIfNeeded(for terminalID: MobileTerminalPreview.ID?) {
+        guard suppressNextTerminalAutoFocus,
+              let terminalID else { return }
+        terminalAutoFocusSuppressedSurfaceIDs.insert(terminalID.rawValue)
+        suppressNextTerminalAutoFocus = false
     }
 }

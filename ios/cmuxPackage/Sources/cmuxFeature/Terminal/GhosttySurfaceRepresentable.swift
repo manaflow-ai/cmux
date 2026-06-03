@@ -14,6 +14,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let surfaceID: String
     let store: CMUXMobileShellStore
     let fontSize: Float32
+    let autoFocusOnWindowAttach: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(surfaceID: surfaceID, store: store)
@@ -36,12 +37,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             delegate: context.coordinator,
             fontSize: fontSize
         )
+        view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         context.coordinator.attach(surfaceView: view)
         return view
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        // No prop-driven mutations yet; bytes flow via the byte sink.
+        (uiView as? GhosttySurfaceView)?.autoFocusOnWindowAttach = autoFocusOnWindowAttach
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
