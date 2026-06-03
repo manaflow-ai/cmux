@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CMUXWorkstream
 import Foundation
 @preconcurrency import UserNotifications
@@ -118,6 +119,12 @@ final class FeedCoordinator: @unchecked Sendable {
                 if let ppid = event.ppid, ppid > 0 {
                     FeedCoordinator.shared.armPidWatcher(ppid: ppid)
                 }
+                // Surface in-app attention (needs-input status + bell +
+                // workspace elevation) for the blocking decision. This fires
+                // regardless of app focus, unlike the desktop banner below,
+                // so the pending decision is visible in the sidebar even
+                // while the user is in another workspace of the same window.
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(event: event)
                 #if DEBUG
                 FeedCoordinatorTestHooks.afterBlockingEventIngested?(event, requestId)
                 #endif
@@ -223,6 +230,102 @@ final class FeedCoordinator: @unchecked Sendable {
         case acknowledged(itemId: UUID?)
         case resolved(itemId: UUID?, decision: WorkstreamDecision)
         case timedOut(itemId: UUID?)
+    }
+}
+
+// MARK: - In-app attention surfacing
+
+extension FeedCoordinator {
+    /// The blocking-decision hook events that warrant pulling the user's
+    /// attention to the owning workspace: a tool permission, a plan
+    /// approval, or a question. Keeping this as one predicate (rather than
+    /// branching per event at each call site) is what makes the attention
+    /// surface uniform across every event type and agent routed through
+    /// `feed.push` — a new blocking event type only has to be added here.
+    static func isBlockingDecisionEvent(_ hookEventName: WorkstreamEvent.HookEventName) -> Bool {
+        switch hookEventName {
+        case .permissionRequest, .exitPlanMode, .askUserQuestion:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Maps a feed `source` (agent id) to the agent-lifecycle status key the
+    /// sidebar reads. Claude reports under `claude_code`; every other agent
+    /// keys its status by its own source name. Returning the agent's own key
+    /// is what lets the existing per-agent resume hooks (e.g. Claude's
+    /// `pre-tool-use`) clear the needs-input badge once the agent continues.
+    static func lifecycleStatusKey(forSource source: String) -> String {
+        source == "claude" ? "claude_code" : source
+    }
+
+    /// Surfaces in-app attention for a blocking feed decision: flips the
+    /// owning workspace's agent lifecycle to `.needsInput`, sets the
+    /// "Needs input" sidebar status, elevates the workspace when
+    /// *Reorder on Notification* is enabled, and rings the bell.
+    ///
+    /// This is the convergence point the PreToolUse→PermissionRequest
+    /// migration left behind: the `feed.push` bridge ingested the card and
+    /// (when inactive) posted a banner, but never drove the same in-app
+    /// attention path the `cmux hooks <agent> notification` hook uses. Doing
+    /// it here — once, for every blocking decision — keeps a new event type
+    /// from silently swallowing.
+    @MainActor
+    func surfaceBlockingDecisionAttention(event: WorkstreamEvent) {
+        guard Self.isBlockingDecisionEvent(event.hookEventName) else { return }
+
+        #if DEBUG
+        if let observer = FeedCoordinatorTestHooks.attentionSurfaceObserver {
+            observer(event)
+            return
+        }
+        #endif
+
+        guard let rawWorkspaceId = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let workspaceId = UUID(uuidString: rawWorkspaceId),
+              let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+              let tab = tabManager.tabs.first(where: { $0.id == workspaceId })
+        else { return }
+
+        let panelId = Self.resolveAttentionPanelId(event: event, tab: tab)
+        let statusKey = Self.lifecycleStatusKey(forSource: event.source)
+
+        // Needs-input lifecycle drives the sidebar badge + hibernation state.
+        tab.setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .needsInput)
+        tab.statusEntries[statusKey] = SidebarStatusEntry(
+            key: statusKey,
+            value: String(
+                localized: "feed.status.needsInput",
+                defaultValue: "Needs input"
+            ),
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            timestamp: Date()
+        )
+
+        // Elevate the workspace so it floats to the top of the sidebar,
+        // honoring the user's Reorder on Notification preference.
+        if WorkspaceAutoReorderSettings.isEnabled() {
+            tabManager.moveTabToTopForNotification(workspaceId)
+        }
+
+        // Ring the bell (dock bounce while the app is in the background).
+        NSApp.requestUserAttention(.informationalRequest)
+    }
+
+    /// Resolves the panel that owns the agent for this feed event so the
+    /// needs-input badge targets the right surface. Prefers the surface
+    /// recorded in the agent's hook-session store; falls back to the tab's
+    /// focused panel (handled downstream by `setAgentLifecycle`).
+    @MainActor
+    private static func resolveAttentionPanelId(event: WorkstreamEvent, tab: Workspace) -> UUID? {
+        guard let parsed = FeedJumpResolver.parse(event.sessionId),
+              let target = FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId),
+              let surfaceId = UUID(uuidString: target.surfaceId)
+        else { return nil }
+        if tab.panels[surfaceId] != nil { return surfaceId }
+        return tab.panelIdFromSurfaceId(TabID(uuid: surfaceId))
     }
 }
 
