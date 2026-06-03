@@ -46,6 +46,9 @@ import Testing
             "overlay", "mask", "safeAreaInset",
             "imageScale", "symbolRenderingMode", "symbolVariant",
             "contextMenu", "help", "disabled",
+            "redacted", "unredacted", "accessibilityLabel", "accessibilityHint",
+            "accessibilityValue", "accessibilityHidden", "scrollIndicators",
+            "scrollContentBackground", "aspectRatio", "scaledToFit", "scaledToFill",
         ]
 
         var unsupportedCalls: [String: Int] = [:]

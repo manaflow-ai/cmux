@@ -273,6 +273,31 @@ struct RenderNodeView: View {
             return view
         case "disabled":
             return AnyView(view.disabled(token != "false"))
+        case "redacted":
+            let reason = clean(modifier.value("reason")) ?? token
+            return AnyView(view.redacted(reason: reason == "invalidated" ? .invalidated : .placeholder))
+        case "unredacted":
+            return AnyView(view.unredacted())
+        case "accessibilityLabel":
+            return AnyView(view.accessibilityLabel(Text(token ?? "")))
+        case "accessibilityHint":
+            return AnyView(view.accessibilityHint(Text(token ?? "")))
+        case "accessibilityValue":
+            return AnyView(view.accessibilityValue(Text(token ?? "")))
+        case "accessibilityHidden":
+            return AnyView(view.accessibilityHidden(token != "false"))
+        case "scrollIndicators":
+            return AnyView(view.scrollIndicators(token == "hidden" || token == "never" ? .hidden : .visible))
+        case "scrollContentBackground":
+            return AnyView(view.scrollContentBackground(token == "hidden" ? .hidden : .visible))
+        case "aspectRatio":
+            let mode: ContentMode = clean(modifier.value("contentMode")) == "fill" ? .fill : .fit
+            if let token, let ratio = Double(token) { return AnyView(view.aspectRatio(CGFloat(ratio), contentMode: mode)) }
+            return AnyView(view.aspectRatio(contentMode: mode))
+        case "scaledToFit":
+            return AnyView(view.aspectRatio(contentMode: .fit))
+        case "scaledToFill":
+            return AnyView(view.aspectRatio(contentMode: .fill))
         case "clipped":
             return AnyView(view.clipped())
         case "fixedSize":
