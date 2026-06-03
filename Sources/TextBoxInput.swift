@@ -4958,15 +4958,22 @@ final class TextBoxInputTextView: NSTextView {
               !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
             return false
         }
-        if KeyboardShortcutSettings.shortcut(for: .focusTextBoxInput).matches(event: event) {
+        if textBoxShortcut(event, matches: .focusTextBoxInput) {
             onToggleFocus()
             return true
         }
-        if KeyboardShortcutSettings.shortcut(for: .attachTextBoxFile).matches(event: event) {
+        if textBoxShortcut(event, matches: .attachTextBoxFile) {
             onChooseFiles()
             return true
         }
         return false
+    }
+
+    private func textBoxShortcut(_ event: NSEvent, matches action: KeyboardShortcutSettings.Action) -> Bool {
+        guard KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
+            return false
+        }
+        return AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
     }
 
     private func handleStandardEditShortcut(_ event: NSEvent) -> Bool {

@@ -1,4 +1,5 @@
 import XCTest
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -197,6 +198,19 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertTrue(nonBrowser.overlaps(markdown))
     }
 
+    func testSettingsPackageDefaultWhenClausesMatchRuntimeShortcutContexts() {
+        for action in KeyboardShortcutSettings.Action.allCases {
+            guard let settingsAction = ShortcutAction(rawValue: action.rawValue) else {
+                continue
+            }
+            XCTAssertEqual(
+                settingsAction.defaultFocusWhenClause,
+                action.shortcutContext.defaultWhenClause,
+                action.rawValue
+            )
+        }
+    }
+
     func testFocusHistoryMenuShortcutsSuppressDuplicateBrowserHistoryKeys() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
@@ -328,6 +342,60 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
 
         XCTAssertEqual(store.override(for: .newWindow), StoredShortcut.unbound)
+    }
+
+    func testSettingsFileWhenClauseLetsWorkspaceDigitsShareSidebarDigitShortcut() throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let directoryURL = try makeTemporaryDirectory()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "bindings": {
+                  "selectWorkspaceByNumber": "ctrl+1"
+                },
+                "when": {
+                  "selectWorkspaceByNumber": "!sidebarFocus"
+                }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        let ctrl1 = StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber), ctrl1)
+
+        let workspaceWhen = KeyboardShortcutSettings.effectiveWhenClause(for: .selectWorkspaceByNumber)
+        XCTAssertTrue(workspaceWhen.evaluate(ShortcutFocusState(browser: false, markdown: false, sidebar: false)))
+        XCTAssertFalse(workspaceWhen.evaluate(ShortcutFocusState(browser: false, markdown: false, sidebar: true)))
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.selectWorkspaceByNumber.conflicts(
+                with: ctrl1,
+                proposedAction: .switchRightSidebarToFiles,
+                configuredShortcut: ctrl1
+            )
+        )
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.switchRightSidebarToFiles.conflicts(
+                with: ctrl1,
+                proposedAction: .selectWorkspaceByNumber,
+                configuredShortcut: ctrl1
+            )
+        )
     }
 
     private func makeTemporaryDirectory() throws -> URL {

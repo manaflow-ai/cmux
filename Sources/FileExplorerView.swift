@@ -1749,7 +1749,7 @@ final class FileExplorerSearchResultsTableView: NSTableView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if let mode = RightSidebarMode.modeShortcut(for: event) {
+        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
             if onModeShortcut?(mode, window) == true {
                 return
             }
@@ -2089,7 +2089,7 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     private var quickSearchQuery = ""
 
     override func keyDown(with event: NSEvent) {
-        if let mode = RightSidebarMode.modeShortcut(for: event) {
+        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
             if fileExplorerCoordinator?.handleModeShortcut(mode, in: window) == true {
                 return
             }

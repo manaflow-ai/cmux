@@ -12,4 +12,13 @@ struct ShortcutActionNumberedDigitTests {
             )
         }
     }
+
+    @Test func diffViewerScrollToTopDefaultIsChord() {
+        #expect(
+            ShortcutAction.diffViewerScrollToTop.defaultShortcut == StoredShortcut(
+                first: ShortcutStroke(key: "g"),
+                second: ShortcutStroke(key: "g")
+            )
+        )
+    }
 }

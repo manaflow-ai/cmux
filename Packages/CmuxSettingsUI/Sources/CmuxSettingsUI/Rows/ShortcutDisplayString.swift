@@ -1,6 +1,8 @@
 import CmuxSettings
 import SwiftUI
 
+private let shortcutFormatter = ShortcutDisplayFormatter()
+
 /// Formats a ``StoredShortcut`` for display in the keyboard-shortcuts
 /// settings UI, mirroring the legacy app-target `displayedShortcutString`
 /// so the package recorder is visually identical to the historical control.
@@ -16,99 +18,36 @@ import SwiftUI
 /// // "⌃1…9"
 /// ```
 func shortcutDisplayString(_ shortcut: StoredShortcut, numbered: Bool) -> String {
-    if shortcut.isUnbound {
-        return String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
-    }
-    if numbered {
-        // The digit is a placeholder for the whole 1…9 range, so show the
-        // range hint after the modifiers instead of the literal key — but
-        // ONLY when the recorded key is actually a 1…9 digit. A numbered
-        // action whose binding holds a non-digit key (e.g. an externally
-        // edited cmux.json, or a stray recording the app-target parser will
-        // reject) is not an active range, so it must render its literal key
-        // rather than falsely claim ⌃1…9. A chorded numbered binding keeps
-        // its first stroke verbatim and applies the range to the
-        // (modifiers-only) second stroke.
-        if let chord = shortcut.second {
-            if isNumberedDigitKey(chord.key) {
-                return shortcutStrokeDisplayString(shortcut.first)
-                    + " "
-                    + shortcutModifierDisplayString(chord)
-                    + numberedDigitRangeHint
-            }
-        } else if isNumberedDigitKey(shortcut.first.key) {
-            return shortcutModifierDisplayString(shortcut.first) + numberedDigitRangeHint
-        }
-        // Fall through to the literal rendering below for invalid digits.
-    }
-    if let chord = shortcut.second {
-        return shortcutStrokeDisplayString(shortcut.first)
-            + " "
-            + shortcutStrokeDisplayString(chord)
-    }
-    return shortcutStrokeDisplayString(shortcut.first)
+    shortcutFormatter.displayString(shortcut, numbered: numbered)
 }
 
 /// The `1…9` range glyph shown for numbered-digit bindings. A
 /// language-neutral numeric range, so it is not localized — matching the
 /// `"1…9"` literal baked into the numbered actions' display names.
-let numberedDigitRangeHint = "1…9"
+let numberedDigitRangeHint = shortcutFormatter.numberedDigitRangeHint
 
 /// Whether `key` is a single digit in `1…9`, i.e. a valid placeholder for a
 /// numbered-digit binding (see ``ShortcutAction/usesNumberedDigitMatching``).
 /// Anything else (a letter, `0`, a named key) is not an active numbered
 /// shortcut and must not be rendered as the `1…9` range.
 func isNumberedDigitKey(_ key: String) -> Bool {
-    guard let digit = Int(key) else { return false }
-    return (1...9).contains(digit)
+    shortcutFormatter.isNumberedDigitKey(key)
 }
 
 /// Formats a single ``ShortcutStroke`` with the legacy symbol order
 /// (modifier symbols `⌃⌥⇧⌘` followed by ``shortcutKeyDisplayString(_:)``).
 func shortcutStrokeDisplayString(_ stroke: ShortcutStroke) -> String {
-    shortcutModifierDisplayString(stroke) + shortcutKeyDisplayString(stroke.key)
+    shortcutFormatter.displayString(stroke)
 }
 
 /// Formats just the modifier symbols of a ``ShortcutStroke`` (`⌃⌥⇧⌘`),
 /// omitting the key glyph. Used for numbered-digit bindings where the key
 /// is replaced by the ``numberedDigitRangeHint``.
 func shortcutModifierDisplayString(_ stroke: ShortcutStroke) -> String {
-    var result = ""
-    if stroke.control { result.append("⌃") }
-    if stroke.option { result.append("⌥") }
-    if stroke.shift { result.append("⇧") }
-    if stroke.command { result.append("⌘") }
-    return result
+    shortcutFormatter.modifierDisplayString(stroke)
 }
 
-/// Mirrors the legacy `ShortcutStroke.keyDisplayString` for the common
-/// named-key tokens that can appear in stored shortcuts, falling back to
-/// the uppercased raw key for plain letters and digits.
+/// Formats the shared named-key tokens that can appear in stored shortcuts.
 func shortcutKeyDisplayString(_ key: String) -> String {
-    switch key {
-    case "\t":
-        return String(localized: "shortcut.key.tab", defaultValue: "Tab")
-    case "space":
-        return String(localized: "shortcut.key.space", defaultValue: "Space")
-    case "\r":
-        return "↩"
-    case "media.brightnessDown":
-        return String(localized: "shortcut.key.mediaBrightnessDown", defaultValue: "Brightness Down")
-    case "media.brightnessUp":
-        return String(localized: "shortcut.key.mediaBrightnessUp", defaultValue: "Brightness Up")
-    case "media.mute":
-        return String(localized: "shortcut.key.mediaMute", defaultValue: "Mute")
-    case "media.next":
-        return String(localized: "shortcut.key.mediaNext", defaultValue: "Next Track")
-    case "media.playPause":
-        return String(localized: "shortcut.key.mediaPlayPause", defaultValue: "Play/Pause")
-    case "media.previous":
-        return String(localized: "shortcut.key.mediaPrevious", defaultValue: "Previous Track")
-    case "media.volumeDown":
-        return String(localized: "shortcut.key.mediaVolumeDown", defaultValue: "Volume Down")
-    case "media.volumeUp":
-        return String(localized: "shortcut.key.mediaVolumeUp", defaultValue: "Volume Up")
-    default:
-        return key.uppercased()
-    }
+    shortcutFormatter.keyDisplayString(key)
 }

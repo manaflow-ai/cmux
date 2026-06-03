@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Carbon
+import CmuxSettings
 import CmuxSettingsUI
 import SwiftUI
 
@@ -1418,47 +1419,26 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     var displayString: String {
-        modifierDisplayString + keyDisplayString
+        ShortcutDisplayFormatter().strokeDisplayString(
+            key: key,
+            command: command,
+            shift: shift,
+            option: option,
+            control: control
+        )
     }
 
     var modifierDisplayString: String {
-        var parts: [String] = []
-        if control { parts.append("⌃") }
-        if option { parts.append("⌥") }
-        if shift { parts.append("⇧") }
-        if command { parts.append("⌘") }
-        return parts.joined()
+        ShortcutDisplayFormatter().modifierDisplayString(
+            command: command,
+            shift: shift,
+            option: option,
+            control: control
+        )
     }
 
     var keyDisplayString: String {
-        switch key {
-        case "\t":
-            return String(localized: "shortcut.key.tab", defaultValue: "Tab")
-        case "space": return String(localized: "shortcut.key.space", defaultValue: "Space")
-        case "\r":
-            return "↩"
-        case "media.brightnessDown":
-            return String(localized: "shortcut.key.mediaBrightnessDown", defaultValue: "Brightness Down")
-        case "media.brightnessUp":
-            return String(localized: "shortcut.key.mediaBrightnessUp", defaultValue: "Brightness Up")
-        case "media.mute":
-            return String(localized: "shortcut.key.mediaMute", defaultValue: "Mute")
-        case "media.next":
-            return String(localized: "shortcut.key.mediaNext", defaultValue: "Next Track")
-        case "media.playPause":
-            return String(localized: "shortcut.key.mediaPlayPause", defaultValue: "Play/Pause")
-        case "media.previous":
-            return String(localized: "shortcut.key.mediaPrevious", defaultValue: "Previous Track")
-        case "media.volumeDown":
-            return String(localized: "shortcut.key.mediaVolumeDown", defaultValue: "Volume Down")
-        case "media.volumeUp":
-            return String(localized: "shortcut.key.mediaVolumeUp", defaultValue: "Volume Up")
-        default:
-            if let functionKeyDisplayString = Self.functionKeyDisplayString(for: key) {
-                return functionKeyDisplayString
-            }
-            return key.uppercased()
-        }
+        ShortcutDisplayFormatter().keyDisplayString(key)
     }
 
     var modifierFlags: NSEvent.ModifierFlags {
@@ -2199,10 +2179,16 @@ struct StoredShortcut: Codable, Equatable, Hashable {
         if isUnbound {
             return displayString
         }
-        if hasChord {
-            return numberedDigitHintPrefix + "1…9"
+        if let secondStroke {
+            if ShortcutDisplayFormatter().isNumberedDigitKey(secondStroke.key) {
+                return numberedDigitHintPrefix + ShortcutDisplayFormatter().numberedDigitRangeHint
+            }
+            return displayString
         }
-        return firstStroke.modifierDisplayString + "1…9"
+        if ShortcutDisplayFormatter().isNumberedDigitKey(firstStroke.key) {
+            return firstStroke.modifierDisplayString + ShortcutDisplayFormatter().numberedDigitRangeHint
+        }
+        return displayString
     }
 
     var numberedDigitHintPrefix: String {
