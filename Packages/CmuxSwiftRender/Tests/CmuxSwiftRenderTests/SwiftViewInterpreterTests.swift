@@ -584,6 +584,23 @@ import Testing
         #expect(background?.children.first?.kind == .roundedRectangle)
     }
 
+    @Test func gradientsCaptureColorsAndPoints() {
+        let node = interp.evaluate("""
+        ZStack {
+            LinearGradient(colors: [.red, "#0A84FF"], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+        """)
+        let g = node?.children.first
+        #expect(g?.kind == .linearGradient)
+        #expect(g?.colors == ["red", "#0A84FF"])
+        #expect(g?.points == ["topLeading", "bottomTrailing"])
+
+        let radial = interp.evaluate("""
+        ZStack { RadialGradient(colors: ["#fff", "#000"], center: .center) }
+        """)
+        #expect(radial?.children.first?.kind == .radialGradient)
+    }
+
     @Test func anyViewPassthrough() {
         let node = interp.evaluate(#"VStack { AnyView(Text("wrapped")) }"#)
         #expect(node?.children.first?.kind == .text)

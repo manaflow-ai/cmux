@@ -220,6 +220,15 @@ public struct SwiftViewInterpreter: Sendable {
             }
             let children = call.trailingClosure.map { evalItems($0.statements, env) } ?? []
             return RenderNode(kind: kind, spacing: doubleArgument(named: "spacing", call.arguments, env), children: children)
+        case "LinearGradient":
+            return RenderNode(kind: .linearGradient, colors: gradientColors(call, env),
+                              points: [gradientUnitPoint("startPoint", call), gradientUnitPoint("endPoint", call)])
+        case "RadialGradient":
+            return RenderNode(kind: .radialGradient, colors: gradientColors(call, env),
+                              points: [gradientUnitPoint("center", call)])
+        case "AngularGradient":
+            return RenderNode(kind: .angularGradient, colors: gradientColors(call, env),
+                              points: [gradientUnitPoint("center", call)])
         case "AnyView":
             // Type-erasure wrapper: render the wrapped view.
             if let inner = call.arguments.first(where: { $0.label == nil })?.expression {
@@ -341,6 +350,34 @@ public struct SwiftViewInterpreter: Sendable {
         if let stmt = node.as(ExpressionStmtSyntax.self) { return stmt.expression.as(IfExprSyntax.self) }
         if let expr = node.as(ExprSyntax.self) { return expr.as(IfExprSyntax.self) }
         return nil
+    }
+
+    /// Extracts gradient color stops from a `colors: [...]` argument, or from a
+    /// nested `gradient: Gradient(colors: [...])`. Each stop is a hex/token
+    /// string the bridge resolves via the color palette.
+    private func gradientColors(_ call: FunctionCallExprSyntax, _ env: Environment) -> [String] {
+        var arrayExpr = call.arguments.first(where: { $0.label?.text == "colors" })?.expression
+        if arrayExpr == nil,
+           let gradient = call.arguments.first(where: { $0.label?.text == "gradient" })?.expression.as(FunctionCallExprSyntax.self) {
+            arrayExpr = gradient.arguments.first(where: { $0.label?.text == "colors" })?.expression
+        }
+        guard let array = arrayExpr?.as(ArrayExprSyntax.self) else { return [] }
+        return array.elements.map { element in
+            if let literal = element.expression.as(StringLiteralExprSyntax.self) {
+                return expressions.evalString(literal, env)
+            }
+            if let member = element.expression.as(MemberAccessExprSyntax.self) {
+                return member.declName.baseName.text // `.red` -> "red"
+            }
+            return exprString(element.expression, env) ?? element.expression.trimmedDescription
+        }
+    }
+
+    /// A gradient `UnitPoint` argument as a bare token (`.top` -> "top").
+    private func gradientUnitPoint(_ label: String, _ call: FunctionCallExprSyntax) -> String {
+        guard let expr = call.arguments.first(where: { $0.label?.text == label })?.expression else { return "" }
+        if let member = expr.as(MemberAccessExprSyntax.self) { return member.declName.baseName.text }
+        return expr.trimmedDescription
     }
 
     /// Normalized `ProgressView` fraction (0...1) from `value:`/`total:`, or nil

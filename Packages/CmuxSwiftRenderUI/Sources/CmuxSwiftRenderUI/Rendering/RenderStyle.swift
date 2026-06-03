@@ -173,3 +173,19 @@ func dslSymbolVariant(_ token: String?) -> SymbolVariants {
     default: return SymbolVariants.none
     }
 }
+
+/// Resolves a `UnitPoint` token (`top`, `bottomTrailing`, `center`, …).
+func dslUnitPoint(_ token: String?, default fallback: UnitPoint) -> UnitPoint {
+    switch token?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) {
+    case "top": return .top
+    case "bottom": return .bottom
+    case "leading": return .leading
+    case "trailing": return .trailing
+    case "topleading": return .topLeading
+    case "toptrailing": return .topTrailing
+    case "bottomleading": return .bottomLeading
+    case "bottomtrailing": return .bottomTrailing
+    case "center": return .center
+    default: return fallback
+    }
+}

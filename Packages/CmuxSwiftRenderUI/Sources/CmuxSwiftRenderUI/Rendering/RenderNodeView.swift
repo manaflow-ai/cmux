@@ -131,6 +131,17 @@ struct RenderNodeView: View {
             }
         case .menu:
             Menu(node.text ?? "") { children }
+        case .linearGradient:
+            LinearGradient(colors: gradientColors(node),
+                           startPoint: dslUnitPoint(node.points.first, default: .top),
+                           endPoint: dslUnitPoint(node.points.count > 1 ? node.points[1] : nil, default: .bottom))
+        case .radialGradient:
+            RadialGradient(colors: gradientColors(node),
+                           center: dslUnitPoint(node.points.first, default: .center),
+                           startRadius: 0, endRadius: 90)
+        case .angularGradient:
+            AngularGradient(colors: gradientColors(node),
+                            center: dslUnitPoint(node.points.first, default: .center))
         }
     }
 
@@ -307,6 +318,13 @@ struct RenderNodeView: View {
         default:
             return view
         }
+    }
+
+    /// Resolves a gradient node's color stops, falling back to two clear stops
+    /// so an empty/unresolved gradient is harmless rather than invalid.
+    private func gradientColors(_ node: RenderNode) -> [Color] {
+        let resolved = node.colors.compactMap { dslColor($0) }
+        return resolved.count >= 2 ? resolved : (resolved + [.clear, .clear])
     }
 
     /// Renders a shape, applying shape-level `.trim` then `.stroke` /

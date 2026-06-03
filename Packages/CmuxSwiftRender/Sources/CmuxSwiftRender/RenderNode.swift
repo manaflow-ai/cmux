@@ -66,6 +66,12 @@ public struct RenderNode: Sendable, Equatable {
         case gauge
         /// `Menu(title) { ... }`: ``text`` is the label, children the items.
         case menu
+        /// `LinearGradient` / `RadialGradient` / `AngularGradient`: ``colors``
+        /// holds the stops and ``points`` the start/end (linear) or center
+        /// (radial/angular) `UnitPoint` tokens.
+        case linearGradient
+        case radialGradient
+        case angularGradient
     }
 
     public var kind: Kind
@@ -77,6 +83,11 @@ public struct RenderNode: Sendable, Equatable {
     public var cornerRadius: Double?
     /// Determinate value (0...1 after normalization) for `.progressView` / `.gauge`.
     public var value: Double?
+    /// Gradient color stops (hex/token strings) for the gradient kinds.
+    public var colors: [String]
+    /// Gradient `UnitPoint` tokens (e.g. `top`, `bottomTrailing`) — start/end
+    /// for linear, center for radial/angular.
+    public var points: [String]
     public var children: [RenderNode]
     public var modifiers: [RenderModifier]
     public var action: ButtonAction?
@@ -90,6 +101,8 @@ public struct RenderNode: Sendable, Equatable {
         spacing: Double? = nil,
         cornerRadius: Double? = nil,
         value: Double? = nil,
+        colors: [String] = [],
+        points: [String] = [],
         children: [RenderNode] = [],
         modifiers: [RenderModifier] = [],
         action: ButtonAction? = nil,
@@ -101,6 +114,8 @@ public struct RenderNode: Sendable, Equatable {
         self.spacing = spacing
         self.cornerRadius = cornerRadius
         self.value = value
+        self.colors = colors
+        self.points = points
         self.children = children
         self.modifiers = modifiers
         self.action = action

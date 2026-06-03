@@ -29,6 +29,7 @@ import Testing
             "min", "max", "abs",
             "Grid", "GridRow", "LazyVGrid", "LazyHGrid", "ViewThatFits", "GridItem",
             "ProgressView", "Gauge", "Menu", "AnyView",
+            "LinearGradient", "RadialGradient", "AngularGradient", "Gradient",
         ]
         let supportedMembers: Set<String> = [
             "font", "bold", "fontWeight", "foregroundColor", "foregroundStyle", "fill",
