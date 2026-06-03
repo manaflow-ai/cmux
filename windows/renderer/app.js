@@ -24411,6 +24411,7 @@ function paletteEntriesSignature() {
   appendSignatureData(parts, state.workspaceBlueprints);
   appendSignatureValue(parts, state.settings.browserHomeUrl);
   appendSignatureValue(parts, settingsKeysSignature(profileSettingsSettingKeys));
+  appendSignatureValue(parts, quickSettingsSignature());
   appendPalettePaneTargetSignature(parts);
   return parts.join("");
 }
@@ -24638,7 +24639,7 @@ function paletteEntryKind(entry) {
   if (id.startsWith("terminal.") || id.startsWith("terminalReadabilityPreset.") || id.startsWith("recentCommand.") || id.startsWith("commandSnippet.")) return "terminal";
   if (id.startsWith("browser.") || id.startsWith("recentBrowser.") || id.startsWith("browserHomePreset.") || id.startsWith("browserWorkflowPreset.")) return "browser";
   if (id.startsWith("workspace.") || id.startsWith("recentFolder.") || id.startsWith("workspaceBlueprint.") || id.startsWith("workspaceStarter.")) return "workspace";
-  if (id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.") || id.startsWith("performanceTunePreset.")) return "settings";
+  if (id.startsWith("quickSetupAction.") || id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.") || id.startsWith("performanceTunePreset.")) return "settings";
   if (id.startsWith("layout.") || id.startsWith("paneLayoutPreset.") || id.startsWith("paneSetupPreset.") || id.startsWith("workspaceChromePreset.")) return "layout";
   if (id.startsWith("background") || id.startsWith("savedBackground")) return "look";
   if (id.startsWith("lookPack.") || id.startsWith("themeChoice.") || id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("savedColorPalette.") || id.startsWith("terminalColor.")) return "color";
@@ -24699,6 +24700,27 @@ function paletteEntryScore(entry, query, tokens) {
   return score;
 }
 
+function quickSetupPaletteEntries() {
+  return quickSetupActionDefinitions().map((action) => {
+    const active = Boolean(action.active?.());
+    const disabled = Boolean(action.disabled?.()) || (active && action.activeDisabled !== false);
+    const meta = action.meta?.() || "";
+    const cta = active ? action.activeCta || "Active" : action.cta || "Run";
+    return {
+      id: `quickSetupAction.${action.id}`,
+      label: `Quick setup: ${action.label}`,
+      meta: active ? `Active / ${meta}` : meta,
+      shortcut: active ? "Active" : cta,
+      active,
+      disabled,
+      icon: action.icon,
+      title: quickActionTitle(action),
+      search: normalizeSettingsQuery(`quick setup action ${active ? "active current " : ""}${action.label} ${action.body} ${action.search} ${meta} ${cta}`),
+      run: action.run
+    };
+  });
+}
+
 function paletteEntries() {
   const paletteWorkspace = activeWorkspace();
   const activeLayoutCommandIds = activePaneLayoutCommandIds(paletteWorkspace);
@@ -24719,6 +24741,7 @@ function paletteEntries() {
       run: command.run
     };
   });
+  entries.push(...quickSetupPaletteEntries());
   for (const preset of workspaceChromePresets) {
     const settings = workspaceChromePresetSettings(preset);
     if (!settings) continue;
