@@ -2714,6 +2714,7 @@ function settingsProfileSummary(settings) {
   const actions = paneActionOptions.find(([id]) => id === normalized.paneActionMode)?.[1] || normalized.paneActionMode;
   const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, "Flat");
   const startup = optionLabel(terminalStartupOptions, normalized.terminalStartupMode, "Fast");
+  const browserHomeHost = hostnameOf(normalized.browserHomeUrl) || "browser";
   return [
     theme,
     normalized.density,
@@ -2721,6 +2722,7 @@ function settingsProfileSummary(settings) {
     `${addTabs} add tabs`,
     `${actions} pane controls`,
     normalized.paneColorMarkers ? "colored pane markers" : "quiet pane markers",
+    `${browserHomeHost} home`,
     `${backgroundEffects.toLowerCase()} background`,
     normalized.performanceMode ? "performance" : normalized.reduceMotion ? "reduced motion" : "balanced",
     `${startup.toLowerCase()} startup`,
@@ -18638,7 +18640,7 @@ function recentCommandsSettings() {
 function recentBrowserPagesSettings() {
   const section = document.createElement("div");
   section.className = "recent-folder-list";
-  section.dataset.settingsSearch = normalizeSettingsQuery("recent browser pages urls web history open home clear copy paste clipboard json");
+  section.dataset.settingsSearch = normalizeSettingsQuery("recent browser pages urls web history open home profile clear copy paste clipboard json");
 
   const header = document.createElement("div");
   header.className = "recent-folder-header";
@@ -18696,7 +18698,9 @@ function recentBrowserPagesSettings() {
     home.dataset.recentBrowserAction = "home";
     home.dataset.recentBrowserUrl = url;
     setRecentBrowserHomeActionState(home, activeHome);
-    actions.append(open, home);
+    const profile = settingsActionButton("Profile", () => saveBrowserProfileForHome(url), "", `recent browser page save browser settings profile setup ${url}`);
+    applySettingsProfileSaveLimit(profile, "Save this page as a reusable browser profile.");
+    actions.append(open, home, profile);
     card.append(text, actions);
     section.append(card);
   }
@@ -18709,7 +18713,7 @@ function isActiveRecentBrowserHome(url) {
 }
 
 function recentBrowserPageSearch(url, activeHome = isActiveRecentBrowserHome(url)) {
-  return normalizeSettingsQuery(`recent browser page url web open home ${activeHome ? "active current " : ""}${hostnameOf(url)} ${url}`);
+  return normalizeSettingsQuery(`recent browser page url web open home profile ${activeHome ? "active current " : ""}${hostnameOf(url)} ${url}`);
 }
 
 function recentBrowserHomeActionSearch(url, activeHome = isActiveRecentBrowserHome(url)) {
@@ -19475,12 +19479,13 @@ async function saveCurrentSettingsProfile(options = {}) {
   const saved = upsertSavedSettingsProfile({
     id: createSettingsProfileId(),
     label,
-    settings: state.settings,
+    settings: options.settings || state.settings,
     createdAt: Date.now()
   });
   if (!saved) return;
   renderSettingsInspector();
-  toast("Settings profile saved.");
+  toast(options.toastText || "Settings profile saved.");
+  return saved;
 }
 
 function saveCurrentLookProfile() {
@@ -19504,6 +19509,25 @@ function saveCurrentBrowserProfile() {
     title: "Save browser profile",
     message: "Save the current browser home page, launch mode, external profile, and supporting app settings.",
     baseName: "Browser profile"
+  });
+}
+
+function saveBrowserProfileForHome(url = state.recentBrowserPages[0]) {
+  const homeUrl = normalizeBrowserPageUrl(url);
+  if (!homeUrl) {
+    toast("Choose a browser page first.");
+    return null;
+  }
+  const host = hostnameOf(homeUrl) || "Browser";
+  return saveCurrentSettingsProfile({
+    title: "Save browser profile",
+    message: `Save ${host} as a browser setup with the current launch mode, external profile, and supporting app settings.`,
+    value: defaultSettingsProfileName(`Browser: ${host}`),
+    settings: {
+      ...state.settings,
+      browserHomeUrl: homeUrl
+    },
+    toastText: "Browser profile saved."
   });
 }
 
@@ -20384,6 +20408,12 @@ function showToolbarMenu(event) {
   const cleanFastActive = isSettingsPresetIdActive("simpleFast");
   const speedPresetActive = isSettingsPresetIdActive("performance");
   const profilesFull = savedSettingsProfilesFull();
+  const saveLatestBrowserProfileDisabled = !latestBrowserPage || profilesFull;
+  const saveLatestBrowserProfileTitle = !latestBrowserPage
+    ? "There are no recent browser pages yet."
+    : profilesFull
+      ? settingsProfileLimitTitle()
+      : "Save the latest recent page as a reusable browser profile.";
   const blueprintsFull = workspaceBlueprintsFull();
   const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
   const terminalColorsDefault = isTerminalColorPresetIdActive("cmux");
@@ -20539,6 +20569,7 @@ function showToolbarMenu(event) {
       toolbarAction("Paste browser tabs", pasteBrowserTabSessions, !workspace, "Paste copied browser tabs into the focused browser or restore them as panes.", workspaceRequiredTitle),
       toolbarAction("Open home page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: state.settings.browserHomeUrl }), !workspace, "Open the home page in a browser pane.", workspaceRequiredTitle),
       toolbarAction(latestBrowserPage ? `Open recent: ${hostnameOf(latestBrowserPage)}` : "Open recent page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: latestBrowserPage }), !latestBrowserPage || !workspace, "Open the most recent browser page.", !workspace ? workspaceRequiredTitle : "There are no recent browser pages yet."),
+      toolbarAction("Save recent page profile", () => saveBrowserProfileForHome(latestBrowserPage), saveLatestBrowserProfileDisabled, saveLatestBrowserProfileTitle),
       toolbarAction("Copy recent pages", copyRecentBrowserPages, state.recentBrowserPages.length === 0, "Copy recent browser pages as JSON.", "Recent browser pages are empty."),
       toolbarAction("Paste recent pages", pasteRecentBrowserPages, false, "Merge copied browser pages into recent pages."),
       toolbarAction("Copy all tab sessions", copyBrowserTabSessions, browserSessionEntries.length === 0, "Copy all browser tab sessions as JSON.", "Open a browser pane before copying tab sessions."),
@@ -21575,6 +21606,7 @@ function paletteEntries() {
     search: normalizeSettingsQuery("recent browser pages web urls paste import clipboard json history"),
     run: pasteRecentBrowserPages
   });
+  const recentBrowserProfilesFull = savedSettingsProfilesFull();
   for (const [pageIndex, url] of state.recentBrowserPages.entries()) {
     entries.push({
       id: `recentBrowser.${pageIndex}`,
@@ -21583,6 +21615,16 @@ function paletteEntries() {
       shortcut: "Browser",
       search: normalizeSettingsQuery(`recent browser page web url open ${pageIndex + 1} ${hostnameOf(url)} ${url}`),
       run: () => createPanel("browser", "right", { url })
+    });
+    entries.push({
+      id: `recentBrowser.profile.${pageIndex}`,
+      label: `Save recent page profile: ${hostnameOf(url)}`,
+      meta: url,
+      shortcut: "Profile",
+      disabled: recentBrowserProfilesFull,
+      title: recentBrowserProfilesFull ? settingsProfileLimitTitle() : "Save this recent page as a reusable browser profile.",
+      search: normalizeSettingsQuery(`recent browser page web url save profile setup home ${pageIndex + 1} ${hostnameOf(url)} ${url}`),
+      run: () => saveBrowserProfileForHome(url)
     });
   }
   const browserSessions = browserTabSessionEntries();
