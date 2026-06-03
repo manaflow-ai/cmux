@@ -17310,6 +17310,58 @@ function workspaceCountLabel() {
   return `${count} workspace${count === 1 ? "" : "s"}`;
 }
 
+function quickCustomizationLibraryEntries() {
+  const iconById = {
+    commandSnippets: "commands",
+    settingsProfiles: "profiles",
+    workspaceBlueprints: "blueprints",
+    customColors: "appearance",
+    savedBackgrounds: "background"
+  };
+  const queryById = {
+    commandSnippets: "command snippets",
+    settingsProfiles: "saved settings profiles",
+    workspaceBlueprints: "workspace blueprints",
+    customColors: "saved colors",
+    savedBackgrounds: "saved backgrounds"
+  };
+  return dataStorageEntries()
+    .filter((entry) => Object.hasOwn(iconById, entry.id))
+    .map((entry) => ({
+      ...entry,
+      icon: iconById[entry.id],
+      query: queryById[entry.id] || entry.terms
+    }));
+}
+
+function quickCustomizationLibrarySummary(entries = quickCustomizationLibraryEntries()) {
+  const savedCount = savedDataItemCount();
+  const bytes = entries.reduce((sum, entry) => sum + entry.bytes, 0);
+  if (savedCount === 0) return "No saved customization yet.";
+  return `${savedCount} saved item${savedCount === 1 ? "" : "s"} / ${formatBytes(bytes)}`;
+}
+
+function quickCustomizationLibraryItem(entry) {
+  const item = document.createElement("button");
+  item.className = `quick-overview-library-item${entry.bytes === 0 ? " is-empty" : ""}`;
+  item.type = "button";
+  item.dataset.settingsSearch = normalizeSettingsQuery(`quick setup customization library saved ${entry.label} ${entry.count} ${entry.terms}`);
+  item.title = `Open ${entry.label}. ${entry.count}; ${formatBytes(entry.bytes)} local.`;
+  item.setAttribute("aria-label", item.title);
+  item.innerHTML = `
+    <span class="quick-overview-library-icon" aria-hidden="true"></span>
+    <span class="quick-overview-library-copy">
+      <b></b>
+      <em></em>
+    </span>
+  `;
+  item.querySelector(".quick-overview-library-icon").innerHTML = quickActionIconMarkup(entry.icon);
+  item.querySelector("b").textContent = entry.label;
+  item.querySelector("em").textContent = entry.count;
+  item.onclick = () => openSettingsCategory(entry.category, { query: entry.query, focusSearch: false });
+  return item;
+}
+
 function setQuickScopeItemState(panel, scopeId, options = {}) {
   const item = panel.querySelector(`[data-quick-scope-item="${scopeId}"]`);
   if (!item) return;
@@ -17353,9 +17405,11 @@ function quickSetupOverviewPanel() {
   const activeTerminal = activeTerminalPanelForSettings();
   const activeTerminalBackground = activeTerminal ? normalizeBackgroundValue(activeTerminal.backgroundImage) : "";
   const performance = performanceOverviewModel();
+  const libraryEntries = quickCustomizationLibraryEntries();
+  const librarySummary = quickCustomizationLibrarySummary(libraryEntries);
   const panel = document.createElement("div");
   panel.className = "quick-setup-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes theme layout terminal browser performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope data`);
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes theme layout terminal browser performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints colors backgrounds snippets data`);
   panel.innerHTML = `
     <div class="quick-overview-heading">
       <span class="quick-overview-copy">
@@ -17418,6 +17472,16 @@ function quickSetupOverviewPanel() {
         <span class="quick-overview-scope-preview" aria-hidden="true"></span>
         <span class="quick-overview-scope-copy"><b>All terminals</b><em data-quick-scope-all></em></span>
       </button>
+    </div>
+    <div class="quick-overview-library" data-quick-library>
+      <div class="quick-overview-library-head">
+        <span class="quick-overview-library-copy">
+          <b>Saved customization</b>
+          <em data-quick-library-summary></em>
+        </span>
+        <button class="quick-overview-library-action" type="button" data-quick-library-action="data">Manage</button>
+      </div>
+      <div class="quick-overview-library-grid" data-quick-library-grid></div>
     </div>
   `;
   panel.querySelector(".quick-overview-subtitle").textContent = folder;
@@ -17488,6 +17552,13 @@ function quickSetupOverviewPanel() {
     muted: scope.paneCount === 0,
     disabled: scope.paneCount === 0
   });
+  const library = panel.querySelector("[data-quick-library]");
+  library.dataset.settingsSearch = normalizeSettingsQuery(`quick setup saved customization library ${librarySummary} profiles blueprints command snippets saved colors saved backgrounds copy paste export import`);
+  library.querySelector("[data-quick-library-summary]").textContent = librarySummary;
+  const libraryAction = library.querySelector('[data-quick-library-action="data"]');
+  libraryAction.title = "Open Settings data for import, export, and cleanup.";
+  libraryAction.onclick = () => openSettingsCategory("data", { query: "saved customization", focusSearch: false });
+  library.querySelector("[data-quick-library-grid]").append(...libraryEntries.map(quickCustomizationLibraryItem));
   return panel;
 }
 
