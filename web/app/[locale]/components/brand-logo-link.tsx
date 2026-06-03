@@ -37,7 +37,6 @@ export function BrandLogoLink({
                 <MenuIconImage
                   src="/brand/app-icon-light.png"
                   alt=""
-                  preview="light"
                 />
               </BrandMenuItem>
               <BrandMenuItem
@@ -48,7 +47,6 @@ export function BrandLogoLink({
                 <MenuIconImage
                   src="/brand/app-icon-dark.png"
                   alt=""
-                  preview="dark"
                 />
               </BrandMenuItem>
             </ContextMenu.Group>
@@ -94,31 +92,21 @@ function BrandMenuItem({
 
 function MenuIconImage({
   alt,
-  preview,
   src,
 }: {
   alt: string;
-  preview: "light" | "dark";
   src: string;
 }) {
   return (
-    <span
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border p-0.5 ${
-        preview === "light"
-          ? "border-black/10 bg-[#f7f7f7]"
-          : "border-white/10 bg-[#0a0a0a]"
-      }`}
+    <Image
+      src={src}
+      alt={alt}
+      width={1024}
+      height={1024}
+      unoptimized
+      className="h-8 w-8 shrink-0 object-contain"
       aria-hidden="true"
-    >
-      <Image
-        src={src}
-        alt={alt}
-        width={1024}
-        height={1024}
-        unoptimized
-        className="h-full w-full rounded object-contain"
-      />
-    </span>
+    />
   );
 }
 
