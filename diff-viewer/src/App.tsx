@@ -142,17 +142,14 @@ export function App({ config, initialStatus }: ConfigProps) {
   });
   const appearance = resolveDiffViewerAppearance(payload.appearance);
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
-  const latestState = useRef(state);
+  const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    latestState.current = state;
-  }, [state]);
   usePageDataAttributes(state);
   usePendingReplacement(payload, label, dispatch);
   useRenderDiff(config, label, dispatch, latestState);
-  useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, codeViewRef, dispatch);
+  useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch);
   useOptionsDismiss(state.optionsOpen, dispatch);
 
   const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
@@ -593,10 +590,7 @@ function PierreFileTree({
   selectedPath: string;
   source: FileTreeSource;
 }) {
-  const latest = useRef({ label, onSelectItem, source });
-  useEffect(() => {
-    latest.current = { label, onSelectItem, source };
-  }, [label, onSelectItem, source]);
+  const latest = useSyncedRef({ label, onSelectItem, source });
   const { model } = useFileTree({
     flattenEmptyDirectories: true,
     id: "cmux-diff-file-tree",
@@ -633,48 +627,10 @@ function PierreFileTree({
       }
     },
   });
-  const previousSource = useRef<FileTreeSource | null>(null);
 
-  useEffect(() => {
-    const previous = previousSource.current;
-    previousSource.current = source;
-    const plan = planPierreFileTreeRefresh(previous, source, source.paths);
-    let resetTree = false;
-    if (plan.kind === "append") {
-      if (plan.addedPaths.length > 0) {
-        try {
-          model.batch(plan.addedPaths.map((path) => ({ type: "add", path })));
-        } catch {
-          model.resetPaths(source.paths, { preparedInput: preparePresortedFileTreeInput(source.paths) });
-          resetTree = true;
-        }
-      }
-    } else {
-      model.resetPaths(source.paths, { preparedInput: preparePresortedFileTreeInput(source.paths) });
-      resetTree = true;
-    }
-    if (source.gitStatusPatch && typeof (model as any).applyGitStatusPatch === "function") {
-      (model as any).applyGitStatusPatch(source.gitStatusPatch);
-    } else if (resetTree || source.statsChanged === true) {
-      model.setGitStatus(source.gitStatus as any);
-    }
-  }, [model, source]);
-
-  useEffect(() => {
-    if (fileSearchOpen) {
-      model.openSearch("");
-    } else {
-      model.closeSearch();
-    }
-  }, [fileSearchOpen, model]);
-
-  useEffect(() => {
-    if (!selectedPath) {
-      return;
-    }
-    model.getItem(selectedPath)?.select();
-    model.scrollToPath(selectedPath, { focus: false, offset: "nearest" });
-  }, [model, selectedPath]);
+  usePierreFileTreeSource(model, source);
+  usePierreFileTreeSearch(model, fileSearchOpen);
+  usePierreFileTreeSelection(model, selectedPath);
 
   return <FileTree model={model} />;
 }
@@ -726,6 +682,62 @@ function LoadingLayer({ label, status }: { label: DiffViewerLabelResolver; statu
       {status.loading || status.pending ? <LoadingDiffSkeleton /> : null}
     </div>
   );
+}
+
+function useSyncedRef<T>(value: T): React.MutableRefObject<T> {
+  const ref = useRef(value);
+  useEffect(() => {
+    ref.current = value;
+  }, [value]);
+  return ref;
+}
+
+function usePierreFileTreeSource(model: ReturnType<typeof useFileTree>["model"], source: FileTreeSource): void {
+  const previousSource = useRef<FileTreeSource | null>(null);
+  useEffect(() => {
+    const previous = previousSource.current;
+    previousSource.current = source;
+    const plan = planPierreFileTreeRefresh(previous, source, source.paths);
+    let resetTree = false;
+    if (plan.kind === "append") {
+      if (plan.addedPaths.length > 0) {
+        try {
+          model.batch(plan.addedPaths.map((path) => ({ type: "add", path })));
+        } catch {
+          model.resetPaths(source.paths, { preparedInput: preparePresortedFileTreeInput(source.paths) });
+          resetTree = true;
+        }
+      }
+    } else {
+      model.resetPaths(source.paths, { preparedInput: preparePresortedFileTreeInput(source.paths) });
+      resetTree = true;
+    }
+    if (source.gitStatusPatch && typeof (model as any).applyGitStatusPatch === "function") {
+      (model as any).applyGitStatusPatch(source.gitStatusPatch);
+    } else if (resetTree || source.statsChanged === true) {
+      model.setGitStatus(source.gitStatus as any);
+    }
+  }, [model, source]);
+}
+
+function usePierreFileTreeSearch(model: ReturnType<typeof useFileTree>["model"], fileSearchOpen: boolean): void {
+  useEffect(() => {
+    if (fileSearchOpen) {
+      model.openSearch("");
+    } else {
+      model.closeSearch();
+    }
+  }, [fileSearchOpen, model]);
+}
+
+function usePierreFileTreeSelection(model: ReturnType<typeof useFileTree>["model"], selectedPath: string): void {
+  useEffect(() => {
+    if (!selectedPath) {
+      return;
+    }
+    model.getItem(selectedPath)?.select();
+    model.scrollToPath(selectedPath, { focus: false, offset: "nearest" });
+  }, [model, selectedPath]);
 }
 
 function useRenderDiff(
@@ -853,7 +865,6 @@ function usePageDataAttributes(state: AppState) {
 function useKeyboardShortcuts(
   shortcuts: any,
   viewerRef: React.MutableRefObject<HTMLDivElement | null>,
-  codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>,
   dispatch: React.Dispatch<AppAction>,
 ) {
   useEffect(() => {
@@ -918,7 +929,7 @@ function useKeyboardShortcuts(
       clearPendingChord();
       document.removeEventListener("keydown", listener);
     };
-  }, [codeViewRef, dispatch, shortcuts, viewerRef]);
+  }, [dispatch, shortcuts, viewerRef]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {
