@@ -162,6 +162,7 @@ export function startDiffViewer(config: DiffViewerConfig): void {
 const appearance = resolveDiffViewerAppearance(payload.appearance);
 const viewerElement = requireElement<HTMLElement>("viewer");
 const status = requireElement<HTMLDivElement>("status");
+const statusText = requireElement<HTMLSpanElement>("status-text");
 const toolbar = requireElement<HTMLElement>("toolbar");
 const sourceSelect = requireElement<HTMLSelectElement>("source-select");
 const repoSelect = requireElement<HTMLSelectElement>("repo-select");
@@ -298,7 +299,8 @@ function showStatusMessage(message: string, options: StatusMessageOptions = {}):
   document.body.dataset.statusOnly = options.statusOnly === true ? "true" : "false";
   status.dataset.error = options.error === true ? "true" : "false";
   status.dataset.pending = options.pending === true ? "true" : "false";
-  status.textContent = message;
+  // Write into the dedicated text node so the empty-state icon child survives.
+  statusText.textContent = message;
 }
 
 async function applyReplacementFrom(response: Response): Promise<boolean> {

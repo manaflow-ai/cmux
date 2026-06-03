@@ -1041,6 +1041,20 @@
         }
       }
     },
+    "fileEditor": {
+      "title": "fileEditor",
+      "description": "Built-in plain-text file editor settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wordWrap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
+          "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
+        }
+      }
+    },
     "shortcuts": {
       "title": "shortcuts",
       "description": "Keyboard shortcut settings from Settings > Keyboard Shortcuts.",

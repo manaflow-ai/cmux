@@ -165,6 +165,7 @@ extension CmuxSettingsFileStore {
         "markdown.fontSize",
         "markdown.fontFamily",
         "markdown.maxWidth",
+        "fileEditor.wordWrap",
         "shortcuts.bindings",
     ]
 }
