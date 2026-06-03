@@ -4817,16 +4817,22 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   display: none;
 }
 
-.empty-workspace-launcher[data-empty-launcher="customize"] {
+.empty-workspace-launcher[data-empty-launcher="customize"],
+.empty-workspace-launcher[data-empty-launcher="fast"] {
   border-color: color-mix(in oklch, var(--color-accent) 16%, var(--color-line) 84%);
 }
 
-.empty-workspace-launcher[data-empty-launcher="customize"] .empty-workspace-launcher-meta {
+.empty-workspace-launcher[data-empty-launcher="customize"] .empty-workspace-launcher-meta,
+.empty-workspace-launcher[data-empty-launcher="fast"] .empty-workspace-launcher-meta {
   display: block;
 }
 
 .empty-workspace-launcher[data-empty-launcher="customize"] .empty-workspace-launcher-icon {
   color: color-mix(in oklch, var(--color-accent) 68%, var(--color-text) 32%);
+}
+
+.empty-workspace-launcher[data-empty-launcher="fast"] .empty-workspace-launcher-icon {
+  color: color-mix(in oklch, var(--color-warning) 58%, var(--color-text) 42%);
 }
 
 .empty-workspace-launcher.is-primary {

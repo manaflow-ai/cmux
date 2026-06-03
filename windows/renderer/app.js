@@ -154,6 +154,7 @@ const controlIconSvg = {
   terminalPlus: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="13" height="14" rx="2"></rect><path d="m7 10 2.5 2.5L7 15"></path><path d="M11 15h3"></path><path d="M18 13v6M15 16h6"></path></svg>`,
   splitDown: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M4 12h16"></path></svg>`,
   splitRight: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14"></path></svg>`,
+  speed: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 16a7 7 0 0 1 14 0"></path><path d="m12 16 4-5"></path><path d="M8 20h8"></path></svg>`,
   settings: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"></path></svg>`,
   textSize: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 7V4h14v3"></path><path d="M12 4v16"></path><path d="M9 20h6"></path></svg>`,
   up: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"></path></svg>`
@@ -5929,6 +5930,15 @@ function emptyWorkspaceLaunchers() {
       kind: "layouts"
     });
   }
+  if (!isSettingsPresetIdActive("simpleFast")) {
+    launchers.push({
+      id: "fast",
+      icon: "speed",
+      label: t("emptyWorkspace.fastSetup", "Fast setup"),
+      meta: t("emptyWorkspace.fastSetupMeta", "Clean UI, lower lag"),
+      kind: "fast"
+    });
+  }
   launchers.push({
     id: "customize",
     icon: "settings",
@@ -5965,6 +5975,10 @@ async function runEmptyWorkspaceLauncher(launcher, workspace) {
   }
   if (launcher.kind === "layouts") {
     openSettingsCategory("blueprints");
+    return;
+  }
+  if (launcher.kind === "fast") {
+    applySettingsPresetById("simpleFast");
     return;
   }
   if (launcher.kind === "settings") {
