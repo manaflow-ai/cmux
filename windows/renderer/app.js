@@ -1799,6 +1799,41 @@ function saveCustomColorPalette() {
   localStorage.setItem(customColorPaletteStorageKey, JSON.stringify(state.customColorPalette));
 }
 
+function customColorPaletteFull() {
+  return state.customColorPalette.length >= customColorPaletteLimit;
+}
+
+function customColorPaletteLimitTitle() {
+  return `Saved color limit is ${customColorPaletteLimit}. Delete one first.`;
+}
+
+function customColorPaletteHasColor(color) {
+  const normalized = normalizeCustomPaletteColor(color);
+  if (!normalized) return false;
+  return state.customColorPalette.some((candidate) => candidate.toLowerCase() === normalized);
+}
+
+function canSaveCustomColor(color) {
+  const normalized = normalizeCustomPaletteColor(color);
+  return Boolean(normalized && (customColorPaletteHasColor(normalized) || !customColorPaletteFull()));
+}
+
+function customColorSaveTitle(color, availableTitle = "Save this color to the reusable palette.") {
+  const normalized = normalizeCustomPaletteColor(color);
+  if (!normalized) return "Pick a custom hex color first.";
+  if (customColorPaletteFull() && !customColorPaletteHasColor(normalized)) return customColorPaletteLimitTitle();
+  return availableTitle;
+}
+
+function applyCustomColorSaveLimit(button, color, availableTitle = "Save this color to the reusable palette.") {
+  if (!button) return button;
+  const normalized = normalizeCustomPaletteColor(color);
+  const disabled = !normalized || (!customColorPaletteHasColor(normalized) && customColorPaletteFull());
+  button.disabled = disabled;
+  button.title = customColorSaveTitle(normalized, availableTitle);
+  return button;
+}
+
 function upsertCustomColorPalette(color, options = {}) {
   const normalized = normalizeCustomPaletteColor(color);
   if (!normalized) {
@@ -1806,6 +1841,10 @@ function upsertCustomColorPalette(color, options = {}) {
     return false;
   }
   const existed = state.customColorPalette.some((candidate) => candidate.toLowerCase() === normalized);
+  if (!existed && customColorPaletteFull()) {
+    if (options.toast !== false) toast(customColorPaletteLimitTitle());
+    return false;
+  }
   state.customColorPalette = [
     normalized,
     ...state.customColorPalette.filter((candidate) => candidate.toLowerCase() !== normalized)
@@ -14536,7 +14575,10 @@ function savedColorPalettePanel() {
   applyPicked.disabled = Boolean(targetOption.disabled);
   applyPicked.title = `Apply picked color to ${targetLabel}`;
   const savePicked = settingsActionButton("Save color", () => upsertCustomColorPalette(colorInput.value), "", "saved color custom palette add");
-  savePicked.title = "Save the picked color to the reusable palette.";
+  const refreshSavePickedState = () => applyCustomColorSaveLimit(savePicked, colorInput.value, "Save the picked color to the reusable palette.");
+  refreshSavePickedState();
+  colorInput.addEventListener("input", refreshSavePickedState);
+  colorInput.addEventListener("change", refreshSavePickedState);
   addRow.append(colorInput, applyPicked, savePicked);
   panel.append(addRow);
   panel.append(activeColorTargetControl());
@@ -14545,12 +14587,12 @@ function savedColorPalettePanel() {
   actions.className = "settings-actions saved-color-actions";
   actions.dataset.settingsSearch = normalizeSettingsQuery("saved color palette save current accent workspace");
   const saveAccent = settingsActionButton("Save accent", () => upsertCustomColorPalette(state.settings.accent), "", "saved color save current accent");
-  saveAccent.disabled = !normalizeCustomPaletteColor(state.settings.accent);
+  applyCustomColorSaveLimit(saveAccent, state.settings.accent, "Save the current accent color.");
   const saveWorkspace = settingsActionButton("Save workspace", () => upsertCustomColorPalette(workspace?.color), "", "saved color save workspace");
-  saveWorkspace.disabled = !normalizeCustomPaletteColor(workspace?.color);
+  applyCustomColorSaveLimit(saveWorkspace, workspace?.color, "Save the active workspace color.");
   const pane = focusedPanel();
   const savePane = settingsActionButton("Save pane", () => upsertCustomColorPalette(pane?.color), "", "saved color save active pane tab");
-  savePane.disabled = !normalizeCustomPaletteColor(pane?.color);
+  applyCustomColorSaveLimit(savePane, pane?.color, "Save the active pane color.");
   const clearPanes = settingsActionButton("Clear panes", () => clearWorkspacePaneColors(), "danger", "saved color clear pane tab colors workspace");
   clearPanes.disabled = !workspace?.panels?.some((panel) => panel.color);
   actions.append(saveAccent, saveWorkspace, savePane, clearPanes);
@@ -16590,7 +16632,8 @@ function showPanelContextMenu(event, panel) {
   }
   const appearanceSettings = contextMenuButton("All appearance settings", () => openSettingsCategory("appearance"), false, "", { icon: "settings" });
   const clear = contextMenuButton("Clear color", () => updatePanel(panel.id, { color: "" }), !panel.color, "", { icon: "close" });
-  const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(panel.color), !normalizeCustomPaletteColor(panel.color), "", { icon: "plus" });
+  const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(panel.color), !canSaveCustomColor(panel.color), "", { icon: "plus" });
+  saveColor.title = customColorSaveTitle(panel.color, "Save this pane color to the reusable palette.");
   const customColor = contextColorPicker(panel.color, (color) => {
     updatePanel(panel.id, { color });
     upsertCustomColorPalette(color, { render: false, toast: false });
@@ -16664,7 +16707,8 @@ function showWorkspaceContextMenu(event, workspace) {
     setWorkspaceColor(color, workspace.id);
     upsertCustomColorPalette(color, { render: false, toast: false });
   });
-  const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(workspace.color), !normalizeCustomPaletteColor(workspace.color));
+  const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(workspace.color), !canSaveCustomColor(workspace.color));
+  saveColor.title = customColorSaveTitle(workspace.color, "Save this workspace color to the reusable palette.");
   const hasTerminalPanes = (workspace.panels || []).some((panel) => panel.type === "terminal");
   const backgroundActions = contextMenuActionGroup(
     contextMenuButton(t("workspace.chooseTerminalBackground"), () => chooseWorkspaceTerminalBackground(workspace), !hasTerminalPanes),
@@ -16814,7 +16858,11 @@ function showToolbarMenu(event) {
       contextMenuButton("Settings profiles", () => openSettingsCategory("profiles")),
       contextMenuButton("Clear recent activity", clearRecentActivity, !hasRecentActivity(), "danger"),
       contextMenuButton("Color settings", () => openSettingsCategory("appearance", { query: "color", focusSearch: true })),
-      contextMenuButton("Save current accent", () => upsertCustomColorPalette(state.settings.accent), !normalizeCustomPaletteColor(state.settings.accent)),
+      (() => {
+        const action = contextMenuButton("Save current accent", () => upsertCustomColorPalette(state.settings.accent), !canSaveCustomColor(state.settings.accent));
+        action.title = customColorSaveTitle(state.settings.accent, "Save the current accent color to the reusable palette.");
+        return action;
+      })(),
       contextMenuButton("Background settings", () => openSettingsCategory("appearance", { query: "background", focusSearch: true })),
       contextMenuButton("Save current background", () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }), !isCustomBackgroundImage(state.settings.backgroundImage)),
       contextMenuButton("Workspace blueprints", () => openSettingsCategory("blueprints"))
