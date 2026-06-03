@@ -1845,6 +1845,22 @@ function customColorCopyTitle(color, availableTitle = "Copy this color hex value
   return normalized ? availableTitle : "Pick a custom hex color first.";
 }
 
+function normalizeCopyableColorValue(value, fallback = "") {
+  const color = String(value || "").trim() || String(fallback || "").trim();
+  if (!color) return "";
+  if (isSafeCustomColor(color)) return color.toUpperCase();
+  if (/^oklch\([^)]+\)$/i.test(color)) return color;
+  return "";
+}
+
+function canCopyColorValue(value, fallback = "") {
+  return Boolean(normalizeCopyableColorValue(value, fallback));
+}
+
+function colorCopyTitle(value, fallback = "", availableTitle = "Copy this color value.") {
+  return canCopyColorValue(value, fallback) ? availableTitle : "Choose a color first.";
+}
+
 function applyCustomColorSaveLimit(button, color, availableTitle = "Save this color to the reusable palette.") {
   if (!button) return button;
   const normalized = normalizeCustomPaletteColor(color);
@@ -1891,6 +1907,20 @@ async function copyCustomColorValue(color, toastText = "Color copied.") {
     return false;
   }
   if (await writeClipboardText(normalized.toUpperCase())) {
+    toast(toastText);
+    return true;
+  }
+  toast("Clipboard is unavailable.");
+  return false;
+}
+
+async function copyColorValue(value, fallback = "", toastText = "Color copied.") {
+  const color = normalizeCopyableColorValue(value, fallback);
+  if (!color) {
+    toast("Choose a color first.");
+    return false;
+  }
+  if (await writeClipboardText(color)) {
     toast(toastText);
     return true;
   }
@@ -14851,14 +14881,15 @@ function colorControlPanel({
   onClear,
   clearLabel = "Default",
   clearDisabled = false,
+  copyLabel = "Copy",
   saveLabel = "",
   targetLabel = "",
   targetMeta = "",
   searchTerms = ""
 }) {
   const panel = document.createElement("div");
-  panel.className = `settings-color-panel${onClear ? " has-clear" : ""}${saveLabel ? " has-save" : ""}`;
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`color palette swatch custom hex picker save ${targetLabel} ${targetMeta} ${searchTerms}`);
+  panel.className = `settings-color-panel${copyLabel ? " has-copy" : ""}${onClear ? " has-clear" : ""}${saveLabel ? " has-save" : ""}`;
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`color palette swatch custom hex picker save copy ${targetLabel} ${targetMeta} ${searchTerms}`);
   const summary = document.createElement("div");
   summary.className = `settings-color-summary${targetLabel ? " has-target" : ""}`;
   summary.style.setProperty("--settings-color-current", activeColor || fallbackColor);
@@ -14889,6 +14920,14 @@ function colorControlPanel({
   custom.className = "settings-color-custom";
   const picker = colorPicker(activeColor, onPick, fallbackColor);
   custom.append(picker);
+  if (copyLabel) {
+    const copyToast = targetLabel ? `${targetLabel} color copied.` : "Color copied.";
+    const copy = settingsActionButton(copyLabel, () => copyColorValue(activeColor, fallbackColor, copyToast), "", `color copy current value clipboard ${searchTerms}`);
+    copy.classList.add("settings-color-copy");
+    copy.disabled = !canCopyColorValue(activeColor, fallbackColor);
+    copy.title = colorCopyTitle(activeColor, fallbackColor, `Copy ${targetLabel ? targetLabel.toLowerCase() : "current color"} value.`);
+    custom.append(copy);
+  }
   if (saveLabel) {
     const save = settingsActionButton(saveLabel, () => {
       const input = picker.querySelector(".color-picker-input");
@@ -17224,6 +17263,14 @@ function showPanelContextMenu(event, panel) {
   clear.title = panel.color ? "Clear this pane color." : "Pane color is already default.";
   const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(panel.color), !canSaveCustomColor(panel.color), "", { icon: "plus" });
   saveColor.title = customColorSaveTitle(panel.color, "Save this pane color to the reusable palette.");
+  const copyColor = contextMenuButton(
+    "Copy color",
+    () => copyColorValue(panel.color, workspace?.color || state.settings.accent, "Pane color copied."),
+    !canCopyColorValue(panel.color, workspace?.color || state.settings.accent),
+    "",
+    { icon: "clipboard" }
+  );
+  copyColor.title = colorCopyTitle(panel.color, workspace?.color || state.settings.accent, "Copy this pane color value.");
   const customColor = contextColorPicker(panel.color, (color) => {
     updatePanel(panel.id, { color });
     upsertCustomColorPalette(color, { render: false, toast: false });
@@ -17235,7 +17282,7 @@ function showPanelContextMenu(event, panel) {
     colorTitle,
     colors,
     customColor,
-    contextMenuActionGroup(appearanceSettings, saveColor, clear)
+    contextMenuActionGroup(appearanceSettings, saveColor, copyColor, clear)
   ];
   if (surfaceActions.length) {
     nodes.push(contextMenuSectionTitle(isTerminal ? "Terminal" : "Browser"), contextMenuActionGroup(...surfaceActions));
@@ -17302,6 +17349,12 @@ function showWorkspaceContextMenu(event, workspace) {
   });
   const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(workspace.color), !canSaveCustomColor(workspace.color));
   saveColor.title = customColorSaveTitle(workspace.color, "Save this workspace color to the reusable palette.");
+  const copyColor = contextMenuButton(
+    "Copy color",
+    () => copyColorValue(workspace.color, state.settings.accent, "Workspace color copied."),
+    !canCopyColorValue(workspace.color, state.settings.accent)
+  );
+  copyColor.title = colorCopyTitle(workspace.color, state.settings.accent, "Copy this workspace color value.");
   const clearColor = contextMenuButton("Clear color", () => clearWorkspaceColor(workspace), !workspace.color);
   clearColor.title = workspace.color ? "Clear this workspace color." : "Workspace color is already default.";
   const paneColorsDirty = workspace.panels.some((panel) => panel.color);
@@ -17353,7 +17406,7 @@ function showWorkspaceContextMenu(event, workspace) {
     contextMenuSectionTitle("Workspace color"),
     colors,
     customColor,
-    contextMenuActionGroup(saveColor, clearColor, clearPaneColors),
+    contextMenuActionGroup(saveColor, copyColor, clearColor, clearPaneColors),
     contextMenuSectionTitle(t("workspace.backgrounds")),
     backgroundActions
   );
@@ -17593,6 +17646,15 @@ function showToolbarMenu(event) {
       (() => {
         const action = contextMenuButton("Save current accent", () => upsertCustomColorPalette(state.settings.accent), !canSaveCustomColor(state.settings.accent));
         action.title = customColorSaveTitle(state.settings.accent, "Save the current accent color to the reusable palette.");
+        return action;
+      })(),
+      (() => {
+        const action = contextMenuButton(
+          "Copy current accent",
+          () => copyColorValue(state.settings.accent, defaultSettings.accent, "Accent color copied."),
+          !canCopyColorValue(state.settings.accent, defaultSettings.accent)
+        );
+        action.title = colorCopyTitle(state.settings.accent, defaultSettings.accent, "Copy the current accent color value.");
         return action;
       })(),
       contextMenuButton("Background settings", () => openSettingsCategory("appearance", { query: "background", focusSearch: true })),
@@ -18537,6 +18599,24 @@ function paletteEntries() {
   const colorWorkspaceTargetOption = colorApplyTargetOption("workspace", paletteWorkspace);
   const colorPaneTargetOption = colorApplyTargetOption("pane", paletteWorkspace);
   const colorAllTargetOption = colorApplyTargetOption("all", paletteWorkspace);
+  for (const [id, option, fallback, toastText] of [
+    ["accent", colorAccentTargetOption, defaultSettings.accent, "Accent color copied."],
+    ["workspace", colorWorkspaceTargetOption, state.settings.accent, "Workspace color copied."],
+    ["pane", colorPaneTargetOption, colorWorkspaceTargetOption.color || state.settings.accent, "Pane color copied."]
+  ]) {
+    const label = option.label.toLowerCase();
+    const disabled = option.disabled || !canCopyColorValue(option.color, fallback);
+    entries.push({
+      id: `currentColor.copy.${id}`,
+      label: `Copy ${label} color`,
+      meta: `${option.status} / ${option.meta}`,
+      shortcut: "Copy",
+      disabled,
+      title: disabled ? `${option.label}: ${option.meta}.` : colorCopyTitle(option.color, fallback, `Copy ${label} color value.`),
+      search: normalizeSettingsQuery(`copy current ${label} color value clipboard ${option.status} ${option.meta}`),
+      run: () => copyColorValue(option.color, fallback, toastText)
+    });
+  }
   for (const color of state.customColorPalette) {
     const colorValue = colorKey(color);
     const colorLabel = color.toUpperCase();

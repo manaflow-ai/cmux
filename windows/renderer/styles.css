@@ -9571,14 +9571,22 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .settings-color-panel.has-clear .settings-color-custom,
+.settings-color-panel.has-copy .settings-color-custom,
 .settings-color-panel.has-save .settings-color-custom {
   grid-template-columns: minmax(0, 1fr) minmax(74px, auto);
 }
 
+.settings-color-panel.has-copy.has-clear .settings-color-custom,
+.settings-color-panel.has-copy.has-save .settings-color-custom,
 .settings-color-panel.has-clear.has-save .settings-color-custom {
   grid-template-columns: minmax(0, 1fr) repeat(2, minmax(70px, auto));
 }
 
+.settings-color-panel.has-copy.has-clear.has-save .settings-color-custom {
+  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(64px, auto));
+}
+
+.settings-color-copy,
 .settings-color-save,
 .settings-color-clear {
   width: 100%;
@@ -9595,6 +9603,16 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   }
 
   .settings-color-custom {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-color-panel.has-clear .settings-color-custom,
+  .settings-color-panel.has-copy .settings-color-custom,
+  .settings-color-panel.has-save .settings-color-custom,
+  .settings-color-panel.has-copy.has-clear .settings-color-custom,
+  .settings-color-panel.has-copy.has-save .settings-color-custom,
+  .settings-color-panel.has-clear.has-save .settings-color-custom,
+  .settings-color-panel.has-copy.has-clear.has-save .settings-color-custom {
     grid-template-columns: 1fr;
   }
 }
