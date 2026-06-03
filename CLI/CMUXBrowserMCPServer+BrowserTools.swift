@@ -135,7 +135,9 @@ extension CMUXBrowserMCPServer {
         try withClient { client in
             let surface = try resolveSurface(arguments, client: client)
             var params: [String: Any] = ["surface_id": surface]
-            params["interactive"] = boolArgument(arguments, key: "interactive") ?? true
+            if let interactive = boolArgument(arguments, key: "interactive") {
+                params["interactive"] = interactive
+            }
             if boolArgument(arguments, key: "compact") == true {
                 params["compact"] = true
             }
@@ -308,6 +310,9 @@ extension CMUXBrowserMCPServer {
                 }
                 payload["path"] = destinationURL.path
                 payload["url"] = destinationURL.absoluteString
+                payload.removeValue(forKey: "png_base64")
+            }
+            if hasText(payload["path"] as? String) || hasText(payload["url"] as? String) {
                 payload.removeValue(forKey: "png_base64")
             }
             return payload
