@@ -189,6 +189,12 @@ export const backgroundPresets = [
     label: label("background.signalBands", "Signal bands"),
     preview: "repeating-linear-gradient(90deg, color-mix(in oklch, var(--color-accent) 16%, transparent) 0 1px, transparent 1px 32px), linear-gradient(145deg, color-mix(in oklch, var(--color-accent) 18%, transparent), transparent 42%), linear-gradient(180deg, var(--color-pane), var(--color-canvas))",
     css: "repeating-linear-gradient(90deg, color-mix(in oklch, var(--color-accent) 10%, transparent) 0 1px, transparent 1px 40px), linear-gradient(145deg, color-mix(in oklch, var(--color-accent) 12%, transparent), transparent 46%), linear-gradient(180deg, var(--color-pane), var(--color-canvas))"
+  },
+  {
+    value: "preset:dot-matrix",
+    label: label("background.dotMatrix", "Dot matrix"),
+    preview: "radial-gradient(circle at 1px 1px, color-mix(in oklch, var(--color-accent) 30%, transparent) 1.5px, transparent 2px), linear-gradient(135deg, color-mix(in oklch, var(--color-pane) 86%, var(--color-accent) 14%), var(--color-canvas))",
+    css: "radial-gradient(circle at 1px 1px, color-mix(in oklch, var(--color-accent) 16%, transparent) 1px, transparent 1.5px), linear-gradient(135deg, color-mix(in oklch, var(--color-pane) 92%, var(--color-accent) 8%), var(--color-canvas))"
   }
 ];
 

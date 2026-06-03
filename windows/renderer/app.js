@@ -19936,7 +19936,7 @@ function appearanceBackgroundTemplateDisclosurePanel() {
   return settingsDisclosurePanel({
     className: "appearance-background-disclosure",
     content: "background-presets",
-    searchTerms: "appearance background templates preset wallpaper image app active pane terminal all terminals",
+    searchTerms: "appearance background templates preset wallpaper image app active pane terminal all terminals dot matrix pattern",
     title: t("appearance.backgroundTemplates"),
     body: t("appearance.backgroundTemplates.body"),
     meta: formatMessage("appearance.backgroundTemplateCount", { count: backgroundPresets.length })

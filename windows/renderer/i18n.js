@@ -203,6 +203,7 @@ const windowsMessages = {
     "config.background.blueprintLines": "Blueprint lines",
     "config.background.focusWeave": "Focus weave",
     "config.background.signalBands": "Signal bands",
+    "config.background.dotMatrix": "Dot matrix",
     "config.backgroundFit.cover": "Fill",
     "config.backgroundFit.contain": "Fit",
     "config.backgroundFit.stretch": "Stretch",
