@@ -12260,48 +12260,8 @@ function renderSettingsInspector(options = {}) {
     const actionsSection = settingsSection("Settings data");
     actionsSection.append(dataSettingsOverviewPanel());
     actionsSection.append(settingsMetricGrid(settingsDataMetrics(), "data storage local settings metric"));
+    actionsSection.append(dataMaintenanceGrid());
     actionsSection.append(dataStorageBreakdownDisclosurePanel());
-    const actions = document.createElement("div");
-    actions.className = "settings-actions";
-    const clearRecent = settingsActionButton("Clear recent activity", clearRecentActivity, "danger", "clear recent activity folders commands browser pages tabs history");
-    const recentActivity = hasRecentActivity();
-    clearRecent.disabled = !recentActivity;
-    clearRecent.title = recentActivity ? "Clear recent folders, commands, browser pages, and saved browser tabs." : "Recent activity is already clear.";
-    const closeEmpty = settingsActionButton("Close extra empty workspaces", closeEmptyWorkspaces, "danger", "workspace cleanup empty duplicate close remove");
-    const emptyWorkspaceCleanupTargets = hasEmptyWorkspaceCleanupTargets();
-    closeEmpty.disabled = !emptyWorkspaceCleanupTargets;
-    closeEmpty.title = emptyWorkspaceCleanupTargets ? "Close empty workspaces except the active one." : "There are no extra empty workspaces to close.";
-    const copySetup = settingsActionButton("Copy app setup", copyAppSetup, "", "settings data export copy app setup backup preferences profiles blueprints snippets colors backgrounds recent clipboard json");
-    copySetup.title = "Copy settings, profiles, blueprints, saved colors, backgrounds, snippets, and recent data as JSON.";
-    const pasteSetup = settingsActionButton("Paste app setup", pasteAppSetup, "", "settings data import paste app setup restore preferences profiles blueprints snippets colors backgrounds recent clipboard json");
-    pasteSetup.title = "Paste exported cmux Windows app setup JSON.";
-    const copyRecent = settingsActionButton("Copy recent activity", copyRecentActivity, "", "settings data recent activity export copy folders commands browser pages tabs clipboard json");
-    copyRecent.disabled = !recentActivity;
-    copyRecent.title = recentActivity ? "Copy recent folders, commands, browser pages, and saved browser tabs as JSON." : "Recent activity is empty.";
-    const pasteRecent = settingsActionButton("Paste recent activity", pasteRecentActivity, "", "settings data recent activity import paste folders commands browser pages tabs clipboard json");
-    pasteRecent.title = "Merge copied recent folders, commands, browser pages, and saved browser tabs.";
-    const savedLibrary = savedDataItemCount() > 0;
-    const copySavedLibraryAction = settingsActionButton("Copy library", copySavedLibrary, "", "settings data saved customization library export copy snippets profiles blueprints colors backgrounds clipboard json");
-    copySavedLibraryAction.disabled = !savedLibrary;
-    copySavedLibraryAction.title = savedLibrary ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON." : "Customization library is empty.";
-    const pasteSavedLibraryAction = settingsActionButton("Paste library", pasteSavedLibrary, "", "settings data saved customization library import paste snippets profiles blueprints colors backgrounds clipboard json");
-    pasteSavedLibraryAction.title = "Merge copied saved snippets, profiles, blueprints, colors, and backgrounds.";
-    const clearSavedLibraryAction = settingsActionButton("Clear library", clearSavedLibrary, "danger", "settings data saved customization library clear delete snippets profiles blueprints colors backgrounds");
-    clearSavedLibraryAction.disabled = !savedLibrary;
-    clearSavedLibraryAction.title = savedLibrary ? "Clear saved snippets, profiles, blueprints, colors, and backgrounds." : "Customization library is already clear.";
-    actions.append(
-      copySetup,
-      pasteSetup,
-      copyRecent,
-      pasteRecent,
-      copySavedLibraryAction,
-      pasteSavedLibraryAction,
-      clearSavedLibraryAction,
-      closeEmpty,
-      clearRecent,
-      settingsActionButton("Reset", resetSettings, "danger")
-    );
-    actionsSection.append(actions);
     actionsSection.append(recentCommandsDisclosurePanel());
     nodes.push(actionsSection);
   }
@@ -17557,6 +17517,155 @@ function dataSettingsOverviewPanel() {
   panel.querySelector("[data-data-overview-recent]").textContent = String(recentDataItemCount());
   panel.querySelector("[data-data-overview-empty]").textContent = String(emptyWorkspaces().length);
   return panel;
+}
+
+function dataMaintenanceDefinitions() {
+  const recentActivity = hasRecentActivity();
+  const savedLibrary = savedDataItemCount() > 0;
+  const emptyCleanupTargets = emptyWorkspaceCleanupTargets();
+  return [
+    {
+      id: "appBackup",
+      label: "App backup",
+      body: "Export or restore the complete cmux Windows setup.",
+      meta: formatBytes(totalDataStorageBytes()),
+      search: "settings data app setup backup export import restore full preferences profiles blueprints snippets colors backgrounds recent",
+      actions: [
+        {
+          label: "Copy app setup",
+          run: copyAppSetup,
+          title: "Copy settings, profiles, blueprints, saved colors, backgrounds, snippets, and recent data as JSON.",
+          search: "settings data export copy app setup backup preferences profiles blueprints snippets colors backgrounds recent clipboard json"
+        },
+        {
+          label: "Paste app setup",
+          run: pasteAppSetup,
+          title: "Paste exported cmux Windows app setup JSON.",
+          search: "settings data import paste app setup restore preferences profiles blueprints snippets colors backgrounds recent clipboard json"
+        }
+      ]
+    },
+    {
+      id: "savedLibrary",
+      label: "Customization library",
+      body: "Move reusable snippets, profiles, blueprints, colors, and backgrounds between setups.",
+      meta: `${savedDataItemCount()} saved`,
+      search: "settings data saved customization library export import copy paste clear snippets profiles blueprints colors backgrounds",
+      actions: [
+        {
+          label: "Copy library",
+          run: copySavedLibrary,
+          disabled: !savedLibrary,
+          title: savedLibrary ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON." : "Customization library is empty.",
+          search: "settings data saved customization library export copy snippets profiles blueprints colors backgrounds clipboard json"
+        },
+        {
+          label: "Paste library",
+          run: pasteSavedLibrary,
+          title: "Merge copied saved snippets, profiles, blueprints, colors, and backgrounds.",
+          search: "settings data saved customization library import paste snippets profiles blueprints colors backgrounds clipboard json"
+        },
+        {
+          label: "Clear library",
+          run: clearSavedLibrary,
+          tone: "danger",
+          disabled: !savedLibrary,
+          title: savedLibrary ? "Clear saved snippets, profiles, blueprints, colors, and backgrounds." : "Customization library is already clear.",
+          search: "settings data saved customization library clear delete snippets profiles blueprints colors backgrounds"
+        }
+      ]
+    },
+    {
+      id: "recentActivity",
+      label: "Recent activity",
+      body: "Export, restore, or clear recent folders, commands, browser pages, and tabs.",
+      meta: `${recentDataItemCount()} recent`,
+      search: "settings data recent activity folders commands browser pages tabs history export import clear privacy",
+      actions: [
+        {
+          label: "Copy recent",
+          run: copyRecentActivity,
+          disabled: !recentActivity,
+          title: recentActivity ? "Copy recent folders, commands, browser pages, and saved browser tabs as JSON." : "Recent activity is empty.",
+          search: "settings data recent activity export copy folders commands browser pages tabs clipboard json"
+        },
+        {
+          label: "Paste recent",
+          run: pasteRecentActivity,
+          title: "Merge copied recent folders, commands, browser pages, and saved browser tabs.",
+          search: "settings data recent activity import paste folders commands browser pages tabs clipboard json"
+        },
+        {
+          label: "Clear recent",
+          run: clearRecentActivity,
+          tone: "danger",
+          disabled: !recentActivity,
+          title: recentActivity ? "Clear recent folders, commands, browser pages, and saved browser tabs." : "Recent activity is already clear.",
+          search: "settings data recent activity clear privacy folders commands browser pages tabs history"
+        }
+      ]
+    },
+    {
+      id: "cleanup",
+      label: "Cleanup",
+      body: "Remove empty workspace clutter or reset preferences when the app needs a clean start.",
+      meta: `${emptyCleanupTargets.length} empty`,
+      search: "settings data cleanup empty workspace reset preferences factory defaults",
+      actions: [
+        {
+          label: "Close empty",
+          run: closeEmptyWorkspaces,
+          tone: "danger",
+          disabled: emptyCleanupTargets.length === 0,
+          title: emptyCleanupTargets.length ? "Close empty workspaces except the active one." : "There are no extra empty workspaces to close.",
+          search: "settings data workspace cleanup empty duplicate close remove"
+        },
+        {
+          label: "Reset settings",
+          run: resetSettings,
+          tone: "danger",
+          title: "Restore cmux Windows settings to defaults.",
+          search: "settings data reset preferences default factory"
+        }
+      ]
+    }
+  ];
+}
+
+function dataMaintenanceGrid() {
+  const grid = document.createElement("div");
+  grid.className = "data-maintenance-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("settings data maintenance backup import export cleanup privacy reset saved recent app setup library");
+  for (const item of dataMaintenanceDefinitions()) {
+    const card = document.createElement("div");
+    card.className = "data-maintenance-card";
+    card.dataset.settingsSearch = normalizeSettingsQuery(`settings data maintenance ${item.search} ${item.label} ${item.body}`);
+    card.innerHTML = `
+      <span class="data-maintenance-title-row">
+        <span class="data-maintenance-title"></span>
+        <span class="data-maintenance-meta"></span>
+      </span>
+      <span class="data-maintenance-body"></span>
+      <span class="data-maintenance-actions"></span>
+    `;
+    card.querySelector(".data-maintenance-title").textContent = item.label;
+    card.querySelector(".data-maintenance-meta").textContent = item.meta;
+    card.querySelector(".data-maintenance-body").textContent = item.body;
+    const actions = card.querySelector(".data-maintenance-actions");
+    for (const definition of item.actions) {
+      const button = settingsActionButton(
+        definition.label,
+        definition.run,
+        definition.tone || "",
+        `settings data maintenance ${item.label} ${definition.search}`
+      );
+      button.disabled = Boolean(definition.disabled);
+      button.title = definition.title || definition.label;
+      actions.append(button);
+    }
+    grid.append(card);
+  }
+  return grid;
 }
 
 function dataStorageBreakdownPanel() {
