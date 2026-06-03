@@ -496,6 +496,7 @@ const state = {
   workspaceListActiveId: "",
   paneCleanupSignature: null,
   surfaceTabsSignature: "",
+  surfaceTabsLayoutSignature: "",
   surfaceTabOverflowSignature: "",
   paneRenderSignature: "",
   paneStructureSignature: "",
@@ -4558,6 +4559,7 @@ function renderSurfaceTabs(workspace) {
   }
   const tabLabels = surfaceTabLabels(workspace);
   const signature = surfaceTabsSignature(workspace, tabLabels);
+  const layoutSignature = surfaceTabsLayoutSignature(workspace, tabLabels);
   if (
     signature === state.surfaceTabsSignature
     && state.newSurfaceAddButtons.terminal
@@ -4588,14 +4590,18 @@ function renderSurfaceTabs(workspace) {
   nodes.push(...getNewSurfaceTabs(workspace));
   replaceChildrenIfChanged(elements.surfaceTabs, nodes);
   setDatasetIfChanged(elements.surfaceTabs, "tabCount", String(workspace.panels.length));
+  const layoutChanged = layoutSignature !== state.surfaceTabsLayoutSignature;
   state.surfaceTabsSignature = signature;
-  scheduleSurfaceTabsOverflowRefresh({ ensureActive: true });
+  state.surfaceTabsLayoutSignature = layoutSignature;
+  if (layoutChanged) scheduleSurfaceTabsOverflowRefresh({ ensureActive: true });
+  else scheduleActiveSurfaceTabIntoView(workspace.activePanelId);
 }
 
 function clearSurfaceTabs() {
   for (const tab of state.surfaceTabButtons.values()) tab.remove();
   state.surfaceTabButtons.clear();
   state.surfaceTabsSignature = "";
+  state.surfaceTabsLayoutSignature = "";
   state.surfaceTabEnsureActive = false;
   setDatasetIfChanged(elements.surfaceTabs, "tabCount", "0");
   replaceChildrenIfChanged(elements.surfaceTabs, []);
@@ -4620,6 +4626,21 @@ function surfaceTabsSignature(workspace, tabLabels = surfaceTabLabels(workspace)
     appendSignatureValue(nextParts, isPanelMinimized(panel));
     appendSignatureValue(nextParts, isPendingPanel(panel));
     appendSignatureValue(nextParts, Boolean(panel.needsAttention));
+  });
+  return parts.join("");
+}
+
+function surfaceTabsLayoutSignature(workspace, tabLabels = surfaceTabLabels(workspace)) {
+  const parts = [];
+  appendSignatureValue(parts, workspace.id);
+  appendSignatureValue(parts, state.settings.titleDetailMode);
+  appendSignatureValue(parts, state.settings.addTabStyle);
+  appendSignatureValue(parts, paneCreationButtonsDisabled());
+  appendSignatureArray(parts, workspace.panels, (nextParts, panel) => {
+    appendSignatureValue(nextParts, panel.id);
+    appendSignatureValue(nextParts, tabLabels.get(panel.id) || surfaceTabLabel(workspace, panel));
+    appendSignatureValue(nextParts, panelDisplayTitle(panel, false));
+    appendSignatureValue(nextParts, isPendingPanel(panel));
   });
   return parts.join("");
 }
