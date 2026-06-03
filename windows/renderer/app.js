@@ -17309,28 +17309,34 @@ function paletteEntries() {
     });
   }
   for (const background of state.savedBackgroundImages) {
+    const activeApp = normalizeBackgroundValue(state.settings.backgroundImage) === normalizeBackgroundValue(background.url);
+    const activePane = Boolean(paletteActiveTerminal && panelBackgroundMatches(paletteActiveTerminal, background.url));
+    const activeAll = terminalBackgroundsMatch(paletteWorkspace, background.url);
     entries.push({
       id: `savedBackground.${background.id}`,
       label: `Background: ${background.label}`,
-      meta: background.url,
-      shortcut: "Look",
-      search: normalizeSettingsQuery(`saved background image wallpaper apply app whole window ${background.label} ${background.url}`),
+      meta: activeApp ? `Active / ${background.url}` : background.url,
+      shortcut: activeApp ? "Active" : "Look",
+      active: activeApp,
+      search: normalizeSettingsQuery(`saved background image wallpaper apply active app whole window ${background.label} ${background.url}`),
       run: () => applySavedBackgroundImage(background.id)
     });
     entries.push({
       id: `savedBackgroundPane.${background.id}`,
       label: `Pane background: ${background.label}`,
-      meta: "Active terminal pane",
-      shortcut: "Look",
+      meta: activePane ? "Active / Active terminal pane" : "Active terminal pane",
+      shortcut: activePane ? "Active" : "Look",
+      active: activePane,
       search: normalizeSettingsQuery(`saved background image wallpaper apply active terminal pane ${background.label} ${background.url}`),
       run: () => applySavedBackgroundImageToPanel(background.id)
     });
     entries.push({
       id: `savedBackgroundTerminals.${background.id}`,
       label: `Terminal backgrounds: ${background.label}`,
-      meta: "All terminal panes in workspace",
-      shortcut: "Look",
-      search: normalizeSettingsQuery(`saved background image wallpaper apply all terminal panes workspace ${background.label} ${background.url}`),
+      meta: activeAll ? "Active / All terminal panes in workspace" : "All terminal panes in workspace",
+      shortcut: activeAll ? "Active" : "Look",
+      active: activeAll,
+      search: normalizeSettingsQuery(`saved background image wallpaper apply active all terminal panes workspace ${background.label} ${background.url}`),
       run: () => applySavedBackgroundImageToWorkspaceTerminals(background.id)
     });
   }
