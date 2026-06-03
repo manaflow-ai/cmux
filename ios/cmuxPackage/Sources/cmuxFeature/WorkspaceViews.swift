@@ -288,6 +288,7 @@ struct WorkspaceListView: View {
     var signOut: (() -> Void)?
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
+    @State private var notificationsEnabled = false
 
     private var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -340,6 +341,9 @@ struct WorkspaceListView: View {
         .sheet(isPresented: $showingShortcutsSettings) {
             TerminalShortcutsSettingsView()
         }
+        .onAppear {
+            notificationsEnabled = MobilePushCoordinator.shared.isEnabled
+        }
         #endif
     }
 
@@ -365,18 +369,19 @@ struct WorkspaceListView: View {
             #if os(iOS)
             Button {
                 Task {
-                    if MobilePushCoordinator.shared.isEnabled {
+                    if notificationsEnabled {
                         await MobilePushCoordinator.shared.disable()
+                        notificationsEnabled = false
                     } else {
-                        _ = await MobilePushCoordinator.shared.enable()
+                        notificationsEnabled = await MobilePushCoordinator.shared.enable()
                     }
                 }
             } label: {
                 Label(
-                    MobilePushCoordinator.shared.isEnabled
+                    notificationsEnabled
                         ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Agent Notifications")
                         : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me About Agents"),
-                    systemImage: MobilePushCoordinator.shared.isEnabled ? "bell.slash" : "bell"
+                    systemImage: notificationsEnabled ? "bell.slash" : "bell"
                 )
             }
             .accessibilityIdentifier("MobileWorkspaceNotificationsMenuItem")
