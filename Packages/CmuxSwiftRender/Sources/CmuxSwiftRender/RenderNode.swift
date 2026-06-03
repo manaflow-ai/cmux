@@ -59,6 +59,13 @@ public struct RenderNode: Sendable, Equatable {
         /// `UnevenRoundedRectangle`; rendered with a uniform ``cornerRadius``
         /// approximation.
         case unevenRoundedRectangle
+        /// `ProgressView()` (indeterminate) or `ProgressView(value:)`
+        /// (determinate via ``value``); optional ``text`` label.
+        case progressView
+        /// `Gauge(value:)`, determinate via ``value``; optional ``text`` label.
+        case gauge
+        /// `Menu(title) { ... }`: ``text`` is the label, children the items.
+        case menu
     }
 
     public var kind: Kind
@@ -68,6 +75,8 @@ public struct RenderNode: Sendable, Equatable {
     public var spacing: Double?
     /// Corner radius for `.roundedRectangle` (`RoundedRectangle(cornerRadius:)`).
     public var cornerRadius: Double?
+    /// Determinate value (0...1 after normalization) for `.progressView` / `.gauge`.
+    public var value: Double?
     public var children: [RenderNode]
     public var modifiers: [RenderModifier]
     public var action: ButtonAction?
@@ -80,6 +89,7 @@ public struct RenderNode: Sendable, Equatable {
         systemName: String? = nil,
         spacing: Double? = nil,
         cornerRadius: Double? = nil,
+        value: Double? = nil,
         children: [RenderNode] = [],
         modifiers: [RenderModifier] = [],
         action: ButtonAction? = nil,
@@ -90,6 +100,7 @@ public struct RenderNode: Sendable, Equatable {
         self.systemName = systemName
         self.spacing = spacing
         self.cornerRadius = cornerRadius
+        self.value = value
         self.children = children
         self.modifiers = modifiers
         self.action = action

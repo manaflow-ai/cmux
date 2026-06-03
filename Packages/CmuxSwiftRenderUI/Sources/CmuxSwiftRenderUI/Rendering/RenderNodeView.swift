@@ -115,6 +115,22 @@ struct RenderNodeView: View {
             Ellipse()
         case .unevenRoundedRectangle:
             RoundedRectangle(cornerRadius: CGFloat(node.cornerRadius ?? 6))
+        case .progressView:
+            if let value = node.value {
+                ProgressView(value: value) { if let t = node.text { Text(t) } }
+            } else if let t = node.text {
+                ProgressView(t)
+            } else {
+                ProgressView()
+            }
+        case .gauge:
+            if let value = node.value {
+                Gauge(value: value) { if let t = node.text { Text(t) } }
+            } else {
+                EmptyView()
+            }
+        case .menu:
+            Menu(node.text ?? "") { children }
         }
     }
 
@@ -247,6 +263,16 @@ struct RenderNodeView: View {
             return AnyView(view.symbolRenderingMode(dslSymbolRenderingMode(token)))
         case "symbolVariant":
             return AnyView(view.symbolVariant(dslSymbolVariant(token)))
+        case "contextMenu":
+            if !modifier.children.isEmpty {
+                return AnyView(view.contextMenu { modifierChildren(modifier) })
+            }
+            return view
+        case "help":
+            if let token { return AnyView(view.help(LocalizedStringKey(token))) }
+            return view
+        case "disabled":
+            return AnyView(view.disabled(token != "false"))
         case "clipped":
             return AnyView(view.clipped())
         case "fixedSize":

@@ -480,6 +480,33 @@ import Testing
         #expect(node?.children.map(\.text) == ["2", "1", "42"])
     }
 
+    @Test func progressGaugeMenuAndContextMenu() {
+        let p = interp.evaluate(#"VStack { ProgressView(value: 30, total: 120) }"#)
+        #expect(p?.children.first?.kind == .progressView)
+        #expect(p?.children.first?.value == 0.25)
+
+        let indeterminate = interp.evaluate(#"VStack { ProgressView() }"#)
+        #expect(indeterminate?.children.first?.kind == .progressView)
+        #expect(indeterminate?.children.first?.value == nil)
+
+        let menu = interp.evaluate("""
+        Menu("Actions") {
+            Button("Stop") { cmux("agent.stop") }
+        }
+        """)
+        #expect(menu?.kind == .menu)
+        #expect(menu?.text == "Actions")
+        #expect(menu?.children.first?.kind == .button)
+
+        let ctx = interp.evaluate("""
+        Text("row").contextMenu {
+            Button("Open") { cmux("workspace.select") }
+        }
+        """)
+        let cm = ctx?.modifiers.first { $0.name == "contextMenu" }
+        #expect(cm?.children.first?.kind == .button)
+    }
+
     @Test func gridRowsAndViewThatFits() {
         let node = interp.evaluate("""
         Grid {

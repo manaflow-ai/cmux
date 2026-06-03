@@ -28,6 +28,7 @@ import Testing
             "Label", "Array", "Int", "Double", "String", "Ellipse", "UnevenRoundedRectangle",
             "min", "max", "abs",
             "Grid", "GridRow", "LazyVGrid", "LazyHGrid", "ViewThatFits", "GridItem",
+            "ProgressView", "Gauge", "Menu",
         ]
         let supportedMembers: Set<String> = [
             "font", "bold", "fontWeight", "foregroundColor", "foregroundStyle", "fill",
@@ -44,6 +45,7 @@ import Testing
             "clipShape", "clipped", "fixedSize", "layoutPriority", "degrees", "radians",
             "overlay", "mask", "safeAreaInset",
             "imageScale", "symbolRenderingMode", "symbolVariant",
+            "contextMenu", "help", "disabled",
         ]
 
         var unsupportedCalls: [String: Int] = [:]

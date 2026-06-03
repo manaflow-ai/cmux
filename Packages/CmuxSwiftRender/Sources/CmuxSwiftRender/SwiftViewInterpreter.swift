@@ -103,7 +103,7 @@ public struct SwiftViewInterpreter: Sendable {
             // subtree (`.overlay { ... }`, `.background { ... }`, `.mask { ... }`,
             // `.safeAreaInset(edge:) { ... }`), so arbitrary nested content
             // composes, not just colors.
-            let childBearing: Set<String> = ["overlay", "background", "mask", "safeAreaInset"]
+            let childBearing: Set<String> = ["overlay", "background", "mask", "safeAreaInset", "contextMenu"]
             if childBearing.contains(name), let closure = call.trailingClosure {
                 node.modifiers.append(RenderModifier(
                     name: name,
@@ -204,6 +204,24 @@ public struct SwiftViewInterpreter: Sendable {
                               children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
         case "ViewThatFits":
             return RenderNode(kind: .viewThatFits, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "ProgressView":
+            return RenderNode(
+                kind: .progressView,
+                text: stringArgument(call.arguments, env),
+                value: progressValue(call, env)
+            )
+        case "Gauge":
+            return RenderNode(
+                kind: .gauge,
+                text: labeledStringArgument("label", call.arguments, env) ?? stringArgument(call.arguments, env),
+                value: doubleArgument(named: "value", call.arguments, env)
+            )
+        case "Menu":
+            return RenderNode(
+                kind: .menu,
+                text: stringArgument(call.arguments, env) ?? labeledStringArgument("title", call.arguments, env) ?? "",
+                children: call.trailingClosure.map { evalItems($0.statements, env) } ?? []
+            )
         case "HSplitView":
             return RenderNode(kind: .hsplit, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
         case "ScrollView":
@@ -271,6 +289,15 @@ public struct SwiftViewInterpreter: Sendable {
         if let stmt = node.as(ExpressionStmtSyntax.self) { return stmt.expression.as(IfExprSyntax.self) }
         if let expr = node.as(ExprSyntax.self) { return expr.as(IfExprSyntax.self) }
         return nil
+    }
+
+    /// Normalized `ProgressView` fraction (0...1) from `value:`/`total:`, or nil
+    /// for the indeterminate form.
+    private func progressValue(_ call: FunctionCallExprSyntax, _ env: Environment) -> Double? {
+        guard let value = doubleArgument(named: "value", call.arguments, env) else { return nil }
+        let total = doubleArgument(named: "total", call.arguments, env) ?? 1
+        guard total != 0 else { return nil }
+        return max(0, min(1, value / total))
     }
 
     /// Whether a `ScrollView(...)` declares a horizontal axis. Inspects the
