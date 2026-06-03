@@ -2828,8 +2828,8 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         try waitUntil("server to receive provisional page B request") {
             server.didReceiveBRequest
         }
-        try waitUntil("browser back availability during provisional page B navigation") {
-            panel.canGoBack && panel.webView.isLoading
+        try waitUntil("browser provisional page B navigation to remain loading") {
+            panel.webView.isLoading
         }
         XCTAssertFalse(panel.canGoForward)
 

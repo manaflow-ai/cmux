@@ -3921,7 +3921,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             unlink(socketPath)
         }
 
-        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 6) { line in
+        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 20) { line in
             guard let data = line.data(using: .utf8),
                   let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                   let id = payload["id"] as? String else {
@@ -4502,7 +4502,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
             },
             "Expected no-final-response notification, saw \(state.commands)"
         )
@@ -4724,7 +4724,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
             },
             "Expected monitor to send no-final-response notification, saw \(state.commands)"
         )

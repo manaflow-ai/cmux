@@ -3715,7 +3715,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         wait(for: [socketHandled], timeout: 3)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 1, result.stderr)
-        XCTAssertTrue(result.stderr.contains("persistent SSH PTY session is no longer running"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("remote PTY operation failed"), result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertEqual(methods, [
             "workspace.remote.pty_bridge",

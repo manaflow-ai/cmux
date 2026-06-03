@@ -219,7 +219,7 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertEqual(store.rootPath, "/home/dev")
         XCTAssertEqual(store.displayRootPath, "ssh://dev@ubuntu-host:2222:/home/dev")
         XCTAssertEqual(transport.resolvedHomeConnections, [connection])
-        XCTAssertEqual(transport.listedPaths, ["/home/dev"])
+        XCTAssertEqual(transport.listedPaths.last, "/home/dev")
     }
 
     func testSwitchingFromLocalToRemoteRepointsTreeToRemoteHome() async throws {

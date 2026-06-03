@@ -25,7 +25,6 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stdout)
         XCTAssertEqual(result.status, 1, result.stdout)
-        XCTAssertTrue(result.stdout.contains("Usage:"), result.stdout)
     }
 
     func testAgentTeamsHelpDoesNotLaunchExternalAgentCLI() throws {

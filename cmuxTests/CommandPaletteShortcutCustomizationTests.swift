@@ -241,7 +241,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
                 }
 
                 #if DEBUG
-                XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: controlPEvent))
+                XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: controlPEvent, preferredWindow: window))
                 #else
                 XCTFail("debugHandleCustomShortcut is only available in DEBUG")
                 #endif
@@ -273,7 +273,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
                 }
 
                 #if DEBUG
-                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: controlUEvent))
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: controlUEvent, preferredWindow: window))
                 #else
                 XCTFail("debugHandleCustomShortcut is only available in DEBUG")
                 #endif
