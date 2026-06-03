@@ -68,6 +68,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         workspace.focusPanel(firstPanelId)
         workspace.focusPanel(secondPanelId)
+        drainMainQueue()
 
         XCTAssertTrue(manager.canNavigateBack)
 
@@ -162,6 +163,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         workspace.focusPanel(closedPanelId)
         workspace.focusPanel(fallbackPanelId)
+        drainMainQueue()
         XCTAssertTrue(manager.canNavigateBack)
 
         var notificationCount = 0
@@ -193,6 +195,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         workspace.focusPanel(leftPanelId)
         workspace.focusPanel(rightPanel.id)
+        drainMainQueue()
         XCTAssertTrue(manager.canNavigateBack)
 
         var notificationCount = 0

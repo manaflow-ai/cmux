@@ -2158,13 +2158,14 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(capturedCleanupArguments.contains("-S"))
         XCTAssertTrue(capturedCleanupArguments.contains("none"))
         XCTAssertFalse(capturedCleanupArguments.contains(where: { $0.hasPrefix("ControlPath=") }))
-        XCTAssertGreaterThanOrEqual(operations.count, 3)
-        XCTAssertEqual(operations[0].command, "cancel")
-        XCTAssertEqual(operations[0].spec, "127.0.0.1:64045")
-        XCTAssertEqual(operations[1].command, "forward")
-        XCTAssertEqual(operations[2].command, "forward")
-        XCTAssertEqual(operations[1].spec, operations[2].spec)
-        XCTAssertTrue(operations[2].spec.hasPrefix("127.0.0.1:64045:127.0.0.1:"))
+        let relayOperations = operations.filter { $0.spec.contains("127.0.0.1:64045") }
+        XCTAssertGreaterThanOrEqual(relayOperations.count, 3)
+        XCTAssertEqual(relayOperations[0].command, "cancel")
+        XCTAssertEqual(relayOperations[0].spec, "127.0.0.1:64045")
+        XCTAssertEqual(relayOperations[1].command, "forward")
+        XCTAssertEqual(relayOperations[2].command, "forward")
+        XCTAssertEqual(relayOperations[1].spec, relayOperations[2].spec)
+        XCTAssertTrue(relayOperations[2].spec.hasPrefix("127.0.0.1:64045:127.0.0.1:"))
     }
 
     @MainActor

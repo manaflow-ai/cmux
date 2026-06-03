@@ -204,7 +204,7 @@ struct TerminalDefaultFileOpenRequest: Equatable {
         }
 
         self.fileURL = standardizedURL
-        self.workingDirectory = standardizedURL.deletingLastPathComponent().path(percentEncoded: false)
+        self.workingDirectory = Self.normalizedDirectoryPath(standardizedURL.deletingLastPathComponent())
         self.initialInput = "\(Self.shellSingleQuoted(standardizedURL.path(percentEncoded: false)))\n"
     }
 
@@ -229,6 +229,14 @@ struct TerminalDefaultFileOpenRequest: Equatable {
             return true
         }
         return FileManager.default.isExecutableFile(atPath: fileURL.path(percentEncoded: false))
+    }
+
+    private static func normalizedDirectoryPath(_ directoryURL: URL) -> String {
+        var path = directoryURL.path(percentEncoded: false)
+        while path.count > 1 && path.hasSuffix("/") {
+            path.removeLast()
+        }
+        return path
     }
 
     private static func shouldRunInTerminal(fileURL: URL, contentType: UTType?, isExecutable: Bool) -> Bool {

@@ -1678,9 +1678,11 @@ final class WindowTerminalPortal: NSObject {
                 return entry.visibleInUI ? nil : hostedId
             }
 
+            if anchor.superview == nil {
+                return hostedId
+            }
             let anchorInvalidForCurrentHost =
                 anchor.window !== currentWindow ||
-                anchor.superview == nil ||
                 (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false)
             if anchorInvalidForCurrentHost {
                 // During aggressive tab drag/reorder churn, SwiftUI/AppKit can briefly
