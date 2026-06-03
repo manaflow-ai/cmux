@@ -23,6 +23,8 @@ configs:
 packages:
   CMUXAuthCore:
     path: ../Packages/CMUXAuthCore
+  CmuxDaemonProtocol:
+    path: ../Packages/CmuxDaemonProtocol
   CmuxMobileContract:
     path: ../Packages/CmuxMobileContract
   CmuxTerminalCore:
@@ -58,6 +60,7 @@ targets:
       - Assets.xcassets
     dependencies:
       - package: CMUXAuthCore
+      - package: CmuxDaemonProtocol
       - package: CmuxMobileContract
       - package: CmuxTerminalCore
       - package: GRDB
@@ -135,6 +138,7 @@ targets:
     dependencies:
       - target: cmux
       - package: CMUXAuthCore
+      - package: CmuxDaemonProtocol
       - package: CmuxMobileContract
       - package: CmuxTerminalCore
     settings:

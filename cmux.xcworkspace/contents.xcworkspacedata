@@ -20,6 +20,9 @@
          location = "group:CMUXAuthCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxDaemonProtocol">
+      </FileRef>
+      <FileRef
          location = "group:CMUXDebugLog">
       </FileRef>
       <FileRef

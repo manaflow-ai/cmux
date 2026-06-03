@@ -1,3 +1,4 @@
+import CmuxDaemonProtocol
 import Foundation
 import OSLog
 

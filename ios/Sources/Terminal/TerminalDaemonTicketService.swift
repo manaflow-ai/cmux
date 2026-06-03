@@ -1,83 +1,8 @@
-import CmuxTerminalCore
+import CmuxDaemonProtocol
 import Foundation
 import OSLog
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "terminal.ticket")
-
-struct TerminalDaemonTicketRequest: Encodable, Hashable, Sendable {
-    var serverID: String
-    var teamID: String?
-    var sessionID: String?
-    var attachmentID: String?
-    var capabilities: [String]
-
-    init(
-        serverID: String,
-        teamID: String? = nil,
-        sessionID: String? = nil,
-        attachmentID: String? = nil,
-        capabilities: [String] = ["session.attach"]
-    ) {
-        self.serverID = serverID
-        self.teamID = teamID
-        self.sessionID = sessionID
-        self.attachmentID = attachmentID
-        self.capabilities = capabilities.sorted()
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case serverID = "server_id"
-        case teamID = "team_id"
-        case sessionID = "session_id"
-        case attachmentID = "attachment_id"
-        case capabilities
-    }
-}
-
-struct TerminalDaemonTicket: Decodable, Equatable, Sendable {
-    var ticket: String
-    var directURL: URL
-    var directTLSPins: [String]
-    var sessionID: String
-    var attachmentID: String
-    var expiresAt: Date
-
-    init(
-        ticket: String,
-        directURL: URL,
-        directTLSPins: [String] = [],
-        sessionID: String,
-        attachmentID: String,
-        expiresAt: Date
-    ) {
-        self.ticket = ticket
-        self.directURL = directURL
-        self.directTLSPins = directTLSPins.normalizedTerminalPins
-        self.sessionID = sessionID
-        self.attachmentID = attachmentID
-        self.expiresAt = expiresAt
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case ticket
-        case directURL = "direct_url"
-        case directTLSPins = "direct_tls_pins"
-        case sessionID = "session_id"
-        case attachmentID = "attachment_id"
-        case expiresAt = "expires_at"
-    }
-
-    init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        ticket = try container.decode(String.self, forKey: .ticket)
-        directURL = try container.decode(URL.self, forKey: .directURL)
-        directTLSPins = try container.decodeIfPresent([String].self, forKey: .directTLSPins)?
-            .normalizedTerminalPins ?? []
-        sessionID = try container.decode(String.self, forKey: .sessionID)
-        attachmentID = try container.decode(String.self, forKey: .attachmentID)
-        expiresAt = try container.decode(Date.self, forKey: .expiresAt)
-    }
-}
 
 enum TerminalDaemonTicketServiceError: Error {
     case invalidResponse

@@ -1,3 +1,4 @@
+import CmuxDaemonProtocol
 import CmuxTerminalCore
 import XCTest
 @testable import cmux_DEV

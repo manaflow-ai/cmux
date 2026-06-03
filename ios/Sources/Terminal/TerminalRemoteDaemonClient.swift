@@ -1,3 +1,4 @@
+import CmuxDaemonProtocol
 import Foundation
 import OSLog
 
@@ -6,326 +7,6 @@ private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "terminal.
 protocol TerminalRemoteDaemonTransport: Sendable {
     func writeLine(_ line: String) async throws
     func readLine() async throws -> String
-}
-
-struct TerminalRemoteDaemonHello: Decodable, Equatable, Sendable {
-    let name: String
-    let version: String
-    let instanceID: String?
-    let workspaceCount: Int?
-    let changeSeq: UInt64?
-    let capabilities: [String]
-
-    init(
-        name: String,
-        version: String,
-        instanceID: String?,
-        workspaceCount: Int? = nil,
-        changeSeq: UInt64? = nil,
-        capabilities: [String]
-    ) {
-        self.name = name
-        self.version = version
-        self.instanceID = instanceID
-        self.workspaceCount = workspaceCount
-        self.changeSeq = changeSeq
-        self.capabilities = capabilities
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case name
-        case version
-        case instanceID = "instance_id"
-        case workspaceCount = "workspace_count"
-        case changeSeq = "change_seq"
-        case capabilities
-    }
-}
-
-struct TerminalRemoteDaemonAttachmentStatus: Decodable, Equatable, Sendable {
-    let attachmentID: String
-    let cols: Int
-    let rows: Int
-    let mode: String?
-    let updatedAt: Date?
-
-    private enum CodingKeys: String, CodingKey {
-        case attachmentID = "attachment_id"
-        case cols
-        case rows
-        case mode
-        case updatedAt = "updated_at"
-    }
-}
-
-struct TerminalRemoteDaemonSessionStatus: Decodable, Equatable, Sendable {
-    let sessionID: String
-    let attachments: [TerminalRemoteDaemonAttachmentStatus]
-    let effectiveCols: Int
-    let effectiveRows: Int
-    let lastKnownCols: Int
-    let lastKnownRows: Int
-    /// Monotonic counter bumped by the daemon on every effective-size
-    /// change. Optional for back-compat with older daemons; clients that
-    /// need strict ordering should treat nil as "not reported / always
-    /// apply the first one seen".
-    let gridGeneration: UInt64?
-
-    private enum CodingKeys: String, CodingKey {
-        case sessionID = "session_id"
-        case attachments
-        case effectiveCols = "effective_cols"
-        case effectiveRows = "effective_rows"
-        case lastKnownCols = "last_known_cols"
-        case lastKnownRows = "last_known_rows"
-        case gridGeneration = "grid_generation"
-    }
-}
-
-struct TerminalRemoteDaemonTerminalOpenResult: Decodable, Equatable, Sendable {
-    let sessionID: String
-    let attachmentID: String
-    let attachments: [TerminalRemoteDaemonAttachmentStatus]
-    let effectiveCols: Int
-    let effectiveRows: Int
-    let lastKnownCols: Int
-    let lastKnownRows: Int
-    let offset: UInt64
-    /// See TerminalRemoteDaemonSessionStatus.gridGeneration.
-    let gridGeneration: UInt64?
-
-    private enum CodingKeys: String, CodingKey {
-        case sessionID = "session_id"
-        case attachmentID = "attachment_id"
-        case attachments
-        case effectiveCols = "effective_cols"
-        case effectiveRows = "effective_rows"
-        case lastKnownCols = "last_known_cols"
-        case lastKnownRows = "last_known_rows"
-        case offset
-        case gridGeneration = "grid_generation"
-    }
-}
-
-struct TerminalRemoteDaemonTerminalReadResult: Decodable, Equatable, Sendable {
-    let sessionID: String
-    let offset: UInt64
-    let baseOffset: UInt64
-    let truncated: Bool
-    let eof: Bool
-    let data: Data
-
-    private enum CodingKeys: String, CodingKey {
-        case sessionID = "session_id"
-        case offset
-        case baseOffset = "base_offset"
-        case truncated
-        case eof
-        case data
-    }
-
-    init(
-        sessionID: String,
-        offset: UInt64,
-        baseOffset: UInt64,
-        truncated: Bool,
-        eof: Bool,
-        data: Data
-    ) {
-        self.sessionID = sessionID
-        self.offset = offset
-        self.baseOffset = baseOffset
-        self.truncated = truncated
-        self.eof = eof
-        self.data = data
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        sessionID = try container.decode(String.self, forKey: .sessionID)
-        offset = try container.decode(UInt64.self, forKey: .offset)
-        baseOffset = try container.decode(UInt64.self, forKey: .baseOffset)
-        truncated = try container.decode(Bool.self, forKey: .truncated)
-        eof = try container.decode(Bool.self, forKey: .eof)
-
-        let encodedData = try container.decode(String.self, forKey: .data)
-        guard let decodedData = Data(base64Encoded: encodedData) else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .data,
-                in: container,
-                debugDescription: "terminal.read data was not valid base64"
-            )
-        }
-        data = decodedData
-    }
-}
-
-struct TerminalRemoteDaemonWorkspacePane: Decodable, Equatable, Sendable {
-    let id: String
-    let sessionID: String?
-    let title: String?
-    let directory: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case sessionID = "session_id"
-        case title
-        case directory
-    }
-}
-
-struct TerminalRemoteDaemonWorkspaceEntry: Decodable, Equatable, Sendable {
-    let id: String
-    let title: String
-    let directory: String
-    let focusedPaneID: String?
-    let paneCount: Int
-    let createdAt: Int64
-    let lastActivityAt: Int64
-    let sessionID: String?
-    let preview: String?
-    let unreadCount: Int?
-    let pinned: Bool?
-    let panes: [TerminalRemoteDaemonWorkspacePane]?
-
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case title
-        case directory
-        case focusedPaneID = "focused_pane_id"
-        case paneCount = "pane_count"
-        case createdAt = "created_at"
-        case lastActivityAt = "last_activity_at"
-        case sessionID = "session_id"
-        case preview
-        case unreadCount = "unread_count"
-        case pinned
-        case panes
-    }
-}
-
-/// Response from `workspace.create` (daemon returns minted workspace_id).
-struct TerminalRemoteDaemonWorkspaceCreateResult: Decodable, Equatable, Sendable {
-    let workspaceID: String
-    let changeSeq: UInt64
-
-    private enum CodingKeys: String, CodingKey {
-        case workspaceID = "workspace_id"
-        case changeSeq = "change_seq"
-    }
-}
-
-/// Response from `workspace.open_pane` — daemon-minted session_id and
-/// pane_id for a fresh shell in the given workspace. This is the
-/// canonical way clients obtain a session_id without inventing one.
-struct TerminalRemoteDaemonWorkspaceOpenPaneResult: Decodable, Equatable, Sendable {
-    let workspaceID: String
-    let paneID: String
-    let sessionID: String
-    let attachmentID: String
-    let offset: UInt64
-    let effectiveCols: Int
-    let effectiveRows: Int
-    /// See TerminalRemoteDaemonSessionStatus.gridGeneration.
-    let gridGeneration: UInt64?
-
-    private enum CodingKeys: String, CodingKey {
-        case workspaceID = "workspace_id"
-        case paneID = "pane_id"
-        case sessionID = "session_id"
-        case attachmentID = "attachment_id"
-        case offset
-        case effectiveCols = "effective_cols"
-        case effectiveRows = "effective_rows"
-        case gridGeneration = "grid_generation"
-    }
-}
-
-struct TerminalRemoteDaemonWorkspaceListResult: Decodable, Equatable, Sendable {
-    let workspaces: [TerminalRemoteDaemonWorkspaceEntry]
-    let selectedWorkspaceID: String?
-    let changeSeq: UInt64
-
-    private enum CodingKeys: String, CodingKey {
-        case workspaces
-        case selectedWorkspaceID = "selected_workspace_id"
-        case changeSeq = "change_seq"
-    }
-}
-
-struct TerminalRemoteDaemonSessionListEntry: Decodable, Equatable, Sendable {
-    let sessionID: String
-    let attachmentCount: Int
-    let effectiveCols: Int
-    let effectiveRows: Int
-
-    private enum CodingKeys: String, CodingKey {
-        case sessionID = "session_id"
-        case attachmentCount = "attachment_count"
-        case effectiveCols = "effective_cols"
-        case effectiveRows = "effective_rows"
-    }
-}
-
-struct TerminalRemoteDaemonSessionListResult: Decodable, Equatable, Sendable {
-    let sessions: [TerminalRemoteDaemonSessionListEntry]
-}
-
-struct TerminalRemoteDaemonSessionHistoryResult: Decodable, Equatable, Sendable {
-    let sessionID: String
-    let history: String
-    let nextOffset: UInt64?
-
-    private enum CodingKeys: String, CodingKey {
-        case sessionID = "session_id"
-        case history
-        case nextOffset = "next_offset"
-    }
-
-    init(sessionID: String, history: String, nextOffset: UInt64? = nil) {
-        self.sessionID = sessionID
-        self.history = history
-        self.nextOffset = nextOffset
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        sessionID = try container.decode(String.self, forKey: .sessionID)
-        history = try container.decode(String.self, forKey: .history)
-        nextOffset = try container.decodeIfPresent(UInt64.self, forKey: .nextOffset)
-    }
-}
-
-struct TerminalNotificationsPayload: Sendable, Equatable {
-    struct CommandFinished: Sendable, Equatable {
-        let exitCode: Int?
-    }
-    struct Notification: Sendable, Equatable {
-        let title: String?
-        let body: String?
-    }
-    let bell: Bool
-    let commandFinished: CommandFinished?
-    let notification: Notification?
-}
-
-enum TerminalPushEvent: Sendable {
-    case output(
-        data: Data,
-        offset: UInt64,
-        baseOffset: UInt64,
-        truncated: Bool,
-        eof: Bool,
-        seq: UInt64,
-        notifications: TerminalNotificationsPayload?
-    )
-    case eof
-    /// Daemon-authoritative rendering grid. Emitted unconditionally by
-    /// the daemon on every attach/resize/detach/open (and also inlined
-    /// in RPC responses), so this is the single source of truth for
-    /// how big the local Ghostty surface should be. Clients apply it
-    /// directly; any remaining container area is letterboxed.
-    case viewSize(cols: Int, rows: Int)
 }
 
 protocol TerminalRemoteDaemonPushSubscribing: Sendable {
@@ -438,7 +119,7 @@ actor TerminalRemoteDaemonClient {
 
     func workspaceRename(workspaceID: String, title: String) async throws {
         _ = try await sendRequest(
-            method: "workspace.rename",
+            method: DaemonRPCMethod.workspaceRename,
             params: ["workspace_id": workspaceID, "title": title],
             as: TerminalRemoteDaemonGenericAck.self
         )
@@ -446,7 +127,7 @@ actor TerminalRemoteDaemonClient {
 
     func workspacePin(workspaceID: String, pinned: Bool) async throws {
         _ = try await sendRequest(
-            method: "workspace.pin",
+            method: DaemonRPCMethod.workspacePin,
             params: ["workspace_id": workspaceID, "pinned": pinned],
             as: TerminalRemoteDaemonGenericAck.self
         )
@@ -462,7 +143,7 @@ actor TerminalRemoteDaemonClient {
         deviceTokens: [String]
     ) async throws {
         _ = try await sendRequest(
-            method: "daemon.configure_notifications",
+            method: DaemonRPCMethod.daemonConfigureNotifications,
             params: [
                 "endpoint": endpoint,
                 "bearer_token": bearerToken,
@@ -478,7 +159,7 @@ actor TerminalRemoteDaemonClient {
             params["offset"] = offset
         }
         return try await sendRequest(
-            method: "terminal.subscribe",
+            method: DaemonRPCMethod.terminalSubscribe,
             params: params,
             as: TerminalRemoteDaemonTerminalReadResult.self
         )
@@ -490,7 +171,7 @@ actor TerminalRemoteDaemonClient {
     }
 
     func sendHello() async throws -> TerminalRemoteDaemonHello {
-        try await sendRequest(method: "hello", params: [:], as: TerminalRemoteDaemonHello.self)
+        try await sendRequest(method: DaemonRPCMethod.hello, params: [:], as: TerminalRemoteDaemonHello.self)
     }
 
     func ensureSession(sessionID: String?) async throws -> TerminalRemoteDaemonSessionStatus {
@@ -498,7 +179,7 @@ actor TerminalRemoteDaemonClient {
         if let sessionID, !sessionID.isEmpty {
             params["session_id"] = sessionID
         }
-        return try await sendRequest(method: "session.open", params: params, as: TerminalRemoteDaemonSessionStatus.self)
+        return try await sendRequest(method: DaemonRPCMethod.sessionOpen, params: params, as: TerminalRemoteDaemonSessionStatus.self)
     }
 
     func sessionAttach(
@@ -508,7 +189,7 @@ actor TerminalRemoteDaemonClient {
         rows: Int
     ) async throws -> TerminalRemoteDaemonSessionStatus {
         try await sendRequest(
-            method: "session.attach",
+            method: DaemonRPCMethod.sessionAttach,
             params: [
                 "session_id": sessionID,
                 "attachment_id": attachmentID,
@@ -526,7 +207,7 @@ actor TerminalRemoteDaemonClient {
         rows: Int
     ) async throws -> TerminalRemoteDaemonSessionStatus {
         try await sendRequest(
-            method: "session.resize",
+            method: DaemonRPCMethod.sessionResize,
             params: [
                 "session_id": sessionID,
                 "attachment_id": attachmentID,
@@ -542,7 +223,7 @@ actor TerminalRemoteDaemonClient {
         attachmentID: String
     ) async throws -> TerminalRemoteDaemonSessionStatus {
         try await sendRequest(
-            method: "session.detach",
+            method: DaemonRPCMethod.sessionDetach,
             params: [
                 "session_id": sessionID,
                 "attachment_id": attachmentID,
@@ -553,25 +234,25 @@ actor TerminalRemoteDaemonClient {
 
     func sessionClose(sessionID: String) async throws {
         _ = try await sendRequest(
-            method: "session.close",
+            method: DaemonRPCMethod.sessionClose,
             params: ["session_id": sessionID],
             as: TerminalRemoteDaemonCloseResult.self
         )
     }
 
     func workspaceList() async throws -> TerminalRemoteDaemonWorkspaceListResult {
-        try await sendRequest(method: "workspace.list", params: [:], as: TerminalRemoteDaemonWorkspaceListResult.self)
+        try await sendRequest(method: DaemonRPCMethod.workspaceList, params: [:], as: TerminalRemoteDaemonWorkspaceListResult.self)
     }
 
     func workspaceSubscribe() async throws -> TerminalRemoteDaemonWorkspaceListResult {
-        try await sendRequest(method: "workspace.subscribe", params: [:], as: TerminalRemoteDaemonWorkspaceListResult.self)
+        try await sendRequest(method: DaemonRPCMethod.workspaceSubscribe, params: [:], as: TerminalRemoteDaemonWorkspaceListResult.self)
     }
 
     func workspaceCreate(title: String, directory: String? = nil) async throws -> TerminalRemoteDaemonWorkspaceCreateResult {
         var params: [String: Any] = ["title": title]
         if let directory { params["directory"] = directory }
         return try await sendRequest(
-            method: "workspace.create",
+            method: DaemonRPCMethod.workspaceCreate,
             params: params,
             as: TerminalRemoteDaemonWorkspaceCreateResult.self
         )
@@ -594,19 +275,19 @@ actor TerminalRemoteDaemonClient {
         if let parentPaneID { params["parent_pane_id"] = parentPaneID }
         if let direction { params["direction"] = direction }
         return try await sendRequest(
-            method: "workspace.open_pane",
+            method: DaemonRPCMethod.workspaceOpenPane,
             params: params,
             as: TerminalRemoteDaemonWorkspaceOpenPaneResult.self
         )
     }
 
     func sessionList() async throws -> TerminalRemoteDaemonSessionListResult {
-        try await sendRequest(method: "session.list", params: [:], as: TerminalRemoteDaemonSessionListResult.self)
+        try await sendRequest(method: DaemonRPCMethod.sessionList, params: [:], as: TerminalRemoteDaemonSessionListResult.self)
     }
 
     func sessionHistory(sessionID: String, format: String = "plain") async throws -> TerminalRemoteDaemonSessionHistoryResult {
         try await sendRequest(
-            method: "session.history",
+            method: DaemonRPCMethod.sessionHistory,
             params: ["session_id": sessionID, "format": format],
             as: TerminalRemoteDaemonSessionHistoryResult.self
         )
@@ -627,7 +308,7 @@ actor TerminalRemoteDaemonClient {
             params["session_id"] = sessionID
         }
         return try await sendRequest(
-            method: "terminal.open",
+            method: DaemonRPCMethod.terminalOpen,
             params: params,
             as: TerminalRemoteDaemonTerminalOpenResult.self
         )
@@ -635,7 +316,7 @@ actor TerminalRemoteDaemonClient {
 
     func terminalWrite(sessionID: String, data: Data) async throws {
         _ = try await sendRequest(
-            method: "terminal.write",
+            method: DaemonRPCMethod.terminalWrite,
             params: [
                 "session_id": sessionID,
                 "write_id": "ios-\(UUID().uuidString.lowercased())",
@@ -652,7 +333,7 @@ actor TerminalRemoteDaemonClient {
         timeoutMilliseconds: Int
     ) async throws -> TerminalRemoteDaemonTerminalReadResult {
         try await sendRequest(
-            method: "terminal.read",
+            method: DaemonRPCMethod.terminalRead,
             params: [
                 "session_id": sessionID,
                 "offset": offset,
