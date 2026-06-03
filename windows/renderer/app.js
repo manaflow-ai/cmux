@@ -14884,6 +14884,17 @@ const browserWorkflowPresets = [
       externalBrowserProfileId: "system",
       browserSuspendInactive: false
     }
+  },
+  {
+    id: "localApi",
+    label: "Local API",
+    body: "Use localhost 8080 for backend and API checks while keeping the pane live.",
+    settings: {
+      browserHomeUrl: "http://localhost:8080",
+      browserLaunchMode: "pane",
+      externalBrowserProfileId: "system",
+      browserSuspendInactive: false
+    }
   }
 ];
 
@@ -14947,7 +14958,7 @@ function browserWorkflowPresetSummary(settings) {
 
 function browserWorkflowPresetSearchText(preset, settings, active = false, savedProfile = null) {
   return normalizeSettingsQuery([
-    "browser workflow preset setup home launch external profile suspend save copy",
+    "browser workflow preset setup home launch external profile suspend save copy localhost local dev app api backend 3000 5173 8080",
     active ? "active current" : "",
     savedProfile ? "saved" : "",
     preset?.label || "",
@@ -15000,7 +15011,7 @@ function browserWorkflowPresetProfileSaveTitle(preset, savedProfile = savedSetti
 function browserWorkflowPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "browser-workflow-preset-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("browser workflow presets setup home launch external profile suspend live save copy");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("browser workflow presets setup home launch external profile suspend live save copy localhost local dev app api backend 3000 5173 8080");
   for (const preset of browserWorkflowPresets) {
     const settings = browserWorkflowPresetSettings(preset);
     if (!settings) continue;
