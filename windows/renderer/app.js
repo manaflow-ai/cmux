@@ -6042,6 +6042,364 @@ function customizationCommandPaletteState(commandId) {
   return null;
 }
 
+const corePaletteCommandIds = new Set([
+  "workspace.rename",
+  "workspace.changeFolder",
+  "workspace.openFolder",
+  "workspace.copySetup",
+  "workspace.pasteSetup",
+  "workspace.saveBlueprint",
+  "workspace.copyBlueprint",
+  "workspace.pasteBlueprint",
+  "workspace.closeEmpty",
+  "workspace.close",
+  "terminal.new",
+  "terminal.splitRight",
+  "terminal.splitDown",
+  "terminal.duplicate",
+  "terminal.find",
+  "terminal.clear",
+  "terminal.restart",
+  "terminal.close",
+  "terminal.closeOthers",
+  "terminal.closeRight",
+  "terminal.closeAll",
+  "terminal.focusPane",
+  "terminal.minimizePane",
+  "terminal.restoreMinimized",
+  "terminal.resetLayout",
+  "terminal.fontUp",
+  "terminal.fontDown",
+  "terminal.fontReset",
+  "browser.newPane",
+  "settings.pane",
+  "settings.renamePane",
+  "settings.copyPaneSetup",
+  "settings.pastePaneSetup",
+  "layout.activePercent",
+  "layout.focusMode"
+]);
+
+function coreCommandPaletteSignature() {
+  const parts = [];
+  const workspace = activeWorkspace();
+  const panel = paneSetupTarget(activePaneActionTarget() || activePanel());
+  appendSignatureValue(parts, workspace?.id || "");
+  appendSignatureValue(parts, workspace?.title || "");
+  appendSignatureValue(parts, workspace?.cwd || "");
+  appendSignatureValue(parts, workspace?.panels?.length || 0);
+  appendSignatureValue(parts, emptyWorkspaceCleanupTargets().length);
+  appendSignatureValue(parts, workspaceBlueprintsFull());
+  appendSignatureValue(parts, paneCreationButtonsDisabled());
+  appendSignatureValue(parts, paneCreationQueueStatusLabel());
+  appendSignatureValue(parts, panel?.id || "");
+  appendSignatureValue(parts, panel?.type || "");
+  appendSignatureValue(parts, panel ? panelDisplayTitle(panel, true) : "");
+  appendSignatureValue(parts, isPendingPanel(panel));
+  appendSignatureValue(parts, minimizedPanelCount(workspace));
+  appendSignatureValue(parts, state.closedPanels.length);
+  appendSignatureValue(parts, Boolean(state.settings.focusMode));
+  appendSignatureValue(parts, Boolean(panel && isPanelZoomed(panel, workspace)));
+  appendSignatureValue(parts, activePaneLayoutPercent(workspace));
+  return parts.join("");
+}
+
+function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
+  if (!corePaletteCommandIds.has(commandId)) return null;
+  const panels = workspace?.panels || [];
+  const panel = paneSetupTarget(activePaneActionTarget() || activePanel());
+  const hasWorkspace = Boolean(workspace);
+  const hasPanel = Boolean(panel);
+  const pendingPanel = isPendingPanel(panel);
+  const readyPanel = hasPanel && !pendingPanel;
+  const readyPanels = panels.filter((candidate) => !isPendingPanel(candidate));
+  const terminalPanel = activeTerminalPanelForSettings();
+  const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
+  const panelTitle = hasPanel ? panelDisplayTitle(panel, true) : "No pane";
+  const panelKind = panel?.type === "browser" ? "Browser" : "Terminal";
+  const noWorkspaceTitle = "Open a workspace first.";
+  const noPaneTitle = pendingPanel ? "Wait for the pane to finish starting." : "Open a terminal or browser pane first.";
+  const paneMeta = readyPanel ? `${panelTitle} / ${panelKind}` : (hasPanel ? `${panelTitle} / Starting` : "No active pane");
+  const paneIndex = panels.findIndex((candidate) => candidate.id === panel?.id);
+  const panesToRight = paneIndex >= 0 ? Math.max(0, panels.length - paneIndex - 1) : 0;
+  const queueFull = paneCreationButtonsDisabled();
+  const creationTitle = (title, hint = "") => {
+    if (queueFull) return paneCreationLimitLabel();
+    return paneCreationActionTitle(title, hint);
+  };
+  const paneCreationDisabledTitle = readyPanel ? paneCreationLimitLabel() : noPaneTitle;
+  if (commandId === "workspace.rename") {
+    return {
+      meta: workspaceTitle,
+      shortcut: "Edit",
+      disabled: !hasWorkspace,
+      icon: "workspace",
+      title: hasWorkspace ? "Rename the active workspace." : noWorkspaceTitle,
+      search: `workspace rename title name active ${workspaceTitle}`
+    };
+  }
+  if (commandId === "workspace.changeFolder") {
+    return {
+      meta: workspace?.cwdShort || workspace?.cwd || "No folder",
+      shortcut: "Folder",
+      disabled: !hasWorkspace,
+      icon: "workspace",
+      title: hasWorkspace ? "Choose the active workspace folder." : noWorkspaceTitle,
+      search: `workspace folder cwd directory choose change active ${workspaceTitle}`
+    };
+  }
+  if (commandId === "workspace.openFolder") {
+    const hasFolder = Boolean(workspace?.cwd);
+    return {
+      meta: workspace?.cwdShort || workspace?.cwd || "No folder",
+      shortcut: "Open",
+      disabled: !hasWorkspace || !hasFolder,
+      icon: "workspace",
+      title: !hasWorkspace ? noWorkspaceTitle : hasFolder ? "Open the active workspace folder." : "This workspace has no folder.",
+      search: `workspace folder cwd directory open explorer ${workspaceTitle}`
+    };
+  }
+  if (commandId === "workspace.copySetup" || commandId === "workspace.pasteSetup") {
+    const isPaste = commandId === "workspace.pasteSetup";
+    return {
+      meta: workspaceTitle,
+      shortcut: isPaste ? "Paste" : "Copy",
+      disabled: !hasWorkspace,
+      icon: "workspace",
+      title: !hasWorkspace
+        ? noWorkspaceTitle
+        : isPaste
+          ? "Paste copied workspace name, color, and folder."
+          : "Copy this workspace name, color, and folder as JSON.",
+      search: `workspace setup ${isPaste ? "paste import" : "copy export"} clipboard json name color folder ${workspaceTitle}`
+    };
+  }
+  if (commandId === "workspace.saveBlueprint" || commandId === "workspace.copyBlueprint") {
+    const isCopy = commandId === "workspace.copyBlueprint";
+    const paneCount = readyPanels.length;
+    const full = workspaceBlueprintsFull();
+    return {
+      meta: paneCount ? `${paneCount} pane${paneCount === 1 ? "" : "s"} / ${workspaceTitle}` : "Open panes first",
+      shortcut: isCopy ? "Copy" : "Save",
+      disabled: !paneCount || (!isCopy && full),
+      icon: "blueprints",
+      title: !paneCount
+        ? "Open panes before using a workspace blueprint."
+        : !isCopy && full
+          ? workspaceBlueprintLimitTitle()
+          : isCopy
+            ? "Copy the current workspace pane layout as JSON."
+            : "Save the current workspace pane layout as a reusable blueprint.",
+      search: `workspace blueprint layout ${isCopy ? "copy export" : "save reusable"} ${workspaceTitle} ${paneCount} panes`
+    };
+  }
+  if (commandId === "workspace.pasteBlueprint") {
+    const full = workspaceBlueprintsFull();
+    return {
+      meta: `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} blueprints`,
+      shortcut: "Paste",
+      disabled: full,
+      icon: "blueprints",
+      title: full ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint.",
+      search: "workspace blueprint paste import clipboard json saved reusable panes"
+    };
+  }
+  if (commandId === "workspace.closeEmpty") {
+    const count = emptyWorkspaceCleanupTargets().length;
+    return {
+      meta: count ? `${count} empty` : "No empty workspaces",
+      shortcut: "Clean",
+      disabled: count === 0,
+      icon: "workspace",
+      title: count ? "Close empty workspaces." : "No empty workspaces to close.",
+      search: "workspace close empty cleanup clutter"
+    };
+  }
+  if (commandId === "workspace.close") {
+    return {
+      meta: workspaceTitle,
+      shortcut: "Close",
+      disabled: !hasWorkspace,
+      icon: "workspace",
+      title: hasWorkspace ? "Close the active workspace." : noWorkspaceTitle,
+      search: `workspace close active ${workspaceTitle}`
+    };
+  }
+  if (commandId === "terminal.new") {
+    return {
+      meta: workspaceTitle,
+      disabled: !hasWorkspace || queueFull,
+      icon: "terminalPlus",
+      title: !hasWorkspace ? noWorkspaceTitle : creationTitle("Start a terminal pane in the active workspace.", "Uses the selected terminal profile."),
+      search: `terminal new pane shell add workspace ${workspaceTitle} ${paneCreationQueueStatusLabel()}`
+    };
+  }
+  if (commandId === "browser.newPane") {
+    return {
+      meta: hostnameOf(state.settings.browserHomeUrl) || workspaceTitle,
+      disabled: !hasWorkspace || queueFull,
+      icon: "browserPlus",
+      title: !hasWorkspace ? noWorkspaceTitle : creationTitle("Open the browser home page in a new pane."),
+      search: `browser new pane web home add workspace ${workspaceTitle} ${state.settings.browserHomeUrl}`
+    };
+  }
+  if (commandId === "terminal.splitRight" || commandId === "terminal.splitDown") {
+    const direction = commandId === "terminal.splitDown" ? "below" : "right";
+    const canSplit = hasWorkspace && !queueFull;
+    return {
+      meta: readyPanel ? paneMeta : workspaceTitle,
+      disabled: !canSplit,
+      icon: "splitRight",
+      title: !hasWorkspace
+        ? noWorkspaceTitle
+        : queueFull
+          ? paneCreationLimitLabel()
+          : readyPanel
+            ? `Split ${panelTitle} ${direction} with a terminal pane.`
+            : `Start a terminal pane ${direction}.`,
+      search: `active pane split ${direction} terminal ${panelTitle} ${panelKind}`
+    };
+  }
+  if (commandId === "terminal.duplicate") {
+    return {
+      meta: paneMeta,
+      disabled: !readyPanel || queueFull,
+      icon: "paneShape",
+      title: !readyPanel || queueFull ? paneCreationDisabledTitle : "Duplicate the active pane to the right.",
+      search: `active pane duplicate clone ${panelTitle} ${panelKind}`
+    };
+  }
+  if (["settings.pane", "settings.renamePane", "settings.copyPaneSetup", "settings.pastePaneSetup"].includes(commandId)) {
+    const shortcutById = {
+      "settings.pane": "Settings",
+      "settings.renamePane": "Edit",
+      "settings.copyPaneSetup": "Copy",
+      "settings.pastePaneSetup": "Paste"
+    };
+    const titleById = {
+      "settings.pane": "Open active pane settings.",
+      "settings.renamePane": "Rename the active pane.",
+      "settings.copyPaneSetup": "Copy active pane setup as JSON.",
+      "settings.pastePaneSetup": "Paste copied pane setup into the active pane."
+    };
+    return {
+      meta: paneMeta,
+      shortcut: shortcutById[commandId],
+      disabled: !readyPanel,
+      icon: "paneSettings",
+      title: readyPanel ? titleById[commandId] : noPaneTitle,
+      search: `settings active pane ${shortcutById[commandId]} setup rename copy paste ${panelTitle} ${panelKind}`
+    };
+  }
+  if (["terminal.find", "terminal.clear", "terminal.restart", "terminal.fontUp", "terminal.fontDown", "terminal.fontReset"].includes(commandId)) {
+    const terminalTitle = terminalPanel ? panelDisplayTitle(terminalPanel, true) : "No terminal";
+    return {
+      meta: terminalTitle,
+      disabled: !terminalPanel,
+      icon: "terminal",
+      title: terminalPanel ? `${commandId.startsWith("terminal.font") ? "Adjust" : "Use"} active terminal.` : "Focus a terminal pane first.",
+      search: `active terminal ${terminalTitle} find clear restart text font size`
+    };
+  }
+  if (commandId === "terminal.close") {
+    return {
+      meta: hasPanel ? panelTitle : "No active pane",
+      shortcut: "Close",
+      disabled: !hasPanel,
+      icon: "paneShape",
+      title: hasPanel ? "Close the active pane." : noPaneTitle,
+      search: `active pane close ${panelTitle} ${panelKind}`
+    };
+  }
+  if (commandId === "terminal.closeOthers") {
+    return {
+      meta: readyPanel ? `${Math.max(0, readyPanels.length - 1)} other panes` : paneMeta,
+      shortcut: "Close",
+      disabled: !readyPanel || readyPanels.length <= 1,
+      icon: "paneShape",
+      title: readyPanel && readyPanels.length > 1 ? "Close other panes in this workspace." : "Open another pane first.",
+      search: `active pane close others workspace ${panelTitle}`
+    };
+  }
+  if (commandId === "terminal.closeRight") {
+    return {
+      meta: readyPanel ? `${panesToRight} to right` : paneMeta,
+      shortcut: "Close",
+      disabled: !readyPanel || panesToRight === 0,
+      icon: "paneShape",
+      title: readyPanel && panesToRight > 0 ? "Close panes to the right." : "No panes to the right.",
+      search: `active pane close right workspace ${panelTitle}`
+    };
+  }
+  if (commandId === "terminal.closeAll") {
+    return {
+      meta: `${panels.length} pane${panels.length === 1 ? "" : "s"}`,
+      shortcut: "Close",
+      disabled: panels.length === 0,
+      icon: "paneShape",
+      title: panels.length ? "Close all panes in the active workspace." : "No panes to close.",
+      search: `workspace close all panes ${workspaceTitle}`
+    };
+  }
+  if (commandId === "terminal.focusPane") {
+    const zoomed = readyPanel && isPanelZoomed(panel, workspace);
+    return {
+      meta: zoomed ? "Focused" : paneMeta,
+      shortcut: zoomed ? "Leave" : "Focus",
+      disabled: !readyPanel,
+      icon: "focus",
+      title: readyPanel ? (zoomed ? "Leave focus mode for this pane." : "Focus the active pane.") : noPaneTitle,
+      search: `active pane focus zoom ${panelTitle} ${panelKind}`
+    };
+  }
+  if (commandId === "terminal.minimizePane") {
+    return {
+      meta: paneMeta,
+      shortcut: "Minimize",
+      disabled: !readyPanel,
+      icon: "paneShape",
+      title: readyPanel ? "Minimize the active pane." : noPaneTitle,
+      search: `active pane minimize hide ${panelTitle} ${panelKind}`
+    };
+  }
+  if (commandId === "terminal.restoreMinimized") {
+    const count = minimizedPanelCount(workspace);
+    return {
+      meta: count ? `${count} minimized` : "None minimized",
+      shortcut: "Restore",
+      disabled: count === 0,
+      icon: "paneShape",
+      title: count ? "Restore minimized panes." : "No minimized panes to restore.",
+      search: "pane restore minimized hidden"
+    };
+  }
+  if (commandId === "terminal.resetLayout" || commandId === "layout.activePercent") {
+    const enoughPanes = readyPanels.length > 1;
+    return {
+      meta: enoughPanes ? activePaneLayoutPresetLabel(workspace) : "Open another pane",
+      shortcut: commandId === "layout.activePercent" ? "Size" : "Reset",
+      disabled: !enoughPanes,
+      icon: "paneShape",
+      title: enoughPanes
+        ? commandId === "layout.activePercent"
+          ? "Set the active pane size."
+          : "Reset the split layout."
+        : "Open another pane before changing split layout.",
+      search: `pane split layout ${commandId === "layout.activePercent" ? "size percent" : "reset equal"} ${panelTitle}`
+    };
+  }
+  if (commandId === "layout.focusMode") {
+    return {
+      meta: state.settings.focusMode ? "On" : "Off",
+      shortcut: "Toggle",
+      icon: "focus",
+      title: state.settings.focusMode ? "Turn focus mode off." : "Turn focus mode on.",
+      search: "layout focus mode hide chrome simple workspace"
+    };
+  }
+  return null;
+}
+
 const actionWorkflowDefinitions = [
   {
     id: "workspaceSetup",
@@ -25141,6 +25499,7 @@ function paletteEntriesSignature() {
   appendSignatureValue(parts, quickSettingsSignature());
   appendSignatureValue(parts, backgroundCommandPaletteSignature());
   appendSignatureValue(parts, customizationCommandPaletteSignature());
+  appendSignatureValue(parts, coreCommandPaletteSignature());
   appendSignatureValue(parts, performanceQuickActionPaletteSignature());
   appendSignatureValue(parts, performanceHealthPaletteSignature());
   appendPalettePaneTargetSignature(parts);
@@ -25516,8 +25875,9 @@ function paletteEntries() {
     const performanceActive = performanceQuickActionIsActive(performanceAction);
     const backgroundState = backgroundCommandPaletteState(command.id, paletteWorkspace);
     const customizationState = customizationCommandPaletteState(command.id);
+    const coreState = coreCommandPaletteState(command.id, paletteWorkspace);
     const layoutActive = activeLayoutCommandIds.has(command.id);
-    const active = layoutActive || performanceActive || Boolean(backgroundState?.active) || Boolean(customizationState?.active);
+    const active = layoutActive || performanceActive || Boolean(backgroundState?.active) || Boolean(customizationState?.active) || Boolean(coreState?.active);
     const layoutPreset = paneLayoutPresets.find((preset) => preset.id === paneLayoutCommandPresetIds.get(command.id));
     const unavailable = Boolean(layoutPreset && layoutUnavailable);
     const performanceSearch = performanceAction
@@ -25525,20 +25885,21 @@ function paletteEntries() {
       : "";
     const backgroundSearch = backgroundState?.search || "";
     const customizationSearch = customizationState?.search || "";
+    const coreSearch = coreState?.search || "";
     return {
       id: command.id,
       label: command.label,
       meta: performanceAction
         ? performanceActive ? "Active performance setting" : "Performance quick action"
-        : backgroundState?.meta || customizationState?.meta || (layoutActive ? "Active layout command" : "Command"),
-      shortcut: active ? "Active" : performanceAction ? "Speed" : backgroundState?.shortcut || customizationState?.shortcut || command.shortcut,
+        : backgroundState?.meta || customizationState?.meta || coreState?.meta || (layoutActive ? "Active layout command" : "Command"),
+      shortcut: active ? "Active" : performanceAction ? "Speed" : backgroundState?.shortcut || customizationState?.shortcut || coreState?.shortcut || command.shortcut,
       active,
-      disabled: active || unavailable || Boolean(backgroundState?.disabled) || Boolean(customizationState?.disabled),
-      icon: backgroundState?.icon || customizationState?.icon,
+      disabled: active || unavailable || Boolean(backgroundState?.disabled) || Boolean(customizationState?.disabled) || Boolean(coreState?.disabled),
+      icon: backgroundState?.icon || customizationState?.icon || coreState?.icon,
       title: performanceAction
         ? performanceActive ? performanceAction.already : performanceAction.title
-        : backgroundState?.title || customizationState?.title || (layoutPreset ? paneLayoutPresetTitle(layoutPreset, layoutActive, unavailable) : command.label),
-      search: normalizeSettingsQuery(`${command.label} ${command.shortcut} command ${active ? "active current" : ""} ${layoutActive ? "layout" : ""} ${performanceSearch} ${backgroundSearch} ${customizationSearch}`),
+        : backgroundState?.title || customizationState?.title || coreState?.title || (layoutPreset ? paneLayoutPresetTitle(layoutPreset, layoutActive, unavailable) : command.label),
+      search: normalizeSettingsQuery(`${command.label} ${command.shortcut} command ${active ? "active current" : ""} ${layoutActive ? "layout" : ""} ${performanceSearch} ${backgroundSearch} ${customizationSearch} ${coreSearch}`),
       run: command.run
     };
   });
