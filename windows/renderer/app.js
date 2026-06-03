@@ -2243,6 +2243,13 @@ function backgroundApplyTargetClearLabel(target = state.backgroundApplyTarget) {
   return "Clear app";
 }
 
+function backgroundTargetIconMarkup(target = state.backgroundApplyTarget) {
+  const scope = normalizeBackgroundApplyTarget(target);
+  if (scope === "pane") return quickActionIconMarkup("paneBackground");
+  if (scope === "all") return quickActionIconMarkup("terminalGroup");
+  return quickActionIconMarkup("background");
+}
+
 function selectBackgroundApplyTarget(target = state.backgroundApplyTarget) {
   const nextTarget = normalizeBackgroundApplyTarget(target);
   const option = backgroundApplyTargetOption(nextTarget);
@@ -2354,6 +2361,14 @@ function colorApplyTargetPrimaryLabel(target = state.colorApplyTarget) {
   if (scope === "pane") return "Apply to pane";
   if (scope === "all") return "Apply to all";
   return "Apply to accent";
+}
+
+function colorTargetIconMarkup(target = state.colorApplyTarget) {
+  const scope = normalizeColorApplyTarget(target);
+  if (scope === "workspace") return quickActionIconMarkup("workspace");
+  if (scope === "pane") return quickActionIconMarkup("paneSettings");
+  if (scope === "all") return quickActionIconMarkup("paneGroup");
+  return quickActionIconMarkup("appearance");
 }
 
 function activePaneForColorTarget() {
@@ -9986,7 +10001,7 @@ function activeBackgroundTargetControl() {
 
   const label = document.createElement("span");
   label.className = "background-target-label";
-  label.textContent = "Apply image to";
+  label.textContent = "Background target";
 
   const options = document.createElement("div");
   options.className = "background-target-options";
@@ -9995,11 +10010,7 @@ function activeBackgroundTargetControl() {
     button.className = "background-target-option";
     button.type = "button";
     button.dataset.backgroundTarget = target.id;
-    const icon = target.id === "app"
-      ? quickActionIconMarkup("background")
-      : target.id === "pane"
-        ? quickActionIconMarkup("paneBackground")
-        : quickActionIconMarkup("paneShape");
+    const icon = backgroundTargetIconMarkup(target.id);
     button.innerHTML = `
       <span class="background-target-icon" aria-hidden="true">${icon}</span>
       <span class="background-target-copy">
@@ -10207,7 +10218,7 @@ function activeBackgroundPanel(options = {}) {
     event.preventDefault();
     applyTypedImage(true);
   });
-  const applyTyped = settingsActionButton("Apply image", () => applyTypedImage(true), "primary", "active background image url local path apply selected target wallpaper");
+  const applyTyped = settingsActionButton(backgroundApplyTargetPrimaryLabel(targetStatus.scope), () => applyTypedImage(true), "primary", "active background image url local path apply selected target wallpaper");
   applyTyped.dataset.backgroundAction = "apply-typed";
   applyTyped.title = `Apply entered image to ${targetLabel}`;
   applyTyped.disabled = !targetStatus.canTarget;
@@ -10233,23 +10244,19 @@ function activeBackgroundPanel(options = {}) {
   open.dataset.backgroundAction = "open";
   open.title = "Open the selected background source";
   open.disabled = !canOpenBackgroundImageSource(model.background);
-  const imageGroup = document.createElement("span");
-  imageGroup.className = "background-action-group background-action-group-image";
-  imageGroup.innerHTML = `<span class="background-action-title">Image source</span>`;
-  imageGroup.append(choose, paste, save, open);
+  const imageGroup = backgroundActionGroup("Image source", "active background image choose paste save open", [choose, paste, save, open]);
+  imageGroup.classList.add("background-action-group-image");
 
-  const applyCurrent = settingsActionButton("Apply current", applyCurrentBackgroundToTarget, "", "active background apply current app image to selected target pane all terminals");
+  const applyCurrent = settingsActionButton("Use app image", applyCurrentBackgroundToTarget, "", "active background apply current app image to selected target pane all terminals");
   applyCurrent.dataset.backgroundAction = "apply-current";
-  applyCurrent.title = `Apply current app background to ${targetLabel}`;
+  applyCurrent.title = `Use the whole-app background on ${targetLabel}`;
   applyCurrent.disabled = !state.settings.backgroundImage || !targetStatus.canTarget || targetStatus.scope === "app";
-  const clear = settingsActionButton("Clear target", clearBackgroundApplyTarget, "danger", "active background clear selected target app pane all terminals");
+  const clear = settingsActionButton(backgroundApplyTargetClearLabel(targetStatus.scope), clearBackgroundApplyTarget, "danger", "active background clear selected target app pane all terminals");
   clear.dataset.backgroundAction = "clear";
   clear.title = `Clear ${targetLabel}`;
   clear.disabled = !targetStatus.canTarget || !targetStatus.hasValue;
-  const scopeGroup = document.createElement("span");
-  scopeGroup.className = "background-action-group background-action-group-scope";
-  scopeGroup.innerHTML = `<span class="background-action-title">Selected target</span>`;
-  scopeGroup.append(applyCurrent, clear);
+  const scopeGroup = backgroundActionGroup("Selected target", "active background selected target app pane all terminals use app clear", [applyCurrent, clear]);
+  scopeGroup.classList.add("background-action-group-scope");
   actions.append(imageGroup, scopeGroup);
   if (options.tuning) {
     const refreshBackgroundSummary = () => {
@@ -10381,6 +10388,7 @@ function refreshBackgroundPreviewNodes() {
     if (applyTyped) {
       setDisabledIfChanged(applyTyped, !targetStatus.canTarget);
       setTitleIfChanged(applyTyped, `Apply entered image to ${targetLabel}`);
+      setSettingsActionLabel(applyTyped, backgroundApplyTargetPrimaryLabel(targetStatus.scope));
     }
     if (choose) {
       setDisabledIfChanged(choose, !targetStatus.canTarget);
@@ -10396,7 +10404,7 @@ function refreshBackgroundPreviewNodes() {
     }
     if (applyCurrent) {
       setDisabledIfChanged(applyCurrent, !state.settings.backgroundImage || !targetStatus.canTarget || targetStatus.scope === "app");
-      setTitleIfChanged(applyCurrent, `Apply current app background to ${targetLabel}`);
+      setTitleIfChanged(applyCurrent, `Use the whole-app background on ${targetLabel}`);
     }
     if (open) {
       setDisabledIfChanged(open, !canOpenBackgroundImageSource(model.background));
@@ -10405,6 +10413,7 @@ function refreshBackgroundPreviewNodes() {
     if (clear) {
       setDisabledIfChanged(clear, !targetStatus.canTarget || !targetStatus.hasValue);
       setTitleIfChanged(clear, `Clear ${targetLabel}`);
+      setSettingsActionLabel(clear, backgroundApplyTargetClearLabel(targetStatus.scope));
     }
     for (const control of panel.querySelectorAll("[data-setting-control]")) {
       const key = control.dataset.settingControl;
@@ -11906,6 +11915,7 @@ const quickActionIconSvg = {
   layout: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14M4 12h16"></path></svg>`,
   profiles: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3"></circle><path d="M5 20c1.2-4 12.8-4 14 0"></path></svg>`,
   terminal: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="m8 10 3 3-3 3"></path><path d="M13 16h3"></path></svg>`,
+  terminalGroup: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="5" y="4.5" width="11" height="8" rx="1.5"></rect><rect x="8" y="7.5" width="11" height="8" rx="1.5"></rect><rect x="4" y="10.5" width="11" height="9" rx="1.5"></rect><path d="m7.5 14 2 2-2 2"></path><path d="M11.5 18h2"></path></svg>`,
   workspace: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="6" height="6" rx="1"></rect><rect x="14" y="5" width="6" height="6" rx="1"></rect><rect x="4" y="15" width="16" height="4" rx="1"></rect></svg>`,
   rename: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5h12M12 5v14M9 19h6"></path></svg>`,
   clean: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M8 9h8M8 13h5"></path></svg>`,
@@ -11916,6 +11926,7 @@ const quickActionIconSvg = {
   background: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><circle cx="9" cy="10" r="1.5"></circle><path d="m7 17 4-4 3 3 2-2 2 3"></path></svg>`,
   browserPlus: controlIconSvg.browserPlus,
   paneBackground: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14M7 15l2-2 2 2"></path><circle cx="8" cy="9" r="1.2"></circle></svg>`,
+  paneGroup: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="7" height="6" rx="1.3"></rect><rect x="13" y="5" width="7" height="6" rx="1.3"></rect><rect x="4" y="14" width="16" height="5" rx="1.3"></rect></svg>`,
   paneShape: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M12 5v14M4 12h16"></path></svg>`,
   paneSettings: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M8 9h5M8 15h8"></path><circle cx="16" cy="9" r="1.5"></circle><circle cx="11" cy="15" r="1.5"></circle></svg>`,
   saveLayout: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 4h10l2 2v14H6z"></path><path d="M8 4v6h8M9 17h6"></path></svg>`,
@@ -12052,7 +12063,7 @@ function quickSetupActionDefinitions() {
     },
     {
       id: "all-terminal-backgrounds",
-      icon: "paneBackground",
+      icon: "terminalGroup",
       label: "All terminal image",
       body: "Choose one image for every terminal in this workspace.",
       meta: () => {
@@ -13627,13 +13638,7 @@ function activeColorTargetControl() {
     button.className = "background-target-option";
     button.type = "button";
     button.dataset.colorTarget = target.id;
-    const icon = target.id === "accent"
-      ? quickActionIconMarkup("appearance")
-      : target.id === "workspace"
-        ? quickActionIconMarkup("workspace")
-        : target.id === "pane"
-          ? quickActionIconMarkup("paneSettings")
-          : quickActionIconMarkup("paneShape");
+    const icon = colorTargetIconMarkup(target.id);
     button.innerHTML = `
       <span class="background-target-icon color-target-icon" aria-hidden="true">${icon}</span>
       <span class="background-target-copy">
