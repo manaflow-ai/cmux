@@ -14451,21 +14451,32 @@ function savedBackgroundImagesPanel() {
   addCard.className = "saved-background-add-card";
   addCard.dataset.settingsSearch = normalizeSettingsQuery("saved background add image drop paste choose local file url selected target wallpaper");
 
-  const addCopy = document.createElement("div");
+  const addCopy = document.createElement("button");
   addCopy.className = "saved-background-add-copy";
+  addCopy.type = "button";
+  addCopy.disabled = !targetStatus.canTarget;
+  addCopy.title = `Choose and save an image for ${targetLabel}`;
+  addCopy.setAttribute("aria-label", `Choose and save an image for ${targetLabel}.`);
   addCopy.innerHTML = `
       <span class="saved-background-add-icon" aria-hidden="true">${quickActionIconMarkup("background")}</span>
       <span class="saved-background-add-text">
-        <span class="saved-background-add-title">Add image for ${addTargetOption.label}</span>
+        <span class="saved-background-add-title">Use any image</span>
         <span class="saved-background-add-target">
           <span class="saved-background-add-target-icon" aria-hidden="true">${backgroundTargetIconMarkup(targetStatus.scope)}</span>
           <span class="saved-background-add-target-label"></span>
         </span>
         <span class="saved-background-add-body"></span>
+        <span class="saved-background-add-chips" aria-hidden="true">
+          <span>Drop</span>
+          <span>Paste</span>
+          <span>Choose</span>
+          <span>URL/path</span>
+        </span>
       </span>
   `;
   addCopy.querySelector(".saved-background-add-target-label").textContent = targetLabel;
-  addCopy.querySelector(".saved-background-add-body").textContent = `Drop an image, paste from clipboard, choose a file, or type a URL/path. Enter applies and saves it to ${addTargetOption.label.toLowerCase()}.`;
+  addCopy.querySelector(".saved-background-add-body").textContent = `Apply to ${addTargetOption.label.toLowerCase()}. Drop, paste, choose, or enter an image path.`;
+  addCopy.onclick = () => chooseBackgroundImageForTarget({ save: true });
 
   const addRow = document.createElement("div");
   addRow.className = "saved-background-add";
