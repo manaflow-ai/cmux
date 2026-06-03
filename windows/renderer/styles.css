@@ -2431,13 +2431,11 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   pointer-events: auto;
   transform: none;
   margin-left: auto;
-  max-width: none;
 }
 
 .pane.is-pending.is-active .pane-toolbar,
 .pane.is-pending .pane-header:hover .pane-toolbar,
 .pane.is-pending .pane-toolbar:focus-within {
-  max-width: 68px;
   opacity: 1;
   pointer-events: auto;
   transform: none;
@@ -2640,19 +2638,20 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
 }
 
 .pane-toolbar {
+  --pane-toolbar-width: min(176px, 42cqw);
   display: flex;
   align-items: center;
   flex: 0 0 auto;
   justify-self: end;
+  inline-size: var(--pane-toolbar-width);
+  max-inline-size: var(--pane-toolbar-width);
   min-width: 0;
   gap: var(--space-1);
-  max-width: 0;
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
   transform: translateX(3px);
   transition:
-    max-width var(--dur-fast) var(--ease-out),
     opacity var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
 }
@@ -2660,28 +2659,21 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
 .pane-header:hover .pane-toolbar,
 .pane.is-active .pane-toolbar,
 .pane-toolbar:focus-within {
-  max-width: min(176px, 42cqw);
   opacity: 1;
   pointer-events: auto;
   transform: translateX(0);
 }
 
-.shell.pane-actions-essential .pane-header:hover .pane-toolbar,
-.shell.pane-actions-essential .pane.is-active .pane-toolbar,
-.shell.pane-actions-essential .pane-toolbar:focus-within {
-  max-width: min(82px, 38cqw);
+.shell.pane-actions-essential .pane-toolbar {
+  --pane-toolbar-width: min(82px, 38cqw);
 }
 
-.shell.pane-actions-split .pane-header:hover .pane-toolbar,
-.shell.pane-actions-split .pane.is-active .pane-toolbar,
-.shell.pane-actions-split .pane-toolbar:focus-within {
-  max-width: min(132px, 44cqw);
+.shell.pane-actions-split .pane-toolbar {
+  --pane-toolbar-width: min(132px, 44cqw);
 }
 
-.shell.pane-actions-full .pane-header:hover .pane-toolbar,
-.shell.pane-actions-full .pane.is-active .pane-toolbar,
-.shell.pane-actions-full .pane-toolbar:focus-within {
-  max-width: min(176px, 50cqw);
+.shell.pane-actions-full .pane-toolbar {
+  --pane-toolbar-width: min(176px, 50cqw);
 }
 
 .pane-tool {
@@ -2773,36 +2765,41 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
 }
 
 .shell.pane-header-compact .pane-toolbar {
+  --pane-toolbar-width: min(116px, 100%);
   margin-left: auto;
   gap: 2px;
-  max-width: 0;
 }
 
 .shell.pane-header-compact .pane:hover .pane-toolbar,
 .shell.pane-header-compact .pane.is-active .pane-toolbar,
 .shell.pane-header-compact .pane-header:focus-within .pane-toolbar {
-  max-width: min(116px, 100%);
   opacity: 1;
   pointer-events: auto;
   transform: none;
 }
 
-.shell.pane-header-compact.pane-actions-essential .pane:hover .pane-toolbar,
-.shell.pane-header-compact.pane-actions-essential .pane.is-active .pane-toolbar,
-.shell.pane-header-compact.pane-actions-essential .pane-header:focus-within .pane-toolbar {
-  max-width: min(62px, 42cqw);
+.shell.pane-header-compact.pane-actions-essential .pane-toolbar {
+  --pane-toolbar-width: min(62px, 42cqw);
 }
 
-.shell.pane-header-compact.pane-actions-split .pane:hover .pane-toolbar,
-.shell.pane-header-compact.pane-actions-split .pane.is-active .pane-toolbar,
-.shell.pane-header-compact.pane-actions-split .pane-header:focus-within .pane-toolbar {
-  max-width: min(100px, 50cqw);
+.shell.pane-header-compact.pane-actions-split .pane-toolbar {
+  --pane-toolbar-width: min(100px, 50cqw);
 }
 
-.shell.pane-header-compact.pane-actions-full .pane:hover .pane-toolbar,
-.shell.pane-header-compact.pane-actions-full .pane.is-active .pane-toolbar,
-.shell.pane-header-compact.pane-actions-full .pane-header:focus-within .pane-toolbar {
-  max-width: min(148px, 58cqw);
+.shell.pane-header-compact.pane-actions-full .pane-toolbar {
+  --pane-toolbar-width: min(148px, 58cqw);
+}
+
+.shell .pane.is-minimized .pane-toolbar {
+  --pane-toolbar-width: 24px;
+  inline-size: var(--pane-toolbar-width);
+  max-inline-size: var(--pane-toolbar-width);
+}
+
+.shell .pane.is-pending .pane-toolbar {
+  --pane-toolbar-width: 28px;
+  inline-size: var(--pane-toolbar-width);
+  max-inline-size: var(--pane-toolbar-width);
 }
 
 .shell.pane-header-compact .pane-tool {
@@ -2826,14 +2823,9 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
   }
 
   .pane-toolbar {
+    --pane-toolbar-width: min(108px, 42cqw);
     margin-left: auto;
     gap: 3px;
-  }
-
-  .pane-header:hover .pane-toolbar,
-  .pane.is-active .pane-toolbar,
-  .pane-toolbar:focus-within {
-    max-width: min(108px, 42cqw);
   }
 
   .pane-tool {
@@ -2848,10 +2840,8 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
     display: none;
   }
 
-  .pane-header:hover .pane-toolbar,
-  .pane.is-active .pane-toolbar,
-  .pane-toolbar:focus-within {
-    max-width: 74px;
+  .pane-toolbar {
+    --pane-toolbar-width: 74px;
   }
 }
 
@@ -2889,10 +2879,8 @@ body.reduce-motion .surface-new-tab.is-creating:not(:disabled) .surface-new-icon
     display: none;
   }
 
-  .pane-header:hover .pane-toolbar,
-  .pane.is-active .pane-toolbar,
-  .pane-toolbar:focus-within {
-    max-width: 68px;
+  .pane-toolbar {
+    --pane-toolbar-width: 68px;
   }
 }
 

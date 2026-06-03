@@ -4541,6 +4541,7 @@ function renderSurfaceTabs(workspace) {
   });
   nodes.push(...getNewSurfaceTabs(workspace));
   replaceChildrenIfChanged(elements.surfaceTabs, nodes);
+  setDatasetIfChanged(elements.surfaceTabs, "tabCount", String(workspace.panels.length));
   state.surfaceTabsSignature = signature;
   scheduleSurfaceTabsOverflowRefresh({ ensureActive: true });
 }
@@ -4550,6 +4551,7 @@ function clearSurfaceTabs() {
   state.surfaceTabButtons.clear();
   state.surfaceTabsSignature = "";
   state.surfaceTabEnsureActive = false;
+  setDatasetIfChanged(elements.surfaceTabs, "tabCount", "0");
   replaceChildrenIfChanged(elements.surfaceTabs, []);
   resetSurfaceTabsOverflow();
 }
@@ -4669,7 +4671,7 @@ function updateSurfaceTabsOverflow() {
     resetSurfaceTabsOverflow(strip);
     return;
   }
-  const tabCount = Math.max(0, strip.querySelectorAll(".surface-tab:not(.surface-new-tab)").length);
+  const tabCount = Math.max(0, Number(strip.dataset.tabCount) || 0);
   if (tabCount === 0 || strip.clientWidth <= 0) {
     resetSurfaceTabsOverflow(strip);
     return;
