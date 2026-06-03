@@ -7,16 +7,23 @@ import SwiftUI
 func dslColor(_ token: String?) -> Color? {
     guard let token, !token.isEmpty else { return nil }
     switch token.lowercased() {
-    case "accent": return .accentColor
+    case "accent", "accentcolor": return .accentColor
     case "primary": return .primary
     case "secondary": return .secondary
+    case "tertiary": return .secondary.opacity(0.6)
+    case "quaternary": return .secondary.opacity(0.4)
     case "red": return .red
     case "orange": return .orange
     case "yellow": return .yellow
     case "green": return .green
+    case "mint": return .mint
+    case "teal": return .teal
+    case "cyan": return .cyan
     case "blue": return .blue
+    case "indigo": return .indigo
     case "purple": return .purple
     case "pink": return .pink
+    case "brown": return .brown
     case "gray", "grey": return .gray
     case "white": return .white
     case "black": return .black

@@ -46,6 +46,10 @@ public struct RenderNode: Sendable, Equatable {
         case roundedRectangle
         case capsule
         case circle
+        case ellipse
+        /// `UnevenRoundedRectangle`; rendered with a uniform ``cornerRadius``
+        /// approximation.
+        case unevenRoundedRectangle
     }
 
     public var kind: Kind

@@ -146,6 +146,11 @@ public struct SwiftViewInterpreter: Sendable {
             return RenderNode(kind: .capsule)
         case "Circle":
             return RenderNode(kind: .circle)
+        case "Ellipse":
+            return RenderNode(kind: .ellipse)
+        case "UnevenRoundedRectangle":
+            return RenderNode(kind: .unevenRoundedRectangle, cornerRadius: doubleArgument(named: "cornerRadius", call.arguments, env)
+                ?? doubleArgument(named: "topLeadingRadius", call.arguments, env))
         case "RoundedRectangle":
             return RenderNode(kind: .roundedRectangle, cornerRadius: doubleArgument(named: "cornerRadius", call.arguments, env))
         case "VStack", "HStack", "ZStack", "LazyVStack", "LazyHStack":

@@ -480,6 +480,29 @@ import Testing
         #expect(node?.children.map(\.text) == ["2", "1", "42"])
     }
 
+    @Test func ellipseAndUnevenRoundedRectangleShapes() {
+        let node = interp.evaluate("""
+        HStack {
+            Ellipse()
+            UnevenRoundedRectangle(cornerRadius: 12)
+        }
+        """)
+        #expect(node?.children.map(\.kind) == [.ellipse, .unevenRoundedRectangle])
+        #expect(node?.children.last?.cornerRadius == 12)
+    }
+
+    @Test func cosmeticModifiersCaptured() {
+        let node = interp.evaluate("""
+        Text("x")
+            .shadow(radius: 4)
+            .border(.gray, width: 1)
+            .rotationEffect(.degrees(45))
+            .scaleEffect(1.2)
+        """)
+        let names = Set((node?.modifiers ?? []).map(\.name))
+        #expect(names.isSuperset(of: ["shadow", "border", "rotationEffect", "scaleEffect"]))
+    }
+
     @Test func labelCapturesTitleAndIcon() {
         let node = interp.evaluate("""
         VStack {

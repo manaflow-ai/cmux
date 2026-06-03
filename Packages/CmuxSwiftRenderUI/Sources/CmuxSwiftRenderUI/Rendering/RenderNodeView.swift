@@ -98,6 +98,10 @@ struct RenderNodeView: View {
             Capsule()
         case .circle:
             Circle()
+        case .ellipse:
+            Ellipse()
+        case .unevenRoundedRectangle:
+            RoundedRectangle(cornerRadius: CGFloat(node.cornerRadius ?? 6))
         }
     }
 
@@ -165,8 +169,75 @@ struct RenderNodeView: View {
             return view
         case "frame":
             return applyFrame(modifier, to: view)
+        case "shadow":
+            let radius = modDouble(modifier, "radius") ?? (token.flatMap(Double.init)) ?? 4
+            let color = dslColor(clean(modifier.value("color"))) ?? Color.black.opacity(0.33)
+            return AnyView(view.shadow(color: color, radius: CGFloat(radius),
+                                       x: CGFloat(modDouble(modifier, "x") ?? 0),
+                                       y: CGFloat(modDouble(modifier, "y") ?? 0)))
+        case "border":
+            let color = dslColor(token) ?? .secondary
+            let width = modDouble(modifier, "width") ?? 1
+            return AnyView(view.border(color, width: CGFloat(width)))
+        case "blur":
+            let radius = modDouble(modifier, "radius") ?? (token.flatMap(Double.init)) ?? 0
+            return AnyView(view.blur(radius: CGFloat(radius)))
+        case "offset":
+            return AnyView(view.offset(x: CGFloat(modDouble(modifier, "x") ?? 0),
+                                       y: CGFloat(modDouble(modifier, "y") ?? 0)))
+        case "scaleEffect":
+            if let token, let s = Double(token) { return AnyView(view.scaleEffect(CGFloat(s))) }
+            return view
+        case "rotationEffect":
+            return AnyView(view.rotationEffect(.degrees(angleDegrees(token) ?? 0)))
+        case "zIndex":
+            if let token, let z = Double(token) { return AnyView(view.zIndex(z)) }
+            return view
+        case "brightness":
+            return AnyView(view.brightness(token.flatMap(Double.init) ?? 0))
+        case "contrast":
+            return AnyView(view.contrast(token.flatMap(Double.init) ?? 1))
+        case "saturation":
+            return AnyView(view.saturation(token.flatMap(Double.init) ?? 1))
+        case "grayscale":
+            return AnyView(view.grayscale(token.flatMap(Double.init) ?? 0))
+        case "clipShape":
+            return applyClipShape(token, to: view)
+        case "clipped":
+            return AnyView(view.clipped())
+        case "fixedSize":
+            return AnyView(view.fixedSize())
+        case "layoutPriority":
+            return AnyView(view.layoutPriority(token.flatMap(Double.init) ?? 0))
         default:
             return view
+        }
+    }
+
+    /// A labeled `Double` argument of a modifier (e.g. `.shadow(radius: 4)`).
+    private func modDouble(_ modifier: RenderModifier, _ label: String) -> Double? {
+        modifier.value(label).map { clean($0) ?? $0 }.flatMap { Double($0) }
+    }
+
+    /// Degrees from an angle token like `.degrees(45)` or `.radians(1.5)`.
+    private func angleDegrees(_ token: String?) -> Double? {
+        guard let token else { return nil }
+        if let open = token.firstIndex(of: "("), let close = token.lastIndex(of: ")") {
+            let inner = String(token[token.index(after: open)..<close])
+            guard let value = Double(inner.trimmingCharacters(in: .whitespaces)) else { return nil }
+            return token.contains("radians") ? value * 180 / .pi : value
+        }
+        return Double(token)
+    }
+
+    /// Resolves a `.clipShape(<Shape>())` token to a clip.
+    private func applyClipShape(_ token: String?, to view: AnyView) -> AnyView {
+        switch token.map({ $0.lowercased() }) {
+        case let t? where t.hasPrefix("circle"): return AnyView(view.clipShape(Circle()))
+        case let t? where t.hasPrefix("capsule"): return AnyView(view.clipShape(Capsule()))
+        case let t? where t.hasPrefix("ellipse"): return AnyView(view.clipShape(Ellipse()))
+        case let t? where t.hasPrefix("rectangle"): return AnyView(view.clipShape(Rectangle()))
+        default: return AnyView(view.clipShape(RoundedRectangle(cornerRadius: 8)))
         }
     }
 

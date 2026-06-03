@@ -25,7 +25,7 @@ import Testing
             "Spacer", "Divider", "Rectangle", "RoundedRectangle", "Capsule", "Circle",
             "ForEach", "Reorderable", "cmux", "log", "Color", "ScrollView", "openURL",
             "LazyVStack", "LazyHStack", "Group", "EmptyView", "List", "Section",
-            "Label", "Array", "Int", "Double", "String",
+            "Label", "Array", "Int", "Double", "String", "Ellipse", "UnevenRoundedRectangle",
         ]
         let supportedMembers: Set<String> = [
             "font", "bold", "fontWeight", "foregroundColor", "foregroundStyle", "fill",
@@ -37,6 +37,9 @@ import Testing
             "indices", "enumerated", "dropFirst", "dropLast", "suffix",
             "italic", "monospaced", "monospacedDigit", "fontDesign", "underline",
             "multilineTextAlignment", "textCase", "truncationMode",
+            "shadow", "border", "blur", "offset", "scaleEffect", "rotationEffect",
+            "zIndex", "brightness", "contrast", "saturation", "grayscale",
+            "clipShape", "clipped", "fixedSize", "layoutPriority", "degrees", "radians",
         ]
 
         var unsupportedCalls: [String: Int] = [:]
