@@ -3809,9 +3809,9 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .browser-tab-new {
-  flex: 0 0 30px;
-  min-width: 30px;
-  max-width: 30px;
+  flex: 0 0 32px;
+  min-width: 32px;
+  max-width: 32px;
   height: 26px;
   display: inline-grid;
   grid-template-columns: minmax(0, 1fr);
@@ -3822,12 +3822,14 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   padding: 0;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
-  color: var(--color-muted);
-  background: color-mix(in oklch, var(--color-pane) 88%, var(--color-canvas) 12%);
+  color: color-mix(in oklch, var(--color-accent) 70%, var(--color-text) 30%);
+  background: color-mix(in oklch, var(--color-accent) 8%, var(--color-pane) 92%);
   font-size: 11px;
   font-weight: 760;
   cursor: pointer;
-  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 6%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--color-text) 7%, transparent),
+    0 0 0 1px color-mix(in oklch, var(--color-accent) 8%, transparent);
   z-index: 1;
 }
 
@@ -3836,10 +3838,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   place-items: center;
   width: 22px;
   height: 22px;
-  border: 1px solid color-mix(in oklch, var(--color-accent) 30%, var(--color-line) 70%);
+  border: 1px solid color-mix(in oklch, var(--color-accent) 38%, var(--color-line) 62%);
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-accent) 9%, var(--color-pane) 91%);
-  color: color-mix(in oklch, var(--color-accent) 72%, var(--color-text) 28%);
+  background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane) 86%);
+  color: color-mix(in oklch, var(--color-accent) 78%, var(--color-text) 22%);
 }
 
 .browser-tab-new svg {
@@ -3860,11 +3862,11 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   letter-spacing: 0;
 }
 
-@container (min-width: 560px) {
+@container (min-width: 460px) {
   .browser-tab-list:not(.is-crowded) + .browser-tab-new {
-    flex: 0 0 68px;
-    min-width: 58px;
-    max-width: 76px;
+    flex: 0 0 72px;
+    min-width: 64px;
+    max-width: 82px;
     grid-template-columns: 22px minmax(0, 1fr);
     gap: 4px;
     padding: 0 6px 0 3px;

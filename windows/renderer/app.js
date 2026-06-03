@@ -8696,6 +8696,11 @@ function ensureBrowser(panel, body) {
     browserLoadTimer = setTimeout(() => {
       browserLoadTimer = 0;
       if (!content.classList.contains("is-loading") || browserLoadFailed || deferredPane.hidden === false) return;
+      if (content.classList.contains("has-loaded")) {
+        setLoading(false);
+        setStatus("");
+        return;
+      }
       browserLoadFailed = true;
       showBrowserError(t("browser.errorTimeout"), targetUrl);
       updateNavState();
@@ -8898,6 +8903,10 @@ function ensureBrowser(panel, body) {
   });
   view.addEventListener("dom-ready", () => {
     webviewReady = true;
+    if (!browserLoadFailed) {
+      markBrowserContentLoaded();
+      hideBrowserError();
+    }
     lockBrowserViewZoom(view);
     scheduleEmbeddedGoogleHomePolish(view, address.value || view.src);
     updateNavState();
@@ -8933,7 +8942,8 @@ function ensureBrowser(panel, body) {
     setStatus("");
     updateNavState();
   });
-  view.addEventListener("did-frame-finish-load", () => {
+  view.addEventListener("did-frame-finish-load", (event) => {
+    if (event?.isMainFrame !== false && !browserLoadFailed) markBrowserContentLoaded();
     scheduleEmbeddedGoogleHomePolish(view, address.value || view.src);
     if (webviewReady) setStatus("");
   });
