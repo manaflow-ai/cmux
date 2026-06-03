@@ -752,13 +752,15 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
         var out = ClaudeParsed()
         out.cwd = decodeClaudeProjectDir(projectDir)
+        var didReadTranscriptCwd = false
 
         for line in head.split(separator: "\n", omittingEmptySubsequences: true) {
             guard let data = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             let isMeta = (obj["isMeta"] as? Bool) ?? false
-            if let cwdField = obj["cwd"] as? String, !cwdField.isEmpty {
+            if !didReadTranscriptCwd, let cwdField = obj["cwd"] as? String, !cwdField.isEmpty {
                 out.cwd = cwdField
+                didReadTranscriptCwd = true
             }
             if let branchField = obj["gitBranch"] as? String, !branchField.isEmpty {
                 out.branch = branchField

@@ -137,6 +137,51 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    func testClaudeDirectorySnapshotKeepsProjectCwdWhenSubagentCwdAppears() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-subagent-cwd-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let parentCwd = root.appendingPathComponent("parent repo", isDirectory: true)
+        let subagentCwd = root.appendingPathComponent("subagent scratch", isDirectory: true)
+        try FileManager.default.createDirectory(at: parentCwd, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: subagentCwd, withIntermediateDirectories: true)
+
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(parentCwd.path), isDirectory: true)
+            .appendingPathComponent("claude-parent-session.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try [
+            #"{"type":"user","cwd":"\#(parentCwd.path)","message":{"role":"user","content":"restore parent repo"}}"#,
+            #"{"type":"assistant","message":{"model":"claude-sonnet-4-5"}}"#,
+            #"{"type":"user","isMeta":true,"cwd":"\#(subagentCwd.path)","message":{"role":"user","content":"subagent bookkeeping"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let previousClaudeConfigDir = getenv("CLAUDE_CONFIG_DIR").map { String(cString: $0) }
+        setenv("CLAUDE_CONFIG_DIR", configDir.path, 1)
+        defer {
+            if let previousClaudeConfigDir {
+                setenv("CLAUDE_CONFIG_DIR", previousClaudeConfigDir, 1)
+            } else {
+                unsetenv("CLAUDE_CONFIG_DIR")
+            }
+        }
+
+        let snapshot = await SessionIndexStore().loadDirectorySnapshot(cwd: parentCwd.path)
+        let entry = try XCTUnwrap(snapshot.entries.first { $0.sessionId == "claude-parent-session" })
+
+        XCTAssertEqual(entry.cwd, parentCwd.path)
+        XCTAssertEqual(
+            entry.resumeCommand,
+            "cd '\(parentCwd.path)' && claude --resume claude-parent-session"
+        )
+    }
+
     func testCurrentDirectorySetterDoesNotPublishEqualValue() {
         let store = SessionIndexStore()
         var emittedValues: [String?] = []
