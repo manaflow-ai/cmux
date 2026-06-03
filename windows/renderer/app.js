@@ -2492,6 +2492,51 @@ function canSaveCustomColor(color) {
   return Boolean(normalized && (customColorPaletteHasColor(normalized) || !customColorPaletteFull()));
 }
 
+function currentColorSaveModel(target = state.colorApplyTarget, workspace = activeWorkspace()) {
+  const scope = normalizeColorApplyTarget(target);
+  const option = colorApplyTargetOption(scope, workspace);
+  if (option.disabled) {
+    return {
+      color: "",
+      disabled: true,
+      title: `${option.label}: ${option.meta}.`
+    };
+  }
+  let color = option.color;
+  if (scope === "workspace") {
+    color = workspace?.color || state.settings.accent;
+  } else if (scope === "pane") {
+    const panel = activePaneForColorTarget();
+    color = panel?.color || workspace?.color || state.settings.accent;
+  } else if (scope === "all") {
+    const workspaceColor = workspace?.color || state.settings.accent;
+    const colors = (workspace?.panels || []).map((panel) => colorKey(panel.color || workspaceColor)).filter(Boolean);
+    const unique = [...new Set(colors)];
+    if (unique.length > 1) {
+      return {
+        color: "",
+        disabled: true,
+        title: "Pane colors are mixed. Save a specific pane color instead."
+      };
+    }
+    color = unique[0] || workspaceColor;
+  }
+  return {
+    color,
+    disabled: !canSaveCustomColor(color),
+    title: customColorSaveTitle(color, `Save ${option.label.toLowerCase()} color to the reusable palette.`)
+  };
+}
+
+function saveCurrentColorToPalette(target = state.colorApplyTarget) {
+  const model = currentColorSaveModel(target);
+  if (model.disabled) {
+    toast(model.title);
+    return false;
+  }
+  return upsertCustomColorPalette(model.color);
+}
+
 function customColorSaveTitle(color, availableTitle = "Save this color to the reusable palette.") {
   const normalized = normalizeCustomPaletteColor(color);
   if (!normalized) return "Pick a custom hex color first.";
@@ -5253,8 +5298,10 @@ const commands = [
   { id: "settings.colors", label: "Open Color Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "color", focusSearch: true }) },
   { id: "settings.copySavedColors", label: "Copy Saved Color Palette", shortcut: "", run: () => copySavedColorPalette() },
   { id: "settings.pasteSavedColors", label: "Paste Saved Color Palette", shortcut: "", run: () => pasteSavedColorPalette() },
-  { id: "settings.saveAccentColor", label: "Save Current Accent Color", shortcut: "", run: () => upsertCustomColorPalette(state.settings.accent) },
-  { id: "settings.saveWorkspaceColor", label: "Save Current Workspace Color", shortcut: "", run: () => upsertCustomColorPalette(activeWorkspace()?.color) },
+  { id: "settings.saveAccentColor", label: "Save Current Accent Color", shortcut: "", run: () => saveCurrentColorToPalette("accent") },
+  { id: "settings.saveWorkspaceColor", label: "Save Current Workspace Color", shortcut: "", run: () => saveCurrentColorToPalette("workspace") },
+  { id: "settings.savePaneColor", label: "Save Active Pane Color", shortcut: "", run: () => saveCurrentColorToPalette("pane") },
+  { id: "settings.saveAllPaneColors", label: "Save All Pane Color", shortcut: "", run: () => saveCurrentColorToPalette("all") },
   { id: "settings.backgrounds", label: "Open Background Settings", shortcut: "", run: () => openSettingsCategory("appearance", { query: "background", focusSearch: true }) },
   { id: "settings.saveBackground", label: "Save Current Background", shortcut: "", run: () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }) },
   { id: "settings.copySavedBackgrounds", label: "Copy Saved Backgrounds", shortcut: "", run: () => copySavedBackgroundImages() },
@@ -20725,8 +20772,27 @@ function showToolbarMenu(event) {
       contextMenuButton("Copy saved colors", copySavedColorPalette),
       contextMenuButton("Paste saved colors", pasteSavedColorPalette),
       (() => {
-        const action = contextMenuButton("Save current accent", () => upsertCustomColorPalette(state.settings.accent), !canSaveCustomColor(state.settings.accent));
-        action.title = customColorSaveTitle(state.settings.accent, "Save the current accent color to the reusable palette.");
+        const model = currentColorSaveModel("accent");
+        const action = contextMenuButton("Save current accent", () => saveCurrentColorToPalette("accent"), model.disabled);
+        action.title = model.title;
+        return action;
+      })(),
+      (() => {
+        const model = currentColorSaveModel("workspace");
+        const action = contextMenuButton("Save workspace color", () => saveCurrentColorToPalette("workspace"), model.disabled);
+        action.title = model.title;
+        return action;
+      })(),
+      (() => {
+        const model = currentColorSaveModel("pane");
+        const action = contextMenuButton("Save active pane color", () => saveCurrentColorToPalette("pane"), model.disabled);
+        action.title = model.title;
+        return action;
+      })(),
+      (() => {
+        const model = currentColorSaveModel("all");
+        const action = contextMenuButton("Save all pane color", () => saveCurrentColorToPalette("all"), model.disabled);
+        action.title = model.title;
         return action;
       })(),
       (() => {
@@ -21915,6 +21981,25 @@ function paletteEntries() {
       title: disabled ? `${option.label}: ${option.meta}.` : colorCopyTitle(option.color, fallback, `Copy ${label} color value.`),
       search: normalizeSettingsQuery(`copy current ${label} color value clipboard ${option.status} ${option.meta}`),
       run: () => copyColorValue(option.color, fallback, toastText)
+    });
+  }
+  for (const [id, option] of [
+    ["accent", colorAccentTargetOption],
+    ["workspace", colorWorkspaceTargetOption],
+    ["pane", colorPaneTargetOption],
+    ["all", colorAllTargetOption]
+  ]) {
+    const label = option.label.toLowerCase();
+    const model = currentColorSaveModel(id, paletteWorkspace);
+    entries.push({
+      id: `currentColor.save.${id}`,
+      label: `Save ${label} color`,
+      meta: `${option.status} / ${option.meta}`,
+      shortcut: "Save",
+      disabled: model.disabled,
+      title: model.title,
+      search: normalizeSettingsQuery(`save current ${label} color reusable palette custom ${option.status} ${option.meta}`),
+      run: () => saveCurrentColorToPalette(id)
     });
   }
   for (const [id, option] of [
