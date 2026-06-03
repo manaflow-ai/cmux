@@ -40,8 +40,12 @@ export async function copyGitApplyCommand(
   const delimiter = safeGitApplyDelimiter(patch);
   const command = `git apply <<'${delimiter}'${newline}${patch}${delimiter}`;
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(command);
-    return label("copiedGitApplyCommand");
+    try {
+      await navigator.clipboard.writeText(command);
+      return label("copiedGitApplyCommand");
+    } catch {
+      // WebKit can expose Clipboard API but reject after the async patch fetch loses user activation.
+    }
   }
   if (!fallbackTextarea) {
     throw new Error("Clipboard API unavailable");

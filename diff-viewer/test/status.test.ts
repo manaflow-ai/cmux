@@ -37,6 +37,22 @@ test("initialDiffViewerStatus uses pending replacement status", () => {
   });
 });
 
+test("initialDiffViewerStatus falls back for pending replacement without a status message", () => {
+  const config: DiffViewerConfig = {
+    payload: {
+      pendingReplacement: true,
+    },
+  };
+
+  expect(initialDiffViewerStatus(config, label)).toEqual({
+    error: false,
+    loading: true,
+    message: "Loading diff",
+    pending: true,
+    statusOnly: false,
+  });
+});
+
 test("initialDiffViewerStatus treats status-only errors as terminal messages", () => {
   const config: DiffViewerConfig = {
     payload: {
