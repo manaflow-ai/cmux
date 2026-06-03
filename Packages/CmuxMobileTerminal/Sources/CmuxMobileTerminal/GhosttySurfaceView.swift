@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CMUXMobileCore
 import CmuxMobileDiagnostics
+import CmuxMobileTerminalKit
 import GhosttyKit
 import OSLog
 import UIKit
@@ -139,51 +140,6 @@ private enum GhosttySurfaceDisposer {
     }
 }
 
-struct TerminalTextInputPipeline {
-    struct Result: Equatable {
-        var committedText: String?
-        var nextBufferText: String
-    }
-
-    static func process(text: String, isComposing: Bool) -> Result {
-        guard !isComposing else {
-            return Result(committedText: nil, nextBufferText: text)
-        }
-        guard !text.isEmpty else {
-            return Result(committedText: nil, nextBufferText: "")
-        }
-        return Result(committedText: text, nextBufferText: "")
-    }
-}
-
-struct TerminalCursorBlinkState: Equatable {
-    static let interval: CFTimeInterval = 0.5
-
-    private(set) var isVisible = true
-    private var lastToggle: CFTimeInterval = 0
-
-    mutating func start(now: CFTimeInterval) {
-        isVisible = true
-        lastToggle = now
-    }
-
-    mutating func reset(now: CFTimeInterval) {
-        isVisible = true
-        lastToggle = now
-    }
-
-    mutating func advance(now: CFTimeInterval) -> Bool {
-        let elapsed = now - lastToggle
-        guard elapsed >= Self.interval else { return false }
-        let intervals = max(1, Int(elapsed / Self.interval))
-        if intervals % 2 == 1 {
-            isVisible.toggle()
-        }
-        lastToggle += CFTimeInterval(intervals) * Self.interval
-        return true
-    }
-}
-
 struct TerminalHardwareKeyCommand: Sendable {
     let input: String
     let modifierFlags: UIKeyModifierFlags
@@ -296,20 +252,6 @@ enum TerminalHardwareKeyResolver {
 
         guard (0x40...0x5F).contains(scalar.value) else { return nil }
         return Data([UInt8(scalar.value & 0x1F)])
-    }
-}
-
-enum TerminalFontZoomDirection: Equatable {
-    case decrease
-    case increase
-
-    var bindingAction: String {
-        switch self {
-        case .decrease:
-            return "decrease_font_size:1"
-        case .increase:
-            return "increase_font_size:1"
-        }
     }
 }
 
@@ -1194,28 +1136,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// (hide). The last occurrence wins, so a delta that toggles ends on the
     /// applied state.
     nonisolated static func lastCursorVisibility(in data: Data) -> Bool? {
-        // ESC [ ? 2 5 (h|l)
-        let prefix: [UInt8] = [0x1B, 0x5B, 0x3F, 0x32, 0x35]
-        guard data.count >= 6 else { return nil }
-        var result: Bool?
-        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-            let bytes = raw.bindMemory(to: UInt8.self)
-            var i = 0
-            let end = bytes.count - 5
-            while i < end {
-                if bytes[i] == prefix[0],
-                   bytes[i + 1] == prefix[1],
-                   bytes[i + 2] == prefix[2],
-                   bytes[i + 3] == prefix[3],
-                   bytes[i + 4] == prefix[4] {
-                    let final = bytes[i + 5]
-                    if final == 0x68 { result = true; i += 6; continue }   // 'h'
-                    if final == 0x6C { result = false; i += 6; continue }  // 'l'
-                }
-                i += 1
-            }
-        }
-        return result
+        TerminalDECTCEMCursorScanner.lastVisibility(in: data)
     }
 
     @objc
