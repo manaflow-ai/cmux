@@ -19,4 +19,35 @@ extension AppDelegate {
         }
 #endif
     }
+
+    @discardableResult
+    func performGrowPaneShortcut(direction: ResizeDirection) -> Bool {
+        guard let tabManager, let workspace = tabManager.selectedWorkspace else {
+#if DEBUG
+            cmuxDebugLog("shortcut.action name=growPane direction=\(direction.debugName) result=noWorkspace")
+#endif
+            return false
+        }
+#if DEBUG
+        cmuxDebugLog("shortcut.action name=growPane direction=\(direction.debugName) workspaceId=\(workspace.id)")
+#endif
+        let didResize = tabManager.resizeFocusedSplit(direction: direction)
+#if DEBUG
+        if !didResize {
+            cmuxDebugLog("shortcut.action name=growPane direction=\(direction.debugName) result=noSplitOrFailed workspaceId=\(workspace.id)")
+        }
+#endif
+        return didResize
+    }
+}
+
+extension ResizeDirection {
+    var debugName: String {
+        switch self {
+        case .left: return "left"
+        case .right: return "right"
+        case .up: return "up"
+        case .down: return "down"
+        }
+    }
 }
