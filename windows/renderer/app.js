@@ -17794,6 +17794,47 @@ function activeTerminalPaneBackgroundLabel() {
   return background ? appearanceBackgroundLabel(background) : "Default";
 }
 
+function quickAccentColorSaveModel() {
+  const model = currentColorSaveModel("accent");
+  const saved = customColorPaletteHasColor(model.color);
+  return {
+    ...model,
+    saved,
+    disabled: saved || model.disabled,
+    title: saved ? "Current accent color is already saved." : model.title
+  };
+}
+
+function quickAppBackgroundSaveModel() {
+  const background = normalizeBackgroundValue(state.settings.backgroundImage);
+  const saved = savedBackgroundImageExists(background);
+  return {
+    background,
+    saved,
+    disabled: saved || !canSaveBackgroundImage(background),
+    title: saved
+      ? "App background image is already saved."
+      : savedBackgroundImageSaveTitle(background, "Save the current app background image.")
+  };
+}
+
+function quickTerminalBackgroundSaveModel() {
+  const panel = resolveTerminalPanel(focusedPanel());
+  const background = normalizeBackgroundValue(panel?.backgroundImage);
+  const saved = savedBackgroundImageExists(background);
+  return {
+    panel,
+    background,
+    saved,
+    disabled: !panel || saved || !canSaveBackgroundImage(background),
+    title: !panel
+      ? "Focus a terminal pane before saving its image."
+      : saved
+        ? "Active terminal image is already saved."
+        : savedBackgroundImageSaveTitle(background, "Save this terminal background image.")
+  };
+}
+
 function activePaneSettingsQuickLabel() {
   const panel = activePaneActionTarget() || activePanel();
   return panel ? panelDisplayTitle(panel, true) : "No pane";
@@ -17898,6 +17939,20 @@ function quickSetupActionDefinitions() {
       run: () => saveQuickSetupProfile()
     },
     {
+      id: "save-accent-color",
+      icon: "appearance",
+      label: "Save accent",
+      body: "Keep the custom accent in the saved color palette.",
+      meta: () => colorSummaryLabel(state.settings.accent, defaultSettings.accent),
+      cta: "Save",
+      active: () => quickAccentColorSaveModel().saved,
+      activeCta: "Saved",
+      search: "save current accent custom color palette reusable library appearance",
+      disabled: () => quickAccentColorSaveModel().disabled,
+      title: () => quickAccentColorSaveModel().title,
+      run: () => saveCurrentColorToPalette("accent")
+    },
+    {
       id: "tune-speed",
       icon: "speed",
       label: "Tune speed",
@@ -17941,6 +17996,20 @@ function quickSetupActionDefinitions() {
       run: () => chooseBackgroundImage()
     },
     {
+      id: "save-background-image",
+      icon: "background",
+      label: "Save app image",
+      body: "Keep the current app backdrop in saved backgrounds.",
+      meta: () => appearanceBackgroundLabel(state.settings.backgroundImage),
+      cta: "Save",
+      active: () => quickAppBackgroundSaveModel().saved,
+      activeCta: "Saved",
+      search: "save current app background image wallpaper saved background library reusable",
+      disabled: () => quickAppBackgroundSaveModel().disabled,
+      title: () => quickAppBackgroundSaveModel().title,
+      run: () => saveCustomBackgroundImage({ url: state.settings.backgroundImage })
+    },
+    {
       id: "pane-background",
       icon: "paneBackground",
       label: "Terminal image",
@@ -17951,6 +18020,20 @@ function quickSetupActionDefinitions() {
       disabled: () => !resolveTerminalPanel(focusedPanel()),
       disabledTitle: () => "Focus a terminal pane before setting its image.",
       run: () => choosePanelBackgroundImage()
+    },
+    {
+      id: "save-terminal-image",
+      icon: "paneBackground",
+      label: "Save terminal image",
+      body: "Keep the active terminal image in saved backgrounds.",
+      meta: activeTerminalPaneBackgroundLabel,
+      cta: "Save",
+      active: () => quickTerminalBackgroundSaveModel().saved,
+      activeCta: "Saved",
+      search: "save active terminal pane background image wallpaper saved background library reusable",
+      disabled: () => quickTerminalBackgroundSaveModel().disabled,
+      title: () => quickTerminalBackgroundSaveModel().title,
+      run: () => saveCustomBackgroundImage({ url: quickTerminalBackgroundSaveModel().background })
     },
     {
       id: "pane-settings",
@@ -18021,6 +18104,8 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   const terminalCount = panels.filter((panel) => panel.type === "terminal").length;
   const browserCount = panels.filter((panel) => panel.type === "browser").length;
   const activeTerminal = activeTerminalPanelForSettings();
+  const activeTerminalBackground = activeTerminal ? normalizeBackgroundValue(activeTerminal.backgroundImage) : "";
+  const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
   const ids = [];
 
   if (!workspace || terminalCount === 0) ids.push("new-terminal");
@@ -18031,6 +18116,9 @@ function quickSetupRecommendedActionIds(workspace = activeWorkspace()) {
   if (!state.settings.backgroundImage) ids.push("background");
   else if (activeTerminal && !normalizeBackgroundValue(activeTerminal.backgroundImage)) ids.push("pane-background");
   if (state.savedSettingsProfiles.length === 0 && !ids.includes("save-clean-fast-profile") && ids.length < 4) ids.push("save-profile");
+  if (canSaveCustomColor(state.settings.accent) && !customColorPaletteHasColor(state.settings.accent) && ids.length < 4) ids.push("save-accent-color");
+  if (appBackground && canSaveBackgroundImage(appBackground) && !savedBackgroundImageExists(appBackground) && ids.length < 4) ids.push("save-background-image");
+  if (activeTerminalBackground && canSaveBackgroundImage(activeTerminalBackground) && !savedBackgroundImageExists(activeTerminalBackground) && ids.length < 4) ids.push("save-terminal-image");
   if (workspaceNeedsQuickRename(workspace)) ids.push("rename");
   if (workspace && panels.length > 1 && !workspaceBlueprintsFull()) ids.push("save-layout");
   if (workspace && panels.length > 0 && ids.length < 4) ids.push("pane-settings");
@@ -18123,7 +18211,7 @@ function quickSetupActionGrid() {
   const actions = quickSetupActionDefinitions();
   const grid = document.createElement("div");
   grid.className = "quick-settings-shortcut-grid quick-action-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions new terminal browser add pane clean ui speed tune focus mode background image wallpaper pane shape resize split rows columns");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions new terminal browser add pane clean ui speed tune focus mode background image wallpaper save accent color saved library pane shape resize split rows columns");
   for (const action of actions) {
     const active = Boolean(action.active?.());
     const disabled = Boolean(action.disabled?.()) || (active && action.activeDisabled !== false);
@@ -18225,7 +18313,7 @@ function quickActionDisclosurePanel() {
   return settingsDisclosurePanel({
     className: "quick-action-disclosure",
     content: "quick-actions",
-    searchTerms: "quick setup all actions terminal browser clean speed focus background layout active pane settings rename color",
+    searchTerms: "quick setup all actions terminal browser clean speed focus background layout active pane settings rename color save saved library customization",
     title: t("quickGuide.allActions"),
     body: t("quickGuide.allActions.body"),
     meta: formatMessage("quickGuide.actionCount", { count: actions.length })
