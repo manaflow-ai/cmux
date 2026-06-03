@@ -130,9 +130,9 @@ extension CMUXBrowserMCPServer {
             ),
             tool(
                 "cmux_browser_rpc",
-                "Call a raw cmux browser.* socket method for advanced workflows.",
+                "Call an allowlisted cmux browser automation socket method for advanced workflows.",
                 objectSchema([
-                    "method": stringSchema("Allowed method name: browser.* or system.identify."),
+                    "method": stringSchema("Allowed method name: a reviewed browser automation method or system.identify."),
                     "params": [
                         "type": "object",
                         "description": "Method parameters.",

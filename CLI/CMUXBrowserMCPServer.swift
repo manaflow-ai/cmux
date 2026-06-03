@@ -164,8 +164,10 @@ final class CMUXBrowserMCPServer {
         guard hasID else { return true }
         guard let rawID else { return true }
         switch rawID {
-        case is NSNull, is String, is NSNumber:
+        case is NSNull, is String:
             return true
+        case let number as NSNumber:
+            return CFGetTypeID(number) != CFBooleanGetTypeID()
         default:
             return false
         }

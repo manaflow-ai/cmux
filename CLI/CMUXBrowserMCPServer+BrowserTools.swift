@@ -1,5 +1,30 @@
 import Foundation
 
+private let cmuxBrowserMCPAllowedRawRPCMethods: Set<String> = [
+    "system.identify",
+    "browser.open_split",
+    "browser.navigate",
+    "browser.snapshot",
+    "browser.click",
+    "browser.fill",
+    "browser.type",
+    "browser.wait",
+    "browser.url.get",
+    "browser.get.title",
+    "browser.get.text",
+    "browser.get.html",
+    "browser.get.value",
+    "browser.get.attr",
+    "browser.get.count",
+    "browser.get.box",
+    "browser.get.styles",
+    "browser.eval",
+    "browser.screenshot",
+    "browser.console.list",
+    "browser.console.clear",
+    "browser.errors.list",
+]
+
 extension CMUXBrowserMCPServer {
     func withClient<T>(_ body: (SocketClient) throws -> T) throws -> T {
         let client = try cli.connectClient(
@@ -382,11 +407,11 @@ extension CMUXBrowserMCPServer {
                 message: String(localized: "cli.browserMCP.error.rpcMethodRequired", defaultValue: "cmux_browser_rpc requires method")
             )
         }
-        guard method.hasPrefix("browser.") || method == "system.identify" else {
+        guard cmuxBrowserMCPAllowedRawRPCMethods.contains(method) else {
             throw CLIError(
                 message: String(
                     localized: "cli.browserMCP.error.rpcMethodNotAllowed",
-                    defaultValue: "cmux_browser_rpc only allows browser.* and system.identify methods"
+                    defaultValue: "cmux_browser_rpc method is not allowed"
                 )
             )
         }
