@@ -4006,15 +4006,18 @@ final class TextBoxInputTextView: NSTextView {
         discardUndoHistoryAndCleanupPendingAttachmentFiles()
     }
 
-    func installPreservedContent(_ content: NSAttributedString) {
-        installAttributedContent(content)
+    func installPreservedContent(_ content: NSAttributedString, notifyingTextChange: Bool = true) {
+        installAttributedContent(content, notifyingTextChange: notifyingTextChange)
     }
 
-    func installSessionDraft(_ draft: SessionTextBoxInputDraftSnapshot) {
-        installAttributedContent(attributedContent(from: draft))
+    func installSessionDraft(_ draft: SessionTextBoxInputDraftSnapshot, notifyingTextChange: Bool = true) {
+        installAttributedContent(
+            attributedContent(from: draft),
+            notifyingTextChange: notifyingTextChange
+        )
     }
 
-    private func installAttributedContent(_ content: NSAttributedString) {
+    private func installAttributedContent(_ content: NSAttributedString, notifyingTextChange: Bool) {
         invalidatePendingAttachmentUploads()
         dismissMentionCompletions()
         clearAttachmentFocus(dismissPreview: true)
@@ -4029,7 +4032,11 @@ final class TextBoxInputTextView: NSTextView {
             layoutManager?.ensureLayout(for: textContainer)
         }
         recenterSingleLineTextContainer()
-        didChangeText()
+        if notifyingTextChange {
+            didChangeText()
+        } else {
+            flushAutomaticAttachmentFileCleanup()
+        }
     }
 
     func attributedContentForPreservation() -> NSAttributedString {

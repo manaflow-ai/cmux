@@ -224,16 +224,14 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func registerTextBoxInputView(_ view: TextBoxInputTextView) {
         textBoxInputView = view
+        // Registration runs from NSViewRepresentable.makeNSView; restoring drafts here must not
+        // write SwiftUI/Combine bindings while SwiftUI is constructing the subtree.
         if let restoredTextBoxDraft {
             self.restoredTextBoxDraft = nil
-            view.installSessionDraft(restoredTextBoxDraft)
-            textBoxContent = view.plainText()
-            textBoxAttachments = view.inlineAttachments()
+            view.installSessionDraft(restoredTextBoxDraft, notifyingTextChange: false)
         } else if let preservedTextBoxAttributedContent {
             self.preservedTextBoxAttributedContent = nil
-            view.installPreservedContent(preservedTextBoxAttributedContent)
-            textBoxContent = view.plainText()
-            textBoxAttachments = view.inlineAttachments()
+            view.installPreservedContent(preservedTextBoxAttributedContent, notifyingTextChange: false)
         }
         focusTextBoxIfNeeded()
 #if DEBUG
@@ -345,8 +343,10 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func preserveTextBoxContentForUnmount(from textBoxInputView: TextBoxInputTextView) {
-        guard !isClosingPanel else {
-            discardTextBoxContentForClose(from: textBoxInputView)
+        // Dismantle can run while AttributeGraph is destroying this subtree. Cache only
+        // non-published draft state here; normal editing keeps the published bindings current.
+        if isClosingPanel {
+            recordTextBoxViewUnmounted(textBoxInputView)
             return
         }
         let preservedContent = textBoxInputView.attributedContentForPreservation()
@@ -354,8 +354,12 @@ final class TerminalPanel: Panel, ObservableObject {
         preservedTextBoxAttributedContent = NSAttributedString(
             attributedString: preservedContent
         )
-        textBoxContent = textBoxInputView.plainText()
-        textBoxAttachments = textBoxInputView.inlineAttachments()
+        recordTextBoxViewUnmounted(textBoxInputView)
+    }
+
+    private func recordTextBoxViewUnmounted(_ textBoxInputView: TextBoxInputTextView) {
+        guard self.textBoxInputView === textBoxInputView else { return }
+        self.textBoxInputView = nil
     }
 
     private func discardTextBoxContentForClose(from textBoxInputView: TextBoxInputTextView? = nil) {
