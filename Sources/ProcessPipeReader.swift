@@ -94,7 +94,7 @@ enum ProcessPipeReader {
         return result.data
     }
 
-    static func copyDataToEndOfFileOrDiscard(from input: FileHandle, to output: FileHandle) {
+    static func copyDataToEndOfFile(from input: FileHandle, to output: FileHandle) throws {
         var copiedBytes = 0
         while true {
             switch readOnce(
@@ -113,7 +113,7 @@ enum ProcessPipeReader {
                         fileDescriptor: input.fileDescriptor,
                         partialByteCount: copiedBytes
                     )
-                    return
+                    throw error
                 }
             case .failure(let error):
                 logReadFailure(
@@ -121,7 +121,7 @@ enum ProcessPipeReader {
                     fileDescriptor: input.fileDescriptor,
                     partialByteCount: copiedBytes
                 )
-                return
+                throw error
             }
         }
     }

@@ -599,7 +599,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                 process.terminate()
             }
 
-            ProcessPipeReader.copyDataToEndOfFileOrDiscard(
+            try ProcessPipeReader.copyDataToEndOfFile(
                 from: outPipe.fileHandleForReading,
                 to: outputHandle
             )
@@ -716,8 +716,8 @@ enum FileExplorerError: LocalizedError {
         switch self {
         case .providerUnavailable:
             return String(localized: "fileExplorer.error.unavailable", defaultValue: "File explorer is not available")
-        case .sshCommandFailed(let detail):
-            return String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed: \(detail)")
+        case .sshCommandFailed:
+            return String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed")
         }
     }
 }
