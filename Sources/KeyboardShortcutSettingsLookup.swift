@@ -44,6 +44,15 @@ extension KeyboardShortcutSettings {
         settingsFileStore.isManagedByFile(action)
     }
 
+    /// The effective focus predicate gating `action`: the `shortcuts.when`
+    /// override from cmux.json if present, otherwise the action's built-in
+    /// ``KeyboardShortcutSettings/Action/shortcutContext`` expressed as a
+    /// ``ShortcutWhenClause``. Drives both runtime availability and conflict
+    /// detection so the same keystroke can be context-routed.
+    static func effectiveWhenClause(for action: Action) -> ShortcutWhenClause {
+        settingsFileStore.whenClause(for: action) ?? action.shortcutContext.defaultWhenClause
+    }
+
     static func unbindShortcut(for action: Action) {
         setShortcut(.unbound, for: action)
     }

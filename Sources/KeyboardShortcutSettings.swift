@@ -523,7 +523,15 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
-            guard shortcutContext.overlaps(proposedAction.shortcutContext) else {
+            // Two bindings on the same keystroke only collide when some focus
+            // state activates both. A `shortcuts.when` override (or the built-in
+            // context default) can make them non-overlapping — e.g. ⌃1 selecting a
+            // workspace only when the sidebar is NOT focused coexists with the
+            // sidebar's ⌃1 (issue #5189).
+            guard ShortcutWhenClause.canCoexist(
+                KeyboardShortcutSettings.effectiveWhenClause(for: self),
+                KeyboardShortcutSettings.effectiveWhenClause(for: proposedAction)
+            ) else {
                 return false
             }
             return KeyboardShortcutSettings.shortcutsConflict(

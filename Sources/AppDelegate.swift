@@ -13047,7 +13047,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Numeric shortcuts for specific workspaces (9 = last workspace)
         // Always consume the event when the digit matches to prevent Ghostty's
         // goto_tab fallback from creating a new window when the index is out of bounds.
-        if let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
+        if shortcutWhenClauseAllows(action: .selectWorkspaceByNumber, event: event),
+           let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
             if let manager = tabManager,
                let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
 #if DEBUG
@@ -13061,7 +13062,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Numeric shortcuts for surfaces within the focused pane (9 = last)
-        if let digit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
+        if shortcutWhenClauseAllows(action: .selectSurfaceByNumber, event: event),
+           let digit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
             if digit == 9 {
                 tabManager?.selectLastSurface()
             } else {
@@ -14460,8 +14462,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
-        if !action.shortcutContext.isAlwaysAvailable && !action.shortcutContext.isAvailable(shortcutEventFocusContext(event)) { return false }
+        if !shortcutWhenClauseAllows(action: action, event: event) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
+    }
+
+    /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
+    /// or its built-in context default) is satisfied by the event's focus state.
+    /// Gates every focus-scoped shortcut, including the numbered workspace/surface
+    /// handlers that previously ignored context (issue #5189).
+    func shortcutWhenClauseAllows(action: KeyboardShortcutSettings.Action, event: NSEvent) -> Bool {
+        KeyboardShortcutSettings.effectiveWhenClause(for: action)
+            .evaluate(shortcutEventFocusContext(event).focusState)
     }
 
     fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {

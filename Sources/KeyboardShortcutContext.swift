@@ -5,6 +5,16 @@ struct ShortcutEventFocusContext {
     let browserPanel: BrowserPanel?
     let markdownPanel: MarkdownPanel?
     let rightSidebarFocused: Bool
+
+    /// Projects the runtime focus snapshot onto the atoms a
+    /// ``ShortcutWhenClause`` evaluates against.
+    var focusState: ShortcutFocusState {
+        ShortcutFocusState(
+            browser: browserPanel != nil,
+            markdown: markdownPanel != nil,
+            sidebar: rightSidebarFocused
+        )
+    }
 }
 
 struct ShortcutEventFocusContextCache {
@@ -45,6 +55,23 @@ extension KeyboardShortcutSettings.Action {
                 focusedMarkdownPanel: context.markdownPanel != nil,
                 rightSidebarFocused: context.rightSidebarFocused
             )
+        }
+
+        /// The built-in context expressed as a ``ShortcutWhenClause``, used as the
+        /// default when an action has no `shortcuts.when` override in cmux.json.
+        var defaultWhenClause: ShortcutWhenClause {
+            switch self {
+            case .application:
+                return .always
+            case .nonBrowserPanel:
+                return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+            case .browserPanel:
+                return .atom(.browserFocus)
+            case .markdownPanel:
+                return .atom(.markdownFocus)
+            case .rightSidebarFocus:
+                return .atom(.sidebarFocus)
+            }
         }
 
         func overlaps(_ other: ShortcutContext) -> Bool {
