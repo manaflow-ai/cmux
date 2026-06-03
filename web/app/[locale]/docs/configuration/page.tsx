@@ -49,6 +49,7 @@ const sectionOrder = [
   "commands",
   "browser",
   "markdown",
+  "fileEditor",
   "shortcuts",
 ] as const;
 
@@ -100,6 +101,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "fontFamily": "",
   //   // ${t("exampleMarkdownMaxWidth")}
   //   "maxWidth": 980
+  // },
+
+  // "fileEditor": {
+  //   // ${t("exampleFileEditorWordWrap")}
+  //   "wordWrap": false
   // },
 
   // "automation": {

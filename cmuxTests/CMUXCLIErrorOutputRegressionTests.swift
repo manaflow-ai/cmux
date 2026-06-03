@@ -1,3 +1,4 @@
+import CmuxSocketControl
 import Darwin
 import Foundation
 import XCTest
@@ -55,9 +56,9 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"
         let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
-        let stableSocketURL = try stableSocketURL()
-
-        try prepareStableSocketPathForTest(stableSocketURL.path, label: "Stable cmux socket")
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stableSocketURL = try stableSocketURL(home: home)
 
         let stableResponder = try UnixSocketResponder(path: stableSocketURL.path, response: "STABLE")
         defer { stableResponder.stop() }
@@ -73,6 +74,9 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        // Redirect the CLI's stable-socket resolution to the temp home so this
+        // test is hermetic (CFFIXED_USER_HOME overrides homeDirectoryForCurrentUser).
+        environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
@@ -94,16 +98,14 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-case-\(UUID().uuidString.lowercased())"
         let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
-        let appSupportStableSocketURL = try stableSocketURL()
-        let stableSocketPath = FileManager.default.fileExists(atPath: appSupportStableSocketURL.path)
-            ? "/tmp/cmux.sock"
-            : appSupportStableSocketURL.path
-        let caseVariantStablePath = URL(fileURLWithPath: stableSocketPath)
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stableSocketURL = try stableSocketURL(home: home)
+        let stableSocketPath = stableSocketURL.path
+        let caseVariantStablePath = stableSocketURL
             .deletingLastPathComponent()
             .appendingPathComponent("CMUX.sock", isDirectory: false)
             .path
-
-        try prepareStableSocketPathForTest(stableSocketPath, label: "Stable cmux socket")
 
         let stableResponder = try UnixSocketResponder(path: stableSocketPath, response: "OK STABLE")
         defer { stableResponder.stop() }
@@ -121,6 +123,9 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
         environment["CMUX_SOCKET_PATH"] = caseVariantStablePath
+        // Resolve the stable path under the temp home so the case-variant env
+        // socket is recognized as the implicit default hermetically.
+        environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
@@ -144,7 +149,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let stableSocketURL = fixedHomeURL
-            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
+            .appendingPathComponent(".local/state/cmux", isDirectory: true)
             .appendingPathComponent("cmux.sock", isDirectory: false)
         try FileManager.default.createDirectory(
             at: stableSocketURL.deletingLastPathComponent(),
@@ -190,7 +195,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmux-cli-home-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let stableSocketURL = fixedHomeURL
-            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
+            .appendingPathComponent(".local/state/cmux", isDirectory: true)
             .appendingPathComponent("cmux-\(getuid()).sock", isDirectory: false)
         let stableSocketPath = stableSocketURL.path
         try FileManager.default.createDirectory(
@@ -253,7 +258,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let socketDirectoryURL = fixedHomeURL
-            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
+            .appendingPathComponent(".local/state/cmux", isDirectory: true)
         try FileManager.default.createDirectory(
             at: socketDirectoryURL,
             withIntermediateDirectories: true
@@ -317,7 +322,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let socketDirectoryURL = fixedHomeURL
-            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
+            .appendingPathComponent(".local/state/cmux", isDirectory: true)
         try FileManager.default.createDirectory(
             at: socketDirectoryURL,
             withIntermediateDirectories: true
@@ -378,7 +383,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let socketDirectoryURL = fixedHomeURL
-            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
+            .appendingPathComponent(".local/state/cmux", isDirectory: true)
         try FileManager.default.createDirectory(
             at: socketDirectoryURL,
             withIntermediateDirectories: true
@@ -443,7 +448,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
         let socketDirectoryURL = fixedHomeURL
-            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
+            .appendingPathComponent(".local/state/cmux", isDirectory: true)
         try FileManager.default.createDirectory(
             at: socketDirectoryURL,
             withIntermediateDirectories: true
@@ -504,9 +509,9 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-nested-\(UUID().uuidString.lowercased())"
         let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
-        let stableSocketURL = try stableSocketURL()
-
-        try prepareStableSocketPathForTest(stableSocketURL.path, label: "Stable cmux socket")
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stableSocketURL = try stableSocketURL(home: home)
 
         let stableResponder = try UnixSocketResponder(path: stableSocketURL.path, response: "STABLE")
         defer { stableResponder.stop() }
@@ -523,6 +528,8 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        // Redirect the CLI's stable-socket resolution to the temp home (hermetic).
+        environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
@@ -1268,11 +1275,24 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         throw bundledCLINotFoundError(appBundleURL: appBundleURL)
     }
 
-    private func stableSocketURL() throws -> URL {
-        let appSupport = try XCTUnwrap(
-            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        )
-        let directory = appSupport.appendingPathComponent("cmux", isDirectory: true)
+    /// A throwaway home directory for hermetic CLI socket-resolution tests.
+    ///
+    /// The CLI resolves its stable socket under `homeDirectoryForCurrentUser`,
+    /// which honors `CFFIXED_USER_HOME`. Tests build the socket path from this home
+    /// via the canonical ``CmuxStateDirectory`` and pass the same home to the
+    /// spawned CLI via `CFFIXED_USER_HOME`, so they never touch (or bind over) the
+    /// developer's real `~/.local/state/cmux` (issue #5146).
+    private func makeTemporaryHome() throws -> URL {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-home-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        return home
+    }
+
+    /// The stable control-socket path under an injected (temp) home, resolved via
+    /// the canonical ``CmuxStateDirectory`` so the test exercises the real layout.
+    private func stableSocketURL(home: URL) throws -> URL {
+        let directory = CmuxStateDirectory.url(homeDirectory: home)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent("cmux.sock", isDirectory: false)
     }
