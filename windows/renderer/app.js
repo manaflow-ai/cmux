@@ -5904,6 +5904,13 @@ function emptyWorkspaceLaunchers() {
       kind: "layouts"
     });
   }
+  launchers.push({
+    id: "customize",
+    icon: "settings",
+    label: t("emptyWorkspace.customize", "Customize"),
+    meta: t("emptyWorkspace.customizeMeta", "Themes, images, layout"),
+    kind: "settings"
+  });
   if (state.closedPanels.length > 0) {
     launchers.unshift({
       id: "reopen",
@@ -5933,6 +5940,10 @@ async function runEmptyWorkspaceLauncher(launcher, workspace) {
   }
   if (launcher.kind === "layouts") {
     openSettingsCategory("blueprints");
+    return;
+  }
+  if (launcher.kind === "settings") {
+    openSettingsCategory("quick");
     return;
   }
 }

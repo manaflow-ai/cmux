@@ -108,6 +108,8 @@ const windowsMessages = {
     "emptyWorkspace.addTerminal": "+ Terminal",
     "emptyWorkspace.addBrowser": "+ Browser",
     "emptyWorkspace.savedLayouts": "Saved layouts",
+    "emptyWorkspace.customize": "Customize",
+    "emptyWorkspace.customizeMeta": "Themes, images, layout",
     "emptyWorkspace.reopen": "Reopen",
     "emptyWorkspace.lastClosedPane": "Last closed pane",
     "settings.searchPlaceholder": "Search settings",
