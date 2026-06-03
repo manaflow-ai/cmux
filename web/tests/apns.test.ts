@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 import {
   apnsHostForEnvironment,
@@ -6,7 +7,7 @@ import {
   shouldPruneToken,
 } from "../services/apns/payload";
 import { summarizeApnsSendResults } from "../services/apns/response";
-import { signApnsJwt, normalizeP8 } from "../services/apns/sender";
+import { sendApnsNotification, signApnsJwt, normalizeP8 } from "../services/apns/sender";
 import {
   MAX_PUSH_BODY_CHARS,
   normalizeApnsBundle,
@@ -214,5 +215,89 @@ describe("apns jwt", () => {
       signature,
     );
     expect(valid).toBe(true);
+  });
+});
+
+describe("apns sender transport", () => {
+  test("starts sandbox and production host groups concurrently", async () => {
+    const sandboxHost = apnsHostForEnvironment("sandbox");
+    const productionHost = apnsHostForEnvironment("production");
+    const started: string[] = [];
+    const closed: string[] = [];
+    let releaseSandbox!: () => void;
+    const sandboxReleased = new Promise<void>((resolve) => {
+      releaseSandbox = resolve;
+    });
+
+    class FakeRequest extends EventEmitter {
+      constructor(private readonly host: string) {
+        super();
+      }
+
+      setTimeout() {
+        return this;
+      }
+
+      close() {
+        return this;
+      }
+
+      end() {
+        started.push(this.host);
+        this.emit("response", { ":status": 200 });
+        if (this.host === sandboxHost) {
+          void sandboxReleased.then(() => this.emit("end"));
+        } else {
+          this.emit("end");
+        }
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      constructor(private readonly host: string) {
+        super();
+      }
+
+      request() {
+        return new FakeRequest(this.host);
+      }
+
+      close() {
+        closed.push(this.host);
+      }
+    }
+
+    const transport = {
+      connect: (host: string) => new FakeSession(host),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+
+    const resultPromise = sendApnsNotification(
+      { keyP8: p8, keyId: "KID-CONCURRENT", teamId: "TEAM456" },
+      [
+        { deviceToken: "a".repeat(64), bundleId: "dev.cmux.ios.push1", environment: "sandbox" },
+        { deviceToken: "b".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" },
+      ],
+      { title: "agent", body: "done" },
+      1000,
+      transport,
+    );
+
+    let results: Awaited<ReturnType<typeof sendApnsNotification>> = [];
+    try {
+      expect(started).toEqual([sandboxHost, productionHost]);
+    } finally {
+      releaseSandbox();
+      results = await resultPromise;
+    }
+
+    expect(results).toEqual([
+      { deviceToken: "a".repeat(64), status: 200, reason: undefined, prune: false },
+      { deviceToken: "b".repeat(64), status: 200, reason: undefined, prune: false },
+    ]);
+    expect(closed).toEqual([productionHost, sandboxHost]);
   });
 });
