@@ -29,6 +29,7 @@ type ConfigProps = {
 type AppState = {
   activeItemId: string;
   activeTreePath: string;
+  copyFeedback: string;
   fileSearchOpen: boolean;
   filesVisible: boolean;
   items: DiffItem[];
@@ -43,6 +44,7 @@ type AppAction =
   | { type: "append-items"; items: DiffItem[] }
   | { type: "rename-item"; oldId: string; newId: string }
   | { type: "set-active-item"; itemId: string; treePath?: string }
+  | { type: "set-copy-feedback"; message: string }
   | { type: "set-file-search-open"; open: boolean }
   | { type: "set-files-visible"; visible: boolean }
   | { type: "set-metrics"; metrics: StreamMetrics }
@@ -60,6 +62,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
   return {
     activeItemId: "",
     activeTreePath: "",
+    copyFeedback: "",
     fileSearchOpen: false,
     filesVisible: true,
     items: [],
@@ -105,6 +108,8 @@ function reducer(state: AppState, action: AppAction): AppState {
       activeItemId: action.itemId,
       activeTreePath: action.treePath ?? state.activeTreePath,
     };
+  case "set-copy-feedback":
+    return { ...state, copyFeedback: action.message };
   case "set-file-search-open":
     return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
   case "set-files-visible":
@@ -144,6 +149,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
+  const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
 
   usePageDataAttributes(state);
@@ -177,8 +183,8 @@ export function App({ config, initialStatus }: ConfigProps) {
         label={label}
         onCopyGitApply={async () => {
           try {
-            const message = await copyGitApplyCommand(payload.patchURL, label);
-            setStatus(createDiffViewerStatus(message, { loading: false, statusOnly: true }));
+            const message = await copyGitApplyCommand(payload.patchURL, label, copyFallbackRef.current);
+            dispatch({ type: "set-copy-feedback", message });
           } catch {
             setStatus(createDiffViewerStatus(label("renderFailed"), { error: true, loading: false, statusOnly: true }));
           }
@@ -217,6 +223,13 @@ export function App({ config, initialStatus }: ConfigProps) {
         </main>
         <LoadingLayer label={label} status={state.status} />
       </section>
+      <textarea
+        ref={copyFallbackRef}
+        aria-hidden="true"
+        readOnly
+        tabIndex={-1}
+        className="copy-fallback-textarea"
+      />
     </div>
   );
 }
@@ -286,8 +299,8 @@ function Toolbar({
           id="options-button"
           className="toolbar-icon"
           type="button"
-          title={label("options")}
-          aria-label={label("options")}
+          title={state.copyFeedback || label("options")}
+          aria-label={state.copyFeedback || label("options")}
           aria-expanded={state.optionsOpen}
           aria-haspopup="menu"
           onClick={() => dispatch({ type: "set-options-open", open: !state.optionsOpen })}

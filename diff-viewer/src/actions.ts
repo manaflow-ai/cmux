@@ -22,7 +22,11 @@ export function diffSourceDetail(payload: any): string {
   return parts.join(" | ");
 }
 
-export async function copyGitApplyCommand(patchURL: string | undefined, label: DiffViewerLabelResolver): Promise<string> {
+export async function copyGitApplyCommand(
+  patchURL: string | undefined,
+  label: DiffViewerLabelResolver,
+  fallbackTextarea: HTMLTextAreaElement | null,
+): Promise<string> {
   if (!patchURL) {
     return label("renderFailed");
   }
@@ -35,10 +39,16 @@ export async function copyGitApplyCommand(patchURL: string | undefined, label: D
   const patch = patchText.endsWith(newline) ? patchText : `${patchText}${newline}`;
   const delimiter = safeGitApplyDelimiter(patch);
   const command = `git apply <<'${delimiter}'${newline}${patch}${delimiter}`;
-  if (!navigator.clipboard?.writeText) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(command);
+    return label("copiedGitApplyCommand");
+  }
+  if (!fallbackTextarea) {
     throw new Error("Clipboard API unavailable");
   }
-  await navigator.clipboard.writeText(command);
+  fallbackTextarea.value = command;
+  fallbackTextarea.select();
+  document.execCommand("copy");
   return label("copiedGitApplyCommand");
 }
 
