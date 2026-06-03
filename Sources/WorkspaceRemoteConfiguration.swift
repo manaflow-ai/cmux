@@ -397,7 +397,6 @@ struct WorkspaceRemoteConfiguration: Equatable {
         let normalizedIdentity = WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile) ?? ""
         let normalizedLocalProxyPort = localProxyPort.map(String.init) ?? ""
         let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
-        let normalizedAgentSocketPath = self.agentSocketPath ?? ""
         let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
         let normalizedRequiredCapabilities = preserveAfterTerminalExit ? "pty.session" : ""
         let normalizedPersistentDaemonSlot = persistentDaemonSlot ?? ""
@@ -408,7 +407,6 @@ struct WorkspaceRemoteConfiguration: Equatable {
             normalizedPort,
             normalizedIdentity,
             normalizedOptions,
-            normalizedAgentSocketPath,
             normalizedLocalProxyPort,
             normalizedWebSocketDaemon,
             normalizedRequiredCapabilities,
