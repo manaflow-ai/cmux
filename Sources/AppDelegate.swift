@@ -54,7 +54,7 @@ private func runMultiWindowRouteCLI(
     )
 }
 
-func shouldActivatePaneBodyPointerFocusForFirstClick(
+func shouldRunPaneBodyPointerFocusPreflight(
     windowIsKey: Bool,
     appIsActive: Bool,
     paneFirstClickFocusEnabled: Bool
@@ -63,6 +63,18 @@ func shouldActivatePaneBodyPointerFocusForFirstClick(
         return true
     }
     return paneFirstClickFocusEnabled
+}
+
+private enum CmuxPaneBodyPointerFocusTargetSource: Equatable {
+    case directHit
+    case portalFallback
+}
+
+private struct CmuxPaneBodyPointerFocusTarget {
+    let workspaceId: UUID
+    let panelId: UUID
+    let focusIntent: PanelFocusIntent
+    let source: CmuxPaneBodyPointerFocusTargetSource
 }
 
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
@@ -6571,11 +6583,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard located.tabManager.selectedTabId == workspace.id else {
             return false
         }
+        if mainPaneBodyPointerFocusIsSatisfied(
+            workspace: workspace,
+            panelId: panelId,
+            focusIntent: focusIntent,
+            in: window
+        ) {
+            return false
+        }
 
         setActiveMainWindow(window)
         noteMainPanelKeyboardFocusIntent(workspaceId: workspace.id, panelId: panelId, in: window)
         workspace.focusPanel(panelId, trigger: .paneBodyPointer, focusIntent: focusIntent)
         return true
+    }
+
+    private func mainPaneBodyPointerFocusIsSatisfied(
+        workspace: Workspace,
+        panelId: UUID,
+        focusIntent: PanelFocusIntent,
+        in window: NSWindow
+    ) -> Bool {
+        guard workspace.focusedPanelId == panelId,
+              let firstResponder = window.firstResponder,
+              let panel = workspace.panels[panelId] else {
+            return false
+        }
+        return panel.ownedFocusIntent(for: firstResponder, in: window) == focusIntent
     }
 
     func noteRightSidebarKeyboardFocusIntent(mode: RightSidebarMode, in window: NSWindow?) {
@@ -17561,7 +17595,7 @@ private extension NSWindow {
     private static func cmuxActivateMainPaneBodyPointerFocusIfNeeded(in window: NSWindow, event: NSEvent) -> Bool {
         guard let appDelegate = AppDelegate.shared else { return false }
         guard appDelegate.isCommandPaletteVisible(for: window) == false else { return false }
-        guard shouldActivatePaneBodyPointerFocusForFirstClick(
+        guard shouldRunPaneBodyPointerFocusPreflight(
             windowIsKey: window.isKeyWindow,
             appIsActive: NSApp.isActive,
             paneFirstClickFocusEnabled: PaneFirstClickFocusSettings.isEnabled()
@@ -17569,6 +17603,9 @@ private extension NSWindow {
             return false
         }
         guard let target = cmuxMainPaneBodyPointerFocusTarget(in: window, event: event, appDelegate: appDelegate) else {
+            return false
+        }
+        guard target.source == .portalFallback else {
             return false
         }
         return appDelegate.activateMainPaneBodyPointerFocus(
@@ -17583,13 +17620,13 @@ private extension NSWindow {
         in window: NSWindow,
         event: NSEvent,
         appDelegate: AppDelegate
-    ) -> (workspaceId: UUID, panelId: UUID, focusIntent: PanelFocusIntent)? {
+    ) -> CmuxPaneBodyPointerFocusTarget? {
         guard event.type == .leftMouseDown else { return nil }
         guard cmuxEventAllowsFirstResponderHitTesting(event) else { return nil }
         guard cmuxPointerEventTargetsWindow(event, window) else { return nil }
 
         if let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) {
-            if let target = cmuxMainPaneBodyPointerFocusTarget(
+            if let target = cmuxDirectMainPaneBodyPointerFocusTarget(
                 forHitView: hitView,
                 appDelegate: appDelegate
             ) {
@@ -17604,7 +17641,10 @@ private extension NSWindow {
             event.locationInWindow,
             in: window
         ),
-           let target = cmuxMainPaneBodyPointerFocusTarget(forTerminalView: terminalView) {
+           let target = cmuxMainPaneBodyPointerFocusTarget(
+               forTerminalView: terminalView,
+               source: .portalFallback
+           ) {
             return target
         }
 
@@ -17612,29 +17652,38 @@ private extension NSWindow {
             event.locationInWindow,
             in: window
         ) as? CmuxWebView,
-           let target = cmuxMainPaneBodyPointerFocusTarget(forWebView: webView, appDelegate: appDelegate) {
+           let target = cmuxMainPaneBodyPointerFocusTarget(
+               forWebView: webView,
+               appDelegate: appDelegate,
+               source: .portalFallback
+           ) {
             return target
         }
 
         return nil
     }
 
-    private static func cmuxMainPaneBodyPointerFocusTarget(
+    private static func cmuxDirectMainPaneBodyPointerFocusTarget(
         forHitView hitView: NSView,
         appDelegate: AppDelegate
-    ) -> (workspaceId: UUID, panelId: UUID, focusIntent: PanelFocusIntent)? {
+    ) -> CmuxPaneBodyPointerFocusTarget? {
         if let terminalView = cmuxOwningGhosttyView(for: hitView) {
-            return cmuxMainPaneBodyPointerFocusTarget(forTerminalView: terminalView)
+            return cmuxMainPaneBodyPointerFocusTarget(forTerminalView: terminalView, source: .directHit)
         }
-        if let webView = cmuxOwningWebView(for: hitView) {
-            return cmuxMainPaneBodyPointerFocusTarget(forWebView: webView, appDelegate: appDelegate)
+        if let webView = cmuxDirectOwningWebView(for: hitView) {
+            return cmuxMainPaneBodyPointerFocusTarget(
+                forWebView: webView,
+                appDelegate: appDelegate,
+                source: .directHit
+            )
         }
         return nil
     }
 
     private static func cmuxMainPaneBodyPointerFocusTarget(
-        forTerminalView terminalView: GhosttyNSView
-    ) -> (workspaceId: UUID, panelId: UUID, focusIntent: PanelFocusIntent)? {
+        forTerminalView terminalView: GhosttyNSView,
+        source: CmuxPaneBodyPointerFocusTargetSource
+    ) -> CmuxPaneBodyPointerFocusTarget? {
         guard let workspaceId = terminalView.tabId,
               let panelId = terminalView.terminalSurface?.id else {
             return nil
@@ -17642,18 +17691,45 @@ private extension NSWindow {
         guard !TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) else {
             return nil
         }
-        return (workspaceId, panelId, .terminal(.surface))
+        return CmuxPaneBodyPointerFocusTarget(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            focusIntent: .terminal(.surface),
+            source: source
+        )
     }
 
     private static func cmuxMainPaneBodyPointerFocusTarget(
         forWebView webView: CmuxWebView,
-        appDelegate: AppDelegate
-    ) -> (workspaceId: UUID, panelId: UUID, focusIntent: PanelFocusIntent)? {
+        appDelegate: AppDelegate,
+        source: CmuxPaneBodyPointerFocusTargetSource
+    ) -> CmuxPaneBodyPointerFocusTarget? {
         guard let panel = appDelegate.browserPanelOwning(webView),
               let located = appDelegate.workspaceContainingPanel(panelId: panel.id) else {
             return nil
         }
-        return (located.workspace.id, panel.id, .browser(.webView))
+        return CmuxPaneBodyPointerFocusTarget(
+            workspaceId: located.workspace.id,
+            panelId: panel.id,
+            focusIntent: .browser(.webView),
+            source: source
+        )
+    }
+
+    private static func cmuxDirectOwningWebView(for view: NSView) -> CmuxWebView? {
+        if let webView = view as? CmuxWebView {
+            return webView
+        }
+
+        var current: NSView? = view.superview
+        while let candidate = current {
+            if let webView = candidate as? CmuxWebView {
+                return webView
+            }
+            current = candidate.superview
+        }
+
+        return nil
     }
 
     private static func cmuxNativeTextEntryOwnsPointerHit(_ hitView: NSView) -> Bool {
