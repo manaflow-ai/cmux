@@ -6606,10 +6606,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         guard workspace.focusedPanelId == panelId,
               let firstResponder = window.firstResponder,
-              let panel = workspace.panels[panelId] else {
+              let panel = workspace.panels[panelId],
+              panel.ownedFocusIntent(for: firstResponder, in: window) == focusIntent else {
             return false
         }
-        return panel.ownedFocusIntent(for: firstResponder, in: window) == focusIntent
+        // Keyboard routing must already target this pane as well. A stale
+        // `.rightSidebar` intent (with Bonsplit focus and first responder still on
+        // the pane) must not count as satisfied, or the body click never restores
+        // main-panel keyboard intent and input stays routed to the sidebar (#5269).
+        return keyboardFocusCoordinator(for: window)?
+            .hasMainPanelKeyboardFocusIntent(workspaceId: workspace.id, panelId: panelId) == true
     }
 
     func noteRightSidebarKeyboardFocusIntent(mode: RightSidebarMode, in window: NSWindow?) {
@@ -17670,7 +17676,7 @@ private extension NSWindow {
         if let terminalView = cmuxOwningGhosttyView(for: hitView) {
             return cmuxMainPaneBodyPointerFocusTarget(forTerminalView: terminalView, source: .directHit)
         }
-        if let webView = cmuxDirectOwningWebView(for: hitView) {
+        if let webView = cmuxOwningWebView(for: hitView) {
             return cmuxMainPaneBodyPointerFocusTarget(
                 forWebView: webView,
                 appDelegate: appDelegate,
@@ -17714,22 +17720,6 @@ private extension NSWindow {
             focusIntent: .browser(.webView),
             source: source
         )
-    }
-
-    private static func cmuxDirectOwningWebView(for view: NSView) -> CmuxWebView? {
-        if let webView = view as? CmuxWebView {
-            return webView
-        }
-
-        var current: NSView? = view.superview
-        while let candidate = current {
-            if let webView = candidate as? CmuxWebView {
-                return webView
-            }
-            current = candidate.superview
-        }
-
-        return nil
     }
 
     private static func cmuxNativeTextEntryOwnsPointerHit(_ hitView: NSView) -> Bool {

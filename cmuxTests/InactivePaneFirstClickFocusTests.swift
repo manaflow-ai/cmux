@@ -99,6 +99,47 @@ final class InactivePaneFirstClickFocusTests: XCTestCase {
         ))
     }
 
+    func testMainPanelKeyboardFocusIntentTracksActivation() {
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: nil
+        )
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        // No intent recorded yet → a pane-body click must not be treated as satisfied.
+        XCTAssertFalse(
+            controller.hasMainPanelKeyboardFocusIntent(workspaceId: workspaceId, panelId: panelId)
+        )
+
+        // A stale right-sidebar intent must never count as a satisfied main-panel focus,
+        // even while Bonsplit focus and the AppKit first responder still point at the pane.
+        // Otherwise the pane-body preflight would skip restoring keyboard routing (#5269).
+        controller.noteRightSidebarInteraction(mode: .dock)
+        XCTAssertFalse(
+            controller.hasMainPanelKeyboardFocusIntent(workspaceId: workspaceId, panelId: panelId)
+        )
+
+        // Main-panel intent for this pane → satisfied.
+        controller.noteMainPanelInteraction(workspaceId: workspaceId, panelId: panelId)
+        XCTAssertTrue(
+            controller.hasMainPanelKeyboardFocusIntent(workspaceId: workspaceId, panelId: panelId)
+        )
+
+        // Main-panel intent for a different pane → not satisfied.
+        XCTAssertFalse(
+            controller.hasMainPanelKeyboardFocusIntent(workspaceId: workspaceId, panelId: UUID())
+        )
+
+        // Returning focus to the right sidebar clears the satisfied state again.
+        controller.noteRightSidebarInteraction(mode: .files)
+        XCTAssertFalse(
+            controller.hasMainPanelKeyboardFocusIntent(workspaceId: workspaceId, panelId: panelId)
+        )
+    }
+
     func testTerminalPointerFocusUsesPortalRegistryWhenHitTestMisses() throws {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
