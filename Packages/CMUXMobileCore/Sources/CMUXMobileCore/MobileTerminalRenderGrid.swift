@@ -317,8 +317,11 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
 
     /// Alias for ``vtPatchBytes()``; the byte stream both replaces a full
     /// screen and patches a delta depending on ``full``.
+    ///
+    /// Forwards to ``MobileTerminalRenderGridReplay/replacementBytes()``; the
+    /// VT synthesizer lives there so this DTO stays a pure value.
     public func vtReplacementBytes() -> Data {
-        vtPatchBytes()
+        MobileTerminalRenderGridReplay(self).replacementBytes()
     }
 
     /// Synthesize a VT byte stream that reproduces this frame when fed to a
@@ -330,200 +333,11 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// (`?1049h` for the alternate screen), reapplies non-default DEC/ANSI
     /// modes, and finally restores the cursor. A **delta** frame clears and
     /// repaints only the changed viewport rows.
+    ///
+    /// Forwards to ``MobileTerminalRenderGridReplay/patchBytes()``; the VT
+    /// synthesizer lives there so this DTO stays a pure value.
     public func vtPatchBytes() -> Data {
-        full ? fullSnapshotBytes() : deltaPatchBytes()
-    }
-
-    /// DEC private mode codes that switch screens or save the cursor. The
-    /// active screen is restored explicitly via ``activeScreen``, so these are
-    /// never replayed from ``modes`` (replaying them would double-switch).
-    private static let screenSwitchModeCodes: Set<Int> = [47, 1047, 1048, 1049]
-
-    private func deltaPatchBytes() -> Data {
-        var bytes = Data()
-        let stylesByID = Self.stylesByID(styles)
-        let defaultStyle = stylesByID[0] ?? .default
-        let rowsToClear = Set(clearedRows).union(rowSpans.map(\.row)).sorted()
-        for row in rowsToClear {
-            bytes.append(Self.sgrBytes(for: defaultStyle))
-            bytes.append(Data("\u{1B}[\(row + 1);1H\u{1B}[2K".utf8))
-        }
-        var activeStyleID: Int?
-        for span in rowSpans {
-            bytes.append(Data("\u{1B}[\(span.row + 1);\(span.column + 1)H".utf8))
-            if activeStyleID != span.styleID,
-               let style = stylesByID[span.styleID] {
-                bytes.append(Self.sgrBytes(for: style))
-                activeStyleID = span.styleID
-            }
-            bytes.append(Self.vtPrintableBytes(span.text))
-        }
-        bytes.append(Self.sgrBytes(for: defaultStyle))
-        // A delta never hides the cursor while painting, so (unlike a full
-        // snapshot) it leaves a nil cursor untouched instead of forcing it
-        // visible.
-        if let cursor {
-            bytes.append(Self.cursorStyleBytes(for: cursor))
-            if cursor.visible {
-                bytes.append(Data("\u{1B}[?25h\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
-            } else {
-                bytes.append(Data("\u{1B}[?25l".utf8))
-            }
-        }
-        return bytes
-    }
-
-    private func fullSnapshotBytes() -> Data {
-        var bytes = Data()
-        let stylesByID = Self.stylesByID(styles)
-        let defaultStyle = stylesByID[0] ?? .default
-
-        // Reset to a known state, then apply everything inside a synchronized
-        // update so the client never shows a partially-restored screen.
-        bytes.append(Data("\u{1B}c".utf8))
-        bytes.append(Data("\u{1B}[?2026h".utf8))
-
-        // Dynamic default colors (OSC 10/11/12). Cells already carry explicit
-        // RGB, so these mainly fix the cursor color and color queries.
-        if let osc = Self.oscColorBytes(10, terminalForeground) { bytes.append(osc) }
-        if let osc = Self.oscColorBytes(11, terminalBackground) { bytes.append(osc) }
-        if let osc = Self.oscColorBytes(12, terminalCursorColor) { bytes.append(osc) }
-
-        // Paint with autowrap and the cursor off so a full-width row plus an
-        // explicit newline cannot wrap into a phantom blank line, and so the
-        // restore does not flicker the cursor across the grid.
-        bytes.append(Data("\u{1B}[?7l\u{1B}[?25l".utf8))
-        bytes.append(Self.sgrBytes(for: defaultStyle))
-
-        if activeScreen == .alternate {
-            // Scrollback belongs to the primary screen; flow it there first so
-            // it is preserved behind the alternate screen, then enter the
-            // alternate screen and paint the TUI viewport.
-            appendFlowLines(
-                &bytes,
-                spans: scrollbackSpans,
-                lineCount: scrollbackRows,
-                stylesByID: stylesByID,
-                defaultStyle: defaultStyle,
-                terminateLast: true
-            )
-            bytes.append(Data("\u{1B}[?1049h".utf8))
-            bytes.append(Self.sgrBytes(for: defaultStyle))
-            appendFlowLines(
-                &bytes,
-                spans: rowSpans,
-                lineCount: rows,
-                stylesByID: stylesByID,
-                defaultStyle: defaultStyle,
-                terminateLast: false
-            )
-        } else {
-            // Primary: scrollback then the viewport as one continuous flow so
-            // the scrollback naturally lands in the client's history.
-            let offsetViewportSpans = rowSpans.map { span in
-                RowSpan(
-                    row: span.row + scrollbackRows,
-                    column: span.column,
-                    styleID: span.styleID,
-                    text: span.text,
-                    cellWidth: span.cellWidth
-                )
-            }
-            appendFlowLines(
-                &bytes,
-                spans: scrollbackSpans + offsetViewportSpans,
-                lineCount: scrollbackRows + rows,
-                stylesByID: stylesByID,
-                defaultStyle: defaultStyle,
-                terminateLast: false
-            )
-        }
-
-        // Reapply modes last so autowrap returns to its captured value
-        // (undoing the temporary `?7l`) and mouse/paste/app-key modes are live.
-        for mode in modes where !Self.screenSwitchModeCodes.contains(mode.code) {
-            bytes.append(Self.modeBytes(mode))
-        }
-
-        appendCursorRestore(&bytes)
-        bytes.append(Data("\u{1B}[?2026l".utf8))
-        return bytes
-    }
-
-    /// Append `lineCount` lines (rows `0..<lineCount` of `spans`) as a natural
-    /// scrolling flow: each line resets to the default style, positions its
-    /// spans with `CHA`, and is separated from the next by CRLF.
-    private func appendFlowLines(
-        _ bytes: inout Data,
-        spans: [RowSpan],
-        lineCount: Int,
-        stylesByID: [Int: Style],
-        defaultStyle: Style,
-        terminateLast: Bool
-    ) {
-        guard lineCount > 0 else { return }
-        var spansByRow: [Int: [RowSpan]] = [:]
-        for span in spans {
-            spansByRow[span.row, default: []].append(span)
-        }
-        for line in 0..<lineCount {
-            if line > 0 {
-                bytes.append(Data("\r\n".utf8))
-            }
-            bytes.append(Self.sgrBytes(for: defaultStyle))
-            var activeStyleID = 0
-            for span in (spansByRow[line] ?? []).sorted(by: { $0.column < $1.column }) {
-                bytes.append(Data("\u{1B}[\(span.column + 1)G".utf8))
-                if activeStyleID != span.styleID,
-                   let style = stylesByID[span.styleID] {
-                    bytes.append(Self.sgrBytes(for: style))
-                    activeStyleID = span.styleID
-                }
-                bytes.append(Self.vtPrintableBytes(span.text))
-            }
-        }
-        if terminateLast {
-            bytes.append(Data("\r\n".utf8))
-        }
-    }
-
-    private func appendCursorRestore(_ bytes: inout Data) {
-        let defaultStyle = Self.stylesByID(styles)[0] ?? .default
-        bytes.append(Self.sgrBytes(for: defaultStyle))
-        guard let cursor else {
-            bytes.append(Data("\u{1B}[?25h".utf8))
-            return
-        }
-        bytes.append(Self.cursorStyleBytes(for: cursor))
-        if cursor.visible {
-            bytes.append(Data("\u{1B}[?25h\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
-        } else {
-            bytes.append(Data("\u{1B}[?25l\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
-        }
-    }
-
-    private static func stylesByID(_ styles: [Style]) -> [Int: Style] {
-        var map: [Int: Style] = [:]
-        for style in styles {
-            map[style.id] = style
-        }
-        return map
-    }
-
-    private static func modeBytes(_ mode: ModeSetting) -> Data {
-        let prefix = mode.ansi ? "\u{1B}[" : "\u{1B}[?"
-        return Data("\(prefix)\(mode.code)\(mode.on ? "h" : "l")".utf8)
-    }
-
-    private static func oscColorBytes(_ ps: Int, _ hex: String?) -> Data? {
-        guard let rgb = rgbComponents(hex) else { return nil }
-        let spec = String(
-            format: "rgb:%02x/%02x/%02x",
-            rgb.red,
-            rgb.green,
-            rgb.blue
-        )
-        return Data("\u{1B}]\(ps);\(spec)\u{1B}\\".utf8)
+        MobileTerminalRenderGridReplay(self).patchBytes()
     }
 
     private static func normalizedRows(from text: String, maxRows: Int) -> [String] {
@@ -559,62 +373,6 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     private static func clippedToColumns(_ text: String, columns: Int) -> String {
         guard text.count > columns else { return text }
         return String(text.prefix(columns))
-    }
-
-    private static func vtPrintableBytes(_ text: String) -> Data {
-        var output = String()
-        output.reserveCapacity(text.count)
-        for scalar in text.unicodeScalars {
-            switch scalar.value {
-            case 0x20...0x10FFFF where scalar.value != 0x7F:
-                output.unicodeScalars.append(scalar)
-            default:
-                output.append(" ")
-            }
-        }
-        return Data(output.utf8)
-    }
-
-    private static func sgrBytes(for style: Style) -> Data {
-        var codes = ["0"]
-        if style.bold { codes.append("1") }
-        if style.faint { codes.append("2") }
-        if style.italic { codes.append("3") }
-        if style.underline { codes.append("4") }
-        if style.blink { codes.append("5") }
-        if style.inverse { codes.append("7") }
-        if style.invisible { codes.append("8") }
-        if style.strikethrough { codes.append("9") }
-        if style.overline { codes.append("53") }
-        if let foreground = rgbComponents(style.foreground) {
-            codes.append("38;2;\(foreground.red);\(foreground.green);\(foreground.blue)")
-        }
-        if let background = rgbComponents(style.background) {
-            codes.append("48;2;\(background.red);\(background.green);\(background.blue)")
-        }
-        return Data("\u{1B}[\(codes.joined(separator: ";"))m".utf8)
-    }
-
-    private static func cursorStyleBytes(for cursor: Cursor) -> Data {
-        let parameter: Int
-        switch cursor.style {
-        case .block, .blockHollow:
-            parameter = cursor.blinking ? 1 : 2
-        case .underline:
-            parameter = cursor.blinking ? 3 : 4
-        case .bar:
-            parameter = cursor.blinking ? 5 : 6
-        }
-        return Data("\u{1B}[\(parameter) q".utf8)
-    }
-
-    private static func rgbComponents(_ value: String?) -> (red: Int, green: Int, blue: Int)? {
-        guard var value else { return nil }
-        if value.hasPrefix("#") {
-            value.removeFirst()
-        }
-        guard value.count == 6, let raw = Int(value, radix: 16) else { return nil }
-        return ((raw >> 16) & 0xFF, (raw >> 8) & 0xFF, raw & 0xFF)
     }
 
     enum CodingKeys: String, CodingKey {
