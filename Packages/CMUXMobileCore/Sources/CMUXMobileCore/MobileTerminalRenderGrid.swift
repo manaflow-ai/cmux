@@ -315,6 +315,18 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         return try JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data)
     }
 
+    /// Decode a render-grid frame directly from raw JSON data.
+    ///
+    /// Equivalent to ``decodeJSONObject(_:)`` for callers that already hold the
+    /// serialized payload (for example a push-event payload), avoiding a
+    /// round-trip through `JSONSerialization`.
+    /// - Parameter data: The JSON-encoded frame.
+    /// - Returns: The decoded, validated frame.
+    /// - Throws: A decoding or validation error if the payload is malformed.
+    public static func decode(_ data: Data) throws -> MobileTerminalRenderGridFrame {
+        try JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data)
+    }
+
     /// Alias for ``vtPatchBytes()``; the byte stream both replaces a full
     /// screen and patches a delta depending on ``full``.
     ///

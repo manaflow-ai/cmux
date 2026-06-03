@@ -148,11 +148,12 @@ public final class CMUXMobileShellStore {
         connectedHostName: String = "",
         pairingCode: String = "",
         workspaces: [MobileWorkspacePreview] = [],
-        pairedMacStore: (any MobilePairedMacStoring)? = nil
+        pairedMacStore: (any MobilePairedMacStoring)? = nil,
+        clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard)
     ) {
         self.runtime = runtime
         self.pairedMacStore = pairedMacStore
-        self.clientID = Self.loadClientID()
+        self.clientID = clientIDRepository.clientID
         self.isSignedIn = isSignedIn
         self.connectionState = connectionState
         self.connectedHostName = connectedHostName
@@ -197,19 +198,6 @@ public final class CMUXMobileShellStore {
 
     public static func preview(runtime: CMUXMobileRuntime? = nil) -> CMUXMobileShellStore {
         CMUXMobileShellStore(runtime: runtime, workspaces: PreviewMobileHost.workspaces)
-    }
-
-    private static let clientIDDefaultsKey = "dev.cmux.mobile.clientID"
-
-    private static func loadClientID() -> String {
-        if let existing = UserDefaults.standard.string(forKey: clientIDDefaultsKey),
-           UUID(uuidString: existing) != nil {
-            return existing
-        }
-
-        let created = UUID().uuidString
-        UserDefaults.standard.set(created, forKey: clientIDDefaultsKey)
-        return created
     }
 
     public func signIn() {
@@ -1263,10 +1251,8 @@ public final class CMUXMobileShellStore {
             mobileShellLog.error("subscribe failed reason=\(reason, privacy: .public): \(String(describing: error), privacy: .private)")
             return false
         }
-        let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-        guard let object = responseObject,
-              let streamID = object["stream_id"] as? String,
-              !streamID.isEmpty else {
+        let response = try? MobileEventSubscribeResponse.decode(responseData)
+        guard let streamID = response?.streamID, !streamID.isEmpty else {
             mobileShellLog.error("subscribe response missing stream_id reason=\(reason, privacy: .public)")
             return false
         }
@@ -1283,14 +1269,12 @@ public final class CMUXMobileShellStore {
                 MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:]),
                 timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
             )
-            guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard let payload = try? MobileHostStatusResponse.decode(data) else {
                 terminalOutputTransport = fallback
                 return fallback
             }
-            let capabilities = payload["capabilities"] as? [String] ?? []
-            let fidelity = payload["terminal_fidelity"] as? String
-            let transport: TerminalOutputTransport = capabilities.contains(Self.terminalRenderGridCapability) ||
-                fidelity == "render_grid" ? .renderGrid : .rawBytes
+            let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
+                payload.terminalFidelity == "render_grid" ? .renderGrid : .rawBytes
             terminalOutputTransport = transport
             liveAnchormuxLog("sync.transport=\(transport == .renderGrid ? "render_grid" : "raw_bytes")")
             return transport
@@ -1499,8 +1483,8 @@ public final class CMUXMobileShellStore {
 
     private func handleTerminalInputResponse(_ data: Data, surfaceID: String) {
         guard terminalByteSinksBySurfaceID[surfaceID] != nil,
-              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let remoteSeq = (payload["terminal_seq"] as? NSNumber)?.uint64Value else {
+              let payload = try? MobileTerminalInputResponse.decode(data),
+              let remoteSeq = payload.terminalSeq else {
             return
         }
         let localSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
@@ -1604,15 +1588,11 @@ public final class CMUXMobileShellStore {
             )
             let data = try await client.sendRequest(request)
             guard remoteClient === client else { return nil }
-            guard
-                let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                let cols = (payload["columns"] as? NSNumber)?.intValue,
-                let effectiveRows = (payload["rows"] as? NSNumber)?.intValue,
-                cols > 0, effectiveRows > 0
-            else {
+            guard let payload = try? MobileTerminalViewportResponse.decode(data),
+                  let grid = payload.effectiveGrid else {
                 return nil
             }
-            return (cols, effectiveRows)
+            return (grid.columns, grid.rows)
         } catch {
             mobileShellLog.error("viewport report failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
             return nil
@@ -1680,20 +1660,16 @@ public final class CMUXMobileShellStore {
                 )
                 let data = try await client.sendRequest(request)
                 guard self.remoteClient === client else { return }
-                let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-                let b64 = payload?["data_b64"] as? String
-                let bytes = b64.flatMap { Data(base64Encoded: $0) }
-                let snapshotB64 = payload?["snapshot_data_b64"] as? String
-                let snapshotBytes = snapshotB64.flatMap { Data(base64Encoded: $0) }
-                let decodedRenderGrid = payload?["render_grid"].flatMap {
-                    try? MobileTerminalRenderGridFrame.decodeJSONObject($0)
-                }
+                let payload = try? MobileTerminalReplayResponse.decode(data)
+                let bytes = payload?.dataBase64.flatMap { Data(base64Encoded: $0) }
+                let snapshotBytes = payload?.snapshotBase64.flatMap { Data(base64Encoded: $0) }
+                let decodedRenderGrid = payload?.renderGrid
                 let renderGrid = decodedRenderGrid?.surfaceID == surfaceID ? decodedRenderGrid : nil
-                let replaySeq = renderGrid?.stateSeq ?? (payload?["seq"] as? NSNumber)?.uint64Value
+                let replaySeq = renderGrid?.stateSeq ?? payload?.sequence
                 #if DEBUG
                 let seq = replaySeq ?? 0
-                let cols = (payload?["columns"] as? NSNumber)?.intValue ?? -1
-                let rows = (payload?["rows"] as? NSNumber)?.intValue ?? -1
+                let cols = payload?.columns ?? -1
+                let rows = payload?.rows ?? -1
                 mobileShellLog.info("CMUX_REPLAY response surface=\(surfaceID, privacy: .public) byteCount=\(bytes?.count ?? -1, privacy: .public) snapshotBytes=\(snapshotBytes?.count ?? -1, privacy: .public) renderGrid=\(renderGrid != nil, privacy: .public) seq=\(seq, privacy: .public) macGrid=\(cols, privacy: .public)x\(rows, privacy: .public) hasSink=\(self.terminalByteSinksBySurfaceID[surfaceID] != nil, privacy: .public)")
                 #endif
                 if let replaySeq,
@@ -1736,14 +1712,13 @@ public final class CMUXMobileShellStore {
     }
 
     private func handleTerminalRenderGridEvent(_ event: MobileEventEnvelope) {
-        guard
-            let json = event.payloadJSON,
-            let payload = try? JSONSerialization.jsonObject(with: json) as? [String: Any]
-        else {
+        guard let json = event.payloadJSON else {
             return
         }
-        let frameObject: Any = payload["render_grid"] ?? payload
-        guard let renderGrid = try? MobileTerminalRenderGridFrame.decodeJSONObject(frameObject),
+        // The frame may arrive nested under `render_grid` or as the bare payload;
+        // try the wrapper first, then fall back to decoding the whole payload.
+        let renderGridDTO = try? MobileTerminalRenderGridEvent.decode(json)
+        guard let renderGrid = renderGridDTO?.frame ?? (try? MobileTerminalRenderGridFrame.decode(json)),
               terminalByteSinksBySurfaceID[renderGrid.surfaceID] != nil else {
             return
         }
@@ -1766,18 +1741,17 @@ public final class CMUXMobileShellStore {
     private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {
         guard
             let json = event.payloadJSON,
-            let payload = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
-            let surfaceID = payload["surface_id"] as? String,
-            let b64 = payload["data_b64"] as? String,
-            let bytes = Data(base64Encoded: b64)
+            let payload = MobileTerminalBytesEvent.decode(json)
         else {
             return
         }
+        let surfaceID = payload.surfaceID
+        let bytes = payload.bytes
         #if DEBUG
-        let seq = (payload["seq"] as? NSNumber)?.uint64Value ?? 0
-        mobileShellLog.info("CMUX_REPLAY live bytes surface=\(surfaceID, privacy: .public) byteCount=\(bytes.count, privacy: .public) seq=\(seq, privacy: .public) hasSink=\(self.terminalByteSinksBySurfaceID[surfaceID] != nil, privacy: .public)")
+        let debugSeq = payload.sequence ?? 0
+        mobileShellLog.info("CMUX_REPLAY live bytes surface=\(surfaceID, privacy: .public) byteCount=\(bytes.count, privacy: .public) seq=\(debugSeq, privacy: .public) hasSink=\(self.terminalByteSinksBySurfaceID[surfaceID] != nil, privacy: .public)")
         #endif
-        guard let seq = (payload["seq"] as? NSNumber)?.uint64Value else {
+        guard let seq = payload.sequence else {
             terminalByteSinksBySurfaceID[surfaceID]?(bytes)
             return
         }
