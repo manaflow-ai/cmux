@@ -17190,12 +17190,14 @@ function paletteEntries() {
     });
   }
   for (const preset of terminalColorPresets) {
+    const active = isActiveTerminalColorPreset(preset);
     entries.push({
       id: `terminalColor.${preset.id}`,
       label: `Terminal colors: ${preset.label}`,
-      meta: preset.body,
-      shortcut: "Theme",
-      search: normalizeSettingsQuery(`terminal colors theme preset ${preset.label} ${preset.body}`),
+      meta: active ? `Active / ${preset.body}` : preset.body,
+      shortcut: active ? "Active" : "Theme",
+      active,
+      search: normalizeSettingsQuery(`terminal colors theme preset apply active ${preset.label} ${preset.body}`),
       run: () => applyTerminalColorPreset(preset)
     });
   }
@@ -17212,40 +17214,51 @@ function paletteEntries() {
       run: () => applySettingsPreset(preset)
     });
   }
+  const paletteWorkspace = activeWorkspace();
+  const paletteActiveTerminal = activeTerminalPanelForSettings();
   for (const preset of backgroundPresets) {
     const presetId = preset.value || "none";
+    const activeApp = normalizeBackgroundValue(state.settings.backgroundImage) === normalizeBackgroundValue(preset.value);
+    const activePane = Boolean(paletteActiveTerminal && panelBackgroundMatches(paletteActiveTerminal, preset.value));
+    const activeAll = terminalBackgroundsMatch(paletteWorkspace, preset.value);
+    const appMeta = preset.value ? "Built-in background" : "No background";
     entries.push({
       id: `backgroundPreset.${presetId}`,
       label: `Background template: ${preset.label}`,
-      meta: preset.value ? "Built-in background" : "No background",
-      shortcut: "Look",
-      search: normalizeSettingsQuery(`background preset template image wallpaper look apply app whole window ${preset.label} ${preset.value}`),
+      meta: activeApp ? `Active / ${appMeta}` : appMeta,
+      shortcut: activeApp ? "Active" : "Look",
+      active: activeApp,
+      search: normalizeSettingsQuery(`background preset template image wallpaper look apply active app whole window ${preset.label} ${preset.value}`),
       run: () => applyBackgroundPreset(preset, { toast: true })
     });
     entries.push({
       id: `backgroundPresetPane.${presetId}`,
       label: `Pane background: ${preset.label}`,
-      meta: "Active terminal pane",
-      shortcut: "Look",
+      meta: activePane ? "Active / Active terminal pane" : "Active terminal pane",
+      shortcut: activePane ? "Active" : "Look",
+      active: activePane,
       search: normalizeSettingsQuery(`background preset template image wallpaper apply active terminal pane ${preset.label} ${preset.value}`),
       run: () => applyPanelBackgroundImage(preset.value, activeTerminalPanelForSettings())
     });
     entries.push({
       id: `backgroundPresetTerminals.${presetId}`,
       label: `Terminal backgrounds: ${preset.label}`,
-      meta: "All terminal panes in workspace",
-      shortcut: "Look",
-      search: normalizeSettingsQuery(`background preset template image wallpaper apply all terminal panes workspace ${preset.label} ${preset.value}`),
+      meta: activeAll ? "Active / All terminal panes in workspace" : "All terminal panes in workspace",
+      shortcut: activeAll ? "Active" : "Look",
+      active: activeAll,
+      search: normalizeSettingsQuery(`background preset template image wallpaper apply active all terminal panes workspace ${preset.label} ${preset.value}`),
       run: () => applyWorkspaceBackgroundImageToTerminals(preset.value)
     });
   }
   for (const preset of browserHomePresets) {
+    const active = isActiveBrowserHomePreset(preset);
     entries.push({
       id: `browserHomePreset.${preset.id}`,
       label: `Browser home: ${preset.label}`,
-      meta: preset.url,
-      shortcut: "Browser",
-      search: normalizeSettingsQuery(`browser home preset start page homepage apply ${preset.label} ${preset.body} ${preset.url}`),
+      meta: active ? `Active / ${preset.url}` : preset.url,
+      shortcut: active ? "Active" : "Browser",
+      active,
+      search: normalizeSettingsQuery(`browser home preset start page homepage apply active ${preset.label} ${preset.body} ${preset.url}`),
       run: () => applyBrowserHomePreset(preset)
     });
   }
