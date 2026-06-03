@@ -1260,8 +1260,25 @@ function saveRecentFolders() {
   localStorage.setItem(recentFoldersStorageKey, JSON.stringify(state.recentFolders));
 }
 
+function normalizeRecentFolder(folderPath) {
+  return String(folderPath || "").trim();
+}
+
+function normalizeRecentFolderList(entries = []) {
+  const folders = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    const folder = normalizeRecentFolder(entry);
+    const key = folderKey(folder);
+    if (!folder || seen.has(key)) continue;
+    seen.add(key);
+    folders.push(folder);
+  }
+  return folders;
+}
+
 function rememberRecentFolder(folderPath) {
-  const folder = String(folderPath || "").trim();
+  const folder = normalizeRecentFolder(folderPath);
   if (!folder) return;
   const key = folderKey(folder);
   state.recentFolders = [
@@ -1281,6 +1298,87 @@ function clearRecentFolders() {
   renderSettingsInspector();
   toast("Recent folders cleared.");
   return true;
+}
+
+function recentFoldersPayload() {
+  return {
+    version: 1,
+    type: "cmux-recent-folders",
+    summary: {
+      folders: state.recentFolders.length,
+      limit: recentFoldersLimit
+    },
+    folders: state.recentFolders
+  };
+}
+
+async function copyRecentFolders() {
+  if (state.recentFolders.length === 0) {
+    toast("Recent folders are empty.");
+    return false;
+  }
+  const payload = JSON.stringify(recentFoldersPayload(), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Recent folders copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Recent folders",
+    message: "Clipboard access is unavailable. The recent workspace folders are shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function recentFolderEntriesFromPayload(payload) {
+  const parsed = importedObject(payload);
+  if (Array.isArray(payload)) return normalizeRecentFolderList(payload);
+  if (parsed && Array.isArray(parsed.folders)) return normalizeRecentFolderList(parsed.folders);
+  if (parsed && Array.isArray(parsed.recentFolders)) return normalizeRecentFolderList(parsed.recentFolders);
+  if (typeof payload === "string") return normalizeRecentFolderList(payload.split(/\r?\n/));
+  return [];
+}
+
+function mergeRecentFolders(folders) {
+  const imported = normalizeRecentFolderList(folders);
+  if (imported.length === 0) {
+    toast("Clipboard does not contain recent folders.");
+    return false;
+  }
+  const next = [];
+  const seen = new Set();
+  for (const folder of [...imported, ...state.recentFolders]) {
+    const key = folderKey(folder);
+    if (!folder || seen.has(key)) continue;
+    seen.add(key);
+    next.push(folder);
+    if (next.length >= recentFoldersLimit) break;
+  }
+  if (stableJson(next) === stableJson(state.recentFolders)) {
+    toast("Recent folders already match.");
+    return false;
+  }
+  state.recentFolders = next;
+  saveRecentFolders();
+  renderSettingsInspector();
+  toast(`Recent folders updated (${state.recentFolders.length}/${recentFoldersLimit}).`);
+  return true;
+}
+
+async function pasteRecentFolders() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    return mergeRecentFolders(recentFolderEntriesFromPayload(JSON.parse(clipboard)));
+  } catch {
+    return mergeRecentFolders(recentFolderEntriesFromPayload(clipboard));
+  }
 }
 
 function normalizeTerminalCommand(command) {
@@ -4366,6 +4464,8 @@ const commands = [
   { id: "workspace.saveBlueprint", label: "Save Workspace Blueprint", shortcut: "", run: () => saveCurrentWorkspaceBlueprint() },
   { id: "workspace.copyBlueprint", label: "Copy Current Workspace Blueprint", shortcut: "", run: () => copyCurrentWorkspaceBlueprint() },
   { id: "workspace.pasteBlueprint", label: "Paste Workspace Blueprint", shortcut: "", run: () => pasteWorkspaceBlueprint() },
+  { id: "workspace.copyRecentFolders", label: "Copy Recent Folders", shortcut: "", run: () => copyRecentFolders() },
+  { id: "workspace.pasteRecentFolders", label: "Paste Recent Folders", shortcut: "", run: () => pasteRecentFolders() },
   { id: "settings.blueprints", label: "Open Workspace Blueprints", shortcut: "", run: () => openSettingsCategory("blueprints") },
   { id: "workspace.closeEmpty", label: "Close Empty Workspaces", shortcut: "", run: () => closeEmptyWorkspaces() },
   { id: "workspace.close", label: "Close Workspace", shortcut: "", run: () => closeActiveWorkspace() },
@@ -15353,7 +15453,7 @@ function recentFoldersDisclosurePanel() {
   return settingsDisclosurePanel({
     className: "recent-folders-disclosure",
     content: "recent-folders",
-    searchTerms: "workspace recent folders recent workspace folder history directory cwd quick reopen",
+    searchTerms: "workspace recent folders recent workspace folder history directory cwd quick reopen copy paste clipboard json",
     title: t("workspace.recentFolders"),
     body: t("workspace.recentFolders.body"),
     meta: formatMessage("workspace.recentFolderCount", {
@@ -17677,16 +17777,24 @@ function terminalColorPresetGrid() {
 function recentFoldersSettings() {
   const section = document.createElement("div");
   section.className = "recent-folder-list";
-  section.dataset.settingsSearch = normalizeSettingsQuery("recent folders recent workspace folder history directory cwd quick reopen");
+  section.dataset.settingsSearch = normalizeSettingsQuery("recent folders recent workspace folder history directory cwd quick reopen copy paste clipboard json");
 
   const header = document.createElement("div");
   header.className = "recent-folder-header";
   const title = document.createElement("span");
   title.textContent = "Recent folders";
+  const copy = settingsActionButton("Copy", copyRecentFolders, "", "recent folders copy workspace folder history directory clipboard json");
+  copy.disabled = state.recentFolders.length === 0;
+  copy.title = copy.disabled ? "Recent folders are empty." : "Copy recent workspace folders as JSON.";
+  const paste = settingsActionButton("Paste", pasteRecentFolders, "", "recent folders paste workspace folder history directory clipboard json path");
+  paste.title = "Merge copied workspace folders into recent folders.";
   const clear = settingsActionButton("Clear", clearRecentFolders, "danger", "recent folders clear history");
   clear.disabled = state.recentFolders.length === 0;
   clear.title = clear.disabled ? "Recent folders are already clear." : "Clear recent workspace folders.";
-  header.append(title, clear);
+  const headerActions = document.createElement("div");
+  headerActions.className = "recent-folder-header-actions";
+  headerActions.append(copy, paste, clear);
+  header.append(title, headerActions);
   section.append(header);
 
   if (state.recentFolders.length === 0) {
@@ -19637,6 +19745,8 @@ function showToolbarMenu(event) {
       contextMenuButton("Change workspace color", cycleWorkspaceColor),
       toolbarAction("Change workspace folder", () => chooseWorkspaceFolder(), !workspace, "Choose a folder for the active workspace.", workspaceRequiredTitle),
       toolbarAction("Open workspace folder", () => openWorkspaceFolder(), !workspace?.cwd, "Open this workspace folder.", workspace ? "This workspace does not have a folder yet." : workspaceRequiredTitle),
+      toolbarAction("Copy recent folders", copyRecentFolders, state.recentFolders.length === 0, "Copy recent workspace folders as JSON.", "Recent folders are empty."),
+      toolbarAction("Paste recent folders", pasteRecentFolders, false, "Merge copied workspace folders into recent folders."),
       toolbarAction("Copy workspace setup", () => copyWorkspaceSetup(workspace), !workspace, "Copy this workspace name, color, and folder as JSON.", workspaceRequiredTitle),
       toolbarAction("Paste workspace setup", () => pasteWorkspaceSetup(workspace), !workspace, "Apply copied cmux workspace setup.", workspaceRequiredTitle),
       toolbarAction("Copy workspace blueprint", copyCurrentWorkspaceBlueprint, !workspaceHasPanes, "Copy the current workspace pane layout as JSON.", workspace ? "Open panes before copying a blueprint." : workspaceRequiredTitle),
@@ -20523,6 +20633,25 @@ function paletteEntries() {
       });
     }
   }
+  entries.push({
+    id: "recentFolder.copyAll",
+    label: "Copy recent folders",
+    meta: `${state.recentFolders.length}/${recentFoldersLimit} folders`,
+    shortcut: "Copy",
+    disabled: state.recentFolders.length === 0,
+    title: state.recentFolders.length === 0 ? "Recent folders are empty." : "Copy recent workspace folders as JSON.",
+    search: normalizeSettingsQuery("recent folders workspace directory cwd copy clipboard json export history"),
+    run: copyRecentFolders
+  });
+  entries.push({
+    id: "recentFolder.pasteAll",
+    label: "Paste recent folders",
+    meta: "Merge copied folder list",
+    shortcut: "Paste",
+    title: "Merge copied workspace folders into recent folders.",
+    search: normalizeSettingsQuery("recent folders workspace directory cwd paste import clipboard json path history"),
+    run: pasteRecentFolders
+  });
   for (const [folderIndex, folder] of state.recentFolders.entries()) {
     const name = folderName(folder);
     const shortPath = shortFolderPath(folder);
