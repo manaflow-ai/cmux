@@ -5834,6 +5834,128 @@ const backgroundPaletteCommandIds = new Set([
   "background.clearAllTerminals"
 ]);
 
+const customizationPaletteCommandIds = new Set([
+  "settings.copySavedLibrary",
+  "settings.clearSavedLibrary",
+  "settings.copySavedColors",
+  "settings.saveAccentColor",
+  "settings.saveWorkspaceColor",
+  "settings.savePaneColor",
+  "settings.saveAllPaneColors",
+  "settings.saveBackground",
+  "settings.copySavedBackgrounds"
+]);
+
+function customizationCommandPaletteSignature() {
+  const parts = [];
+  appendSignatureValue(parts, savedDataItemCount());
+  appendSignatureValue(parts, state.customColorPalette.length);
+  appendSignatureValue(parts, state.savedBackgroundImages.length);
+  for (const target of ["accent", "workspace", "pane", "all"]) {
+    const model = currentColorSaveModel(target);
+    appendSignatureValue(parts, model.color || "");
+    appendSignatureValue(parts, Boolean(model.disabled));
+    appendSignatureValue(parts, model.title || "");
+  }
+  const appBackground = quickAppBackgroundSaveModel();
+  appendSignatureValue(parts, appBackground.background || "");
+  appendSignatureValue(parts, Boolean(appBackground.saved));
+  appendSignatureValue(parts, Boolean(appBackground.disabled));
+  const terminalBackground = quickTerminalBackgroundSaveModel();
+  appendSignatureValue(parts, terminalBackground.panel?.id || "");
+  appendSignatureValue(parts, terminalBackground.background || "");
+  appendSignatureValue(parts, Boolean(terminalBackground.saved));
+  appendSignatureValue(parts, Boolean(terminalBackground.disabled));
+  return parts.join("");
+}
+
+function customizationColorCommandPaletteState(commandId) {
+  const targetByCommand = {
+    "settings.saveAccentColor": "accent",
+    "settings.saveWorkspaceColor": "workspace",
+    "settings.savePaneColor": "pane",
+    "settings.saveAllPaneColors": "all"
+  };
+  const target = targetByCommand[commandId];
+  if (!target) return null;
+  const model = currentColorSaveModel(target);
+  const color = normalizeCustomPaletteColor(model.color);
+  const saved = customColorPaletteHasColor(model.color);
+  const label = color ? color.toUpperCase() : "Custom hex required";
+  return {
+    meta: saved ? `Saved / ${label}` : label,
+    shortcut: saved ? "Saved" : "Save",
+    active: saved,
+    disabled: saved || model.disabled,
+    icon: "appearance",
+    title: saved ? "This color is already saved." : model.title,
+    search: `saved color palette custom accent workspace pane reusable library ${target} ${label}`
+  };
+}
+
+function customizationCommandPaletteState(commandId) {
+  if (!customizationPaletteCommandIds.has(commandId)) return null;
+  const colorState = customizationColorCommandPaletteState(commandId);
+  if (colorState) return colorState;
+  const savedCount = savedDataItemCount();
+  const savedLabel = `${savedCount} saved item${savedCount === 1 ? "" : "s"}`;
+  if (commandId === "settings.copySavedLibrary") {
+    return {
+      meta: savedCount ? savedLabel : "Library empty",
+      shortcut: "Copy",
+      disabled: savedCount === 0,
+      icon: "data",
+      title: savedCount ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON." : "Customization library is empty.",
+      search: "saved customization library export copy snippets profiles blueprints colors backgrounds clipboard json"
+    };
+  }
+  if (commandId === "settings.clearSavedLibrary") {
+    return {
+      meta: savedCount ? savedLabel : "Library clear",
+      shortcut: "Clear",
+      disabled: savedCount === 0,
+      icon: "data",
+      title: savedCount ? "Clear saved snippets, profiles, blueprints, colors, and backgrounds." : "Customization library is already clear.",
+      search: "saved customization library clear delete snippets profiles blueprints colors backgrounds"
+    };
+  }
+  if (commandId === "settings.copySavedColors") {
+    const count = state.customColorPalette.length;
+    return {
+      meta: `${count}/${customColorPaletteLimit} colors`,
+      shortcut: "Copy",
+      disabled: count === 0,
+      icon: "appearance",
+      title: count ? "Copy the saved color palette as JSON." : "Saved color palette is empty.",
+      search: "saved color palette copy export custom accent workspace pane reusable clipboard json"
+    };
+  }
+  if (commandId === "settings.saveBackground") {
+    const model = quickAppBackgroundSaveModel();
+    return {
+      meta: model.background ? appearanceBackgroundLabel(model.background) : "No app image",
+      shortcut: model.saved ? "Saved" : "Save",
+      active: model.saved,
+      disabled: model.disabled,
+      icon: "background",
+      title: model.title,
+      search: "saved background image wallpaper save current app reusable library"
+    };
+  }
+  if (commandId === "settings.copySavedBackgrounds") {
+    const count = state.savedBackgroundImages.length;
+    return {
+      meta: `${count}/${savedBackgroundImagesLimit} backgrounds`,
+      shortcut: "Copy",
+      disabled: count === 0,
+      icon: "background",
+      title: count ? "Copy saved background images as JSON." : "Saved background library is empty.",
+      search: "saved background image wallpaper copy export reusable library clipboard json"
+    };
+  }
+  return null;
+}
+
 const actionWorkflowDefinitions = [
   {
     id: "workspaceSetup",
@@ -17788,7 +17910,7 @@ function quickActionIconMarkup(icon) {
 }
 
 function activeTerminalPaneBackgroundLabel() {
-  const panel = resolveTerminalPanel(focusedPanel());
+  const panel = activeTerminalPanelForSettings();
   if (!panel) return "Select terminal";
   const background = normalizeBackgroundValue(panel.backgroundImage);
   return background ? appearanceBackgroundLabel(background) : "Default";
@@ -17819,7 +17941,7 @@ function quickAppBackgroundSaveModel() {
 }
 
 function quickTerminalBackgroundSaveModel() {
-  const panel = resolveTerminalPanel(focusedPanel());
+  const panel = activeTerminalPanelForSettings();
   const background = normalizeBackgroundValue(panel?.backgroundImage);
   const saved = savedBackgroundImageExists(background);
   return {
@@ -18017,9 +18139,9 @@ function quickSetupActionDefinitions() {
       meta: activeTerminalPaneBackgroundLabel,
       cta: "Choose",
       search: "active pane terminal background image specific terminal wallpaper",
-      disabled: () => !resolveTerminalPanel(focusedPanel()),
+      disabled: () => !activeTerminalPanelForSettings(),
       disabledTitle: () => "Focus a terminal pane before setting its image.",
-      run: () => choosePanelBackgroundImage()
+      run: () => choosePanelBackgroundImage(activeTerminalPanelForSettings())
     },
     {
       id: "save-terminal-image",
@@ -24788,6 +24910,7 @@ function paletteEntriesSignature() {
   appendSignatureValue(parts, settingsKeysSignature(profileSettingsSettingKeys));
   appendSignatureValue(parts, quickSettingsSignature());
   appendSignatureValue(parts, backgroundCommandPaletteSignature());
+  appendSignatureValue(parts, customizationCommandPaletteSignature());
   appendSignatureValue(parts, performanceQuickActionPaletteSignature());
   appendSignatureValue(parts, performanceHealthPaletteSignature());
   appendPalettePaneTargetSignature(parts);
@@ -25162,28 +25285,30 @@ function paletteEntries() {
     const performanceAction = performanceQuickActionForCommand(command.id);
     const performanceActive = performanceQuickActionIsActive(performanceAction);
     const backgroundState = backgroundCommandPaletteState(command.id, paletteWorkspace);
+    const customizationState = customizationCommandPaletteState(command.id);
     const layoutActive = activeLayoutCommandIds.has(command.id);
-    const active = layoutActive || performanceActive || Boolean(backgroundState?.active);
+    const active = layoutActive || performanceActive || Boolean(backgroundState?.active) || Boolean(customizationState?.active);
     const layoutPreset = paneLayoutPresets.find((preset) => preset.id === paneLayoutCommandPresetIds.get(command.id));
     const unavailable = Boolean(layoutPreset && layoutUnavailable);
     const performanceSearch = performanceAction
       ? `performance speed lag smooth quick action ${performanceAction.title} ${performanceAction.applied} ${performanceAction.already}`
       : "";
     const backgroundSearch = backgroundState?.search || "";
+    const customizationSearch = customizationState?.search || "";
     return {
       id: command.id,
       label: command.label,
       meta: performanceAction
         ? performanceActive ? "Active performance setting" : "Performance quick action"
-        : backgroundState?.meta || (layoutActive ? "Active layout command" : "Command"),
-      shortcut: active ? "Active" : performanceAction ? "Speed" : backgroundState?.shortcut || command.shortcut,
+        : backgroundState?.meta || customizationState?.meta || (layoutActive ? "Active layout command" : "Command"),
+      shortcut: active ? "Active" : performanceAction ? "Speed" : backgroundState?.shortcut || customizationState?.shortcut || command.shortcut,
       active,
-      disabled: active || unavailable || Boolean(backgroundState?.disabled),
-      icon: backgroundState?.icon,
+      disabled: active || unavailable || Boolean(backgroundState?.disabled) || Boolean(customizationState?.disabled),
+      icon: backgroundState?.icon || customizationState?.icon,
       title: performanceAction
         ? performanceActive ? performanceAction.already : performanceAction.title
-        : backgroundState?.title || (layoutPreset ? paneLayoutPresetTitle(layoutPreset, layoutActive, unavailable) : command.label),
-      search: normalizeSettingsQuery(`${command.label} ${command.shortcut} command ${active ? "active current" : ""} ${layoutActive ? "layout" : ""} ${performanceSearch} ${backgroundSearch}`),
+        : backgroundState?.title || customizationState?.title || (layoutPreset ? paneLayoutPresetTitle(layoutPreset, layoutActive, unavailable) : command.label),
+      search: normalizeSettingsQuery(`${command.label} ${command.shortcut} command ${active ? "active current" : ""} ${layoutActive ? "layout" : ""} ${performanceSearch} ${backgroundSearch} ${customizationSearch}`),
       run: command.run
     };
   });
