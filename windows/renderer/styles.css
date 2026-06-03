@@ -7918,6 +7918,95 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   font-size: 12px;
 }
 
+.workspace-naming-panel {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-pane) 88%, var(--color-rail) 12%);
+}
+
+.workspace-naming-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.workspace-naming-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.workspace-naming-mode {
+  min-width: 0;
+  max-width: 112px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 4px 6px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-faint);
+  font: 10px/1 var(--font-mono);
+}
+
+.workspace-naming-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.workspace-naming-grid span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+}
+
+.workspace-naming-grid b,
+.workspace-naming-grid em {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-style: normal;
+}
+
+.workspace-naming-grid b {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.workspace-naming-grid em {
+  color: var(--color-text);
+  font-size: 12px;
+}
+
+.workspace-naming-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@container (max-width: 330px) {
+  .workspace-naming-grid,
+  .workspace-naming-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
 .recent-folder-list {
   display: grid;
   gap: var(--space-2);

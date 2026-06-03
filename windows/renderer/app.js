@@ -12462,6 +12462,7 @@ function renderSettingsInspector(options = {}) {
   if (shouldBuildSection("workspace")) {
     const workspaceSection = settingsSection("Workspace");
     workspaceSection.append(workspaceSettingsPreviewPanel(workspace));
+    workspaceSection.append(workspaceNamingPanel(workspace));
     workspaceSection.append(settingRow("Active pane", activePaneSettingsPanel(workspace), true, "active pane tab terminal browser rename color text split duplicate"));
     const titleInput = document.createElement("input");
     titleInput.className = "setting-control";
@@ -15916,6 +15917,88 @@ function workspaceSettingsPreviewPanel(workspace) {
   preview.querySelector("[data-workspace-preview-panes]").textContent = panelSummary;
   preview.querySelector("[data-workspace-preview-active]").textContent = active ? `${panelType} / ${panelPath}` : "None";
   return preview;
+}
+
+function workspaceNamingPanel(workspace) {
+  const panel = workspace?.panels.find((candidate) => candidate.id === workspace.activePanelId)
+    || focusedPanel()
+    || workspace?.panels[0]
+    || null;
+  const workspaceTitle = workspaceDisplayTitle(workspace, "No workspace");
+  const folderTitle = workspace ? folderName(workspace.cwd) : "";
+  const paneTitle = panel ? panelDisplayTitle(panel, true) : "No pane";
+  const paneDefaultTitle = panel ? editablePaneTitle({ ...panel, title: "", titleLocked: false }) : "No pane";
+  const paneMode = !panel ? "No pane" : panel.titleLocked ? "Pane custom" : "Pane auto";
+  const panelIsPending = Boolean(panel && isPendingPanel(panel));
+  const naming = document.createElement("div");
+  naming.className = "workspace-naming-panel";
+  naming.dataset.settingsSearch = normalizeSettingsQuery("workspace naming rename name title folder active pane tab default automatic generated custom");
+  naming.innerHTML = `
+    <div class="workspace-naming-head">
+      <span class="workspace-naming-title">Naming</span>
+      <span class="workspace-naming-mode"></span>
+    </div>
+    <div class="workspace-naming-grid">
+      <span><b>Workspace</b><em data-workspace-name></em></span>
+      <span><b>Folder name</b><em data-workspace-folder-name></em></span>
+      <span><b>Active pane</b><em data-pane-name></em></span>
+      <span><b>Pane default</b><em data-pane-default-name></em></span>
+    </div>
+  `;
+  naming.querySelector(".workspace-naming-mode").textContent = paneMode;
+  naming.querySelector("[data-workspace-name]").textContent = workspaceTitle;
+  naming.querySelector("[data-workspace-folder-name]").textContent = folderTitle || "No folder";
+  naming.querySelector("[data-pane-name]").textContent = paneTitle;
+  naming.querySelector("[data-pane-default-name]").textContent = paneDefaultTitle;
+
+  const actions = document.createElement("div");
+  actions.className = "settings-actions workspace-naming-actions";
+  actions.dataset.settingsSearch = normalizeSettingsQuery("workspace pane naming actions rename use folder default automatic generated");
+  const renameWorkspaceAction = settingsActionButton("Rename workspace", () => renameWorkspaceById(workspace.id, workspace.title), "", "workspace naming rename title");
+  renameWorkspaceAction.disabled = !workspace;
+  renameWorkspaceAction.title = workspace ? "Rename the active workspace." : "Open a workspace before renaming it.";
+  const useFolderAction = settingsActionButton("Use folder", async () => {
+    if (!workspace || !folderTitle) return false;
+    const changed = await renameWorkspaceTo(folderTitle, workspace.id);
+    toast(changed ? "Workspace name set from folder." : "Workspace already uses the folder name.");
+    return changed;
+  }, "", "workspace naming folder directory suggested title");
+  useFolderAction.disabled = !workspace || !folderTitle || folderTitle === workspace.title;
+  useFolderAction.title = !workspace
+    ? "Open a workspace before using its folder name."
+    : !folderTitle
+      ? "Set a workspace folder before using its name."
+      : folderTitle === workspace.title
+        ? "Workspace already uses the folder name."
+        : "Rename the workspace from its folder.";
+  const renamePaneAction = settingsActionButton("Rename pane", () => renamePanel(panel), "", "active pane naming rename tab title");
+  renamePaneAction.disabled = !panel || panelIsPending;
+  renamePaneAction.title = !panel
+    ? "Open a pane before renaming it."
+    : panelIsPending
+      ? "Wait for this pane to finish opening."
+      : "Rename the active pane tab.";
+  const useDefaultPaneAction = settingsActionButton("Use default", async () => {
+    if (!panel) return false;
+    if (!panel.titleLocked) {
+      toast("Pane already uses the default name.");
+      return false;
+    }
+    await updatePanel(panel.id, { title: "" });
+    toast("Pane name reset.");
+    return true;
+  }, "", "active pane naming default automatic generated title reset");
+  useDefaultPaneAction.disabled = !panel || panelIsPending || !panel.titleLocked;
+  useDefaultPaneAction.title = !panel
+    ? "Open a pane before resetting its name."
+    : panelIsPending
+      ? "Wait for this pane to finish opening."
+      : panel.titleLocked
+        ? "Restore the generated pane name."
+        : "Pane already uses the generated name.";
+  actions.append(renameWorkspaceAction, useFolderAction, renamePaneAction, useDefaultPaneAction);
+  naming.append(actions);
+  return naming;
 }
 
 function paneBackgroundControlPanel(panel) {
