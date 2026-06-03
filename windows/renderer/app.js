@@ -9490,15 +9490,18 @@ function renderSettingsInspector(options = {}) {
     const homeActions = document.createElement("div");
     homeActions.className = "settings-actions";
     homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web system external profile chrome edge brave save browser profile reusable");
+    const browserHomeDefault = browserHomeKey(state.settings.browserHomeUrl) === browserHomeKey(defaultSettings.browserHomeUrl);
+    const resetBrowserHomeAction = settingsActionButton("Reset", resetBrowserHome, "", `browser home reset default url page web ${browserHomeDefault ? "active current " : ""}`);
+    resetBrowserHomeAction.disabled = browserHomeDefault;
+    resetBrowserHomeAction.title = browserHomeDefault
+      ? "Browser home already uses the default page."
+      : "Reset the browser home page to the default.";
     homeActions.append(
       settingsActionButton("Save browser profile", saveCurrentBrowserProfile, "primary", "browser save profile home page launch external chrome edge brave reusable"),
       settingsActionButton("Open pane", () => createPanel("browser", "right", { url: state.settings.browserHomeUrl })),
       settingsActionButton("Open external", () => openExternalBrowser(state.settings.browserHomeUrl, { toast: true }), "", "browser system chrome edge brave profile external"),
       settingsActionButton("Refresh profiles", () => refreshBrowserProfiles({ render: true }), "", "browser chrome edge brave profile detect refresh reload"),
-      settingsActionButton("Reset", () => {
-        const changed = updateSettings({ browserHomeUrl: defaultSettings.browserHomeUrl });
-        if (!changed) toast("Browser home already uses the default.");
-      })
+      resetBrowserHomeAction
     );
     browserSection.append(homeActions);
     browserSection.append(recentBrowserPagesDisclosurePanel());
@@ -9666,11 +9669,17 @@ function renderSettingsInspector(options = {}) {
     resetChromeAction.title = workspaceChromeDefault
       ? "Workspace chrome already matches the default setup."
       : "Reset toolbar, sidebar, tabs, status bar, and panel widths.";
+    const canResetSplitLayout = Boolean(workspace?.panels?.length > 1);
+    const resetSplitAction = settingsActionButton("Reset split layout", resetActivePaneLayout, "", `split layout pane splitter resize reset equal ${canResetSplitLayout ? "" : "disabled no panes "}`);
+    resetSplitAction.disabled = !canResetSplitLayout;
+    resetSplitAction.title = canResetSplitLayout
+      ? "Reset split sizes for the active workspace."
+      : "Open another pane before resetting the split layout.";
     layoutActions.append(
       settingsActionButton(state.settings.focusMode ? "Leave focus" : "Focus mode", () => toggleFocusMode(), "", "focus mode simple clean hide chrome"),
       saveLayoutAction,
       settingsActionButton("Blueprints", () => openSettingsCategory("blueprints"), "", "open saved workspace blueprints layout templates"),
-      settingsActionButton("Reset split layout", resetActivePaneLayout, "", "split layout pane splitter resize reset equal"),
+      resetSplitAction,
       resetChromeAction
     );
     layoutSection.append(layoutActions);
@@ -11263,6 +11272,17 @@ function applyBrowserHomePreset(preset, options = {}) {
   }
   if (state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
   if (options.toast !== false) toast(`${preset.label} browser home applied.`);
+}
+
+function resetBrowserHome() {
+  const changed = updateSettings({ browserHomeUrl: defaultSettings.browserHomeUrl });
+  if (!changed) {
+    toast("Browser home already uses the default.");
+    return false;
+  }
+  if (state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
+  toast("Browser home reset.");
+  return true;
 }
 
 function scheduleBrowserSettingsPreviewRefresh() {
