@@ -37,7 +37,7 @@ enum RosettaNativeRelaunch {
     ///     in this launch chain (the guard env var is present).
     /// - Returns: `true` when the process should re-exec natively.
     static func shouldRelaunchNatively(isTranslated: Bool, hasAttemptedRelaunch: Bool) -> Bool {
-        isTranslated
+        isTranslated && !hasAttemptedRelaunch
     }
 
     /// Whether this process is running under Rosetta translation.
