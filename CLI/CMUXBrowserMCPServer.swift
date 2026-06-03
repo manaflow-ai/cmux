@@ -1,5 +1,11 @@
 import Foundation
 
+private struct CMUXBrowserMCPParseError: Error, CustomStringConvertible {
+    let message: String
+
+    var description: String { message }
+}
+
 final class CMUXBrowserMCPServer {
     static let protocolVersion = "2025-06-18"
 
@@ -29,12 +35,15 @@ final class CMUXBrowserMCPServer {
     }
 
     func jsonRPCErrorCode(for error: Error) -> Int {
-        error is CLIError ? -32600 : -32700
+        if error is CMUXBrowserMCPParseError {
+            return -32700
+        }
+        return error is CLIError ? -32600 : -32700
     }
 
     func handleMessageLine(_ line: String) throws {
         guard let data = line.data(using: .utf8) else {
-            throw CLIError(
+            throw CMUXBrowserMCPParseError(
                 message: String(localized: "cli.browserMCP.error.invalidUTF8", defaultValue: "Invalid UTF-8 MCP message")
             )
         }

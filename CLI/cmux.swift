@@ -2840,9 +2840,8 @@ struct CMUXCLI {
 
         // Check for --help/-h on subcommands before resolving sockets,
         // so help text is available even when cmux is not running.
-        let preSeparatorArgs = commandArgs.firstIndex(of: "--").map { commandArgs[..<$0] } ?? commandArgs[...]
         if command != "__tmux-compat",
-           preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
+           containsHelpFlag(beforeArgumentTerminator: commandArgs) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
             }
@@ -10757,18 +10756,6 @@ struct CMUXCLI {
         socketPath: String,
         explicitPassword: String?
     ) throws {
-        if commandArgs.contains("--help") || commandArgs.contains("-h") {
-            print("""
-            Usage: cmux browser mcp-server
-
-            Start a stdio MCP server that exposes cmux in-app browser automation tools.
-
-            Register it with agents:
-              codex mcp add cmux-browser -- cmux browser mcp-server
-              claude mcp add cmux-browser -- cmux browser mcp-server
-            """)
-            return
-        }
         guard commandArgs.isEmpty else {
             throw CLIError(message: "browser mcp-server does not accept arguments")
         }
@@ -14515,14 +14502,41 @@ struct CMUXCLI {
         }
     }
 
+    private func browserMCPServerUsage() -> String {
+        """
+        Usage: cmux browser mcp-server
+
+        Start a stdio MCP server that exposes cmux in-app browser automation tools.
+
+        Register it with agents:
+          codex mcp add cmux-browser -- cmux browser mcp-server
+          claude mcp add cmux-browser -- cmux browser mcp-server
+        """
+    }
+
     /// Dispatch help for a subcommand. Returns true if help was printed.
     private func dispatchSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
-        guard commandArgs.contains("--help") || commandArgs.contains("-h") else { return false }
+        guard containsHelpFlag(beforeArgumentTerminator: commandArgs) else { return false }
+        let preTerminatorArgs = commandArgs.prefix(while: { $0 != "--" })
+        if command == "browser",
+           let browserSubcommand = preTerminatorArgs.first?.lowercased(),
+           browserSubcommand == "mcp-server" || browserSubcommand == "mcp" {
+            print("cmux browser mcp-server")
+            print("")
+            print(browserMCPServerUsage())
+            return true
+        }
         guard let text = subcommandUsage(command) else { return false }
         print("cmux \(command)")
         print("")
         print(text)
         return true
+    }
+
+    private func containsHelpFlag(beforeArgumentTerminator args: [String]) -> Bool {
+        args
+            .prefix(while: { $0 != "--" })
+            .contains(where: { $0 == "--help" || $0 == "-h" })
     }
 
     /// Escape and quote a string for safe embedding in a v1 socket command.

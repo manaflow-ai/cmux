@@ -90,7 +90,9 @@ After making code changes, always use `reload.sh --tag` to build. **Never run ba
 ./scripts/reload.sh --tag <your-branch-slug>
 ```
 
-If you only need to verify the build compiles (no launch), use a tagged derivedDataPath:
+If you only need to verify the build compiles, `reload.sh --tag` is still the canonical path. A
+direct `xcodebuild` invocation is only for CI-style compile checks; it must include a tag-scoped
+`-derivedDataPath`, and you must never `open` or launch the resulting untagged `cmux DEV.app`:
 
 ```bash
 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/cmux-<your-tag> build

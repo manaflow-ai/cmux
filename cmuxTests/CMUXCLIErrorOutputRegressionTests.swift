@@ -56,6 +56,51 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         }
     }
 
+    func testBrowserHelpDoesNotRequireSocket() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "--help"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("Usage: cmux browser"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("mcp-server"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("Socket not found"), result.stdout)
+    }
+
+    func testBrowserMCPServerHelpDoesNotRequireSocket() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "mcp-server", "--help"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("Usage: cmux browser mcp-server"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("codex mcp add cmux-browser"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("Usage: cmux browser [--surface"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("Socket not found"), result.stdout)
+    }
+
     func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"
