@@ -18550,6 +18550,73 @@ function quickProfileDataControlsPanel() {
   });
 }
 
+function quickCommandSnippetPackCandidate() {
+  const remainingSlots = customCommandSnippetsLimit - state.customCommandSnippets.length;
+  const candidates = commandSnippetPackDefinitions
+    .map((pack) => ({ pack, missing: commandSnippetPackMissingSnippets(pack) }))
+    .filter(({ pack, missing }) => commandSnippetPackSnippets(pack).length > 0 && missing.length > 0);
+  return candidates.find(({ missing }) => missing.length <= remainingSlots)?.pack
+    || candidates[0]?.pack
+    || commandSnippetPackDefinitions.find((pack) => commandSnippetPackSnippets(pack).length > 0)
+    || null;
+}
+
+function quickCommandActionControlsPanel() {
+  const grouped = settingsCommandGroups();
+  const shortcutCount = commandShortcutCount();
+  const snippetCount = state.customCommandSnippets.length;
+  const remainingSlots = customCommandSnippetsLimit - snippetCount;
+  const pack = quickCommandSnippetPackCandidate();
+  const packSnippets = commandSnippetPackSnippets(pack);
+  const packMissing = commandSnippetPackMissingSnippets(pack);
+  const packSaved = commandSnippetPackSaved(pack);
+  const packSearch = pack
+    ? `${pack.label} ${pack.body} ${packSnippets.map((snippet) => `${snippet.label} ${snippet.command}`).join(" ")}`
+    : "";
+  const packDisabled = !pack
+    || packSaved
+    || packMissing.length === 0
+    || packMissing.length > remainingSlots;
+  const snippetsFull = customCommandSnippetsFull();
+  const actions = [
+    quickOverviewControlButton("Add snippet", addCustomCommandSnippet, {
+      disabled: snippetsFull,
+      title: snippetsFull ? commandSnippetLimitTitle() : "Add a saved terminal command snippet.",
+      search: "quick setup command action add saved terminal command snippet custom reusable"
+    }),
+    quickOverviewControlButton("Paste snippet", pasteCommandSnippet, {
+      title: "Paste a copied command snippet or command.",
+      search: "quick setup command action paste saved terminal command snippet clipboard import"
+    }),
+    quickOverviewControlButton("Save pack", () => {
+      if (pack) saveCommandSnippetPack(pack.id);
+    }, {
+      disabled: packDisabled,
+      title: pack ? commandSnippetPackSaveTitle(pack, packMissing) : "No snippet pack is available.",
+      search: `quick setup command action save snippet pack built in reusable ${packSearch}`
+    }),
+    quickOverviewControlButton("Commands", () => openSettingsCategory("commands"), {
+      title: "Open saved and built-in command snippets.",
+      search: "quick setup command action open command snippets settings built in saved custom"
+    }),
+    quickOverviewControlButton("Workflows", () => openSettingsCategory("actions", { query: "workflow", focusSearch: false }), {
+      title: "Open action workflows in Settings.",
+      search: "quick setup command action workflows actions commands palette run settings"
+    }),
+    quickOverviewControlButton("Shortcuts", () => openSettingsCategory("actions", { query: "shortcuts", focusSearch: false }), {
+      title: "Open command groups and keyboard shortcuts.",
+      search: "quick setup command action shortcuts keyboard command groups palette settings"
+    })
+  ];
+  return quickOverviewControlsPanel({
+    className: "quick-overview-commands",
+    title: "Command and action controls",
+    meta: `${snippetCount}/${customCommandSnippetsLimit} snippets / ${commands.length} actions / ${shortcutCount} shortcuts`,
+    search: `quick setup command action controls snippets packs workflows shortcuts palette keyboard ${grouped.size} groups ${packSearch}`,
+    actions
+  });
+}
+
 function quickSetupOverviewPanel() {
   const workspace = activeWorkspace();
   const panels = workspace?.panels || [];
@@ -18565,7 +18632,7 @@ function quickSetupOverviewPanel() {
   const librarySummary = quickCustomizationLibrarySummary(libraryEntries);
   const panel = document.createElement("div");
   panel.className = "quick-setup-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls theme layout terminal browser performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints colors backgrounds snippets data`);
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`quick setup overview current settings workspace panes active pane controls theme layout terminal browser commands actions workflows shortcuts palette performance speed lag ${performance.status} ${performance.title} ${performance.reason} background image app pane all terminal scope saved customization library profiles blueprints colors backgrounds snippets packs data`);
   panel.innerHTML = `
     <div class="quick-overview-heading">
       <span class="quick-overview-copy">
@@ -18609,6 +18676,7 @@ function quickSetupOverviewPanel() {
     <div data-quick-layout-controls></div>
     <div data-quick-pane-controls></div>
     <div data-quick-terminal-controls></div>
+    <div data-quick-command-controls></div>
     <div data-quick-browser-controls></div>
     <div data-quick-color-controls></div>
     <button class="quick-overview-speed" type="button" data-performance-status>
@@ -18689,6 +18757,7 @@ function quickSetupOverviewPanel() {
   panel.querySelector("[data-quick-layout-controls]").replaceWith(quickLayoutControlsPanel(workspace));
   panel.querySelector("[data-quick-pane-controls]").replaceWith(quickPaneControlsPanel(activePane));
   panel.querySelector("[data-quick-terminal-controls]").replaceWith(quickTerminalControlsPanel(workspace, terminalCount));
+  panel.querySelector("[data-quick-command-controls]").replaceWith(quickCommandActionControlsPanel());
   panel.querySelector("[data-quick-browser-controls]").replaceWith(quickBrowserControlsPanel(workspace, browserCount));
   panel.querySelector("[data-quick-color-controls]").replaceWith(quickColorControlsPanel(workspace));
   const speed = panel.querySelector(".quick-overview-speed");
