@@ -2246,7 +2246,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .pane-splitter {
-  flex: 0 0 16px;
+  flex: 0 0 12px;
   position: relative;
   z-index: 4;
   background: transparent;
@@ -2261,8 +2261,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .pane-splitter:hover,
 .pane-splitter:focus-visible,
 .pane-splitter.is-dragging {
-  background: color-mix(in oklch, var(--color-terminal-gutter) 34%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 22%, transparent);
+  background: color-mix(in oklch, var(--color-terminal-gutter) 28%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 18%, transparent);
 }
 
 .pane-splitter[data-orientation="right"] {
@@ -2284,15 +2284,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .pane-splitter::before {
   content: "";
   position: absolute;
-  inset: 16% calc(50% - 2px);
+  inset: 20% calc(50% - 1px);
   border-radius: 999px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in oklch, var(--color-line-strong) 84%, transparent),
-      color-mix(in oklch, var(--color-line-strong) 54%, transparent)
-    );
-  opacity: .82;
+  background: color-mix(in oklch, var(--color-line-strong) 70%, transparent);
+  opacity: .58;
   transition:
     background var(--dur-fast) var(--ease-out),
     opacity var(--dur-fast) var(--ease-out),
@@ -2301,13 +2296,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .pane-split.direction-down > .pane-splitter::before,
 .pane-grid.direction-down > .pane-splitter::before {
-  inset: calc(50% - 2px) 16%;
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in oklch, var(--color-line-strong) 84%, transparent),
-      color-mix(in oklch, var(--color-line-strong) 54%, transparent)
-    );
+  inset: calc(50% - 1px) 20%;
+  background: color-mix(in oklch, var(--color-line-strong) 70%, transparent);
 }
 
 .pane-splitter:hover::before,
@@ -2316,8 +2306,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background: var(--color-accent);
   opacity: 1;
   box-shadow:
-    0 0 0 2px color-mix(in oklch, var(--color-accent) 22%, transparent),
-    0 0 18px color-mix(in oklch, var(--color-accent) 26%, transparent);
+    0 0 0 2px color-mix(in oklch, var(--color-accent) 18%, transparent),
+    0 0 12px color-mix(in oklch, var(--color-accent) 20%, transparent);
 }
 
 .pane-splitter:focus-visible {
@@ -2335,7 +2325,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   padding: 3px 5px;
   border: 1px solid transparent;
   border-radius: var(--radius-1);
-  background: color-mix(in oklch, var(--color-chrome) 74%, transparent);
+  background: color-mix(in oklch, var(--color-chrome) 92%, var(--color-canvas) 8%);
   color: var(--color-faint);
   font-size: 10px;
   font-weight: 650;
@@ -2344,9 +2334,9 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  opacity: .48;
+  opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) scale(.96);
   transition:
     opacity var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);

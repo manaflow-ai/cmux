@@ -5443,8 +5443,6 @@ function paneStructureSignature(workspace, visiblePanels, tree) {
     appendSignatureValue(nextParts, panel.shellProfile || "");
     appendSignatureValue(nextParts, panel.shellPath || "");
     appendSignatureValue(nextParts, terminalFontSizeForPanel(panel));
-    appendSignatureValue(nextParts, Boolean(panel.needsAttention));
-    appendSignatureValue(nextParts, isPanelMinimized(panel));
     appendSignatureValue(nextParts, isPendingPanel(panel));
   });
   return parts.join("");
