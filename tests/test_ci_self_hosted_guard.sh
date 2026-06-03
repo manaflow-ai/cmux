@@ -16,6 +16,7 @@ E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
 PERF_FILE="$ROOT_DIR/.github/workflows/perf-activation.yml"
 NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 RELEASE_FILE="$ROOT_DIR/.github/workflows/release.yml"
+TEST_DEPOT_FILE="$ROOT_DIR/.github/workflows/test-depot.yml"
 TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
 TERMINAL_CORPUS_NIGHTLY_FILE="$ROOT_DIR/.github/workflows/terminal-corpus-nightly.yml"
 CA_REGRESSION_SCRIPT="$ROOT_DIR/scripts/verify-main-thread-ca-transactions.sh"
@@ -137,6 +138,54 @@ check_e2e_recording_preflight() {
   echo "PASS: test-e2e.yml preflights screen recording permission before ffmpeg"
 }
 
+check_test_depot_fails_closed() {
+  if ! awk '
+    /^[[:space:]]*- name: Validate suite selection$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /skip_unit_tests/ { saw_skip_unit=1 }
+    in_step && /skip_ui_tests/ { saw_skip_ui=1 }
+    in_step && /that would execute no tests/ { saw_message=1 }
+    in_step && /^[[:space:]]*exit 1$/ { saw_exit=1 }
+    END { exit(saw_skip_unit && saw_skip_ui && saw_message && saw_exit ? 0 : 1) }
+  ' "$TEST_DEPOT_FILE"; then
+    echo "FAIL: test-depot.yml must reject skip_unit_tests=true with skip_ui_tests=true so the manual workflow cannot succeed without selecting a suite"
+    exit 1
+  fi
+
+  if ! awk '
+    /^[[:space:]]*- name: Create virtual display$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /--ready-path "\$VDISPLAY_READY"/ { saw_ready_arg=1 }
+    in_step && /--display-id-path "\$VDISPLAY_ID_PATH"/ { saw_id_arg=1 }
+    in_step && /\[ -s "\$VDISPLAY_READY" \] && \[ -s "\$VDISPLAY_ID_PATH" \]/ { saw_ready_poll=1 }
+    in_step && /Virtual display helper exited before readiness/ { saw_exit_message=1 }
+    in_step && /Timed out waiting for virtual display readiness/ { saw_timeout_message=1 }
+    in_step && /^[[:space:]]*sleep 3$/ { saw_fixed_sleep=1 }
+    END { exit(saw_ready_arg && saw_id_arg && saw_ready_poll && saw_exit_message && saw_timeout_message && !saw_fixed_sleep ? 0 : 1) }
+  ' "$TEST_DEPOT_FILE"; then
+    echo "FAIL: test-depot.yml must wait for virtual display readiness files instead of using a fixed sleep"
+    exit 1
+  fi
+
+  if ! awk '
+    /^[[:space:]]*- name: Run unit tests$/ { in_unit=1; next }
+    in_unit && /^[[:space:]]*- name:/ { in_unit=0 }
+    in_unit && /Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_unit_guard=1 }
+    in_unit && /Unit test workflow completed without executing any tests/ { saw_unit_message=1 }
+    /^[[:space:]]*- name: Run UI tests$/ { in_ui=1; next }
+    in_ui && /^[[:space:]]*- name:/ { in_ui=0 }
+    in_ui && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_ui_wrapper=1 }
+    in_ui && /Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_ui_guard=1 }
+    in_ui && /UI test workflow completed without executing any tests/ { saw_ui_message=1 }
+    END { exit(saw_unit_guard && saw_unit_message && saw_ui_wrapper && saw_ui_guard && saw_ui_message ? 0 : 1) }
+  ' "$TEST_DEPOT_FILE"; then
+    echo "FAIL: test-depot.yml must run xcodebuild noninteractively and reject unit or UI runs that execute zero tests"
+    exit 1
+  fi
+
+  echo "PASS: test-depot.yml fails closed for no-suite selection, display readiness, and zero-test xcodebuild runs"
+}
+
 check_xcode_selection() {
   if grep -R -n "ls -d /Applications/Xcode" "$ROOT_DIR/.github/workflows"; then
     echo "FAIL: workflow Xcode selection must use find/sort/tail fallback, not ls/glob ordering"
@@ -155,6 +204,7 @@ check_workflow_yaml_parse() {
     "$PERF_FILE" \
     "$NIGHTLY_FILE" \
     "$RELEASE_FILE" \
+    "$TEST_DEPOT_FILE" \
     "$TMUX_CORPUS_FILE" \
     "$TERMINAL_CORPUS_NIGHTLY_FILE"
 
@@ -548,6 +598,12 @@ check_self_hosted_workspace_prep "$COMPAT_FILE" "compat-tests"
 check_e2e_runner_fallbacks
 check_e2e_recording_preflight
 check_self_hosted_workspace_prep "$E2E_FILE" "e2e"
+
+# test-depot.yml is also manual, but it still needs the same self-hosted
+# hygiene and fail-closed behavior as other macOS test workflows.
+check_macos_runner "$TEST_DEPOT_FILE" "tests"
+check_self_hosted_workspace_prep "$TEST_DEPOT_FILE" "tests"
+check_test_depot_fails_closed
 
 # perf-activation.yml
 check_macos_runner "$PERF_FILE" "activation-session"
