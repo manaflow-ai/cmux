@@ -427,6 +427,10 @@ final class CMUXOpenCommandTests: XCTestCase {
             file["request_path"] as? String == "/assets/cmux-diff-viewer-app/main.mjs" &&
                 file["mime_type"] as? String == "text/javascript"
         })
+        XCTAssertTrue(files.contains { file in
+            file["request_path"] as? String == "/assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js" &&
+                file["mime_type"] as? String == "text/javascript"
+        })
         XCTAssertFalse(html.contains("hello.txt"), html)
         XCTAssertFalse(html.contains("<\\/script> marker"), html)
         XCTAssertTrue(patchText.contains("hello.txt"), patchText)
