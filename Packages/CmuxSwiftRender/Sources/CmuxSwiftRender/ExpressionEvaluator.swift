@@ -105,14 +105,28 @@ struct ExpressionEvaluator {
 
     private func evalInfix(_ node: InfixOperatorExprSyntax, _ env: Environment) -> SwiftValue? {
         guard let op = node.operator.as(BinaryOperatorExprSyntax.self)?.operator.text else { return nil }
-        guard let lhs = eval(node.leftOperand, env), let rhs = eval(node.rightOperand, env) else { return nil }
+        guard let lhs = eval(node.leftOperand, env) else { return nil }
+
+        // Short-circuit logical operators on the left operand before forcing the
+        // right one, so guard idioms like `i < items.count && items[i] == x`
+        // don't evaluate (and fail on) the right side when the left is decisive.
+        switch op {
+        case "&&":
+            guard lhs.isTruthy else { return .bool(false) }
+            return .bool(eval(node.rightOperand, env)?.isTruthy ?? false)
+        case "||":
+            guard !lhs.isTruthy else { return .bool(true) }
+            return .bool(eval(node.rightOperand, env)?.isTruthy ?? false)
+        default:
+            break
+        }
+
+        guard let rhs = eval(node.rightOperand, env) else { return nil }
 
         switch op {
         case "..<", "...":
             guard case let .int(l) = lhs, case let .int(r) = rhs else { return nil }
             return .range(lower: l, upper: r, inclusive: op == "...")
-        case "&&": return .bool(lhs.isTruthy && rhs.isTruthy)
-        case "||": return .bool(lhs.isTruthy || rhs.isTruthy)
         case "==": return .bool(lhs == rhs)
         case "!=": return .bool(lhs != rhs)
         default: break
@@ -130,8 +144,18 @@ struct ExpressionEvaluator {
         case "+": return bothInt ? .int(Int(l + r)) : .double(l + r)
         case "-": return bothInt ? .int(Int(l - r)) : .double(l - r)
         case "*": return bothInt ? .int(Int(l * r)) : .double(l * r)
-        case "/": return bothInt ? .int(Int(l) / Int(r)) : .double(l / r)
-        case "%": return bothInt ? .int(Int(l) % Int(r)) : nil
+        case "/":
+            // Interpreted user source supplies the divisor; a zero divisor must
+            // return nil (caller skips) rather than trap the whole process.
+            guard bothInt else { return .double(l / r) }
+            let divisor = Int(r)
+            guard divisor != 0 else { return nil }
+            return .int(Int(l) / divisor)
+        case "%":
+            guard bothInt else { return nil }
+            let divisor = Int(r)
+            guard divisor != 0 else { return nil }
+            return .int(Int(l) % divisor)
         case "<": return .bool(l < r)
         case ">": return .bool(l > r)
         case "<=": return .bool(l <= r)
@@ -211,7 +235,21 @@ struct ExpressionEvaluator {
                 guard let firstArg, case let .int(n)? = eval(firstArg, env) else { return nil }
                 return .array(Array(values.prefix(max(0, n))))
             case "sorted":
-                return .array(sortedScalars(values))
+                guard let closure else { return .array(sortedScalars(values)) }
+                // Honor a 2-arg comparator like `sorted { $0.rank < $1.rank }`.
+                // Use a stable insertion sort, not `Array.sorted(by:)`, because
+                // an interpreted predicate isn't guaranteed to form a strict
+                // weak ordering and `sorted(by:)` traps on those in debug.
+                var result: [SwiftValue] = []
+                for value in values {
+                    var insertAt = result.count
+                    for index in result.indices where evalClosure2(closure, value, result[index], env)?.isTruthy ?? false {
+                        insertAt = index
+                        break
+                    }
+                    result.insert(value, at: insertAt)
+                }
+                return .array(result)
             case "isEmpty":
                 return .bool(values.isEmpty)
             default:

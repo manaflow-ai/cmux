@@ -340,4 +340,41 @@ import Testing
         """)
         #expect(node?.children.map(\.text) == ["1", "2", "3"])
     }
+
+    @Test func integerDivisionByZeroDoesNotCrash() {
+        // A zero divisor in interpreted source must fail soft (the division
+        // yields nil and drops from the interpolation), never trap the process.
+        let node = interp.evaluate("""
+        VStack {
+            Text("v=\\(10 / 0)")
+            Text("m=\\(10 % 0)")
+            Text("ok")
+        }
+        """)
+        #expect(node?.kind == .vstack)
+        #expect(node?.children.last?.text == "ok")
+    }
+
+    @Test func logicalAndShortCircuitsPastOutOfBoundsRight() {
+        // The right operand (out-of-bounds subscript) must not be forced when
+        // the left is false; without short-circuiting the whole expression
+        // returned nil and dropped the row.
+        let xs = SwiftValue.array([.int(1)])
+        let node = interp.evaluate("""
+        VStack {
+            if false && xs[5] == 1 { Text("bad") }
+            Text("safe")
+        }
+        """, state: ["xs": xs])
+        #expect(node?.children.map(\.text) == ["safe"])
+    }
+
+    @Test func sortedHonorsDescendingComparator() {
+        let node = interp.evaluate("""
+        HStack {
+            ForEach([3, 1, 2].sorted { $0 > $1 }) { n in Text("\\(n)") }
+        }
+        """)
+        #expect(node?.children.map(\.text) == ["3", "2", "1"])
+    }
 }
