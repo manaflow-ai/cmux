@@ -24016,11 +24016,21 @@ function workspaceStarterGrid() {
     card.innerHTML = `
       <span class="workspace-starter-title-text"></span>
       <span class="workspace-starter-body"></span>
+      <span class="workspace-starter-preview" aria-hidden="true"></span>
       <span class="workspace-starter-panes"></span>
     `;
     card.querySelector(".workspace-starter-title-text").textContent = starter.label;
     card.querySelector(".workspace-starter-body").textContent = starter.body;
     card.querySelector(".workspace-starter-panes").textContent = panelLabels.join(" + ");
+    const preview = card.querySelector(".workspace-starter-preview");
+    preview.style.gridTemplateColumns = `repeat(${starter.panels.length}, minmax(0, 1fr))`;
+    starter.panels.forEach((type, index) => {
+      const pane = document.createElement("span");
+      pane.className = `workspace-starter-preview-pane is-${type === "browser" ? "browser" : "terminal"}`;
+      pane.textContent = panelLabels[index] || (type === "browser" ? "Preview" : "Shell");
+      pane.title = pane.textContent;
+      preview.append(pane);
+    });
     const actions = document.createElement("div");
     actions.className = "workspace-starter-actions";
     const save = settingsActionButton(
