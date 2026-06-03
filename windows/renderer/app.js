@@ -24411,7 +24411,20 @@ function paletteEntriesSignature() {
   appendSignatureData(parts, state.workspaceBlueprints);
   appendSignatureValue(parts, state.settings.browserHomeUrl);
   appendSignatureValue(parts, settingsKeysSignature(profileSettingsSettingKeys));
+  appendPalettePaneTargetSignature(parts);
   return parts.join("");
+}
+
+function appendPalettePaneTargetSignature(parts) {
+  const panel = paneSetupTarget(activePaneActionTarget() || activePanel());
+  appendSignatureValue(parts, panel?.id || "");
+  appendSignatureValue(parts, panel?.type || "");
+  appendSignatureValue(parts, panel?.title || "");
+  appendSignatureValue(parts, Boolean(panel?.titleLocked));
+  appendSignatureValue(parts, panel?.color || "");
+  appendSignatureValue(parts, panel?.type === "terminal" ? normalizeBackgroundValue(panel.backgroundImage) : "");
+  appendSignatureValue(parts, panel?.type === "terminal" ? normalizeTerminalFontSize(panel.terminalFontSize, 0) : 0);
+  appendSignatureValue(parts, panel?.type === "browser" ? browserPanelUrl(panel) || panel.url || "" : "");
 }
 
 function paletteQuickActions() {
@@ -24626,13 +24639,14 @@ function paletteEntryKind(entry) {
   if (id.startsWith("browser.") || id.startsWith("recentBrowser.") || id.startsWith("browserHomePreset.") || id.startsWith("browserWorkflowPreset.")) return "browser";
   if (id.startsWith("workspace.") || id.startsWith("recentFolder.") || id.startsWith("workspaceBlueprint.") || id.startsWith("workspaceStarter.")) return "workspace";
   if (id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.") || id.startsWith("performanceTunePreset.")) return "settings";
-  if (id.startsWith("layout.") || id.startsWith("paneLayoutPreset.") || id.startsWith("workspaceChromePreset.")) return "layout";
+  if (id.startsWith("layout.") || id.startsWith("paneLayoutPreset.") || id.startsWith("paneSetupPreset.") || id.startsWith("workspaceChromePreset.")) return "layout";
   if (id.startsWith("background") || id.startsWith("savedBackground")) return "look";
   if (id.startsWith("themeChoice.") || id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("savedColorPalette.") || id.startsWith("terminalColor.")) return "color";
   return "command";
 }
 
 function paletteEntryIconMarkup(entry, kind = paletteEntryKind(entry)) {
+  if (entry?.icon) return quickActionIconMarkup(entry.icon);
   if (kind === "terminal") return controlIconMarkup("terminal");
   if (kind === "browser") return controlIconMarkup("browser");
   if (kind === "workspace") return quickActionIconMarkup("workspace");
@@ -24754,6 +24768,24 @@ function paletteEntries() {
       title: paneLayoutPresetBlueprintCopyTitle(preset, layoutUnavailable),
       search: normalizeSettingsQuery(`split layout pane preset copy blueprint clipboard json ${preset.label} ${preset.body} ${summary}`),
       run: () => copyPaneLayoutPresetBlueprint(preset.id)
+    });
+  }
+  const palettePane = paneSetupTarget(activePaneActionTarget() || activePanel());
+  for (const preset of paneSetupPresetsForPanel(palettePane)) {
+    const active = paneSetupPresetActive(preset, palettePane);
+    const meta = paneSetupPresetMeta(preset);
+    const paneLabel = panelDisplayTitle(palettePane, true);
+    entries.push({
+      id: `paneSetupPreset.${preset.id}`,
+      label: `Pane preset: ${preset.label}`,
+      meta: active ? `Active / ${meta}` : meta,
+      shortcut: active ? "Active" : (preset.type === "browser" ? "Browser" : "Pane"),
+      active,
+      disabled: active,
+      icon: preset.icon,
+      title: active ? `${preset.label} pane preset already active.` : `Apply ${preset.label} pane preset to ${paneLabel}.`,
+      search: normalizeSettingsQuery(`active pane setup preset quick role apply ${active ? "active current " : ""}${preset.type} ${preset.label} ${preset.body} ${meta} ${paneLabel}`),
+      run: () => applyPaneSetupPreset(preset.id, palettePane)
     });
   }
   for (const [workspaceIndex, workspace] of (state.data?.workspaces || []).entries()) {
