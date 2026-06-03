@@ -90,11 +90,13 @@ enum CmuxNoteStore {
         }
     }
 
-    static func list(projectRoot: String) -> [CmuxNoteRecord] {
-        storageQueue.sync {
-            (try? loadIndex(projectRoot: projectRoot).notes.sorted(by: { lhs, rhs in
+    static func list(projectRoot: String) throws -> [CmuxNoteRecord] {
+        // Propagate a corrupt/unreadable index instead of returning an empty list,
+        // so `cmux note list` surfaces the error rather than making notes look gone.
+        try storageQueue.sync {
+            try loadIndex(projectRoot: projectRoot).notes.sorted(by: { lhs, rhs in
                 noteMTime(lhs, projectRoot: projectRoot) > noteMTime(rhs, projectRoot: projectRoot)
-            })) ?? []
+            })
         }
     }
 

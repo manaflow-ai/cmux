@@ -507,7 +507,14 @@ extension TerminalController {
             return result
         }
         let projectRoot = NoteSupport.projectRoot(forCwd: currentDirectory)
-        let notes = CmuxNoteStore.list(projectRoot: projectRoot)
+        let notes: [CmuxNoteRecord]
+        do {
+            notes = try CmuxNoteStore.list(projectRoot: projectRoot)
+        } catch {
+            // A corrupt/unreadable index must surface as a list failure, not an
+            // empty list that looks like the user's notes vanished.
+            return result
+        }
         let resolution = CmuxNoteContextResolver.resolve(
             notes: notes,
             surfaceTarget: surfaceTarget,
