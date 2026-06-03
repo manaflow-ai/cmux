@@ -4502,7 +4502,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
             },
             "Expected no-final-response notification, saw \(state.commands)"
         )
@@ -4804,7 +4804,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
             },
             "Expected monitor to send stream error notification before terminal completion, saw \(state.commands)"
         )
@@ -4903,7 +4903,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
-                command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?")
             },
             "Expected monitor to send Codex input notification, saw \(state.snapshot())"
         )
@@ -5003,7 +5003,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
-                command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Waiting|What kind of demo plan should I create?")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|What kind of demo plan should I create?")
             },
             "Expected monitor to send Codex input notification from response_item, saw \(state.snapshot())"
         )
@@ -5088,7 +5088,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
             },
             "Expected monitor to recover from stale transcript path, saw \(state.commands)"
         )
@@ -6279,7 +6279,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(sshOptions.contains("StrictHostKeyChecking=accept-new"))
 
         // `cmux ssh` should land the user in the new SSH workspace immediately.
-        let selectParams = try XCTUnwrap(requests[3]["params"] as? [String: Any])
+        let selectParams = try XCTUnwrap(requests[4]["params"] as? [String: Any])
         XCTAssertEqual(selectParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(selectParams["window_id"] as? String, windowID)
     }
