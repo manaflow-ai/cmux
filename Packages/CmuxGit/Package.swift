@@ -13,9 +13,15 @@ let package = Package(
             targets: ["CmuxGit"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CmuxProcess"),
+    ],
     targets: [
         .target(
             name: "CmuxGit",
+            dependencies: [
+                .product(name: "CmuxProcess", package: "CmuxProcess"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

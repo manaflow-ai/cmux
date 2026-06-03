@@ -1,6 +1,14 @@
 import Foundation
 
 extension GitMetadataService {
+    /// Normalizes a branch name for keying: trims whitespace and maps empty to
+    /// `nil`. Public because both this package's PR matching and app-side
+    /// branch bookkeeping key state by the same normalization.
+    public nonisolated static func normalizedBranchName(_ branch: String?) -> String? {
+        let trimmed = branch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     /// The current branch name from `HEAD` (`ref: refs/heads/<name>`), or `nil`
     /// for a detached HEAD or unreadable `HEAD`.
     nonisolated static func gitBranchName(repository: ResolvedGitRepository) -> String? {
