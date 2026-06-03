@@ -2041,6 +2041,58 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], restoredAgentSocketPath)
     }
 
+    func testSessionSnapshotRestoreOmitsSSHAgentEnvironmentWhenSocketUnavailable() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Remote Without Agent")
+        let originalAgentSocketPath = "/tmp/cmux-original-missing-agent.sock"
+        let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
+        defer {
+            if let previousAgentSocketPath {
+                setenv("SSH_AUTH_SOCK", previousAgentSocketPath, 1)
+            } else {
+                unsetenv("SSH_AUTH_SOCK")
+            }
+        }
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "ForwardAgent=yes",
+            ],
+            localProxyPort: nil,
+            relayPort: 64002,
+            relayID: "relay-missing-agent-test",
+            relayToken: String(repeating: "f", count: 64),
+            localSocketPath: "/tmp/cmux-missing-agent-test.sock",
+            terminalStartupCommand: "ssh dev@example.com",
+            agentSocketPath: originalAgentSocketPath
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let remoteSnapshot = try XCTUnwrap(
+            snapshot.workspaces.first { $0.customTitle == "Remote Without Agent" }?.remote
+        )
+        XCTAssertEqual(remoteSnapshot.sshOptions, ["ForwardAgent=yes"])
+
+        unsetenv("SSH_AUTH_SOCK")
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try XCTUnwrap(
+            restored.tabs.first { $0.customTitle == "Remote Without Agent" }
+        )
+        XCTAssertEqual(
+            restoredWorkspace.remoteConfiguration?.terminalStartupCommand,
+            "ssh -p 2222 -o ForwardAgent=yes -tt dev@example.com"
+        )
+        XCTAssertNil(restoredWorkspace.remoteConfiguration?.agentSocketPath)
+        XCTAssertNil(restoredWorkspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
+        XCTAssertNil(restoredWorkspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
+    }
+
     func testSessionSnapshotRestoresPersistentSSHPTYSessionAfterRelaunch() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
