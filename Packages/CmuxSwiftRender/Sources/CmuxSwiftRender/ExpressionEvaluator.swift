@@ -351,13 +351,25 @@ struct ExpressionEvaluator {
         return nil
     }
 
+    /// Returns the contents of the first double-quoted literal in `source`,
+    /// e.g. the currency code in `.currency(code: "EUR")`.
+    private func firstQuoted(in source: String) -> String? {
+        guard let open = source.firstIndex(of: "\"") else { return nil }
+        let afterOpen = source.index(after: open)
+        guard let close = source[afterOpen...].firstIndex(of: "\"") else { return nil }
+        return String(source[afterOpen..<close])
+    }
+
     /// Number methods, chiefly `.formatted(...)`, honoring currency and
     /// compact-notation hints from the call's argument source.
     private func numberMethod(_ value: Double, _ name: String, _ call: FunctionCallExprSyntax) -> SwiftValue? {
         guard name == "formatted" else { return nil }
         let argSource = call.arguments.map { $0.expression.trimmedDescription }.joined(separator: " ")
         if argSource.contains("currency") {
-            return .string(String(format: "$%.2f", value))
+            // Honor the `code:` argument (`.currency(code: "EUR")` -> "€…"),
+            // not a hardcoded "$". Foundation resolves the symbol per code.
+            let code = firstQuoted(in: argSource) ?? "USD"
+            return .string(value.formatted(.currency(code: code)))
         }
         if argSource.contains("compact") || argSource.contains("notation") {
             let a = abs(value)

@@ -161,6 +161,15 @@ public struct SwiftViewInterpreter: Sendable {
                 out += evalFor(loop, env)
             } else if let ifExpr = ifExpression(node) {
                 out += evalIf(ifExpr, env)
+            } else if let ret = node.as(ReturnStmtSyntax.self), let expr = ret.expression {
+                // A view helper with an explicit `return SomeView` (or
+                // `return ForEach(...) { }`) renders its returned expression,
+                // not nothing.
+                if let call = expr.as(FunctionCallExprSyntax.self), isForEach(call) {
+                    out += evalForEach(call, env)
+                } else if let child = evalView(expr, env) {
+                    out.append(child)
+                }
             } else if let expr = node.as(ExprSyntax.self) {
                 if let call = expr.as(FunctionCallExprSyntax.self), isForEach(call) {
                     out += evalForEach(call, env)

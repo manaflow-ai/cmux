@@ -377,4 +377,30 @@ import Testing
         """)
         #expect(node?.children.map(\.text) == ["3", "2", "1"])
     }
+
+    @Test func viewHelperWithExplicitReturnRenders() {
+        let node = interp.evaluate("""
+        func badge(_ t: String) -> some View {
+            return Text(t).font(.caption)
+        }
+        VStack {
+            badge("hello")
+        }
+        """)
+        #expect(node?.kind == .vstack)
+        #expect(node?.children.first?.kind == .text)
+        #expect(node?.children.first?.text == "hello")
+    }
+
+    @Test func currencyFormatHonorsCode() {
+        // The euro code must not render a dollar sign.
+        let node = interp.evaluate("""
+        VStack {
+            Text(4.0.formatted(.currency(code: "EUR")))
+        }
+        """)
+        let text = node?.children.first?.text ?? ""
+        #expect(!text.contains("$"))
+        #expect(text.contains("4"))
+    }
 }
