@@ -1601,8 +1601,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             if lagMs > 150 { liveAnchormuxLog("oq.render.LAG \(Int(lagMs))ms") }
             ghostty_surface_render_now(surface)
             DispatchQueue.main.async {
-                guard let self, !self.isDismantled else { return }
+                guard let self else { return }
                 self.renderInFlight = false
+                guard !self.isDismantled else {
+                    self.needsAnotherRender = false
+                    return
+                }
                 if self.needsAnotherRender {
                     self.needsAnotherRender = false
                     self.requestRender()

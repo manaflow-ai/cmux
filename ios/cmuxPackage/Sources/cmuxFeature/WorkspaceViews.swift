@@ -624,6 +624,9 @@ struct WorkspaceDetailView: View {
                     autoFocusOnWindowAttach: shouldAutoFocusTerminalSurface(terminalID)
                 )
                 .id(terminalID)
+                .onAppear {
+                    clearConsumedTerminalAutoFocusSuppression(for: terminalID)
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(TerminalPalette.background)
             } else {
@@ -816,7 +819,9 @@ struct WorkspaceDetailView: View {
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
         isTerminalPickerPresented = false
-        terminalAutoFocusSuppressedSurfaceIDs.insert(terminalID.rawValue)
+        if selectedTerminal?.id != terminalID {
+            terminalAutoFocusSuppressedSurfaceIDs.insert(terminalID.rawValue)
+        }
         suppressNextTerminalAutoFocus = false
         selectedTerminalID = terminalID
     }
@@ -829,6 +834,10 @@ struct WorkspaceDetailView: View {
     private func shouldAutoFocusTerminalSurface(_ terminalID: String) -> Bool {
         !suppressNextTerminalAutoFocus
             && !terminalAutoFocusSuppressedSurfaceIDs.contains(terminalID)
+    }
+
+    private func clearConsumedTerminalAutoFocusSuppression(for terminalID: String) {
+        terminalAutoFocusSuppressedSurfaceIDs.remove(terminalID)
     }
 
     private func suppressPendingTerminalAutoFocusIfNeeded(for terminalID: MobileTerminalPreview.ID?) {
