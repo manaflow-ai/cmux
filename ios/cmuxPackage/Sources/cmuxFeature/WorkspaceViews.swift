@@ -649,6 +649,9 @@ struct WorkspaceDetailView: View {
         .background(TerminalPalette.background)
         #endif
         .navigationTitle(workspace.name)
+        .onAppear {
+            suppressPendingTerminalAutoFocusIfNeeded(for: selectedTerminal?.id)
+        }
         .onChange(of: selectedTerminal?.id) { _, terminalID in
             suppressPendingTerminalAutoFocusIfNeeded(for: terminalID)
         }
