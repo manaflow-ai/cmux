@@ -12968,6 +12968,18 @@ function activePaneSettingsQuickLabel() {
   return panel ? panelDisplayTitle(panel, true) : "No pane";
 }
 
+function quickWorkspacePaneCreationTitle(baseTitle, readyHint = "") {
+  if (!activeWorkspace()) return "Open a workspace before adding panes.";
+  return paneCreationActionTitle(baseTitle, readyHint);
+}
+
+function quickActionTitle(action) {
+  if (action.title) return action.title();
+  if (action.active?.() && action.activeTitle) return action.activeTitle();
+  if (action.disabled?.() && action.disabledTitle) return action.disabledTitle();
+  return `${action.label}: ${action.body}`;
+}
+
 function quickSetupActionDefinitions() {
   return [
     {
@@ -12979,6 +12991,7 @@ function quickSetupActionDefinitions() {
       cta: "+ Terminal",
       search: "new terminal add pane shell powershell command prompt quick setup",
       disabled: () => !activeWorkspace() || paneCreationButtonsDisabled(),
+      title: () => quickWorkspacePaneCreationTitle("Start a terminal pane in the active workspace.", "Uses the selected terminal profile."),
       run: () => createTerminalPanel("right", { workspaceId: activeWorkspace()?.id })
     },
     {
@@ -12990,6 +13003,7 @@ function quickSetupActionDefinitions() {
       cta: "+ Browser",
       search: "new browser add pane web google home quick setup",
       disabled: () => !activeWorkspace() || paneCreationButtonsDisabled(),
+      title: () => quickWorkspacePaneCreationTitle("Open the browser home page in a new pane.", hostnameOf(state.settings.browserHomeUrl)),
       run: () => openBrowserHome(activeWorkspace()?.id, { mode: "pane" })
     },
     {
@@ -13000,6 +13014,8 @@ function quickSetupActionDefinitions() {
       meta: () => activeWorkspace()?.title || "Workspace",
       cta: "Edit",
       search: "rename workspace name title quick setup",
+      disabled: () => !activeWorkspace(),
+      disabledTitle: () => "Open a workspace before renaming it.",
       run: () => renameActiveWorkspace()
     },
     {
@@ -13011,6 +13027,7 @@ function quickSetupActionDefinitions() {
       cta: "Apply",
       search: "clean fast simple speed compact ui chrome terminal startup lag preset",
       active: () => isSettingsPresetIdActive("simpleFast"),
+      activeTitle: () => "Clean + Fast is already active.",
       run: () => applySettingsPresetById("simpleFast")
     },
     {
@@ -13022,6 +13039,7 @@ function quickSetupActionDefinitions() {
       cta: "Save",
       search: "save clean fast simple speed settings profile reusable setup performance lag preset",
       disabled: savedSettingsProfilesFull,
+      disabledTitle: settingsProfileLimitTitle,
       run: () => applyAndSaveCleanFastProfile()
     },
     {
@@ -13033,6 +13051,7 @@ function quickSetupActionDefinitions() {
       cta: "Apply",
       search: "simple clean minimal compact ui chrome pane controls preset",
       active: () => isSettingsPresetIdActive("simple"),
+      activeTitle: () => "Clean UI is already active.",
       run: () => applySettingsPresetById("simple")
     },
     {
@@ -13044,6 +13063,7 @@ function quickSetupActionDefinitions() {
       cta: "Save",
       search: "save current settings profile setup look layout terminal browser performance",
       disabled: savedSettingsProfilesFull,
+      disabledTitle: settingsProfileLimitTitle,
       run: () => saveQuickSetupProfile()
     },
     {
@@ -13098,6 +13118,7 @@ function quickSetupActionDefinitions() {
       cta: "Choose",
       search: "active pane terminal background image specific terminal wallpaper",
       disabled: () => !resolveTerminalPanel(focusedPanel()),
+      disabledTitle: () => "Focus a terminal pane before setting its image.",
       run: () => choosePanelBackgroundImage()
     },
     {
@@ -13109,6 +13130,7 @@ function quickSetupActionDefinitions() {
       cta: "Open",
       search: "active pane settings customize rename color tab text size background browser url terminal",
       disabled: () => !activePanel(),
+      disabledTitle: () => "Open or select a pane before editing pane settings.",
       run: () => openPaneSettings(activePaneActionTarget() || activePanel())
     },
     {
@@ -13124,6 +13146,7 @@ function quickSetupActionDefinitions() {
       cta: "Choose",
       search: "all terminal pane background image choose local file wallpaper workspace",
       disabled: () => workspaceTerminalPanels().length === 0,
+      disabledTitle: () => "Open a terminal pane before setting terminal images.",
       run: () => chooseBackgroundImageForTarget({ target: "all" })
     },
     {
@@ -13235,7 +13258,7 @@ function quickSetupGuidePanel() {
     item.className = "quick-guide-item";
     item.type = "button";
     item.disabled = Boolean(action.disabled?.());
-    const title = action.title?.() || `${action.label}: ${action.body}`;
+    const title = quickActionTitle(action);
     item.dataset.quickGuideAction = action.id;
     item.dataset.settingsSearch = normalizeSettingsQuery(`quick recommended ${action.label} ${action.body} ${action.search}`);
     item.title = title;
@@ -13277,7 +13300,7 @@ function quickSetupActionGrid() {
     button.className = `quick-settings-shortcut quick-action${active ? " is-active" : ""}`;
     button.type = "button";
     button.disabled = disabled;
-    button.title = action.title?.() || `${action.label}: ${action.body}`;
+    button.title = quickActionTitle(action);
     button.dataset.quickAction = action.id;
     button.dataset.settingsSearch = normalizeSettingsQuery(`quick action ${action.label} ${action.body} ${action.search} ${active ? "active details" : ""}`);
     button.setAttribute("aria-label", `${action.label}. ${action.body} Current: ${action.meta()}.${active ? " Active." : ""}`);
