@@ -113,7 +113,7 @@ jobs:
             exit "$EXIT_CODE"
           fi
 
-          if ! grep -Eq 'Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
+          if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
             echo "Terminal corpus unit tests completed without executing any tests" >&2
             exit 1
           fi

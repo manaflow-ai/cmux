@@ -476,7 +476,7 @@ jobs:
             fi
           fi
 
-          if ! grep -Eq 'Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
+          if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
             echo "Unit test workflow completed without executing any tests" >&2
             exit 1
           fi
@@ -507,7 +507,7 @@ jobs:
             echo "::group::swift test Packages/$pkg"
             output_file="/tmp/cmux-swift-package-${pkg}-test-output.txt"
             swift test --package-path "Packages/$pkg" 2>&1 | tee "$output_file"
-            if ! grep -Eq 'Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$output_file"; then
+            if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$output_file"; then
               echo "swift test Packages/$pkg completed without executing any tests" >&2
               exit 1
             fi
@@ -1347,7 +1347,7 @@ jobs:
             xcode_status=${PIPESTATUS[0]}
             set -e
             if [ "$xcode_status" -eq 0 ]; then
-              if grep -Eq 'Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$XCODE_OUTPUT"; then
+              if grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' "$XCODE_OUTPUT"; then
                 exit 0
               fi
               echo "Display resolution UI regression completed without executing any tests" >&2

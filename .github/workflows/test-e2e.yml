@@ -400,7 +400,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
           if [ "$EXIT_CODE" -eq 0 ]; then
-            if ! grep -Eq 'Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
+            if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
               echo "test_result=failed" >> "$GITHUB_OUTPUT"
               {
                 echo "test_output<<EOFOUT"

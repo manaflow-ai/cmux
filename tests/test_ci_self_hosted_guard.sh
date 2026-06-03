@@ -192,12 +192,12 @@ check_test_depot_fails_closed() {
   if ! awk '
     /^[[:space:]]*- name: Run unit tests$/ { in_unit=1; next }
     in_unit && /^[[:space:]]*- name:/ { in_unit=0 }
-    in_unit && /Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_unit_guard=1 }
+    in_unit && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_unit_guard=1 }
     in_unit && /Unit test workflow completed without executing any tests/ { saw_unit_message=1 }
     /^[[:space:]]*- name: Run UI tests$/ { in_ui=1; next }
     in_ui && /^[[:space:]]*- name:/ { in_ui=0 }
     in_ui && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_ui_wrapper=1 }
-    in_ui && /Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_ui_guard=1 }
+    in_ui && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_ui_guard=1 }
     in_ui && /UI test workflow completed without executing any tests/ { saw_ui_message=1 }
     END { exit(saw_unit_guard && saw_unit_message && saw_ui_wrapper && saw_ui_guard && saw_ui_message ? 0 : 1) }
   ' "$TEST_DEPOT_FILE"; then
@@ -431,7 +431,7 @@ check_swift_package_tests_require_nonzero_execution() {
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
     in_step && /swift test --package-path "Packages\/\$pkg"/ { saw_swift_test=1 }
     in_step && /tee "\$output_file"/ { saw_capture=1 }
-    in_step && /Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
+    in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
     in_step && /completed without executing any tests/ { saw_failure_message=1 }
     END { exit(saw_swift_test && saw_capture && saw_nonzero_guard && saw_failure_message ? 0 : 1) }
   ' "$CI_FILE"; then
@@ -448,7 +448,7 @@ check_xcodebuild_unit_step_requires_nonzero_execution() {
     index($0, "- name: " step) { in_step=1; saw_step=1; next }
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
     in_step && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_wrapper=1 }
-    in_step && /Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
+    in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
     in_step && index($0, message) { saw_message=1 }
     END { exit(saw_step && saw_wrapper && saw_nonzero_guard && saw_message ? 0 : 1) }
   ' "$file"; then
@@ -481,7 +481,7 @@ check_e2e_ui_tests_require_nonzero_execution() {
   if ! awk '
     /^[[:space:]]*- name: Run UI tests$/ { in_step=1; next }
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
-    in_step && /Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
+    in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
     in_step && /UI test workflow completed without executing any tests/ { saw_message=1 }
     in_step && /test_result=failed/ { saw_failure_output=1 }
     END { exit(saw_nonzero_guard && saw_message && saw_failure_output ? 0 : 1) }
@@ -577,7 +577,7 @@ check_ui_regression_budget() {
     in_step && /wait_for_pid_exit\(\)/ { saw_wait_pid=1 }
     in_step && /stop_pid\(\)/ { saw_stop_pid=1 }
     in_step && /wait_for_cmux_dev_exit\(\)/ { saw_wait_cmux=1 }
-    in_step && /Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
+    in_step && /Executed \[1-9\]\[0-9\]\* test,\|Executed \[1-9\]\[0-9\]\* tests\|Test run with \[1-9\]\[0-9\]\* tests/ { saw_nonzero_guard=1 }
     in_step && /Display resolution UI regression completed without executing any tests/ { saw_no_tests_message=1 }
     in_step && /^[[:space:]]*sleep 3$/ { saw_fixed_retry_sleep=1 }
     END { exit(saw_wait_pid && saw_stop_pid && saw_wait_cmux && saw_nonzero_guard && saw_no_tests_message && !saw_fixed_retry_sleep ? 0 : 1) }
