@@ -389,6 +389,7 @@ const browserLoadingStatusText = t("browser.loadingStatus");
 const browserPausedStatusText = t("browser.pausedStatus");
 const paneResizeFitThrottleMs = 90;
 const panePointerDragThreshold = 6;
+const settingsWorkspaceSwitchRenderDelayMs = 90;
 const closedPanelLimit = 12;
 const maxConcurrentPaneCreations = 8;
 const visibleBackgroundOpacity = 24;
@@ -663,6 +664,7 @@ const state = {
   inspectorSignature: "",
   settingsInspectorSignature: "",
   settingsInspectorRenderFrame: 0,
+  settingsInspectorRenderTimer: 0,
   settingsInspectorRenderOptions: null,
   deferSettingsInspectorForWorkspaceSwitch: false,
   settingsScrollResetPending: false,
@@ -9040,6 +9042,23 @@ function scheduleSettingsInspectorRender(options = {}) {
     state.settingsInspectorRenderOptions,
     options
   );
+  const delayMs = Math.max(0, Number(options.delayMs) || 0);
+  if (delayMs > 0 && !state.settingsInspectorRenderFrame) {
+    if (state.settingsInspectorRenderTimer) return;
+    state.settingsInspectorRenderTimer = window.setTimeout(() => {
+      state.settingsInspectorRenderTimer = 0;
+      queueSettingsInspectorRenderFrame();
+    }, delayMs);
+    return;
+  }
+  if (state.settingsInspectorRenderTimer) {
+    window.clearTimeout(state.settingsInspectorRenderTimer);
+    state.settingsInspectorRenderTimer = 0;
+  }
+  queueSettingsInspectorRenderFrame();
+}
+
+function queueSettingsInspectorRenderFrame() {
   if (state.settingsInspectorRenderFrame) return;
   state.settingsInspectorRenderFrame = requestAnimationFrame(() => {
     state.settingsInspectorRenderFrame = 0;
@@ -9097,7 +9116,10 @@ function renderInspector(options = {}) {
   } else if (state.inspectorMode === "settings") {
     state.inspectorSignature = "settings";
     if (options.deferSettings && elements.inspectorBody.querySelector(".settings-react-host")) {
-      scheduleSettingsInspectorRender({ ifChanged: true });
+      scheduleSettingsInspectorRender({
+        ifChanged: true,
+        delayMs: settingsWorkspaceSwitchRenderDelayMs
+      });
       return;
     }
     renderSettingsInspector({ ifChanged: true });
