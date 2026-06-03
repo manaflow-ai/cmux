@@ -5545,6 +5545,8 @@ function renderPendingPane(panel, body) {
   const elapsedSeconds = pendingPanelElapsedSeconds(panel);
   const waiting = elapsedSeconds >= 2;
   const slow = elapsedSeconds >= 8;
+  toggleClassIfChanged(pending, "is-browser", isBrowser);
+  toggleClassIfChanged(pending, "is-terminal", !isBrowser);
   toggleClassIfChanged(pending, "is-waiting", waiting);
   toggleClassIfChanged(pending, "is-slow", slow);
   pending.setAttribute("role", "status");

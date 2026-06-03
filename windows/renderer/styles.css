@@ -2435,7 +2435,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .pane.is-pending .pane-body {
   display: grid;
-  place-items: center;
+  place-items: stretch;
 }
 
 .pane.has-attention {
@@ -3158,31 +3158,79 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .pending-pane {
-  width: min(320px, calc(100% - var(--space-3)));
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  height: 100%;
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-content: start;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   min-width: 0;
-  padding: 8px 9px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-2);
-  background: color-mix(in oklch, var(--color-pane-warm) 94%, var(--color-terminal-gutter) 6%);
+  min-height: 0;
+  padding: 10px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--color-pane-warm) 96%, var(--color-terminal-gutter) 4%), var(--color-pane));
   color: var(--color-muted);
   font: 12px/1.2 var(--font-ui);
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklch, var(--color-text) 4%, transparent),
-    0 8px 18px color-mix(in oklch, var(--color-terminal-gutter) 22%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 4%, transparent);
+}
+
+.pending-pane::before {
+  content: "";
+  position: absolute;
+  inset: 52px 10px 10px;
+  z-index: 0;
+  border: 1px solid color-mix(in oklch, var(--color-line) 74%, transparent);
+  border-radius: var(--radius-1);
+  opacity: .82;
+  pointer-events: none;
+}
+
+.pending-pane.is-terminal::before {
+  background:
+    repeating-linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--color-terminal-gutter) 58%, transparent) 0 13px,
+      color-mix(in oklch, var(--color-text) 7%, transparent) 13px 14px
+    ),
+    color-mix(in oklch, var(--color-terminal-gutter) 82%, var(--color-pane) 18%);
+}
+
+.pending-pane.is-browser::before {
+  background:
+    linear-gradient(180deg, color-mix(in oklch, var(--color-pane-warm) 92%, transparent) 0 28px, transparent 28px),
+    linear-gradient(90deg, color-mix(in oklch, var(--color-line) 56%, transparent) 0 36%, transparent 36% 100%),
+    color-mix(in oklch, var(--color-canvas) 88%, var(--color-pane) 12%);
+}
+
+.pending-pane::after {
+  content: "";
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  top: 68px;
+  z-index: 0;
+  height: 2px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklch, var(--color-text) 8%, transparent);
+  opacity: .68;
 }
 
 .pending-pane.is-slow {
-  border-color: color-mix(in oklch, var(--color-warning) 34%, var(--color-line) 66%);
   background: color-mix(in oklch, var(--color-warning) 7%, var(--color-pane-warm) 93%);
 }
 
 .pending-pane-icon {
-  width: 32px;
-  height: 32px;
+  position: relative;
+  z-index: 1;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
   border: 1px solid color-mix(in oklch, var(--color-accent) 30%, var(--color-line) 70%);
@@ -3207,6 +3255,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .pending-pane-text {
+  position: relative;
+  z-index: 1;
   min-width: 0;
   overflow: hidden;
   color: var(--color-text);
@@ -3216,6 +3266,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .pending-pane-copy {
+  position: relative;
+  z-index: 1;
   display: grid;
   min-width: 0;
   gap: 3px;
@@ -3232,7 +3284,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .pending-pane-progress {
   position: relative;
-  width: min(150px, 100%);
+  width: min(220px, 100%);
   height: 2px;
   overflow: hidden;
   border-radius: var(--radius-pill);
@@ -3266,6 +3318,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .pending-pane-cancel {
+  position: relative;
+  z-index: 1;
   min-width: 54px;
   height: 24px;
   border-color: var(--color-line);
@@ -3283,8 +3337,11 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 @container (max-width: 240px) {
   .pending-pane {
     grid-template-columns: 30px minmax(0, 1fr);
-    width: calc(100% - var(--space-2));
-    max-width: 100%;
+    padding: 8px;
+  }
+
+  .pending-pane::before {
+    inset: 48px 8px 8px;
   }
 
   .pending-pane-icon {
@@ -3301,6 +3358,12 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   .pending-pane {
     justify-content: center;
     grid-template-columns: auto;
+    align-content: center;
+  }
+
+  .pending-pane::before,
+  .pending-pane::after {
+    display: none;
   }
 
   .pending-pane-icon {
