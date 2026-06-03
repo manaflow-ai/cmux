@@ -17204,16 +17204,34 @@ function showToolbarMenu(event) {
   menu.className = "context-menu context-menu-tools";
   const panel = focusedPanel();
   const workspace = activeWorkspace();
-  const multiPane = Boolean(panel && workspace?.panels.length > 1);
+  const workspacePanelCount = workspace?.panels.length || 0;
+  const workspaceHasPanes = workspacePanelCount > 0;
+  const multiPane = Boolean(panel && workspacePanelCount > 1);
   const multiWorkspace = (state.data?.workspaces.length || 0) > 1;
   const hasPreviousPane = Boolean(previousPanelForWorkspace(workspace));
   const hasPreviousWorkspace = Boolean(previousWorkspace());
+  const zoomedPanelId = zoomedPanelIdForWorkspace(workspace);
   const terminalActive = panel?.type === "terminal";
   const browserActive = panel?.type === "browser";
   const latestBrowserPage = state.recentBrowserPages[0] || "";
+  const minimizedPanes = minimizedPanelCount(workspace);
   const cleanFastActive = isSettingsPresetIdActive("simpleFast");
   const speedPresetActive = isSettingsPresetIdActive("performance");
   const profilesFull = savedSettingsProfilesFull();
+  const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
+  const terminalColorsDefault = isTerminalColorPresetIdActive("cmux");
+  const paneRequiredTitle = "Focus or create a pane first.";
+  const multiPaneRequiredTitle = "Focus a workspace with at least two panes first.";
+  const workspaceRequiredTitle = "Open a workspace first.";
+  const terminalRequiredTitle = "Focus or create a terminal pane first.";
+  const browserRequiredTitle = "Focus or create a browser pane first.";
+  const workspaceSwitchRequiredTitle = "Create another workspace before switching workspaces.";
+  const toolbarAction = (label, action, disabled, availableTitle, unavailableTitle, tone = "", options = {}) => {
+    const button = contextMenuButton(label, action, disabled, tone, options);
+    const titleText = disabled ? (unavailableTitle || availableTitle) : (availableTitle || unavailableTitle);
+    if (titleText) button.title = titleText;
+    return button;
+  };
   const title = document.createElement("div");
   title.className = "context-title";
   title.textContent = workspace?.title || "Workspace tools";
@@ -17221,67 +17239,67 @@ function showToolbarMenu(event) {
     title,
     contextMenuSectionTitle("Pane"),
     contextMenuActionGroup(
-      contextMenuButton("Customize active pane", () => openPaneSettings(panel), !panel),
-      contextMenuButton("Active pane appearance", () => openPaneAppearanceSettings(panel), !panel),
+      toolbarAction("Customize active pane", () => openPaneSettings(panel), !panel, "Customize the focused pane.", paneRequiredTitle),
+      toolbarAction("Active pane appearance", () => openPaneAppearanceSettings(panel), !panel, "Open appearance controls for the focused pane.", paneRequiredTitle),
       contextMenuButton("Split right", () => splitActivePanel("right")),
       contextMenuButton("Split down", () => splitActivePanel("down")),
-      contextMenuButton("Duplicate active pane", duplicateActivePanel, !panel),
-      contextMenuButton("Reopen closed pane", reopenClosedPanel, state.closedPanels.length === 0),
-      contextMenuButton(zoomedPanelIdForWorkspace(workspace) ? "Show all panes" : "Focus active pane", () => togglePaneZoom(), !panel),
-      contextMenuButton("Minimize active pane", minimizeActivePane, !panel),
-      contextMenuButton("Restore minimized panes", () => restoreMinimizedPanes(workspace), minimizedPanelCount(workspace) === 0),
-      contextMenuButton("Next pane", () => cycleActivePane(1), !multiPane),
-      contextMenuButton("Previous pane", () => cycleActivePane(-1), !multiPane),
-      contextMenuButton("Last active pane", focusLastPane, !hasPreviousPane)
+      toolbarAction("Duplicate active pane", duplicateActivePanel, !panel, "Duplicate the focused pane.", paneRequiredTitle),
+      toolbarAction("Reopen closed pane", reopenClosedPanel, state.closedPanels.length === 0, "Reopen the most recently closed pane.", "There are no closed panes to reopen."),
+      toolbarAction(zoomedPanelId ? "Show all panes" : "Focus active pane", () => togglePaneZoom(), !panel, zoomedPanelId ? "Return to the full split layout." : "Zoom the focused pane.", paneRequiredTitle),
+      toolbarAction("Minimize active pane", minimizeActivePane, !panel, "Minimize the focused pane.", paneRequiredTitle),
+      toolbarAction("Restore minimized panes", () => restoreMinimizedPanes(workspace), minimizedPanes === 0, "Restore minimized panes in this workspace.", "There are no minimized panes to restore."),
+      toolbarAction("Next pane", () => cycleActivePane(1), !multiPane, "Move focus to the next pane.", multiPaneRequiredTitle),
+      toolbarAction("Previous pane", () => cycleActivePane(-1), !multiPane, "Move focus to the previous pane.", multiPaneRequiredTitle),
+      toolbarAction("Last active pane", focusLastPane, !hasPreviousPane, "Return to the last focused pane.", "No previous pane is available yet.")
     ),
     contextMenuSectionTitle("Layout"),
     contextMenuActionGroup(
-      contextMenuButton("Reset split layout", resetActivePaneLayout, !multiPane),
-      contextMenuButton("Reset workspace chrome", resetWorkspaceChrome, workspaceChromeSettingsAreDefault()),
+      toolbarAction("Reset split layout", resetActivePaneLayout, !multiPane, "Reset split sizes for the active workspace.", multiPaneRequiredTitle),
+      toolbarAction("Reset workspace chrome", resetWorkspaceChrome, workspaceChromeDefault, "Reset toolbar, sidebar, tabs, status bar, and panel widths.", "Workspace chrome already matches the default setup."),
       contextPaneLayoutButton("Equalize panes", "equal", workspace, { icon: "layout" }),
       contextPaneLayoutButton("Grid layout", "grid", workspace, { icon: "layout" }),
       contextPaneLayoutButton("Active pane wide", "activeWide", workspace, { icon: "splitRight" }),
       contextPaneLayoutButton("Active pane tall", "activeTall", workspace, { icon: "splitDown" }),
-      contextMenuButton("Set active pane size", promptActivePaneLayoutPercent, !multiPane),
-      contextMenuButton("Close other panes", () => closeOtherPanes(), !multiPane, "danger"),
-      contextMenuButton("Close all panes", () => closeAllPanes(workspace), !workspace?.panels.length, "danger")
+      toolbarAction("Set active pane size", promptActivePaneLayoutPercent, !multiPane, "Set the focused pane split size.", multiPaneRequiredTitle),
+      toolbarAction("Close other panes", () => closeOtherPanes(), !multiPane, "Close every pane except the focused pane.", multiPaneRequiredTitle, "danger"),
+      toolbarAction("Close all panes", () => closeAllPanes(workspace), !workspaceHasPanes, "Close every pane in this workspace.", workspace ? "This workspace has no panes to close." : workspaceRequiredTitle, "danger")
     ),
     contextMenuSectionTitle("Terminal"),
     contextMenuActionGroup(
-      contextMenuButton("Run command...", promptRunTerminalCommand, !terminalActive),
-      contextMenuButton("Git status", () => runTerminalCommandSnippet("gitStatus"), !terminalActive),
-      contextMenuButton("GH PR status", () => runTerminalCommandSnippet("ghPrStatus"), !terminalActive),
-      contextMenuButton("Find in terminal", openTerminalSearch, !terminalActive),
-      contextMenuButton("Find next", findNextInTerminal, !terminalActive),
-      contextMenuButton("Copy terminal selection", copyActiveTerminalSelection, !terminalActive),
-      contextMenuButton("Paste to terminal", pasteClipboardToTerminal, !terminalActive),
-      contextMenuButton("Clear active terminal", clearActiveTerminal, !terminalActive),
-      contextMenuButton("Restart terminal", restartActiveTerminal, !terminalActive),
-      contextMenuButton("Choose terminal background", () => choosePanelBackgroundImage(panel), !terminalActive),
+      toolbarAction("Run command...", promptRunTerminalCommand, !terminalActive, "Run a command in the focused terminal.", terminalRequiredTitle),
+      toolbarAction("Git status", () => runTerminalCommandSnippet("gitStatus"), !terminalActive, "Run git status in the focused terminal.", terminalRequiredTitle),
+      toolbarAction("GH PR status", () => runTerminalCommandSnippet("ghPrStatus"), !terminalActive, "Run GitHub PR status in the focused terminal.", terminalRequiredTitle),
+      toolbarAction("Find in terminal", openTerminalSearch, !terminalActive, "Search the focused terminal.", terminalRequiredTitle),
+      toolbarAction("Find next", findNextInTerminal, !terminalActive, "Jump to the next terminal search match.", terminalRequiredTitle),
+      toolbarAction("Copy terminal selection", copyActiveTerminalSelection, !terminalActive, "Copy the focused terminal selection.", terminalRequiredTitle),
+      toolbarAction("Paste to terminal", pasteClipboardToTerminal, !terminalActive, "Paste clipboard text into the focused terminal.", terminalRequiredTitle),
+      toolbarAction("Clear active terminal", clearActiveTerminal, !terminalActive, "Clear the focused terminal.", terminalRequiredTitle),
+      toolbarAction("Restart terminal", restartActiveTerminal, !terminalActive, "Restart the focused terminal.", terminalRequiredTitle),
+      toolbarAction("Choose terminal background", () => choosePanelBackgroundImage(panel), !terminalActive, "Choose a background for the focused terminal.", terminalRequiredTitle),
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
-      contextMenuButton("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), isTerminalColorPresetIdActive("cmux"))
+      toolbarAction("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), terminalColorsDefault, "Reset background, text, and cursor colors to the cmux default.", "Terminal colors already match the cmux default.")
     ),
     contextMenuSectionTitle("Browser"),
     contextMenuActionGroup(
       contextMenuButton("Open browser", () => openBrowserPrompt(workspace?.id)),
-      contextMenuButton("New browser tab", () => newBrowserTabFromPanel(panel), !browserActive),
-      contextMenuButton("Focus address", () => focusBrowserAddress(panel), !browserActive),
-      contextMenuButton("Reload active page", () => reloadBrowserPanel(panel), !browserActive),
-      contextMenuButton("Open active externally", () => openBrowserPanelExternally(panel), !browserActive),
-      contextMenuButton("Copy active URL", () => copyBrowserPanelUrl(panel), !browserActive),
-      contextMenuButton("Open home page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: state.settings.browserHomeUrl }), !workspace),
-      contextMenuButton(latestBrowserPage ? `Open recent: ${hostnameOf(latestBrowserPage)}` : "Open recent page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: latestBrowserPage }), !latestBrowserPage || !workspace),
+      toolbarAction("New browser tab", () => newBrowserTabFromPanel(panel), !browserActive, "Open a new tab in the focused browser.", browserRequiredTitle),
+      toolbarAction("Focus address", () => focusBrowserAddress(panel), !browserActive, "Focus the browser address field.", browserRequiredTitle),
+      toolbarAction("Reload active page", () => reloadBrowserPanel(panel), !browserActive, "Reload the focused browser page.", browserRequiredTitle),
+      toolbarAction("Open active externally", () => openBrowserPanelExternally(panel), !browserActive, "Open the focused browser URL externally.", browserRequiredTitle),
+      toolbarAction("Copy active URL", () => copyBrowserPanelUrl(panel), !browserActive, "Copy the focused browser URL.", browserRequiredTitle),
+      toolbarAction("Open home page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: state.settings.browserHomeUrl }), !workspace, "Open the home page in a browser pane.", workspaceRequiredTitle),
+      toolbarAction(latestBrowserPage ? `Open recent: ${hostnameOf(latestBrowserPage)}` : "Open recent page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: latestBrowserPage }), !latestBrowserPage || !workspace, "Open the most recent browser page.", !workspace ? workspaceRequiredTitle : "There are no recent browser pages yet."),
       contextMenuButton("Browser settings", () => openSettingsCategory("browser"))
     ),
     contextMenuSectionTitle("Workspace"),
     contextMenuActionGroup(
-      contextMenuButton("Next workspace", () => cycleWorkspace(1), !multiWorkspace),
-      contextMenuButton("Previous workspace", () => cycleWorkspace(-1), !multiWorkspace),
-      contextMenuButton("Last workspace", focusLastWorkspace, !hasPreviousWorkspace),
+      toolbarAction("Next workspace", () => cycleWorkspace(1), !multiWorkspace, "Move to the next workspace.", workspaceSwitchRequiredTitle),
+      toolbarAction("Previous workspace", () => cycleWorkspace(-1), !multiWorkspace, "Move to the previous workspace.", workspaceSwitchRequiredTitle),
+      toolbarAction("Last workspace", focusLastWorkspace, !hasPreviousWorkspace, "Return to the last focused workspace.", "No previous workspace is available yet."),
       contextMenuButton("Rename workspace", renameActiveWorkspace),
       contextMenuButton("Change workspace color", cycleWorkspaceColor),
-      contextMenuButton("Change workspace folder", () => chooseWorkspaceFolder(), !workspace),
-      contextMenuButton("Open workspace folder", () => openWorkspaceFolder(), !workspace?.cwd),
+      toolbarAction("Change workspace folder", () => chooseWorkspaceFolder(), !workspace, "Choose a folder for the active workspace.", workspaceRequiredTitle),
+      toolbarAction("Open workspace folder", () => openWorkspaceFolder(), !workspace?.cwd, "Open this workspace folder.", workspace ? "This workspace does not have a folder yet." : workspaceRequiredTitle),
       contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
       (() => {
         const action = contextMenuButton("Save workspace blueprint", saveCurrentWorkspaceBlueprint, !canSaveCurrentWorkspaceBlueprint(workspace));
