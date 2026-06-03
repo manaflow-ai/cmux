@@ -15201,14 +15201,14 @@ function syncBrowserPanelUrlView(panel, url) {
   }
 }
 
-async function applyPaneSetupUpdates(updates, panel = focusedPanel() || activePanel()) {
+async function applyPaneSetupUpdates(updates, panel = focusedPanel() || activePanel(), options = {}) {
   const target = paneSetupTarget(panel);
   if (!target) {
-    toast("Open a pane to paste setup.");
+    toast(options.unavailableText || "Open a pane to paste setup.");
     return false;
   }
   if (!updates) {
-    toast("Clipboard does not contain pane setup.");
+    toast(options.invalidText || "Clipboard does not contain pane setup.");
     return false;
   }
   const panelUpdates = { ...updates };
@@ -15216,12 +15216,14 @@ async function applyPaneSetupUpdates(updates, panel = focusedPanel() || activePa
   const terminalFontSize = panelUpdates.terminalFontSize;
   delete panelUpdates.terminalFontSize;
   let changed = false;
+  let needsRender = false;
   if (Object.prototype.hasOwnProperty.call(panelUpdates, "url")) {
     syncBrowserPanelUrlView(target, panelUpdates.url);
   }
   if (Object.keys(panelUpdates).length && panelUpdateReconcileNeeded(target.id, panelUpdates)) {
-    await updatePanel(target.id, panelUpdates);
+    await updatePanel(target.id, panelUpdates, { render: false });
     changed = true;
+    needsRender = true;
   }
   if (hasTerminalFontSize && target.type === "terminal") {
     const expected = normalizeTerminalFontSize(terminalFontSize, 0);
@@ -15231,11 +15233,12 @@ async function applyPaneSetupUpdates(updates, panel = focusedPanel() || activePa
     }
   }
   if (!changed) {
-    toast("Pane setup already matches.");
+    toast(options.alreadyText || "Pane setup already matches.");
     return false;
   }
-  if (state.inspectorMode === "settings") renderSettingsInspector();
-  toast("Pane setup applied.");
+  if (needsRender) render();
+  else if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast(options.toastText || "Pane setup applied.");
   return true;
 }
 
@@ -15256,6 +15259,199 @@ async function pasteActivePaneSetup(panel = focusedPanel() || activePanel()) {
 
 function editablePaneTitle(panel) {
   return panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal");
+}
+
+const paneSetupPresetDefinitions = [
+  {
+    id: "terminalFocusShell",
+    type: "terminal",
+    icon: "terminal",
+    label: "Focus shell",
+    body: "Automatic name, default tab color, no pane image, and default text size.",
+    settings: {
+      title: "",
+      color: "",
+      backgroundImage: "",
+      terminalFontSize: 0
+    }
+  },
+  {
+    id: "terminalLogs",
+    type: "terminal",
+    icon: "terminalGroup",
+    label: "Log tail",
+    body: "Name the pane for logs, add a warm marker, subtle grid, and smaller text.",
+    settings: {
+      title: "Logs",
+      color: "#f6bd60",
+      backgroundImage: "preset:terminal-grid",
+      terminalFontSize: 12
+    }
+  },
+  {
+    id: "terminalDemo",
+    type: "terminal",
+    icon: "background",
+    label: "Demo shell",
+    body: "Larger text, soft background, and green marker for sharing or presenting.",
+    settings: {
+      title: "Demo",
+      color: "#88c0d0",
+      backgroundImage: "preset:soft-aurora",
+      terminalFontSize: 14
+    }
+  },
+  {
+    id: "browserPreview",
+    type: "browser",
+    icon: "browser",
+    label: "Preview",
+    body: "Name this browser pane for app previews without changing its current page.",
+    settings: {
+      title: "Preview",
+      color: "#88c0d0"
+    }
+  },
+  {
+    id: "browserLocalApp",
+    type: "browser",
+    icon: "browserPlus",
+    label: "Local app",
+    body: "Set the pane up for a local dev server on port 3000.",
+    settings: {
+      title: "Local app",
+      color: "#a3be8c",
+      url: "http://localhost:3000"
+    }
+  },
+  {
+    id: "browserGithub",
+    type: "browser",
+    icon: "browser",
+    label: "GitHub",
+    body: "Open GitHub with a blue marker for PR and issue review.",
+    settings: {
+      title: "GitHub",
+      color: "#81a1c1",
+      url: "https://github.com"
+    }
+  }
+];
+
+function paneSetupPresetsForPanel(panel) {
+  const type = paneSetupTarget(panel)?.type;
+  return paneSetupPresetDefinitions.filter((preset) => preset.type === type);
+}
+
+function paneSetupPresetById(presetId, panel = focusedPanel() || activePanel()) {
+  const type = paneSetupTarget(panel)?.type;
+  return paneSetupPresetDefinitions.find((preset) => preset.id === presetId && preset.type === type) || null;
+}
+
+function paneSetupPresetUpdates(preset, panel) {
+  const target = paneSetupTarget(panel);
+  if (!preset || !target || preset.type !== target.type) return null;
+  const updates = {};
+  for (const [key, value] of Object.entries(preset.settings || {})) {
+    updates[key] = value;
+  }
+  return Object.keys(updates).length ? updates : null;
+}
+
+function paneSetupPresetActive(preset, panel) {
+  const target = paneSetupTarget(panel);
+  const updates = paneSetupPresetUpdates(preset, target);
+  if (!target || !updates) return false;
+  return Object.entries(updates).every(([key, value]) => {
+    if (key === "title") {
+      const title = String(value || "").trim();
+      return title
+        ? target.titleLocked && target.title === title
+        : !target.titleLocked;
+    }
+    if (key === "color") {
+      const color = String(value || "").trim();
+      return (target.color || "") === (isAllowedUiColor(color, state.data?.palette || workspaceColorOptions) ? color : "");
+    }
+    if (key === "backgroundImage") return normalizeBackgroundValue(target.backgroundImage) === normalizeBackgroundValue(value);
+    if (key === "terminalFontSize") {
+      return normalizeTerminalFontSize(target.terminalFontSize, 0) === normalizeTerminalFontSize(value, 0);
+    }
+    if (key === "url") {
+      const current = normalizeUrl(browserPanelUrl(target) || target.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+      const expected = normalizeUrl(value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+      return current === expected;
+    }
+    return target[key] === value;
+  });
+}
+
+function paneSetupPresetMeta(preset) {
+  if (!preset?.settings) return "";
+  const parts = [];
+  if (preset.type === "terminal") {
+    parts.push(preset.settings.terminalFontSize ? `${preset.settings.terminalFontSize}px` : "default text");
+    parts.push(appearanceBackgroundLabel(preset.settings.backgroundImage));
+  } else {
+    parts.push(preset.settings.url ? hostnameOf(preset.settings.url) || preset.settings.url : "keep current page");
+    parts.push(preset.settings.color ? "custom marker" : "default marker");
+  }
+  return parts.join(" / ");
+}
+
+async function applyPaneSetupPreset(presetId, panel = focusedPanel() || activePanel()) {
+  const target = paneSetupTarget(panel);
+  const preset = paneSetupPresetById(presetId, target);
+  const updates = paneSetupPresetUpdates(preset, target);
+  if (!target || !preset || !updates) {
+    toast("Pane preset not found.");
+    return false;
+  }
+  return applyPaneSetupUpdates(updates, target, {
+    toastText: `${preset.label} pane preset applied.`,
+    alreadyText: `${preset.label} pane preset already active.`,
+    unavailableText: "Open a pane before applying a pane preset.",
+    invalidText: "Pane preset could not be applied."
+  });
+}
+
+function activePanePresetGrid(panel) {
+  const presets = paneSetupPresetsForPanel(panel);
+  if (!presets.length) return null;
+  const grid = document.createElement("div");
+  grid.className = "active-pane-preset-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("active pane presets quick setup rename color background text browser url terminal role");
+  for (const preset of presets) {
+    const active = paneSetupPresetActive(preset, panel);
+    const button = document.createElement("button");
+    button.className = `active-pane-preset-card${active ? " is-active" : ""}`;
+    button.type = "button";
+    button.disabled = active;
+    button.title = active ? `${preset.label} pane preset is already active.` : `Apply ${preset.label} pane preset.`;
+    button.dataset.paneSetupPreset = preset.id;
+    button.dataset.settingsSearch = normalizeSettingsQuery(`active pane preset ${active ? "active current " : ""}${preset.label} ${preset.body} ${paneSetupPresetMeta(preset)}`);
+    button.innerHTML = `
+      <span class="active-pane-preset-icon" aria-hidden="true"></span>
+      <span class="active-pane-preset-copy">
+        <span class="active-pane-preset-title-row">
+          <span class="active-pane-preset-title"></span>
+          <span class="active-pane-preset-status"></span>
+        </span>
+        <span class="active-pane-preset-body"></span>
+        <span class="active-pane-preset-meta"></span>
+      </span>
+    `;
+    button.querySelector(".active-pane-preset-icon").innerHTML = quickActionIconMarkup(preset.icon);
+    button.querySelector(".active-pane-preset-title").textContent = preset.label;
+    button.querySelector(".active-pane-preset-status").textContent = active ? "Active" : "";
+    button.querySelector(".active-pane-preset-body").textContent = preset.body;
+    button.querySelector(".active-pane-preset-meta").textContent = paneSetupPresetMeta(preset);
+    button.onclick = () => {
+      if (!paneSetupPresetActive(preset, panel)) applyPaneSetupPreset(preset.id, panel);
+    };
+    grid.append(button);
+  }
+  return grid;
 }
 
 function activePaneSettingsPanel(workspace = activeWorkspace()) {
@@ -15315,6 +15511,8 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     backgroundChip.hidden = true;
   }
   wrapper.append(summary);
+  const presetGrid = activePanePresetGrid(panel);
+  if (presetGrid) wrapper.append(presetGrid);
 
   const titleInput = document.createElement("input");
   titleInput.className = "setting-control";
@@ -26704,8 +26902,8 @@ async function closePanesToRight(panelId = activePanel()?.id) {
   await closePanelsById(found.workspace.panels.slice(index + 1).map((candidate) => candidate.id));
 }
 
-async function updatePanel(panelId, updates) {
-  optimisticUpdatePanel(panelId, updates, { schedule: true });
+async function updatePanel(panelId, updates, options = {}) {
+  optimisticUpdatePanel(panelId, updates, options.render === false ? { render: false } : { schedule: true });
   try {
     const result = await api(`/api/panels/${panelId}`, {
       method: "PATCH",

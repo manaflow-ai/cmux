@@ -660,6 +660,7 @@ body.reduce-motion *::after {
 .settings-preset,
 .performance-tune-preset,
 .terminal-readability-preset,
+.active-pane-preset-card,
 .quick-settings-shortcut,
 .quick-map-card,
 .actions-group-card,
@@ -782,6 +783,7 @@ body.reduce-motion *::after {
 .settings-preset:focus-visible,
 .performance-tune-preset:focus-visible,
 .terminal-readability-preset:focus-visible,
+.active-pane-preset-card:focus-visible,
 .quick-settings-shortcut:focus-visible,
 .quick-map-card:focus-visible,
 .quick-overview-scope-item:focus-visible,
@@ -827,6 +829,7 @@ body.reduce-motion *::after {
 .settings-preset:active,
 .performance-tune-preset:active,
 .terminal-readability-preset:active,
+.active-pane-preset-card:active,
 .quick-settings-shortcut:active,
 .quick-map-card:active,
 .actions-group-card:active,
@@ -5748,6 +5751,129 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   grid-template-columns: repeat(auto-fit, minmax(min(112px, 100%), 1fr));
 }
 
+.active-pane-preset-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.active-pane-preset-card {
+  min-width: 0;
+  min-height: 86px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-content: start;
+  gap: var(--space-1);
+  padding: 7px;
+  border-color: var(--color-line);
+  background: var(--color-pane);
+  color: var(--color-text);
+  text-align: left;
+}
+
+.active-pane-preset-card:hover:not(:disabled),
+.active-pane-preset-card:focus-visible {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+}
+
+.active-pane-preset-card:disabled {
+  cursor: default;
+}
+
+.active-pane-preset-card.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-line) 42%);
+  background: color-mix(in oklch, var(--color-accent) 8%, var(--color-pane) 92%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 28%, transparent);
+}
+
+.active-pane-preset-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane-warm) 84%, var(--color-rail) 16%);
+  color: var(--color-muted);
+}
+
+.active-pane-preset-card:hover:not(:disabled) .active-pane-preset-icon,
+.active-pane-preset-card:focus-visible .active-pane-preset-icon,
+.active-pane-preset-card.is-active .active-pane-preset-icon {
+  border-color: color-mix(in oklch, var(--color-accent) 50%, var(--color-line) 50%);
+  background: color-mix(in oklch, var(--color-accent) 13%, var(--color-pane) 87%);
+  color: var(--color-text);
+}
+
+.active-pane-preset-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.active-pane-preset-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.active-pane-preset-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.active-pane-preset-title {
+  flex: 1 1 auto;
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.active-pane-preset-status {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  border: 1px solid color-mix(in oklch, var(--color-accent) 48%, var(--color-line) 52%);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane) 86%);
+  color: var(--color-text);
+  font-size: 9px;
+  font-weight: 760;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.active-pane-preset-status:empty {
+  display: none;
+}
+
+.active-pane-preset-body {
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 10px;
+  line-height: 1.25;
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.active-pane-preset-meta {
+  color: var(--color-faint);
+  font: 10px/1.1 var(--font-mono);
+}
+
+.active-pane-preset-title,
+.active-pane-preset-meta {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .active-pane-title-control {
   min-width: 0;
   display: grid;
@@ -5914,6 +6040,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   }
 
   .active-pane-title-control {
+    grid-template-columns: 1fr;
+  }
+
+  .active-pane-preset-grid {
     grid-template-columns: 1fr;
   }
 
@@ -13267,6 +13397,7 @@ textarea.dialog-input {
   .browser-workflow-preset-grid,
   .browser-home-preset-grid,
   .browser-preview-meta,
+  .active-pane-preset-grid,
   .look-pack-grid,
   .quick-overview-grid,
   .quick-map-grid,
