@@ -24,6 +24,7 @@ import Testing
             "Text", "VStack", "HStack", "ZStack", "HSplitView", "Button", "Image",
             "Spacer", "Divider", "Rectangle", "RoundedRectangle", "Capsule", "Circle",
             "ForEach", "Reorderable", "cmux", "log", "Color", "ScrollView", "openURL",
+            "LazyVStack", "LazyHStack", "Group", "EmptyView", "List", "Section",
         ]
         let supportedMembers: Set<String> = [
             "font", "bold", "fontWeight", "foregroundColor", "foregroundStyle", "fill",

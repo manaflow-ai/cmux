@@ -34,6 +34,33 @@ struct RenderNodeView: View {
             HStack(spacing: node.spacing.map { CGFloat($0) }) { children }
         case .zstack:
             ZStack { children }
+        case .lazyVStack:
+            LazyVStack(alignment: .leading, spacing: node.spacing.map { CGFloat($0) }) { children }
+        case .lazyHStack:
+            LazyHStack(spacing: node.spacing.map { CGFloat($0) }) { children }
+        case .group:
+            Group { children }
+        case .list:
+            // Plain, chrome-light list so it sits naturally in the sidebar
+            // rather than imposing inset grouped-table styling.
+            List { children }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+        case .section:
+            VStack(alignment: .leading, spacing: 4) {
+                if let header = node.text, !header.isEmpty {
+                    Text(header)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+                }
+                children
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case .hscroll:
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: node.spacing.map { CGFloat($0) }) { children }
+            }
         case .hsplit:
             ResizableHSplit(columns: node.children)
         case .reorderable:

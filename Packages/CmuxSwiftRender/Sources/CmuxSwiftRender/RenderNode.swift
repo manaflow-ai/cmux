@@ -12,6 +12,21 @@ public struct RenderNode: Sendable, Equatable {
         case vstack
         case hstack
         case zstack
+        /// A lazily-built vertical stack (`LazyVStack`) for long row lists.
+        case lazyVStack
+        /// A lazily-built horizontal stack (`LazyHStack`).
+        case lazyHStack
+        /// A layout-transparent container (`Group`); also the lowering of
+        /// `EmptyView` (a group with no children).
+        case group
+        /// `List { ... }`, rendered as a plain sidebar-styled list.
+        case list
+        /// A `Section` with an optional header (``text``) above its children.
+        case section
+        /// A horizontal `ScrollView(.horizontal)` wrapping its children in an
+        /// `HStack`. Vertical scroll views stay passthrough (the sidebar host
+        /// already scrolls vertically) and lower to ``vstack``.
+        case hscroll
         /// A horizontally resizable split: children are columns separated by
         /// a draggable divider. The host owns the split fraction.
         case hsplit

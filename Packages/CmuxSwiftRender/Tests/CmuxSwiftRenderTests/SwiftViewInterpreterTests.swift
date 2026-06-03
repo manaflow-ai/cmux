@@ -406,4 +406,57 @@ import Testing
         #expect(!text.contains("$"))
         #expect(text.contains("4"))
     }
+
+    @Test func listSectionLazyAndGroupContainers() {
+        let node = interp.evaluate("""
+        List {
+            Section("Repos") {
+                LazyVStack {
+                    Text("a")
+                    Text("b")
+                }
+            }
+            Group {
+                Text("c")
+            }
+        }
+        """)
+        #expect(node?.kind == .list)
+        let section = node?.children.first
+        #expect(section?.kind == .section)
+        #expect(section?.text == "Repos")
+        #expect(section?.children.first?.kind == .lazyVStack)
+        #expect(section?.children.first?.children.map(\.text) == ["a", "b"])
+        #expect(node?.children.last?.kind == .group)
+    }
+
+    @Test func horizontalScrollViewBecomesHscrollVerticalStaysPassthrough() {
+        let h = interp.evaluate("""
+        ScrollView(.horizontal) {
+            HStack { Text("x"); Text("y") }
+        }
+        """)
+        #expect(h?.kind == .hscroll)
+        #expect(h?.children.first?.kind == .hstack)
+
+        let v = interp.evaluate("""
+        ScrollView {
+            Text("only")
+        }
+        """)
+        #expect(v?.kind == .vstack)
+        #expect(v?.children.first?.text == "only")
+    }
+
+    @Test func emptyViewLowersToEmptyGroup() {
+        let node = interp.evaluate("""
+        VStack {
+            EmptyView()
+            Text("after")
+        }
+        """)
+        #expect(node?.children.first?.kind == .group)
+        #expect(node?.children.first?.children.isEmpty == true)
+        #expect(node?.children.last?.text == "after")
+    }
 }

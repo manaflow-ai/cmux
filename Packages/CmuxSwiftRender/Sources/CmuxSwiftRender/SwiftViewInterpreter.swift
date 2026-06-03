@@ -142,17 +142,42 @@ public struct SwiftViewInterpreter: Sendable {
             return RenderNode(kind: .circle)
         case "RoundedRectangle":
             return RenderNode(kind: .roundedRectangle, cornerRadius: doubleArgument(named: "cornerRadius", call.arguments, env))
-        case "VStack", "HStack", "ZStack":
-            let kind: RenderNode.Kind = ref.baseName.text == "VStack" ? .vstack
-                : ref.baseName.text == "HStack" ? .hstack : .zstack
+        case "VStack", "HStack", "ZStack", "LazyVStack", "LazyHStack":
+            let kind: RenderNode.Kind
+            switch ref.baseName.text {
+            case "VStack": kind = .vstack
+            case "HStack": kind = .hstack
+            case "ZStack": kind = .zstack
+            case "LazyVStack": kind = .lazyVStack
+            default: kind = .lazyHStack
+            }
             let children = call.trailingClosure.map { evalItems($0.statements, env) } ?? []
             return RenderNode(kind: kind, spacing: doubleArgument(named: "spacing", call.arguments, env), children: children)
+        case "Group":
+            return RenderNode(kind: .group, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "EmptyView":
+            return RenderNode(kind: .group)
+        case "List":
+            return RenderNode(kind: .list, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "Section":
+            // `Section("Header") { ... }` / `Section { ... }`: the leading
+            // string literal (if any) becomes the header above the content.
+            return RenderNode(
+                kind: .section,
+                text: stringArgument(call.arguments, env),
+                children: call.trailingClosure.map { evalItems($0.statements, env) } ?? []
+            )
         case "HSplitView":
             return RenderNode(kind: .hsplit, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
         case "ScrollView":
-            // The sidebar already scrolls; treat ScrollView as a passthrough
-            // vertical container so authored ScrollViews render correctly.
-            return RenderNode(kind: .vstack, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+            let children = call.trailingClosure.map { evalItems($0.statements, env) } ?? []
+            // A horizontal scroll view nests usefully inside the vertically
+            // scrolling sidebar; a vertical one would double-scroll, so it stays
+            // a passthrough vertical container.
+            if scrollViewIsHorizontal(call, env) {
+                return RenderNode(kind: .hscroll, children: children)
+            }
+            return RenderNode(kind: .vstack, children: children)
         case "Reorderable":
             return evalReorderable(call, env)
         default:
@@ -209,6 +234,13 @@ public struct SwiftViewInterpreter: Sendable {
         if let stmt = node.as(ExpressionStmtSyntax.self) { return stmt.expression.as(IfExprSyntax.self) }
         if let expr = node.as(ExprSyntax.self) { return expr.as(IfExprSyntax.self) }
         return nil
+    }
+
+    /// Whether a `ScrollView(...)` declares a horizontal axis. Inspects the
+    /// leading unlabeled `axes` argument's source for `.horizontal`.
+    private func scrollViewIsHorizontal(_ call: FunctionCallExprSyntax, _ env: Environment) -> Bool {
+        guard let axes = call.arguments.first(where: { $0.label == nil })?.expression else { return false }
+        return axes.trimmedDescription.contains("horizontal")
     }
 
     /// Evaluates `Reorderable(data, move: "method", id: "field") { item in row }`
