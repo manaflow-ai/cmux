@@ -1199,6 +1199,25 @@
       "fallback": "cmux 首先顯示規則並在將它們貼到目前工作區之前進行詢問。如果 cmux 未開啟，請安裝 cmux 並再次按一下「在 cmux 中開啟」。"
     }
   },
+  "download": {
+    "section": "下載",
+    "metaTitle": "感謝下載 cmux",
+    "metaDescription": "您的 cmux 下載即將開始。瀏覽文件、加入 Discord，並在 X 上追蹤 cmux。",
+    "heading": "感謝下載 cmux！",
+    "subtext": "如果下載沒有開始，請點擊<link>這裡</link>。",
+    "docs": {
+      "title": "文件",
+      "description": "透過逐步指南和範例了解 cmux 的功能，助您快速上手。"
+    },
+    "discord": {
+      "title": "Discord",
+      "description": "加入數千名 cmux 使用者，即時分享技巧、解決問題並回答疑問。"
+    },
+    "x": {
+      "title": "X",
+      "description": "在 X 上追蹤 cmux，獲取最新動態、技巧和公告。"
+    }
+  },
   "testimonialSubtitles": {
     "steipete": "OpenClaw 建立者。PSPDFKit 創辦人。"
   }

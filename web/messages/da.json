@@ -1199,6 +1199,25 @@
       "fallback": "cmux viser først reglerne og spørger, før de indsættes i det aktuelle arbejdsområde. Hvis cmux ikke åbner, skal du installere cmux og klikke på Åbn i cmux igen."
     }
   },
+  "download": {
+    "section": "Download",
+    "metaTitle": "Tak fordi du downloadede cmux",
+    "metaDescription": "Dit cmux-download starter. Udforsk dokumentationen, deltag i Discord, og følg cmux på X.",
+    "heading": "Tak fordi du downloadede cmux!",
+    "subtext": "Klik <link>her</link>, hvis dit download ikke er startet.",
+    "docs": {
+      "title": "Dokumentation",
+      "description": "Udforsk cmux's funktioner med trinvise vejledninger og eksempler, der hjælper dig i gang."
+    },
+    "discord": {
+      "title": "Discord",
+      "description": "Deltag sammen med tusindvis af cmux-brugere, der deler tips, løser problemer og besvarer spørgsmål i realtid."
+    },
+    "x": {
+      "title": "X",
+      "description": "Følg cmux på X for de seneste opdateringer, tips og meddelelser."
+    }
+  },
   "testimonialSubtitles": {
     "steipete": "Skaber af OpenClaw. Grundlægger af PSPDFKit."
   }

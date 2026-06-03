@@ -1199,6 +1199,25 @@
       "fallback": "cmux affiche d'abord les règles et demande avant de les coller dans l'espace de travail actuel. Si cmux ne s'ouvre pas, installez cmux et cliquez à nouveau sur Ouvrir dans cmux."
     }
   },
+  "download": {
+    "section": "Télécharger",
+    "metaTitle": "Merci d'avoir téléchargé cmux",
+    "metaDescription": "Votre téléchargement de cmux démarre. Explorez la documentation, rejoignez le Discord et suivez cmux sur X.",
+    "heading": "Merci d'avoir téléchargé cmux !",
+    "subtext": "Cliquez <link>ici</link> si votre téléchargement n'a pas démarré.",
+    "docs": {
+      "title": "Documentation",
+      "description": "Découvrez les fonctionnalités de cmux avec des guides pas à pas et des exemples pour bien démarrer."
+    },
+    "discord": {
+      "title": "Discord",
+      "description": "Rejoignez des milliers d'utilisateurs de cmux qui partagent des astuces, résolvent des problèmes et répondent aux questions en temps réel."
+    },
+    "x": {
+      "title": "X",
+      "description": "Suivez cmux sur X pour les dernières actualités, astuces et annonces."
+    }
+  },
   "testimonialSubtitles": {
     "steipete": "Créateur d’OpenClaw. Fondateur de PSPDFKit."
   }

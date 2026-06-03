@@ -1199,6 +1199,25 @@
       "fallback": "cmux zeigt die Regeln zuerst an und fragt nach, bevor sie in den aktuellen Arbeitsbereich eingefügt werden. Wenn cmux nicht geöffnet wird, installieren Sie cmux und klicken Sie erneut auf „In cmux öffnen“."
     }
   },
+  "download": {
+    "section": "Download",
+    "metaTitle": "Danke für den Download von cmux",
+    "metaDescription": "Dein cmux-Download startet. Entdecke die Dokumentation, tritt dem Discord bei und folge cmux auf X.",
+    "heading": "Danke für den Download von cmux!",
+    "subtext": "Klicke <link>hier</link>, falls dein Download nicht gestartet ist.",
+    "docs": {
+      "title": "Dokumentation",
+      "description": "Entdecke die Funktionen von cmux mit Schritt-für-Schritt-Anleitungen und Beispielen für den Einstieg."
+    },
+    "discord": {
+      "title": "Discord",
+      "description": "Tritt Tausenden von cmux-Nutzern bei, die in Echtzeit Tipps teilen, Probleme lösen und Fragen beantworten."
+    },
+    "x": {
+      "title": "X",
+      "description": "Folge cmux auf X für die neuesten Updates, Tipps und Ankündigungen."
+    }
+  },
   "testimonialSubtitles": {
     "steipete": "OpenClaw-Entwickler. Gründer von PSPDFKit."
   }

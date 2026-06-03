@@ -36,46 +36,50 @@ export function DownloadConfirmation() {
   }, []);
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-6 py-16 sm:py-24">
+    <main className="mx-auto w-full max-w-2xl px-6 py-16 sm:py-24">
       {/* Hero */}
       <div className="flex flex-col items-center text-center">
         <Image
           src="/logo.png"
-          alt="cmux"
-          width={56}
-          height={56}
-          className="rounded-2xl"
+          alt="cmux icon"
+          width={48}
+          height={48}
+          className="rounded-xl"
           priority
         />
-        <h1 className="mt-6 text-3xl sm:text-4xl font-semibold tracking-tight">
+        <h1 className="mt-6 text-2xl sm:text-3xl font-semibold tracking-tight">
           {t("heading")}
         </h1>
-        <p className="mt-4 text-[15px] text-muted">
+        <p className="mt-3 text-[15px] text-muted" style={{ lineHeight: 1.5 }}>
           {t.rich("subtext", {
             link: (chunks) => (
-              <button
-                type="button"
-                onClick={triggerDownload}
-                className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors cursor-pointer"
+              // A real anchor so the download still works without JS (the
+              // auto-download useEffect won't run if the bundle never hydrates).
+              <a
+                href={DOWNLOAD_URL}
+                className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors"
               >
                 {chunks}
-              </button>
+              </a>
             ),
           })}
         </p>
       </div>
 
-      {/* Cards */}
-      <div className="mt-16 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      {/* Resources */}
+      <div className="mt-14 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Link
           href={DOCS_PATH}
-          className="group flex flex-col rounded-xl border border-border p-5 transition-colors hover:bg-code-bg"
+          className="flex flex-col rounded-lg border border-border p-4 transition-colors hover:bg-code-bg"
         >
           <DocumentationIcon />
-          <h2 className="mt-3 text-base font-semibold tracking-tight">
+          <h2 className="mt-3 text-[15px] font-medium tracking-tight">
             {t("docs.title")}
           </h2>
-          <p className="mt-1.5 text-sm leading-6 text-muted">
+          <p
+            className="mt-1.5 text-[13px] text-muted"
+            style={{ lineHeight: 1.5 }}
+          >
             {t("docs.description")}
           </p>
         </Link>
@@ -84,13 +88,16 @@ export function DownloadConfirmation() {
           href={DISCORD_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="group flex flex-col rounded-xl border border-border p-5 transition-colors hover:bg-code-bg"
+          className="flex flex-col rounded-lg border border-border p-4 transition-colors hover:bg-code-bg"
         >
           <DiscordIcon />
-          <h2 className="mt-3 text-base font-semibold tracking-tight">
+          <h2 className="mt-3 text-[15px] font-medium tracking-tight">
             {t("discord.title")}
           </h2>
-          <p className="mt-1.5 text-sm leading-6 text-muted">
+          <p
+            className="mt-1.5 text-[13px] text-muted"
+            style={{ lineHeight: 1.5 }}
+          >
             {t("discord.description")}
           </p>
         </a>
@@ -99,13 +106,16 @@ export function DownloadConfirmation() {
           href={X_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="group flex flex-col rounded-xl border border-border p-5 transition-colors hover:bg-code-bg"
+          className="flex flex-col rounded-lg border border-border p-4 transition-colors hover:bg-code-bg"
         >
           <XIcon />
-          <h2 className="mt-3 text-base font-semibold tracking-tight">
+          <h2 className="mt-3 text-[15px] font-medium tracking-tight">
             {t("x.title")}
           </h2>
-          <p className="mt-1.5 text-sm leading-6 text-muted">
+          <p
+            className="mt-1.5 text-[13px] text-muted"
+            style={{ lineHeight: 1.5 }}
+          >
             {t("x.description")}
           </p>
         </a>
@@ -117,8 +127,8 @@ export function DownloadConfirmation() {
 function DocumentationIcon() {
   return (
     <svg
-      width="24"
-      height="24"
+      width="20"
+      height="20"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -139,8 +149,8 @@ function DocumentationIcon() {
 function DiscordIcon() {
   return (
     <svg
-      width="24"
-      height="24"
+      width="20"
+      height="20"
       viewBox="0 0 24 24"
       fill="currentColor"
       aria-hidden="true"
@@ -154,8 +164,8 @@ function DiscordIcon() {
 function XIcon() {
   return (
     <svg
-      width="22"
-      height="22"
+      width="18"
+      height="18"
       viewBox="0 0 24 24"
       fill="currentColor"
       aria-hidden="true"

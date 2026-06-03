@@ -1199,6 +1199,25 @@
       "fallback": "cmux mostra as regras primeiro e pergunta antes de colá-las no espaço de trabalho atual. Se o cmux não abrir, instale o cmux e clique em Abrir no cmux novamente."
     }
   },
+  "download": {
+    "section": "Baixar",
+    "metaTitle": "Obrigado por baixar o cmux",
+    "metaDescription": "O download do cmux está começando. Explore a documentação, entre no Discord e siga o cmux no X.",
+    "heading": "Obrigado por baixar o cmux!",
+    "subtext": "Clique <link>aqui</link> se o download não começou.",
+    "docs": {
+      "title": "Documentação",
+      "description": "Explore os recursos do cmux com guias passo a passo e exemplos para você começar."
+    },
+    "discord": {
+      "title": "Discord",
+      "description": "Junte-se a milhares de usuários do cmux que compartilham dicas, resolvem problemas e respondem perguntas em tempo real."
+    },
+    "x": {
+      "title": "X",
+      "description": "Siga o cmux no X para as últimas novidades, dicas e anúncios."
+    }
+  },
   "testimonialSubtitles": {
     "steipete": "Criador do OpenClaw. Fundador do PSPDFKit."
   }
