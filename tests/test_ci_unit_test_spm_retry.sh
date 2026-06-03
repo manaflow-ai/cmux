@@ -27,16 +27,34 @@ for pattern in "${REQUIRED_PATTERNS[@]}"; do
   fi
 done
 
-for workflow in "$COMPAT_WORKFLOW_FILE" "$DEPOT_WORKFLOW_FILE"; do
-  if ! grep -Fq 'echo "Unit tests failed"' "$workflow"; then
-    echo "FAIL: $(basename "$workflow") must report nonzero unit-test exits as failures"
-    exit 1
-  fi
+if ! grep -Fq 'SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)' "$COMPAT_WORKFLOW_FILE"; then
+  echo "FAIL: ci-macos-compat.yml must inspect XCTest failure summaries"
+  exit 1
+fi
 
-  if ! grep -Fq 'exit "$EXIT_CODE"' "$workflow"; then
-    echo "FAIL: $(basename "$workflow") must propagate nonzero unit-test exit codes"
-    exit 1
-  fi
-done
+if ! grep -Fq 'grep -q "(0 unexpected)"' "$COMPAT_WORKFLOW_FILE"; then
+  echo "FAIL: ci-macos-compat.yml must allow only expected XCTest failures"
+  exit 1
+fi
+
+if ! grep -Fq 'Unexpected unit test failures detected' "$COMPAT_WORKFLOW_FILE"; then
+  echo "FAIL: ci-macos-compat.yml must report unexpected unit-test failures"
+  exit 1
+fi
+
+if ! grep -Fq 'exit "$EXIT_CODE"' "$COMPAT_WORKFLOW_FILE"; then
+  echo "FAIL: ci-macos-compat.yml must propagate unexpected unit-test exit codes"
+  exit 1
+fi
+
+if ! grep -Fq 'echo "Unit tests failed"' "$DEPOT_WORKFLOW_FILE"; then
+  echo "FAIL: test-depot.yml must report nonzero unit-test exits as failures"
+  exit 1
+fi
+
+if ! grep -Fq 'exit "$EXIT_CODE"' "$DEPOT_WORKFLOW_FILE"; then
+  echo "FAIL: test-depot.yml must propagate nonzero unit-test exit codes"
+  exit 1
+fi
 
 echo "PASS: CI unit-test SwiftPM retry and expected-failure guards are present"
