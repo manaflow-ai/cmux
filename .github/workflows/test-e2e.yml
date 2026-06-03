@@ -392,7 +392,7 @@ jobs:
           echo "$OUTPUT"
 
           # Save summary for the issue
-          SUMMARY=$(echo "$OUTPUT" | grep -E "(Test Suite|Executed|FAIL|PASS)" | tail -20)
+          SUMMARY=$(grep -E "(Test Suite|Executed|FAIL|PASS)" <<<"$OUTPUT" | tail -20)
           {
             echo "test_summary<<EOFSUM"
             echo "$SUMMARY"
@@ -400,7 +400,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
           if [ "$EXIT_CODE" -eq 0 ]; then
-            if ! echo "$OUTPUT" | grep -Eq 'Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests'; then
+            if ! grep -Eq 'Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
               echo "test_result=failed" >> "$GITHUB_OUTPUT"
               {
                 echo "test_output<<EOFOUT"
