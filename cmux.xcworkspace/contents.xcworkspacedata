@@ -5,6 +5,16 @@
       location = "group:cmux.xcodeproj">
    </FileRef>
    <Group
+      location = "container:ios"
+      name = "iOS">
+      <FileRef
+         location = "group:cmux-ios.xcodeproj">
+      </FileRef>
+      <FileRef
+         location = "group:cmuxPackage">
+      </FileRef>
+   </Group>
+   <Group
       location = "container:Packages"
       name = "Packages">
       <FileRef
@@ -27,6 +37,15 @@
       </FileRef>
       <FileRef
          location = "group:CmuxFoundation">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileAuth">
+      </FileRef>
+      <FileRef
+         location = "group:CMUXMobileCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileTerminal">
       </FileRef>
       <FileRef
          location = "group:CMUXPasteboardFidelity">
