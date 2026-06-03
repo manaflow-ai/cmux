@@ -22,5 +22,5 @@ func auxiliaryCloseShortcutTarget<Window>(
 ) -> Window? {
     candidates
         .compactMap { $0 }
-        .first { isAuxiliary($0) }
+        .first { isAuxiliary($0) && isKey($0) }
 }
