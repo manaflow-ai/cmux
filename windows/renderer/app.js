@@ -2768,6 +2768,28 @@ function backgroundImageOpenTitle(value, availableTitle = "Open this background 
   return "This background source cannot be opened directly.";
 }
 
+function canCopyBackgroundImageSource(value) {
+  return Boolean(normalizedImageUrl(value));
+}
+
+function backgroundImageCopyTitle(value, availableTitle = "Copy this background source.") {
+  return canCopyBackgroundImageSource(value) ? availableTitle : "Choose a custom background image first.";
+}
+
+async function copyBackgroundImageSource(value, availableToast = "Background source copied.") {
+  const url = normalizedImageUrl(value);
+  if (!url) {
+    toast("Background source is unavailable.");
+    return false;
+  }
+  if (await writeClipboardText(url)) {
+    toast(availableToast);
+    return true;
+  }
+  toast("Clipboard is unavailable.");
+  return false;
+}
+
 async function openBackgroundImageSource(value = state.settings.backgroundImage) {
   const url = normalizedImageUrl(value);
   if (!url) {
@@ -11011,11 +11033,15 @@ function activeBackgroundPanel(options = {}) {
   const save = settingsActionButton("Save image", () => saveCustomBackgroundImage({ url: activeBackgroundPanelViewModel().background }), "", "active background save current");
   save.dataset.backgroundAction = "save";
   applySavedBackgroundImageSaveLimit(save, model.background, "Save the selected background image.");
+  const copySource = settingsActionButton("Copy", () => copyBackgroundImageSource(activeBackgroundPanelViewModel().background), "", "active background copy source url file path");
+  copySource.dataset.backgroundAction = "copy";
+  copySource.title = backgroundImageCopyTitle(model.background, "Copy the selected background source.");
+  copySource.disabled = !canCopyBackgroundImageSource(model.background);
   const open = settingsActionButton("Open", () => openBackgroundImageSource(activeBackgroundPanelViewModel().background), "", "active background open local file url source reveal");
   open.dataset.backgroundAction = "open";
   open.title = backgroundImageOpenTitle(model.background, "Open the selected background source.");
   open.disabled = !canOpenBackgroundImageSource(model.background);
-  const imageGroup = backgroundActionGroup("Image", "active background image choose paste save open", [choose, paste, save, open]);
+  const imageGroup = backgroundActionGroup("Image", "active background image choose paste save copy open", [choose, paste, save, copySource, open]);
   imageGroup.classList.add("background-action-group-image");
 
   const applyCurrent = settingsActionButton("Use app image", applyCurrentBackgroundToTarget, "", "active background apply current app image to selected target pane all terminals");
@@ -11147,6 +11173,7 @@ function refreshBackgroundPreviewNodes() {
     const choose = panel.querySelector('[data-background-action="choose"]');
     const paste = panel.querySelector('[data-background-action="paste"]');
     const save = panel.querySelector('[data-background-action="save"]');
+    const copySource = panel.querySelector('[data-background-action="copy"]');
     const applyTyped = panel.querySelector('[data-background-action="apply-typed"]');
     const applyCurrent = panel.querySelector('[data-background-action="apply-current"]');
     const open = panel.querySelector('[data-background-action="open"]');
@@ -11171,6 +11198,10 @@ function refreshBackgroundPreviewNodes() {
     }
     if (save) {
       applySavedBackgroundImageSaveLimit(save, model.background, "Save the selected background image.");
+    }
+    if (copySource) {
+      setDisabledIfChanged(copySource, !canCopyBackgroundImageSource(model.background));
+      setTitleIfChanged(copySource, backgroundImageCopyTitle(model.background, "Copy the selected background source."));
     }
     if (applyCurrent) {
       setDisabledIfChanged(applyCurrent, !state.settings.backgroundImage || !targetStatus.canTarget || targetStatus.scope === "app");
@@ -11708,6 +11739,9 @@ function paneBackgroundControlPanel(panel) {
   useApp.disabled = !state.settings.backgroundImage;
   const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: background }), "", "active pane terminal background save image wallpaper library");
   applySavedBackgroundImageSaveLimit(save, background, "Save this pane background image.");
+  const copySource = settingsActionButton("Copy", () => copyBackgroundImageSource(background, "Pane background source copied."), "", "active pane terminal background copy source url file path");
+  copySource.title = backgroundImageCopyTitle(background, "Copy this pane background source.");
+  copySource.disabled = !canCopyBackgroundImageSource(background);
   const open = settingsActionButton("Open", () => openBackgroundImageSource(background), "", "active pane terminal background open source file url");
   open.title = backgroundImageOpenTitle(background, "Open this pane background source.");
   open.disabled = !canOpenBackgroundImageSource(background);
@@ -11715,7 +11749,7 @@ function paneBackgroundControlPanel(panel) {
   clear.disabled = !hasBackground;
   actions.append(
     backgroundActionGroup("Image source", "active pane terminal background image choose paste apply", [apply, paste, choose]),
-    backgroundActionGroup("Pane image", "active pane terminal background use app save open clear", [useApp, save, open, clear])
+    backgroundActionGroup("Pane image", "active pane terminal background use app save copy open clear", [useApp, save, copySource, open, clear])
   );
 
   control.append(preview, copy, input, actions);
@@ -15546,16 +15580,7 @@ function showSavedBackgroundImageMenu(event, background) {
 }
 
 async function copySavedBackgroundImageSource(background) {
-  if (!background?.url) {
-    toast("Background source is unavailable.");
-    return false;
-  }
-  if (await writeClipboardText(background.url)) {
-    toast("Background source copied.");
-    return true;
-  }
-  toast("Clipboard is unavailable.");
-  return false;
+  return copyBackgroundImageSource(background?.url, "Background source copied.");
 }
 
 function isActiveTerminalColorPreset(preset) {
@@ -17028,6 +17053,14 @@ function showPanelContextMenu(event, panel) {
       { icon: "external" }
     );
     openPaneBackground.title = backgroundImageOpenTitle(panel.backgroundImage, "Open this pane background source.");
+    const copyPaneBackground = contextMenuButton(
+      "Copy pane background source",
+      () => copyBackgroundImageSource(panel.backgroundImage, "Pane background source copied."),
+      !canCopyBackgroundImageSource(panel.backgroundImage),
+      "",
+      { icon: "clipboard" }
+    );
+    copyPaneBackground.title = backgroundImageCopyTitle(panel.backgroundImage, "Copy this pane background source.");
     surfaceActions.push(
       contextMenuButton("Find", () => openTerminalSearch(panel), false, "", { icon: "search" }),
       contextMenuButton("Find next", () => findNextInTerminal(panel), false, "", { icon: "arrowRight" }),
@@ -17054,6 +17087,7 @@ function showPanelContextMenu(event, panel) {
         action.title = savedBackgroundImageSaveTitle(panel.backgroundImage, "Save this pane background image.");
         return action;
       })(),
+      copyPaneBackground,
       openPaneBackground,
       clearPaneBackground,
       contextMenuButton("Terminal settings", () => openSettingsCategory("terminal"), false, "", { icon: "settings" })
@@ -17357,6 +17391,9 @@ function showToolbarMenu(event) {
   const terminalBackgroundOpenTitle = terminalActive
     ? backgroundImageOpenTitle(panel.backgroundImage, "Open the focused terminal background source.")
     : terminalRequiredTitle;
+  const terminalBackgroundCopyTitle = terminalActive
+    ? backgroundImageCopyTitle(panel.backgroundImage, "Copy the focused terminal background source.")
+    : terminalRequiredTitle;
   const toolbarAction = (label, action, disabled, availableTitle, unavailableTitle, tone = "", options = {}) => {
     const button = contextMenuButton(label, action, disabled, tone, options);
     const titleText = disabled ? (unavailableTitle || availableTitle) : (availableTitle || unavailableTitle);
@@ -17425,6 +17462,13 @@ function showToolbarMenu(event) {
         !terminalActive || !canSaveBackgroundImage(panel.backgroundImage),
         "Save the focused terminal background image.",
         terminalBackgroundSaveTitle
+      ),
+      toolbarAction(
+        "Copy terminal background source",
+        () => copyBackgroundImageSource(panel.backgroundImage, "Terminal background source copied."),
+        !terminalActive || !canCopyBackgroundImageSource(panel.backgroundImage),
+        "Copy the focused terminal background source.",
+        terminalBackgroundCopyTitle
       ),
       toolbarAction(
         "Open terminal background",
