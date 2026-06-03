@@ -15481,6 +15481,12 @@ function isActiveSettingsPreset(preset) {
   return Object.entries(preset.settings).every(([key, value]) => state.settings[key] === value);
 }
 
+function isActiveSettingsProfile(profile) {
+  if (!profile?.settings) return false;
+  const normalized = normalizeSettings(profile.settings);
+  return profileSettingsSettingKeys.every((key) => state.settings[key] === normalized[key]);
+}
+
 function applySettingsPreset(preset) {
   const changed = updateSettings(preset.settings);
   if (!changed) {
@@ -15530,15 +15536,24 @@ function settingsProfilesPanel() {
 }
 
 function settingsProfileCard(profile) {
+  const active = isActiveSettingsProfile(profile);
   const card = document.createElement("div");
-  card.className = "recent-folder-card settings-profile-card";
-  card.dataset.settingsSearch = normalizeSettingsQuery(`saved settings profile preset apply rename delete ${profile.label} ${settingsProfileSummary(profile.settings)}`);
+  card.className = `recent-folder-card settings-profile-card${active ? " is-active" : ""}`;
+  card.dataset.settingsSearch = normalizeSettingsQuery(`saved settings profile preset apply active rename delete ${profile.label} ${settingsProfileSummary(profile.settings)}`);
 
   const text = document.createElement("div");
   text.className = "recent-folder-text";
   const name = document.createElement("div");
-  name.className = "recent-folder-name";
-  name.textContent = profile.label;
+  name.className = "recent-folder-name settings-profile-name";
+  const nameText = document.createElement("span");
+  nameText.textContent = profile.label;
+  name.append(nameText);
+  if (active) {
+    const status = document.createElement("span");
+    status.className = "settings-profile-status";
+    status.textContent = "Active";
+    name.append(status);
+  }
   name.title = profile.label;
   const summary = document.createElement("div");
   summary.className = "recent-folder-path settings-profile-summary";
@@ -15548,8 +15563,10 @@ function settingsProfileCard(profile) {
 
   const actions = document.createElement("div");
   actions.className = "recent-folder-actions settings-profile-actions";
+  const apply = settingsActionButton(active ? "Active" : "Apply", () => applySavedSettingsProfile(profile.id), active ? "primary" : "", `apply active settings profile ${profile.label}`);
+  apply.disabled = active;
   actions.append(
-    settingsActionButton("Apply", () => applySavedSettingsProfile(profile.id), "", `apply settings profile ${profile.label}`),
+    apply,
     settingsActionButton("Update", () => updateSavedSettingsProfile(profile.id), "", `update settings profile ${profile.label} overwrite current settings`),
     settingsActionButton("Rename", () => renameSavedSettingsProfile(profile.id), "", `rename settings profile ${profile.label}`),
     settingsActionButton("Delete", () => deleteSavedSettingsProfile(profile.id), "danger", `delete settings profile ${profile.label}`)

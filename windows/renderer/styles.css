@@ -7206,6 +7206,37 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   gap: var(--space-2);
 }
 
+.settings-profile-card.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-line) 42%);
+  background: color-mix(in oklch, var(--color-accent) 9%, var(--color-pane) 91%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 34%, transparent);
+}
+
+.settings-profile-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.settings-profile-name > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-profile-status {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  border: 1px solid color-mix(in oklch, var(--color-accent) 48%, var(--color-line) 52%);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane) 86%);
+  color: var(--color-text);
+  font-size: 9px;
+  font-weight: 760;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
 .settings-profile-actions {
   grid-template-columns: repeat(auto-fit, minmax(min(84px, 100%), 1fr));
 }
