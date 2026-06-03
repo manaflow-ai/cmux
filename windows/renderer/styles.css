@@ -1344,10 +1344,6 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
   gap: 0;
 }
 
-.shell.toolbar-compact .tool-button.add-tool {
-  min-width: 32px;
-}
-
 .shell.toolbar-minimal .tool-button .tool-label,
 .shell.toolbar-compact .tool-button .tool-label {
   position: absolute;
@@ -1358,28 +1354,25 @@ body.reduce-motion .tool-button.add-tool.is-creating.is-waiting .tool-add-mark {
   clip-path: inset(50%);
 }
 
-.shell.toolbar-compact .tool-add-mark {
-  display: none;
-}
-
 .shell.toolbar-minimal #newTerminalButton,
-.shell.toolbar-minimal #newBrowserButton {
-  width: auto;
-  min-width: 104px;
-  padding: 0 9px;
-  gap: 7px;
+.shell.toolbar-minimal #newBrowserButton,
+.shell.toolbar-compact #newTerminalButton,
+.shell.toolbar-compact #newBrowserButton {
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+  gap: 0;
 }
 
-.shell.toolbar-minimal #newTerminalButton .tool-label,
-.shell.toolbar-minimal #newBrowserButton .tool-label {
-  position: static;
-  width: auto;
-  height: auto;
-  max-width: 62px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  clip-path: none;
+.shell.toolbar-minimal .tool-button.add-tool .tool-add-mark,
+.shell.toolbar-compact .tool-button.add-tool .tool-add-mark {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 11px;
+  height: 11px;
+  font-size: 8px;
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-pane) 70%, transparent);
 }
 
 .shell.toolbar-standard .tool-button {
@@ -10555,9 +10548,7 @@ textarea.dialog-input {
     text-overflow: ellipsis;
   }
 
-  .tool-button.add-tool,
-  .shell.toolbar-minimal #newTerminalButton,
-  .shell.toolbar-minimal #newBrowserButton {
+  .shell:not(.toolbar-minimal):not(.toolbar-compact) .tool-button.add-tool {
     min-width: 96px;
   }
 }
@@ -10617,32 +10608,6 @@ textarea.dialog-input {
 
   .palette-quick-action {
     min-height: 48px;
-  }
-
-  .shell.toolbar-minimal #newTerminalButton,
-  .shell.toolbar-minimal #newBrowserButton {
-    width: 34px;
-    min-width: 34px;
-    padding: 0;
-  }
-
-  .shell.toolbar-minimal #newTerminalButton .tool-label,
-  .shell.toolbar-minimal #newBrowserButton .tool-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    white-space: nowrap;
-    clip-path: inset(50%);
-  }
-
-  .shell.toolbar-minimal .tool-add-mark {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    width: 11px;
-    height: 11px;
-    font-size: 8px;
   }
 
   .browser-home-preset-grid,
