@@ -1456,6 +1456,19 @@ function saveRecentBrowserPages() {
   localStorage.setItem(recentBrowserPagesStorageKey, JSON.stringify(state.recentBrowserPages));
 }
 
+function normalizeRecentBrowserPageList(entries = []) {
+  const pages = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    const url = normalizeBrowserPageUrl(entry);
+    const key = url.toLowerCase();
+    if (!url || seen.has(key)) continue;
+    seen.add(key);
+    pages.push(url);
+  }
+  return pages;
+}
+
 function rememberRecentBrowserPage(value) {
   const url = normalizeBrowserPageUrl(value);
   if (!url) return;
@@ -1484,6 +1497,87 @@ function clearRecentBrowserPages() {
   renderSettingsInspector();
   toast("Recent browser pages cleared.");
   return true;
+}
+
+function recentBrowserPagesPayload() {
+  return {
+    version: 1,
+    type: "cmux-recent-browser-pages",
+    summary: {
+      pages: state.recentBrowserPages.length,
+      limit: recentBrowserPagesLimit
+    },
+    pages: state.recentBrowserPages
+  };
+}
+
+async function copyRecentBrowserPages() {
+  if (state.recentBrowserPages.length === 0) {
+    toast("Recent browser pages are empty.");
+    return false;
+  }
+  const payload = JSON.stringify(recentBrowserPagesPayload(), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Recent browser pages copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Recent browser pages",
+    message: "Clipboard access is unavailable. The recent browser pages are shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function recentBrowserPageEntriesFromPayload(payload) {
+  const parsed = importedObject(payload);
+  if (Array.isArray(payload)) return normalizeRecentBrowserPageList(payload);
+  if (parsed && Array.isArray(parsed.pages)) return normalizeRecentBrowserPageList(parsed.pages);
+  if (parsed && Array.isArray(parsed.recentBrowserPages)) return normalizeRecentBrowserPageList(parsed.recentBrowserPages);
+  if (typeof payload === "string") return normalizeRecentBrowserPageList(payload.split(/\r?\n/));
+  return [];
+}
+
+function mergeRecentBrowserPages(pages) {
+  const imported = normalizeRecentBrowserPageList(pages);
+  if (imported.length === 0) {
+    toast("Clipboard does not contain recent browser pages.");
+    return false;
+  }
+  const next = [];
+  const seen = new Set();
+  for (const url of [...imported, ...state.recentBrowserPages]) {
+    const key = url.toLowerCase();
+    if (!url || seen.has(key)) continue;
+    seen.add(key);
+    next.push(url);
+    if (next.length >= recentBrowserPagesLimit) break;
+  }
+  if (stableJson(next) === stableJson(state.recentBrowserPages)) {
+    toast("Recent browser pages already match.");
+    return false;
+  }
+  state.recentBrowserPages = next;
+  saveRecentBrowserPages();
+  renderSettingsInspector();
+  toast(`Recent browser pages updated (${state.recentBrowserPages.length}/${recentBrowserPagesLimit}).`);
+  return true;
+}
+
+async function pasteRecentBrowserPages() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    return mergeRecentBrowserPages(recentBrowserPageEntriesFromPayload(JSON.parse(clipboard)));
+  } catch {
+    return mergeRecentBrowserPages(recentBrowserPageEntriesFromPayload(clipboard));
+  }
 }
 
 function cleanupBrowserTabSnapshots() {
@@ -4521,6 +4615,8 @@ const commands = [
   { id: "browser.homeExternal", label: "Open Browser Home Externally", shortcut: "", run: () => openExternalBrowser(state.settings.browserHomeUrl) },
   { id: "browser.copySetup", label: "Copy Browser Setup", shortcut: "", run: () => copyBrowserSetup() },
   { id: "browser.pasteSetup", label: "Paste Browser Setup", shortcut: "", run: () => pasteBrowserSetup() },
+  { id: "browser.copyRecentPages", label: "Copy Recent Browser Pages", shortcut: "", run: () => copyRecentBrowserPages() },
+  { id: "browser.pasteRecentPages", label: "Paste Recent Browser Pages", shortcut: "", run: () => pasteRecentBrowserPages() },
   { id: "browser.copyTabs", label: "Copy Active Browser Tabs", shortcut: "", run: () => copyActiveBrowserTabSession() },
   { id: "browser.copyAllTabs", label: "Copy All Browser Tab Sessions", shortcut: "", run: () => copyBrowserTabSessions() },
   { id: "browser.pasteTabs", label: "Paste Browser Tabs", shortcut: "", run: () => pasteBrowserTabSessions() },
@@ -15522,7 +15618,7 @@ function recentBrowserPagesDisclosurePanel() {
   return settingsDisclosurePanel({
     className: "browser-recent-pages-disclosure",
     content: "browser-recent-pages",
-    searchTerms: "browser recent pages urls web history open home clear",
+    searchTerms: "browser recent pages urls web history open home clear copy paste clipboard json",
     title: t("browser.recentPages"),
     body: t("browser.recentPages.body"),
     meta: formatMessage("browser.recentPageCount", {
@@ -17900,16 +17996,24 @@ function recentCommandsSettings() {
 function recentBrowserPagesSettings() {
   const section = document.createElement("div");
   section.className = "recent-folder-list";
-  section.dataset.settingsSearch = normalizeSettingsQuery("recent browser pages urls web history open home clear");
+  section.dataset.settingsSearch = normalizeSettingsQuery("recent browser pages urls web history open home clear copy paste clipboard json");
 
   const header = document.createElement("div");
   header.className = "recent-folder-header";
   const title = document.createElement("span");
   title.textContent = "Recent browser pages";
+  const copy = settingsActionButton("Copy", copyRecentBrowserPages, "", "recent browser pages copy web history urls clipboard json");
+  copy.disabled = state.recentBrowserPages.length === 0;
+  copy.title = copy.disabled ? "Recent browser pages are empty." : "Copy recent browser pages as JSON.";
+  const paste = settingsActionButton("Paste", pasteRecentBrowserPages, "", "recent browser pages paste web history urls clipboard json");
+  paste.title = "Merge copied browser pages into recent pages.";
   const clear = settingsActionButton("Clear", clearRecentBrowserPages, "danger", "recent browser pages clear history");
   clear.disabled = state.recentBrowserPages.length === 0;
   clear.title = clear.disabled ? "Recent browser pages are already clear." : "Clear recent browser pages.";
-  header.append(title, clear);
+  const headerActions = document.createElement("div");
+  headerActions.className = "recent-folder-header-actions";
+  headerActions.append(copy, paste, clear);
+  header.append(title, headerActions);
   section.append(header);
 
   if (state.recentBrowserPages.length === 0) {
@@ -19739,6 +19843,8 @@ function showToolbarMenu(event) {
       toolbarAction("Paste browser tabs", pasteBrowserTabSessions, !workspace, "Paste copied browser tabs into the focused browser or restore them as panes.", workspaceRequiredTitle),
       toolbarAction("Open home page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: state.settings.browserHomeUrl }), !workspace, "Open the home page in a browser pane.", workspaceRequiredTitle),
       toolbarAction(latestBrowserPage ? `Open recent: ${hostnameOf(latestBrowserPage)}` : "Open recent page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: latestBrowserPage }), !latestBrowserPage || !workspace, "Open the most recent browser page.", !workspace ? workspaceRequiredTitle : "There are no recent browser pages yet."),
+      toolbarAction("Copy recent pages", copyRecentBrowserPages, state.recentBrowserPages.length === 0, "Copy recent browser pages as JSON.", "Recent browser pages are empty."),
+      toolbarAction("Paste recent pages", pasteRecentBrowserPages, false, "Merge copied browser pages into recent pages."),
       toolbarAction("Copy all tab sessions", copyBrowserTabSessions, browserSessionEntries.length === 0, "Copy all browser tab sessions as JSON.", "Open a browser pane before copying tab sessions."),
       toolbarAction("Copy browser setup", copyBrowserSetup, false, "Copy browser home, launch mode, external profile, and suspend setting as JSON."),
       toolbarAction("Paste browser setup", pasteBrowserSetup, false, "Apply copied cmux browser setup."),
@@ -20690,6 +20796,25 @@ function paletteEntries() {
       run: () => runTerminalCommand(command)
     });
   }
+  entries.push({
+    id: "recentBrowser.copyAll",
+    label: "Copy recent browser pages",
+    meta: `${state.recentBrowserPages.length}/${recentBrowserPagesLimit} pages`,
+    shortcut: "Copy",
+    disabled: state.recentBrowserPages.length === 0,
+    title: state.recentBrowserPages.length === 0 ? "Recent browser pages are empty." : "Copy recent browser pages as JSON.",
+    search: normalizeSettingsQuery("recent browser pages web urls copy clipboard json export history"),
+    run: copyRecentBrowserPages
+  });
+  entries.push({
+    id: "recentBrowser.pasteAll",
+    label: "Paste recent browser pages",
+    meta: "Merge copied page list",
+    shortcut: "Paste",
+    title: "Merge copied browser pages into recent pages.",
+    search: normalizeSettingsQuery("recent browser pages web urls paste import clipboard json history"),
+    run: pasteRecentBrowserPages
+  });
   for (const [pageIndex, url] of state.recentBrowserPages.entries()) {
     entries.push({
       id: `recentBrowser.${pageIndex}`,
