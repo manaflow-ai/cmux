@@ -11001,7 +11001,7 @@ function layoutSettingsPreviewPanel() {
     settings.showStatusbar ? "show-statusbar" : "hide-statusbar",
     settings.performanceMode ? "performance-preview" : ""
   ].filter(Boolean).join(" ");
-  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs status pane header density settings panel active pane percent resize focus mode simple clean");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs status pane header density settings panel active pane percent resize focus mode simple clean panes split shape preset current");
   panel.style.setProperty("--layout-preview-sidebar", `${Math.max(24, Math.round((settings.sidebarWidth / 304) * 72))}px`);
   panel.style.setProperty("--layout-preview-inspector", `${Math.max(42, Math.round((settings.inspectorWidth / 480) * 76))}px`);
   panel.innerHTML = `
@@ -11041,6 +11041,9 @@ function layoutSettingsPreviewPanel() {
       <span><b>Settings</b><em data-layout-preview-settings></em></span>
       <span><b>Status</b><em data-layout-preview-status></em></span>
       <span><b>Active pane</b><em data-layout-preview-active-pane></em></span>
+      <span><b>Panes</b><em data-layout-preview-panes></em></span>
+      <span><b>Split</b><em data-layout-preview-split></em></span>
+      <span><b>Shape</b><em data-layout-preview-shape></em></span>
     </div>
   `;
   panel.querySelector("[data-layout-preview-toolbar]").textContent = optionLabel(toolbarModeOptions, settings.toolbarMode, settings.toolbarMode);
@@ -11054,6 +11057,9 @@ function layoutSettingsPreviewPanel() {
   panel.querySelector("[data-layout-preview-status]").textContent = settings.focusMode || !settings.showStatusbar ? "Off" : "On";
   const workspace = activeWorkspace();
   panel.querySelector("[data-layout-preview-active-pane]").textContent = workspace?.panels?.length > 1 ? `${activePaneLayoutPercent(workspace)}%` : "Single";
+  panel.querySelector("[data-layout-preview-panes]").textContent = workspace?.panels?.length ? String(workspace.panels.length) : "None";
+  panel.querySelector("[data-layout-preview-split]").textContent = workspace?.panels?.length > 1 ? paneLayoutDirectionLabel(workspace) : "Single";
+  panel.querySelector("[data-layout-preview-shape]").textContent = activePaneLayoutPresetLabel(workspace);
   return panel;
 }
 
@@ -13547,7 +13553,7 @@ function paneShapePanel(workspace = activeWorkspace()) {
   const multiPane = Boolean(workspace && panel && workspace.panels.length > 1 && !hasPendingPane);
   const percent = multiPane ? activePaneLayoutPercent(workspace) : 50;
   const direction = paneLayoutDirection(workspace);
-  const directionLabel = direction === "down" ? t("paneShape.stackedRows") : t("paneShape.sideBySideColumns");
+  const directionLabel = paneLayoutDirectionLabel(workspace);
   const panelTitle = panel ? panelDisplayTitle(panel, true) : t("paneShape.noPane");
   const wrapper = document.createElement("div");
   wrapper.className = `pane-shape-panel${direction === "down" ? " is-stacked" : ""}`;
@@ -13794,6 +13800,18 @@ function activePaneLayoutPresetIds(workspace = activeWorkspace()) {
     if (equal && paneTreeEqual(currentTree, equal)) ids.add("equal");
   }
   return ids;
+}
+
+function paneLayoutDirectionLabel(workspace = activeWorkspace()) {
+  return paneLayoutDirection(workspace) === "down" ? t("paneShape.stackedRows") : t("paneShape.sideBySideColumns");
+}
+
+function activePaneLayoutPresetLabel(workspace = activeWorkspace()) {
+  if (!workspace?.panels?.length) return "None";
+  if (workspace.panels.length <= 1) return "Single";
+  const activeIds = activePaneLayoutPresetIds(workspace);
+  const activePreset = paneLayoutPresets.find((preset) => activeIds.has(preset.id));
+  return activePreset?.label || "Custom";
 }
 
 function activePaneLayoutCommandIds(workspace = activeWorkspace()) {
