@@ -60,11 +60,17 @@ public struct CustomSidebarView: View {
                     .foregroundStyle(.secondary)
             )
         case let .json(document):
-            scrollWrap(DSLSidebarRenderer(node: document.root) { _ in })
-        case let .swiftSource(source):
-            // Interpret here (not in the model) so the view re-evaluates against
-            // `dataContext` whenever live workspace state changes.
-            if let node = SwiftViewInterpreter().evaluate(source, state: dataContext) {
+            // Route JSON node actions through the same host dispatch the
+            // interpreted path uses, so taps in a declarative sidebar run
+            // instead of being silently dropped.
+            scrollWrap(DSLSidebarRenderer(node: document.root) { action in
+                dispatch.run(action.buttonAction)
+            })
+        case .swiftSource:
+            // The model caches the parsed AST and re-evaluates only against
+            // `dataContext`, so live workspace state still drives re-renders
+            // without re-parsing the source on every tick.
+            if let node = model.renderNode(dataContext: dataContext) {
                 // A split root owns its own per-column scrolling and fills the
                 // sidebar height, so it is not wrapped in the outer ScrollView.
                 if node.kind == .hsplit {

@@ -31,21 +31,41 @@ public struct SwiftViewInterpreter: Sendable {
 
     public init() {}
 
-    /// Parses `source` and interprets the first top-level expression against
-    /// an environment seeded with `state`. Returns `nil` when nothing
-    /// supported is found.
-    public func evaluate(_ source: String, state: [String: SwiftValue] = [:]) -> RenderNode? {
+    /// Parses `source` into a reusable ``ParsedProgram``.
+    ///
+    /// This is the expensive, source-only step (lexing, parsing, operator
+    /// folding). Cache the result and feed it to ``evaluate(_:state:)`` when
+    /// only the live data changes, so a host that re-renders on a timer does
+    /// not re-parse unchanged source every frame.
+    public func parse(_ source: String) -> ParsedProgram {
         let parsed = Parser.parse(source: source)
         let file = (try? OperatorTable.standardOperators.foldAll(parsed))?
             .as(SourceFileSyntax.self) ?? parsed
+        return ParsedProgram(file: file)
+    }
+
+    /// Interprets an already-parsed ``ParsedProgram``'s first top-level
+    /// expression against an environment seeded with `state`. Returns `nil`
+    /// when nothing supported is found.
+    public func evaluate(_ program: ParsedProgram, state: [String: SwiftValue] = [:]) -> RenderNode? {
         let env = Environment(values: state)
-        registerFunctions(file.statements, env)
-        for item in file.statements {
+        registerFunctions(program.file.statements, env)
+        for item in program.file.statements {
             if let expr = item.item.as(ExprSyntax.self), let node = evalView(expr, env) {
                 return node
             }
         }
         return nil
+    }
+
+    /// Parses `source` and interprets the first top-level expression against
+    /// an environment seeded with `state`. Returns `nil` when nothing
+    /// supported is found.
+    ///
+    /// Convenience for one-shot evaluation; when re-rendering against changing
+    /// data, call ``parse(_:)`` once and reuse the ``ParsedProgram``.
+    public func evaluate(_ source: String, state: [String: SwiftValue] = [:]) -> RenderNode? {
+        evaluate(parse(source), state: state)
     }
 
     /// Registers any `func` declarations in `items` into `env` so value and
