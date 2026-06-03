@@ -3872,6 +3872,8 @@ const commands = [
   { id: "browser.new", label: "Open Browser", shortcut: "Ctrl+Shift+L", run: () => openBrowserHome() },
   { id: "browser.newPane", label: "Open Browser Pane", shortcut: "", run: () => openBrowserHome(activeWorkspace()?.id, { mode: "pane" }) },
   { id: "browser.homeExternal", label: "Open Browser Home Externally", shortcut: "", run: () => openExternalBrowser(state.settings.browserHomeUrl) },
+  { id: "browser.copySetup", label: "Copy Browser Setup", shortcut: "", run: () => copyBrowserSetup() },
+  { id: "browser.pasteSetup", label: "Paste Browser Setup", shortcut: "", run: () => pasteBrowserSetup() },
   { id: "browser.newTab", label: "New Browser Tab", shortcut: "", run: () => newBrowserTabFromPanel() },
   { id: "browser.focusAddress", label: "Focus Browser Address", shortcut: "Ctrl+L", run: () => focusBrowserAddress() },
   { id: "browser.reload", label: "Reload Active Browser", shortcut: "Ctrl+R", run: () => reloadBrowserPanel() },
@@ -10042,18 +10044,24 @@ function renderSettingsInspector(options = {}) {
     ));
     const homeActions = document.createElement("div");
     homeActions.className = "settings-actions";
-    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web system external profile chrome edge brave save browser profile reusable");
+    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web system external profile chrome edge brave save browser profile reusable copy paste setup clipboard json");
     const browserHomeDefault = browserHomeKey(state.settings.browserHomeUrl) === browserHomeKey(defaultSettings.browserHomeUrl);
     const resetBrowserHomeAction = settingsActionButton("Reset", resetBrowserHome, "", `browser home reset default url page web ${browserHomeDefault ? "active current " : ""}`);
     resetBrowserHomeAction.disabled = browserHomeDefault;
     resetBrowserHomeAction.title = browserHomeDefault
       ? "Browser home already uses the default page."
       : "Reset the browser home page to the default.";
+    const copyBrowser = settingsActionButton("Copy setup", copyBrowserSetup, "", "browser setup copy home launch external profile suspend clipboard json");
+    copyBrowser.title = "Copy browser home, launch mode, external profile, and suspend setting as JSON.";
+    const pasteBrowser = settingsActionButton("Paste setup", pasteBrowserSetup, "", "browser setup paste home launch external profile suspend clipboard json");
+    pasteBrowser.title = "Apply copied cmux browser setup.";
     homeActions.append(
       applySettingsProfileSaveLimit(
         settingsActionButton("Save browser profile", saveCurrentBrowserProfile, "primary", "browser save profile home page launch external chrome edge brave reusable"),
         "Save this browser setup as a reusable Settings profile."
       ),
+      copyBrowser,
+      pasteBrowser,
       settingsActionButton("Open pane", () => createPanel("browser", "right", { url: state.settings.browserHomeUrl })),
       settingsActionButton("Open external", () => openExternalBrowser(state.settings.browserHomeUrl, { toast: true }), "", "browser system chrome edge brave profile external"),
       settingsActionButton("Refresh profiles", () => refreshBrowserProfiles({ render: true }), "", "browser chrome edge brave profile detect refresh reload"),
@@ -11928,6 +11936,104 @@ function resetBrowserHome() {
   if (state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
   toast("Browser home reset.");
   return true;
+}
+
+function browserSetupPayload() {
+  const settings = {
+    browserHomeUrl: state.settings.browserHomeUrl,
+    browserLaunchMode: state.settings.browserLaunchMode,
+    externalBrowserProfileId: state.settings.externalBrowserProfileId,
+    browserSuspendInactive: state.settings.browserSuspendInactive
+  };
+  return {
+    version: 1,
+    type: "cmux-browser-setup",
+    summary: {
+      home: state.settings.browserHomeUrl,
+      launch: optionLabel(browserLaunchModeOptions, state.settings.browserLaunchMode, state.settings.browserLaunchMode),
+      profile: browserProfileLabel(state.settings.externalBrowserProfileId),
+      inactivePanes: state.settings.browserSuspendInactive ? "Suspended" : "Kept live"
+    },
+    settings
+  };
+}
+
+async function copyBrowserSetup() {
+  const payload = JSON.stringify(browserSetupPayload(), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Browser setup copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Browser setup",
+    message: "Clipboard access is unavailable. The current browser setup is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function browserSetupSettingUpdateFromValue(key, raw) {
+  if (key === "browserHomeUrl") {
+    if (raw === null || raw === "") return defaultSettings.browserHomeUrl;
+    if (typeof raw !== "string") return null;
+    return normalizeUrl(raw || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl);
+  }
+  if (key === "browserLaunchMode") return optionIdAllowed(browserLaunchModeOptions, raw) ? raw : null;
+  if (key === "externalBrowserProfileId") {
+    if (raw === null || raw === "") return "system";
+    if (typeof raw !== "string") return null;
+    return raw.trim().slice(0, 120) || "system";
+  }
+  if (key === "browserSuspendInactive") return typeof raw === "boolean" ? raw : null;
+  return null;
+}
+
+function browserSetupUpdatesFromPayload(payload) {
+  const parsed = importedObject(payload);
+  const source = importedObject(parsed?.settings) || parsed;
+  if (!source) return null;
+  const keys = ["browserHomeUrl", "browserLaunchMode", "externalBrowserProfileId", "browserSuspendInactive"];
+  const updates = {};
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    const value = browserSetupSettingUpdateFromValue(key, source[key]);
+    if (value === null) return null;
+    updates[key] = value;
+  }
+  return Object.keys(updates).length ? updates : null;
+}
+
+function applyBrowserSetupUpdates(updates) {
+  if (!updates) {
+    toast("Clipboard does not contain browser setup.");
+    return false;
+  }
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Browser setup already matches.");
+    return false;
+  }
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast("Browser setup applied.");
+  return true;
+}
+
+async function pasteBrowserSetup() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(clipboard);
+    return applyBrowserSetupUpdates(browserSetupUpdatesFromPayload(parsed));
+  } catch {
+    toast("Clipboard does not contain browser setup.");
+    return false;
+  }
 }
 
 function scheduleBrowserSettingsPreviewRefresh() {
@@ -18221,6 +18327,8 @@ function showToolbarMenu(event) {
       toolbarAction("Copy active URL", () => copyBrowserPanelUrl(panel), !browserActive, "Copy the focused browser URL.", browserRequiredTitle),
       toolbarAction("Open home page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: state.settings.browserHomeUrl }), !workspace, "Open the home page in a browser pane.", workspaceRequiredTitle),
       toolbarAction(latestBrowserPage ? `Open recent: ${hostnameOf(latestBrowserPage)}` : "Open recent page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: latestBrowserPage }), !latestBrowserPage || !workspace, "Open the most recent browser page.", !workspace ? workspaceRequiredTitle : "There are no recent browser pages yet."),
+      toolbarAction("Copy browser setup", copyBrowserSetup, false, "Copy browser home, launch mode, external profile, and suspend setting as JSON."),
+      toolbarAction("Paste browser setup", pasteBrowserSetup, false, "Apply copied cmux browser setup."),
       contextMenuButton("Browser settings", () => openSettingsCategory("browser"))
     ),
     contextMenuSectionTitle("Workspace"),
