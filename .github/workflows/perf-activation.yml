@@ -67,18 +67,19 @@ jobs:
       - name: Validate workflow inputs
         run: |
           set -euo pipefail
-          WORKSPACE_COUNT="${{ inputs.workspace_count || '12' }}"
-          HEAVY_SCROLLBACK_LINES="${{ inputs.heavy_scrollback_lines || '2400' }}"
-          OTHER_SCROLLBACK_LINES="${{ inputs.other_scrollback_lines || '1400' }}"
-
-          for name in WORKSPACE_COUNT HEAVY_SCROLLBACK_LINES OTHER_SCROLLBACK_LINES; do
-            value="${!name}"
+          validate_numeric() {
+            local name="$1"
+            local value="$2"
             if [[ ! "$value" =~ ^[0-9]+$ ]]; then
               echo "$name must be numeric, got '$value'" >&2
               exit 1
             fi
             echo "$name=$value" >> "$GITHUB_ENV"
-          done
+          }
+
+          validate_numeric WORKSPACE_COUNT "${{ inputs.workspace_count || '12' }}"
+          validate_numeric HEAVY_SCROLLBACK_LINES "${{ inputs.heavy_scrollback_lines || '2400' }}"
+          validate_numeric OTHER_SCROLLBACK_LINES "${{ inputs.other_scrollback_lines || '1400' }}"
 
       - name: Select Xcode
         run: |
@@ -201,11 +202,13 @@ jobs:
           # the bench so visibility polling sees real on-screen windows.
           CONSOLE_USER="$(stat -f %Su /dev/console)"
           CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+          BENCH_WORKSPACE="$PWD"
+          PERF_BUNDLE_ID="com.cmuxterm.app.debug.$PERF_TAG"
           sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
             env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" \
-            bash -c "cd '$PWD' && swift scripts/bench-window-visibility.swift '$APP_PATH' 'com.cmuxterm.app.debug.$PERF_TAG' 30 --cmd-tab-activation --cg-visibility" \
-            > perf-results/cmd-tab-activation.txt
-          cat perf-results/cmd-tab-activation.txt
+            BENCH_WORKSPACE="$BENCH_WORKSPACE" APP_PATH="$APP_PATH" PERF_BUNDLE_ID="$PERF_BUNDLE_ID" \
+            bash -c 'cd "$BENCH_WORKSPACE" && swift scripts/bench-window-visibility.swift "$APP_PATH" "$PERF_BUNDLE_ID" 30 --cmd-tab-activation --cg-visibility' \
+            | tee perf-results/cmd-tab-activation.txt
 
       - name: Write benchmark summary
         if: always()
