@@ -10102,7 +10102,7 @@ function renderSettingsChrome(host) {
       if (isSearching) queueSettingsSearchAutoScroll();
       if (wasSearching !== isSearching) {
         state.settingsSearchFocusPending = true;
-        renderSettingsInspector({ resetScroll: true });
+        scheduleSettingsInspectorRender({ resetScroll: true });
       } else {
         renderSettingsChrome(host);
         scheduleSettingsFilter();
@@ -10112,7 +10112,7 @@ function renderSettingsChrome(host) {
       state.settingsQuery = "";
       state.settingsSearchResultText = "";
       state.settingsSearchFocusPending = true;
-      renderSettingsInspector({ resetScroll: true });
+      scheduleSettingsInspectorRender({ resetScroll: true });
     }
   });
   refreshSettingsChromeRefs(host);
@@ -10137,8 +10137,8 @@ function settingsSearch() {
     setSettingsSearchResultText(state.settingsSearchResultText);
     if (isSearching) queueSettingsSearchAutoScroll();
     if (wasSearching !== isSearching) {
-      renderSettingsInspector({ resetScroll: true });
-      restoreSettingsSearchFocus();
+      state.settingsSearchFocusPending = true;
+      scheduleSettingsInspectorRender({ resetScroll: true });
       return;
     }
     scheduleSettingsFilter();
@@ -10153,8 +10153,8 @@ function settingsSearch() {
   clear.onclick = () => {
     state.settingsQuery = "";
     state.settingsSearchResultText = "";
-    renderSettingsInspector({ resetScroll: true });
-    restoreSettingsSearchFocus();
+    state.settingsSearchFocusPending = true;
+    scheduleSettingsInspectorRender({ resetScroll: true });
   };
   const feedback = document.createElement("div");
   feedback.className = "settings-search-feedback";
@@ -11689,20 +11689,25 @@ function scrollSettingsSearchTargetIntoView(target) {
 function syncSettingsDisclosuresForSearch(query) {
   if (!query) {
     state.settingsSearchDisclosuresOpenVersion = 0;
-    return;
+    return false;
   }
-  if (state.settingsSearchDisclosuresOpenVersion === state.settingsSearchIndexVersion) return;
+  if (state.settingsSearchDisclosuresOpenVersion === state.settingsSearchIndexVersion) return false;
+  let mountedContent = false;
   for (const disclosure of elements.inspectorBody.querySelectorAll(".settings-disclosure")) {
     if (!disclosure.open) disclosure.open = true;
-    ensureSettingsDisclosureContent(disclosure);
+    mountedContent = ensureSettingsDisclosureContent(disclosure) || mountedContent;
   }
-  state.settingsSearchDisclosuresOpenVersion = state.settingsSearchIndexVersion;
+  return mountedContent;
 }
 
 function applySettingsFilter() {
   const query = normalizeSettingsQuery(state.settingsQuery);
   const tokens = settingsSearchTokens(query);
-  const sections = state.settingsSearchIndex.length ? state.settingsSearchIndex : rebuildSettingsSearchIndex();
+  const mountedDisclosureContent = syncSettingsDisclosuresForSearch(query);
+  const sections = state.settingsSearchIndex.length && !mountedDisclosureContent
+    ? state.settingsSearchIndex
+    : rebuildSettingsSearchIndex();
+  if (query) state.settingsSearchDisclosuresOpenVersion = state.settingsSearchIndexVersion;
   const pendingAutoScroll = query && state.settingsSearchAutoScrollQuery === query;
   const filterSignature = `${query}\u001e${state.settingsSearchIndexVersion}\u001e${pendingAutoScroll ? "scroll" : ""}`;
   if (filterSignature === state.settingsSearchLastFilterSignature) return;
@@ -11747,7 +11752,6 @@ function applySettingsFilter() {
     : elements.inspectorBody.querySelector(".settings-empty");
   state.settingsSearchEmpty = empty || null;
   if (empty) setHiddenIfChanged(empty, !query || visibleSections > 0);
-  syncSettingsDisclosuresForSearch(query);
   const clear = state.settingsSearchClear?.isConnected
     ? state.settingsSearchClear
     : elements.inspectorBody.querySelector(".settings-search-clear");
