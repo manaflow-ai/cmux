@@ -451,6 +451,12 @@ const workspaceStarters = [
     label: "Dev Trio",
     body: "Two shells plus a browser pane for local app work.",
     panels: ["terminal", "terminal", "browser"]
+  },
+  {
+    id: "fullStack",
+    label: "Full Stack",
+    body: "Three shells for server, tasks, and logs plus a browser preview.",
+    panels: ["terminal", "terminal", "terminal", "browser"]
   }
 ];
 
@@ -5692,9 +5698,11 @@ const commands = [
   { id: "workspace.starterTerminalBrowser", label: "Add Terminal + Browser Starter", shortcut: "", run: () => applyWorkspaceStarter("terminalBrowser") },
   { id: "workspace.starterTwoTerminals", label: "Add Two-Terminal Starter", shortcut: "", run: () => applyWorkspaceStarter("twoTerminals") },
   { id: "workspace.starterDevTrio", label: "Add Dev Trio Starter", shortcut: "", run: () => applyWorkspaceStarter("devTrio") },
+  { id: "workspace.starterFullStack", label: "Add Full Stack Starter", shortcut: "", run: () => applyWorkspaceStarter("fullStack") },
   { id: "workspace.newStarterTerminalBrowser", label: "New Workspace With Terminal + Browser", shortcut: "", run: () => createWorkspaceFromStarter("terminalBrowser") },
   { id: "workspace.newStarterTwoTerminals", label: "New Workspace With Two Terminals", shortcut: "", run: () => createWorkspaceFromStarter("twoTerminals") },
   { id: "workspace.newStarterDevTrio", label: "New Workspace With Dev Trio", shortcut: "", run: () => createWorkspaceFromStarter("devTrio") },
+  { id: "workspace.newStarterFullStack", label: "New Workspace With Full Stack", shortcut: "", run: () => createWorkspaceFromStarter("fullStack") },
   { id: "workspace.saveBlueprint", label: "Save Workspace Blueprint", shortcut: "", run: () => saveCurrentWorkspaceBlueprint() },
   { id: "workspace.copyBlueprint", label: "Copy Current Workspace Blueprint", shortcut: "", run: () => copyCurrentWorkspaceBlueprint() },
   { id: "workspace.pasteBlueprint", label: "Paste Workspace Blueprint", shortcut: "", run: () => pasteWorkspaceBlueprint() },
@@ -6087,6 +6095,17 @@ function customizationCommandPaletteState(commandId) {
   return null;
 }
 
+const workspaceStarterCommandIds = new Map([
+  ["workspace.starterTerminalBrowser", { starterId: "terminalBrowser", mode: "add" }],
+  ["workspace.starterTwoTerminals", { starterId: "twoTerminals", mode: "add" }],
+  ["workspace.starterDevTrio", { starterId: "devTrio", mode: "add" }],
+  ["workspace.starterFullStack", { starterId: "fullStack", mode: "add" }],
+  ["workspace.newStarterTerminalBrowser", { starterId: "terminalBrowser", mode: "new" }],
+  ["workspace.newStarterTwoTerminals", { starterId: "twoTerminals", mode: "new" }],
+  ["workspace.newStarterDevTrio", { starterId: "devTrio", mode: "new" }],
+  ["workspace.newStarterFullStack", { starterId: "fullStack", mode: "new" }]
+]);
+
 const corePaletteCommandIds = new Set([
   "workspace.rename",
   "workspace.changeFolder",
@@ -6096,6 +6115,7 @@ const corePaletteCommandIds = new Set([
   "workspace.saveBlueprint",
   "workspace.copyBlueprint",
   "workspace.pasteBlueprint",
+  ...workspaceStarterCommandIds.keys(),
   "workspace.closeEmpty",
   "workspace.close",
   "terminal.new",
@@ -6247,6 +6267,30 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       icon: "blueprints",
       title: full ? workspaceBlueprintLimitTitle() : "Paste a copied workspace blueprint.",
       search: "workspace blueprint paste import clipboard json saved reusable panes"
+    };
+  }
+  const starterCommand = workspaceStarterCommandIds.get(commandId);
+  if (starterCommand) {
+    const starter = workspaceStarterById(starterCommand.starterId);
+    const isNew = starterCommand.mode === "new";
+    const paneCount = starter?.panels?.length || 0;
+    return {
+      meta: starter ? `${paneCount} pane${paneCount === 1 ? "" : "s"} / ${starter.panels.map((type) => type === "browser" ? "web" : "term").join(" + ")}` : "No starter",
+      shortcut: isNew ? "New" : "Add",
+      disabled: !starter || queueFull || (!isNew && !hasWorkspace),
+      icon: "blueprints",
+      title: !starter
+        ? "Workspace starter not found."
+        : queueFull
+          ? paneCreationLimitLabel()
+          : isNew
+            ? `Create a new ${starter.label} workspace.`
+            : hasWorkspace
+              ? `Add ${starter.label} starter panes to ${workspaceTitle}.`
+              : noWorkspaceTitle,
+      search: starter
+        ? `workspace starter layout ${isNew ? "new create" : "add current"} ${starter.label} ${starter.body} ${starter.panels.join(" ")} ${workspaceTitle}`
+        : "workspace starter layout missing"
     };
   }
   if (commandId === "workspace.closeEmpty") {
@@ -6451,6 +6495,12 @@ const actionWorkflowDefinitions = [
     label: "Workspace setup",
     body: "Create, name, save, and export the active workspace without hunting through the full command list.",
     commandIds: ["workspace.newFromFolder", "workspace.rename", "workspace.saveBlueprint", "workspace.copySetup"]
+  },
+  {
+    id: "starterWorkspace",
+    label: "Starter workspace",
+    body: "Create a full-stack workspace, add the same panes to the current workspace, or save it as a blueprint.",
+    commandIds: ["workspace.newStarterFullStack", "workspace.starterFullStack", "workspace.saveBlueprint", "settings.blueprints"]
   },
   {
     id: "paneControl",
@@ -23933,7 +23983,7 @@ function saveBuiltInCommandSnippet(snippet) {
 function workspaceStarterGrid() {
   const section = document.createElement("div");
   section.className = "workspace-starter-list";
-  section.dataset.settingsSearch = normalizeSettingsQuery("workspace starter layout preset split terminal browser dev trio setup");
+  section.dataset.settingsSearch = normalizeSettingsQuery("workspace starter layout preset split terminal browser dev trio full stack setup");
 
   const title = document.createElement("div");
   title.className = "workspace-starter-title";
@@ -28231,11 +28281,12 @@ async function applyWorkspaceStarter(starterId, workspaceId = activeWorkspace()?
   return withUiOperation("workspace-starter", "create-panel", `Adding ${starter.label}...`, async () => {
     clearPaneLayoutsForWorkspace(workspace);
     try {
-      const results = await Promise.allSettled(starter.panels.map((type) => createPanel(type, "right", {
+      const results = await Promise.allSettled(starter.panels.map((type, index) => createPanel(type, "right", {
           workspaceId: workspace.id,
           focus: false,
           reconcile: false,
           operation: false,
+          title: workspaceStarterPanelTitle(type, index, starter.panels),
           url: type === "browser" ? state.settings.browserHomeUrl : undefined
         })));
       if (results.some((result) => result.status === "rejected" || !result.value?.id)) {
