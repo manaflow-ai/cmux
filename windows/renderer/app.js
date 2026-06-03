@@ -3380,6 +3380,7 @@ const commands = [
   { id: "settings.tunePerformance", label: "Tune Performance Now", shortcut: "", run: () => tunePerformanceNow() },
   { id: "settings.cleanFast", label: "Apply Clean + Fast Setup", shortcut: "", run: () => applySettingsPresetById("simpleFast") },
   { id: "settings.saveCleanFastProfile", label: "Save Clean + Fast Profile", shortcut: "", run: () => applyAndSaveCleanFastProfile() },
+  { id: "settings.savePerformanceProfile", label: "Save Performance Profile", shortcut: "", run: () => saveCurrentPerformanceProfile() },
   { id: "settings.copyDiagnostics", label: "Copy Performance Diagnostics", shortcut: "", run: () => copyPerformanceDiagnostics() },
   { id: "settings.actions", label: "Open Actions Settings", shortcut: "", run: () => openSettingsCategory("actions") },
   { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
@@ -9687,9 +9688,10 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(scrollbackRow);
     const performanceActions = document.createElement("div");
     performanceActions.className = "settings-actions";
-    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save balanced reset render stats clear copy diagnostics report lag debug");
+    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save current balanced reset render stats clear copy diagnostics report lag debug");
     performanceActions.append(
       settingsActionButton("Save clean + fast", applyAndSaveCleanFastProfile, "primary", "performance clean fast simple speed preset save settings profile reusable"),
+      settingsActionButton("Save current speed", saveCurrentPerformanceProfile, "", "performance save current speed lag settings profile reusable"),
       settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
       settingsActionButton("Speed preset", () => applySettingsPresetById("performance"), "", "performance speed preset optimize"),
       settingsActionButton("Reset stats", resetRenderStats, "", "performance render stats reset")
@@ -15826,6 +15828,14 @@ function saveCurrentBrowserProfile() {
     title: "Save browser profile",
     message: "Save the current browser home page, launch mode, external profile, and supporting app settings.",
     baseName: "Browser profile"
+  });
+}
+
+function saveCurrentPerformanceProfile() {
+  return saveCurrentSettingsProfile({
+    title: "Save performance profile",
+    message: "Save the current speed, rendering, terminal output, and supporting app settings.",
+    baseName: "Performance profile"
   });
 }
 
