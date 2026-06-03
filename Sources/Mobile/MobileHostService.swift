@@ -298,21 +298,17 @@ final class MobileHostService {
 
     /// Whether the mobile pairing host should bind a network listener at all.
     ///
-    /// Defaults to **off** in release builds: a Mac that never pairs a phone must
-    /// not expose a network listener for a feature it can't use yet. It defaults
-    /// to **on** in DEBUG so dev/dogfood builds pair without extra setup. Either
-    /// way the `cmuxMobilePairingHostEnabled` user default takes precedence, so
-    /// the feature can be flipped on for release without a new build once the iOS
-    /// app ships.
+    /// Defaults **on** for dev and nightly builds so the iOS app pairs in dogfood
+    /// and in the nightly channel without setup, and **off** for stable: a stable
+    /// Mac that never pairs a phone must not expose a network listener for a
+    /// feature it can't use yet. The `cmuxMobilePairingHostEnabled` user default
+    /// overrides the default in any build (including stable), so the feature can
+    /// be flipped on without a new build once the iOS app ships broadly.
     static var isListeningEnabled: Bool {
         if let override = UserDefaults.standard.object(forKey: listeningEnabledDefaultsKey) as? Bool {
             return override
         }
-        #if DEBUG
-        return true
-        #else
-        return false
-        #endif
+        return BuildFlavor.current != .stable
     }
 
     func start() {
