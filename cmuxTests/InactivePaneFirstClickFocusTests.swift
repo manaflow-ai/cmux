@@ -121,6 +121,8 @@ final class InactivePaneFirstClickFocusTests: XCTestCase {
             sidebarState: SidebarState(),
             sidebarSelectionState: SidebarSelectionState()
         )
+        // Seed non-terminal focus ownership so terminal first-responder acquisition depends on the
+        // pointer-hit allowance exercised by this regression test.
         appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
 
         let anchor = NSView(frame: NSRect(x: 80, y: 60, width: 480, height: 260))
