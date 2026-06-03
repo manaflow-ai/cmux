@@ -814,11 +814,12 @@ enum WorkspaceMountPolicy {
 
         // Ensure pinned ids (retiring handoff workspaces) are always retained at highest priority.
         // This runs after warming to prevent neighbor warming from evicting the retiring workspace.
+        let orderedTabIndexById = Dictionary(uniqueKeysWithValues: orderedTabIds.enumerated().map { ($0.element, $0.offset) })
         let prioritizedPinnedIds = pinnedIds
             .filter { existing.contains($0) && $0 != selected }
             .sorted { lhs, rhs in
-                let lhsIndex = orderedTabIds.firstIndex(of: lhs) ?? .max
-                let rhsIndex = orderedTabIds.firstIndex(of: rhs) ?? .max
+                let lhsIndex = orderedTabIndexById[lhs] ?? .max
+                let rhsIndex = orderedTabIndexById[rhs] ?? .max
                 return lhsIndex < rhsIndex
             }
         if let selected, existing.contains(selected) {
@@ -3433,6 +3434,7 @@ struct ContentView: View {
         let maxMounted = max(baseMaxMounted, selectedCount + pinnedIds.count)
         let previousMountedIds = mountedWorkspaceIds
         mountedWorkspaceIds = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            // Ordered by MRU: head is most recent, tail is evicted first.
             current: mountedWorkspaceIds,
             selected: effectiveSelectedId,
             pinnedIds: pinnedIds,
