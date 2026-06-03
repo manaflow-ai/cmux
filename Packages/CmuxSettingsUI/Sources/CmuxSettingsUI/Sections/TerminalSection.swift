@@ -22,6 +22,9 @@ public struct TerminalSection: View {
     @State private var maxLive: DefaultsValueModel<Int>
     @State private var paneDividerColor: JSONValueModel<String>
     @State private var paneDividerThickness: JSONValueModel<Double>
+    // Slider draft so dragging updates the label live and only persists (one
+    // cmux.json write + one divider re-apply) when the drag ends.
+    @State private var paneDividerThicknessDraft: Double = 1
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -65,9 +68,18 @@ public struct TerminalSection: View {
     }
 
     /// Maximum divider thickness offered in the UI. Matches the clamp in
-    /// `PaneDividerStyle`/Bonsplit so the picker never produces a rejected
+    /// `PaneDividerStyle`/Bonsplit so the slider never produces a rejected
     /// value; advanced fractional values remain editable in cmux.json.
     private static let maxDividerThickness: Double = 12
+
+    /// Formats a divider thickness for the value label: whole numbers show no
+    /// decimal (`2`), half steps show one (`2.5`).
+    private func formattedThickness(_ value: Double) -> String {
+        let snapped = (value * 2).rounded() / 2
+        return snapped == snapped.rounded()
+            ? String(Int(snapped))
+            : String(format: "%.1f", snapped)
+    }
 
     @ViewBuilder
     private var paneDividerCard: some View {
@@ -79,22 +91,41 @@ public struct TerminalSection: View {
                     localized: "settings.terminal.paneDividerThickness.subtitle",
                     defaultValue: "Thickness, in points, of the bar between split panes. Defaults to a thin 1pt hairline; increase it to make the separator more visible."
                 ),
-                controlWidth: 140
+                controlWidth: 250
             ) {
-                Stepper(
-                    value: Binding(
-                        get: { paneDividerThickness.current },
-                        set: { paneDividerThickness.set(min(max($0, 0), Self.maxDividerThickness)) }
-                    ),
-                    in: 0...Self.maxDividerThickness,
-                    step: 1
-                ) {
-                    Text(verbatim: "\(Int(paneDividerThickness.current.rounded())) pt")
-                        .monospacedDigit()
-                        .frame(width: 40, alignment: .trailing)
+                HStack(spacing: 8) {
+                    Slider(
+                        value: $paneDividerThicknessDraft,
+                        in: 0...Self.maxDividerThickness,
+                        step: 0.5
+                    ) { editing in
+                        if !editing {
+                            paneDividerThickness.set(paneDividerThicknessDraft)
+                        }
+                    }
+                    .frame(width: 130)
+                    .accessibilityIdentifier("SettingsPaneDividerThicknessSlider")
+
+                    Text(String.localizedStringWithFormat(
+                        String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"),
+                        formattedThickness(paneDividerThicknessDraft)
+                    ))
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .trailing)
+
+                    Button(String(localized: "settings.terminal.paneDividerThickness.reset", defaultValue: "Reset")) {
+                        paneDividerThicknessDraft = 1
+                        paneDividerThickness.reset()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(abs(paneDividerThicknessDraft - 1) < 0.001)
                 }
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsPaneDividerThicknessStepper")
+            }
+            .task { paneDividerThicknessDraft = paneDividerThickness.current }
+            .onChange(of: paneDividerThickness.current) { _, newValue in
+                paneDividerThicknessDraft = newValue
             }
             SettingsCardDivider()
             SettingsCardRow(

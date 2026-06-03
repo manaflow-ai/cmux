@@ -7945,7 +7945,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager.syncWorkspaceTabBarLeadingInset(initialTabBarLeadingInset)
         let notificationStore = TerminalNotificationStore.shared
 
-        let cmuxConfigStore = CmuxConfigStore()
+        // Watch ~/.config/cmux/cmux.json (and the active project .cmux/cmux.json)
+        // so config edits — including the Settings UI's atomic writes for
+        // ui.paneDivider — live-reload without a relaunch.
+        let cmuxConfigStore = CmuxConfigStore(startFileWatchers: true)
         cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
         cmuxConfigStore.loadAll()
 

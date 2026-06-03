@@ -10909,18 +10909,27 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard !isNoOp else { return }
 
+        // Mutate a local copy and assign the whole `configuration` back in one
+        // shot. A nested `configuration.appearance.x = …` write does not reliably
+        // fire BonsplitController's @Observable tracking (so BonsplitView never
+        // re-runs `updateNSView` and the live NSSplitViews keep the stale
+        // appearance); a single top-level property assignment does.
+        var updatedAppearance = bonsplitController.configuration.appearance
         if colorsChanged {
-            bonsplitController.configuration.appearance.chromeColors = nextChromeColors
+            updatedAppearance.chromeColors = nextChromeColors
         }
         if sharedBackdropChanged {
-            bonsplitController.configuration.appearance.usesSharedBackdrop = sharesWindowBackdrop
+            updatedAppearance.usesSharedBackdrop = sharesWindowBackdrop
         }
         if fontSizeChanged {
-            bonsplitController.configuration.appearance.tabTitleFontSize = nextTabTitleFontSize
+            updatedAppearance.tabTitleFontSize = nextTabTitleFontSize
         }
         if thicknessChanged {
-            bonsplitController.configuration.appearance.dividerThickness = dividerStyle.thickness
+            updatedAppearance.dividerThickness = dividerStyle.thickness
         }
+        var updatedConfiguration = bonsplitController.configuration
+        updatedConfiguration.appearance = updatedAppearance
+        bonsplitController.configuration = updatedConfiguration
 
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
@@ -10971,15 +10980,22 @@ final class Workspace: Identifiable, ObservableObject {
         if isNoOp {
             return
         }
+        // Single top-level `configuration` assignment so BonsplitController's
+        // @Observable tracking fires and BonsplitView re-applies to the live
+        // NSSplitViews (nested struct writes do not reliably trigger it).
+        var updatedAppearance = bonsplitController.configuration.appearance
         if colorsChanged {
-            bonsplitController.configuration.appearance.chromeColors = nextChromeColors
+            updatedAppearance.chromeColors = nextChromeColors
         }
         if sharedBackdropChanged {
-            bonsplitController.configuration.appearance.usesSharedBackdrop = sharesWindowBackdrop
+            updatedAppearance.usesSharedBackdrop = sharesWindowBackdrop
         }
         if thicknessChanged {
-            bonsplitController.configuration.appearance.dividerThickness = dividerStyle.thickness
+            updatedAppearance.dividerThickness = dividerStyle.thickness
         }
+        var updatedConfiguration = bonsplitController.configuration
+        updatedConfiguration.appearance = updatedAppearance
+        bonsplitController.configuration = updatedConfiguration
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
                 "theme applied workspace=\(id.uuidString) reason=\(reason) " +
