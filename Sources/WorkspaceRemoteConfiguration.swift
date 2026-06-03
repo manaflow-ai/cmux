@@ -450,7 +450,8 @@ extension SessionRemoteWorkspaceSnapshot {
     func workspaceConfiguration(
         localSocketPath: String? = nil,
         allowPersistentPTYRestore: Bool = true,
-        preserveSSHOptions: Bool = false
+        preserveSSHOptions: Bool = false,
+        agentSocketPath: String? = nil
     ) -> WorkspaceRemoteConfiguration? {
         guard transport == .ssh else { return nil }
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -527,6 +528,7 @@ extension SessionRemoteWorkspaceSnapshot {
                     sshOptions: restoredSSHOptions
                 ),
             foregroundAuthToken: foregroundAuthToken,
+            agentSocketPath: agentSocketPath,
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession,
             persistentDaemonSlot: preservePTYSession ? normalizedPersistentDaemonSlot : nil,

@@ -17806,7 +17806,8 @@ final class Workspace: Identifiable, ObservableObject {
         return remoteConfiguration?.sessionSnapshot(sshOptionsOverride: forkedSSHOptions)?.workspaceConfiguration(
             localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
             allowPersistentPTYRestore: false,
-            preserveSSHOptions: true
+            preserveSSHOptions: true,
+            agentSocketPath: remoteConfiguration?.agentSocketPath
         ) ?? remoteConfiguration
     }
 
