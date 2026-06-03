@@ -2,6 +2,7 @@ import Foundation
 @preconcurrency import AVFoundation
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileCamera
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal
@@ -315,7 +316,8 @@ enum AddDeviceInputKind {
 struct MobilePairingScannerSheet: View {
     let onCode: (String) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var authorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
+    private let authorization = CameraAuthorization()
+    @State private var authorizationStatus = CameraAuthorization().videoStatus
 
     var body: some View {
         NavigationStack {
@@ -329,7 +331,7 @@ struct MobilePairingScannerSheet: View {
                 case .notDetermined:
                     ProgressView()
                         .task {
-                            await requestCameraAccess()
+                            authorizationStatus = await authorization.requestVideoAccess()
                         }
                 case .denied, .restricted:
                     ContentUnavailableView(
@@ -357,18 +359,14 @@ struct MobilePairingScannerSheet: View {
             }
         }
     }
-
-    @MainActor
-    private func requestCameraAccess() async {
-        let granted = await withCheckedContinuation { continuation in
-            AVCaptureDevice.requestAccess(for: .video) { granted in
-                continuation.resume(returning: granted)
-            }
-        }
-        authorizationStatus = granted ? .authorized : AVCaptureDevice.authorizationStatus(for: .video)
-    }
 }
 
+/// SwiftUI host for the ``CmuxMobileCamera`` QR-capture controller.
+///
+/// Owns one ``QRCodeScanStream`` per presentation, mounts the package's
+/// ``QRCodeCaptureController``, and forwards accepted `cmux-ios://` codes to
+/// `onCode`. The AVCaptureSession lifecycle now lives entirely in the camera
+/// service; this wrapper only bridges the stream to a SwiftUI callback.
 struct QRCodeScannerView: UIViewControllerRepresentable {
     let onCode: (String) -> Void
 
@@ -376,131 +374,47 @@ struct QRCodeScannerView: UIViewControllerRepresentable {
         Coordinator(onCode: onCode)
     }
 
-    func makeUIViewController(context: Context) -> QRCodeScannerViewController {
-        QRCodeScannerViewController(coordinator: context.coordinator)
+    func makeUIViewController(context: Context) -> QRCodeCaptureController {
+        let stream = QRCodeScanStream()
+        context.coordinator.observe(stream: stream)
+        return QRCodeCaptureController(
+            stream: stream,
+            accepts: { $0.hasPrefix("cmux-ios://") },
+            unavailableText: L10n.string("mobile.pairing.cameraUnavailable", defaultValue: "Camera Unavailable")
+        )
     }
 
-    func updateUIViewController(_ uiViewController: QRCodeScannerViewController, context: Context) {
+    func updateUIViewController(_ uiViewController: QRCodeCaptureController, context: Context) {
         context.coordinator.onCode = onCode
     }
 
-    final class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate {
+    static func dismantleUIViewController(_ uiViewController: QRCodeCaptureController, coordinator: Coordinator) {
+        coordinator.cancel()
+    }
+
+    @MainActor
+    final class Coordinator {
         var onCode: (String) -> Void
-        private var didScan = false
+        private var task: Task<Void, Never>?
 
         init(onCode: @escaping (String) -> Void) {
             self.onCode = onCode
         }
 
-        func metadataOutput(
-            _ output: AVCaptureMetadataOutput,
-            didOutput metadataObjects: [AVMetadataObject],
-            from connection: AVCaptureConnection
-        ) {
-            guard !didScan,
-                  let metadata = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
-                  metadata.type == .qr,
-                  let value = metadata.stringValue,
-                  value.hasPrefix("cmux-ios://") else {
-                return
+        func observe(stream: QRCodeScanStream) {
+            task?.cancel()
+            task = Task { @MainActor [weak self] in
+                for await code in stream.codes {
+                    guard !Task.isCancelled else { return }
+                    self?.onCode(code)
+                }
             }
-            didScan = true
-            onCode(value)
         }
-    }
-}
 
-final class QRCodeScannerViewController: UIViewController {
-    private let coordinator: QRCodeScannerView.Coordinator
-    private let captureSession = AVCaptureSession()
-    private let sessionQueue = DispatchQueue(label: "dev.cmux.mobile.qr-scanner")
-    private var previewLayer: AVCaptureVideoPreviewLayer?
-    private var isConfigured = false
-
-    init(coordinator: QRCodeScannerView.Coordinator) {
-        self.coordinator = coordinator
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .black
-        configureSession()
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        previewLayer?.frame = view.bounds
-    }
-
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        startSession()
-    }
-
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        stopSession()
-    }
-
-    private func configureSession() {
-        guard let videoDevice = AVCaptureDevice.default(for: .video),
-              let videoInput = try? AVCaptureDeviceInput(device: videoDevice),
-              captureSession.canAddInput(videoInput) else {
-            showUnavailable()
-            return
+        func cancel() {
+            task?.cancel()
+            task = nil
         }
-        captureSession.addInput(videoInput)
-
-        let metadataOutput = AVCaptureMetadataOutput()
-        guard captureSession.canAddOutput(metadataOutput) else {
-            showUnavailable()
-            return
-        }
-        captureSession.addOutput(metadataOutput)
-        metadataOutput.setMetadataObjectsDelegate(coordinator, queue: .main)
-        metadataOutput.metadataObjectTypes = [.qr]
-
-        let layer = AVCaptureVideoPreviewLayer(session: captureSession)
-        layer.videoGravity = .resizeAspectFill
-        layer.frame = view.bounds
-        view.layer.addSublayer(layer)
-        previewLayer = layer
-        isConfigured = true
-    }
-
-    private func startSession() {
-        guard isConfigured else { return }
-        sessionQueue.async { [captureSession] in
-            guard !captureSession.isRunning else { return }
-            captureSession.startRunning()
-        }
-    }
-
-    private func stopSession() {
-        guard isConfigured else { return }
-        sessionQueue.async { [captureSession] in
-            guard captureSession.isRunning else { return }
-            captureSession.stopRunning()
-        }
-    }
-
-    private func showUnavailable() {
-        let label = UILabel()
-        label.text = L10n.string("mobile.pairing.cameraUnavailable", defaultValue: "Camera Unavailable")
-        label.textColor = .white
-        label.textAlignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-        ])
     }
 }
 #else
