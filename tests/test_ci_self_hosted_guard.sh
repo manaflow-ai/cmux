@@ -295,6 +295,59 @@ check_command_palette_nucleo_ffi_coverage() {
   echo "PASS: command palette nucleo FFI assertions run in a focused CI lane"
 }
 
+check_web_db_behavior_test_coverage() {
+  if ! awk '
+    /^  web-db-migrations:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /services:/ { saw_services=1 }
+    in_job && /postgres:/ { saw_postgres=1 }
+    in_job && /POSTGRES_DB: cmux_test/ { saw_db=1 }
+    in_job && /^[[:space:]]*- name: Database behavior tests$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /CMUX_DB_TEST: "1"/ { saw_cmux_db_test=1 }
+    in_step && /DATABASE_URL: postgres:\/\/cmux:cmux@localhost:5432\/cmux_test/ { saw_database_url=1 }
+    in_step && /DIRECT_DATABASE_URL: postgres:\/\/cmux:cmux@localhost:5432\/cmux_test/ { saw_direct_database_url=1 }
+    in_step && /run: bun run test:db:behavior/ { saw_command=1 }
+    END { exit(saw_services && saw_postgres && saw_db && saw_cmux_db_test && saw_database_url && saw_direct_database_url && saw_command ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: web-db-migrations must run CMUX_DB_TEST-gated web behavior tests against the CI Postgres database"
+    exit 1
+  fi
+
+  local script="$ROOT_DIR/web/scripts/run-db-behavior-tests.sh"
+  if ! grep -Fq 'export CMUX_DB_TEST=1' "$script"; then
+    echo "FAIL: run-db-behavior-tests.sh must force CMUX_DB_TEST=1 so DB-gated Bun tests execute"
+    exit 1
+  fi
+
+  if ! grep -Fq 'find tests -name "*.test.ts" -print | sort' "$script"; then
+    echo "FAIL: run-db-behavior-tests.sh must discover DB-gated web test files instead of relying on a hand-maintained list"
+    exit 1
+  fi
+
+  if ! grep -Fq 'grep -q "CMUX_DB_TEST" "$test_file"' "$script"; then
+    echo "FAIL: run-db-behavior-tests.sh must select every CMUX_DB_TEST-gated web test file"
+    exit 1
+  fi
+
+  if ! grep -Fq 'No CMUX_DB_TEST-gated test files found' "$script"; then
+    echo "FAIL: run-db-behavior-tests.sh must fail closed when DB-gated web test discovery finds no files"
+    exit 1
+  fi
+
+  if ! grep -Fq 'bun test "$test_file"' "$script"; then
+    echo "FAIL: run-db-behavior-tests.sh must execute each discovered DB behavior test file"
+    exit 1
+  fi
+
+  if ! grep -Fq '"test:db:behavior": "bash scripts/run-db-behavior-tests.sh"' "$ROOT_DIR/web/package.json"; then
+    echo "FAIL: web package.json must keep test:db:behavior wired to run-db-behavior-tests.sh"
+    exit 1
+  fi
+
+  echo "PASS: web DB behavior tests run in CI with CMUX_DB_TEST and Postgres"
+}
+
 check_tests_deriveddata_cache() {
   if ! awk '
     /^  tests:/ { in_job=1; next }
@@ -495,6 +548,7 @@ check_activation_artifacts_are_required
 check_retryable_submodule_checkout
 check_split_theme_regression_timeout
 check_command_palette_nucleo_ffi_coverage
+check_web_db_behavior_test_coverage
 check_tests_deriveddata_cache
 check_ui_regression_budget
 check_build_and_lag_budget
