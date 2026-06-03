@@ -679,8 +679,22 @@ struct CmuxTextURLRequest: Equatable {
     let title: String?
     let noFocus: Bool
 
+    /// The text delivered into the target agent or terminal.
+    ///
+    /// Prompt links deliver the user's text verbatim. Rules links wrap it in a
+    /// standing-instruction preamble so the agent treats it as session guidance
+    /// instead of a one-shot task, which is what differentiates a rules link
+    /// from a prompt link at the destination. No trailing newline is added, so
+    /// the text never auto-submits.
     var pasteText: String {
-        text
+        switch kind {
+        case .prompt:
+            return text
+        case .rules:
+            let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = (trimmedName?.isEmpty == false) ? " (\(trimmedName!))" : ""
+            return "Follow these rules for this session\(label):\n\n\(text)"
+        }
     }
 
     private struct ParsedQueryItem {
