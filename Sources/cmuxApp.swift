@@ -4178,6 +4178,20 @@ enum AppIconMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Maps a base app-icon asset name to its red STAGING variant when this build's
+/// bundle identifier marks it as a cmux STAGING build, so the live (on-the-fly)
+/// Dock/app icon is visually distinct from production cmux. Returns `base`
+/// unchanged for production and any non-staging bundle id.
+///
+/// cmux applies its icon at runtime (``AppIconSettings`` sets
+/// `applicationIconImage`; the Dock tile plugin redraws the tile), so the static
+/// `AppIcon-Staging` asset alone is immediately overridden — the staging tint has
+/// to flow through this name resolution to actually stick.
+func cmuxStagingIconName(_ base: String, bundleIdentifier: String? = Bundle.main.bundleIdentifier) -> String {
+    guard let bundleIdentifier, bundleIdentifier.contains(".staging") else { return base }
+    return base + "Staging"
+}
+
 enum AppIconLaunchState {
     private static let lock = NSLock()
     private static var didFinishLaunching = false
@@ -4228,7 +4242,7 @@ enum AppIconSettings {
                 },
                 imageForMode: { mode in
                     guard let imageName = mode.imageName else { return nil }
-                    return NSImage(named: imageName)
+                    return NSImage(named: cmuxStagingIconName(imageName))
                 },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon
@@ -4338,7 +4352,7 @@ final class AppIconAppearanceObserver: NSObject {
                     return app.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                 },
                 imageForName: { imageName in
-                    NSImage(named: imageName)
+                    NSImage(named: cmuxStagingIconName(imageName))
                 },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon

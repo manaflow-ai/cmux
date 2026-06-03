@@ -102,6 +102,15 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         return UserDefaults(suiteName: bundleIdentifier)
     }
 
+    /// Returns the red STAGING icon variant name when the enclosing app bundle is
+    /// a cmux STAGING build, so the live Dock tile is visually distinct from
+    /// production. Mirrors `cmuxStagingIconName` in the main app target (the two
+    /// targets cannot share code, so the small rule is duplicated intentionally).
+    static func stagingAwareIconName(_ base: NSImage.Name, bundleIdentifier: String?) -> NSImage.Name {
+        guard let bundleIdentifier, bundleIdentifier.contains(".staging") else { return base }
+        return base + "Staging"
+    }
+
     private func updateDockTile(_ dockTile: NSDockTile) {
         Self.assertMainQueue()
 
@@ -112,8 +121,13 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
             return
         }
 
-        guard let imageName = mode.imageName(isDarkAppearance: isDarkAppearance),
-              let icon = appBundle?.image(forResource: imageName) else {
+        guard let baseImageName = mode.imageName(isDarkAppearance: isDarkAppearance),
+              let icon = appBundle?.image(
+                forResource: Self.stagingAwareIconName(
+                  baseImageName,
+                  bundleIdentifier: appBundle?.bundleIdentifier
+                )
+              ) else {
             if shouldPersistBundleIcon {
                 NSWorkspace.shared.setIcon(nil, forFile: appBundleURL.path, options: [])
                 NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
