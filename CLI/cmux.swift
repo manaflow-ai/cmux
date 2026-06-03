@@ -24553,10 +24553,18 @@ struct CMUXCLI {
         fallbackExecutable: String
     ) -> (executable: String, tail: [String]) {
         let arguments = launchCommand?.arguments ?? []
-        let executable = normalizedHookValue(launchCommand?.executablePath)
+        var executable = normalizedHookValue(launchCommand?.executablePath)
             ?? arguments.first
             ?? fallbackExecutable
-        let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
+        var tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
+
+        if executable.lowercased().hasSuffix("node") || executable == "node" {
+            if let jsIndex = arguments.firstIndex(where: { $0.hasSuffix(".js") }) {
+                executable = fallbackExecutable
+                tail = Array(arguments.suffix(from: arguments.index(after: jsIndex)))
+            }
+        }
+
         return (executable: executable, tail: tail)
     }
 
