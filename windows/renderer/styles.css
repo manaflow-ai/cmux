@@ -9870,7 +9870,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   grid-template-columns: 22px minmax(0, 1fr);
   align-items: center;
   align-content: stretch;
-  min-height: 46px;
+  min-height: 56px;
   padding: 7px 8px;
 }
 
@@ -9894,6 +9894,34 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   stroke-width: 1.9;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.background-image-target-control .background-target-option.has-background .background-target-icon {
+  overflow: hidden;
+  border-color: color-mix(in oklch, var(--color-accent) 42%, var(--color-line) 58%);
+  background-color: var(--color-canvas);
+  background-image:
+    linear-gradient(180deg, color-mix(in oklch, var(--color-text) 16%, transparent), transparent 58%),
+    var(--target-background-image);
+  background-size: cover, var(--target-background-size, cover);
+  background-repeat: no-repeat, var(--target-background-repeat, no-repeat);
+  background-position: center, var(--target-background-position, center);
+  color: var(--color-text);
+}
+
+.background-image-target-control .background-target-option.is-mixed .background-target-icon {
+  overflow: hidden;
+  border-color: color-mix(in oklch, var(--color-accent-hover) 44%, var(--color-line) 56%);
+  background:
+    linear-gradient(135deg, color-mix(in oklch, var(--color-accent) 24%, transparent) 0 25%, transparent 25% 50%, color-mix(in oklch, var(--color-accent-hover) 24%, transparent) 50% 75%, transparent 75%),
+    var(--color-pane);
+  background-size: 12px 12px, cover;
+  color: var(--color-text);
+}
+
+.background-image-target-control .background-target-option.has-background .background-target-icon svg,
+.background-image-target-control .background-target-option.is-mixed .background-target-icon svg {
+  filter: drop-shadow(0 1px 2px color-mix(in oklch, var(--color-canvas) 70%, transparent));
 }
 
 .background-target-copy {
@@ -9969,7 +9997,8 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .background-target-name,
-.background-target-meta {
+.background-target-meta,
+.background-target-status {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -9983,6 +10012,21 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .background-target-meta {
   font-size: 10px;
+}
+
+.background-target-status {
+  color: var(--color-faint);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.background-image-target-control .background-target-option.has-background .background-target-status,
+.background-image-target-control .background-target-option.is-mixed .background-target-status {
+  color: var(--color-muted);
+}
+
+.background-image-target-control .background-target-option.is-active .background-target-status {
+  color: color-mix(in oklch, var(--color-text) 84%, var(--color-muted) 16%);
 }
 
 .active-background-actions,

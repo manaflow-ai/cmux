@@ -10368,7 +10368,7 @@ function backgroundTuningPanel(onCommit = null) {
 function activeBackgroundTargetControl() {
   const control = document.createElement("div");
   control.className = "background-target-control background-image-target-control";
-  control.dataset.settingsSearch = normalizeSettingsQuery("background image target apply app active terminal all terminals scope destination");
+  control.dataset.settingsSearch = normalizeSettingsQuery("background image target apply app active terminal all terminals scope destination current status mixed none");
 
   const header = document.createElement("span");
   header.className = "background-target-header";
@@ -10392,6 +10392,7 @@ function activeBackgroundTargetControl() {
       <span class="background-target-copy">
         <span class="background-target-name"></span>
         <span class="background-target-meta"></span>
+        <span class="background-target-status"></span>
       </span>
     `;
     button.onclick = () => {
@@ -10411,14 +10412,26 @@ function updateActiveBackgroundTargetControl(root) {
   for (const button of root.querySelectorAll("[data-background-target]")) {
     const target = options.find((candidate) => candidate.id === button.dataset.backgroundTarget);
     if (!target) continue;
+    const model = activeBackgroundPanelViewModel(target.id);
     const active = target.id === normalizeBackgroundApplyTarget(state.backgroundApplyTarget);
-    setClassNameIfChanged(button, `background-target-option${active ? " is-active" : ""}${target.disabled ? " is-disabled" : ""}`);
+    setClassNameIfChanged(button, [
+      "background-target-option",
+      active ? "is-active" : "",
+      target.disabled ? "is-disabled" : "",
+      model.hasBackground ? "has-background" : "",
+      model.mixed ? "is-mixed" : ""
+    ].filter(Boolean).join(" "));
     setDisabledIfChanged(button, target.disabled);
     setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
-    setAttributeIfChanged(button, "aria-label", `${target.label}: ${target.meta}`);
-    setTitleIfChanged(button, `${target.label}: ${target.meta}`);
+    setAttributeIfChanged(button, "aria-label", `${target.label}: ${target.meta}. ${model.label}.`);
+    setTitleIfChanged(button, `${target.label}: ${model.source}`);
+    setStylePropertyIfChanged(button, "--target-background-image", model.image);
+    setStylePropertyIfChanged(button, "--target-background-repeat", model.repeat);
+    setStylePropertyIfChanged(button, "--target-background-size", model.size);
+    setStylePropertyIfChanged(button, "--target-background-position", model.position);
     setTextIfChanged(button.querySelector(".background-target-name"), target.label);
     setTextIfChanged(button.querySelector(".background-target-meta"), target.meta);
+    setTextIfChanged(button.querySelector(".background-target-status"), model.label);
   }
 }
 
