@@ -26,14 +26,6 @@ import SwiftSyntax
 /// }
 /// """, state: ["count": .int(2)])
 /// ```
-/// One-shot result holder for ``SwiftViewInterpreter``'s large-stack worker:
-/// written once on the worker thread, read on the caller only after the join
-/// signal. Safe to mark `@unchecked Sendable` because access is serialized by
-/// the join, not by concurrent sharing.
-private final class LargeStackResultBox<T>: @unchecked Sendable {
-    var value: T?
-}
-
 public struct SwiftViewInterpreter: Sendable {
     private let expressions = ExpressionEvaluator()
 
@@ -664,4 +656,12 @@ public struct SwiftViewInterpreter: Sendable {
         let taken = expressions.eval(ternary.condition, env)?.isTruthy ?? false
         return resolveTernaryBranch(taken ? ternary.thenExpression : ternary.elseExpression, env)
     }
+}
+
+/// One-shot result holder for ``SwiftViewInterpreter``'s large-stack worker:
+/// written once on the worker thread, read on the caller only after the join
+/// signal. Safe to mark `@unchecked Sendable` because access is serialized by
+/// the join, not by concurrent sharing.
+private final class LargeStackResultBox<T>: @unchecked Sendable {
+    var value: T?
 }
