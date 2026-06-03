@@ -2,6 +2,12 @@
 
 import PackageDescription
 
+// `cmuxFeature` is the iOS composition-root package, not a catch-all. After the
+// 5079 refactor it holds only the runtime DI bundle (`CMUXMobileRuntime`), the
+// auth composition (`MobileAuthComposition` over `CmuxAuthRuntime`), and the
+// root scene (`CMUXMobileRootScene`). The store, RPC, persistence, terminal,
+// and view code were lifted into the focused packages it depends on below. See
+// README.md for the per-type role table.
 let package = Package(
     name: "cmuxFeature",
     platforms: [
