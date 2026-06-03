@@ -4,11 +4,11 @@ set -euo pipefail
 # reload-extension.sh — build a CMUX sample sidebar extension scoped to a dev build tag.
 #
 # A tagged cmux dev app (built by reload.sh --tag <t>) declares a host-scoped
-# extension point com.cmuxterm.app.debug.<TAG_ID>.cmux.sidebar (baked at build time via the
-# CMUX_SIDEBAR_EXTENSION_POINT_ID build setting; see CMUXSidebarExtensionPoint). For
-# that host to have something to host, the sample extension must register against the
-# SAME tagged point and carry per-tag bundle ids so it can coexist with other tags'
-# extensions.
+# extension point <host-bundle-id>.cmux.sidebar (baked at build time via the
+# CMUX_SIDEBAR_EXTENSION_POINT_ID build setting; see CMUXSidebarExtensionPoint).
+# For that host to have something to host, the sample extension must register
+# against the SAME tagged point and carry per-tag bundle ids so it can coexist
+# with other tags' extensions.
 #
 # This script passes the tagged point id (CMUX_SIDEBAR_EXTENSION_POINT_ID) and a per-tag
 # bundle-id suffix (CMUX_BUNDLE_ID_SUFFIX=.<TAG_ID>) to xcodebuild as build settings, so
@@ -20,7 +20,7 @@ set -euo pipefail
 # registers with pluginkit, and launches once.
 #
 # Usage:
-#   scripts/reload-extension.sh --tag <tag> [--example sample|tabs|both] [--no-launch]
+#   scripts/reload-extension.sh --tag <tag> [--host-bundle-id <id>] [--example sample|tabs|both] [--no-launch]
 #
 # The TAG_ID derivation matches reload.sh exactly (reverse-DNS sanitize) so the host
 # and extension always agree on the point id.
@@ -31,13 +31,17 @@ SIDEBAR_POINT_NAME="cmux.sidebar"
 TAG=""
 EXAMPLE="both"
 LAUNCH=1
+HOST_BUNDLE_ID_OVERRIDE=""
 
 usage() {
   cat <<EOF
-Usage: scripts/reload-extension.sh --tag <tag> [--example sample|tabs|both] [--no-launch]
+Usage: scripts/reload-extension.sh --tag <tag> [--host-bundle-id <id>] [--example sample|tabs|both] [--no-launch]
 
   --tag <tag>        Required. Same tag you pass to reload.sh, so the extension's
                      point id matches the tagged host's.
+  --host-bundle-id   Host app bundle id when reload.sh used --bundle-id.
+                     Defaults to com.cmuxterm.app.debug.<sanitized-tag>.
+  --bundle-id        Alias for --host-bundle-id.
   --example <which>  sample (CMUX ExtKit Sample Sidebar), tabs (TabsVisibleSidebar),
                      or both (default).
   --no-launch        Build and install but do not launch to register.
@@ -50,6 +54,10 @@ while [[ $# -gt 0 ]]; do
     --tag)
       TAG="${2:-}"
       [[ -z "$TAG" ]] && { echo "error: --tag requires a value" >&2; exit 1; }
+      shift 2 ;;
+    --host-bundle-id|--bundle-id)
+      HOST_BUNDLE_ID_OVERRIDE="${2:-}"
+      [[ -z "$HOST_BUNDLE_ID_OVERRIDE" ]] && { echo "error: $1 requires a value" >&2; exit 1; }
       shift 2 ;;
     --example)
       EXAMPLE="${2:-}"
@@ -81,7 +89,7 @@ sanitize_bundle() {
 
 TAG_ID="$(sanitize_bundle "$TAG")"
 [[ -z "$TAG_ID" ]] && { echo "error: --tag must contain at least one alphanumeric character" >&2; exit 1; }
-HOST_BUNDLE_ID="com.cmuxterm.app.debug.${TAG_ID}"
+HOST_BUNDLE_ID="${HOST_BUNDLE_ID_OVERRIDE:-com.cmuxterm.app.debug.${TAG_ID}}"
 TAGGED_POINT_ID="${HOST_BUNDLE_ID}.${SIDEBAR_POINT_NAME}"
 
 # Each entry: project_path | scheme | app_name | app_bundle_id | appex_relpath | appex_bundle_id
