@@ -13297,13 +13297,18 @@ function quickSettingsSignature() {
   appendSignatureData(parts, Object.fromEntries(state.browserTabSnapshots));
   appendSignatureValue(parts, state.customCommandSnippets.length);
   appendSignatureData(parts, state.customCommandSnippets);
-  appendSignatureValue(parts, state.savedSettingsProfiles.length);
-  appendSignatureValue(parts, state.workspaceBlueprints.length);
+  appendSignatureData(parts, state.savedSettingsProfiles);
+  appendSignatureData(parts, state.workspaceBlueprints);
   appendSignatureValue(parts, state.customColorPalette.length);
   appendSignatureValue(parts, state.customColorPalette.join(","));
   appendSignatureValue(parts, state.colorApplyTarget);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
   appendSignatureValue(parts, state.savedBackgroundImages.map((background) => background.url).join(","));
+  appendSignatureArray(parts, dataStorageEntries(), (nextParts, entry) => {
+    appendSignatureValue(nextParts, entry.id);
+    appendSignatureValue(nextParts, entry.count);
+    appendSignatureValue(nextParts, entry.bytes);
+  });
   appendSignatureValue(parts, state.performanceGuardTriggered);
   appendSignatureValue(parts, state.performanceGuardReason || "");
   appendSignatureValue(parts, hasPerformanceStats());
@@ -18492,6 +18497,59 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
   });
 }
 
+function quickProfileDataControlsPanel() {
+  const setup = activeSettingsSetupModel();
+  const profilesFull = savedSettingsProfilesFull();
+  const savedItems = savedDataItemCount();
+  const recentItems = recentDataItemCount();
+  const hasRecent = hasRecentActivity();
+  const meta = `${savedSettingsProfileCountLabel()} profiles / ${savedItems} saved / ${recentItems} recent / ${formatBytes(totalDataStorageBytes())}`;
+  const actions = [
+    quickOverviewControlButton("Save profile", saveQuickSetupProfile, {
+      disabled: profilesFull,
+      title: profilesFull ? settingsProfileLimitTitle() : "Save the current setup as a reusable Settings profile.",
+      search: `quick setup profile data save current settings profile reusable ${setup.label} ${setup.kind}`
+    }),
+    quickOverviewControlButton("Profiles", () => openSettingsCategory("profiles"), {
+      title: "Open saved Settings profiles.",
+      search: `quick setup profile data open saved settings profiles ${setup.label} ${setup.kind}`
+    }),
+    quickOverviewControlButton("Copy library", copySavedLibrary, {
+      disabled: savedItems === 0,
+      title: savedItems
+        ? "Copy saved snippets, profiles, blueprints, colors, and backgrounds as JSON."
+        : "Customization library is empty.",
+      search: "quick setup profile data copy saved customization library snippets profiles blueprints colors backgrounds clipboard json"
+    }),
+    quickOverviewControlButton("Paste library", pasteSavedLibrary, {
+      title: "Merge copied saved snippets, profiles, blueprints, colors, and backgrounds.",
+      search: "quick setup profile data paste saved customization library import snippets profiles blueprints colors backgrounds clipboard json"
+    }),
+    quickOverviewControlButton("Copy recent", copyRecentActivity, {
+      disabled: !hasRecent,
+      title: hasRecent
+        ? "Copy recent folders, terminal commands, browser pages, and tab sessions as JSON."
+        : "Recent activity is empty.",
+      search: "quick setup profile data copy recent activity folders commands browser pages tabs clipboard json"
+    }),
+    quickOverviewControlButton("Paste recent", pasteRecentActivity, {
+      title: "Merge copied recent folders, terminal commands, browser pages, and tab sessions.",
+      search: "quick setup profile data paste recent activity folders commands browser pages tabs clipboard json"
+    }),
+    quickOverviewControlButton("Data", () => openSettingsCategory("data"), {
+      title: "Open Settings data for import, export, storage, and cleanup.",
+      search: "quick setup profile data storage import export cleanup saved recent local data settings"
+    })
+  ];
+  return quickOverviewControlsPanel({
+    className: "quick-overview-profile-data",
+    title: "Profile and data controls",
+    meta,
+    search: `quick setup profile data controls save open copy paste saved library recent activity storage import export ${setup.label} ${setup.kind} ${meta}`,
+    actions
+  });
+}
+
 function quickSetupOverviewPanel() {
   const workspace = activeWorkspace();
   const panels = workspace?.panels || [];
@@ -18546,6 +18604,7 @@ function quickSetupOverviewPanel() {
       <span><b>Terminal</b><em data-quick-terminal></em></span>
       <span><b>Performance</b><em data-quick-performance></em></span>
     </div>
+    <div data-quick-profile-data-controls></div>
     <div data-quick-workspace-controls></div>
     <div data-quick-layout-controls></div>
     <div data-quick-pane-controls></div>
@@ -18625,6 +18684,7 @@ function quickSetupOverviewPanel() {
   panel.querySelector("[data-quick-look]").textContent = `${optionLabel(themeOptions, state.settings.theme, "cmux")} / ${accentModeLabel()}`;
   panel.querySelector("[data-quick-terminal]").textContent = `${optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono")} ${state.settings.terminalFontSize}px`;
   panel.querySelector("[data-quick-performance]").textContent = performanceModeLabel();
+  panel.querySelector("[data-quick-profile-data-controls]").replaceWith(quickProfileDataControlsPanel());
   panel.querySelector("[data-quick-workspace-controls]").replaceWith(quickWorkspaceControlsPanel(workspace, terminalCount, browserCount));
   panel.querySelector("[data-quick-layout-controls]").replaceWith(quickLayoutControlsPanel(workspace));
   panel.querySelector("[data-quick-pane-controls]").replaceWith(quickPaneControlsPanel(activePane));
