@@ -3399,6 +3399,15 @@ struct TextBoxInputContainer: View {
     private func registerTextView(_ textView: TextBoxInputTextView) {
         textViewReference.textView = textView
         onTextViewCreated(textView)
+        syncPendingAttachmentUploadState(from: textView)
+    }
+
+    private func syncPendingAttachmentUploadState(from textView: TextBoxInputTextView) {
+        // Restoring preserved content during makeNSView intentionally skips textDidChange to
+        // avoid publishing through TerminalPanel. Keep this container-only state in sync here.
+        let hasPendingUpload = textView.hasPendingAttachmentUploadPlaceholder()
+        guard hasPendingAttachmentUpload != hasPendingUpload else { return }
+        hasPendingAttachmentUpload = hasPendingUpload
     }
 
     private func chooseFiles() {
