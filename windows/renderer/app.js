@@ -9350,10 +9350,16 @@ function renderSettingsInspector(options = {}) {
     workspaceSection.append(settingRow("Folder", folderInput, true, "workspace folder directory cwd path"));
     const folderActions = document.createElement("div");
     folderActions.className = "settings-actions";
-    folderActions.dataset.settingsSearch = normalizeSettingsQuery("workspace folder directory cwd choose open new");
+    folderActions.dataset.settingsSearch = normalizeSettingsQuery("workspace folder directory cwd choose open new recent history");
+    const chooseFolder = settingsActionButton("Choose", () => chooseWorkspaceFolder(), "", "workspace folder directory cwd picker choose folder");
+    chooseFolder.disabled = !workspace;
+    chooseFolder.title = workspace ? "Choose a folder for the active workspace." : "Open a workspace before choosing a folder.";
+    const openFolder = settingsActionButton("Open", () => openWorkspaceFolder(), "", "workspace folder explorer directory open folder");
+    openFolder.disabled = !workspace?.cwd;
+    openFolder.title = workspace?.cwd ? "Open this workspace folder." : "This workspace does not have a folder yet.";
     folderActions.append(
-      settingsActionButton("Choose", () => chooseWorkspaceFolder(), "", "workspace folder directory cwd picker choose folder"),
-      settingsActionButton("Open", () => openWorkspaceFolder(), "", "workspace folder explorer directory open folder"),
+      chooseFolder,
+      openFolder,
       settingsActionButton("New", () => createWorkspaceFromFolder(), "", "workspace folder new directory new from folder")
     );
     workspaceSection.append(folderActions);
