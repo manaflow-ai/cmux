@@ -150,6 +150,27 @@ body.theme-ember {
   --color-line: oklch(34% 0.035 35);
 }
 
+body.theme-contrast {
+  --color-canvas: oklch(7% 0.004 255);
+  --color-chrome: oklch(12% 0.006 255);
+  --color-rail: oklch(10% 0.006 255);
+  --color-pane: oklch(12% 0.006 255);
+  --color-pane-warm: oklch(16% 0.008 255);
+  --color-pane-active: oklch(21% 0.01 255);
+  --color-line: oklch(46% 0.018 255);
+  --color-line-strong: oklch(62% 0.02 255);
+  --color-input: color-mix(in oklch, var(--color-pane) 62%, black 38%);
+  --color-text: oklch(97% 0.004 255);
+  --color-muted: oklch(82% 0.012 255);
+  --color-faint: oklch(68% 0.014 255);
+  --color-accent-ink: oklch(9% 0.006 255);
+  --color-glass: oklch(5% 0.004 255 / 88%);
+  --color-terminal-gutter: oklch(5% 0.004 255);
+  --scrollbar-thumb: color-mix(in oklch, var(--color-muted) 65%, transparent);
+  --scrollbar-thumb-hover: color-mix(in oklch, var(--color-text) 72%, transparent);
+  --shadow-soft: 0 0 0 1px color-mix(in oklch, var(--color-line) 40%, transparent);
+}
+
 body.theme-paper {
   --color-canvas: oklch(17% 0.006 95);
   --color-chrome: oklch(22% 0.008 95);

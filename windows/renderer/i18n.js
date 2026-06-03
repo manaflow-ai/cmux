@@ -195,6 +195,7 @@ const windowsMessages = {
     "config.theme.harbor": "Harbor",
     "config.theme.orchid": "Orchid",
     "config.theme.ember": "Ember",
+    "config.theme.contrast": "High Contrast",
     "config.theme.paper": "Paper Dark",
     "config.background.none": "None",
     "config.background.terminalGrid": "Terminal grid",

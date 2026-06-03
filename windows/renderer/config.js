@@ -59,6 +59,7 @@ export const themeOptions = [
   ["harbor", label("theme.harbor", "Harbor")],
   ["orchid", label("theme.orchid", "Orchid")],
   ["ember", label("theme.ember", "Ember")],
+  ["contrast", label("theme.contrast", "High Contrast")],
   ["paper", label("theme.paper", "Paper Dark")]
 ];
 
@@ -118,6 +119,14 @@ export const themePreviewOptions = [
     rail: "oklch(16% 0.022 35)",
     line: "oklch(34% 0.035 35)",
     accent: "oklch(64% 0.17 28)"
+  },
+  {
+    id: "contrast",
+    canvas: "oklch(7% 0.004 255)",
+    pane: "oklch(12% 0.006 255)",
+    rail: "oklch(10% 0.006 255)",
+    line: "oklch(46% 0.018 255)",
+    accent: "oklch(86% 0.11 70)"
   },
   {
     id: "paper",
