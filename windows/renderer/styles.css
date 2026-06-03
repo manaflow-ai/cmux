@@ -3528,6 +3528,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   grid-row: 1;
   grid-column: 1 / -1;
   position: relative;
+  container-type: inline-size;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -3750,17 +3751,17 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .browser-tab-new {
-  flex: 0 0 68px;
-  min-width: 58px;
-  max-width: 76px;
+  flex: 0 0 30px;
+  min-width: 30px;
+  max-width: 30px;
   height: 26px;
   display: inline-grid;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   justify-items: center;
-  gap: 4px;
+  gap: 0;
   margin-bottom: 2px;
-  padding: 0 6px 0 3px;
+  padding: 0;
   border: 1px solid color-mix(in oklch, var(--color-line) 42%, transparent);
   border-radius: var(--radius-1);
   color: var(--color-muted);
@@ -3787,7 +3788,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .browser-tab-new-label {
-  display: block;
+  display: none;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
@@ -3797,6 +3798,21 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   line-height: 1;
   font-weight: 720;
   letter-spacing: 0;
+}
+
+@container (min-width: 560px) {
+  .browser-tab-list:not(.is-crowded) + .browser-tab-new {
+    flex: 0 0 68px;
+    min-width: 58px;
+    max-width: 76px;
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 4px;
+    padding: 0 6px 0 3px;
+  }
+
+  .browser-tab-list:not(.is-crowded) + .browser-tab-new .browser-tab-new-label {
+    display: block;
+  }
 }
 
 .browser-tab-new:hover {
