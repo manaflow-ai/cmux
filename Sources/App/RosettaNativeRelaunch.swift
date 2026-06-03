@@ -55,8 +55,10 @@ enum RosettaNativeRelaunch {
 
     /// Re-exec cmux as a native arm64 process when it is running translated.
     ///
-    /// Call this as early as possible at launch (after CLI forwarding, before
-    /// AppKit is brought up). When ``shouldRelaunchNatively(isTranslated:hasAttemptedRelaunch:)``
+    /// Call this as early as possible at launch — before CLI forwarding and
+    /// before AppKit is brought up — so a translated launch invoked with
+    /// CLI-style arguments is re-execed natively first and the forwarded bundled
+    /// CLI inherits the native arch. When ``shouldRelaunchNatively(isTranslated:hasAttemptedRelaunch:)``
     /// is `true`, it replaces the current process image in place with the
     /// arm64 slice of the same bundle executable via `posix_spawn` configured
     /// with `POSIX_SPAWN_SETEXEC` and an arm64 binary preference. The call only
