@@ -5402,6 +5402,81 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   padding: 0 var(--space-2);
 }
 
+.setting-segmented {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(118px, 100%), 1fr));
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
+}
+
+.setting-segmented.is-compact {
+  grid-template-columns: repeat(auto-fit, minmax(min(92px, 100%), 1fr));
+}
+
+.setting-segmented-option {
+  min-width: 0;
+  min-height: 42px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 6px 7px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 76%, transparent);
+  color: var(--color-muted);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.setting-segmented-option:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+  color: var(--color-text);
+}
+
+.setting-segmented-option:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.setting-segmented-option.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 58%, var(--color-line) 42%);
+  background: color-mix(in oklch, var(--color-accent) 13%, var(--color-pane) 87%);
+  color: var(--color-text);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 24%, transparent);
+}
+
+.setting-segmented-label,
+.setting-segmented-body {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.setting-segmented-label {
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.setting-segmented-body {
+  color: var(--color-faint);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.setting-segmented-option.is-active .setting-segmented-body {
+  color: var(--color-muted);
+}
+
 .setting-control[type="range"] {
   padding: 0;
   accent-color: var(--color-accent);

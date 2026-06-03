@@ -9380,28 +9380,26 @@ function renderSettingsInspector(options = {}) {
     densitySelect.value = state.settings.density;
     densitySelect.onchange = () => updateSettings({ density: densitySelect.value });
     layoutSection.append(settingRow("Density", densitySelect));
-    const paneHeaderSelect = document.createElement("select");
-    paneHeaderSelect.className = "setting-select";
-    for (const [value, label] of paneHeaderOptions) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      paneHeaderSelect.append(option);
-    }
-    paneHeaderSelect.value = state.settings.paneHeaderMode;
-    paneHeaderSelect.onchange = () => updateSettings({ paneHeaderMode: paneHeaderSelect.value });
-    layoutSection.append(settingRow("Pane headers", paneHeaderSelect, false, "terminal pane header chrome compact hidden content only toolbar"));
-    const paneActionSelect = document.createElement("select");
-    paneActionSelect.className = "setting-select";
-    for (const [value, label] of paneActionOptions) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      paneActionSelect.append(option);
-    }
-    paneActionSelect.value = state.settings.paneActionMode;
-    paneActionSelect.onchange = () => updateSettings({ paneActionMode: paneActionSelect.value });
-    layoutSection.append(settingRow("Pane controls", paneActionSelect, false, "pane controls buttons actions clean split full toolbar clutter"));
+    layoutSection.append(settingRow(
+      "Pane headers",
+      settingSegmentedControl("paneHeaderMode", paneHeaderOptions.map(([value, label]) => [
+        value,
+        label,
+        value === "compact" ? "Small title bar" : value === "full" ? "Title with tools" : "Hide pane chrome"
+      ]), "terminal pane header chrome compact hidden content only toolbar"),
+      true,
+      "terminal pane header chrome compact hidden content only toolbar"
+    ));
+    layoutSection.append(settingRow(
+      "Pane controls",
+      settingSegmentedControl("paneActionMode", paneActionOptions.map(([value, label]) => [
+        value,
+        label,
+        value === "essential" ? "Close and focus" : value === "split" ? "Split tools visible" : "All pane actions"
+      ]), "pane controls buttons actions clean split full toolbar clutter"),
+      true,
+      "pane controls buttons actions clean split full toolbar clutter"
+    ));
     const sidebarDetailSelect = document.createElement("select");
     sidebarDetailSelect.className = "setting-select";
     for (const [value, label] of sidebarDetailOptions) {
@@ -9435,39 +9433,32 @@ function renderSettingsInspector(options = {}) {
     sidebarFooterSelect.value = state.settings.sidebarFooterMode;
     sidebarFooterSelect.onchange = () => updateSettings({ sidebarFooterMode: sidebarFooterSelect.value });
     layoutSection.append(settingRow("Sidebar footer", sidebarFooterSelect, false, "sidebar footer new workspace reset session danger buttons compact clean"));
-    const toolbarSelect = document.createElement("select");
-    toolbarSelect.className = "setting-select";
-    for (const [value, label] of toolbarModeOptions) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      toolbarSelect.append(option);
-    }
-    toolbarSelect.value = state.settings.toolbarMode;
-    toolbarSelect.onchange = () => updateSettings({ toolbarMode: toolbarSelect.value });
-    layoutSection.append(settingRow("Toolbar", toolbarSelect, false, "top bar command strip compact standard expanded shortcuts actions"));
-    const tabSizeSelect = document.createElement("select");
-    tabSizeSelect.className = "setting-select";
-    for (const [value, label] of tabSizeOptions) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      tabSizeSelect.append(option);
-    }
-    tabSizeSelect.value = state.settings.tabSize;
-    tabSizeSelect.onchange = () => updateSettings({ tabSize: tabSizeSelect.value });
-    layoutSection.append(settingRow("Tab width", tabSizeSelect, false, "surface tab chrome tab width compact balanced roomy"));
-    const addTabStyleSelect = document.createElement("select");
-    addTabStyleSelect.className = "setting-select";
-    for (const [value, label] of addTabStyleOptions) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      addTabStyleSelect.append(option);
-    }
-    addTabStyleSelect.value = state.settings.addTabStyle;
-    addTabStyleSelect.onchange = () => updateSettings({ addTabStyle: addTabStyleSelect.value });
-    layoutSection.append(settingRow("Add tabs", addTabStyleSelect, false, "surface tab add terminal browser plus button labeled compact hidden simple chrome"));
+    layoutSection.append(settingRow(
+      "Toolbar",
+      settingSegmentedControl("toolbarMode", toolbarModeOptions, "top bar command strip compact standard expanded shortcuts actions"),
+      true,
+      "top bar command strip compact standard expanded shortcuts actions"
+    ));
+    layoutSection.append(settingRow(
+      "Tab width",
+      settingSegmentedControl("tabSize", tabSizeOptions.map(([value, label]) => [
+        value,
+        label,
+        value === "compact" ? "More tabs fit" : value === "balanced" ? "Default width" : "Longer names"
+      ]), "surface tab chrome tab width compact balanced roomy", { compact: true }),
+      true,
+      "surface tab chrome tab width compact balanced roomy"
+    ));
+    layoutSection.append(settingRow(
+      "Add tabs",
+      settingSegmentedControl("addTabStyle", addTabStyleOptions.map(([value, label]) => [
+        value,
+        label,
+        value === "labeled" ? "Text buttons" : value === "compact" ? "Small + buttons" : "Hide from tabs"
+      ]), "surface tab add terminal browser plus button labeled compact hidden simple chrome", { compact: true }),
+      true,
+      "surface tab add terminal browser plus button labeled compact hidden simple chrome"
+    ));
     const titleDetailSelect = document.createElement("select");
     titleDetailSelect.className = "setting-select";
     for (const [value, label] of titleDetailOptions) {
@@ -11538,7 +11529,7 @@ function settingsSection(title, searchTerms = "") {
 }
 
 function settingRow(label, control, stacked = false, searchTerms = "") {
-  const row = document.createElement("label");
+  const row = document.createElement(control?.classList?.contains("setting-segmented") ? "div" : "label");
   row.className = `setting-row${stacked ? " stacked" : ""}`;
   row.dataset.settingsSearch = normalizeSettingsQuery(`${label} ${searchTerms}`);
   const text = document.createElement("span");
@@ -11546,6 +11537,39 @@ function settingRow(label, control, stacked = false, searchTerms = "") {
   text.textContent = label;
   row.append(text, control);
   return row;
+}
+
+function settingSegmentedControl(settingKey, choices, searchTerms = "", options = {}) {
+  const control = document.createElement("div");
+  control.className = `setting-segmented${options.compact ? " is-compact" : ""}`;
+  control.setAttribute("role", "radiogroup");
+  control.dataset.settingControl = settingKey;
+  control.dataset.settingsSearch = normalizeSettingsQuery(`${settingKey} ${searchTerms}`);
+  const value = state.settings[settingKey];
+  for (const choice of choices) {
+    const [choiceValue, label, body = ""] = choice;
+    const active = choiceValue === value;
+    const button = document.createElement("button");
+    button.className = `setting-segmented-option${active ? " is-active" : ""}`;
+    button.type = "button";
+    button.dataset.settingValue = choiceValue;
+    button.setAttribute("role", "radio");
+    button.setAttribute("aria-checked", active ? "true" : "false");
+    button.title = body ? `${label}: ${body}` : label;
+    button.dataset.settingsSearch = normalizeSettingsQuery(`${settingKey} ${label} ${body} ${choiceValue}`);
+    button.innerHTML = `
+      <span class="setting-segmented-label"></span>
+      <span class="setting-segmented-body"></span>
+    `;
+    button.querySelector(".setting-segmented-label").textContent = label;
+    setTextIfChanged(button.querySelector(".setting-segmented-body"), body);
+    button.onclick = () => {
+      if (state.settings[settingKey] === choiceValue) return;
+      updateSettings({ [settingKey]: choiceValue });
+    };
+    control.append(button);
+  }
+  return control;
 }
 
 function scheduleSettingsFilter() {
