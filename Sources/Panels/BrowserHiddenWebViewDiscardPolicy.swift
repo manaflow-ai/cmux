@@ -64,10 +64,11 @@ nonisolated enum BrowserHiddenWebViewDiscardPolicy {
         guard let rawValue, let value = TimeInterval(rawValue), let resolvedValue = resolvedHiddenDelay(value) else {
             let storedValue = defaults.double(forKey: hiddenDelayKey)
             guard defaults.object(forKey: hiddenDelayKey) != nil,
-                  let resolvedStoredValue = resolvedHiddenDelay(storedValue) else {
+                  storedValue.isFinite,
+                  storedValue >= minimumHiddenDelay else {
                 return defaultHiddenDelay
             }
-            return resolvedStoredValue
+            return clampedHiddenDelay(storedValue)
         }
         return resolvedValue
     }

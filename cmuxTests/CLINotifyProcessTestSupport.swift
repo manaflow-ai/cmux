@@ -22,6 +22,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let timedOut: Bool
     }
 
+    final class ProcessPipeCapture: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+
+        func append(_ chunk: Data) {
+            lock.lock()
+            data.append(chunk)
+            lock.unlock()
+        }
+
+        func stringValue() -> String {
+            lock.lock()
+            let value = data
+            lock.unlock()
+            return String(data: value, encoding: .utf8) ?? ""
+        }
+    }
+
     final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private(set) var commands: [String] = []
@@ -529,6 +547,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
+        let stdoutCapture = ProcessPipeCapture()
+        let stderrCapture = ProcessPipeCapture()
+        let ioGroup = DispatchGroup()
+        ioGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stdoutCapture.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+            ioGroup.leave()
+        }
+        ioGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stderrCapture.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            ioGroup.leave()
+        }
         if let standardInput, let stdinPipe {
             stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
             try? stdinPipe.fileHandleForWriting.close()
@@ -548,9 +579,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 _ = exitSignal.wait(timeout: .now() + 1)
             }
         }
+        _ = ioGroup.wait(timeout: .now() + 1)
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stdout = stdoutCapture.stringValue()
+        let stderr = stderrCapture.stringValue()
         return ProcessRunResult(
             status: process.isRunning ? SIGKILL : process.terminationStatus,
             stdout: stdout,

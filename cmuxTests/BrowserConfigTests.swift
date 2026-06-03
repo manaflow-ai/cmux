@@ -3537,6 +3537,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         // User opens the Web Inspector; it attaches alongside the page.
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
+        settleDeveloperToolsTransitions(panel)
         panel.noteDeveloperToolsHostAttached()
 
         // Let the inspector sit open past the manual-close detection grace so a
