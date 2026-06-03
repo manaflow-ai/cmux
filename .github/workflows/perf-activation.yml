@@ -133,6 +133,12 @@ jobs:
       - name: Build tagged app
         run: |
           set -euo pipefail
+          sudo -n rm -rf \
+            "/tmp/cmux-${PERF_TAG}" \
+            "/tmp/cmux-debug-${PERF_TAG}.sock" \
+            "/tmp/cmux-debug-${PERF_TAG}.log" \
+            "/tmp/cmux-dev-${PERF_TAG}-last-socket-path" \
+            "/tmp/cmux-launch-${PERF_TAG}.out"
           CMUX_SKIP_ZIG_BUILD=1 \
             CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=1 \
@@ -254,4 +260,9 @@ jobs:
           CONSOLE_UID="$(id -u "$CONSOLE_USER")"
           sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
             pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
-          sudo -n rm -f "/tmp/cmux-debug-${PERF_TAG}.sock"
+          sudo -n rm -rf \
+            "/tmp/cmux-${PERF_TAG}" \
+            "/tmp/cmux-debug-${PERF_TAG}.sock" \
+            "/tmp/cmux-debug-${PERF_TAG}.log" \
+            "/tmp/cmux-dev-${PERF_TAG}-last-socket-path" \
+            "/tmp/cmux-launch-${PERF_TAG}.out"
