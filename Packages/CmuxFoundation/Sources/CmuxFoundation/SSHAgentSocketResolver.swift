@@ -9,10 +9,15 @@ public struct SSHAgentSocketResolver: Sendable {
     /// The environment used when a `ForwardAgent` value references `$SSH_AUTH_SOCK` or another variable.
     public let environment: [String: String]
 
+    /// Creates a resolver that reads agent socket references from the current process environment.
+    public init() {
+        self.init(environment: ProcessInfo.processInfo.environment)
+    }
+
     /// Creates a resolver that reads agent socket references from an environment snapshot.
     ///
     /// - Parameter environment: Environment variables visible to the OpenSSH process.
-    public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+    public init(environment: [String: String]) {
         self.environment = environment
     }
 
