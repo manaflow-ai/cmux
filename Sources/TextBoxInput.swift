@@ -3396,20 +3396,10 @@ struct TextBoxInputContainer: View {
         )
     }
 
-    /// Records the newly constructed text view, lets the panel restore draft state, then syncs container-only state.
+    /// Records the newly constructed text view and lets the panel restore draft state.
     private func registerTextView(_ textView: TextBoxInputTextView) {
         textViewReference.textView = textView
         onTextViewCreated(textView)
-        syncPendingAttachmentUploadState(from: textView)
-    }
-
-    /// Synchronizes pending-upload state without invoking the TextBox delegate or published panel bindings.
-    private func syncPendingAttachmentUploadState(from textView: TextBoxInputTextView) {
-        // Restoring preserved content during makeNSView intentionally skips textDidChange to
-        // avoid publishing through TerminalPanel. Keep this container-only state in sync here.
-        let hasPendingUpload = textView.hasPendingAttachmentUploadPlaceholder()
-        guard hasPendingAttachmentUpload != hasPendingUpload else { return }
-        hasPendingAttachmentUpload = hasPendingUpload
     }
 
     private func chooseFiles() {
@@ -3807,7 +3797,10 @@ struct TextBoxInputView: NSViewRepresentable {
         func recalculateHeight(_ textView: NSTextView) {
             guard let layoutManager = textView.layoutManager,
                   let textContainer = textView.textContainer else { return }
-            (textView as? TextBoxInputTextView)?.recenterSingleLineTextContainer()
+            if let textBoxView = textView as? TextBoxInputTextView {
+                textBoxView.recenterSingleLineTextContainer()
+                syncPendingAttachmentUploadState(from: textBoxView)
+            }
             layoutManager.ensureLayout(for: textContainer)
             let lineFragmentCount = (textView as? TextBoxInputTextView)?.visualLineFragmentCount()
                 ?? TextBoxInputTextView.visualLineFragmentCount(
@@ -3844,6 +3837,16 @@ struct TextBoxInputView: NSViewRepresentable {
             if abs(parent.textViewHeight - preferredHeight) > 0.5 {
                 parent.textViewHeight = preferredHeight
             }
+        }
+
+        /// Synchronizes pending-upload UI state from AppKit after the text view has entered its layout cycle.
+        private func syncPendingAttachmentUploadState(from textView: TextBoxInputTextView) {
+            // Silent restore skips textDidChange to avoid publishing through TerminalPanel while
+            // SwiftUI constructs the representable. Layout completion is the post-construction
+            // bridge point that keeps this binding aligned without mutating state from makeNSView.
+            let hasPendingUpload = textView.hasPendingAttachmentUploadPlaceholder()
+            guard parent.hasPendingAttachmentUpload != hasPendingUpload else { return }
+            parent.hasPendingAttachmentUpload = hasPendingUpload
         }
     }
 }
