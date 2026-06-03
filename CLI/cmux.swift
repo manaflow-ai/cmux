@@ -2123,7 +2123,11 @@ final class SocketClient {
                 if descriptor.revents & Int16(POLLNVAL) != 0 {
                     throw CLIError(message: "Socket is not valid")
                 }
-                return true
+                let readableEvents = Int16(POLLIN | POLLHUP | POLLERR)
+                if descriptor.revents & readableEvents != 0 {
+                    return true
+                }
+                continue
             }
             if ready == 0 {
                 return false
