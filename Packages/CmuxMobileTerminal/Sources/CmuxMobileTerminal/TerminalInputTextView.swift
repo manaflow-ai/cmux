@@ -8,6 +8,10 @@ final class TerminalInputTextView: UITextView {
     var onZoom: ((TerminalFontZoomDirection) -> Void)?
     var onHideKeyboard: (() -> Void)?
     var accessoryLayoutInsetsProvider: (() -> UIEdgeInsets)?
+    /// The leftmost toolbar button. Toggles its glyph between dismiss-keyboard
+    /// (when the keyboard is up) and show-keyboard (when down) via
+    /// ``setKeyboardShown(_:)``.
+    private weak var dismissButton: UIButton?
     private var controlAccessoryArmed = false
     private var alternateAccessoryArmed = false
     private var commandAccessoryArmed = false
@@ -63,7 +67,9 @@ final class TerminalInputTextView: UITextView {
         dismissButton.tintColor = UIColor(white: 0.7, alpha: 1)
         dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
         dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
+        dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.hideKeyboard", defaultValue: "Hide Keyboard")
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
+        self.dismissButton = dismissButton
 
         // Scrollable action buttons
         let scrollView = UIScrollView()
@@ -143,6 +149,15 @@ final class TerminalInputTextView: UITextView {
         updateModifierLabels(isMacRemote: true)
         return container
     }()
+
+    /// The terminal accessory bar (modifier keys, arrow nub, shortcut buttons).
+    ///
+    /// Formerly the keyboard `inputAccessoryView`; it is now docked as a
+    /// persistent bottom bar by ``GhosttySurfaceView`` so it stays visible when
+    /// the keyboard is dismissed and reserves space above the bottom TUI rows.
+    /// Its buttons still target this text view, so the action wiring is intact
+    /// regardless of where the view is hosted.
+    var toolbarView: UIView { terminalAccessoryToolbar }
 
     private weak var accessoryStackView: UIStackView?
     // Strong reference — command button is not always in the stack's arrangedSubviews,
@@ -266,7 +281,11 @@ final class TerminalInputTextView: UITextView {
         keyboardType = .default
         returnKeyType = .default
         textContainerInset = .zero
-        inputAccessoryView = terminalAccessoryToolbar
+        // The accessory bar is no longer the keyboard's `inputAccessoryView`;
+        // `GhosttySurfaceView` docks `toolbarView` persistently at the bottom so
+        // it survives keyboard dismissal. Leaving `inputAccessoryView` nil means
+        // the keyboard shows without its own accessory (the docked bar rides
+        // above it via `keyboardLayoutGuide`).
         delegate = self
         text = ""
         NotificationCenter.default.addObserver(
@@ -370,6 +389,22 @@ final class TerminalInputTextView: UITextView {
     @objc
     private func handleHideKeyboard() {
         onHideKeyboard?()
+    }
+
+    /// Swap the leftmost button between dismiss-keyboard (`shown == true`,
+    /// chevron-down) and show-keyboard (`shown == false`, plain keyboard)
+    /// glyphs, cross-dissolved, so it reads as a single keyboard toggle.
+    func setKeyboardShown(_ shown: Bool) {
+        guard let dismissButton else { return }
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        let symbol = shown ? "keyboard.chevron.compact.down" : "keyboard"
+        let image = UIImage(systemName: symbol, withConfiguration: config)
+        UIView.transition(with: dismissButton, duration: 0.2, options: .transitionCrossDissolve) {
+            dismissButton.setImage(image, for: .normal)
+        }
+        dismissButton.accessibilityLabel = shown
+            ? String(localized: "terminal.input_accessory.hideKeyboard", defaultValue: "Hide Keyboard")
+            : String(localized: "terminal.input_accessory.showKeyboard", defaultValue: "Show Keyboard")
     }
 
     @objc

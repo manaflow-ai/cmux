@@ -3410,6 +3410,10 @@ class TerminalController {
             return v2Result(id: id, self.v2MobileTerminalReplay(params: params))
         case "mobile.terminal.viewport", "terminal.viewport":
             return v2Result(id: id, self.v2MobileTerminalViewport(params: params))
+        case "mobile.terminal.scroll", "terminal.scroll":
+            return v2Result(id: id, self.v2MobileTerminalScroll(params: params))
+        case "mobile.terminal.mouse", "terminal.mouse":
+            return v2Result(id: id, self.v2MobileTerminalMouse(params: params))
 
         case "system.identify":
             return v2Ok(id: id, result: v2Identify(params: params))
@@ -21803,6 +21807,10 @@ class TerminalController {
             result = v2MobileTerminalReplay(params: request.params)
         case "mobile.terminal.viewport", "terminal.viewport":
             result = v2MobileTerminalViewport(params: request.params)
+        case "mobile.terminal.scroll", "terminal.scroll":
+            result = v2MobileTerminalScroll(params: request.params)
+        case "mobile.terminal.mouse", "terminal.mouse":
+            result = v2MobileTerminalMouse(params: request.params)
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method
@@ -22310,6 +22318,58 @@ class TerminalController {
             payload["rows"] = max(Int(size.rows), 1)
         }
         return .ok(payload)
+    }
+
+    /// Forward a phone scroll gesture to the real surface so libghostty handles
+    /// it per-mode (scrollback in the normal screen, mouse-wheel to the program
+    /// in the alt screen). The producer already exports the live `vp_top`, so
+    /// the resulting viewport mirrors back to the phone; nudge an emit since a
+    /// pure scroll with no PTY output may not fire a render/tick on its own.
+    private func v2MobileTerminalScroll(params: [String: Any]) -> V2CallResult {
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+        let deltaLines = (params["delta_lines"] as? NSNumber)?.doubleValue ?? 0
+        let col = (params["col"] as? NSNumber)?.intValue ?? 0
+        let row = (params["row"] as? NSNumber)?.intValue ?? 0
+        if deltaLines != 0 {
+            terminalPanel.surface.mobileScroll(deltaLines: deltaLines, col: max(0, col), row: max(0, row))
+            MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
+        }
+        return .ok([
+            "workspace_id": resolved.workspace.id.uuidString,
+            "surface_id": surfaceId.uuidString,
+        ])
+    }
+
+    private func v2MobileTerminalMouse(params: [String: Any]) -> V2CallResult {
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+        let col = (params["col"] as? NSNumber)?.intValue ?? 0
+        let row = (params["row"] as? NSNumber)?.intValue ?? 0
+        terminalPanel.surface.mobileClick(col: max(0, col), row: max(0, row))
+        MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
+        return .ok([
+            "workspace_id": resolved.workspace.id.uuidString,
+            "surface_id": surfaceId.uuidString,
+        ])
     }
 
     private func v2MobileTerminalInput(params: [String: Any]) -> V2CallResult {

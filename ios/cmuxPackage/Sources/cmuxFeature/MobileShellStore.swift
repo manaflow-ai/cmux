@@ -45,6 +45,7 @@ public final class CMUXMobileShellStore {
 
     public private(set) var isSignedIn: Bool
     public private(set) var connectionState: MobileConnectionState
+    public private(set) var macConnectionStatus: MobileMacConnectionStatus
     public private(set) var connectedHostName: String
     public private(set) var connectionError: String?
     public private(set) var activeTicket: CmxAttachTicket?
@@ -149,6 +150,7 @@ public final class CMUXMobileShellStore {
         self.clientID = Self.loadClientID()
         self.isSignedIn = isSignedIn
         self.connectionState = connectionState
+        self.macConnectionStatus = connectionState == .connected ? .connected : .unavailable
         self.connectedHostName = connectedHostName
         self.pairingCode = pairingCode
         self.workspaces = workspaces
@@ -216,6 +218,7 @@ public final class CMUXMobileShellStore {
         connectionGeneration = UUID()
         isSignedIn = false
         connectionState = .disconnected
+        macConnectionStatus = .unavailable
         connectedHostName = ""
         pairingCode = ""
         terminalInputText = ""
@@ -236,6 +239,62 @@ public final class CMUXMobileShellStore {
         resyncTerminalOutput(reason: "foreground", restartEventStream: true)
     }
 
+    /// Forward a scroll gesture to the Mac's real surface. libghostty does the
+    /// mode-correct thing: normal screen moves the viewport into scrollback;
+    /// alt screen + mouse reporting encodes mouse-wheel to the PTY for the
+    /// program. The render-grid mirrors the result (it exports the live
+    /// `vp_top`), so no local-mirror scroll or scrollback cache is needed.
+    /// Fire-and-forget (called per display-link frame during a drag).
+    public func scrollTerminal(surfaceID: String, lines: Double, col: Int, row: Int) async {
+        guard lines != 0,
+              let client = remoteClient,
+              let workspaceID = workspaceID(forTerminalID: surfaceID) else {
+            return
+        }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "mobile.terminal.scroll",
+                params: [
+                    "workspace_id": workspaceID.rawValue,
+                    "surface_id": surfaceID,
+                    "client_id": clientID,
+                    "delta_lines": lines,
+                    "col": col,
+                    "row": row,
+                ]
+            )
+            _ = try await client.sendRequest(request)
+        } catch {
+            mobileShellLog.error("scroll forward failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Forward a tap to the Mac's real surface as a left click at the given grid
+    /// cell. libghostty self-gates: a TUI with mouse reporting receives the
+    /// click; a normal screen treats it as a harmless empty selection. The
+    /// render-grid mirrors any resulting change back. Fire-and-forget.
+    public func clickTerminal(surfaceID: String, col: Int, row: Int) async {
+        guard let client = remoteClient,
+              let workspaceID = workspaceID(forTerminalID: surfaceID) else {
+            return
+        }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "mobile.terminal.mouse",
+                params: [
+                    "workspace_id": workspaceID.rawValue,
+                    "surface_id": surfaceID,
+                    "client_id": clientID,
+                    "col": col,
+                    "row": row,
+                ]
+            )
+            _ = try await client.sendRequest(request)
+        } catch {
+            mobileShellLog.error("click forward failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+    }
+
     // MARK: - Network recovery
 
     /// True while an automatic reconnect is in progress after a network change
@@ -244,6 +303,12 @@ public final class CMUXMobileShellStore {
     /// True when automatic recovery could not restore the connection; the UI
     /// surfaces a manual Retry control in this state.
     public private(set) var connectionRecoveryFailed: Bool = false
+    /// True when the host rejected this device on authorization grounds (the Mac
+    /// is signed in to a different account, or the token could not be verified).
+    /// Retrying cannot fix this, so the UI surfaces the auth message and a
+    /// Sign Out action instead of a Retry control. ``connectionError`` carries
+    /// the user-facing reason.
+    public private(set) var connectionRequiresReauth: Bool = false
 
     private var networkPathObservationStarted = false
     private var recoveryInFlight = false
@@ -297,7 +362,7 @@ public final class CMUXMobileShellStore {
     private func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
         if connectionState == .connected, remoteClient != nil {
-            connectionRecoveryFailed = false
+            markMacConnectionReconnecting()
             resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
             return
         }
@@ -336,6 +401,7 @@ public final class CMUXMobileShellStore {
         connectedHostName = PreviewMobileHost.hostName
         guard isCurrentPairingAttempt(attemptID) else { return }
         connectionState = .connected
+        markMacConnectionHealthy()
         if selectedWorkspaceID == nil {
             selectedWorkspaceID = workspaces.first?.id
         }
@@ -359,12 +425,14 @@ public final class CMUXMobileShellStore {
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             connectionState = .disconnected
+            macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
             return
         }
         guard (1...65535).contains(port) else {
             connectionError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
             connectionState = .disconnected
+            macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
             return
         }
@@ -382,12 +450,14 @@ public final class CMUXMobileShellStore {
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return }
             connectionState = .disconnected
+            macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return }
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
             connectionError = Self.localizedConnectionError(for: error, route: activeRoute ?? directRoute)
             connectionState = .disconnected
+            macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
         }
     }
@@ -481,6 +551,7 @@ public final class CMUXMobileShellStore {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             connectionError = L10n.string("mobile.pairing.invalidCode", defaultValue: "Invalid pairing code.")
             connectionState = .disconnected
+            macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
             return .failed
         }
@@ -493,6 +564,7 @@ public final class CMUXMobileShellStore {
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             connectionState = .disconnected
+            macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
             return .failed
         } catch {
@@ -500,6 +572,7 @@ public final class CMUXMobileShellStore {
             mobileShellLog.error("pairing failed: \(String(describing: error), privacy: .private)")
             connectionError = Self.localizedConnectionError(for: error, route: activeRoute)
             connectionState = .disconnected
+            macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
             return .failed
         }
@@ -509,6 +582,7 @@ public final class CMUXMobileShellStore {
         pairingAttemptID = UUID()
         connectionError = nil
         connectionState = .disconnected
+        macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
     }
 
@@ -520,7 +594,9 @@ public final class CMUXMobileShellStore {
         let staleMacID = activeTicket?.macDeviceID
         pairingAttemptID = UUID()
         connectionError = nil
+        connectionRequiresReauth = false
         connectionState = .disconnected
+        macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
         if let pairedMacStore, let macID = staleMacID {
             // Fire-and-forget: forgetting the persisted mac is cleanup that must
@@ -752,6 +828,7 @@ public final class CMUXMobileShellStore {
                 defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
             )
             connectionState = .disconnected
+            macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
         }
     }
@@ -818,12 +895,14 @@ public final class CMUXMobileShellStore {
         guard let firstRoute = supportedRoutes.first else {
             connectionError = L10n.string("mobile.pairing.unsupportedRoute", defaultValue: "This pairing code is not supported.")
             connectionState = .disconnected
+            macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
             return
         }
         guard Self.attachTicketIsUnexpired(ticket, now: runtime?.now() ?? Date()) else {
             connectionError = Self.localizedConnectionError(for: MobileShellConnectionError.attachTicketExpired, route: firstRoute)
             connectionState = .disconnected
+            macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
             throw MobileShellConnectionError.attachTicketExpired
         }
@@ -838,12 +917,17 @@ public final class CMUXMobileShellStore {
             connectionError = nil
             applyPreviewTicket(ticket, route: firstRoute)
             connectionState = .connected
+            markMacConnectionHealthy()
             return
         }
 
         let workspaceListRequests = try Self.initialWorkspaceListRequests(for: ticket)
+        // Stack auth is now the authorization gate for every request, so enable
+        // it by default on any route trusted to carry the token (Tailscale,
+        // loopback, LAN, .local). Untrusted manual public hosts stay off and
+        // therefore cannot authorize, which is intended.
         let routeAllowsStackAuthFallback = allowsStackAuthFallback
-            ?? supportedRoutes.allSatisfy(MobileShellRouteAuthPolicy.routeAllowsImplicitPairLinkStackAuth)
+            ?? supportedRoutes.allSatisfy(MobileShellRouteAuthPolicy.routeAllowsStackAuth)
         var lastError: Error?
         for route in supportedRoutes {
             activeRoute = route
@@ -869,6 +953,7 @@ public final class CMUXMobileShellStore {
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
+                    markMacConnectionHealthy()
                     if workspaceListRequest.isScoped {
                         scheduleFullWorkspaceListRefreshIfAvailable(
                             client: client,
@@ -1030,6 +1115,7 @@ public final class CMUXMobileShellStore {
         connectionGeneration = UUID()
         cancelRemoteOperationTasks()
         clearActiveConnectionContext()
+        macConnectionStatus = .unavailable
         replaceRemoteClient(with: nil)
         rawTerminalInputBuffer.clear()
     }
@@ -1105,6 +1191,59 @@ public final class CMUXMobileShellStore {
             && isSignedIn
     }
 
+    private func markMacConnectionHealthy() {
+        guard connectionState == .connected else {
+            macConnectionStatus = .unavailable
+            return
+        }
+        macConnectionStatus = .connected
+        isRecoveringConnection = false
+        connectionRecoveryFailed = false
+        connectionRequiresReauth = false
+    }
+
+    private func markMacConnectionReconnecting() {
+        guard connectionState == .connected, remoteClient != nil else {
+            macConnectionStatus = .unavailable
+            return
+        }
+        macConnectionStatus = .reconnecting
+        isRecoveringConnection = true
+        connectionRecoveryFailed = false
+    }
+
+    private func markMacConnectionUnavailable() {
+        guard connectionState == .connected else {
+            macConnectionStatus = .unavailable
+            return
+        }
+        macConnectionStatus = .unavailable
+        isRecoveringConnection = false
+        connectionRecoveryFailed = true
+    }
+
+    private func markMacConnectionUnavailableIfNeeded(after error: Error) {
+        guard Self.isMacAvailabilityFailure(error) else { return }
+        markMacConnectionUnavailable()
+    }
+
+    private static func isMacAvailabilityFailure(_ error: Error) -> Bool {
+        if error is CmxNetworkByteTransportError {
+            return true
+        }
+        guard let shellError = error as? MobileShellConnectionError else {
+            return false
+        }
+        switch shellError {
+        case .connectionClosed, .requestTimedOut:
+            return true
+        case .invalidResponse, .insecureManualRoute, .attachTicketExpired, .authorizationFailed, .accountMismatch, .rpcError:
+            // .accountMismatch means the Mac is reachable but signed in to a
+            // different account; that is an auth problem, not a Mac-availability one.
+            return false
+        }
+    }
+
     private func syncSelectedTerminalForWorkspace() {
         guard let selectedWorkspace else {
             selectedTerminalID = nil
@@ -1144,6 +1283,7 @@ public final class CMUXMobileShellStore {
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            markMacConnectionUnavailableIfNeeded(after: error)
             connectionError = Self.localizedConnectionError(for: error)
         }
     }
@@ -1171,6 +1311,7 @@ public final class CMUXMobileShellStore {
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            markMacConnectionUnavailableIfNeeded(after: error)
             connectionError = Self.localizedConnectionError(for: error)
         }
     }
@@ -1224,6 +1365,7 @@ public final class CMUXMobileShellStore {
         } catch {
             guard generation == connectionGeneration else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            markMacConnectionUnavailableIfNeeded(after: error)
             connectionError = Self.localizedConnectionError(for: error)
         }
     }
@@ -1348,8 +1490,10 @@ public final class CMUXMobileShellStore {
             ) ?? false
             guard subscribed else {
                 liveAnchormuxLog("sync.subscribe_failed reason=start")
+                self?.markMacConnectionUnavailable()
                 return
             }
+            self?.markMacConnectionHealthy()
             liveAnchormuxLog("sync.subscribe_ok topics=\(topics.count) transport=\(outputTransport)")
             // Keep the listener alive without keeping the shell store alive.
             for await event in stream {
@@ -1359,6 +1503,7 @@ public final class CMUXMobileShellStore {
                 // Any yielded envelope proves the transport is still pushing, so
                 // it resets the liveness window (not just render_grid events).
                 self.lastTerminalEventAt = self.runtime?.now() ?? Date()
+                self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
                 } else if event.topic == "terminal.render_grid" {
@@ -1384,6 +1529,7 @@ public final class CMUXMobileShellStore {
         }
         mobileShellLog.info("terminal event stream ended, restarting")
         liveAnchormuxLog("sync.stream_ended restarting (render-grid push stopped; falling back to poll)")
+        markMacConnectionReconnecting()
         terminalEventListenerTask = nil
         terminalEventListenerID = nil
         startTerminalRefreshPolling()
@@ -1908,7 +2054,9 @@ public final class CMUXMobileShellStore {
             return false
         }
         connectionError = Self.localizedConnectionError(for: error, route: activeRoute)
+        connectionRequiresReauth = true
         connectionState = .disconnected
+        macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
         return true
     }
@@ -1918,7 +2066,7 @@ public final class CMUXMobileShellStore {
             return false
         }
         switch connectionError {
-        case .attachTicketExpired, .authorizationFailed, .insecureManualRoute:
+        case .attachTicketExpired, .authorizationFailed, .accountMismatch, .insecureManualRoute:
             return true
         case let .rpcError(code, message):
             let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -1943,13 +2091,50 @@ public final class CMUXMobileShellStore {
             switch networkError {
             case .connectionTimedOut:
                 return localizedHostPortConnectionError(
-                    key: "mobile.pairing.connectionTimedOutFormat",
-                    defaultValue: "No response from %@:%d. Make sure the host app is open and accepting mobile connections.",
-                    fallbackKey: "mobile.pairing.requestTimedOut",
-                    fallbackDefaultValue: "The computer did not respond. Check the host and port, then try again.",
+                    key: "mobile.pairing.connectTimedOutFormat",
+                    defaultValue: "No response from %@:%d. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network.",
+                    fallbackKey: "mobile.pairing.runtimeUnavailable",
+                    fallbackDefaultValue: "Could not connect to your computer.",
                     hostPort: hostPort
                 )
-            case .connectionFailed, .notConnected, .alreadyClosed:
+            case let .connectionFailed(_, kind):
+                switch kind {
+                case .connectionRefused:
+                    return L10n.string(
+                        "mobile.pairing.appNotRunning",
+                        defaultValue: "Your Mac is reachable, but cmux isn't running there (or mobile pairing is off). Open cmux on the Mac, then try again."
+                    )
+                case .permissionDenied:
+                    return L10n.string(
+                        "mobile.pairing.localNetworkPermission",
+                        defaultValue: "iOS blocked the connection. Allow cmux to use the Local Network in iOS Settings, then try again."
+                    )
+                case .hostUnreachable:
+                    return localizedHostPortConnectionError(
+                        key: "mobile.pairing.hostUnreachableFormat",
+                        defaultValue: "Can't reach %@:%d. Make sure your Mac is awake and on the same Tailscale network as this device.",
+                        fallbackKey: "mobile.pairing.runtimeUnavailable",
+                        fallbackDefaultValue: "Could not connect to your computer.",
+                        hostPort: hostPort
+                    )
+                case .dnsFailed:
+                    return localizedHostPortConnectionError(
+                        key: "mobile.pairing.dnsFailedFormat",
+                        defaultValue: "Couldn't resolve %@. Check that Tailscale is connected on both devices.",
+                        fallbackKey: "mobile.pairing.runtimeUnavailable",
+                        fallbackDefaultValue: "Could not connect to your computer.",
+                        hostPort: hostPort
+                    )
+                case .timedOut, .secureChannelFailed, .generic:
+                    return localizedHostPortConnectionError(
+                        key: "mobile.pairing.connectionFailedFormat",
+                        defaultValue: "Could not reach %@:%d. Check that the host is reachable over Tailscale or LAN and that the port is correct.",
+                        fallbackKey: "mobile.pairing.runtimeUnavailable",
+                        fallbackDefaultValue: "Could not connect to your computer.",
+                        hostPort: hostPort
+                    )
+                }
+            case .notConnected, .alreadyClosed:
                 return localizedHostPortConnectionError(
                     key: "mobile.pairing.connectionFailedFormat",
                     defaultValue: "Could not reach %@:%d. Check that the host is reachable over Tailscale or LAN and that the port is correct.",
@@ -1987,6 +2172,8 @@ public final class CMUXMobileShellStore {
             return L10n.string("mobile.pairing.attachTicketExpired", defaultValue: "This pairing link expired. Pair again with a fresh QR/link from that computer.")
         case .authorizationFailed:
             return L10n.string("mobile.pairing.authorizationFailed", defaultValue: "Sign in on your computer with the same account, or pair with a QR/link from that computer.")
+        case .accountMismatch:
+            return L10n.string("mobile.pairing.accountMismatch", defaultValue: "This Mac is signed in to a different cmux account. Sign out and sign back in with the account that owns this Mac.")
         case .invalidResponse, .connectionClosed, .rpcError:
             return L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
         }
@@ -2087,4 +2274,3 @@ private extension MobileWorkspacePreview {
         terminals.contains(where: \.isReady)
     }
 }
-

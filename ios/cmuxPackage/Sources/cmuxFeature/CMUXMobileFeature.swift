@@ -45,9 +45,27 @@ struct CMUXMobileRootView: View {
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
 
+    private var shouldShowTerminalLayoutPreview: Bool {
+        #if os(iOS)
+        return UITestConfig.terminalLayoutPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder private var terminalLayoutPreview: some View {
+        #if os(iOS)
+        TerminalLayoutPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
     var body: some View {
         Group {
-            if shouldShowRestoringSession {
+            if shouldShowTerminalLayoutPreview {
+                terminalLayoutPreview
+            } else if shouldShowRestoringSession {
                 RestoringSessionView()
             } else if !isAuthenticated {
                 SignInView()

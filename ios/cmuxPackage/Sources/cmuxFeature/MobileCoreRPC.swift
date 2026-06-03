@@ -8,6 +8,9 @@ enum MobileShellConnectionError: LocalizedError {
     case insecureManualRoute
     case attachTicketExpired
     case authorizationFailed(String)
+    /// The Mac is signed in to a different cmux account than this device. The
+    /// caller should drive a re-authentication flow into the owner's account.
+    case accountMismatch(String)
     case rpcError(String?, String)
 
     var errorDescription: String? {
@@ -23,6 +26,8 @@ enum MobileShellConnectionError: LocalizedError {
         case .attachTicketExpired:
             return "Mobile attach ticket expired"
         case let .authorizationFailed(message):
+            return message
+        case let .accountMismatch(message):
             return message
         case let .rpcError(_, message):
             return message
@@ -166,22 +171,21 @@ final class MobileCoreRPCClient: Sendable {
             return requestData
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
-        let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
         var auth: [String: Any] = [:]
-        let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasAttachToken = attachToken?.isEmpty == false
-        if let attachToken,
-           requestNeedsAuth,
-           hasAttachToken,
-           requestIsCoveredByAttachTicket {
-            if ticket.expiresAt > runtime.now() {
-                auth["attach_token"] = attachToken
-            } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
-                throw MobileShellConnectionError.attachTicketExpired
-            }
+        // The attach token is sent only as routing/scope context when present and
+        // unexpired. It is no longer an authorization credential on the host
+        // (Stack auth is the gate), so an expired ticket is not fatal here.
+        if requestNeedsAuth,
+           let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !attachToken.isEmpty,
+           ticket.expiresAt > runtime.now() {
+            auth["attach_token"] = attachToken
         }
-        let shouldSendStackAuth = requestNeedsAuth && auth["attach_token"] == nil
-        if shouldSendStackAuth {
+        // Stack auth is the authorization gate: present the Mac owner's Stack
+        // access token on every authed request, over a route trusted to carry it.
+        // A route that cannot carry Stack auth (an untrusted manual public host)
+        // can no longer authorize anything and is refused here.
+        if requestNeedsAuth {
             guard allowsStackAuthFallback,
                   MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
                 throw MobileShellConnectionError.insecureManualRoute
@@ -226,7 +230,8 @@ final class MobileCoreRPCClient: Sendable {
             return false
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.replay", "terminal.replay",
-             "mobile.terminal.viewport", "terminal.viewport":
+             "mobile.terminal.viewport", "terminal.viewport",
+             "mobile.terminal.scroll", "terminal.scroll":
             return !ticketCoversTerminalRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value,
@@ -732,9 +737,12 @@ private actor MobileCoreRPCSession {
         let errorPayload = envelope["error"] as? [String: Any]
         let message = (errorPayload?["message"] as? String) ?? "RPC error"
         let code = errorPayload?["code"] as? String
-        if code == "unauthorized" {
+        switch code {
+        case "account_mismatch":
+            cont.resume(returning: .failure(.accountMismatch(message)))
+        case "unauthorized":
             cont.resume(returning: .failure(.authorizationFailed(message)))
-        } else {
+        default:
             cont.resume(returning: .failure(.rpcError(code, message)))
         }
     }

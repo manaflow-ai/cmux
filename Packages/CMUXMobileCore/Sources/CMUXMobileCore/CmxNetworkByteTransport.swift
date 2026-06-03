@@ -2,6 +2,26 @@ import Dispatch
 import Foundation
 @preconcurrency import Network
 
+/// Why a connection attempt failed, classified from the underlying `NWError`
+/// so the UI can give an accurate, actionable message instead of a generic one.
+public enum CmxConnectFailureKind: Sendable, Equatable {
+    /// The host is reachable but nothing is listening on the port: the Mac app
+    /// is not running, or mobile pairing is turned off.
+    case connectionRefused
+    /// No route to the host: the Mac is off Tailscale, asleep, or offline.
+    case hostUnreachable
+    /// The connect attempt timed out (commonly the same as unreachable/asleep).
+    case timedOut
+    /// The OS blocked the connection (e.g. the iOS Local Network permission).
+    case permissionDenied
+    /// DNS resolution of the host failed.
+    case dnsFailed
+    /// The secure channel could not be established.
+    case secureChannelFailed
+    /// Anything else.
+    case generic
+}
+
 public enum CmxNetworkByteTransportError: Error, Equatable, Sendable {
     case emptyHost
     case invalidPort(Int)
@@ -13,7 +33,7 @@ public enum CmxNetworkByteTransportError: Error, Equatable, Sendable {
     case receiveAlreadyInProgress
     case sendAlreadyInProgress
     case connectionTimedOut
-    case connectionFailed(String)
+    case connectionFailed(String, CmxConnectFailureKind)
     case receiveFailed(String)
     case sendFailed(String)
 }
@@ -214,8 +234,8 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             resumeConnectContinuations()
         case .waiting:
             break
-        case let .failed(errorDescription):
-            failTransport(.connectionFailed(errorDescription))
+        case let .failed(errorDescription, kind):
+            failTransport(.connectionFailed(errorDescription, kind))
         case .cancelled:
             switch state {
             case .closed, .failed:
@@ -567,8 +587,8 @@ private func dispatchTimeoutInterval(for nanoseconds: UInt64) -> DispatchTimeInt
 
 private enum CmxNetworkConnectionEvent: Sendable {
     case ready
-    case waiting(String)
-    case failed(String)
+    case waiting(String, CmxConnectFailureKind)
+    case failed(String, CmxConnectFailureKind)
     case cancelled
     case other
 
@@ -577,9 +597,9 @@ private enum CmxNetworkConnectionEvent: Sendable {
         case .ready:
             self = .ready
         case let .waiting(error):
-            self = .waiting(cmxNetworkErrorDescription(error))
+            self = .waiting(cmxNetworkErrorDescription(error), cmxConnectFailureKind(error))
         case let .failed(error):
-            self = .failed(cmxNetworkErrorDescription(error))
+            self = .failed(cmxNetworkErrorDescription(error), cmxConnectFailureKind(error))
         case .cancelled:
             self = .cancelled
         case .setup, .preparing:
@@ -587,6 +607,32 @@ private enum CmxNetworkConnectionEvent: Sendable {
         @unknown default:
             self = .other
         }
+    }
+}
+
+/// Classify an `NWError` into a ``CmxConnectFailureKind`` so the UI can tell a
+/// user which knob to turn: app-not-running vs off-Tailscale vs permission.
+private func cmxConnectFailureKind(_ error: NWError) -> CmxConnectFailureKind {
+    switch error {
+    case let .posix(code):
+        switch code {
+        case .ECONNREFUSED:
+            return .connectionRefused
+        case .EHOSTUNREACH, .ENETUNREACH, .ENETDOWN, .EHOSTDOWN, .ENETRESET, .ECONNABORTED:
+            return .hostUnreachable
+        case .ETIMEDOUT:
+            return .timedOut
+        case .EPERM, .EACCES:
+            return .permissionDenied
+        default:
+            return .generic
+        }
+    case .dns:
+        return .dnsFailed
+    case .tls:
+        return .secureChannelFailed
+    default:
+        return .generic
     }
 }
 

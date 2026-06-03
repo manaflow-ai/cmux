@@ -179,6 +179,12 @@ public enum MobileConnectionState: Equatable, Sendable {
     case connected
 }
 
+public enum MobileMacConnectionStatus: Equatable, Sendable {
+    case connected
+    case reconnecting
+    case unavailable
+}
+
 public enum MobilePairingURLConnectionResult: Equatable, Sendable {
     case connected
     case failed

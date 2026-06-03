@@ -52,7 +52,7 @@ struct WorkspaceShellView: View {
         }
         .accessibilityIdentifier("MobileWorkspaceShell")
         .overlay(alignment: .top) {
-            MobileConnectionRecoveryBanner(store: store)
+            MobileConnectionRecoveryBanner(store: store, signOut: signOut)
         }
     }
 
@@ -62,6 +62,7 @@ struct WorkspaceShellView: View {
                 workspaces: store.workspaces,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
+                connectionStatus: store.macConnectionStatus,
                 navigationStyle: .push,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
@@ -111,6 +112,7 @@ struct WorkspaceShellView: View {
                 workspaces: store.workspaces,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
+                connectionStatus: store.macConnectionStatus,
                 navigationStyle: .sidebar,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: store.createWorkspace,
@@ -245,6 +247,7 @@ private struct WorkspaceDetailContainer: View {
         if let workspace {
             WorkspaceDetailView(
                 host: store.connectedHostName,
+                connectionStatus: store.macConnectionStatus,
                 workspace: workspace,
                 store: store,
                 selectedTerminalID: Binding(
@@ -278,6 +281,7 @@ struct WorkspaceListView: View {
     let workspaces: [MobileWorkspacePreview]
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let host: String
+    let connectionStatus: MobileMacConnectionStatus
     let navigationStyle: WorkspaceNavigationStyle
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
@@ -288,6 +292,7 @@ struct WorkspaceListView: View {
     var signOut: (() -> Void)?
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
+    @State private var showingSettings = false
 
     private var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -303,11 +308,19 @@ struct WorkspaceListView: View {
 
     var body: some View {
         List {
+            if connectionStatus != .connected {
+                Section {
+                    MobileMacConnectionStatusRow(host: host, status: connectionStatus)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .listRowSeparator(.hidden)
+                }
+            }
             Section {
                 ForEach(filteredWorkspaces) { workspace in
                     WorkspaceNavigationRow(
                         workspace: workspace,
                         host: host,
+                        connectionStatus: connectionStatus,
                         isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
                         navigationStyle: navigationStyle,
                         selectWorkspace: selectWorkspace
@@ -340,6 +353,13 @@ struct WorkspaceListView: View {
         .sheet(isPresented: $showingShortcutsSettings) {
             TerminalShortcutsSettingsView()
         }
+        .sheet(isPresented: $showingSettings) {
+            MobileSettingsView(
+                connectedHostName: host,
+                rescanQR: rescanQR,
+                signOut: signOut
+            )
+        }
         #endif
     }
 
@@ -352,6 +372,17 @@ struct WorkspaceListView: View {
     }
 
     private var settingsMenu: some View {
+        #if os(iOS)
+        // Open the full Settings page (account, terminal shortcuts,
+        // notifications, paired Mac) rather than a transient menu.
+        Button {
+            showingSettings = true
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
+        .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
+        #else
         Menu {
             Button {
                 showingShortcutsSettings = true
@@ -362,25 +393,6 @@ struct WorkspaceListView: View {
                 )
             }
             .accessibilityIdentifier("MobileWorkspaceTerminalShortcutsMenuItem")
-            #if os(iOS)
-            Button {
-                Task {
-                    if MobilePushCoordinator.shared.isEnabled {
-                        await MobilePushCoordinator.shared.disable()
-                    } else {
-                        _ = await MobilePushCoordinator.shared.enable()
-                    }
-                }
-            } label: {
-                Label(
-                    MobilePushCoordinator.shared.isEnabled
-                        ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Agent Notifications")
-                        : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me About Agents"),
-                    systemImage: MobilePushCoordinator.shared.isEnabled ? "bell.slash" : "bell"
-                )
-            }
-            .accessibilityIdentifier("MobileWorkspaceNotificationsMenuItem")
-            #endif
             if let rescanQR {
                 Button {
                     rescanQR()
@@ -408,12 +420,14 @@ struct WorkspaceListView: View {
         }
         .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
         .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
+        #endif
     }
 }
 
 private struct WorkspaceNavigationRow: View {
     let workspace: MobileWorkspacePreview
     let host: String
+    let connectionStatus: MobileMacConnectionStatus
     let isSelected: Bool
     let navigationStyle: WorkspaceNavigationStyle
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
@@ -423,7 +437,7 @@ private struct WorkspaceNavigationRow: View {
             switch navigationStyle {
             case .push:
                 NavigationLink(value: workspace.id) {
-                    WorkspaceRow(workspace: workspace, host: host, isSelected: false)
+                    WorkspaceRow(workspace: workspace, host: host, connectionStatus: connectionStatus, isSelected: false)
                 }
                 .simultaneousGesture(TapGesture().onEnded {
                     selectWorkspace(workspace.id)
@@ -432,7 +446,7 @@ private struct WorkspaceNavigationRow: View {
                 Button {
                     selectWorkspace(workspace.id)
                 } label: {
-                    WorkspaceRow(workspace: workspace, host: host, isSelected: isSelected)
+                    WorkspaceRow(workspace: workspace, host: host, connectionStatus: connectionStatus, isSelected: isSelected)
                 }
                 .buttonStyle(.plain)
             }
@@ -441,13 +455,14 @@ private struct WorkspaceNavigationRow: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
         .accessibilityLabel(workspace.name)
-        .accessibilityValue(workspace.accessibilitySummary(host: host))
+        .accessibilityValue(workspace.accessibilitySummary(host: host, connectionStatus: connectionStatus))
     }
 }
 
 struct WorkspaceRow: View {
     let workspace: MobileWorkspacePreview
     let host: String
+    let connectionStatus: MobileMacConnectionStatus
     let isSelected: Bool
 
     var body: some View {
@@ -463,7 +478,7 @@ struct WorkspaceRow: View {
 
                     Spacer(minLength: 8)
 
-                    Text(workspace.timestampOrStatus(host: host))
+                    Text(workspace.timestampOrStatus(host: host, connectionStatus: connectionStatus))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -476,10 +491,10 @@ struct WorkspaceRow: View {
 
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(workspace.statusColor)
+                        .fill(workspace.statusColor(connectionStatus: connectionStatus))
                         .frame(width: 7, height: 7)
 
-                    Text(workspace.detailLine(host: host))
+                    Text(workspace.detailLine(host: host, connectionStatus: connectionStatus))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -521,8 +536,15 @@ private extension MobileWorkspacePreview {
         terminals.first?.name ?? name
     }
 
-    var statusColor: Color {
-        terminals.isEmpty ? .orange : .green
+    func statusColor(connectionStatus: MobileMacConnectionStatus) -> Color {
+        switch connectionStatus {
+        case .connected:
+            return terminals.isEmpty ? .orange : .green
+        case .reconnecting:
+            return .orange
+        case .unavailable:
+            return .red
+        }
     }
 
     var avatarSymbolName: String {
@@ -540,7 +562,10 @@ private extension MobileWorkspacePreview {
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
-    func timestampOrStatus(host: String) -> String {
+    func timestampOrStatus(host: String, connectionStatus: MobileMacConnectionStatus) -> String {
+        if connectionStatus != .connected {
+            return connectionStatus.label
+        }
         let date = latestActivityDate
         guard date.timeIntervalSince1970 > 1 else {
             return host.isEmpty ? (terminals.first?.name ?? "") : host
@@ -551,16 +576,24 @@ private extension MobileWorkspacePreview {
         return date.formatted(.dateTime.month(.defaultDigits).day(.defaultDigits))
     }
 
-    func detailLine(host: String) -> String {
+    func detailLine(host: String, connectionStatus: MobileMacConnectionStatus) -> String {
         let count = L10n.terminalCount(terminals.count)
+        guard connectionStatus == .connected else {
+            return count
+        }
         guard !host.isEmpty else {
             return count
         }
         return "\(host), \(count)"
     }
 
-    func accessibilitySummary(host: String) -> String {
-        "\(previewLine), \(detailLine(host: host))"
+    func accessibilitySummary(host: String, connectionStatus: MobileMacConnectionStatus) -> String {
+        let detail = detailLine(host: host, connectionStatus: connectionStatus)
+        // A healthy connection contributes no status text anywhere, including VoiceOver.
+        guard connectionStatus != .connected else {
+            return "\(previewLine), \(detail)"
+        }
+        return "\(previewLine), \(connectionStatus.label), \(detail)"
     }
 
     private var latestActivityDate: Date { .distantPast }
@@ -574,6 +607,7 @@ private var stableAvatarSeed: Int {
 
 struct WorkspaceDetailView: View {
     let host: String
+    let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
     @Binding var selectedTerminalID: MobileTerminalPreview.ID?
@@ -593,9 +627,10 @@ struct WorkspaceDetailView: View {
     }
 
     private func detailContent() -> some View {
-        // libghostty owns the bottom input accessory bar: it ships with
-        // `GhosttySurfaceView`'s `inputAccessoryView` (see
-        // `TerminalInputAccessoryAction`). The SwiftUI bar that used to
+        // `GhosttySurfaceView` owns the bottom accessory bar: it docks the
+        // `TerminalInputAccessoryAction` toolbar persistently at the bottom
+        // (above the keyboard when up, above the home indicator when down) and
+        // reserves its height in the terminal grid. The SwiftUI bar that used to
         // live here has been removed so the two stacked toolbars from
         // dogfood iosfin no longer fight for the same screen edge.
         Group {
@@ -606,8 +641,20 @@ struct WorkspaceDetailView: View {
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize
                 )
+                // Identity must track the selected terminal. The representable's
+                // coordinator binds its byte sink to the surfaceID at make time and
+                // `updateUIView` is a no-op, so without a per-terminal id SwiftUI
+                // reuses the first terminal's surface and the dropdown never switches.
+                // Keying on terminalID tears down the old surface (unregistering its
+                // sink via dismantleUIView) and builds the newly-selected one.
+                .id(terminalID)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(TerminalPalette.background)
+                // The surface positions its grid + docked toolbar from
+                // `keyboardHeight` directly, so opt out of SwiftUI keyboard
+                // avoidance; otherwise the view ALSO shrinks for the keyboard
+                // and the reservation double-counts (extra gap when open).
+                .ignoresSafeArea(.keyboard, edges: .bottom)
             } else {
                 TerminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -618,6 +665,11 @@ struct WorkspaceDetailView: View {
             #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(alignment: .topLeading) {
+            MobileMacConnectionStatusPill(host: host, status: connectionStatus)
+                .padding(.top, 10)
+                .padding(.leading, 10)
+        }
         #if os(iOS)
         .mobileTerminalSafeAreaExpansion(
             context: safeAreaContext,
@@ -794,5 +846,110 @@ struct WorkspaceDetailView: View {
 
     private func dismissTerminalKeyboardForChrome() {
         dismissKeyboard()
+    }
+}
+
+private struct MobileMacConnectionStatusRow: View {
+    let host: String
+    let status: MobileMacConnectionStatus
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: status.symbolName)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(status.tintColor)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(status.label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Text(host.isEmpty ? status.description : host)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+        }
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("MobileMacConnectionStatus")
+    }
+}
+
+private struct MobileMacConnectionStatusPill: View {
+    let host: String
+    let status: MobileMacConnectionStatus
+
+    var body: some View {
+        // Only surface the pill for problem states (reconnecting / offline).
+        // A healthy connection shows no chrome.
+        if status != .connected {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(status.tintColor)
+                    .frame(width: 8, height: 8)
+
+                Text(status.label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.black.opacity(0.78), in: Capsule())
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(host.isEmpty ? status.label : "\(host), \(status.label)")
+            .accessibilityIdentifier("MobileTerminalMacConnectionStatus")
+        }
+    }
+}
+
+private extension MobileMacConnectionStatus {
+    var label: String {
+        switch self {
+        case .connected:
+            return L10n.string("mobile.connection.connected", defaultValue: "Connected")
+        case .reconnecting:
+            return L10n.string("mobile.connection.reconnecting", defaultValue: "Reconnecting")
+        case .unavailable:
+            return L10n.string("mobile.connection.unavailable", defaultValue: "Mac offline")
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .connected:
+            return L10n.string("mobile.connection.connectedDescription", defaultValue: "Live terminal sync is active.")
+        case .reconnecting:
+            return L10n.string("mobile.connection.reconnectingDescription", defaultValue: "Trying to reach the Mac app.")
+        case .unavailable:
+            return L10n.string("mobile.connection.unavailableDescription", defaultValue: "Open cmux on the Mac or wake the computer.")
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .connected:
+            return "checkmark.circle.fill"
+        case .reconnecting:
+            return "arrow.triangle.2.circlepath.circle.fill"
+        case .unavailable:
+            return "exclamationmark.circle.fill"
+        }
+    }
+
+    var tintColor: Color {
+        switch self {
+        case .connected:
+            return .green
+        case .reconnecting:
+            return .orange
+        case .unavailable:
+            return .red
+        }
     }
 }

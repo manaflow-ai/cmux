@@ -23,6 +23,18 @@ public enum UITestConfig {
         value(for: "CMUX_UITEST_ATTACH_URL")
     }
 
+    /// When `CMUX_UITEST_TERMINAL_PREVIEW=1`, the root view renders a standalone
+    /// terminal surface (blank, no sign-in or Mac pairing) so the terminal +
+    /// docked-toolbar layout can be screenshotted on the simulator. DEBUG-only;
+    /// does not require mock data because it bypasses the data layer entirely.
+    public static var terminalLayoutPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     public static func mockDataEnabled(from env: [String: String]) -> Bool {
         #if DEBUG
         if env["CMUX_UITEST_MOCK_DATA"] == "0" {

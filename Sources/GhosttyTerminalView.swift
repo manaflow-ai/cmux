@@ -5806,6 +5806,51 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return surface
     }
 
+    /// Forward a mobile scroll gesture to this real surface. libghostty does the
+    /// mode-correct thing: a normal screen moves the viewport into scrollback;
+    /// an alt screen with mouse reporting encodes mouse-wheel to the PTY for the
+    /// program (vim/less/htop). `col`/`row` is the grid cell under the finger so
+    /// the alt-screen wheel reports at the right cell. Runs on the main actor
+    /// like the desktop's own scroll path.
+    @MainActor
+    func mobileScroll(deltaLines: Double, col: Int, row: Int) {
+        guard deltaLines != 0,
+              let surface = liveSurfaceForGhosttyAccess(reason: "mobileScroll") else { return }
+        let size = ghostty_surface_size(surface)
+        // The surface is sized in backing pixels; `ghostty_surface_mouse_pos`
+        // wants points, so divide the cell size by the content scale.
+        let scale = max(Double(lastXScale), 1)
+        let cellWidthPt = Double(size.cell_width_px) / scale
+        let cellHeightPt = Double(size.cell_height_px) / scale
+        let posX = (Double(col) + 0.5) * cellWidthPt
+        let posY = (Double(row) + 0.5) * cellHeightPt
+        ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
+        ghostty_surface_mouse_scroll(surface, 0, deltaLines, 0)
+    }
+
+    /// Forward a mobile tap to this real surface as a left mouse click at the
+    /// given grid cell. libghostty does the mode-correct thing: a program with
+    /// mouse reporting (alt-screen TUIs like lazygit/htop/fzf) gets an encoded
+    /// click report to its PTY; a normal screen treats it as an empty selection,
+    /// which is harmless. `col`/`row` is the grid cell under the finger. Runs on
+    /// the main actor like the desktop's own click path.
+    @MainActor
+    func mobileClick(col: Int, row: Int) {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileClick") else { return }
+        let size = ghostty_surface_size(surface)
+        // The surface is sized in backing pixels; `ghostty_surface_mouse_pos`
+        // wants points, so divide the cell size by the content scale. Aim at the
+        // cell center so the click lands unambiguously inside the target cell.
+        let scale = max(Double(lastXScale), 1)
+        let cellWidthPt = Double(size.cell_width_px) / scale
+        let cellHeightPt = Double(size.cell_height_px) / scale
+        let posX = (Double(max(0, col)) + 0.5) * cellWidthPt
+        let posY = (Double(max(0, row)) + 0.5) * cellHeightPt
+        ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
+    }
+
     private static let portalHostAreaThreshold: CGFloat = 4
 
     private static func portalHostArea(for bounds: CGRect) -> CGFloat {

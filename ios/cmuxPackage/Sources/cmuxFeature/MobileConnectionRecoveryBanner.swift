@@ -7,10 +7,21 @@ import SwiftUI
 /// the connection. Renders nothing while the connection is healthy.
 struct MobileConnectionRecoveryBanner: View {
     @Bindable var store: CMUXMobileShellStore
+    /// Sign the user out so they can re-authenticate into the account that owns
+    /// the Mac. Shown only for the account-mismatch / authorization-failure
+    /// state, where Retry cannot help.
+    var signOut: (() -> Void)?
 
     var body: some View {
         Group {
-            if store.connectionRecoveryFailed {
+            if store.connectionRequiresReauth {
+                authBanner(
+                    text: store.connectionError ?? L10n.string(
+                        "mobile.recovery.accountMismatch",
+                        defaultValue: "This Mac is signed in to a different cmux account. Sign out and sign back in with that account."
+                    )
+                )
+            } else if store.connectionRecoveryFailed {
                 banner(
                     text: L10n.string(
                         "mobile.recovery.lost",
@@ -32,6 +43,45 @@ struct MobileConnectionRecoveryBanner: View {
         }
         .animation(.default, value: store.isRecoveringConnection)
         .animation(.default, value: store.connectionRecoveryFailed)
+        .animation(.default, value: store.connectionRequiresReauth)
+    }
+
+    /// An authorization failure (wrong account / unverifiable token). Retrying
+    /// can't fix it, so this surfaces the reason plus a Sign Out action.
+    @ViewBuilder
+    private func authBanner(text: String) -> some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "person.crop.circle.badge.exclamationmark")
+                    .foregroundStyle(.white)
+                Text(text)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let signOut {
+                Button {
+                    signOut()
+                } label: {
+                    Text(L10n.string("mobile.recovery.switchAccount", defaultValue: "Sign Out & Switch Account"))
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(.white)
+                .foregroundStyle(.black)
+                .accessibilityIdentifier("MobileConnectionReauthSignOut")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: 420)
+        .background(.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.top, 8)
+        .padding(.horizontal, 16)
+        .accessibilityIdentifier("MobileConnectionReauthBanner")
     }
 
     @ViewBuilder

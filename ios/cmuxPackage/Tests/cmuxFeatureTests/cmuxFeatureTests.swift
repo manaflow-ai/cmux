@@ -16,6 +16,7 @@ import UIKit
     #expect(store.phase == .signIn)
     #expect(store.isSignedIn == false)
     #expect(store.connectionState == .disconnected)
+    #expect(store.macConnectionStatus == .unavailable)
     #expect(store.selectedWorkspace?.name == "cmux")
     #expect(store.selectedTerminalID?.rawValue == "terminal-build")
 }
@@ -465,6 +466,7 @@ import UIKit
     store.connectPreviewHost()
     #expect(store.phase == .workspaces)
     #expect(store.connectedHostName == "cmux-macbook")
+    #expect(store.macConnectionStatus == .connected)
 }
 
 @MainActor
@@ -484,9 +486,55 @@ import UIKit
 
     #expect(store.phase == .workspaces)
     #expect(store.connectedHostName == "Test Mac")
+    #expect(store.macConnectionStatus == .connected)
     #expect(store.activeTicket?.macDeviceID == "test-mac")
     #expect(store.activeRoute?.kind == .debugLoopback)
     #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
+}
+
+@MainActor
+@Test func macConnectionStatusMarksUnavailableWhenEventStreamCloses() async throws {
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcHostStatusFrame(renderGrid: true),
+        try rpcResultFrame(result: ["stream_id": "events"]),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    for _ in 0..<200 {
+        if store.macConnectionStatus == .unavailable {
+            break
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+
+    let requests = try await responses.sentRequests()
+    #expect(requests.contains { $0.method == "mobile.events.subscribe" })
+    #expect(store.connectionState == .connected)
+    #expect(store.macConnectionStatus == .unavailable)
+    #expect(store.connectionRecoveryFailed)
 }
 
 @MainActor
