@@ -11274,6 +11274,15 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--context-color) 34%, transparent);
 }
 
+.context-color:disabled {
+  cursor: default;
+  opacity: .5;
+}
+
+.context-color.is-active:disabled {
+  opacity: 1;
+}
+
 .context-color-picker {
   min-width: 0;
   min-height: 28px;

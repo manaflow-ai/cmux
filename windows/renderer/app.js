@@ -17017,15 +17017,18 @@ function showPanelContextMenu(event, panel) {
   const colors = document.createElement("div");
   colors.className = "context-colors";
   for (const [colorIndex, color] of workspaceColorPalette().entries()) {
+    const active = colorKey(panel.color) === colorKey(color);
     const button = document.createElement("button");
-    button.className = `context-color${panel.color === color ? " is-active" : ""}`;
+    button.className = `context-color${active ? " is-active" : ""}`;
     button.type = "button";
-    const label = contextColorButtonLabel("tab", color, panel.color === color, colorIndex);
+    button.disabled = active;
+    const label = contextColorButtonLabel("tab", color, active, colorIndex);
     button.title = label;
     button.setAttribute("aria-label", label);
-    button.setAttribute("aria-pressed", String(panel.color === color));
+    button.setAttribute("aria-pressed", String(active));
     button.style.setProperty("--context-color", color);
     button.onclick = () => {
+      if (colorKey(panel.color) === colorKey(color)) return;
       updatePanel(panel.id, { color });
       hideContextMenu();
     };
@@ -17090,15 +17093,18 @@ function showWorkspaceContextMenu(event, workspace) {
   const colors = document.createElement("div");
   colors.className = "context-colors";
   for (const [colorIndex, color] of workspaceColorPalette().entries()) {
+    const active = colorKey(workspace.color) === colorKey(color);
     const button = document.createElement("button");
-    button.className = `context-color${workspace.color === color ? " is-active" : ""}`;
+    button.className = `context-color${active ? " is-active" : ""}`;
     button.type = "button";
-    const label = contextColorButtonLabel("workspace", color, workspace.color === color, colorIndex);
+    button.disabled = active;
+    const label = contextColorButtonLabel("workspace", color, active, colorIndex);
     button.title = label;
     button.setAttribute("aria-label", label);
-    button.setAttribute("aria-pressed", String(workspace.color === color));
+    button.setAttribute("aria-pressed", String(active));
     button.style.setProperty("--context-color", color);
     button.onclick = () => {
+      if (colorKey(workspace.color) === colorKey(color)) return;
       setWorkspaceColor(color, workspace.id);
       hideContextMenu();
     };
