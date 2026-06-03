@@ -13297,6 +13297,14 @@ function quickSettingsSignature() {
   appendSignatureValue(parts, state.customColorPalette.length);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
   appendSignatureValue(parts, state.performanceGuardTriggered);
+  appendSignatureValue(parts, state.performanceGuardReason || "");
+  appendSignatureValue(parts, hasPerformanceStats());
+  appendSignatureValue(parts, state.renderStats.lastMs || 0);
+  appendSignatureValue(parts, state.renderStats.avgMs || 0);
+  appendSignatureValue(parts, state.renderStats.slowCount || 0);
+  appendSignatureValue(parts, state.terminalOutputStats.currentQueued || 0);
+  appendSignatureValue(parts, state.paneCreateStats.lastMs || 0);
+  appendSignatureValue(parts, state.terminalConnectStats.lastMs || 0);
   return parts.join("");
 }
 
@@ -18087,6 +18095,57 @@ function quickPaneControlsPanel(panel) {
   });
 }
 
+function quickPerformanceControlsPanel(performance = performanceOverviewModel()) {
+  const tuneLabel = performance.status === "tuned" ? "Details" : "Tune";
+  const tuneTitle = performance.status === "tuned"
+    ? "Open performance settings and diagnostics."
+    : "Apply the performance tune for lag, effects, terminal output, and browser panes.";
+  const hasStats = hasPerformanceStats();
+  const profilesFull = savedSettingsProfilesFull();
+  const actions = [
+    quickOverviewControlButton(tuneLabel, () => {
+      if (performance.status === "tuned") {
+        openSettingsCategory("performance");
+        return;
+      }
+      tunePerformanceNow();
+      if (state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
+    }, {
+      title: tuneTitle,
+      search: "quick setup performance tune speed lag smooth reduce effects hidden output"
+    }),
+    quickOverviewControlButton("Save", saveCurrentPerformanceProfile, {
+      disabled: profilesFull,
+      title: profilesFull ? settingsProfileLimitTitle() : "Save the current performance setup as a reusable profile.",
+      search: "quick setup performance save speed profile reusable settings"
+    }),
+    quickOverviewControlButton("Diagnostics", copyPerformanceDiagnostics, {
+      title: "Copy current performance diagnostics as JSON.",
+      search: "quick setup performance diagnostics copy report render output terminal lag"
+    }),
+    quickOverviewControlButton("Copy", copyPerformanceSetup, {
+      title: "Copy performance setup as JSON.",
+      search: "quick setup performance copy setup export clipboard json"
+    }),
+    quickOverviewControlButton("Paste", pastePerformanceSetup, {
+      title: "Paste copied performance setup.",
+      search: "quick setup performance paste setup import clipboard json"
+    }),
+    quickOverviewControlButton("Reset stats", resetRenderStats, {
+      disabled: !hasStats,
+      title: hasStats ? "Clear collected performance counters." : "Performance counters are already clear.",
+      search: `quick setup performance render stats reset ${hasStats ? "" : "empty clear"}`
+    })
+  ];
+  return quickOverviewControlsPanel({
+    className: "quick-overview-performance",
+    title: "Performance controls",
+    meta: `${performance.guard} / ${performance.output} / ${performance.startup}`,
+    search: `quick setup performance controls tune save diagnostics copy paste reset stats speed lag smooth ${performance.status} ${performance.title} ${performance.reason} ${performance.render} ${performance.output} ${performance.startup}`,
+    actions
+  });
+}
+
 function quickSetupOverviewPanel() {
   const workspace = activeWorkspace();
   const panels = workspace?.panels || [];
@@ -18154,6 +18213,7 @@ function quickSetupOverviewPanel() {
         <span data-quick-speed-action></span>
       </span>
     </button>
+    <div data-quick-performance-controls></div>
     <div class="quick-overview-scope" aria-label="Background scope">
       <button class="quick-overview-scope-item" type="button" data-quick-scope-item="app">
         <span class="quick-overview-scope-preview" aria-hidden="true"></span>
@@ -18235,6 +18295,7 @@ function quickSetupOverviewPanel() {
     tunePerformanceNow();
     if (state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
   };
+  panel.querySelector("[data-quick-performance-controls]").replaceWith(quickPerformanceControlsPanel(performance));
   panel.querySelector("[data-quick-scope-app]").textContent = scope.hasBackground
     ? appearanceBackgroundLabel(state.settings.backgroundImage)
     : "None";
