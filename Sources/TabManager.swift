@@ -7473,12 +7473,22 @@ class TabManager: ObservableObject {
             selectedTabId = tabs[newIndex].id
         }
 
-        for workspace in indexedTargets.map(\.element) {
-            workspace.withClosedPanelHistorySuppressed {
-                workspace.teardownAllPanels()
-            }
-            workspace.teardownRemoteConnection()
+        let detachedWorkspaces = indexedTargets.map(\.element)
+        for workspace in detachedWorkspaces {
             publishCmuxWorkspaceClosed(workspace)
+        }
+        teardownDetachedWorkspacesCooperatively(detachedWorkspaces)
+    }
+
+    private func teardownDetachedWorkspacesCooperatively(_ workspaces: [Workspace]) {
+        Task { @MainActor in
+            for workspace in workspaces {
+                await workspace.withClosedPanelHistorySuppressed {
+                    await workspace.teardownAllPanelsCooperatively()
+                    workspace.teardownRemoteConnection()
+                }
+                await Task.yield()
+            }
         }
     }
 
