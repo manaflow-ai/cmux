@@ -20751,12 +20751,23 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
-            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
-                preferred: nil,
-                fallback: surfaceArg,
-                workspaceId: workspaceId,
-                client: client
-            )
+            let surfaceId: String
+            do {
+                surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                    preferred: nil,
+                    fallback: surfaceArg,
+                    workspaceId: workspaceId,
+                    client: client
+                )
+            } catch {
+                if shouldIgnoreClaudeHookTeardownError(error) {
+                    telemetry.breadcrumb("claude-hook.session-start.ignored", data: ["error": String(describing: error)])
+                    sendClaudeFeedTelemetry(workspaceId: workspaceId)
+                    print("OK")
+                    return
+                }
+                throw error
+            }
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
@@ -27095,14 +27106,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return surfaceId
         }
         func resolveDefaultSurfaceId(workspaceId: String) -> String? {
-            guard case .found(let surfaces) = listedSurfaces(workspaceId: workspaceId) else {
+            switch listedSurfaces(workspaceId: workspaceId) {
+            case .found(let surfaces):
+                return surfaces.first(where: { ($0["focused"] as? Bool) == true })?["id"] as? String
+            case .unknown:
+                return try? resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
+            case .unavailable:
                 return nil
             }
-            if let focused = surfaces.first(where: { ($0["focused"] as? Bool) == true }),
-               let id = focused["id"] as? String {
-                return id
-            }
-            return surfaces.first?["id"] as? String
         }
         let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
         let hasInvalidDirectWorkspaceArg = directWorkspaceArg != nil && resolvedDirectWorkspaceArg == nil

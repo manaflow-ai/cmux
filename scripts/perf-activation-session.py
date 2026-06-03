@@ -579,6 +579,14 @@ class CmuxPerfRunner:
     def write_failure_diagnostics(self, output_dir: pathlib.Path) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
         diagnostics = self.result.setdefault("diagnostics", {})
+
+        def read_tail(source: pathlib.Path, max_bytes: int) -> bytes:
+            size = source.stat().st_size
+            with source.open("rb") as handle:
+                if size > max_bytes:
+                    handle.seek(-max_bytes, os.SEEK_END)
+                return handle.read()
+
         for source, name in (
             (self.stdout_path, "app-stdout-tail.log"),
             (self.debug_log_path, "cmux-debug-tail.log"),
@@ -587,10 +595,10 @@ class CmuxPerfRunner:
                 continue
             destination = output_dir / name
             max_bytes = 262_144
-            data = source.read_bytes()
-            if len(data) > max_bytes:
+            data = read_tail(source, max_bytes)
+            if source.stat().st_size > max_bytes:
                 header = f"truncated to last {max_bytes} bytes from {source}\n".encode("utf-8")
-                destination.write_bytes(header + data[-max_bytes:])
+                destination.write_bytes(header + data)
             else:
                 destination.write_bytes(data)
             diagnostics[name] = str(destination)

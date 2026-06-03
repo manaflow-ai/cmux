@@ -24,7 +24,16 @@ if [[ "${#test_files[@]}" -eq 0 ]]; then
 fi
 
 printf 'Running %s DB behavior test file(s) with CMUX_DB_TEST=1\n' "${#test_files[@]}"
+failed_files=()
 for test_file in "${test_files[@]}"; do
   printf '\n==> bun test %s\n' "$test_file"
-  bun test "$test_file"
+  if ! bun test "$test_file"; then
+    failed_files+=("$test_file")
+  fi
 done
+
+if [[ "${#failed_files[@]}" -gt 0 ]]; then
+  printf '\n%s DB behavior test file(s) failed:\n' "${#failed_files[@]}" >&2
+  printf '  %s\n' "${failed_files[@]}" >&2
+  exit 1
+fi
