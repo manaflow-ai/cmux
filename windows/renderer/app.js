@@ -16988,6 +16988,10 @@ function showPanelContextMenu(event, panel) {
       { icon: "close" }
     );
     clearPaneBackground.title = paneBackground ? "Clear this pane background." : "Pane background is already clear.";
+    const choosePaneBackground = contextMenuButton("Choose pane background", () => choosePanelBackgroundImage(panel), false, "", { icon: "image" });
+    choosePaneBackground.title = "Choose an image for this pane background.";
+    const pastePaneBackground = contextMenuButton("Paste pane background", () => pastePanelBackgroundImageFromClipboard(panel), false, "", { icon: "clipboard" });
+    pastePaneBackground.title = "Paste an image URL, path, or copied image as this pane background.";
     surfaceActions.push(
       contextMenuButton("Find", () => openTerminalSearch(panel), false, "", { icon: "search" }),
       contextMenuButton("Find next", () => findNextInTerminal(panel), false, "", { icon: "arrowRight" }),
@@ -16998,7 +17002,8 @@ function showPanelContextMenu(event, panel) {
       contextMenuButton("Text smaller", () => changePaneTerminalFontSize(panel.id, -1), false, "", { icon: "textSize" }),
       contextMenuButton("Reset text size", () => resetPaneTerminalFontSize(panel.id), !panelHasTerminalFontSize(panel), "", { icon: "reload" }),
       contextMenuButton("Restart terminal", () => restartPanel(panel.id), false, "", { icon: "reload" }),
-      contextMenuButton("Choose pane background", () => choosePanelBackgroundImage(panel), false, "", { icon: "image" }),
+      choosePaneBackground,
+      pastePaneBackground,
       useAppBackground,
       (() => {
         const action = contextMenuButton("Save pane background", () => saveCustomBackgroundImage({ url: panel.backgroundImage }), !canSaveBackgroundImage(panel.backgroundImage), "", { icon: "plus" });
@@ -17174,9 +17179,13 @@ function showWorkspaceContextMenu(event, workspace) {
     : terminalBackgroundsClear
       ? "Terminal pane backgrounds are already clear."
       : "Clear every terminal pane background.";
+  const chooseTerminalBackground = contextMenuButton(t("workspace.chooseTerminalBackground"), () => chooseWorkspaceTerminalBackground(workspace), !hasTerminalPanes);
+  chooseTerminalBackground.title = hasTerminalPanes ? "Choose an image for every terminal pane in this workspace." : "Open a terminal pane first.";
+  const pasteTerminalBackground = contextMenuButton(t("workspace.pasteTerminalBackground"), () => pasteWorkspaceTerminalBackgroundFromClipboard(workspace), !hasTerminalPanes);
+  pasteTerminalBackground.title = hasTerminalPanes ? "Paste an image URL, path, or copied image for every terminal pane in this workspace." : "Open a terminal pane first.";
   const backgroundActions = contextMenuActionGroup(
-    contextMenuButton(t("workspace.chooseTerminalBackground"), () => chooseWorkspaceTerminalBackground(workspace), !hasTerminalPanes),
-    contextMenuButton(t("workspace.pasteTerminalBackground"), () => pasteWorkspaceTerminalBackgroundFromClipboard(workspace), !hasTerminalPanes),
+    chooseTerminalBackground,
+    pasteTerminalBackground,
     useAppBackground,
     clearTerminalBackgrounds,
     contextMenuButton(t("workspace.backgroundSettings"), () => openSettingsCategory("appearance", { query: "background", focusSearch: true }))
