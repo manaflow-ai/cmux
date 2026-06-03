@@ -57,6 +57,12 @@ function isSafeColorValue(value) {
   return workspaceColors.includes(color) || /^#[0-9a-f]{6}$/i.test(color);
 }
 
+function normalizeWorkspaceColor(value, fallback = "") {
+  const color = String(value || "").trim();
+  if (!color) return "";
+  return isSafeColorValue(color) ? color : fallback;
+}
+
 function id(prefix) {
   return `${prefix}_${crypto.randomUUID()}`;
 }
@@ -743,7 +749,7 @@ class CmuxWindowsRuntime {
         const titleSignatureBefore = parsed.workspaces.map((workspace) => workspaceTitle(workspace.title)).join("\0");
         const workspaces = repairWorkspaceTitles(parsed.workspaces.map((workspace) => ({
           ...workspace,
-          color: workspace.color || workspaceColors[0],
+          color: Object.hasOwn(workspace, "color") ? normalizeWorkspaceColor(workspace.color, workspaceColors[0]) : workspaceColors[0],
           cwd: sanitizeDirectoryPath(workspace.cwd),
           panels: Array.isArray(workspace.panels) && workspace.panels.length > 0
             ? workspace.panels.map((panel) => ({
@@ -895,7 +901,7 @@ class CmuxWindowsRuntime {
     return {
       id: workspace.id,
       title: workspace.title,
-      color: workspace.color || workspaceColors[0],
+      color: workspace.color || "",
       activePanelId: workspace.activePanelId,
       splitDirection: workspace.splitDirection,
       terminalCount,
@@ -1167,7 +1173,7 @@ class CmuxWindowsRuntime {
     }
     if (Object.hasOwn(updates, "color")) {
       const color = String(updates.color || "").trim();
-      if (isSafeColorValue(color)) workspace.color = color;
+      if (color === "" || isSafeColorValue(color)) workspace.color = color;
     }
     if (Object.hasOwn(updates, "cwd")) {
       const cwd = sanitizeDirectoryPath(updates.cwd, "");

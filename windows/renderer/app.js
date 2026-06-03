@@ -9587,13 +9587,16 @@ function renderSettingsInspector(options = {}) {
         activeColor: workspace?.color,
         fallbackColor: state.settings.accent,
         onPick: (color) => setWorkspaceColor(color),
+        onClear: () => clearWorkspaceColor(workspace),
+        clearLabel: "Default",
+        clearDisabled: !workspace?.color,
         saveLabel: "Save",
         targetLabel: "Workspace",
         targetMeta: workspace ? workspaceDisplayTitle(workspace) : "No workspace selected",
-        searchTerms: "workspace custom color hex picker"
+        searchTerms: "workspace custom color hex picker reset default clear"
       }),
       true,
-      "workspace color custom hex picker palette swatch"
+      "workspace color custom hex picker palette swatch reset default clear"
     ));
     nodes.push(workspaceSection);
   }
@@ -13694,13 +13697,16 @@ function quickColorControlRows(workspace = activeWorkspace()) {
       activeColor: workspace.color,
       fallbackColor: state.settings.accent,
       onPick: (color) => setWorkspaceColor(color, workspace.id),
+      onClear: () => clearWorkspaceColor(workspace),
+      clearLabel: "Default",
+      clearDisabled: !workspace.color,
       saveLabel: "Save",
       targetLabel: "Workspace",
       targetMeta: workspaceDisplayTitle(workspace),
-      searchTerms: "quick setup workspace custom color hex picker"
+      searchTerms: "quick setup workspace custom color hex picker reset default clear"
     }),
     true,
-    "quick setup workspace color tab sidebar customize custom hex picker"
+    "quick setup workspace color tab sidebar customize custom hex picker reset default clear"
   ));
   const panel = workspace.panels.find((candidate) => candidate.id === workspace.activePanelId)
     || workspace.panels[0]
@@ -14834,6 +14840,8 @@ function colorControlPanel({
     const clear = settingsActionButton(clearLabel, onClear, "", `color reset default clear ${searchTerms}`);
     clear.classList.add("settings-color-clear");
     clear.disabled = clearDisabled;
+    const clearTarget = targetLabel || "Color";
+    clear.title = clearDisabled ? `${clearTarget} already uses the default color.` : `Reset ${clearTarget.toLowerCase()} color to default.`;
     custom.append(clear);
   }
   panel.append(custom);
@@ -14887,9 +14895,21 @@ function savedColorPalettePanel() {
   const pane = focusedPanel();
   const savePane = settingsActionButton("Save pane", () => upsertCustomColorPalette(pane?.color), "", "saved color save active pane tab");
   applyCustomColorSaveLimit(savePane, pane?.color, "Save the active pane color.");
+  const clearWorkspace = settingsActionButton("Clear workspace", () => clearWorkspaceColor(workspace), "", "saved color clear workspace color default reset");
+  clearWorkspace.disabled = !workspace?.color;
+  clearWorkspace.title = !workspace
+    ? "Open a workspace before clearing workspace color."
+    : workspace.color
+      ? "Clear the active workspace color."
+      : "Workspace color is already default.";
   const clearPanes = settingsActionButton("Clear panes", () => clearWorkspacePaneColors(), "danger", "saved color clear pane tab colors workspace");
   clearPanes.disabled = !workspace?.panels?.some((panel) => panel.color);
-  actions.append(saveAccent, saveWorkspace, savePane, clearPanes);
+  clearPanes.title = !workspace
+    ? "Open a workspace before clearing pane colors."
+    : clearPanes.disabled
+      ? "Pane colors are already default."
+      : "Clear pane colors in the active workspace.";
+  actions.append(saveAccent, saveWorkspace, savePane, clearWorkspace, clearPanes);
   panel.append(actions);
 
   if (state.customColorPalette.length === 0) {
@@ -17120,6 +17140,8 @@ function showWorkspaceContextMenu(event, workspace) {
   });
   const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(workspace.color), !canSaveCustomColor(workspace.color));
   saveColor.title = customColorSaveTitle(workspace.color, "Save this workspace color to the reusable palette.");
+  const clearColor = contextMenuButton("Clear color", () => clearWorkspaceColor(workspace), !workspace.color);
+  clearColor.title = workspace.color ? "Clear this workspace color." : "Workspace color is already default.";
   const terminalPanels = workspaceTerminalPanels(workspace);
   const hasTerminalPanes = terminalPanels.length > 0;
   const appBackground = normalizeBackgroundValue(state.settings.backgroundImage);
@@ -17162,7 +17184,7 @@ function showWorkspaceContextMenu(event, workspace) {
     contextMenuSectionTitle("Workspace color"),
     colors,
     customColor,
-    contextMenuActionGroup(saveColor),
+    contextMenuActionGroup(saveColor, clearColor),
     contextMenuSectionTitle(t("workspace.backgrounds")),
     backgroundActions
   );
@@ -18555,8 +18577,8 @@ async function cycleWorkspaceColor(workspaceId = activeWorkspace()?.id) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   const palette = workspaceColorPalette();
   if (!workspace || palette.length === 0) return;
-  const currentIndex = Math.max(0, palette.indexOf(workspace.color));
-  const color = palette[(currentIndex + 1) % palette.length];
+  const currentIndex = palette.indexOf(workspace.color);
+  const color = palette[(currentIndex >= 0 ? currentIndex + 1 : 0) % palette.length];
   await updateWorkspace(workspace.id, { color });
 }
 
@@ -18659,7 +18681,22 @@ async function createWorkspaceFromStarter(starterId) {
 async function setWorkspaceColor(color, workspaceId = activeWorkspace()?.id) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return;
-  await updateWorkspace(workspace.id, { color });
+  return await updateWorkspace(workspace.id, { color });
+}
+
+async function clearWorkspaceColor(workspace = activeWorkspace()) {
+  const target = workspace?.id
+    ? state.data?.workspaces.find((candidate) => candidate.id === workspace.id)
+    : null;
+  if (!target) {
+    toast("Open a workspace before clearing workspace color.");
+    return false;
+  }
+  if (!target.color) {
+    toast("Workspace color is already default.");
+    return false;
+  }
+  return await setWorkspaceColor("", target.id);
 }
 
 async function closeActiveWorkspace() {
@@ -19663,7 +19700,7 @@ function optimisticUpdateWorkspace(workspaceId, updates = {}) {
   }
   if (Object.hasOwn(updates, "color")) {
     const color = String(updates.color || "").trim();
-    if (isAllowedUiColor(color, state.data?.palette || workspaceColorOptions) && workspace.color !== color) {
+    if ((color === "" || isAllowedUiColor(color, state.data?.palette || workspaceColorOptions)) && workspace.color !== color) {
       workspace.color = color;
       changed = true;
     }
@@ -19704,7 +19741,7 @@ function workspaceUpdateReconcileNeeded(workspaceId, updates = {}) {
   }
   if (Object.hasOwn(updates, "color")) {
     const color = String(updates.color || "").trim();
-    if (isAllowedUiColor(color, state.data?.palette || workspaceColorOptions) && workspace.color !== color) return true;
+    if ((color === "" || isAllowedUiColor(color, state.data?.palette || workspaceColorOptions)) && workspace.color !== color) return true;
   }
   if (Object.hasOwn(updates, "cwd")) {
     const cwd = String(updates.cwd || "").trim();
