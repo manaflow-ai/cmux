@@ -65,6 +65,7 @@ final class TerminalPanel: Panel, ObservableObject {
     private var preservedTextBoxAttributedContent: NSAttributedString?
     private var restoredTextBoxDraft: SessionTextBoxInputDraftSnapshot?
     private var isClosingPanel = false
+    private var didDiscardTextBoxContentForClose = false
 #if DEBUG
     private struct DebugTextBoxInlineFixture {
         let localURL: URL?
@@ -346,6 +347,10 @@ final class TerminalPanel: Panel, ObservableObject {
         // Dismantle can run while AttributeGraph is destroying this subtree. Cache only
         // non-published draft state here; normal editing keeps the published bindings current.
         if isClosingPanel {
+            assert(
+                didDiscardTextBoxContentForClose,
+                "close() must discard TextBox content before SwiftUI dismantles the TextBox view"
+            )
             recordTextBoxViewUnmounted(textBoxInputView)
             return
         }
@@ -363,6 +368,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     private func discardTextBoxContentForClose(from textBoxInputView: TextBoxInputTextView? = nil) {
+        didDiscardTextBoxContentForClose = true
         let currentTextView = textBoxInputView ?? self.textBoxInputView
         let attachmentsToCleanup = currentTextView?.inlineAttachments() ?? textBoxAttachments
         if let currentTextView {

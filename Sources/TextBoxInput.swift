@@ -4006,10 +4006,20 @@ final class TextBoxInputTextView: NSTextView {
         discardUndoHistoryAndCleanupPendingAttachmentFiles()
     }
 
+    /// Installs preserved attributed content into the text view.
+    ///
+    /// Pass `false` for `notifyingTextChange` only from representable construction paths where
+    /// the owning panel already has the current draft state. That restores AppKit storage without
+    /// running delegate or binding side effects during SwiftUI lifecycle work.
     func installPreservedContent(_ content: NSAttributedString, notifyingTextChange: Bool = true) {
         installAttributedContent(content, notifyingTextChange: notifyingTextChange)
     }
 
+    /// Installs a saved session draft into the text view.
+    ///
+    /// Pass `false` for `notifyingTextChange` only from representable construction paths where
+    /// the owning panel already has the current draft state. That restores AppKit storage without
+    /// running delegate or binding side effects during SwiftUI lifecycle work.
     func installSessionDraft(_ draft: SessionTextBoxInputDraftSnapshot, notifyingTextChange: Bool = true) {
         installAttributedContent(
             attributedContent(from: draft),
