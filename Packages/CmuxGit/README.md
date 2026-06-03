@@ -5,9 +5,10 @@ Reads a directory's git metadata directly from the on-disk repository, with no
 dirty indicator, and (in a later stage) the GitHub pull-request badge.
 
 It is a Layer-2 service package: a stateless `Sendable` value over pure parsing
-helpers (its `async` reads run off the caller's actor on the global executor and
-in parallel — no actor serialization, since there is no shared state to protect),
-with zero AppKit/SwiftUI dependencies, fully testable against temp directories.
+helpers. Its reads are `@concurrent async`, so they run off the caller's actor on
+the global executor and in parallel — no actor serialization, since there is no
+shared state to protect. Zero AppKit/SwiftUI dependencies, fully testable against
+temp directories.
 
 ## What it does
 
