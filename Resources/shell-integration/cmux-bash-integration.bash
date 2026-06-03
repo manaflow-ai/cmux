@@ -1327,6 +1327,16 @@ _cmux_bash_preexec_hook_subshell() {
 _cmux_prompt_command() {
     local last_status=$?
     _cmux_tmux_sync_cmux_environment
+    if [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]]; then
+        _CMUX_GIT_HEAD_LAST_PWD=""
+        _CMUX_GIT_HEAD_PATH=""
+        _CMUX_GIT_HEAD_SIGNATURE=""
+        _CMUX_GIT_LAST_PWD=""
+        _CMUX_PR_FORCE=0
+        _CMUX_LAST_PR_ACTION=""
+        _CMUX_LAST_PR_TARGET=""
+        _cmux_clear_pr_command_hint_file
+    fi
 
     local cmux_has_unix_socket=0
     _cmux_socket_is_unix && cmux_has_unix_socket=1

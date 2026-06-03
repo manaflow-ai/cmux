@@ -6689,9 +6689,20 @@ class TabManager: ObservableObject {
                 desiredIds.append(id)
             }
         }
-        normalizeWorkspaceGroupContiguity(
-            preservingTopLevelIds: topLevelWorkspaceIdsPreservingOrder(desiredIds)
-        )
+        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        var emittedIds = Set<UUID>()
+        var reordered: [Workspace] = []
+        reordered.reserveCapacity(tabs.count)
+        for id in desiredIds {
+            guard emittedIds.insert(id).inserted,
+                  let tab = tabsById[id] else { continue }
+            reordered.append(tab)
+        }
+        for tab in tabs where emittedIds.insert(tab.id).inserted {
+            reordered.append(tab)
+        }
+        tabs = reordered
+        normalizeWorkspaceGroupContiguity()
         if workspaceGroups.contains(where: { $0.id == groupId }) {
             syncWorkspaceGroupsOrderToAnchorOrder()
         }

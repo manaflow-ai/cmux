@@ -359,8 +359,7 @@ extension Workspace {
             from: snapshot,
             oldToNewPanelIds: oldToNewPanelIds
         )
-        let hasUnreadWorkspaceNotification = snapshot.notifications?.contains { !$0.isRead } == true
-        if snapshot.hasUnreadIndicator == true, !hasUnreadWorkspaceNotification {
+        if snapshot.hasUnreadIndicator == true {
             AppDelegate.shared?.notificationStore?.restoreUnreadIndicator(forTabId: id)
         } else {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
@@ -1747,6 +1746,7 @@ extension Workspace {
                 inPane: paneId,
                 focus: false,
                 workingDirectory: localWorkingDirectory,
+                requestedWorkingDirectory: savedWorkingDirectory,
                 initialCommand: restoredStartupCommand,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredStartupInput,
@@ -1949,8 +1949,12 @@ extension Workspace {
         from snapshot: SessionWorkspaceSnapshot,
         oldToNewPanelIds: [UUID: UUID]
     ) -> [TerminalNotification] {
-        var notifications = (snapshot.notifications ?? []).map {
-            $0.terminalNotification(tabId: id, surfaceId: nil, panelId: nil)
+        var notifications = (snapshot.notifications ?? []).map { notification in
+            var restored = notification.terminalNotification(tabId: id, surfaceId: nil, panelId: nil)
+            if snapshot.hasUnreadIndicator == true {
+                restored.isRead = true
+            }
+            return restored
         }
 
         for panelSnapshot in snapshot.panels {
@@ -7628,6 +7632,19 @@ final class WorkspaceRemoteSessionController {
 
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
+        let stdoutReadDescriptor = Darwin.dup(stdoutHandle.fileDescriptor)
+        let stderrReadDescriptor = Darwin.dup(stderrHandle.fileDescriptor)
+        guard stdoutReadDescriptor >= 0, stderrReadDescriptor >= 0 else {
+            if stdoutReadDescriptor >= 0 {
+                Darwin.close(stdoutReadDescriptor)
+            }
+            if stderrReadDescriptor >= 0 {
+                Darwin.close(stderrReadDescriptor)
+            }
+            throw NSError(domain: "cmux.remote.process", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to duplicate process output pipe descriptors",
+            ])
+        }
         let captureQueue = DispatchQueue(label: "cmux.remote.process.capture")
         let exitSemaphore = DispatchSemaphore(value: 0)
         var stdoutData = Data()
@@ -7641,7 +7658,8 @@ final class WorkspaceRemoteSessionController {
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
             defer { captureGroup.leave() }
-            let result = Self.readProcessPipeToEnd(stdoutHandle)
+            defer { Darwin.close(stdoutReadDescriptor) }
+            let result = Self.readProcessPipeToEnd(stdoutReadDescriptor)
             captureQueue.sync {
                 stdoutData = result.data
                 stdoutReadError = result.readError
@@ -7650,7 +7668,8 @@ final class WorkspaceRemoteSessionController {
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
             defer { captureGroup.leave() }
-            let result = Self.readProcessPipeToEnd(stderrHandle)
+            defer { Darwin.close(stderrReadDescriptor) }
+            let result = Self.readProcessPipeToEnd(stderrReadDescriptor)
             captureQueue.sync {
                 stderrData = result.data
                 stderrReadError = result.readError
@@ -7751,8 +7770,8 @@ final class WorkspaceRemoteSessionController {
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
 
-    private static func readProcessPipeToEnd(_ fileHandle: FileHandle) -> ProcessPipeEndRead {
-        ProcessPipeReader.readDataToEndOfFile(from: fileHandle)
+    private static func readProcessPipeToEnd(_ fileDescriptor: Int32) -> ProcessPipeEndRead {
+        ProcessPipeReader.readDataToEndOfFile(fileDescriptor: fileDescriptor)
     }
 
 #if DEBUG
@@ -7948,7 +7967,7 @@ final class WorkspaceRemoteSessionController {
           esac
           cmux_child_pids="$(printf '%s\\n' "$cmux_ps_output" | awk -v parent="$cmux_listener_pid" -v slot="$cmux_persistent_slot" '
             function clean_token(value) {
-              gsub(/'\''/, "", value)
+              gsub(/\047/, "", value)
               gsub(/"/, "", value)
               gsub(/\\\\/, "", value)
               return value
@@ -12837,7 +12856,14 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarPullRequestsInDisplayOrder() -> [SidebarPullRequestState] {
-        sidebarPullRequestsInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+        guard let focusedPanelId else {
+            return []
+        }
+        let focusedPullRequests = sidebarPullRequestsInDisplayOrder(orderedPanelIds: [focusedPanelId])
+        guard !focusedPullRequests.isEmpty else {
+            return []
+        }
+        return sidebarPullRequestsInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
@@ -14380,6 +14406,7 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         focus: Bool? = nil,
         workingDirectory: String? = nil,
+        requestedWorkingDirectory: String? = nil,
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
@@ -14411,6 +14438,7 @@ final class Workspace: Identifiable, ObservableObject {
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
+            requestedWorkingDirectory: requestedWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,

@@ -74,7 +74,7 @@ final class BrowserHiddenWebViewDiscardManager {
         return blockers
     }
 
-    func scheduleIfNeeded(reason: String) {
+    func scheduleIfNeeded(reason: String, now: Date = Date()) {
         scheduleGeneration &+= 1
         discardTimer?.cancel()
         discardTimer = nil
@@ -84,8 +84,8 @@ final class BrowserHiddenWebViewDiscardManager {
 
         let observedWebViewInstanceID = delegate.hiddenWebViewDiscardWebViewInstanceID
         let generation = scheduleGeneration
-        let hiddenAt = delegate.hiddenWebViewDiscardHiddenAt ?? Date()
-        let elapsed = Date().timeIntervalSince(hiddenAt)
+        let hiddenAt = delegate.hiddenWebViewDiscardHiddenAt ?? now
+        let elapsed = now.timeIntervalSince(hiddenAt)
         let remaining = max(0, BrowserHiddenWebViewDiscardPolicy.hiddenDelay - elapsed)
         if remaining <= 0 {
             delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)

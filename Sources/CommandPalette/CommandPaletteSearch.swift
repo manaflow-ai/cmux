@@ -93,8 +93,9 @@ enum CommandPaletteSwitcherSearchIndexer {
         case .workspace:
             return [trimmed]
         case .surface:
+            let shortName = trimmed.components(separatedBy: "/").last ?? trimmed
             let components = trimmed.components(separatedBy: metadataDelimiters).filter { !$0.isEmpty }
-            return uniqueNormalizedPreservingOrder([trimmed] + components)
+            return uniqueNormalizedPreservingOrder([trimmed, shortName] + components)
         }
     }
 

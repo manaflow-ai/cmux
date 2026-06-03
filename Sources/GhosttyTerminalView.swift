@@ -5387,12 +5387,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: CmuxSurfaceConfigTemplate?
     private let workingDirectory: String?
+    private let requestedWorkingDirectoryValue: String?
     let initialCommand: String?
     let tmuxStartCommand: String?
     let initialInput: String?
     private var nextRuntimeInitialInput: String?
     private let initialEnvironmentOverrides: [String: String]
-    var requestedWorkingDirectory: String? { workingDirectory }
+    var requestedWorkingDirectory: String? { requestedWorkingDirectoryValue }
     let focusPlacement: TerminalSurfaceFocusPlacement
     private var additionalEnvironment: [String: String]
     let hostedView: GhosttySurfaceScrollView
@@ -5532,6 +5533,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         context: ghostty_surface_context_e,
         configTemplate: CmuxSurfaceConfigTemplate?,
         workingDirectory: String? = nil,
+        requestedWorkingDirectory: String? = nil,
         portOrdinal: Int = 0,
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
@@ -5548,7 +5550,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
-        self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedRequestedWorkingDirectory = requestedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.workingDirectory = trimmedWorkingDirectory
+        self.requestedWorkingDirectoryValue = trimmedRequestedWorkingDirectory?.isEmpty == false
+            ? trimmedRequestedWorkingDirectory
+            : trimmedWorkingDirectory
         self.portOrdinal = portOrdinal
         let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
