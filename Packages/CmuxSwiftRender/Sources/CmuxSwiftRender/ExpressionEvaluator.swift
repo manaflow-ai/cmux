@@ -59,6 +59,33 @@ struct ExpressionEvaluator {
         }
         if let call = expr.as(FunctionCallExprSyntax.self),
            let ref = call.calledExpression.as(DeclReferenceExprSyntax.self),
+           ["Array", "Int", "Double", "String"].contains(ref.baseName.text),
+           env.lookupFunction(ref.baseName.text) == nil,
+           let firstArg = call.arguments.first(where: { $0.label == nil })?.expression {
+            let inner = eval(firstArg, env)
+            switch ref.baseName.text {
+            case "Array": return inner // `Array(seq)` / `Array(x.enumerated())`: identity.
+            case "Int":
+                switch inner {
+                case let .int(i): return .int(i)
+                case let .double(d): return .int(Int(d))
+                case let .string(s): return Int(s).map { .int($0) }
+                default: return nil
+                }
+            case "Double":
+                switch inner {
+                case let .double(d): return .double(d)
+                case let .int(i): return .double(Double(i))
+                case let .string(s): return Double(s).map { .double($0) }
+                default: return nil
+                }
+            case "String":
+                return inner.map { .string($0.displayString) }
+            default: return nil
+            }
+        }
+        if let call = expr.as(FunctionCallExprSyntax.self),
+           let ref = call.calledExpression.as(DeclReferenceExprSyntax.self),
            let decl = env.lookupFunction(ref.baseName.text) {
             return callValueFunction(decl, call, env)
         }
@@ -231,9 +258,32 @@ struct ExpressionEvaluator {
                 return .int(values.filter { evalClosure(closure, $0, env)?.isTruthy ?? false }.count)
             case "reversed":
                 return .array(values.reversed())
+            case "indices":
+                return .array(values.indices.map { .int($0) })
+            case "enumerated":
+                // Each element is an index/value pair, addressable as
+                // `.offset`/`.element` or destructured by a 2-arg closure
+                // (`$0`/`$1`, stored under "0"/"1").
+                return .array(values.enumerated().map { pair in
+                    .object([
+                        "offset": .int(pair.offset),
+                        "element": pair.element,
+                        "0": .int(pair.offset),
+                        "1": pair.element,
+                    ])
+                })
             case "prefix":
                 guard let firstArg, case let .int(n)? = eval(firstArg, env) else { return nil }
                 return .array(Array(values.prefix(max(0, n))))
+            case "dropFirst":
+                let n = firstArg.flatMap { if case let .int(k)? = eval($0, env) { return k } else { return nil } } ?? 1
+                return .array(Array(values.dropFirst(max(0, n))))
+            case "dropLast":
+                let n = firstArg.flatMap { if case let .int(k)? = eval($0, env) { return k } else { return nil } } ?? 1
+                return .array(Array(values.dropLast(max(0, n))))
+            case "suffix":
+                guard let firstArg, case let .int(n)? = eval(firstArg, env) else { return nil }
+                return .array(Array(values.suffix(max(0, n))))
             case "sorted":
                 guard let closure else { return .array(sortedScalars(values)) }
                 // Honor a 2-arg comparator like `sorted { $0.rank < $1.rank }`.

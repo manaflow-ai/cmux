@@ -254,7 +254,7 @@ public struct SwiftViewInterpreter: Sendable {
         let idField = labeledStringArgument("id", call.arguments, env) ?? "id"
         let idParam = labeledStringArgument("idParam", call.arguments, env) ?? "workspace_id"
         let indexParam = labeledStringArgument("indexParam", call.arguments, env) ?? "index"
-        let paramName = closureParameterName(closure)
+        let paramName = closureParameterNames(closure).first
 
         var rows: [RenderNode] = []
         var ids: [String] = []
@@ -289,26 +289,35 @@ public struct SwiftViewInterpreter: Sendable {
               let sequence = expressions.eval(sequenceExpr, env),
               let values = sequence.iterationValues,
               let closure = call.trailingClosure else { return [] }
-        let name = closureParameterName(closure)
+        let names = closureParameterNames(closure)
         var out: [RenderNode] = []
         for value in values {
             let scope = env.makeChild()
-            if let name { scope.define(name, value) }
-            scope.define("$0", value)
+            if names.count >= 2 {
+                // Two-param form, e.g. `ForEach(Array(xs.enumerated()), id: \.offset)
+                // { index, item in }`: destructure the pair's "0"/"1" members.
+                scope.define(names[0], value.member("0") ?? value)
+                scope.define(names[1], value.member("1") ?? value)
+                scope.define("$0", value.member("0") ?? value)
+                scope.define("$1", value.member("1") ?? value)
+            } else {
+                if let name = names.first { scope.define(name, value) }
+                scope.define("$0", value)
+            }
             out += evalItems(closure.statements, scope)
         }
         return out
     }
 
-    private func closureParameterName(_ closure: ClosureExprSyntax) -> String? {
-        guard let parameterClause = closure.signature?.parameterClause else { return nil }
+    private func closureParameterNames(_ closure: ClosureExprSyntax) -> [String] {
+        guard let parameterClause = closure.signature?.parameterClause else { return [] }
         if case let .simpleInput(list) = parameterClause {
-            return list.first?.name.text
+            return list.map { $0.name.text }
         }
         if case let .parameterClause(clause) = parameterClause {
-            return clause.parameters.first?.firstName.text
+            return clause.parameters.map { $0.firstName.text }
         }
-        return nil
+        return []
     }
 
     /// Captures the commands in a `Button` action closure (currently

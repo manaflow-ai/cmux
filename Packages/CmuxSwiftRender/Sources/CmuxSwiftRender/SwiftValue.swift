@@ -37,6 +37,9 @@ public enum SwiftValue: Sendable, Equatable {
         case let .array(values):
             if name == "count" { return .int(values.count) }
             if name == "isEmpty" { return .bool(values.isEmpty) }
+            if name == "indices" { return .array(values.indices.map { .int($0) }) }
+            if name == "first" { return values.first }
+            if name == "last" { return values.last }
             return nil
         case let .string(value):
             if name == "count" { return .int(value.count) }

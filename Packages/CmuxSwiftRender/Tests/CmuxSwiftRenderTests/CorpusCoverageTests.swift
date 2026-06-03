@@ -33,6 +33,7 @@ import Testing
             "filter", "map", "flatMap", "reduce", "sorted", "first", "contains", "count",
             "reversed", "prefix", "isEmpty", "hasPrefix", "hasSuffix", "uppercased",
             "lowercased", "split", "formatted", "currency", "notation", "percent", "strikethrough", "system",
+            "indices", "enumerated", "dropFirst", "dropLast", "suffix",
         ]
 
         var unsupportedCalls: [String: Int] = [:]

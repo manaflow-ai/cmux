@@ -448,6 +448,38 @@ import Testing
         #expect(v?.children.first?.text == "only")
     }
 
+    @Test func forEachEnumeratedTwoArgClosureDestructures() {
+        let node = interp.evaluate("""
+        VStack {
+            ForEach(Array(["a", "b", "c"].enumerated()), id: \\.offset) { i, name in
+                Text("\\(i):\\(name)")
+            }
+        }
+        """)
+        #expect(node?.children.map(\.text) == ["0:a", "1:b", "2:c"])
+    }
+
+    @Test func forEachOverIndices() {
+        let xs = SwiftValue.array([.string("x"), .string("y")])
+        let node = interp.evaluate("""
+        VStack {
+            ForEach(items.indices) { i in Text("\\(i)") }
+        }
+        """, state: ["items": xs])
+        #expect(node?.children.map(\.text) == ["0", "1"])
+    }
+
+    @Test func arraySliceHelpersAndConversions() {
+        let node = interp.evaluate("""
+        HStack {
+            Text("\\([1,2,3,4].dropFirst(2).count)")
+            Text("\\([1,2,3,4].suffix(1).count)")
+            Text("\\(Int("42"))")
+        }
+        """)
+        #expect(node?.children.map(\.text) == ["2", "1", "42"])
+    }
+
     @Test func emptyViewLowersToEmptyGroup() {
         let node = interp.evaluate("""
         VStack {
