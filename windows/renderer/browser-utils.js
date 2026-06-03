@@ -14,6 +14,13 @@ export const embeddedGooglePromoDismissScript = `(() => {
     window[observerKey] = null;
   };
   const nodes = (selector) => Array.from(document.querySelectorAll(selector));
+  const isOverlayLike = (node) => {
+    if (node.matches('dialog, [role="dialog"], [aria-modal="true"]')) return true;
+    const style = window.getComputedStyle?.(node);
+    if (!style) return false;
+    const zIndex = Number.parseInt(style.zIndex || "0", 10);
+    return style.position === "fixed" || style.position === "sticky" || zIndex >= 10;
+  };
   const finish = (result) => {
     cleanup();
     window[doneKey] = result || "done";
@@ -37,6 +44,7 @@ export const embeddedGooglePromoDismissScript = `(() => {
       if (!/built by Google/i.test(text) || !/Download Chrome/i.test(text)) continue;
       const rect = node.getBoundingClientRect();
       if (rect.width < 250 || rect.height < 100) continue;
+      if (!isOverlayLike(node)) continue;
       node.style.display = "none";
       node.setAttribute("aria-hidden", "true");
       hidden += 1;
