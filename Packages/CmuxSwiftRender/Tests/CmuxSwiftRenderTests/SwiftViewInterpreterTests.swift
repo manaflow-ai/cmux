@@ -584,6 +584,18 @@ import Testing
         #expect(background?.children.first?.kind == .roundedRectangle)
     }
 
+    @Test func shapeStrokeAndTrimCaptured() {
+        let node = interp.evaluate("""
+        Circle().stroke("#7AA2F7", lineWidth: 2).trim(from: 0.0, to: 0.75)
+        """)
+        #expect(node?.kind == .circle)
+        let names = Set((node?.modifiers ?? []).map(\.name))
+        #expect(names.isSuperset(of: ["stroke", "trim"]))
+        let stroke = node?.modifiers.first { $0.name == "stroke" }
+        #expect(stroke?.firstValue == "#7AA2F7")
+        #expect(stroke?.value("lineWidth") == "2")
+    }
+
     @Test func ellipseAndUnevenRoundedRectangleShapes() {
         let node = interp.evaluate("""
         HStack {

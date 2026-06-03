@@ -45,6 +45,7 @@ import Testing
             "clipShape", "clipped", "fixedSize", "layoutPriority", "degrees", "radians",
             "overlay", "mask", "safeAreaInset",
             "imageScale", "symbolRenderingMode", "symbolVariant",
+            "stroke", "strokeBorder", "trim",
             "contextMenu", "help", "disabled",
             "redacted", "unredacted", "accessibilityLabel", "accessibilityHint",
             "accessibilityValue", "accessibilityHidden", "scrollIndicators",

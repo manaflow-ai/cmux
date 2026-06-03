@@ -104,17 +104,17 @@ struct RenderNodeView: View {
         case .divider:
             Divider()
         case .rectangle:
-            Rectangle()
+            styledShape(Rectangle())
         case .roundedRectangle:
-            RoundedRectangle(cornerRadius: CGFloat(node.cornerRadius ?? 6))
+            styledShape(RoundedRectangle(cornerRadius: CGFloat(node.cornerRadius ?? 6)))
         case .capsule:
-            Capsule()
+            styledShape(Capsule())
         case .circle:
-            Circle()
+            styledShape(Circle())
         case .ellipse:
-            Ellipse()
+            styledShape(Ellipse())
         case .unevenRoundedRectangle:
-            RoundedRectangle(cornerRadius: CGFloat(node.cornerRadius ?? 6))
+            styledShape(RoundedRectangle(cornerRadius: CGFloat(node.cornerRadius ?? 6)))
         case .progressView:
             if let value = node.value {
                 ProgressView(value: value) { if let t = node.text { Text(t) } }
@@ -307,6 +307,24 @@ struct RenderNodeView: View {
         default:
             return view
         }
+    }
+
+    /// Renders a shape, applying shape-level `.trim` then `.stroke` /
+    /// `.strokeBorder` (which must act on the concrete `Shape` before erasure).
+    /// With no stroke the plain shape is returned so `.fill`/`.foregroundColor`
+    /// from the generic modifier pass fills it.
+    private func styledShape(_ shape: some Shape) -> AnyView {
+        var resolved = AnyShape(shape)
+        if let trim = node.modifiers.first(where: { $0.name == "trim" }) {
+            resolved = AnyShape(resolved.trim(from: CGFloat(modDouble(trim, "from") ?? 0),
+                                              to: CGFloat(modDouble(trim, "to") ?? 1)))
+        }
+        if let stroke = node.modifiers.first(where: { $0.name == "stroke" || $0.name == "strokeBorder" }) {
+            let color = dslColor(clean(stroke.firstValue)) ?? .secondary
+            let width = modDouble(stroke, "lineWidth") ?? 1
+            return AnyView(resolved.stroke(color, lineWidth: CGFloat(width)))
+        }
+        return AnyView(resolved)
     }
 
     /// Renders a child-bearing modifier's subtree (overlay/background/mask
