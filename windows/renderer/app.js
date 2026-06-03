@@ -24641,7 +24641,7 @@ function paletteEntryKind(entry) {
   if (id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.") || id.startsWith("performanceTunePreset.")) return "settings";
   if (id.startsWith("layout.") || id.startsWith("paneLayoutPreset.") || id.startsWith("paneSetupPreset.") || id.startsWith("workspaceChromePreset.")) return "layout";
   if (id.startsWith("background") || id.startsWith("savedBackground")) return "look";
-  if (id.startsWith("themeChoice.") || id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("savedColorPalette.") || id.startsWith("terminalColor.")) return "color";
+  if (id.startsWith("lookPack.") || id.startsWith("themeChoice.") || id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("savedColorPalette.") || id.startsWith("terminalColor.")) return "color";
   return "command";
 }
 
@@ -25129,7 +25129,7 @@ function paletteEntries() {
       run: () => copyTerminalColorPresetPalette(preset.id)
     });
   }
-  const themeProfilesFull = savedSettingsProfilesFull();
+  const appearanceProfilesFull = savedSettingsProfilesFull();
   for (const theme of themePreviewOptions) {
     const label = themeChoiceLabel(theme);
     const active = isActiveThemeChoice(theme);
@@ -25150,7 +25150,7 @@ function paletteEntries() {
       label: `Save theme profile: ${label}`,
       meta: savedProfile ? `Already saved / ${savedProfile.label}` : savedSettingsProfileCountLabel(),
       shortcut: savedProfile ? "Saved" : "Save",
-      disabled: Boolean(savedProfile) || themeProfilesFull,
+      disabled: Boolean(savedProfile) || appearanceProfilesFull,
       title: themeChoiceProfileSaveTitle(theme, savedProfile),
       search: normalizeSettingsQuery(`theme visual gallery appearance look save profile reusable accent ${savedProfile ? "saved active current " : ""}${label} ${theme.id}`),
       run: () => saveThemeChoiceProfile(theme.id)
@@ -25163,6 +25163,44 @@ function paletteEntries() {
       title: "Copy this theme as a Settings profile JSON.",
       search: normalizeSettingsQuery(`theme visual gallery appearance look copy profile clipboard json accent ${label} ${theme.id}`),
       run: () => copyThemeChoiceProfile(theme.id)
+    });
+  }
+  for (const pack of lookPackDefinitions) {
+    const summary = lookPackSummary(pack);
+    const active = isActiveLookPack(pack);
+    const savedProfile = savedSettingsProfileForLookPack(pack);
+    entries.push({
+      id: `lookPack.${pack.id}`,
+      label: `Look pack: ${pack.label}`,
+      meta: active ? `Active / ${summary}` : summary,
+      shortcut: active ? "Active" : "Look",
+      active,
+      disabled: active,
+      icon: "appearance",
+      title: active ? `${pack.label} look already active.` : `Apply ${pack.label} look.`,
+      search: normalizeSettingsQuery(`look pack appearance theme accent background terminal color apply active ${pack.label} ${pack.body} ${summary}`),
+      run: () => applyLookPack(pack.id)
+    });
+    entries.push({
+      id: `lookPack.save.${pack.id}`,
+      label: `Save look profile: ${pack.label}`,
+      meta: savedProfile ? `Already saved / ${savedProfile.label}` : savedSettingsProfileCountLabel(),
+      shortcut: savedProfile ? "Saved" : "Save",
+      disabled: Boolean(savedProfile) || appearanceProfilesFull,
+      icon: "profiles",
+      title: lookPackProfileSaveTitle(pack, savedProfile),
+      search: normalizeSettingsQuery(`look pack appearance theme accent background terminal color save profile reusable ${savedProfile ? "saved active current " : ""}${pack.label} ${pack.body} ${summary}`),
+      run: () => saveLookPackProfile(pack.id)
+    });
+    entries.push({
+      id: `lookPack.copy.${pack.id}`,
+      label: `Copy look profile: ${pack.label}`,
+      meta: "Settings profile JSON",
+      shortcut: "Copy",
+      icon: "appearance",
+      title: "Copy this look pack as a Settings profile JSON.",
+      search: normalizeSettingsQuery(`look pack appearance theme accent background terminal color copy profile clipboard json ${pack.label} ${pack.body} ${summary}`),
+      run: () => copyLookPackProfile(pack.id)
     });
   }
   const presetProfilesFull = savedSettingsProfilesFull();
