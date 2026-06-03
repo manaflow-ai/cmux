@@ -20,6 +20,8 @@ struct WorkspaceShellView: View {
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var suppressNextTerminalAutoFocus = false
+    @State private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -133,6 +135,7 @@ struct WorkspaceShellView: View {
 
     private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
+        suppressNextTerminalAutoFocus = false
         store.selectedWorkspaceID = id
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
@@ -175,7 +178,9 @@ struct WorkspaceShellView: View {
             store: store,
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
-            safeAreaContext: safeAreaContext
+            safeAreaContext: safeAreaContext,
+            suppressNextTerminalAutoFocus: $suppressNextTerminalAutoFocus,
+            terminalAutoFocusSuppressedSurfaceIDs: $terminalAutoFocusSuppressedSurfaceIDs
         )
     }
 }
@@ -233,6 +238,8 @@ private struct WorkspaceDetailContainer: View {
     let workspaceID: MobileWorkspacePreview.ID?
     let createWorkspace: () -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    @Binding var suppressNextTerminalAutoFocus: Bool
+    @Binding var terminalAutoFocusSuppressedSurfaceIDs: Set<String>
 
     private var workspace: MobileWorkspacePreview? {
         if let workspaceID {
@@ -255,7 +262,9 @@ private struct WorkspaceDetailContainer: View {
                 createTerminal: store.createTerminal,
                 reportTerminalViewport: store.reportTerminalViewport,
                 sendTerminalInput: store.sendTerminalRawInput,
-                safeAreaContext: safeAreaContext
+                safeAreaContext: safeAreaContext,
+                suppressNextTerminalAutoFocus: $suppressNextTerminalAutoFocus,
+                terminalAutoFocusSuppressedSurfaceIDs: $terminalAutoFocusSuppressedSurfaceIDs
             )
             .onAppear {
                 if store.selectedWorkspaceID != workspace.id {
@@ -587,9 +596,9 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    @Binding var suppressNextTerminalAutoFocus: Bool
+    @Binding var terminalAutoFocusSuppressedSurfaceIDs: Set<String>
     @State private var isTerminalPickerPresented = false
-    @State private var suppressNextTerminalAutoFocus = false
-    @State private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
 
     private var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == selectedTerminalID } ?? workspace.terminals.first
