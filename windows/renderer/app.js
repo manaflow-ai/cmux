@@ -191,6 +191,8 @@ const performanceSetupSettings = [
   "performanceMode",
   "adaptivePerformance",
   "reduceMotion",
+  "backgroundOpacity",
+  "backgroundEffects",
   "terminalStartupMode",
   "terminalPauseInactiveOutput",
   "terminalSmoothResumedOutput",
@@ -210,9 +212,7 @@ const performanceSetupBooleanSettings = new Set([
 ]);
 const performanceHealthSettingKeys = new Set([
   ...performanceSetupSettings,
-  "backgroundImage",
-  "backgroundOpacity",
-  "backgroundEffects"
+  "backgroundImage"
 ]);
 const appearancePreviewKeys = new Set([
   "theme",
@@ -12916,7 +12916,7 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(scrollbackRow);
     const performanceActions = document.createElement("div");
     performanceActions.className = "settings-actions";
-    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save current balanced reset render stats clear copy paste setup diagnostics report lag debug");
+    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset clean fast profile save current balanced reset render stats clear copy paste setup background opacity effects diagnostics report lag debug");
     const speedPresetActive = isSettingsPresetIdActive("performance");
     const speedPreset = settingsActionButton(
       speedPresetActive ? "Speed active" : "Speed preset",
@@ -12935,8 +12935,8 @@ function renderSettingsInspector(options = {}) {
         settingsActionButton("Save current speed", saveCurrentPerformanceProfile, "", "performance save current speed lag settings profile reusable"),
         "Save current performance settings as a reusable profile."
       ),
-      settingsActionButton("Copy setup", copyPerformanceSetup, "", "performance setup copy speed lag motion terminal startup inactive browser suspend clipboard json"),
-      settingsActionButton("Paste setup", pastePerformanceSetup, "", "performance setup paste speed lag motion terminal startup inactive browser suspend clipboard json"),
+      settingsActionButton("Copy setup", copyPerformanceSetup, "", "performance setup copy speed lag motion background opacity effects terminal startup inactive browser suspend clipboard json"),
+      settingsActionButton("Paste setup", pastePerformanceSetup, "", "performance setup paste speed lag motion background opacity effects terminal startup inactive browser suspend clipboard json"),
       settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
       speedPreset,
       resetPerformanceStatsAction()
@@ -17300,6 +17300,8 @@ const performanceTuningPresets = [
       performanceMode: false,
       adaptivePerformance: true,
       reduceMotion: false,
+      backgroundOpacity: 16,
+      backgroundEffects: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
@@ -17316,6 +17318,8 @@ const performanceTuningPresets = [
       performanceMode: true,
       adaptivePerformance: true,
       reduceMotion: true,
+      backgroundOpacity: 8,
+      backgroundEffects: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
@@ -17332,6 +17336,8 @@ const performanceTuningPresets = [
       performanceMode: true,
       adaptivePerformance: true,
       reduceMotion: true,
+      backgroundOpacity: 6,
+      backgroundEffects: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
@@ -17348,6 +17354,8 @@ const performanceTuningPresets = [
       performanceMode: true,
       adaptivePerformance: true,
       reduceMotion: true,
+      backgroundOpacity: 8,
+      backgroundEffects: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
@@ -17364,6 +17372,8 @@ const performanceTuningPresets = [
       performanceMode: false,
       adaptivePerformance: true,
       reduceMotion: true,
+      backgroundOpacity: 12,
+      backgroundEffects: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
@@ -17380,6 +17390,8 @@ const performanceTuningPresets = [
       performanceMode: false,
       adaptivePerformance: false,
       reduceMotion: false,
+      backgroundOpacity: 16,
+      backgroundEffects: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: false,
       terminalSmoothResumedOutput: false,
@@ -17681,10 +17693,12 @@ function performanceSetupSummaryForSettings(settings) {
     ...state.settings,
     ...(settings || {})
   });
+  const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, normalized.backgroundEffects);
   return {
     mode: normalized.performanceMode ? "Tuned" : "Balanced",
     adaptiveGuard: normalized.adaptivePerformance ? "On" : "Off",
     motion: normalized.performanceMode || normalized.reduceMotion ? "Reduced" : "Full",
+    background: `${backgroundEffects} ${normalized.backgroundOpacity}%`,
     terminalStartup: optionLabel(terminalStartupOptions, normalized.terminalStartupMode, normalized.terminalStartupMode),
     inactiveOutput: normalized.terminalPauseInactiveOutput ? "Paused" : "Live",
     resume: normalized.terminalSmoothResumedOutput ? "Smooth" : "Immediate",
@@ -17811,6 +17825,12 @@ async function copyPerformanceSetup() {
 
 function performanceSetupSettingUpdateFromValue(key, raw) {
   if (key === "terminalStartupMode") return optionIdAllowed(terminalStartupOptions, raw) ? raw : null;
+  if (key === "backgroundOpacity") {
+    if (raw === null || raw === "" || typeof raw === "boolean" || typeof raw === "object") return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? clamp(Math.round(value), 0, 42) : null;
+  }
+  if (key === "backgroundEffects") return optionIdAllowed(backgroundEffectsOptions, raw) ? raw : null;
   if (key === "terminalScrollback") {
     const value = Number(raw);
     return Number.isFinite(value) ? clamp(Math.round(value), 2000, 50000) : null;
@@ -17874,12 +17894,13 @@ function performanceTuningPresetSettings(preset) {
 function performanceTuningPresetSearchText(preset, settings = performanceTuningPresetSettings(preset)) {
   const summary = performanceSetupSummaryForSettings(settings || {});
   return normalizeSettingsQuery([
-    "performance tuning preset setup apply copy speed lag smooth low motion live panes terminal output browser preview suspend history scrollback",
+    "performance tuning preset setup apply copy speed lag smooth low motion live panes background opacity effects glass flat terminal output browser preview suspend history scrollback",
     preset?.label,
     preset?.body,
     summary.mode,
     summary.adaptiveGuard,
     summary.motion,
+    summary.background,
     summary.terminalStartup,
     summary.inactiveOutput,
     summary.resume,
@@ -18726,11 +18747,11 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
     }),
     quickOverviewControlButton("Copy", copyPerformanceSetup, {
       title: "Copy performance setup as JSON.",
-      search: "quick setup performance copy setup export clipboard json"
+      search: "quick setup performance copy setup background opacity effects export clipboard json"
     }),
     quickOverviewControlButton("Paste", pastePerformanceSetup, {
       title: "Paste copied performance setup.",
-      search: "quick setup performance paste setup import clipboard json"
+      search: "quick setup performance paste setup background opacity effects import clipboard json"
     }),
     quickOverviewControlButton("Reset stats", resetRenderStats, {
       disabled: !hasStats,
@@ -18742,7 +18763,7 @@ function quickPerformanceControlsPanel(performance = performanceOverviewModel())
     className: "quick-overview-performance",
     title: "Performance controls",
     meta: `${performance.guard} / ${performance.output} / ${performance.startup}`,
-    search: `quick setup performance controls tune save diagnostics copy paste reset stats speed lag smooth ${performance.status} ${performance.title} ${performance.reason} ${performance.render} ${performance.output} ${performance.startup}`,
+    search: `quick setup performance controls tune save diagnostics copy paste reset stats speed lag smooth background opacity effects ${performance.status} ${performance.title} ${performance.reason} ${performance.render} ${performance.output} ${performance.startup}`,
     actions
   });
 }
@@ -20586,7 +20607,7 @@ function refreshPerformanceHealthPanel(panel = elements.inspectorBody.querySelec
 function performanceTuningPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "performance-tune-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes browser preview apply copy setup history scrollback");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes background opacity effects glass flat browser preview apply copy setup history scrollback");
   for (const preset of performanceTuningPresets) {
     const settings = performanceTuningPresetSettings(preset);
     if (!settings) continue;
@@ -20623,7 +20644,7 @@ function performanceTuningPresetGrid() {
     button.querySelector(".performance-tune-body").textContent = preset.body;
     const meta = button.querySelectorAll(".performance-tune-meta span");
     meta[0].textContent = summary.mode;
-    meta[1].textContent = summary.motion;
+    meta[1].textContent = summary.background;
     meta[2].textContent = summary.history;
     button.onclick = () => {
       if (!isActivePerformanceTuningPreset(preset)) applyPerformanceTuningPreset(preset.id);
@@ -27356,7 +27377,7 @@ function paletteEntries() {
     entries.push({
       id: `performanceTunePreset.${preset.id}`,
       label: `Performance tuning: ${preset.label}`,
-      meta: active ? `Active / ${summary.history}` : `${summary.mode} / ${summary.history}`,
+      meta: active ? `Active / ${summary.background} / ${summary.history}` : `${summary.mode} / ${summary.background} / ${summary.history}`,
       shortcut: active ? "Active" : "Speed",
       active,
       disabled: active,
@@ -27367,10 +27388,10 @@ function paletteEntries() {
     entries.push({
       id: `performanceTunePreset.copy.${preset.id}`,
       label: `Copy tuning preset: ${preset.label}`,
-      meta: `${summary.motion} / ${summary.inactiveOutput} output / ${summary.inactiveBrowsers} browsers`,
+      meta: `${summary.motion} / ${summary.background} / ${summary.inactiveBrowsers} browsers`,
       shortcut: "Copy",
       title: "Copy this tuning preset as performance setup JSON.",
-      search: normalizeSettingsQuery(`performance tuning preset copy setup clipboard json speed lag smooth ${preset.label} ${preset.body} ${summary.mode} ${summary.motion} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.history}`),
+      search: normalizeSettingsQuery(`performance tuning preset copy setup clipboard json speed lag smooth background opacity effects ${preset.label} ${preset.body} ${summary.mode} ${summary.motion} ${summary.background} ${summary.inactiveOutput} ${summary.inactiveBrowsers} ${summary.history}`),
       run: () => copyPerformanceTuningPreset(preset.id)
     });
   }
