@@ -3855,6 +3855,8 @@ const commands = [
   { id: "terminal.restoreMinimized", label: "Restore Minimized Panes", shortcut: "", run: () => restoreMinimizedPanes() },
   { id: "terminal.resetLayout", label: "Reset Split Layout", shortcut: "", run: () => resetActivePaneLayout() },
   { id: "layout.focusMode", label: "Toggle Focus Mode", shortcut: "Ctrl+Shift+F", run: () => toggleFocusMode() },
+  { id: "layout.copyChrome", label: "Copy Workspace Chrome Settings", shortcut: "", run: () => copyWorkspaceChromeSettings() },
+  { id: "layout.pasteChrome", label: "Paste Workspace Chrome Settings", shortcut: "", run: () => pasteWorkspaceChromeSettings() },
   { id: "layout.resetChrome", label: "Reset Workspace Chrome", shortcut: "", run: () => resetWorkspaceChrome() },
   { id: "layout.equalPanes", label: "Equalize Panes", shortcut: "", run: () => applyPaneLayoutPreset("equal") },
   { id: "layout.sideBySide", label: "Layout Panes Side by Side", shortcut: "", run: () => applyPaneLayoutPreset("sideBySide") },
@@ -10194,10 +10196,14 @@ function renderSettingsInspector(options = {}) {
     layoutSection.append(paneShapePanel(workspace));
     const layoutActions = document.createElement("div");
     layoutActions.className = "settings-actions";
-    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar sidebar footer inspector tabs status header title focus mode simple clean");
+    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal save layout blueprint workspace chrome toolbar sidebar footer inspector tabs status header title focus mode simple clean copy paste clipboard json");
     const saveLayoutAction = settingsActionButton("Save layout", saveCurrentWorkspaceBlueprint, "", "save current split pane layout workspace blueprint reusable");
     applyWorkspaceBlueprintSaveLimit(saveLayoutAction, workspace, "Save the current workspace pane layout as a reusable blueprint.");
     const workspaceChromeDefault = workspaceChromeSettingsAreDefault();
+    const copyChromeAction = settingsActionButton("Copy chrome", copyWorkspaceChromeSettings, "", "workspace chrome layout copy toolbar sidebar footer inspector tabs status header title focus mode clipboard json");
+    copyChromeAction.title = "Copy toolbar, sidebar, tabs, status bar, and panel widths as JSON.";
+    const pasteChromeAction = settingsActionButton("Paste chrome", pasteWorkspaceChromeSettings, "", "workspace chrome layout paste toolbar sidebar footer inspector tabs status header title focus mode clipboard json");
+    pasteChromeAction.title = "Apply copied cmux workspace chrome JSON.";
     const resetChromeAction = settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", `workspace chrome toolbar sidebar footer inspector tabs status header title reset ${workspaceChromeDefault ? "active current " : ""}`);
     resetChromeAction.disabled = workspaceChromeDefault;
     resetChromeAction.title = workspaceChromeDefault
@@ -10212,6 +10218,8 @@ function renderSettingsInspector(options = {}) {
     layoutActions.append(
       settingsActionButton(state.settings.focusMode ? "Leave focus" : "Focus mode", () => toggleFocusMode(), "", "focus mode simple clean hide chrome"),
       saveLayoutAction,
+      copyChromeAction,
+      pasteChromeAction,
       settingsActionButton("Blueprints", () => openSettingsCategory("blueprints"), "", "open saved workspace blueprints layout templates"),
       resetSplitAction,
       resetChromeAction
@@ -17913,6 +17921,8 @@ function showToolbarMenu(event) {
     contextMenuSectionTitle("Layout"),
     contextMenuActionGroup(
       toolbarAction("Reset split layout", resetActivePaneLayout, !multiPane, "Reset split sizes for the active workspace.", multiPaneRequiredTitle),
+      toolbarAction("Copy workspace chrome", copyWorkspaceChromeSettings, false, "Copy toolbar, sidebar, tabs, status bar, and panel widths as JSON."),
+      toolbarAction("Paste workspace chrome", pasteWorkspaceChromeSettings, false, "Apply copied cmux workspace chrome JSON."),
       toolbarAction("Reset workspace chrome", resetWorkspaceChrome, workspaceChromeDefault, "Reset toolbar, sidebar, tabs, status bar, and panel widths.", "Workspace chrome already matches the default setup."),
       contextPaneLayoutButton("Equalize panes", "equal", workspace, { icon: "layout" }),
       contextPaneLayoutButton("Grid layout", "grid", workspace, { icon: "layout" }),
@@ -21059,6 +21069,18 @@ const workspaceChromeSettings = [
   "inspectorWidth"
 ];
 
+const workspaceChromeBooleanSettings = new Set([
+  "paneColorMarkers",
+  "focusMode",
+  "showTabs",
+  "showStatusbar"
+]);
+
+const workspaceChromeWidthSettings = {
+  sidebarWidth: [188, 304],
+  inspectorWidth: [300, 480]
+};
+
 const appearanceResetSettings = [
   "theme",
   "accent",
@@ -21115,6 +21137,109 @@ async function copyLookSettings() {
 
 function optionIdAllowed(options, value) {
   return typeof value === "string" && options.some(([id]) => id === value);
+}
+
+function workspaceChromePayload() {
+  const settings = {};
+  for (const key of workspaceChromeSettings) settings[key] = state.settings[key];
+  return {
+    version: 1,
+    type: "cmux-workspace-chrome",
+    summary: {
+      density: state.settings.density === "compact" ? "Compact" : "Comfortable",
+      toolbar: optionLabel(toolbarModeOptions, state.settings.toolbarMode, state.settings.toolbarMode),
+      paneHeaders: optionLabel(paneHeaderOptions, state.settings.paneHeaderMode, state.settings.paneHeaderMode),
+      paneControls: optionLabel(paneActionOptions, state.settings.paneActionMode, state.settings.paneActionMode),
+      workspaceRows: optionLabel(sidebarDetailOptions, state.settings.sidebarDetailMode, state.settings.sidebarDetailMode),
+      tabs: state.settings.showTabs ? optionLabel(tabSizeOptions, state.settings.tabSize, state.settings.tabSize) : "Hidden",
+      statusbar: state.settings.showStatusbar ? "Visible" : "Hidden",
+      focusMode: state.settings.focusMode ? "On" : "Off",
+      widths: `${state.settings.sidebarWidth}px sidebar / ${state.settings.inspectorWidth}px settings`
+    },
+    settings
+  };
+}
+
+async function copyWorkspaceChromeSettings() {
+  const payload = JSON.stringify(workspaceChromePayload(), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Workspace chrome copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Workspace chrome settings",
+    message: "Clipboard access is unavailable. The current workspace chrome setup is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function workspaceChromeSettingUpdateFromValue(key, raw) {
+  if (key === "density") return ["comfortable", "compact"].includes(raw) ? raw : null;
+  if (key === "paneHeaderMode") return optionIdAllowed(paneHeaderOptions, raw) ? raw : null;
+  if (key === "paneActionMode") return optionIdAllowed(paneActionOptions, raw) ? raw : null;
+  if (key === "sidebarDetailMode") return optionIdAllowed(sidebarDetailOptions, raw) ? raw : null;
+  if (key === "sidebarBranchMode") return optionIdAllowed(sidebarBranchOptions, raw) ? raw : null;
+  if (key === "sidebarFooterMode") return optionIdAllowed(sidebarFooterOptions, raw) ? raw : null;
+  if (key === "toolbarMode") return optionIdAllowed(toolbarModeOptions, raw) ? raw : null;
+  if (key === "tabSize") return optionIdAllowed(tabSizeOptions, raw) ? raw : null;
+  if (key === "addTabStyle") return optionIdAllowed(addTabStyleOptions, raw) ? raw : null;
+  if (key === "titleDetailMode") return optionIdAllowed(titleDetailOptions, raw) ? raw : null;
+  if (workspaceChromeBooleanSettings.has(key)) return typeof raw === "boolean" ? raw : null;
+  const range = workspaceChromeWidthSettings[key];
+  if (range) {
+    if (raw === null || raw === "" || typeof raw === "boolean" || typeof raw === "object") return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? clamp(value, range[0], range[1]) : null;
+  }
+  return null;
+}
+
+function workspaceChromeUpdatesFromPayload(payload) {
+  const parsed = importedObject(payload);
+  const source = importedObject(parsed?.settings) || parsed;
+  if (!source) return null;
+  const updates = {};
+  for (const key of workspaceChromeSettings) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    const value = workspaceChromeSettingUpdateFromValue(key, source[key]);
+    if (value === null) return null;
+    updates[key] = value;
+  }
+  return Object.keys(updates).length ? updates : null;
+}
+
+function applyWorkspaceChromeUpdates(updates) {
+  if (!updates) {
+    toast("Clipboard does not contain workspace chrome settings.");
+    return false;
+  }
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Workspace chrome already matches.");
+    return false;
+  }
+  refreshLayoutSettings();
+  toast("Workspace chrome applied.");
+  return true;
+}
+
+async function pasteWorkspaceChromeSettings() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(clipboard);
+    return applyWorkspaceChromeUpdates(workspaceChromeUpdatesFromPayload(parsed));
+  } catch {
+    toast("Clipboard does not contain workspace chrome settings.");
+    return false;
+  }
 }
 
 function lookSettingUpdateFromValue(key, raw) {
