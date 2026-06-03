@@ -5891,7 +5891,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         return TextBoxMentionCandidate(
             title: "@\(relativePath)",
             subtitle: absolutePath,
-            insertionText: "[@\(relativePath)](\(absolutePath))",
+            targetPath: absolutePath,
             systemImageName: "doc",
             searchKey: "\(relativePath) \(URL(fileURLWithPath: relativePath).lastPathComponent)".lowercased(),
             priority: min(relativePath.split(separator: "/").count, 20)
@@ -5905,7 +5905,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 skillPath: "/tmp/cmux-textbox-skills/sample-dollar-skill/SKILL.md"
             )
         ])
-        let suggestions = index.rankedCandidates(matching: "sample-dollar", limit: 8)
+        let suggestions = index.rankedCandidates(matching: "sample-dollar", limit: 8, shouldCancel: { false })
             .map { $0.suggestion(trigger: "$") }
 
         XCTAssertEqual(suggestions.first?.title, "$sample-dollar-skill")
