@@ -3957,9 +3957,15 @@ extension SessionPersistenceTests {
 
         let startupInput = try XCTUnwrap(binding.startupInput)
         let envRange = try XCTUnwrap(startupInput.range(of: "'/usr/bin/env'"))
+        let loginShellRange = try XCTUnwrap(startupInput.range(of: "'/bin/zsh' '-lc'"))
         let cdRange = try XCTUnwrap(startupInput.range(of: "cd -- '\\''/tmp/project'\\''"))
         let commandRange = try XCTUnwrap(startupInput.range(of: "codex resume session"))
-        XCTAssertLessThan(envRange.lowerBound, commandRange.lowerBound)
+        // The env wrapper scopes a login shell, and the cwd guard is the first thing inside
+        // its -lc payload, so the full order is env < '/bin/zsh' '-lc' < cd < command. The cd
+        // must run *inside* the env-scoped shell (after profile sourcing), so it cannot precede
+        // env; what matters is that it precedes the resume command within that payload.
+        XCTAssertLessThan(envRange.lowerBound, loginShellRange.lowerBound)
+        XCTAssertLessThan(loginShellRange.lowerBound, cdRange.lowerBound)
         XCTAssertLessThan(cdRange.lowerBound, commandRange.lowerBound)
         XCTAssertTrue(startupInput.contains("'CODEX_HOME=/tmp/codex home'"), startupInput)
         XCTAssertFalse(startupInput.contains("ANTHROPIC_API_KEY"), startupInput)
@@ -4159,8 +4165,14 @@ extension SessionPersistenceTests {
         let prefix = "/bin/zsh '"
         let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
         let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        let envRange = try XCTUnwrap(scriptContents.range(of: "'/usr/bin/env'"))
+        let loginShellRange = try XCTUnwrap(scriptContents.range(of: "'/bin/zsh' '-lc'"))
         let cdRange = try XCTUnwrap(scriptContents.range(of: "cd -- '\\''/tmp/project with spaces'\\''"))
         let commandRange = try XCTUnwrap(scriptContents.range(of: "codex resume session"))
+        // Same env < '/bin/zsh' '-lc' < cd < command ordering as the inline path: the cwd guard
+        // is the first statement inside the env-scoped login shell, ahead of the resume command.
+        XCTAssertLessThan(envRange.lowerBound, loginShellRange.lowerBound)
+        XCTAssertLessThan(loginShellRange.lowerBound, cdRange.lowerBound)
         XCTAssertLessThan(cdRange.lowerBound, commandRange.lowerBound)
         XCTAssertTrue(scriptContents.contains(longPath))
         XCTAssertTrue(scriptContents.contains("'CODEX_HOME=/tmp/codex home'"))
