@@ -3669,6 +3669,8 @@ const commands = [
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
   { id: "settings.pane", label: "Open Active Pane Settings", shortcut: "", run: () => openPaneSettings() },
   { id: "settings.resetAppearance", label: "Reset Look Settings", shortcut: "", run: () => resetAppearanceSettings() },
+  { id: "settings.copyLook", label: "Copy Look Settings", shortcut: "", run: () => copyLookSettings() },
+  { id: "settings.pasteLook", label: "Paste Look Settings", shortcut: "", run: () => pasteLookSettings() },
   { id: "settings.performance", label: "Open Performance Settings", shortcut: "", run: () => openSettingsCategory("performance") },
   { id: "settings.tunePerformance", label: "Tune Performance Now", shortcut: "", run: () => tunePerformanceNow() },
   { id: "settings.cleanFast", label: "Apply Clean + Fast Setup", shortcut: "", run: () => applySettingsPresetById("simpleFast") },
@@ -9733,18 +9735,24 @@ function renderSettingsInspector(options = {}) {
     appearanceSection.append(savedColorsDisclosurePanel());
     const appearanceActions = document.createElement("div");
     appearanceActions.className = "settings-actions appearance-actions";
-    appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look save profile reset theme accent background terminal colors default profiles");
+    appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look save profile copy paste reset theme accent background terminal colors default profiles clipboard json");
     const lookSettingsDefault = appearanceSettingsAreDefault();
     const lookReset = settingsActionButton("Reset look", resetAppearanceSettings, "", `appearance look reset theme accent background terminal colors default ${lookSettingsDefault ? "active current " : ""}`);
     lookReset.disabled = lookSettingsDefault;
     lookReset.title = lookReset.disabled
       ? "Look settings already match the default setup."
       : "Reset theme, accent, app background, and terminal colors.";
+    const copyLook = settingsActionButton("Copy look", copyLookSettings, "", "appearance look copy theme accent background terminal colors clipboard json");
+    copyLook.title = "Copy theme, accent, app background, and terminal colors as JSON.";
+    const pasteLook = settingsActionButton("Paste look", pasteLookSettings, "", "appearance look paste theme accent background terminal colors clipboard json");
+    pasteLook.title = "Apply copied cmux look JSON.";
     appearanceActions.append(
       applySettingsProfileSaveLimit(
         settingsActionButton("Save profile", saveCurrentLookProfile, "primary", "appearance look save current settings profile theme accent background terminal layout performance"),
         "Save this look as a reusable Settings profile."
       ),
+      copyLook,
+      pasteLook,
       settingsActionButton("Profiles", () => openSettingsCategory("profiles"), "", "appearance look settings profiles saved apply update"),
       lookReset
     );
@@ -17808,6 +17816,8 @@ function showToolbarMenu(event) {
         action.title = colorCopyTitle(state.settings.accent, defaultSettings.accent, "Copy the current accent color value.");
         return action;
       })(),
+      toolbarAction("Copy current look", copyLookSettings, false, "Copy theme, accent, app background, and terminal colors as JSON."),
+      toolbarAction("Paste look", pasteLookSettings, false, "Apply a copied cmux look JSON payload."),
       contextMenuButton("Background settings", () => openSettingsCategory("appearance", { query: "background", focusSearch: true })),
       (() => {
         const action = contextMenuButton("Save current background", () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }), !canSaveBackgroundImage(state.settings.backgroundImage));
@@ -20779,6 +20789,112 @@ function settingsKeysMatchDefaults(keys) {
 
 function appearanceSettingsAreDefault() {
   return settingsKeysMatchDefaults(appearanceResetSettings);
+}
+
+function lookSettingsPayload() {
+  const settings = {};
+  for (const key of appearanceResetSettings) settings[key] = state.settings[key];
+  return {
+    version: 1,
+    type: "cmux-look-settings",
+    summary: {
+      theme: optionLabel(themeOptions, state.settings.theme, state.settings.theme),
+      accent: state.settings.accent,
+      background: appearanceBackgroundLabel(state.settings.backgroundImage),
+      terminalColors: terminalColorPalettePayload().effective
+    },
+    settings
+  };
+}
+
+async function copyLookSettings() {
+  const payload = JSON.stringify(lookSettingsPayload(), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Look settings copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Look settings",
+    message: "Clipboard access is unavailable. The current look setup is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function optionIdAllowed(options, value) {
+  return typeof value === "string" && options.some(([id]) => id === value);
+}
+
+function lookSettingUpdateFromValue(key, raw) {
+  if (key === "theme") return optionIdAllowed(themeOptions, raw) ? raw : null;
+  if (key === "accent") return normalizeUiColor(raw, "") || null;
+  if (key === "backgroundImage") {
+    if (raw === null) return "";
+    if (typeof raw !== "string") return null;
+    const trimmed = stripWrappingQuotes(raw);
+    const normalized = normalizeBackgroundValue(raw);
+    return trimmed && !normalized ? null : normalized;
+  }
+  if (key === "backgroundOpacity") {
+    if (raw === null || raw === "" || typeof raw === "boolean" || typeof raw === "object") return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? clamp(value, 0, 42) : null;
+  }
+  if (key === "backgroundFit") return optionIdAllowed(backgroundFitOptions, raw) ? raw : null;
+  if (key === "backgroundPosition") return optionIdAllowed(backgroundPositionOptions, raw) ? raw : null;
+  if (key === "backgroundEffects") return optionIdAllowed(backgroundEffectsOptions, raw) ? raw : null;
+  if (key === "terminalBackground" || key === "terminalForeground" || key === "terminalCursorColor") {
+    if (raw === "" || raw === null) return "";
+    return typeof raw === "string" ? normalizeTerminalColor(raw) || null : null;
+  }
+  return null;
+}
+
+function lookSettingsUpdatesFromPayload(payload) {
+  const parsed = importedObject(payload);
+  const source = importedObject(parsed?.settings) || parsed;
+  if (!source) return null;
+  const updates = {};
+  for (const key of appearanceResetSettings) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    const value = lookSettingUpdateFromValue(key, source[key]);
+    if (value === null) return null;
+    updates[key] = value;
+  }
+  return Object.keys(updates).length ? updates : null;
+}
+
+function applyLookSettingsUpdates(updates, toastText = "Look settings applied.") {
+  if (!updates) {
+    toast("Clipboard does not contain look settings.");
+    return false;
+  }
+  const changed = updateSettings(updates);
+  if (!changed) {
+    toast("Look settings already match.");
+    return false;
+  }
+  renderSettingsInspector();
+  toast(toastText);
+  return true;
+}
+
+async function pasteLookSettings() {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(clipboard);
+    return applyLookSettingsUpdates(lookSettingsUpdatesFromPayload(parsed));
+  } catch {
+    toast("Clipboard does not contain look settings.");
+    return false;
+  }
 }
 
 function workspaceChromeSettingsAreDefault() {
