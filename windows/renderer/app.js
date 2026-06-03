@@ -11591,6 +11591,7 @@ function renderSettingsInspector(options = {}) {
   if (shouldBuildSection("quick")) {
     const quickSection = settingsSection("Quick setup");
     quickSection.append(quickSetupOverviewPanel());
+    quickSection.append(quickSetupMapPanel());
     quickSection.append(quickSetupPresetRailPanel());
     quickSection.append(quickSetupGuidePanel());
     quickSection.append(quickActionDisclosurePanel());
@@ -17094,6 +17095,124 @@ function quickSetupOverviewPanel() {
     muted: scope.paneCount === 0,
     disabled: scope.paneCount === 0
   });
+  return panel;
+}
+
+function activeLookPackLabel() {
+  return lookPackDefinitions.find((pack) => isActiveLookPack(pack))?.label || "Custom";
+}
+
+function activeWorkspaceChromePresetLabel() {
+  return workspaceChromePresets.find((preset) => isActiveWorkspaceChromePreset(preset))?.label || "Custom";
+}
+
+function activePerformanceTuningPresetLabel() {
+  return performanceTuningPresets.find((preset) => isActivePerformanceTuningPreset(preset))?.label || "Custom";
+}
+
+function quickSetupMapItems() {
+  const performance = performanceOverviewModel();
+  return [
+    {
+      id: "appearance",
+      category: "appearance",
+      icon: "appearance",
+      label: "Look",
+      value: activeLookPackLabel(),
+      body: `${optionLabel(themeOptions, state.settings.theme, "cmux")} / ${accentModeLabel()}`,
+      meta: appearanceBackgroundLabel(state.settings.backgroundImage),
+      search: "appearance look theme accent color background terminal colors"
+    },
+    {
+      id: "layout",
+      category: "layout",
+      icon: "layout",
+      label: "Layout",
+      value: activeWorkspaceChromePresetLabel(),
+      body: `${optionLabel(toolbarModeOptions, state.settings.toolbarMode, "Toolbar")} / ${optionLabel(paneHeaderOptions, state.settings.paneHeaderMode, "Pane headers")}`,
+      meta: state.settings.focusMode ? "Focus mode on" : `${state.settings.sidebarWidth}px sidebar`,
+      search: "layout workspace chrome toolbar pane headers tabs sidebar focus"
+    },
+    {
+      id: "terminal",
+      category: "terminal",
+      icon: "terminal",
+      label: "Terminal",
+      value: `${optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono")} ${state.settings.terminalFontSize}px`,
+      body: `${optionLabel(terminalProfiles, state.settings.terminalProfile, "Auto")} / ${optionLabel(terminalStartupOptions, state.settings.terminalStartupMode, "Fast")}`,
+      meta: state.settings.terminalBackground ? "Custom colors" : "Default colors",
+      search: "terminal font size shell profile startup colors cursor readability"
+    },
+    {
+      id: "browser",
+      category: "browser",
+      icon: "browser",
+      label: "Browser",
+      value: hostnameOf(state.settings.browserHomeUrl) || "Home page",
+      body: optionLabel(browserLaunchModeOptions, state.settings.browserLaunchMode, "cmux pane"),
+      meta: state.settings.browserSuspendInactive ? "Suspends inactive" : "Always live",
+      search: "browser home page launch mode external profile suspend inactive"
+    },
+    {
+      id: "performance",
+      category: "performance",
+      icon: "speed",
+      label: "Speed",
+      value: activePerformanceTuningPresetLabel(),
+      body: performance.title,
+      meta: performance.reason,
+      search: "performance speed lag smooth tuning diagnostics adaptive reduce motion"
+    },
+    {
+      id: "profiles",
+      category: "profiles",
+      icon: "profiles",
+      label: "Profiles",
+      value: savedSettingsProfileCountLabel(),
+      body: activeSettingsSetupLabel(),
+      meta: "Save or reuse setup",
+      search: "settings profile saved reusable apply save current setup"
+    }
+  ];
+}
+
+function quickSetupMapPanel() {
+  const panel = document.createElement("div");
+  panel.className = "quick-setup-map";
+  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup map current setup appearance layout terminal browser speed performance profiles jump configure customize");
+  panel.innerHTML = `
+    <div class="quick-map-heading">
+      <span class="quick-map-title">Setup map</span>
+      <span class="quick-map-subtitle">Jump to the page that owns each part of the current setup.</span>
+    </div>
+    <div class="quick-map-grid"></div>
+  `;
+  const grid = panel.querySelector(".quick-map-grid");
+  for (const item of quickSetupMapItems()) {
+    const button = document.createElement("button");
+    button.className = "quick-map-card";
+    button.type = "button";
+    button.title = `Open ${item.label} settings.`;
+    button.dataset.settingsSearch = normalizeSettingsQuery(`quick setup map ${item.search} ${item.label} ${item.value} ${item.body} ${item.meta}`);
+    button.innerHTML = `
+      <span class="quick-map-icon" aria-hidden="true"></span>
+      <span class="quick-map-copy">
+        <span class="quick-map-label-row">
+          <span class="quick-map-label"></span>
+          <span class="quick-map-value"></span>
+        </span>
+        <span class="quick-map-body"></span>
+        <span class="quick-map-meta"></span>
+      </span>
+    `;
+    button.querySelector(".quick-map-icon").innerHTML = quickActionIconMarkup(item.icon);
+    button.querySelector(".quick-map-label").textContent = item.label;
+    button.querySelector(".quick-map-value").textContent = item.value || "Open";
+    button.querySelector(".quick-map-body").textContent = item.body || "";
+    button.querySelector(".quick-map-meta").textContent = item.meta || "";
+    button.onclick = () => openSettingsCategory(item.category);
+    grid.append(button);
+  }
   return panel;
 }
 
