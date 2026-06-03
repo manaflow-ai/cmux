@@ -1840,6 +1840,11 @@ function customColorSaveTitle(color, availableTitle = "Save this color to the re
   return availableTitle;
 }
 
+function customColorCopyTitle(color, availableTitle = "Copy this color hex value.") {
+  const normalized = normalizeCustomPaletteColor(color);
+  return normalized ? availableTitle : "Pick a custom hex color first.";
+}
+
 function applyCustomColorSaveLimit(button, color, availableTitle = "Save this color to the reusable palette.") {
   if (!button) return button;
   const normalized = normalizeCustomPaletteColor(color);
@@ -1877,6 +1882,20 @@ function deleteCustomColorPalette(color) {
   saveCustomColorPalette();
   renderSettingsInspector();
   toast("Saved color deleted.");
+}
+
+async function copyCustomColorValue(color, toastText = "Color copied.") {
+  const normalized = normalizeCustomPaletteColor(color);
+  if (!normalized) {
+    toast("Pick a custom hex color first.");
+    return false;
+  }
+  if (await writeClipboardText(normalized.toUpperCase())) {
+    toast(toastText);
+    return true;
+  }
+  toast("Clipboard is unavailable.");
+  return false;
 }
 
 function accentColorPalette() {
@@ -15027,8 +15046,10 @@ function savedColorPalettePanel() {
     }, "primary", `saved color apply selected target ${targetOption.label} ${color}`);
     apply.disabled = targetDisabled;
     apply.title = applyTitle;
+    const copy = settingsActionButton("Copy", () => copyCustomColorValue(color, "Saved color copied."), "", `saved color copy hex clipboard ${color}`);
+    copy.title = customColorCopyTitle(color, "Copy this saved color hex value.");
     const more = settingsActionButton("More", (event) => showSavedColorMenu(event, color), "", `saved color more actions accent workspace pane all delete ${color}`);
-    cardActions.append(apply, more);
+    cardActions.append(apply, copy, more);
     card.append(swatch, value, scope, cardActions);
     list.append(card);
   }
@@ -15118,14 +15139,17 @@ function showSavedColorMenu(event, color) {
   title.textContent = normalized.toUpperCase();
   const meta = document.createElement("div");
   meta.className = "context-meta";
-  meta.textContent = "Choose where to apply this saved color.";
+  meta.textContent = "Apply or copy this saved color.";
   const applyActions = contextMenuActionGroup(
     contextMenuButton(activeAccent ? "Accent active" : "Apply to accent", () => applySavedColorToTarget(normalized, "accent"), activeAccent),
     contextMenuButton(activeWorkspace ? "Workspace active" : "Apply to workspace", () => applySavedColorToTarget(normalized, "workspace"), !workspace || activeWorkspace),
     contextMenuButton(activePane ? "Pane active" : "Apply to active pane", () => applySavedColorToTarget(normalized, "pane"), !panel || activePane),
     contextMenuButton(activeAll ? "All panes active" : "Apply to all panes", () => applySavedColorToTarget(normalized, "all"), !hasPanes || activeAll)
   );
+  const copy = contextMenuButton("Copy hex", () => copyCustomColorValue(normalized, "Saved color copied."), false, "", { icon: "clipboard" });
+  copy.title = customColorCopyTitle(normalized, "Copy this saved color hex value.");
   const manageActions = contextMenuActionGroup(
+    copy,
     contextMenuButton("Delete", () => deleteCustomColorPalette(normalized), false, "danger")
   );
   menu.replaceChildren(
@@ -18515,12 +18539,22 @@ function paletteEntries() {
   const colorAllTargetOption = colorApplyTargetOption("all", paletteWorkspace);
   for (const color of state.customColorPalette) {
     const colorValue = colorKey(color);
+    const colorLabel = color.toUpperCase();
     const activeAccent = colorKey(state.settings.accent) === colorValue;
     const activeWorkspaceColor = colorKey(paletteWorkspace?.color) === colorValue;
     const activePaneColor = colorKey(paletteActivePane?.color) === colorValue;
     const activeAllPaneColors = Boolean(paletteWorkspace?.panels?.length)
       && paletteWorkspace.panels.every((panel) => colorKey(panel.color) === colorValue);
     const workspaceMeta = paletteWorkspace?.title || "Active workspace";
+    entries.push({
+      id: `savedColor.copy.${color.slice(1)}`,
+      label: `Copy saved color: ${colorLabel}`,
+      meta: "Hex value to clipboard",
+      shortcut: "Copy",
+      title: customColorCopyTitle(color, "Copy this saved color hex value."),
+      search: normalizeSettingsQuery(`saved color palette custom copy hex clipboard ${color}`),
+      run: () => copyCustomColorValue(color, "Saved color copied.")
+    });
     entries.push({
       id: `savedColor.accent.${color.slice(1)}`,
       label: `Accent color: ${color}`,
