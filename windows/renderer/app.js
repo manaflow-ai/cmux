@@ -16730,7 +16730,7 @@ function paletteQuickActions() {
   const workspace = activeWorkspace();
   const active = focusedPanel();
   const creatingPane = paneCreationButtonsDisabled();
-  return [
+  const actions = [
     {
       id: "quick.terminal",
       label: t("palette.quickTerminal"),
@@ -16768,6 +16768,18 @@ function paletteQuickActions() {
       run: () => openInspector("settings")
     }
   ];
+  if (!isSettingsPresetIdActive("simpleFast")) {
+    actions.splice(2, 0, {
+      id: "quick.fastSetup",
+      label: t("palette.quickFastSetup"),
+      meta: t("palette.quickFastSetupMeta"),
+      shortcut: "",
+      icon: "speed",
+      disabled: false,
+      run: () => applySettingsPresetById("simpleFast")
+    });
+  }
+  return actions;
 }
 
 function renderPaletteQuickActions() {
@@ -16887,6 +16899,7 @@ function paletteQuickActionsSignature() {
   appendSignatureValue(parts, active?.title || "");
   appendSignatureValue(parts, active?.url || "");
   appendSignatureValue(parts, state.settings.browserHomeUrl);
+  appendSignatureValue(parts, isSettingsPresetIdActive("simpleFast"));
   appendSignatureValue(parts, paneCreationButtonsDisabled());
   return parts.join("");
 }

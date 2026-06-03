@@ -99,6 +99,8 @@ const windowsMessages = {
     "palette.quickTerminal": "Terminal",
     "palette.quickBrowser": "Browser",
     "palette.quickSplit": "Split",
+    "palette.quickFastSetup": "Fast setup",
+    "palette.quickFastSetupMeta": "Clean UI, lower lag",
     "palette.quickSettings": "Settings",
     "palette.quickSettingsMeta": "Customize cmux",
     "palette.quickWorkspace": "Workspace",

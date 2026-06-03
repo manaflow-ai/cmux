@@ -11093,7 +11093,7 @@ textarea.dialog-input {
 
 .palette-quick-actions {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: var(--space-2);
   padding: 0 0 var(--space-2);
   margin-bottom: var(--space-2);
