@@ -4047,7 +4047,7 @@ function paneCreationButtonBaseTitle(button) {
 function updatePaneCreationButtonState(button) {
   if (!button) return;
   const disabled = paneCreationButtonsDisabled();
-  const creating = paneCreationOperationCount() > 0;
+  const creating = paneCreationOperationCount(paneCreationButtonType(button)) > 0;
   const title = paneCreationActionTitle(paneCreationButtonBaseTitle(button));
   setDisabledIfChanged(button, disabled);
   toggleClassIfChanged(button, "is-creating", creating && !disabled);
@@ -4055,10 +4055,20 @@ function updatePaneCreationButtonState(button) {
   setAttributeIfChanged(button, "aria-label", title);
 }
 
-function paneCreationOperationCount() {
+function paneCreationButtonType(button) {
+  if (!button?.id) return "";
+  if (button.id === "newBrowserButton") return "browser";
+  if (button.id === "newTerminalButton" || button.id === "splitRightButton" || button.id === "splitDownButton") return "terminal";
+  return "";
+}
+
+function paneCreationOperationCount(type = "") {
+  const requestedType = String(type || "");
   let count = 0;
   for (const operation of state.uiOperations.values()) {
-    if (operation.kind === "create-panel") count += 1;
+    if (operation.kind !== "create-panel") continue;
+    if (requestedType && operation.paneType && operation.paneType !== requestedType) continue;
+    count += 1;
   }
   return count;
 }
@@ -4198,9 +4208,9 @@ function updateOperationChrome() {
   updateVisibleEmptyWorkspaceControls();
 }
 
-async function withUiOperation(key, kind, label, task) {
+async function withUiOperation(key, kind, label, task, metadata = {}) {
   if (state.uiOperations.has(key)) return null;
-  state.uiOperations.set(key, { kind, label, startedAt: performance.now() });
+  state.uiOperations.set(key, { ...metadata, kind, label, startedAt: performance.now() });
   updateOperationChrome();
   try {
     return await task();
@@ -4945,7 +4955,7 @@ function updateSurfaceAddButtonState(button, config) {
   if (!button || !config) return;
   const parts = surfaceAddTabParts(button);
   const disabled = paneCreationButtonsDisabled();
-  const creating = paneCreationOperationCount() > 0;
+  const creating = paneCreationOperationCount(button.dataset.addKind || "") > 0;
   setTextIfChanged(parts.label, config.label);
   setDisabledIfChanged(button, disabled);
   toggleClassIfChanged(button, "is-creating", creating && !disabled);
@@ -16844,7 +16854,7 @@ async function createPanel(type, direction = "right", options = {}) {
   const operationKey = options.pending === false
     ? "create-panel"
     : `create-panel:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
-  return withUiOperation(operationKey, "create-panel", label, addPanel);
+  return withUiOperation(operationKey, "create-panel", label, addPanel, { paneType: type });
 }
 
 async function openBrowserPrompt(workspaceId = null) {
