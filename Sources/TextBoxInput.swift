@@ -3702,6 +3702,7 @@ struct TextBoxInputView: NSViewRepresentable {
 
         updateTextView(textView, context: context)
         onTextViewCreated(textView)
+        context.coordinator.queuePendingAttachmentUploadStateSync(from: textView)
         return scrollView
     }
 
@@ -3763,9 +3764,15 @@ struct TextBoxInputView: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: TextBoxInputView
+        private var pendingAttachmentUploadStateForNextLayout: Bool?
 
         init(parent: TextBoxInputView) {
             self.parent = parent
+        }
+
+        /// Captures pending-upload state once after representable construction restores AppKit storage.
+        func queuePendingAttachmentUploadStateSync(from textView: TextBoxInputTextView) {
+            pendingAttachmentUploadStateForNextLayout = textView.hasPendingAttachmentUploadPlaceholder()
         }
 
         func textDidChange(_ notification: Notification) {
@@ -3799,7 +3806,7 @@ struct TextBoxInputView: NSViewRepresentable {
                   let textContainer = textView.textContainer else { return }
             if let textBoxView = textView as? TextBoxInputTextView {
                 textBoxView.recenterSingleLineTextContainer()
-                syncPendingAttachmentUploadState(from: textBoxView)
+                applyPendingAttachmentUploadStateSyncIfNeeded()
             }
             layoutManager.ensureLayout(for: textContainer)
             let lineFragmentCount = (textView as? TextBoxInputTextView)?.visualLineFragmentCount()
@@ -3839,12 +3846,13 @@ struct TextBoxInputView: NSViewRepresentable {
             }
         }
 
-        /// Synchronizes pending-upload UI state from AppKit after the text view has entered its layout cycle.
-        private func syncPendingAttachmentUploadState(from textView: TextBoxInputTextView) {
+        /// Applies the one-shot pending-upload state captured during representable construction.
+        private func applyPendingAttachmentUploadStateSyncIfNeeded() {
             // Silent restore skips textDidChange to avoid publishing through TerminalPanel while
             // SwiftUI constructs the representable. Layout completion is the post-construction
             // bridge point that keeps this binding aligned without mutating state from makeNSView.
-            let hasPendingUpload = textView.hasPendingAttachmentUploadPlaceholder()
+            guard let hasPendingUpload = pendingAttachmentUploadStateForNextLayout else { return }
+            pendingAttachmentUploadStateForNextLayout = nil
             guard parent.hasPendingAttachmentUpload != hasPendingUpload else { return }
             parent.hasPendingAttachmentUpload = hasPendingUpload
         }
