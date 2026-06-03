@@ -514,6 +514,8 @@ const state = {
   surfaceTabOverflowFrame: 0,
   surfaceTabEnsureActive: false,
   surfaceTabResizeObserver: null,
+  surfaceTabDropTargetId: "",
+  surfaceTabDropTargetMode: "",
   commandStripOverflowFrame: 0,
   commandStripResizeObserver: null,
   dragPanelId: null,
@@ -4823,14 +4825,13 @@ function createSurfaceTab() {
   button.addEventListener("dragover", (event) => {
     if (!state.dragPanelId || state.dragPanelId === button.dataset.panelId) return;
     event.preventDefault();
-    clearSurfaceTabDropTargets();
-    button.classList.add(surfaceTabDropPlacement(event, button) === "after" ? "is-drop-after" : "is-drop-before");
+    setSurfaceTabDropTarget(button, surfaceTabDropPlacement(event, button));
   });
-  button.addEventListener("dragleave", () => button.classList.remove("is-drop-before", "is-drop-after"));
+  button.addEventListener("dragleave", () => clearSurfaceTabDropTarget(button));
   button.addEventListener("drop", (event) => {
     event.preventDefault();
     const placement = surfaceTabDropPlacement(event, button);
-    button.classList.remove("is-drop-before", "is-drop-after");
+    clearSurfaceTabDropTarget(button);
     if (state.dragPanelId && state.dragPanelId !== button.dataset.panelId) {
       if (placement === "after") movePanelAfter(state.dragPanelId, button.dataset.panelId);
       else movePanelBefore(state.dragPanelId, button.dataset.panelId);
@@ -4892,9 +4893,36 @@ function surfaceTabDropPlacement(event, button) {
 }
 
 function clearSurfaceTabDropTargets() {
-  for (const button of elements.surfaceTabs.querySelectorAll(".surface-tab.is-drop-before, .surface-tab.is-drop-after")) {
-    button.classList.remove("is-drop-before", "is-drop-after");
+  const target = state.surfaceTabButtons.get(state.surfaceTabDropTargetId);
+  target?.classList?.remove("is-drop-before", "is-drop-after");
+  state.surfaceTabDropTargetId = "";
+  state.surfaceTabDropTargetMode = "";
+}
+
+function clearSurfaceTabDropTarget(button = null) {
+  if (!button) {
+    clearSurfaceTabDropTargets();
+    return;
   }
+  button.classList.remove("is-drop-before", "is-drop-after");
+  if (button.dataset.panelId === state.surfaceTabDropTargetId) {
+    state.surfaceTabDropTargetId = "";
+    state.surfaceTabDropTargetMode = "";
+  }
+}
+
+function setSurfaceTabDropTarget(button, mode) {
+  const panelId = button?.dataset?.panelId || "";
+  if (!panelId || !mode) {
+    clearSurfaceTabDropTargets();
+    return;
+  }
+  if (state.surfaceTabDropTargetId === panelId && state.surfaceTabDropTargetMode === mode) return;
+  clearSurfaceTabDropTargets();
+  button.classList.toggle("is-drop-before", mode === "before");
+  button.classList.toggle("is-drop-after", mode === "after");
+  state.surfaceTabDropTargetId = panelId;
+  state.surfaceTabDropTargetMode = mode;
 }
 
 const surfaceAddTabConfigs = {
@@ -4942,6 +4970,7 @@ function getNewSurfaceTab(kind, workspace) {
     button.addEventListener("dragover", (event) => {
       if (!state.dragPanelId) return;
       event.preventDefault();
+      clearSurfaceTabDropTargets();
       button.classList.add("is-drop-before");
     });
     button.addEventListener("dragleave", () => button.classList.remove("is-drop-before"));
@@ -6326,6 +6355,8 @@ function clearPaneDropTarget(pane) {
 
 function clearAllDropTargets() {
   clearPaneGridDropTarget();
+  clearSurfaceTabDropTargets();
+  for (const session of state.browserViews.values()) clearBrowserTabDropTargets(session);
   for (const pane of document.querySelectorAll(".pane.is-drop-target, .pane.is-background-drop-target")) clearPaneDropTarget(pane);
   for (const node of document.querySelectorAll(".is-drop-before, .is-drop-after, .workspace-row.is-drop-target, .workspace-row.is-workspace-drop-before, .workspace-row.is-workspace-drop-after")) {
     node.classList.remove("is-drop-before", "is-drop-after", "is-drop-target", "is-workspace-drop-before", "is-workspace-drop-after");
@@ -7691,18 +7722,17 @@ function createBrowserTabButton(session) {
     const targetTabId = button.dataset.browserTabId;
     if (!session.dragBrowserTabId || session.dragBrowserTabId === targetTabId) return;
     event.preventDefault();
-    clearBrowserTabDropTargets(session);
-    button.classList.add(browserTabDropPlacement(event, button) === "after" ? "is-drop-after" : "is-drop-before");
+    setBrowserTabDropTarget(session, button, browserTabDropPlacement(event, button));
   });
   button.addEventListener("dragleave", () => {
-    button.classList.remove("is-drop-before", "is-drop-after");
+    clearBrowserTabDropTarget(session, button);
   });
   button.addEventListener("drop", (event) => {
     event.preventDefault();
     const placement = browserTabDropPlacement(event, button);
     const draggedTabId = session.dragBrowserTabId;
     const targetTabId = button.dataset.browserTabId;
-    clearBrowserTabDropTargets(session);
+    clearBrowserTabDropTarget(session, button);
     if (draggedTabId && draggedTabId !== targetTabId) moveBrowserTab(session, draggedTabId, targetTabId, placement);
   });
   button.addEventListener("dragend", () => {
@@ -7817,10 +7847,39 @@ function browserTabDropPlacement(event, button) {
 }
 
 function clearBrowserTabDropTargets(session) {
-  for (const button of session?.tabList?.querySelectorAll(".browser-tab.is-drop-before, .browser-tab.is-drop-after") || []) {
-    button.classList.remove("is-drop-before", "is-drop-after");
-  }
+  const target = session?.tabButtons?.get(session?.tabDropTargetId || "");
+  target?.classList?.remove("is-drop-before", "is-drop-after");
   session?.tabNew?.classList.remove("is-drop-before");
+  if (session) {
+    session.tabDropTargetId = "";
+    session.tabDropTargetMode = "";
+  }
+}
+
+function clearBrowserTabDropTarget(session, button = null) {
+  if (!session || !button) {
+    clearBrowserTabDropTargets(session);
+    return;
+  }
+  button.classList.remove("is-drop-before", "is-drop-after");
+  if (button.dataset.browserTabId === session.tabDropTargetId) {
+    session.tabDropTargetId = "";
+    session.tabDropTargetMode = "";
+  }
+}
+
+function setBrowserTabDropTarget(session, button, mode) {
+  const tabId = button?.dataset?.browserTabId || "";
+  if (!session || !tabId || !mode) {
+    clearBrowserTabDropTargets(session);
+    return;
+  }
+  if (session.tabDropTargetId === tabId && session.tabDropTargetMode === mode) return;
+  clearBrowserTabDropTargets(session);
+  button.classList.toggle("is-drop-before", mode === "before");
+  button.classList.toggle("is-drop-after", mode === "after");
+  session.tabDropTargetId = tabId;
+  session.tabDropTargetMode = mode;
 }
 
 function moveBrowserTab(session, tabId, targetTabId, placement = "before") {
@@ -7833,7 +7892,7 @@ function moveBrowserTab(session, tabId, targetTabId, placement = "before") {
   if (insertIndex < 0) insertIndex = session.tabs.length;
   if (placement === "after") insertIndex += 1;
   session.tabs.splice(insertIndex, 0, tab);
-  saveBrowserSessionTabsNow(session);
+  saveBrowserSessionTabs(session);
   renderBrowserTabs(session);
   return true;
 }
@@ -7844,7 +7903,7 @@ function moveBrowserTabToEnd(session, tabId) {
   if (fromIndex < 0 || fromIndex === session.tabs.length - 1) return false;
   const [tab] = session.tabs.splice(fromIndex, 1);
   session.tabs.push(tab);
-  saveBrowserSessionTabsNow(session);
+  saveBrowserSessionTabs(session);
   renderBrowserTabs(session);
   return true;
 }
@@ -8345,6 +8404,7 @@ function ensureBrowser(panel, body) {
   tabNew.addEventListener("dragover", (event) => {
     if (!session?.dragBrowserTabId) return;
     event.preventDefault();
+    clearBrowserTabDropTargets(session);
     tabNew.classList.add("is-drop-before");
   });
   tabNew.addEventListener("dragleave", () => tabNew.classList.remove("is-drop-before"));
@@ -8493,6 +8553,8 @@ function ensureBrowser(panel, body) {
     tabButtons: new Map(),
     tabSignature: "",
     tabOverflowSignature: "",
+    tabDropTargetId: "",
+    tabDropTargetMode: "",
     setStatus,
     setLoading,
     updateNavState,
