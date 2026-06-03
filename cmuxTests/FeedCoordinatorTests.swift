@@ -189,6 +189,27 @@ final class FeedCoordinatorTests: XCTestCase {
         XCTAssertEqual(attention.events.first?.hookEventName, .permissionRequest)
     }
 
+    func testBlockingDecisionEventPredicateCoversEveryDecisionKind() {
+        // The three blocking-decision kinds must all surface attention…
+        XCTAssertTrue(FeedCoordinator.isBlockingDecisionEvent(.permissionRequest))
+        XCTAssertTrue(FeedCoordinator.isBlockingDecisionEvent(.exitPlanMode))
+        XCTAssertTrue(FeedCoordinator.isBlockingDecisionEvent(.askUserQuestion))
+        // …and pure telemetry must not.
+        XCTAssertFalse(FeedCoordinator.isBlockingDecisionEvent(.preToolUse))
+        XCTAssertFalse(FeedCoordinator.isBlockingDecisionEvent(.stop))
+        XCTAssertFalse(FeedCoordinator.isBlockingDecisionEvent(.notification))
+        XCTAssertFalse(FeedCoordinator.isBlockingDecisionEvent(.userPromptSubmit))
+    }
+
+    func testLifecycleStatusKeyMatchesAgentReportedKey() {
+        // Claude reports its lifecycle under `claude_code`; reusing that key is
+        // what lets Claude's own resume hooks clear the needs-input badge.
+        XCTAssertEqual(FeedCoordinator.lifecycleStatusKey(forSource: "claude"), "claude_code")
+        // Every other agent keys its status by its own source name.
+        XCTAssertEqual(FeedCoordinator.lifecycleStatusKey(forSource: "codex"), "codex")
+        XCTAssertEqual(FeedCoordinator.lifecycleStatusKey(forSource: "opencode"), "opencode")
+    }
+
     private static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
