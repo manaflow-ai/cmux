@@ -9165,6 +9165,12 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   text-align: left;
 }
 
+.pane-layout-preset.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 56%, var(--color-line) 44%);
+  background: color-mix(in oklch, var(--color-accent) 8%, var(--color-pane) 92%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 30%, transparent);
+}
+
 .pane-layout-preset-icon {
   min-width: 0;
   width: 44px;
@@ -9235,6 +9241,26 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   gap: 3px;
 }
 
+.pane-layout-preset-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.pane-layout-preset-status {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  border: 1px solid color-mix(in oklch, var(--color-accent) 48%, var(--color-line) 52%);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-accent) 14%, var(--color-pane) 86%);
+  color: var(--color-text);
+  font-size: 9px;
+  font-weight: 760;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
 .pane-layout-preset:hover:not(:disabled) {
   border-color: var(--color-line-strong);
   background: var(--color-pane-warm);
@@ -9251,6 +9277,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .pane-layout-preset-title {
+  flex: 1 1 auto;
   font-size: 12px;
   font-weight: 760;
   overflow: hidden;

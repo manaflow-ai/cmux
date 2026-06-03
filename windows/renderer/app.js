@@ -13719,31 +13719,73 @@ function paneShapePanel(workspace = activeWorkspace()) {
 function paneLayoutPresetGrid() {
   const workspace = activeWorkspace();
   const disabled = !workspace || workspace.panels.length <= 1;
+  const activePresetIds = disabled ? new Set() : activePaneLayoutPresetIds(workspace);
   const grid = document.createElement("div");
   grid.className = "pane-layout-preset-grid";
   grid.dataset.settingsSearch = normalizeSettingsQuery("split layout pane presets side by side stacked active wide tall equal");
   for (const preset of paneLayoutPresets) {
+    const active = activePresetIds.has(preset.id);
     const button = document.createElement("button");
-    button.className = "pane-layout-preset";
+    button.className = `pane-layout-preset${active ? " is-active" : ""}`;
     button.type = "button";
     button.disabled = disabled;
     button.dataset.presetId = preset.id;
-    button.dataset.settingsSearch = normalizeSettingsQuery(`split layout pane preset ${preset.label} ${preset.body}`);
+    button.dataset.settingsSearch = normalizeSettingsQuery(`split layout pane preset ${active ? "active current " : ""}${preset.label} ${preset.body}`);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
     button.innerHTML = `
       <span class="pane-layout-preset-icon" aria-hidden="true">
         <span></span><span></span><span></span><span></span>
       </span>
       <span class="pane-layout-preset-copy">
-        <span class="pane-layout-preset-title"></span>
+        <span class="pane-layout-preset-title-row">
+          <span class="pane-layout-preset-title"></span>
+        </span>
         <span class="pane-layout-preset-body"></span>
       </span>
     `;
     button.querySelector(".pane-layout-preset-title").textContent = preset.label;
+    if (active) {
+      const status = document.createElement("span");
+      status.className = "pane-layout-preset-status";
+      status.textContent = "Active";
+      button.querySelector(".pane-layout-preset-title-row").append(status);
+    }
     button.querySelector(".pane-layout-preset-body").textContent = preset.body;
     button.onclick = () => applyPaneLayoutPreset(preset.id);
     grid.append(button);
   }
   return grid;
+}
+
+function paneLayoutPresetTreeForWorkspace(preset, workspace, activePanelId, currentTree = null) {
+  if (!preset || !workspace || workspace.panels.length <= 1) return null;
+  if (preset.id === "equal") return equalizePaneTree(currentTree || paneTreeForWorkspace(workspace));
+  if (preset.mode === "grid") return buildGridPanePresetTree(workspace.panels.map((panel) => panel.id));
+  const direction = preset.direction || paneLayoutDirection(workspace);
+  if (preset.mode === "active") {
+    return buildActivePanePresetTree(workspace.panels, activePanelId, direction, workspace.panels.length === 2 ? 68 : 60);
+  }
+  return buildPaneTreeFromPanelIds(workspace.panels.map((panel) => panel.id), direction);
+}
+
+function activePaneLayoutPresetIds(workspace = activeWorkspace()) {
+  const ids = new Set();
+  if (!workspace || workspace.panels.length <= 1) return ids;
+  const currentTree = paneTreeForWorkspace(workspace);
+  const activePanelId = workspace.panels.some((panel) => panel.id === workspace.activePanelId)
+    ? workspace.activePanelId
+    : workspace.panels[0]?.id;
+  for (const preset of paneLayoutPresets) {
+    if (preset.id === "equal") continue;
+    if (preset.id === "grid" && workspace.panels.length <= 2) continue;
+    const expected = paneLayoutPresetTreeForWorkspace(preset, workspace, activePanelId, currentTree);
+    if (expected && paneTreeEqual(currentTree, expected)) ids.add(preset.id);
+  }
+  if (ids.size === 0) {
+    const equal = paneLayoutPresetTreeForWorkspace(paneLayoutPresets.find((preset) => preset.id === "equal"), workspace, activePanelId, currentTree);
+    if (equal && paneTreeEqual(currentTree, equal)) ids.add("equal");
+  }
+  return ids;
 }
 
 function resetRenderStats() {
