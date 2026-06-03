@@ -112,7 +112,6 @@ final class FeedCoordinator: @unchecked Sendable {
         // caps the pending lifetime to the agent process lifetime
         // — no polling, no leaked cards when the agent is killed.
         let itemIdSlot = UnsafeItemIdSlot()
-        let attentionSlot = BlockingAttentionContextSlot()
         DispatchQueue.main.sync {
             MainActor.assumeIsolated {
                 FeedCoordinator.shared.store.ingest(event)
@@ -125,19 +124,11 @@ final class FeedCoordinator: @unchecked Sendable {
                 // regardless of app focus, unlike the desktop banner below,
                 // so the pending decision is visible in the sidebar even
                 // while the user is in another workspace of the same window.
-                attentionSlot.value = FeedCoordinator.shared.surfaceBlockingDecisionAttention(event: event)
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(event: event)
                 #if DEBUG
                 FeedCoordinatorTestHooks.afterBlockingEventIngested?(event, requestId)
                 #endif
             }
-        }
-
-        // Record the overlay so it can be restored when the decision
-        // concludes (resolved by `deliverReply`, or timed out below).
-        if let attentionContext = attentionSlot.value {
-            waiterLock.lock()
-            waiters[requestId]?.attentionContext = attentionContext
-            waiterLock.unlock()
         }
 
         // If this is a blocking actionable event and the app window isn't
@@ -155,34 +146,15 @@ final class FeedCoordinator: @unchecked Sendable {
         switch waitResult {
         case .success:
             if let decision = w?.decision {
-                // `deliverReply` restores the attention overlay on resolve.
                 return .resolved(itemId: itemIdSlot.value, decision: decision)
             }
             cancelNotification(requestId: requestId)
-            restoreAttentionContextOnMain(w?.attentionContext)
             expireTimedOutItem(itemIdSlot.value)
             return .timedOut(itemId: itemIdSlot.value)
         case .timedOut:
             cancelNotification(requestId: requestId)
-            restoreAttentionContextOnMain(w?.attentionContext)
             expireTimedOutItem(itemIdSlot.value)
             return .timedOut(itemId: itemIdSlot.value)
-        }
-    }
-
-    /// Restores an attention overlay (if any) on the main actor, hopping if
-    /// called from the socket worker thread.
-    private func restoreAttentionContextOnMain(_ context: BlockingAttentionContext?) {
-        guard let context else { return }
-        let restore: @Sendable () -> Void = { [context] in
-            MainActor.assumeIsolated {
-                FeedCoordinator.shared.restoreBlockingDecisionAttention(context)
-            }
-        }
-        if Thread.isMainThread {
-            restore()
-        } else {
-            DispatchQueue.main.async(execute: restore)
         }
     }
 
@@ -190,16 +162,11 @@ final class FeedCoordinator: @unchecked Sendable {
     /// item resolved on the main-actor store and wakes any waiter.
     func deliverReply(requestId: String, decision: WorkstreamDecision) {
         waiterLock.lock()
-        let attentionContext = waiters[requestId]?.attentionContext
         if let waiter = waiters[requestId] {
             waiter.decision = decision
             waiter.semaphore.signal()
         }
         waiterLock.unlock()
-
-        // The decision was made: drop the transient needs-input overlay so
-        // the agent's own lifecycle (running/idle) shows through again.
-        restoreAttentionContextOnMain(attentionContext)
 
         let resolve: @Sendable () -> Void = { [requestId, decision] in
             MainActor.assumeIsolated {
@@ -293,18 +260,6 @@ extension FeedCoordinator {
         source == "claude" ? "claude_code" : source
     }
 
-    /// The in-app attention overlay applied for a blocking decision, plus
-    /// the state it replaced. ``restoreBlockingDecisionAttention(_:)`` puts
-    /// the prior state back so the overlay is fully transient — present only
-    /// while the decision is pending.
-    struct BlockingAttentionContext: Sendable {
-        let workspaceId: UUID
-        let panelId: UUID?
-        let statusKey: String
-        let previousLifecycle: AgentHibernationLifecycleState?
-        let previousStatus: SidebarStatusEntry?
-    }
-
     /// Surfaces in-app attention for a blocking feed decision: flips the
     /// owning workspace's agent lifecycle to `.needsInput`, sets the
     /// "Needs input" sidebar status, elevates the workspace when
@@ -317,17 +272,23 @@ extension FeedCoordinator {
     /// it here — once, for every blocking decision — keeps a new event type
     /// from silently swallowing.
     ///
-    /// - Returns: the overlay context to restore once the decision concludes,
-    ///   or `nil` if nothing was surfaced (no resolvable workspace).
+    /// Ownership note: this only *sets* the overlay. Clearing it back to
+    /// `running`/`idle` is owned by the agent's own lifecycle hooks under the
+    /// same `statusKey` — Claude's `pre-tool-use` (on resume after an allow),
+    /// `notification` (re-asserts needs-input when a timed-out decision falls
+    /// back to the native TUI prompt), and `stop` (on turn end). This mirrors
+    /// the existing `cmux hooks <agent> notification` path, which likewise
+    /// sets needs-input and relies on those hooks to clear it. The feed does
+    /// not snapshot/restore lifecycle itself: doing so raced `deliverReply`
+    /// and clobbered overlapping decisions on the same panel.
     @MainActor
-    @discardableResult
-    func surfaceBlockingDecisionAttention(event: WorkstreamEvent) -> BlockingAttentionContext? {
-        guard Self.isBlockingDecisionEvent(event.hookEventName) else { return nil }
+    func surfaceBlockingDecisionAttention(event: WorkstreamEvent) {
+        guard Self.isBlockingDecisionEvent(event.hookEventName) else { return }
 
         #if DEBUG
         if let observer = FeedCoordinatorTestHooks.attentionSurfaceObserver {
             observer(event)
-            return nil
+            return
         }
         #endif
 
@@ -338,18 +299,10 @@ extension FeedCoordinator {
         guard let target = Self.resolveAttentionTarget(event: event),
               let tabManager = AppDelegate.shared?.tabManagerFor(tabId: target.workspaceId),
               let tab = tabManager.tabs.first(where: { $0.id == target.workspaceId })
-        else { return nil }
+        else { return }
 
         let panelId = Self.resolvePanelId(surfaceId: target.surfaceId, tab: tab) ?? tab.focusedPanelId
         let statusKey = Self.lifecycleStatusKey(forSource: event.source)
-
-        let context = BlockingAttentionContext(
-            workspaceId: target.workspaceId,
-            panelId: panelId,
-            statusKey: statusKey,
-            previousLifecycle: panelId.flatMap { tab.agentLifecycleStatesByPanelId[$0]?[statusKey] },
-            previousStatus: tab.statusEntries[statusKey]
-        )
 
         // Needs-input lifecycle drives the sidebar badge + hibernation state.
         tab.setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .needsInput)
@@ -372,33 +325,6 @@ extension FeedCoordinator {
 
         // Ring the bell (dock bounce while the app is in the background).
         NSApp.requestUserAttention(.informationalRequest)
-
-        return context
-    }
-
-    /// Restores the state the attention overlay replaced. Called when the
-    /// blocking decision concludes (resolved or timed out) so the feed never
-    /// leaves a stale "Needs input" badge: on resolve the agent proceeds; on
-    /// timeout the agent's own hooks (e.g. Claude's native permission prompt
-    /// firing the `Notification` hook) re-assert the true state.
-    @MainActor
-    func restoreBlockingDecisionAttention(_ context: BlockingAttentionContext) {
-        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: context.workspaceId),
-              let tab = tabManager.tabs.first(where: { $0.id == context.workspaceId })
-        else { return }
-
-        if let panelId = context.panelId {
-            if let previous = context.previousLifecycle {
-                tab.setAgentLifecycle(key: context.statusKey, panelId: panelId, lifecycle: previous)
-            } else {
-                tab.clearAgentLifecycle(key: context.statusKey, panelId: panelId)
-            }
-        }
-        if let previousStatus = context.previousStatus {
-            tab.statusEntries[context.statusKey] = previousStatus
-        } else {
-            tab.statusEntries.removeValue(forKey: context.statusKey)
-        }
     }
 
     /// Resolves the `(workspace, panel)` an attention overlay should target.
@@ -434,11 +360,6 @@ extension FeedCoordinator {
 private final class PendingWaiter: @unchecked Sendable {
     let semaphore: DispatchSemaphore
     var decision: WorkstreamDecision?
-    /// The in-app attention overlay applied for this blocking decision, if
-    /// any. Restored when the decision concludes (resolved or timed out) so
-    /// the feed never leaves a stale "Needs input" badge behind. Read and
-    /// written only under `FeedCoordinator.waiterLock`.
-    var attentionContext: FeedCoordinator.BlockingAttentionContext?
 
     init(semaphore: DispatchSemaphore) {
         self.semaphore = semaphore
@@ -449,12 +370,6 @@ private final class PendingWaiter: @unchecked Sendable {
 /// `UUID?` without a capture warning.
 private final class UnsafeItemIdSlot: @unchecked Sendable {
     var value: UUID?
-}
-
-/// Tiny box so the `DispatchQueue.main.sync` closure can hand the attention
-/// overlay context back to the (off-main) caller without a capture warning.
-private final class BlockingAttentionContextSlot: @unchecked Sendable {
-    var value: FeedCoordinator.BlockingAttentionContext?
 }
 
 private final class SnapshotSlot: @unchecked Sendable {
