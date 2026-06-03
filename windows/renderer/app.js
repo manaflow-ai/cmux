@@ -11166,14 +11166,18 @@ function browserHomePresetGrid() {
     button.type = "button";
     button.title = preset.url;
     button.dataset.browserHomePreset = preset.id;
-    button.dataset.settingsSearch = normalizeSettingsQuery(`browser home preset ${preset.label} ${preset.body} ${preset.url}`);
+    button.dataset.settingsSearch = normalizeSettingsQuery(`browser home preset ${active ? "active current " : ""}${preset.label} ${preset.body} ${preset.url}`);
     button.setAttribute("aria-pressed", active ? "true" : "false");
     button.innerHTML = `
-      <span class="browser-home-preset-title"></span>
+      <span class="browser-home-preset-title-row">
+        <span class="browser-home-preset-title"></span>
+        <span class="browser-home-preset-status"></span>
+      </span>
       <span class="browser-home-preset-body"></span>
       <span class="browser-home-preset-url"></span>
     `;
     button.querySelector(".browser-home-preset-title").textContent = preset.label;
+    button.querySelector(".browser-home-preset-status").textContent = active ? "Active" : "";
     button.querySelector(".browser-home-preset-body").textContent = preset.body;
     button.querySelector(".browser-home-preset-url").textContent = preset.url;
     button.onclick = () => applyBrowserHomePreset(preset);
@@ -11224,6 +11228,15 @@ function refreshBrowserSettingsPreview() {
     const active = Boolean(preset && isActiveBrowserHomePreset(preset));
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
+    const status = button.querySelector(".browser-home-preset-status");
+    if (status) setTextIfChanged(status, active ? "Active" : "");
+    if (preset) {
+      const search = normalizeSettingsQuery(`browser home preset ${active ? "active current " : ""}${preset.label} ${preset.body} ${preset.url}`);
+      if (button.dataset.settingsSearch !== search) {
+        button.dataset.settingsSearch = search;
+        updateSettingsSearchIndexItemSearch(button, search);
+      }
+    }
   }
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
