@@ -601,6 +601,31 @@ import Testing
         #expect(radial?.children.first?.kind == .radialGradient)
     }
 
+    @Test func valueFuncWithSwitchAndIfLet() {
+        let node = interp.evaluate("""
+        func tint(_ w) -> String {
+            switch w.state {
+            case "running": return "#9ECE6A"
+            case "queued": return "#7AA2F7"
+            default: return "#565F89"
+            }
+        }
+        func name(_ w) -> String {
+            if let t = w.title { return t }
+            return "untitled"
+        }
+        VStack {
+            Text(tint(a)).foregroundColor(tint(a))
+            Text(name(a))
+            Text(name(b))
+        }
+        """, state: [
+            "a": .object(["state": .string("queued"), "title": .string("Alpha")]),
+            "b": .object(["state": .string("running")]),
+        ])
+        #expect(node?.children.map(\.text) == ["#7AA2F7", "Alpha", "untitled"])
+    }
+
     @Test func ifLetOptionalBindingRendersWhenPresent() {
         let present = SwiftValue.object(["branch": .string("main")])
         let node = interp.evaluate("""
