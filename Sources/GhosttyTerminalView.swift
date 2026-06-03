@@ -1481,12 +1481,23 @@ private func terminalKeyboardCopyModeNormalizedModifiers(
 }
 
 private func terminalKeyboardCopyModeChars(
-    _ charactersIgnoringModifiers: String?
+    _ charactersIgnoringModifiers: String?,
+    keyCode: UInt16,
+    modifierFlags: NSEvent.ModifierFlags
 ) -> String {
-    guard let scalar = charactersIgnoringModifiers?.unicodeScalars.first else {
-        return ""
+    let raw = charactersIgnoringModifiers?.unicodeScalars.first.map { String($0).lowercased() } ?? ""
+    if raw.allSatisfy(\.isASCII) { return raw }
+    // Non-ASCII input sources (Korean 두벌식, Japanese Kana, Zhuyin) translate the
+    // physical key to a layout character, so a vim key like `j` arrives as `ㅓ` and
+    // never matches the ASCII `switch chars` cases. Fall back to the ASCII-capable
+    // layout — the same `KeyboardLayout` helper the keyDown shortcut path already
+    // uses — so copy-mode vim keys resolve regardless of the active input source.
+    // ASCII-emitting IMEs (Pinyin, romaji) keep `raw` and skip the fallback.
+    if let asciiScalar = KeyboardLayout.character(forKeyCode: keyCode, modifierFlags: modifierFlags)?
+        .unicodeScalars.first {
+        return String(asciiScalar).lowercased()
     }
-    return String(scalar).lowercased()
+    return raw
 }
 
 func terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: NSEvent.ModifierFlags) -> Bool {
@@ -1501,7 +1512,7 @@ func terminalKeyboardCopyModeAction(
     hasSelection: Bool
 ) -> TerminalKeyboardCopyModeAction? {
     let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
-    let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers)
+    let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers, keyCode: keyCode, modifierFlags: modifierFlags)
 
     if keyCode == 53 { // Escape
         return .exit
@@ -1604,7 +1615,7 @@ func terminalKeyboardCopyModeResolve(
     state: inout TerminalKeyboardCopyModeInputState
 ) -> TerminalKeyboardCopyModeResolution {
     let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
-    let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers)
+    let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers, keyCode: keyCode, modifierFlags: modifierFlags)
 
     if keyCode == 53 { // Escape
         state.reset()
