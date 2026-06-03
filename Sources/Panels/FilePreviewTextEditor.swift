@@ -122,9 +122,33 @@ extension SavingTextView {
     /// be hundreds of thousands of lines. Selection responsiveness on that content is the reason
     /// this configuration is centralized; see `manaflow-ai/cmux#4576`.
     static func makeFilePreviewTextView() -> SavingTextView {
-        let textView = SavingTextView()
-        // Must run before any `textContainer` access below, or the view locks into TextKit 2.
-        textView.enableLargeDocumentSelectionPerformance()
+        // Build an EXPLICIT TextKit 1 stack so this view is never TextKit 2.
+        //
+        // A default `NSTextView()` is TextKit 2: selection/hit-testing then runs through
+        // `NSTextSelectionNavigation`, whose work is O(N) in line-fragment count, so clicking or
+        // drag-selecting in a large document pegs the main thread inside AppKit's modal
+        // mouse-tracking loop and freezes the whole app (`manaflow-ai/cmux#4576`, `#5255`).
+        //
+        // Merely *reading* `.layoutManager` afterward — the previous mitigation — only drops the
+        // view to TextKit 2 *compatibility* mode: `textLayoutManager` stays non-nil and the slow
+        // selection path remains active (confirmed by live `sample` captures of the hung process).
+        // Constructing the view from an `NSTextStorage` / `NSLayoutManager` / `NSTextContainer`
+        // stack is the only way to guarantee `textLayoutManager == nil`, i.e. a pure TextKit 1 view
+        // whose hit-testing uses `NSLayoutManager` (O(log N) with non-contiguous layout).
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        // Lazy glyph layout so multi-hundred-thousand-line documents still open instantly.
+        layoutManager.allowsNonContiguousLayout = true
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer(
+            size: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        )
+        // No-wrap baseline; `applyFilePreviewWordWrap(_:scrollView:)` flips this live per the
+        // `fileEditor.wordWrap` setting.
+        textContainer.widthTracksTextView = false
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = SavingTextView(frame: .zero, textContainer: textContainer)
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
@@ -138,43 +162,12 @@ extension SavingTextView {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = true
         textView.autoresizingMask = [.width]
-        textView.textContainer?.containerSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        textView.textContainer?.widthTracksTextView = false
         textView.applyFilePreviewTextEditorInsets()
         return textView
     }
 }
 
 extension NSTextView {
-    /// Drops the text view to TextKit 1 with non-contiguous layout for large-document performance.
-    ///
-    /// TextKit 2's `NSTextSelectionNavigation` hit-tests are O(N) in line-fragment count, so
-    /// drag-selecting deep into a large file pegs the main thread (`manaflow-ai/cmux#4576`).
-    /// Accessing `layoutManager` puts the view in TextKit 1 compatibility mode, where mouse
-    /// hit-testing is roughly O(log N); `allowsNonContiguousLayout` keeps glyph layout lazy so
-    /// large files still open instantly.
-    ///
-    /// Call this before touching `textContainer`/`textLayoutManager` on a freshly created text
-    /// view, otherwise the first TextKit 2 access locks the view into TextKit 2 and
-    /// `layoutManager` returns `nil`.
-    func enableLargeDocumentSelectionPerformance() {
-        guard let layoutManager else {
-            // `layoutManager` is nil only when a TextKit 2 access already locked the view into
-            // TextKit 2, in which case non-contiguous layout was never enabled and large-document
-            // selection regresses to O(N). Release behavior is unchanged (no-op); DEBUG fails loudly
-            // so the call-order violation is caught at its source rather than as a future hang.
-            assertionFailure(
-                "enableLargeDocumentSelectionPerformance() ran after a TextKit 2 access; "
-                    + "call it before touching textContainer/textLayoutManager."
-            )
-            return
-        }
-        layoutManager.allowsNonContiguousLayout = true
-    }
-
     /// Configures the text view and its scroll view for soft line wrapping
     /// (`wrap == true`) or the no-wrap baseline with a horizontal scroller
     /// (`wrap == false`). Idempotent, so it is safe to call on every SwiftUI
