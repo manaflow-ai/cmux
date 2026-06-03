@@ -16949,9 +16949,23 @@ function showPanelContextMenu(event, panel) {
   }
   const isTerminal = panel.type === "terminal";
   const isBrowser = panel.type === "browser";
+  const paneAction = (label, action, disabled, availableTitle, unavailableTitle, tone = "", options = {}) => {
+    const button = contextMenuButton(label, action, disabled, tone, options);
+    const titleText = disabled ? (unavailableTitle || availableTitle) : (availableTitle || unavailableTitle);
+    if (titleText) button.title = titleText;
+    return button;
+  };
   const generalActions = contextMenuActionGroup(
     contextMenuButton("Rename", () => renamePanel(panel), false, "", { icon: "rename" }),
-    contextMenuButton("Use default name", () => updatePanel(panel.id, { title: "" }), !panel.titleLocked, "", { icon: "reload" }),
+    paneAction(
+      "Use default name",
+      () => updatePanel(panel.id, { title: "" }),
+      !panel.titleLocked,
+      "Restore the generated pane name.",
+      "Pane already uses its default name.",
+      "",
+      { icon: "reload" }
+    ),
     contextMenuButton("Customize tab", () => openPaneAppearanceSettings(panel), false, "", { icon: "palette" }),
     contextMenuButton("Duplicate", () => duplicatePanel(panel), false, "", { icon: "copy" }),
     isTerminal
@@ -17000,7 +17014,15 @@ function showPanelContextMenu(event, panel) {
       contextMenuButton("Clear terminal", () => clearTerminalPanel(panel), false, "", { icon: "close" }),
       contextMenuButton("Text larger", () => changePaneTerminalFontSize(panel.id, 1), false, "", { icon: "textSize" }),
       contextMenuButton("Text smaller", () => changePaneTerminalFontSize(panel.id, -1), false, "", { icon: "textSize" }),
-      contextMenuButton("Reset text size", () => resetPaneTerminalFontSize(panel.id), !panelHasTerminalFontSize(panel), "", { icon: "reload" }),
+      paneAction(
+        "Reset text size",
+        () => resetPaneTerminalFontSize(panel.id),
+        !panelHasTerminalFontSize(panel),
+        "Use the default terminal text size for this pane.",
+        "Pane text size already follows the default.",
+        "",
+        { icon: "reload" }
+      ),
       contextMenuButton("Restart terminal", () => restartPanel(panel.id), false, "", { icon: "reload" }),
       choosePaneBackground,
       pastePaneBackground,
@@ -17025,18 +17047,58 @@ function showPanelContextMenu(event, panel) {
     );
   }
   const layoutActions = contextMenuActionGroup(
-    contextMenuButton("Set pane size", () => promptPanelLayoutPercent(panel), found.workspace.panels.length <= 1, "", { icon: "layout" }),
+    paneAction(
+      "Set pane size",
+      () => promptPanelLayoutPercent(panel),
+      found.workspace.panels.length <= 1,
+      "Set this pane's split size.",
+      "Split this workspace before setting a pane size.",
+      "",
+      { icon: "layout" }
+    ),
     contextMenuButton(isPanelZoomed(panel, found.workspace) ? "Show all panes" : "Focus pane", () => togglePaneZoom(panel.id), false, "", { icon: "maximize" }),
     contextPaneLayoutButton("Equalize panes", "equal", found.workspace, { panelId: panel.id, icon: "layout" }),
     contextPaneLayoutButton("Grid layout", "grid", found.workspace, { panelId: panel.id, icon: "layout" }),
     contextPaneLayoutButton("Active pane wide", "activeWide", found.workspace, { panelId: panel.id, icon: "splitRight" }),
     contextPaneLayoutButton("Active pane tall", "activeTall", found.workspace, { panelId: panel.id, icon: "splitDown" }),
-    contextMenuButton("Move left", () => movePanelLeft(found.workspace, index), index <= 0, "", { icon: "back" }),
-    contextMenuButton("Move right", () => movePanelRight(found.workspace, index), index >= found.workspace.panels.length - 1, "", { icon: "arrowRight" })
+    paneAction(
+      "Move left",
+      () => movePanelLeft(found.workspace, index),
+      index <= 0,
+      "Move this pane left.",
+      "Pane is already first.",
+      "",
+      { icon: "back" }
+    ),
+    paneAction(
+      "Move right",
+      () => movePanelRight(found.workspace, index),
+      index >= found.workspace.panels.length - 1,
+      "Move this pane right.",
+      "Pane is already last.",
+      "",
+      { icon: "arrowRight" }
+    )
   );
   const closeActions = contextMenuActionGroup(
-    contextMenuButton("Close other panes", () => closeOtherPanes(panel.id), found.workspace.panels.length <= 1, "danger", { icon: "close" }),
-    contextMenuButton("Close panes to right", () => closePanelsById(panesToRight.map((candidate) => candidate.id)), panesToRight.length === 0, "danger", { icon: "close" }),
+    paneAction(
+      "Close other panes",
+      () => closeOtherPanes(panel.id),
+      found.workspace.panels.length <= 1,
+      "Close every pane except this one.",
+      "This is the only pane.",
+      "danger",
+      { icon: "close" }
+    ),
+    paneAction(
+      "Close panes to right",
+      () => closePanelsById(panesToRight.map((candidate) => candidate.id)),
+      panesToRight.length === 0,
+      "Close panes to the right of this one.",
+      "There are no panes to the right.",
+      "danger",
+      { icon: "close" }
+    ),
     contextMenuButton("Close all panes", () => closeAllPanes(found.workspace), found.workspace.panels.length === 0, "danger", { icon: "close" }),
     contextMenuButton(closePaneActionLabel(found.workspace, panel.id), () => closePanel(panel.id), false, "danger", { icon: "close" })
   );
