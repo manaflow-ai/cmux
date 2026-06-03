@@ -2844,6 +2844,31 @@ function normalizeBlueprintPanel(panel = {}) {
   };
 }
 
+function normalizeBlueprintPaneTreeTemplate(node, panelCount, seenIndexes = new Set()) {
+  if (!node || typeof node !== "object" || panelCount <= 0) return null;
+  if (node.type === "pane") {
+    const rawIndex = Number(node.panelIndex ?? node.index);
+    const panelIndex = Math.trunc(rawIndex);
+    if (!Number.isFinite(rawIndex) || panelIndex < 0 || panelIndex >= panelCount || seenIndexes.has(panelIndex)) {
+      return null;
+    }
+    seenIndexes.add(panelIndex);
+    return { type: "pane", panelIndex };
+  }
+  if (node.type !== "split") return null;
+  const first = normalizeBlueprintPaneTreeTemplate(node.first, panelCount, seenIndexes);
+  const second = normalizeBlueprintPaneTreeTemplate(node.second, panelCount, seenIndexes);
+  if (!first) return second;
+  if (!second) return first;
+  return {
+    type: "split",
+    direction: paneTreeDirection(node.direction),
+    ratio: paneTreeRatio(node.ratio),
+    first,
+    second
+  };
+}
+
 function normalizeWorkspaceBlueprint(entry) {
   const label = normalizeBlueprintLabel(entry?.label);
   if (!label) return null;
@@ -2859,6 +2884,7 @@ function normalizeWorkspaceBlueprint(entry) {
     color: normalizeBlueprintColor(entry?.color),
     cwd: String(entry?.cwd || "").trim().slice(0, 512),
     panels,
+    paneTreeTemplate: normalizeBlueprintPaneTreeTemplate(entry?.paneTreeTemplate, panels.length),
     createdAt: Number(entry?.createdAt) || Date.now()
   };
 }
@@ -2944,6 +2970,7 @@ function workspaceBlueprintPayload(blueprint) {
       color: normalized.color,
       cwd: normalized.cwd,
       panels: normalized.panels,
+      paneTreeTemplate: normalized.paneTreeTemplate || null,
       createdAt: normalized.createdAt
     }
   };
@@ -16825,7 +16852,7 @@ function paneLayoutPresetsDisclosurePanel() {
   return settingsDisclosurePanel({
     className: "pane-layout-presets-disclosure",
     content: "layout-pane-presets",
-    searchTerms: "layout split layout pane presets side by side stacked active wide tall equal",
+    searchTerms: "layout split layout pane presets side by side stacked active wide tall equal save copy blueprint",
     title: t("layout.panePresets"),
     body: t("layout.panePresets.body"),
     meta: formatMessage("layout.panePresetCount", { count: paneLayoutPresets.length })
@@ -17348,16 +17375,20 @@ function paneLayoutPresetGrid() {
   const activePresetIds = unavailable ? new Set() : activePaneLayoutPresetIds(workspace);
   const grid = document.createElement("div");
   grid.className = "pane-layout-preset-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("split layout pane presets side by side stacked active wide tall equal");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("split layout pane presets side by side stacked active wide tall equal save copy blueprint");
   for (const preset of paneLayoutPresets) {
     const active = activePresetIds.has(preset.id);
+    const savedBlueprint = unavailable ? null : paneLayoutPresetSavedBlueprint(preset, workspace);
+    const card = document.createElement("div");
+    card.className = "pane-layout-preset-card";
+    card.dataset.settingsSearch = normalizeSettingsQuery(`split layout pane preset save copy blueprint ${active ? "active current " : ""}${savedBlueprint ? "saved " : ""}${preset.label} ${preset.body}`);
     const button = document.createElement("button");
     button.className = `pane-layout-preset${active ? " is-active" : ""}`;
     button.type = "button";
     button.disabled = unavailable || active;
     button.title = paneLayoutPresetTitle(preset, active, unavailable);
     button.dataset.presetId = preset.id;
-    button.dataset.settingsSearch = normalizeSettingsQuery(`split layout pane preset ${active ? "active current " : ""}${preset.label} ${preset.body}`);
+    button.dataset.settingsSearch = normalizeSettingsQuery(`split layout pane preset save copy blueprint ${active ? "active current " : ""}${savedBlueprint ? "saved " : ""}${preset.label} ${preset.body}`);
     button.setAttribute("aria-pressed", active ? "true" : "false");
     button.innerHTML = `
       <span class="pane-layout-preset-icon" aria-hidden="true">
@@ -17377,7 +17408,22 @@ function paneLayoutPresetGrid() {
     button.onclick = () => {
       if (!activePaneLayoutPresetIds(activeWorkspace()).has(preset.id)) applyPaneLayoutPreset(preset.id);
     };
-    grid.append(button);
+    const actions = document.createElement("div");
+    actions.className = "pane-layout-preset-actions";
+    const save = settingsActionButton(
+      savedBlueprint ? "Saved" : "Save",
+      () => savePaneLayoutPresetBlueprint(preset.id),
+      savedBlueprint ? "primary" : "",
+      `save split layout pane preset blueprint reusable ${savedBlueprint ? "saved active current " : ""}${preset.label}`
+    );
+    save.disabled = unavailable || Boolean(savedBlueprint) || workspaceBlueprintsFull();
+    save.title = paneLayoutPresetBlueprintSaveTitle(preset, savedBlueprint, unavailable);
+    const copy = settingsActionButton("Copy", () => copyPaneLayoutPresetBlueprint(preset.id), "", `copy split layout pane preset blueprint clipboard json ${preset.label}`);
+    copy.disabled = unavailable;
+    copy.title = paneLayoutPresetBlueprintCopyTitle(preset, unavailable);
+    actions.append(save, copy);
+    card.append(button, actions);
+    grid.append(card);
   }
   return grid;
 }
@@ -17388,14 +17434,138 @@ function paneLayoutPresetTitle(preset, active, unavailable) {
   return `Apply ${preset.label} layout.`;
 }
 
+function paneLayoutPresetById(presetId) {
+  return paneLayoutPresets.find((candidate) => candidate.id === presetId) || null;
+}
+
+function paneLayoutPresetBlueprint(preset, options = {}) {
+  const workspace = options.workspace || activeWorkspace();
+  if (!preset || !workspace || workspace.panels.length <= 1) return null;
+  const panels = workspace.panels.slice(0, workspaceBlueprintPanelLimit);
+  if (panels.length <= 1) return null;
+  const panelIds = panels.map((panel) => panel.id);
+  const activePanelId = panels.some((panel) => panel.id === options.panelId)
+    ? options.panelId
+    : panels.some((panel) => panel.id === workspace.activePanelId)
+      ? workspace.activePanelId
+      : panels[0].id;
+  const allowedPanelIds = new Set(panelIds);
+  const currentTree = normalizePaneTree(paneTreeForWorkspace(workspace), allowedPanelIds);
+  const snapshotWorkspace = {
+    ...workspace,
+    panels,
+    activePanelId
+  };
+  const tree = paneLayoutPresetTreeForWorkspace(preset, snapshotWorkspace, activePanelId, currentTree);
+  const paneTreeTemplate = paneTreeTemplateFromPaneTree(tree, panels);
+  const splitDirection = paneTreeTemplate?.type === "split"
+    ? paneTreeTemplate.direction
+    : (preset.direction || paneLayoutDirection(workspace));
+  const equalWeight = Math.round(paneLayoutScale / panels.length);
+  return normalizeWorkspaceBlueprint({
+    id: options.id || createWorkspaceBlueprintId(),
+    label: options.label || `${preset.label} layout`,
+    splitDirection,
+    color: workspace.color || "",
+    cwd: workspace.cwd || "",
+    paneTreeTemplate,
+    createdAt: options.createdAt,
+    panels: panels.map((panel) => ({
+      type: panel.type,
+      title: panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal"),
+      color: panel.color || "",
+      backgroundImage: panel.backgroundImage || "",
+      cwd: panel.cwd || workspace.cwd || "",
+      shellProfile: panel.shellProfile || state.settings.terminalProfile,
+      shellPath: panel.shellPath || "",
+      terminalFontSize: panel.terminalFontSize || 0,
+      url: panel.url || state.settings.browserHomeUrl,
+      weight: equalWeight
+    }))
+  });
+}
+
+function paneLayoutPresetBlueprintSummary(preset, workspace = activeWorkspace()) {
+  const blueprint = paneLayoutPresetBlueprint(preset, {
+    workspace,
+    id: "preview",
+    label: "Layout preview",
+    createdAt: 1
+  });
+  return blueprint ? workspaceBlueprintSummary(blueprint) : "Open another pane";
+}
+
+function paneLayoutPresetSavedBlueprint(preset, workspace = activeWorkspace()) {
+  const snapshot = paneLayoutPresetBlueprint(preset, {
+    workspace,
+    id: "snapshot",
+    label: "Layout snapshot",
+    createdAt: 1
+  });
+  if (!snapshot) return null;
+  return state.workspaceBlueprints.find((blueprint) => workspaceBlueprintMatchesSnapshot(blueprint, snapshot)) || null;
+}
+
+function paneLayoutPresetBlueprintSaveTitle(preset, savedBlueprint = paneLayoutPresetSavedBlueprint(preset), unavailable = false) {
+  if (!preset) return "Choose a layout preset first.";
+  if (unavailable) return "Open another pane before saving a layout preset.";
+  if (savedBlueprint) return `${savedBlueprint.label} already saves ${preset.label}.`;
+  if (workspaceBlueprintsFull()) return workspaceBlueprintLimitTitle();
+  return "Save this layout preset as a reusable workspace blueprint.";
+}
+
+function paneLayoutPresetBlueprintCopyTitle(preset, unavailable = false) {
+  if (!preset) return "Choose a layout preset first.";
+  if (unavailable) return "Open another pane before copying a layout preset.";
+  return "Copy this layout preset as workspace blueprint JSON.";
+}
+
+function savePaneLayoutPresetBlueprint(presetId) {
+  const preset = paneLayoutPresetById(presetId);
+  const blueprint = paneLayoutPresetBlueprint(preset, {
+    label: preset ? defaultWorkspaceBlueprintNameFromLabel(`${preset.label} layout`) : ""
+  });
+  if (!preset || !blueprint) {
+    toast("Open another pane to save a layout preset.");
+    return null;
+  }
+  const existing = paneLayoutPresetSavedBlueprint(preset);
+  if (existing) {
+    toast(`${existing.label} blueprint already saves ${preset.label}.`);
+    return existing;
+  }
+  if (workspaceBlueprintsFull()) {
+    toast(workspaceBlueprintLimitTitle());
+    return null;
+  }
+  const saved = upsertWorkspaceBlueprint(blueprint);
+  if (!saved) return null;
+  renderSettingsInspector();
+  toast(`${saved.label} blueprint saved.`);
+  return saved;
+}
+
+function copyPaneLayoutPresetBlueprint(presetId) {
+  const preset = paneLayoutPresetById(presetId);
+  const blueprint = paneLayoutPresetBlueprint(preset, {
+    label: preset ? `${preset.label} layout` : ""
+  });
+  if (!preset || !blueprint) {
+    toast("Open another pane to copy a layout preset.");
+    return false;
+  }
+  return copyWorkspaceBlueprintPayload(blueprint, `${preset.label} layout blueprint copied.`);
+}
+
 function updatePaneLayoutPresetButton(button, preset, active, unavailable) {
+  const savedBlueprint = unavailable ? null : paneLayoutPresetSavedBlueprint(preset);
   button.classList.toggle("is-active", active);
   setDisabledIfChanged(button, unavailable || active);
   setTitleIfChanged(button, paneLayoutPresetTitle(preset, active, unavailable));
   setAttributeIfChanged(button, "aria-pressed", active ? "true" : "false");
   const status = button.querySelector(".pane-layout-preset-status");
   if (status) setTextIfChanged(status, active ? "Active" : "");
-  const search = normalizeSettingsQuery(`split layout pane preset ${active ? "active current " : ""}${preset.label} ${preset.body}`);
+  const search = normalizeSettingsQuery(`split layout pane preset save copy blueprint ${active ? "active current " : ""}${savedBlueprint ? "saved " : ""}${preset.label} ${preset.body}`);
   if (button.dataset.settingsSearch !== search) {
     button.dataset.settingsSearch = search;
     updateSettingsSearchIndexItemSearch(button, search);
@@ -17424,11 +17594,11 @@ function activePaneLayoutPresetIds(workspace = activeWorkspace()) {
     if (preset.id === "equal") continue;
     if (preset.id === "grid" && workspace.panels.length <= 2) continue;
     const expected = paneLayoutPresetTreeForWorkspace(preset, workspace, activePanelId, currentTree);
-    if (expected && paneTreeEqual(currentTree, expected)) ids.add(preset.id);
+    if (expected && paneTreeTemplatesMatch(currentTree, expected, workspace.panels)) ids.add(preset.id);
   }
   if (ids.size === 0) {
     const equal = paneLayoutPresetTreeForWorkspace(paneLayoutPresets.find((preset) => preset.id === "equal"), workspace, activePanelId, currentTree);
-    if (equal && paneTreeEqual(currentTree, equal)) ids.add("equal");
+    if (equal && paneTreeTemplatesMatch(currentTree, equal, workspace.panels)) ids.add("equal");
   }
   return ids;
 }
@@ -17445,7 +17615,7 @@ function paneLayoutPresetActiveForWorkspace(presetId, workspace = activeWorkspac
   const activeForPreset = (candidate) => {
     if (candidate.id === "grid" && workspace.panels.length <= 2) return false;
     const expected = paneLayoutPresetTreeForWorkspace(candidate, workspace, targetPanelId, currentTree);
-    return Boolean(expected && paneTreeEqual(currentTree, expected));
+    return Boolean(expected && paneTreeTemplatesMatch(currentTree, expected, workspace.panels));
   };
   if (preset.id === "equal") {
     return paneLayoutPresets.every((candidate) => (
@@ -20543,6 +20713,56 @@ function workspaceBlueprintCard(blueprint, currentBlueprint = null) {
   return card;
 }
 
+function paneTreeTemplateFromPaneTree(node, panels) {
+  const panelIndexById = new Map((panels || []).map((panel, index) => [panel.id, index]));
+  return normalizeBlueprintPaneTreeTemplate(paneTreeTemplateFromPaneTreeNode(node, panelIndexById), panelIndexById.size);
+}
+
+function paneTreeTemplateFromPaneTreeNode(node, panelIndexById) {
+  if (!node || typeof node !== "object") return null;
+  if (node.type === "pane") {
+    if (!panelIndexById.has(node.panelId)) return null;
+    return { type: "pane", panelIndex: panelIndexById.get(node.panelId) };
+  }
+  if (node.type !== "split") return null;
+  const first = paneTreeTemplateFromPaneTreeNode(node.first, panelIndexById);
+  const second = paneTreeTemplateFromPaneTreeNode(node.second, panelIndexById);
+  if (!first) return second;
+  if (!second) return first;
+  return {
+    type: "split",
+    direction: paneTreeDirection(node.direction),
+    ratio: paneTreeRatio(node.ratio),
+    first,
+    second
+  };
+}
+
+function paneTreeFromBlueprintTemplate(template, panelIds) {
+  const normalized = normalizeBlueprintPaneTreeTemplate(template, panelIds?.length || 0);
+  return paneTreeFromBlueprintTemplateNode(normalized, panelIds || []);
+}
+
+function paneTreeFromBlueprintTemplateNode(node, panelIds) {
+  if (!node || typeof node !== "object") return null;
+  if (node.type === "pane") {
+    const panelId = panelIds[node.panelIndex];
+    return panelId ? paneTreeLeaf(panelId) : null;
+  }
+  if (node.type !== "split") return null;
+  const first = paneTreeFromBlueprintTemplateNode(node.first, panelIds);
+  const second = paneTreeFromBlueprintTemplateNode(node.second, panelIds);
+  if (!first) return second;
+  if (!second) return first;
+  return paneTreeSplit(node.direction, first, second, node.ratio);
+}
+
+function paneTreeTemplatesMatch(firstTree, secondTree, panels) {
+  const first = paneTreeTemplateFromPaneTree(firstTree, panels);
+  const second = paneTreeTemplateFromPaneTree(secondTree, panels);
+  return Boolean(first && second && stableJson(first) === stableJson(second));
+}
+
 function currentWorkspaceBlueprintSnapshot(label, overrides = {}) {
   const workspace = activeWorkspace();
   if (!workspace || workspace.panels.length === 0) return null;
@@ -20550,7 +20770,12 @@ function currentWorkspaceBlueprintSnapshot(label, overrides = {}) {
   if (!zoomedPanelIdForWorkspace(workspace) && workspace.id === state.data?.activeWorkspaceId) {
     persistPaneLayoutFromGrid(direction);
   }
-  const equalWeight = Math.round(paneLayoutScale / Math.max(1, workspace.panels.length));
+  const panels = workspace.panels.slice(0, workspaceBlueprintPanelLimit);
+  const currentTree = normalizePaneTree(
+    paneTreeForWorkspace(workspace),
+    new Set(panels.map((panel) => panel.id))
+  );
+  const equalWeight = Math.round(paneLayoutScale / Math.max(1, panels.length));
   return normalizeWorkspaceBlueprint({
     id: overrides.id || createWorkspaceBlueprintId(),
     label,
@@ -20558,7 +20783,8 @@ function currentWorkspaceBlueprintSnapshot(label, overrides = {}) {
     color: workspace.color || "",
     cwd: workspace.cwd || "",
     createdAt: overrides.createdAt,
-    panels: workspace.panels.slice(0, workspaceBlueprintPanelLimit).map((panel) => ({
+    paneTreeTemplate: paneTreeTemplateFromPaneTree(currentTree, panels),
+    panels: panels.map((panel) => ({
       type: panel.type,
       title: panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal"),
       color: panel.color || "",
@@ -20596,8 +20822,13 @@ function workspaceBlueprintComparableModel(blueprint) {
 
 function workspaceBlueprintMatchesSnapshot(blueprint, snapshot) {
   if (!blueprint || !snapshot) return false;
-  return stableJson(workspaceBlueprintComparableModel(blueprint))
+  const baseMatch = stableJson(workspaceBlueprintComparableModel(blueprint))
     === stableJson(workspaceBlueprintComparableModel(snapshot));
+  if (!baseMatch) return false;
+  if (blueprint.paneTreeTemplate && snapshot.paneTreeTemplate) {
+    return stableJson(blueprint.paneTreeTemplate) === stableJson(snapshot.paneTreeTemplate);
+  }
+  return true;
 }
 
 async function saveCurrentWorkspaceBlueprint() {
@@ -20711,6 +20942,14 @@ async function applyWorkspaceBlueprint(blueprintId, workspaceId = activeWorkspac
     }));
     for (const created of createdPanels) {
       setStoredPaneWeight(created.id, blueprint.splitDirection, created.weight);
+    }
+    const paneTree = paneTreeFromBlueprintTemplate(
+      blueprint.paneTreeTemplate,
+      createdPanels.map((panel) => panel.id)
+    );
+    if (paneTree) {
+      state.paneTrees.set(workspace.id, paneTree);
+      savePaneTreeLayouts(state.paneTrees);
     }
     savePaneLayouts();
     await api(`/api/workspaces/${workspace.id}`, {
@@ -22260,7 +22499,7 @@ function paletteEntryKind(entry) {
   if (id.startsWith("browser.") || id.startsWith("recentBrowser.") || id.startsWith("browserHomePreset.")) return "browser";
   if (id.startsWith("workspace.") || id.startsWith("recentFolder.") || id.startsWith("workspaceBlueprint.") || id.startsWith("workspaceStarter.")) return "workspace";
   if (id.startsWith("settings.") || id.startsWith("settingsPreset.") || id.startsWith("settingsProfile.")) return "settings";
-  if (id.startsWith("layout.")) return "layout";
+  if (id.startsWith("layout.") || id.startsWith("paneLayoutPreset.")) return "layout";
   if (id.startsWith("background") || id.startsWith("savedBackground")) return "look";
   if (id.startsWith("themeChoice.") || id.startsWith("currentColor.") || id.startsWith("savedColor.") || id.startsWith("savedColorPalette.") || id.startsWith("terminalColor.")) return "color";
   return "command";
@@ -22339,6 +22578,31 @@ function paletteEntries() {
       run: command.run
     };
   });
+  const layoutPresetBlueprintsFull = workspaceBlueprintsFull();
+  for (const preset of paneLayoutPresets) {
+    const savedBlueprint = layoutUnavailable ? null : paneLayoutPresetSavedBlueprint(preset, paletteWorkspace);
+    const summary = layoutUnavailable ? "Open another pane" : paneLayoutPresetBlueprintSummary(preset, paletteWorkspace);
+    entries.push({
+      id: `paneLayoutPreset.save.${preset.id}`,
+      label: `Save layout blueprint: ${preset.label}`,
+      meta: savedBlueprint ? `Already saved / ${savedBlueprint.label}` : `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit} saved blueprints`,
+      shortcut: savedBlueprint ? "Saved" : "Save",
+      disabled: layoutUnavailable || Boolean(savedBlueprint) || layoutPresetBlueprintsFull,
+      title: paneLayoutPresetBlueprintSaveTitle(preset, savedBlueprint, layoutUnavailable),
+      search: normalizeSettingsQuery(`split layout pane preset save blueprint reusable ${savedBlueprint ? "saved active current " : ""}${preset.label} ${preset.body} ${summary}`),
+      run: () => savePaneLayoutPresetBlueprint(preset.id)
+    });
+    entries.push({
+      id: `paneLayoutPreset.copy.${preset.id}`,
+      label: `Copy layout blueprint: ${preset.label}`,
+      meta: summary,
+      shortcut: "Copy",
+      disabled: layoutUnavailable,
+      title: paneLayoutPresetBlueprintCopyTitle(preset, layoutUnavailable),
+      search: normalizeSettingsQuery(`split layout pane preset copy blueprint clipboard json ${preset.label} ${preset.body} ${summary}`),
+      run: () => copyPaneLayoutPresetBlueprint(preset.id)
+    });
+  }
   for (const [workspaceIndex, workspace] of (state.data?.workspaces || []).entries()) {
     entries.push({
       id: `workspace.${workspace.id}`,
