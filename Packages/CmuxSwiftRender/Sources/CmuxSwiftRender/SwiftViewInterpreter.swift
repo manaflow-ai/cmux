@@ -322,6 +322,8 @@ public struct SwiftViewInterpreter: Sendable {
                 out += evalFor(loop, env)
             } else if let ifExpr = ifExpression(node) {
                 out += evalIf(ifExpr, env)
+            } else if let switchExpr = switchExpression(node) {
+                out += evalSwitch(switchExpr, env)
             } else if let ret = node.as(ReturnStmtSyntax.self), let expr = ret.expression {
                 // A view helper with an explicit `return SomeView` (or
                 // `return ForEach(...) { }`) renders its returned expression,
@@ -510,6 +512,48 @@ public struct SwiftViewInterpreter: Sendable {
         return ButtonAction(commands: commands)
     }
 
+    /// Extracts a `switch` from a code-block item (bare or wrapped in an
+    /// `ExpressionStmtSyntax`).
+    private func switchExpression(_ node: CodeBlockItemSyntax.Item) -> SwitchExprSyntax? {
+        if let s = node.as(SwitchExprSyntax.self) { return s }
+        if let stmt = node.as(ExpressionStmtSyntax.self) { return stmt.expression.as(SwitchExprSyntax.self) }
+        if let expr = node.as(ExprSyntax.self) { return expr.as(SwitchExprSyntax.self) }
+        return nil
+    }
+
+    /// Evaluates a view-position `switch`: the first matching (or `default`)
+    /// case's statements are rendered.
+    private func evalSwitch(_ switchExpr: SwitchExprSyntax, _ env: Environment) -> [RenderNode] {
+        let subject = expressions.eval(switchExpr.subject, env)
+        for caseSyntax in switchExpr.cases {
+            guard let switchCase = caseSyntax.as(SwitchCaseSyntax.self) else { continue }
+            if switchCaseMatches(switchCase.label, subject, env) {
+                return evalItems(switchCase.statements, env.makeChild())
+            }
+        }
+        return []
+    }
+
+    /// Whether a `switch` case label matches `subject` (literal/`.member`
+    /// patterns; `default` always matches).
+    private func switchCaseMatches(_ label: SwitchCaseSyntax.Label, _ subject: SwiftValue?, _ env: Environment) -> Bool {
+        switch label {
+        case .default:
+            return true
+        case let .case(caseLabel):
+            for item in caseLabel.caseItems {
+                if let pattern = item.pattern.as(ExpressionPatternSyntax.self) {
+                    if let member = pattern.expression.as(MemberAccessExprSyntax.self), member.base == nil,
+                       case let .string(value)? = subject, member.declName.baseName.text == value {
+                        return true // `.running` matches subject string "running"
+                    }
+                    if expressions.eval(pattern.expression, env) == subject { return true }
+                }
+            }
+            return false
+        }
+    }
+
     private func evalFor(_ loop: ForStmtSyntax, _ env: Environment) -> [RenderNode] {
         guard let name = loop.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
               let sequence = expressions.eval(loop.sequence, env),
@@ -524,12 +568,11 @@ public struct SwiftViewInterpreter: Sendable {
     }
 
     private func evalIf(_ ifExpr: IfExprSyntax, _ env: Environment) -> [RenderNode] {
-        let taken = ifExpr.conditions.allSatisfy { element in
-            guard let expr = element.condition.as(ExprSyntax.self) else { return false }
-            return expressions.eval(expr, env)?.isTruthy ?? false
-        }
-        if taken {
-            return evalItems(ifExpr.body.statements, env.makeChild())
+        // The then-branch runs in a child scope so `if let x = …` bindings are
+        // visible to it.
+        let scope = env.makeChild()
+        if conditionsPass(ifExpr.conditions, scope) {
+            return evalItems(ifExpr.body.statements, scope)
         }
         guard let elseBody = ifExpr.elseBody else { return [] }
         if let block = elseBody.as(CodeBlockSyntax.self) {
@@ -539,6 +582,32 @@ public struct SwiftViewInterpreter: Sendable {
             return evalIf(elseIf, env)
         }
         return []
+    }
+
+    /// Evaluates an `if`/`guard` condition list against `scope`, binding any
+    /// `let name = expr` (or shorthand `let name`) optional bindings into
+    /// `scope` when non-nil. Returns false if any condition fails.
+    private func conditionsPass(_ conditions: ConditionElementListSyntax, _ scope: Environment) -> Bool {
+        for element in conditions {
+            if let binding = element.condition.as(OptionalBindingConditionSyntax.self) {
+                let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
+                let resolved: SwiftValue?
+                if let initializer = binding.initializer?.value {
+                    resolved = expressions.eval(initializer, scope)
+                } else if let name {
+                    resolved = scope.lookup(name) // shorthand `if let name`
+                } else {
+                    resolved = nil
+                }
+                guard let value = resolved else { return false }
+                if let name { scope.define(name, value) }
+            } else if let expr = element.condition.as(ExprSyntax.self) {
+                if !(expressions.eval(expr, scope)?.isTruthy ?? false) { return false }
+            } else {
+                return false
+            }
+        }
+        return true
     }
 
     private func applyBinding(_ decl: VariableDeclSyntax, _ env: Environment) {

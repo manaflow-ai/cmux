@@ -601,6 +601,41 @@ import Testing
         #expect(radial?.children.first?.kind == .radialGradient)
     }
 
+    @Test func ifLetOptionalBindingRendersWhenPresent() {
+        let present = SwiftValue.object(["branch": .string("main")])
+        let node = interp.evaluate("""
+        VStack {
+            if let b = ws.branch { Text("on \\(b)") } else { Text("no branch") }
+        }
+        """, state: ["ws": present])
+        #expect(node?.children.first?.text == "on main")
+
+        let absent = SwiftValue.object(["title": .string("x")])
+        let node2 = interp.evaluate("""
+        VStack {
+            if let b = ws.branch { Text("on \\(b)") } else { Text("no branch") }
+        }
+        """, state: ["ws": absent])
+        #expect(node2?.children.first?.text == "no branch")
+    }
+
+    @Test func switchSelectsMatchingCase() {
+        func run(_ status: String) -> String? {
+            interp.evaluate("""
+            VStack {
+                switch s {
+                case "running": Text("go")
+                case "idle": Text("wait")
+                default: Text("?")
+                }
+            }
+            """, state: ["s": .string(status)])?.children.first?.text
+        }
+        #expect(run("running") == "go")
+        #expect(run("idle") == "wait")
+        #expect(run("other") == "?")
+    }
+
     @Test func anyViewPassthrough() {
         let node = interp.evaluate(#"VStack { AnyView(Text("wrapped")) }"#)
         #expect(node?.children.first?.kind == .text)
