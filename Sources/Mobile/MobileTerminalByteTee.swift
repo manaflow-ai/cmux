@@ -26,7 +26,7 @@ private let mobileTerminalByteTeeLog = Logger(
 /// publish handles the hop to the main `MobileHostService.emitEvent`.
 @MainActor
 final class MobileTerminalByteTee {
-    static let shared = MobileTerminalByteTee()
+    nonisolated static let shared = MobileTerminalByteTee()
 
     private struct SurfaceState {
         /// Monotonic byte-stream sequence. Each emitted chunk advances by
@@ -45,7 +45,7 @@ final class MobileTerminalByteTee {
         qos: .userInitiated
     )
 
-    private init() {}
+    private nonisolated init() {}
 
     /// Non-isolated entry point called from the C tee trampoline. Safe
     /// to invoke from any thread.
