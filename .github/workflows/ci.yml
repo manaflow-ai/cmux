@@ -1317,14 +1317,10 @@ jobs:
 
             # Write manifests so test can find the pre-launched state
             MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
-            cat >"$MANIFEST_PATH" <<MANIFEST_EOF
-          {"readyPath":"$DISPLAY_READY","displayIDPath":"$DISPLAY_ID_PATH","donePath":"$DISPLAY_DONE","logPath":"$HELPER_LOG"}
-          MANIFEST_EOF
+            printf '%s\n' "{\"readyPath\":\"$DISPLAY_READY\",\"displayIDPath\":\"$DISPLAY_ID_PATH\",\"donePath\":\"$DISPLAY_DONE\",\"logPath\":\"$HELPER_LOG\"}" >"$MANIFEST_PATH"
 
             PRELAUNCH_PATH="/tmp/cmux-ui-test-prelaunch.json"
-            cat >"$PRELAUNCH_PATH" <<PRELAUNCH_EOF
-          {"diagnosticsPath":"$DIAG_PATH"}
-          PRELAUNCH_EOF
+            printf '%s\n' "{\"diagnosticsPath\":\"$DIAG_PATH\"}" >"$PRELAUNCH_PATH"
 
             # Run test — app is already launched from shell. Start display churn
             # when the test case begins, without requiring the sandboxed XCTest

@@ -421,6 +421,10 @@ check_web_db_behavior_test_coverage() {
     echo "FAIL: run-db-behavior-tests.sh must execute each discovered DB behavior test file"
     exit 1
   fi
+  if ! grep -Fq "Ran [1-9][0-9]* tests? across [1-9][0-9]* files?" "$script"; then
+    echo "FAIL: run-db-behavior-tests.sh must reject DB-gated files that execute zero Bun tests"
+    exit 1
+  fi
 
   if ! grep -Fq '"test:db:behavior": "bash scripts/run-db-behavior-tests.sh"' "$ROOT_DIR/web/package.json"; then
     echo "FAIL: web package.json must keep test:db:behavior wired to run-db-behavior-tests.sh"
