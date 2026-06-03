@@ -53,6 +53,16 @@ struct ExpressionEvaluator {
             return eval(taken ? ternary.thenExpression : ternary.elseExpression, env)
         }
         if let call = expr.as(FunctionCallExprSyntax.self),
+           let ref = call.calledExpression.as(DeclReferenceExprSyntax.self),
+           ref.baseName.text == "Color" {
+            return colorValue(call, env)
+        }
+        if let call = expr.as(FunctionCallExprSyntax.self),
+           let ref = call.calledExpression.as(DeclReferenceExprSyntax.self),
+           let decl = env.lookupFunction(ref.baseName.text) {
+            return callValueFunction(decl, call, env)
+        }
+        if let call = expr.as(FunctionCallExprSyntax.self),
            let member = call.calledExpression.as(MemberAccessExprSyntax.self),
            let baseExpr = member.base,
            let base = eval(baseExpr, env) {
@@ -155,6 +165,10 @@ struct ExpressionEvaluator {
             ?? call.arguments.first?.expression
 
         switch base {
+        case let .int(value):
+            return numberMethod(Double(value), name, call)
+        case let .double(value):
+            return numberMethod(value, name, call)
         case let .array(values):
             switch name {
             case "filter":
@@ -163,6 +177,24 @@ struct ExpressionEvaluator {
             case "map":
                 guard let closure else { return nil }
                 return .array(values.compactMap { evalClosure(closure, $0, env) })
+            case "flatMap":
+                guard let closure else { return nil }
+                var out: [SwiftValue] = []
+                for v in values {
+                    switch evalClosure(closure, v, env) {
+                    case let .array(inner): out += inner
+                    case let other?: out.append(other)
+                    case nil: break
+                    }
+                }
+                return .array(out)
+            case "reduce":
+                guard let closure, let initialExpr = call.arguments.first(where: { $0.label == nil })?.expression,
+                      var acc = eval(initialExpr, env) else { return nil }
+                for v in values {
+                    if let next = evalClosure2(closure, acc, v, env) { acc = next }
+                }
+                return acc
             case "first":
                 guard let closure else { return values.first }
                 return values.first { evalClosure(closure, $0, env)?.isTruthy ?? false }
@@ -207,6 +239,133 @@ struct ExpressionEvaluator {
         default:
             return nil
         }
+    }
+
+    // MARK: - User functions (value-returning)
+
+    /// Binds a call's arguments (by position) to a function's parameters in a
+    /// fresh child scope, evaluating each argument in the caller's scope.
+    func bindParameters(_ decl: FunctionDeclSyntax, _ call: FunctionCallExprSyntax, _ env: Environment) -> Environment {
+        let scope = env.makeChild()
+        let params = Array(decl.signature.parameterClause.parameters)
+        let args = Array(call.arguments)
+        for (index, param) in params.enumerated() where index < args.count {
+            let name = (param.secondName ?? param.firstName).text
+            if let value = eval(args[index].expression, env) { scope.define(name, value) }
+        }
+        return scope
+    }
+
+    /// Calls a value-returning user function: binds params, then evaluates its
+    /// body (handling `let`, `if/else` with `return`, `return`, and a trailing
+    /// expression as the implicit return).
+    private func callValueFunction(_ decl: FunctionDeclSyntax, _ call: FunctionCallExprSyntax, _ env: Environment) -> SwiftValue? {
+        guard let body = decl.body else { return nil }
+        return evalBlockValue(body.statements, bindParameters(decl, call, env))
+    }
+
+    private func evalBlockValue(_ items: CodeBlockItemListSyntax, _ scope: Environment) -> SwiftValue? {
+        var last: SwiftValue?
+        for item in items {
+            let node = item.item
+            if let decl = node.as(VariableDeclSyntax.self) {
+                for binding in decl.bindings {
+                    if let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
+                       let value = binding.initializer.flatMap({ eval($0.value, scope) }) {
+                        scope.define(name, value)
+                    }
+                }
+                continue
+            }
+            if let ret = node.as(ReturnStmtSyntax.self) {
+                return ret.expression.flatMap { eval($0, scope) }
+            }
+            if let ifExpr = node.as(ExpressionStmtSyntax.self)?.expression.as(IfExprSyntax.self) ?? node.as(IfExprSyntax.self) {
+                if let value = evalIfValue(ifExpr, scope) { return value }
+                continue
+            }
+            if let expr = node.as(ExprSyntax.self) {
+                if let ifExpr = expr.as(IfExprSyntax.self) {
+                    if let value = evalIfValue(ifExpr, scope) { return value }
+                    continue
+                }
+                last = eval(expr, scope)
+            }
+        }
+        return last
+    }
+
+    private func evalIfValue(_ ifExpr: IfExprSyntax, _ scope: Environment) -> SwiftValue? {
+        let taken = ifExpr.conditions.allSatisfy { element in
+            guard let expr = element.condition.as(ExprSyntax.self) else { return false }
+            return eval(expr, scope)?.isTruthy ?? false
+        }
+        if taken {
+            return evalBlockValue(ifExpr.body.statements, scope.makeChild())
+        }
+        guard let elseBody = ifExpr.elseBody else { return nil }
+        if let block = elseBody.as(CodeBlockSyntax.self) {
+            return evalBlockValue(block.statements, scope.makeChild())
+        }
+        if let elseIf = elseBody.as(IfExprSyntax.self) {
+            return evalIfValue(elseIf, scope)
+        }
+        return nil
+    }
+
+    /// Number methods, chiefly `.formatted(...)`, honoring currency and
+    /// compact-notation hints from the call's argument source.
+    private func numberMethod(_ value: Double, _ name: String, _ call: FunctionCallExprSyntax) -> SwiftValue? {
+        guard name == "formatted" else { return nil }
+        let argSource = call.arguments.map { $0.expression.trimmedDescription }.joined(separator: " ")
+        if argSource.contains("currency") {
+            return .string(String(format: "$%.2f", value))
+        }
+        if argSource.contains("compact") || argSource.contains("notation") {
+            let a = abs(value)
+            if a >= 1_000_000 { return .string(String(format: "%.1fM", value / 1_000_000)) }
+            if a >= 1_000 { return .string(String(format: "%.1fK", value / 1_000)) }
+        }
+        if argSource.contains("percent") { return .string(String(format: "%.0f%%", value * 100)) }
+        return .string(value == value.rounded() ? String(Int(value)) : String(value))
+    }
+
+    /// Resolves `Color(...)` to a hex/token string usable by color modifiers:
+    /// `Color("#hex")`, `Color(red:green:blue:)`, else nil.
+    private func colorValue(_ call: FunctionCallExprSyntax, _ env: Environment) -> SwiftValue? {
+        if let first = call.arguments.first(where: { $0.label == nil })?.expression,
+           case let .string(token)? = eval(first, env) {
+            return .string(token)
+        }
+        func channel(_ label: String) -> Int? {
+            guard let e = call.arguments.first(where: { $0.label?.text == label })?.expression else { return nil }
+            switch eval(e, env) {
+            case let .double(d): return max(0, min(255, Int((d * 255).rounded())))
+            case let .int(i): return max(0, min(255, i))
+            default: return nil
+            }
+        }
+        if let r = channel("red"), let g = channel("green"), let b = channel("blue") {
+            return .string(String(format: "#%02X%02X%02X", r, g, b))
+        }
+        return nil
+    }
+
+    /// Evaluates a two-parameter closure body with `a` bound to `$0` (and the
+    /// first named param) and `b` bound to `$1` (and the second), for `reduce`.
+    private func evalClosure2(_ closure: ClosureExprSyntax, _ a: SwiftValue, _ b: SwiftValue, _ env: Environment) -> SwiftValue? {
+        let scope = env.makeChild()
+        scope.define("$0", a)
+        scope.define("$1", b)
+        if case let .simpleInput(list)? = closure.signature?.parameterClause {
+            let names = Array(list)
+            if names.count > 0 { scope.define(names[0].name.text, a) }
+            if names.count > 1 { scope.define(names[1].name.text, b) }
+        }
+        for item in closure.statements {
+            if let expr = item.item.as(ExprSyntax.self) { return eval(expr, scope) }
+        }
+        return nil
     }
 
     /// Evaluates a single-expression closure body with `element` bound to the

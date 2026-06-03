@@ -290,6 +290,48 @@ import Testing
         #expect(node?.children.first?.text == "feature-branch")
     }
 
+    @Test func userValueFunctionWithIfReturn() {
+        let node = interp.evaluate("""
+        func statusColor(s) -> Color {
+            if s == "passing" { return "#34C759" } else { return "#FF3B30" }
+        }
+        VStack {
+            Text("a").foregroundColor(statusColor("passing"))
+            Text("b").foregroundColor(statusColor("failing"))
+        }
+        """)
+        #expect(node?.children.first?.modifiers.first(where: { $0.name == "foregroundColor" })?.firstValue == "#34C759")
+        #expect(node?.children.last?.modifiers.first(where: { $0.name == "foregroundColor" })?.firstValue == "#FF3B30")
+    }
+
+    @Test func userViewFunctionHelper() {
+        let node = interp.evaluate("""
+        func row(title) -> some View {
+            HStack { Text(title); Spacer() }
+        }
+        VStack {
+            row("one")
+            row("two")
+        }
+        """)
+        #expect(node?.children.count == 2)
+        #expect(node?.children.first?.kind == .hstack)
+        #expect(node?.children.first?.children.first?.text == "one")
+    }
+
+    @Test func numberFormattedCurrencyAndReduce() {
+        let items = SwiftValue.array([
+            .object(["cost": .double(1.5)]),
+            .object(["cost": .double(2.5)]),
+        ])
+        let node = interp.evaluate("""
+        VStack {
+            Text(items.reduce(0.0) { $0 + $1.cost }.formatted(.currency(code: "USD")))
+        }
+        """, state: ["items": items])
+        #expect(node?.children.first?.text == "$4.00")
+    }
+
     @Test func inclusiveRangeIterates() {
         let node = interp.evaluate("""
         HStack {

@@ -91,9 +91,11 @@ struct RenderNodeView: View {
         let token = clean(modifier.firstValue)
         switch modifier.name {
         case "font":
-            return AnyView(view.font(dslFont(named: token, size: nil)))
+            return AnyView(view.font(resolveFont(token)))
         case "bold":
             return AnyView(view.fontWeight(.bold))
+        case "strikethrough":
+            return AnyView(view.strikethrough())
         case "fontWeight":
             return AnyView(view.fontWeight(dslFontWeight(token)))
         case "foregroundColor", "foregroundStyle", "fill", "tint":
@@ -156,6 +158,28 @@ struct RenderNodeView: View {
         case "bottomTrailing": return .bottomTrailing
         default: return .center
         }
+    }
+
+    /// Resolves a font token, including the `.system(size:weight:design:)` /
+    /// `.system(.style, design:)` forms (size, monospaced design, named style).
+    private func resolveFont(_ token: String?) -> Font? {
+        guard let token else { return nil }
+        guard token.hasPrefix("system") else { return dslFont(named: token, size: nil) }
+        let design: Font.Design = token.contains("monospaced") ? .monospaced : .default
+        if let range = token.range(of: "size:") {
+            let digits = token[range.upperBound...].drop(while: { $0 == " " })
+                .prefix(while: { $0.isNumber || $0 == "." })
+            if let n = Double(digits) { return .system(size: CGFloat(n), design: design) }
+        }
+        let styles: [(String, Font.TextStyle)] = [
+            ("largeTitle", .largeTitle), ("title3", .title3), ("title2", .title2), ("title", .title),
+            ("headline", .headline), ("subheadline", .subheadline), ("body", .body), ("callout", .callout),
+            ("footnote", .footnote), ("caption2", .caption2), ("caption", .caption),
+        ]
+        for (name, style) in styles where token.contains(name) {
+            return .system(style, design: design)
+        }
+        return .system(size: 13, design: design)
     }
 
     /// Strips a leading `.` (member token) or surrounding quotes from a raw

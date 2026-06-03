@@ -30,7 +30,9 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxSwiftRenderTests",
-            dependencies: ["CmuxSwiftRender"]
+            dependencies: ["CmuxSwiftRender"],
+            // Corpus holds sidebar DSL files (interpreter input, not test code).
+            exclude: ["Corpus"]
         ),
     ]
 )

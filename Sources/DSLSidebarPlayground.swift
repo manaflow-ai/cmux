@@ -1,3 +1,4 @@
+import AppKit
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import Foundation
@@ -35,6 +36,8 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
                 guard let data = try? JSONSerialization.data(withJSONObject: payload),
                       let line = String(data: data, encoding: .utf8) else { continue }
                 _ = TerminalController.shared.runV2CommandLine(line)
+            case let .openURL(urlString):
+                if let url = URL(string: urlString) { NSWorkspace.shared.open(url) }
             case .log:
                 break
             }

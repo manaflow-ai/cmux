@@ -39,12 +39,27 @@ public struct SwiftViewInterpreter: Sendable {
         let file = (try? OperatorTable.standardOperators.foldAll(parsed))?
             .as(SourceFileSyntax.self) ?? parsed
         let env = Environment(values: state)
+        registerFunctions(file.statements, env)
         for item in file.statements {
             if let expr = item.item.as(ExprSyntax.self), let node = evalView(expr, env) {
                 return node
             }
         }
         return nil
+    }
+
+    /// Registers any `func` declarations in `items` into `env` so value and
+    /// view helpers can be called (including before their declaration).
+    private func registerFunctions(_ items: CodeBlockItemListSyntax, _ env: Environment) {
+        for item in items {
+            if let fn = item.item.as(FunctionDeclSyntax.self) {
+                env.defineFunction(fn.name.text, fn)
+            }
+        }
+    }
+
+    private func bindParameters(_ decl: FunctionDeclSyntax, _ call: FunctionCallExprSyntax, _ env: Environment) -> Environment {
+        expressions.bindParameters(decl, call, env)
     }
 
     // MARK: - View expressions
@@ -114,9 +129,21 @@ public struct SwiftViewInterpreter: Sendable {
             return RenderNode(kind: kind, spacing: doubleArgument(named: "spacing", call.arguments, env), children: children)
         case "HSplitView":
             return RenderNode(kind: .hsplit, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
+        case "ScrollView":
+            // The sidebar already scrolls; treat ScrollView as a passthrough
+            // vertical container so authored ScrollViews render correctly.
+            return RenderNode(kind: .vstack, children: call.trailingClosure.map { evalItems($0.statements, env) } ?? [])
         case "Reorderable":
             return evalReorderable(call, env)
         default:
+            // A user-defined view helper: `func row(x) -> some View { ... }`
+            // called in view position; evaluate its body as view items.
+            if let decl = env.lookupFunction(ref.baseName.text), let body = decl.body {
+                let scope = bindParameters(decl, call, env)
+                let nodes = evalItems(body.statements, scope)
+                if nodes.count == 1 { return nodes[0] }
+                return RenderNode(kind: .vstack, children: nodes)
+            }
             return nil
         }
     }
@@ -124,6 +151,7 @@ public struct SwiftViewInterpreter: Sendable {
     // MARK: - ViewBuilder statements
 
     private func evalItems(_ items: CodeBlockItemListSyntax, _ env: Environment) -> [RenderNode] {
+        registerFunctions(items, env)
         var out: [RenderNode] = []
         for item in items {
             let node = item.item
@@ -250,6 +278,8 @@ public struct SwiftViewInterpreter: Sendable {
                 }
             case "log" where !call.arguments.isEmpty:
                 commands.append(.log(value(call.arguments.first!)))
+            case "openURL" where !call.arguments.isEmpty:
+                commands.append(.openURL(value(call.arguments.first!)))
             default:
                 continue
             }

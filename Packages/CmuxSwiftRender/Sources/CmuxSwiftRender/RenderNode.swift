@@ -49,6 +49,8 @@ public enum ActionCommand: Sendable, Equatable {
     /// onto the socket command protocol (`{"method","params"}`).
     case cmux(method: String, params: [String: String])
     case log(String)
+    /// Opens a URL (host runs it, e.g. via the workspace opener).
+    case openURL(String)
 }
 
 /// The captured behavior of a `Button`, evaluated when the button is tapped
