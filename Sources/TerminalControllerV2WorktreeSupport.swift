@@ -245,7 +245,9 @@ extension TerminalController {
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspace_id": ws.id.uuidString,
-            "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id)
+            "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+            "surface_id": v2OrNull(ws.focusedPanelId?.uuidString),
+            "surface_ref": v2Ref(kind: .surface, uuid: ws.focusedPanelId)
         ]
         payload.merge(v2EphemeralWorktreePayload(worktree.record)) { _, new in new }
         return .ok(payload)
@@ -266,6 +268,8 @@ extension TerminalController {
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        let remotePTYSessionID = v2OptionalTrimmedRawString(params, "remote_pty_session_id")
+        let startupEnvironment = v2TrimmedStringMap(params, keys: ["startup_environment", "initial_env"])
         let parsedInitialDivider = v2InitialDividerPosition(params)
         if let error = parsedInitialDivider.error {
             return error
@@ -336,7 +340,9 @@ extension TerminalController {
             workingDirectory: worktree.workingDirectory ?? workingDirectory,
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
+            startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
+            remotePTYSessionID: remotePTYSessionID,
             ephemeralWorktree: worktree.record
         ) else {
             cleanupUnattachedAsyncWorktree(worktree.record)
@@ -372,6 +378,8 @@ extension TerminalController {
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        let remotePTYSessionID = v2OptionalTrimmedRawString(params, "remote_pty_session_id")
+        let startupEnvironment = v2TrimmedStringMap(params, keys: ["startup_environment", "initial_env"])
 
         guard panelType == .terminal else {
             return v2AsyncWorktreeTerminalOnlyError(params: params, panelType: panelType)
@@ -432,6 +440,8 @@ extension TerminalController {
             workingDirectory: worktree.workingDirectory ?? workingDirectory,
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
+            startupEnvironment: startupEnvironment,
+            remotePTYSessionID: remotePTYSessionID,
             ephemeralWorktree: worktree.record
         )?.id else {
             cleanupUnattachedAsyncWorktree(worktree.record)
@@ -470,6 +480,7 @@ extension TerminalController {
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        let startupEnvironment = v2TrimmedStringMap(params, keys: ["startup_environment", "initial_env"])
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
         let parsedInitialDivider = v2InitialDividerPosition(params)
@@ -534,6 +545,7 @@ extension TerminalController {
             workingDirectory: worktree.workingDirectory ?? workingDirectory,
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
+            startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
             ephemeralWorktree: worktree.record
         )?.id else {

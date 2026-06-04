@@ -18,12 +18,17 @@
     {
       "path": ".github/review-bot-rules/runtime-no-hacky-sleeps.md",
       "description": "Source-of-truth cmux review rule for fixed sleeps, delays, and polling used as runtime synchronization.",
-      "scope": ["web/app/**/*.ts", "web/app/**/*.tsx", "web/services/**/*.ts", "web/services/**/*.tsx", "web/db/**/*.ts", "web/data/**/*.ts", "web/i18n/**/*.ts", "web/scripts/**/*.ts", "web/scripts/**/*.tsx", "web/scripts/**/*.js", "web/scripts/**/*.jsx", "web/scripts/**/*.mjs", "web/scripts/**/*.cjs", "web/scripts/**/*.sh", "web/scripts/**/*.zsh", "web/*.ts", "web/*.mjs", "scripts/**/*.ts", "scripts/**/*.tsx", "scripts/**/*.js", "scripts/**/*.jsx", "scripts/**/*.mjs", "scripts/**/*.cjs", "scripts/**/*.sh", "scripts/**/*.zsh"]
+      "scope": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs", "**/*.sh", "**/*.zsh"]
     },
     {
       "path": ".github/review-bot-rules/full-internationalization.md",
       "description": "Source-of-truth cmux review rule for complete localization across every supported app and web locale.",
       "scope": ["**/*.swift", "CHANGELOG.md", "Resources/Info.plist", "Resources/*.xcstrings", "web/*.ts", "web/*.tsx", "web/*.js", "web/*.jsx", "web/*.mjs", "web/*.cjs", "web/**/*.ts", "web/**/*.tsx", "web/**/*.js", "web/**/*.jsx", "web/**/*.mjs", "web/**/*.cjs", "web/messages/**/*.json", "web/data/**/*.json", "web/app/**/*.md", "web/app/**/*.mdx"]
+    },
+    {
+      "path": ".github/review-bot-rules/algorithmic-complexity.md",
+      "description": "Source-of-truth cmux review rule for scalable collection algorithms and benchmark-backed complexity choices.",
+      "scope": ["**/*.swift", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs", "**/*.sh", "**/*.zsh"]
     },
     {
       "path": ".github/review-bot-rules/swift-concurrency-modernization.md",
