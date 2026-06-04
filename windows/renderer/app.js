@@ -21300,6 +21300,67 @@ function paneSetupPresetMeta(preset) {
   return parts.join(" / ");
 }
 
+function paneSetupPresetPayload(preset, panel = focusedPanel() || activePanel()) {
+  const target = paneSetupTarget(panel);
+  const resolvedPreset = paneSetupPresetById(preset?.id || preset, target);
+  const updates = paneSetupPresetUpdates(resolvedPreset, target);
+  if (!target || !resolvedPreset || !updates) return null;
+  const settings = {
+    type: resolvedPreset.type
+  };
+  if (Object.hasOwn(updates, "title")) {
+    settings.title = String(updates.title || "");
+    settings.titleLocked = Boolean(settings.title);
+  }
+  if (Object.hasOwn(updates, "color")) settings.color = updates.color || "";
+  if (resolvedPreset.type === "terminal") {
+    if (Object.hasOwn(updates, "backgroundImage")) settings.backgroundImage = normalizeBackgroundValue(updates.backgroundImage);
+    if (Object.hasOwn(updates, "terminalFontSize")) settings.terminalFontSize = normalizeTerminalFontSize(updates.terminalFontSize, 0);
+  } else if (resolvedPreset.type === "browser" && Object.hasOwn(updates, "url")) {
+    settings.url = normalizeUrl(updates.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+  }
+  return {
+    version: 1,
+    type: "cmux-pane-setup",
+    label: `${resolvedPreset.label} pane preset`,
+    summary: {
+      kind: resolvedPreset.type === "browser" ? "Browser" : "Terminal",
+      name: settings.titleLocked ? settings.title : "Automatic",
+      color: settings.color || "Default",
+      background: resolvedPreset.type === "terminal" ? appearanceBackgroundLabel(settings.backgroundImage) : "",
+      text: resolvedPreset.type === "terminal"
+        ? (settings.terminalFontSize ? `${settings.terminalFontSize}px` : "Default")
+        : "",
+      url: resolvedPreset.type === "browser" ? settings.url || "" : ""
+    },
+    settings
+  };
+}
+
+async function copyPaneSetupPreset(presetId, panel = focusedPanel() || activePanel()) {
+  const target = paneSetupTarget(panel);
+  const preset = paneSetupPresetById(presetId, target);
+  const payloadModel = paneSetupPresetPayload(preset, target);
+  if (!target || !preset || !payloadModel) {
+    toast("Pane preset not found.");
+    return false;
+  }
+  const payload = JSON.stringify(payloadModel, null, 2);
+  if (await writeClipboardText(payload)) {
+    toast(`${preset.label} pane preset copied.`);
+    return true;
+  }
+  await showTextDialog({
+    title: "Pane preset setup",
+    message: "Clipboard access is unavailable. The pane preset setup is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
 function activePaneActionTargetPanel(panel = focusedPanel() || activePanel()) {
   return paneSetupTarget(panel);
 }
@@ -21448,6 +21509,24 @@ function paneSetupPresetSearchText(preset, active = false, panel = activePaneAct
     activePaneBaseSearchText(target),
     "active pane setup preset quick role apply",
     active ? "active current unavailable already applied" : "ready available",
+    preset?.type || "",
+    preset?.label || "",
+    preset?.body || "",
+    paneSetupPresetMeta(preset)
+  ].join(" "));
+}
+
+function paneSetupPresetCopyTitle(preset, panel = activePaneActionTargetPanel()) {
+  const target = activePaneActionTargetPanel(panel);
+  if (!target || !preset) return "Open a pane before copying pane presets.";
+  return `Copy ${preset.label} pane preset as setup JSON.`;
+}
+
+function paneSetupPresetCopySearchText(preset, panel = activePaneActionTargetPanel()) {
+  const target = activePaneActionTargetPanel(panel);
+  return normalizeSettingsQuery([
+    activePaneBaseSearchText(target),
+    "active pane setup preset quick role copy clipboard json export",
     preset?.type || "",
     preset?.label || "",
     preset?.body || "",
@@ -34556,6 +34635,16 @@ function paletteEntries() {
       title: paneSetupPresetTitle(preset, active, palettePane),
       search: paneSetupPresetSearchText(preset, active, palettePane),
       run: () => applyPaneSetupPreset(preset.id, palettePane)
+    });
+    entries.push({
+      id: `paneSetupPreset.copy.${preset.id}`,
+      label: `Copy pane preset: ${preset.label}`,
+      meta,
+      shortcut: "Copy",
+      icon: preset.icon,
+      title: paneSetupPresetCopyTitle(preset, palettePane),
+      search: paneSetupPresetCopySearchText(preset, palettePane),
+      run: () => copyPaneSetupPreset(preset.id, palettePane)
     });
   }
   for (const [workspaceIndex, workspace] of (state.data?.workspaces || []).entries()) {
