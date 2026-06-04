@@ -20311,6 +20311,26 @@ function paneTitleSuggestion(panel, workspace = activeWorkspace()) {
   return candidates.find((candidate) => candidate && candidate !== "~" && candidate !== "Workspace") || "Terminal";
 }
 
+function browserPanePageTitleSuggestion(panel = focusedPanel()) {
+  const target = resolveBrowserPanel(panel);
+  if (!target) return "";
+  const session = state.browserViews.get(target.id);
+  const activeTab = activeBrowserTab(session)
+    || browserTabSessionActiveTab(browserTabSnapshotForPanelId(target.id, target.url || state.settings.browserHomeUrl));
+  const url = activeTab?.url || browserPanelUrl(target) || target.url || state.settings.browserHomeUrl;
+  const title = String(activeTab?.title || "").replace(/\s+/g, " ").trim();
+  if (!title || /^https?:\/\//i.test(title)) return "";
+  const rejected = new Set([
+    "",
+    "browser",
+    "new tab",
+    String(hostnameOf(url) || "").toLowerCase(),
+    String(browserTabTitle(url) || "").toLowerCase()
+  ]);
+  if (rejected.has(title.toLowerCase())) return "";
+  return title.slice(0, 80);
+}
+
 function workspacePaneSuggestedTitle(workspace = activeWorkspace()) {
   if (!workspace) return "";
   const panels = workspace.panels || [];
@@ -20392,6 +20412,7 @@ function paneNamingTarget(panel = focusedPanel() || activePanel()) {
 function paneNamingBaseSearchText(panel = focusedPanel() || activePanel(), workspace = activeWorkspace()) {
   const target = paneNamingTarget(panel);
   const suggestion = paneTitleSuggestion(target, workspace);
+  const pageTitle = target?.type === "browser" ? browserPanePageTitleSuggestion(target) : "";
   const defaultTitle = target ? editablePaneTitle({ ...target, title: "", titleLocked: false }) : "";
   return [
     "active pane naming rename tab title default automatic generated suggested",
@@ -20399,6 +20420,7 @@ function paneNamingBaseSearchText(panel = focusedPanel() || activePanel(), works
     !target ? "no active pane" : target.type === "browser" ? "browser page host url" : "terminal folder cwd directory",
     !target ? "unavailable" : target.titleLocked ? "custom locked" : "automatic generated",
     suggestion,
+    pageTitle,
     defaultTitle
   ].join(" ");
 }
@@ -20435,13 +20457,24 @@ function paneNameSuggestTitle(panel, workspace, suggestion, currentTitle) {
   return `Save "${suggestion}" as the pane name.`;
 }
 
+function paneNamePageTitleTitle(panel, suggestion, currentTitle) {
+  const target = paneNamingTarget(panel);
+  if (!target) return "Open a browser pane before using its page title.";
+  if (isPendingPanel(target)) return "Wait for this pane to finish opening.";
+  if (target.type !== "browser") return "Page title naming is available for browser panes.";
+  if (!suggestion) return "The active browser page does not have a distinct title yet.";
+  if (suggestion === currentTitle) return "Pane already uses this page title.";
+  return `Save "${suggestion}" as the pane name.`;
+}
+
 function paneNamingActionSearchText(actionId, panel = focusedPanel() || activePanel(), workspace = activeWorkspace(), extra = "") {
   const actionTerms = {
     rename: "rename edit title name",
     save: "save custom title name",
     suggest: "use suggested folder page host cwd directory title",
+    pageTitle: "use browser page title document tab title",
     default: "default automatic generated reset clear title",
-    control: "save suggested folder page host cwd default automatic clear"
+    control: "save suggested folder page host cwd browser page title default automatic clear"
   }[actionId] || actionId;
   return normalizeSettingsQuery([
     paneNamingBaseSearchText(panel, workspace),
@@ -20899,10 +20932,12 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
   };
   let titleSave = null;
   let titleSuggest = null;
+  let titleUsePageTitle = null;
   let titleReset = null;
   const updatePaneTitleActions = () => {
     const nextTitle = titleInput.value.trim();
     const suggestion = paneTitleSuggestion(panel, workspace);
+    const pageTitleSuggestion = browserPanePageTitleSuggestion(panel);
     if (titleSave) {
       titleSave.disabled = !nextTitle || nextTitle === currentPaneTitle();
       titleSave.title = paneNameSaveTitle(panel, nextTitle, currentPaneTitle());
@@ -20914,6 +20949,10 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     if (titleSuggest) {
       titleSuggest.disabled = !suggestion || suggestion === currentPaneTitle();
       titleSuggest.title = paneNameSuggestTitle(panel, workspace, suggestion, currentPaneTitle());
+    }
+    if (titleUsePageTitle) {
+      titleUsePageTitle.disabled = !pageTitleSuggestion || pageTitleSuggestion === currentPaneTitle();
+      titleUsePageTitle.title = paneNamePageTitleTitle(panel, pageTitleSuggestion, currentPaneTitle());
     }
   };
   const refreshPaneTitleActionsAfterButton = () => {
@@ -20940,7 +20979,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     refreshPaneTitleActionsAfterButton();
     return changed;
   }, "primary", paneNamingActionSearchText("save", panel, workspace));
-  const titleSuggestLabel = panel.type === "browser" ? "Use page" : "Use folder";
+  const titleSuggestLabel = panel.type === "browser" ? "Use host" : "Use folder";
   titleSuggest = settingsActionButton(titleSuggestLabel, async () => {
     const suggestion = paneTitleSuggestion(panel, workspace);
     if (!suggestion) {
@@ -20952,6 +20991,19 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     refreshPaneTitleActionsAfterButton();
     return changed;
   }, "", paneNamingActionSearchText("suggest", panel, workspace, titleSuggestLabel));
+  if (panel.type === "browser") {
+    titleUsePageTitle = settingsActionButton("Use title", async () => {
+      const suggestion = browserPanePageTitleSuggestion(panel);
+      if (!suggestion) {
+        toast("The active browser page does not have a distinct title yet.");
+        return false;
+      }
+      titleInput.value = suggestion;
+      const changed = await savePaneTitleInput({ toast: true });
+      refreshPaneTitleActionsAfterButton();
+      return changed;
+    }, "", paneNamingActionSearchText("pageTitle", panel, workspace, "Use title browser page document title"));
+  }
   titleReset = settingsActionButton("Default", async () => {
     const changed = Boolean(panel.titleLocked);
     titleInput.value = defaultPaneTitle();
@@ -20961,8 +21013,8 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     refreshPaneTitleActionsAfterButton();
   }, "", paneNamingActionSearchText("default", panel, workspace));
   const titleControl = document.createElement("span");
-  titleControl.className = "active-pane-title-control";
-  titleControl.append(titleInput, titleSave, titleSuggest, titleReset);
+  titleControl.className = `active-pane-title-control${titleUsePageTitle ? " has-page-title" : ""}`;
+  titleControl.append(...[titleInput, titleSave, titleSuggest, titleUsePageTitle, titleReset].filter(Boolean));
   updatePaneTitleActions();
   wrapper.append(settingRow("Pane name", titleControl, true, paneNamingActionSearchText("control", panel, workspace)));
 

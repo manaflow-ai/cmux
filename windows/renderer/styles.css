@@ -7300,6 +7300,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   gap: var(--space-1);
 }
 
+.active-pane-title-control.has-page-title {
+  grid-template-columns: minmax(0, 1fr) minmax(58px, auto) minmax(74px, auto) minmax(74px, auto) minmax(74px, auto);
+}
+
 .active-pane-title-control .setting-control,
 .active-pane-title-control .settings-action {
   height: 30px;
