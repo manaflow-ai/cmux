@@ -1708,6 +1708,7 @@ final class SocketClient {
         if lastConfiguredReceiveTimeout != initialResponseTimeout {
             try configureReceiveTimeout(initialResponseTimeout)
         }
+        try configureSocketWriteSafety(initialResponseTimeout)
         var operation = CLISocketOperationTelemetry.State(
             name: CLISocketOperationTelemetry.operationName(for: command),
             timeout: initialResponseTimeout,
@@ -1795,9 +1796,7 @@ final class SocketClient {
             try connect()
         }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
-        defer {
-            close()
-        }
+        let shouldCloseAfterSend = relayEndpoint != nil
 
         try configureSocketWriteSafety(writeTimeout)
         var operation = CLISocketOperationTelemetry.State(
@@ -1808,13 +1807,28 @@ final class SocketClient {
         )
         recordOperation(operation)
 
-        try writeAll(
-            Data((command + "\n").utf8),
-            timeoutMessage: "Command timed out",
-            failureMessage: "Failed to write to socket"
-        )
+        do {
+            try writeAll(
+                Data((command + "\n").utf8),
+                timeoutMessage: "Command timed out",
+                failureMessage: "Failed to write to socket"
+            )
+        } catch {
+            close()
+            throw error
+        }
         operation.phase = .completed
         recordOperation(operation)
+        if shouldCloseAfterSend {
+            close()
+        } else {
+            do {
+                try configureSocketWriteSafety(Self.responseTimeoutSeconds)
+            } catch {
+                close()
+                throw error
+            }
+        }
     }
 
     private func connectOnce() throws {
@@ -28328,7 +28342,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
 
         let frame: [String: Any] = [
-            "id": UUID().uuidString,
             "method": "feed.push",
             "params": [
                 "event": event,
@@ -30310,11 +30323,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             "wait_timeout_seconds": waitTimeout,
         ]
 
-        let payload = try JSONSerialization.data(withJSONObject: [
-            "id": UUID().uuidString,
+        var request: [String: Any] = [
             "method": "feed.push",
             "params": params,
-        ])
+        ]
+        if waitTimeout > 0 {
+            request["id"] = UUID().uuidString
+        }
+        let payload = try JSONSerialization.data(withJSONObject: request)
         let line = String(data: payload, encoding: .utf8) ?? "{}"
 
         if waitTimeout == 0 {

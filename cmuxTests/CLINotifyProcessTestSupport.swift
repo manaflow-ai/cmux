@@ -415,10 +415,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli multi-connection mock socket handled")
         DispatchQueue.global(qos: .userInitiated).async {
+            let fulfillmentLock = NSLock()
             var didFulfill = false
             func fulfillOnce() {
-                if !didFulfill {
+                fulfillmentLock.lock()
+                let shouldFulfill = !didFulfill
+                if shouldFulfill {
                     didFulfill = true
+                }
+                fulfillmentLock.unlock()
+                if shouldFulfill {
                     handled.fulfill()
                 }
             }
