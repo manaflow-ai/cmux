@@ -11,4 +11,7 @@ public enum RenderWorkerInbound: Codable, Sendable, Equatable {
     case resize(RenderSurfaceGeometry)
     /// A pointer interaction on the host surface to replay.
     case pointer(RenderPointerEvent)
+    /// The host received an explicit reload request (CLI `sidebar reload`);
+    /// `nil`/empty names mean "all sidebars".
+    case reloadSidebars([String]?)
 }

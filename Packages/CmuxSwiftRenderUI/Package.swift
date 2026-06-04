@@ -31,5 +31,9 @@ let package = Package(
                 .process("Resources"),
             ]
         ),
+        .testTarget(
+            name: "CmuxSwiftRenderUITests",
+            dependencies: ["CmuxSwiftRenderUI"]
+        ),
     ]
 )

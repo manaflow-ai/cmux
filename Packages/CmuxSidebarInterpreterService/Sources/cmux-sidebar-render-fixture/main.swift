@@ -47,5 +47,7 @@ while let data = channel.receiveMessage() {
         continue
     case .pointer:
         send(.action(ButtonAction(commands: [])))
+    case .reloadSidebars:
+        continue
     }
 }

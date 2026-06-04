@@ -1,142 +1,57 @@
 {
-  "sourceLanguage" : "en",
-  "strings" : {
-    "sidebar.custom.decode.invalidJSON" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Invalid JSON at %1$@: %2$@"
+  "sourceLanguage": "en",
+  "strings": {
+    "sidebar.custom.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar error"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ のJSONが無効です: %2$@"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーエラー"
           }
         }
       }
     },
-    "sidebar.custom.decode.missingKey" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Missing key '%1$@' at %2$@"
+    "sidebar.custom.missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar file is empty or missing."
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%2$@ にキー '%1$@' がありません"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーファイルが空か見つかりません。"
           }
         }
       }
     },
-    "sidebar.custom.decode.missingValue" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Missing value at %@"
+    "sidebar.custom.noView": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No supported SwiftUI view found."
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ に値がありません"
-          }
-        }
-      }
-    },
-    "sidebar.custom.decode.typeMismatch" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Type mismatch at %1$@: %2$@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ で型が一致しません: %2$@"
-          }
-        }
-      }
-    },
-    "sidebar.custom.decode.root" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "root"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ルート"
-          }
-        }
-      }
-    },
-    "sidebar.custom.error" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sidebar error"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サイドバーエラー"
-          }
-        }
-      }
-    },
-    "sidebar.custom.missing" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sidebar file is empty or missing."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サイドバーファイルが空か見つかりません。"
-          }
-        }
-      }
-    },
-    "sidebar.custom.noView" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No supported SwiftUI view found."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "対応するSwiftUIビューが見つかりません。"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応するSwiftUIビューが見つかりません。"
           }
         }
       }
     }
   },
-  "version" : "1.0"
+  "version": "1.0"
 }

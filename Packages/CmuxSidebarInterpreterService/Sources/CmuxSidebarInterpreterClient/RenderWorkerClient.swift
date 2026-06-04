@@ -135,6 +135,12 @@ public actor RenderWorkerClient {
         send(.pointer(event))
     }
 
+    /// Forwards an explicit reload request (host notifications don't cross
+    /// the process boundary).
+    public func requestReload(names: [String]?) {
+        send(.reloadSidebars(names))
+    }
+
     /// Terminates the worker. The next send relaunches it. Call from the
     /// owner's teardown (e.g. when the sidebar disappears).
     public func shutdown() {

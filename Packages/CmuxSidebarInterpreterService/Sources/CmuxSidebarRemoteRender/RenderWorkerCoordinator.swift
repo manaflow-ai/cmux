@@ -34,6 +34,10 @@ final class RenderWorkerCoordinator {
     /// Loads and watches the sidebar file (hot reload), reusing the exact
     /// in-process semantics.
     private var model: CustomSidebarModel?
+    /// The scene's file path as sent by the host. Tracked separately from
+    /// `model.fileURL`, which the model may re-resolve to a sibling extension
+    /// (`name.swift` <-> `name.json`).
+    private var scenePath: String?
     private var dataState: [String: SwiftValue] = [:]
     private var insets = CustomSidebarContentInsets.zero
     private var geometry = RenderSurfaceGeometry(width: 280, height: 600, scale: 2)
@@ -77,6 +81,10 @@ final class RenderWorkerCoordinator {
         case let .pointer(event):
             deliver(event)
             pump()
+        case let .reloadSidebars(names):
+            // Forwarded from the host's CLI reload notification; the model's
+            // state change re-renders via the observation hook.
+            model?.requestReload(names: names)
         }
     }
 
@@ -124,8 +132,9 @@ final class RenderWorkerCoordinator {
         dataState = scene.state
         insets = CustomSidebarContentInsets(top: scene.topInset, bottom: scene.bottomInset)
 
-        let url = URL(fileURLWithPath: scene.filePath)
-        if model?.fileURL != url {
+        if scenePath != scene.filePath {
+            scenePath = scene.filePath
+            let url = URL(fileURLWithPath: scene.filePath)
             model?.stop()
             swiftRender = nil
             hasRendered = false
@@ -284,7 +293,7 @@ final class RenderWorkerCoordinator {
             .filter { $0.frame.contains(point) }
             .min { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
         guard let hit else {
-            debugLog("press: no tap target at \(point) (targets=\(tapTargets.count))")
+            debugLog("press: no tap target at \(point) targets=\(tapTargets.map { "\($0.frame)" }.joined(separator: " | "))")
             return
         }
         debugLog("press: firing action at \(point)")

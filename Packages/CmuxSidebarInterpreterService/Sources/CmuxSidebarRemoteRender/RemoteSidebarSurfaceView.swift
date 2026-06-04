@@ -21,6 +21,7 @@ final class RemoteSidebarSurfaceView: NSView {
     private var hostedLayer: CALayer?
     private var eventsTask: Task<Void, Never>?
     private var outboxTask: Task<Void, Never>?
+    private var reloadTask: Task<Void, Never>?
     private let outbox: AsyncStream<RenderWorkerInbound>.Continuation
     private var lastPushedScene: PushedScene?
 
@@ -55,7 +56,19 @@ final class RemoteSidebarSurfaceView: NSView {
                     await client.resize(geometry)
                 case let .pointer(event):
                     await client.forward(event)
+                case let .reloadSidebars(names):
+                    await client.requestReload(names: names)
                 }
+            }
+        }
+
+        // The CLI's `sidebar reload` posts a host-process notification; the
+        // worker can't observe it across the process boundary, so forward it.
+        reloadTask = Task { @MainActor [weak self] in
+            for await notification in NotificationCenter.default.notifications(named: .customSidebarReloadRequested) {
+                let names = notification.userInfo?["names"] as? [String]
+                guard let self else { return }
+                self.outbox.yield(.reloadSidebars(names))
             }
         }
 
@@ -81,6 +94,8 @@ final class RemoteSidebarSurfaceView: NSView {
     /// the worker itself stays alive for the next mount (cheap, and keeps
     /// provider switches snappy).
     func teardown() {
+        reloadTask?.cancel()
+        reloadTask = nil
         eventsTask?.cancel()
         eventsTask = nil
         outboxTask?.cancel()
