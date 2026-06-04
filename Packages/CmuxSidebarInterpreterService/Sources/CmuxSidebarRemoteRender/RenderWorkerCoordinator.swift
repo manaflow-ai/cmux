@@ -39,6 +39,11 @@ final class RenderWorkerCoordinator {
     private var geometry = RenderSurfaceGeometry(width: 280, height: 600, scale: 2)
     private var swiftRender: RenderNode?
     private var hasRendered = false
+    /// The most recent file state that produced a working view, kept so a
+    /// broken mid-edit save (or an atomic save's transient delete) does NOT
+    /// replace a working sidebar. Reset when the selected file changes.
+    private var lastGoodState: CustomSidebarModel.State?
+    private var lastGoodRender: RenderNode?
 
     /// Sends interpreted-button actions back to the host for dispatch.
     private lazy var dispatch = SidebarActionDispatch { [weak self] action in
@@ -124,6 +129,8 @@ final class RenderWorkerCoordinator {
             model?.stop()
             swiftRender = nil
             hasRendered = false
+            lastGoodState = nil
+            lastGoodRender = nil
             let model = CustomSidebarModel(fileURL: url)
             self.model = model
             model.start()
@@ -160,21 +167,58 @@ final class RenderWorkerCoordinator {
 
     /// Re-interprets (when showing Swift source) and republishes the root
     /// view, then pumps a commit so the host sees it.
+    ///
+    /// Hot reload is **last-good sticky**: a save only replaces what's on
+    /// screen when it actually interprets to a view (or decodes, for JSON).
+    /// Broken intermediate saves — the editor writing mid-edit states, or an
+    /// atomic save's transient missing file — keep the previous working
+    /// render. Error states still show when a file is broken from the start
+    /// (no good version to fall back to).
     private func refresh() {
         guard let model, let hosting else { return }
-        if case let .swiftSource(source) = model.state {
+        var displayState = model.state
+        switch model.state {
+        case let .swiftSource(source):
             let response = runner.run(InterpreterRequest(id: 0, source: source, state: dataState))
-            swiftRender = response.node
-            hasRendered = true
+            if let node = response.node {
+                swiftRender = node
+                hasRendered = true
+                lastGoodState = model.state
+                lastGoodRender = node
+            } else if let lastGoodState {
+                displayState = lastGoodState
+                // Keep live data flowing while the on-disk file is broken:
+                // re-interpret the last GOOD source against the fresh data
+                // context (falling back to the cached render if even that
+                // stops producing a view).
+                if case let .swiftSource(goodSource) = lastGoodState,
+                   let liveNode = runner.run(InterpreterRequest(id: 0, source: goodSource, state: dataState)).node {
+                    swiftRender = liveNode
+                    lastGoodRender = liveNode
+                } else {
+                    swiftRender = lastGoodRender
+                }
+            } else {
+                swiftRender = nil
+                hasRendered = true
+            }
+        case .json:
+            lastGoodState = model.state
+            lastGoodRender = nil
+        case .missing, .failed:
+            if let lastGoodState {
+                displayState = lastGoodState
+                swiftRender = lastGoodRender
+            }
         }
-        hosting.rootView = currentContent()
+        hosting.rootView = currentContent(state: displayState)
         pump()
     }
 
-    private func currentContent() -> RemoteWorkerRootView {
+    private func currentContent(state: CustomSidebarModel.State? = nil) -> RemoteWorkerRootView {
         RemoteWorkerRootView(
             content: CustomSidebarContentView(
-                state: model?.state ?? .missing,
+                state: state ?? model?.state ?? .missing,
                 swiftRender: swiftRender,
                 hasRenderedSwift: hasRendered,
                 dispatch: dispatch,

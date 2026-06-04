@@ -64,7 +64,12 @@ public final class CustomSidebarModel {
         guard case let .swiftSource(source) = state else { return }
         let node = await interpreter.render(source: source, state: dataContext)
         if Task.isCancelled { return }
-        swiftRender = node
+        // Last-good sticky: a broken mid-edit save (nil node) keeps the
+        // previous working render instead of flashing the error state; the
+        // error still shows when there was never a good render.
+        if node != nil || swiftRender == nil {
+            swiftRender = node
+        }
         hasRenderedSwift = true
     }
 
