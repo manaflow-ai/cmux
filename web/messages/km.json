@@ -39,7 +39,8 @@
     "contact": "ទំនាក់ទំនង",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "ភាសា"
+    "language": "ភាសា",
+    "assets": "ធនធាន"
   },
   "home": {
     "taglinePrefix": "ទែមីណលដែលបង្កើតសម្រាប់ ",
@@ -160,7 +161,8 @@
       "buildDistribution": "Build និងការចែកចាយ",
       "upstreamDependencies": "ភាពអាស្រ័យ upstream",
       "archived": "បានរក្សាទុក"
-    }
+    },
+    "section": "សហគមន៍"
   },
   "blog": {
     "title": "ប្លក់",
@@ -1259,7 +1261,31 @@
       "fallback": "cmux បង្ហាញច្បាប់ជាមុន ហើយសួរមុនពេលបិទភ្ជាប់ពួកវាទៅក្នុងកន្លែងធ្វើការបច្ចុប្បន្ន។ ប្រសិនបើ cmux មិនបើកទេ សូមដំឡើង cmux ហើយចុច Open in cmux ម្តងទៀត។"
     }
   },
+  "download": {
+    "section": "ទាញយក",
+    "metaTitle": "សូមអរគុណសម្រាប់ការទាញយក cmux",
+    "metaDescription": "ការទាញយក cmux កំពុងចាប់ផ្តើម។ ស្វែងយល់ឯកសារ ចូលរួម Discord និងតាមដាន cmux នៅលើ X។",
+    "heading": "សូមអរគុណសម្រាប់ការទាញយក cmux!",
+    "subtext": "ចុច<link>ទីនេះ</link> ប្រសិនបើការទាញយករបស់អ្នកមិនទាន់ចាប់ផ្តើម។"
+  },
   "testimonialSubtitles": {
     "steipete": "អ្នកបង្កើត OpenClaw។ ស្ថាបនិក PSPDFKit។"
+  },
+  "brandAssets": {
+    "metaTitle": "ធនធានម៉ាក",
+    "metaDescription": "ទាញយករូបតំណាងកម្មវិធី cmux ភ្លឺនិងងងឹតដែលប្រើក្នុងកម្មវិធី macOS។",
+    "title": "ធនធានម៉ាក",
+    "description": "ទាញយករូបតំណាងកម្មវិធី cmux ភ្លឺនិងងងឹតដែលប្រើក្នុងកម្មវិធី macOS។",
+    "iconSection": "រូបតំណាងកម្មវិធី macOS",
+    "download": "ទាញយក",
+    "assetAlt": "មើលជាមុន {name}",
+    "lightPreview": "រូបតំណាងកម្មវិធីសម្រាប់របៀបភ្លឺ។",
+    "darkPreview": "រូបតំណាងកម្មវិធីសម្រាប់របៀបងងឹត។"
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "ទាញយករូបតំណាងភ្លឺ",
+    "downloadDark": "ទាញយករូបតំណាងងងឹត",
+    "brandPage": "ធនធានម៉ាក"
   }
 }

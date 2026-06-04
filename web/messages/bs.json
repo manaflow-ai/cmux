@@ -39,7 +39,8 @@
     "contact": "Kontakt",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Jezik"
+    "language": "Jezik",
+    "assets": "Materijali"
   },
   "home": {
     "taglinePrefix": "Terminal napravljen za ",
@@ -160,7 +161,8 @@
       "buildDistribution": "Build i distribucija",
       "upstreamDependencies": "Upstream zavisnosti",
       "archived": "Arhivirano"
-    }
+    },
+    "section": "zajednica"
   },
   "blog": {
     "title": "Blog",
@@ -1259,7 +1261,31 @@
       "fallback": "cmux prvo prikazuje pravila i pita prije nego što ih zalijepi u trenutni radni prostor. Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmux."
     }
   },
+  "download": {
+    "section": "preuzimanje",
+    "metaTitle": "Hvala što ste preuzeli cmux",
+    "metaDescription": "Vaše preuzimanje cmux-a počinje. Istražite dokumentaciju, pridružite se Discordu i pratite cmux na X-u.",
+    "heading": "Hvala što ste preuzeli cmux!",
+    "subtext": "Kliknite <link>ovdje</link> ako preuzimanje nije počelo."
+  },
   "testimonialSubtitles": {
     "steipete": "Kreator OpenClawa. Osnivač PSPDFKita."
+  },
+  "brandAssets": {
+    "metaTitle": "Brend materijali",
+    "metaDescription": "Preuzmite svijetlu i tamnu cmux ikonu koju koristi macOS aplikacija.",
+    "title": "Brend materijali",
+    "description": "Preuzmite svijetlu i tamnu cmux ikonu koju koristi macOS aplikacija.",
+    "iconSection": "Ikone macOS aplikacije",
+    "download": "Preuzmi",
+    "assetAlt": "Pregled za {name}",
+    "lightPreview": "Ikona aplikacije za svijetli način.",
+    "darkPreview": "Ikona aplikacije za tamni način."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Preuzmi svijetlu ikonu",
+    "downloadDark": "Preuzmi tamnu ikonu",
+    "brandPage": "Materijali brenda"
   }
 }

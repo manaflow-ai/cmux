@@ -39,7 +39,8 @@
     "contact": "Контакти",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Мова"
+    "language": "Мова",
+    "assets": "Матеріали"
   },
   "home": {
     "taglinePrefix": "Термінал, створений для ",
@@ -160,7 +161,8 @@
       "buildDistribution": "Build і розповсюдження",
       "upstreamDependencies": "Upstream-залежності",
       "archived": "Архівні"
-    }
+    },
+    "section": "спільнота"
   },
   "blog": {
     "title": "Блог",
@@ -1346,7 +1348,31 @@
       "fallback": "cmux спочатку показує правила та запитує, перш ніж вставити їх у поточну робочу область. Якщо cmux не відкривається, інсталюйте cmux і знову натисніть Відкрити в cmux."
     }
   },
+  "download": {
+    "section": "завантажити",
+    "metaTitle": "Дякуємо, що завантажили cmux",
+    "metaDescription": "Завантаження cmux починається. Перегляньте документацію, приєднуйтесь до Discord і стежте за cmux у X.",
+    "heading": "Дякуємо, що завантажили cmux!",
+    "subtext": "Натисніть <link>тут</link>, якщо завантаження не почалося."
+  },
   "testimonialSubtitles": {
     "steipete": "Творець OpenClaw. Засновник PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Брендові матеріали",
+    "metaDescription": "Завантажте світлу й темну іконки cmux, які використовує застосунок macOS.",
+    "title": "Брендові матеріали",
+    "description": "Завантажте світлу й темну іконки cmux, які використовує застосунок macOS.",
+    "iconSection": "Іконки застосунку macOS",
+    "download": "Завантажити",
+    "assetAlt": "Попередній перегляд {name}",
+    "lightPreview": "Іконка застосунку для світлого режиму.",
+    "darkPreview": "Іконка застосунку для темного режиму."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Завантажити світлу іконку",
+    "downloadDark": "Завантажити темну іконку",
+    "brandPage": "Матеріали бренду"
   }
 }

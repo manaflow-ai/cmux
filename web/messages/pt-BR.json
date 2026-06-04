@@ -39,7 +39,8 @@
     "contact": "Contato",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Idioma"
+    "language": "Idioma",
+    "assets": "Recursos"
   },
   "home": {
     "taglinePrefix": "O terminal feito para ",
@@ -160,7 +161,8 @@
       "buildDistribution": "Build e distribuição",
       "upstreamDependencies": "Dependências upstream",
       "archived": "Arquivados"
-    }
+    },
+    "section": "comunidade"
   },
   "blog": {
     "title": "Blog",
@@ -1259,7 +1261,31 @@
       "fallback": "cmux mostra as regras primeiro e pergunta antes de colá-las no espaço de trabalho atual. Se o cmux não abrir, instale o cmux e clique em Abrir no cmux novamente."
     }
   },
+  "download": {
+    "section": "baixar",
+    "metaTitle": "Obrigado por baixar o cmux",
+    "metaDescription": "O download do cmux está começando. Explore a documentação, entre no Discord e siga o cmux no X.",
+    "heading": "Obrigado por baixar o cmux!",
+    "subtext": "Clique <link>aqui</link> se o download não começou."
+  },
   "testimonialSubtitles": {
     "steipete": "Criador do OpenClaw. Fundador do PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Recursos de marca",
+    "metaDescription": "Baixe os ícones claro e escuro do cmux usados pelo app macOS.",
+    "title": "Recursos de marca",
+    "description": "Baixe os ícones claro e escuro do cmux usados pelo app macOS.",
+    "iconSection": "Ícones do app macOS",
+    "download": "Baixar",
+    "assetAlt": "Prévia de {name}",
+    "lightPreview": "Ícone do app para modo claro.",
+    "darkPreview": "Ícone do app para modo escuro."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Baixar ícone claro",
+    "downloadDark": "Baixar ícone escuro",
+    "brandPage": "Assets da marca"
   }
 }

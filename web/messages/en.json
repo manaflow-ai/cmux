@@ -39,7 +39,8 @@
     "contact": "Contact",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Language"
+    "language": "Language",
+    "assets": "Assets"
   },
   "home": {
     "taglinePrefix": "The terminal built for ",
@@ -160,7 +161,8 @@
       "buildDistribution": "Build & Distribution",
       "upstreamDependencies": "Upstream Dependencies",
       "archived": "Archived"
-    }
+    },
+    "section": "community"
   },
   "blog": {
     "title": "Blog",
@@ -1497,6 +1499,13 @@
       "fallback": "cmux shows the rules first and asks before pasting them into the current workspace. If cmux does not open, install cmux and click Open in cmux again."
     }
   },
+  "download": {
+    "section": "download",
+    "metaTitle": "Thanks for downloading cmux",
+    "metaDescription": "Your cmux download is starting. Explore the docs, join the Discord, and follow cmux on X.",
+    "heading": "Thanks for downloading cmux!",
+    "subtext": "Click <link>here</link> if your download hasn't started."
+  },
   "legal": {
     "privacyPolicy": "Privacy Policy",
     "termsOfService": "Terms of Service",
@@ -1555,5 +1564,22 @@
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw creator. Founder of PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Brand assets",
+    "metaDescription": "Download the light and dark cmux app icons used by the macOS app.",
+    "title": "Brand assets",
+    "description": "Download the light and dark cmux app icons used by the macOS app.",
+    "iconSection": "macOS app icons",
+    "download": "Download",
+    "assetAlt": "{name} preview",
+    "lightPreview": "Light mode app icon.",
+    "darkPreview": "Dark mode app icon."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Download light icon",
+    "downloadDark": "Download dark icon",
+    "brandPage": "Brand assets"
   }
 }

@@ -39,7 +39,8 @@
     "contact": "Contact",
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
-    "language": "Langue"
+    "language": "Langue",
+    "assets": "Ressources"
   },
   "home": {
     "taglinePrefix": "Le terminal conçu pour ",
@@ -160,7 +161,8 @@
       "buildDistribution": "Build et distribution",
       "upstreamDependencies": "Dépendances upstream",
       "archived": "Archivés"
-    }
+    },
+    "section": "communauté"
   },
   "blog": {
     "title": "Blog",
@@ -1259,7 +1261,31 @@
       "fallback": "cmux affiche d'abord les règles et demande avant de les coller dans l'espace de travail actuel. Si cmux ne s'ouvre pas, installez cmux et cliquez à nouveau sur Ouvrir dans cmux."
     }
   },
+  "download": {
+    "section": "télécharger",
+    "metaTitle": "Merci d'avoir téléchargé cmux",
+    "metaDescription": "Votre téléchargement de cmux démarre. Explorez la documentation, rejoignez le Discord et suivez cmux sur X.",
+    "heading": "Merci d'avoir téléchargé cmux !",
+    "subtext": "Cliquez <link>ici</link> si votre téléchargement n'a pas démarré."
+  },
   "testimonialSubtitles": {
     "steipete": "Créateur d’OpenClaw. Fondateur de PSPDFKit."
+  },
+  "brandAssets": {
+    "metaTitle": "Ressources de marque",
+    "metaDescription": "Téléchargez les icônes cmux claire et sombre utilisées par l’app macOS.",
+    "title": "Ressources de marque",
+    "description": "Téléchargez les icônes cmux claire et sombre utilisées par l’app macOS.",
+    "iconSection": "Icônes de l’app macOS",
+    "download": "Télécharger",
+    "assetAlt": "Aperçu de {name}",
+    "lightPreview": "Icône d’app pour le mode clair.",
+    "darkPreview": "Icône d’app pour le mode sombre."
+  },
+  "brandLogoMenu": {
+    "label": "cmux",
+    "downloadLight": "Télécharger l’icône claire",
+    "downloadDark": "Télécharger l’icône sombre",
+    "brandPage": "Ressources de marque"
   }
 }
