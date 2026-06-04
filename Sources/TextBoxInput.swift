@@ -2861,6 +2861,7 @@ struct TextBoxInputContainer: View {
         )
     }
 
+    /// Records the newly constructed text view and lets the panel restore draft state.
     private func registerTextView(_ textView: TextBoxInputTextView) {
         textViewReference.textView = textView
         onTextViewCreated(textView)
@@ -3166,6 +3167,7 @@ struct TextBoxInputView: NSViewRepresentable {
 
         updateTextView(textView, context: context)
         onTextViewCreated(textView)
+        context.coordinator.queuePendingAttachmentUploadStateSync(from: textView)
         return scrollView
     }
 
@@ -3227,9 +3229,15 @@ struct TextBoxInputView: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: TextBoxInputView
+        private var pendingAttachmentUploadStateForNextLayout: Bool?
 
         init(parent: TextBoxInputView) {
             self.parent = parent
+        }
+
+        /// Captures pending-upload state once after representable construction restores AppKit storage.
+        func queuePendingAttachmentUploadStateSync(from textView: TextBoxInputTextView) {
+            pendingAttachmentUploadStateForNextLayout = textView.hasPendingAttachmentUploadPlaceholder()
         }
 
         func textDidChange(_ notification: Notification) {
@@ -3261,7 +3269,10 @@ struct TextBoxInputView: NSViewRepresentable {
         func recalculateHeight(_ textView: NSTextView) {
             guard let layoutManager = textView.layoutManager,
                   let textContainer = textView.textContainer else { return }
-            (textView as? TextBoxInputTextView)?.recenterSingleLineTextContainer()
+            if let textBoxView = textView as? TextBoxInputTextView {
+                textBoxView.recenterSingleLineTextContainer()
+                applyPendingAttachmentUploadStateSyncIfNeeded()
+            }
             layoutManager.ensureLayout(for: textContainer)
             let lineFragmentCount = (textView as? TextBoxInputTextView)?.visualLineFragmentCount()
                 ?? TextBoxInputTextView.visualLineFragmentCount(
@@ -3298,6 +3309,17 @@ struct TextBoxInputView: NSViewRepresentable {
             if abs(parent.textViewHeight - preferredHeight) > 0.5 {
                 parent.textViewHeight = preferredHeight
             }
+        }
+
+        /// Applies the one-shot pending-upload state captured during representable construction.
+        private func applyPendingAttachmentUploadStateSyncIfNeeded() {
+            // Silent restore skips textDidChange to avoid publishing through TerminalPanel while
+            // SwiftUI constructs the representable. Layout completion is the post-construction
+            // bridge point that keeps this binding aligned without mutating state from makeNSView.
+            guard let hasPendingUpload = pendingAttachmentUploadStateForNextLayout else { return }
+            pendingAttachmentUploadStateForNextLayout = nil
+            guard parent.hasPendingAttachmentUpload != hasPendingUpload else { return }
+            parent.hasPendingAttachmentUpload = hasPendingUpload
         }
     }
 }
@@ -3490,15 +3512,28 @@ final class TextBoxInputTextView: NSTextView {
         discardUndoHistoryAndCleanupPendingAttachmentFiles()
     }
 
-    func installPreservedContent(_ content: NSAttributedString) {
-        installAttributedContent(content)
+    /// Installs preserved attributed content into the text view.
+    ///
+    /// Pass `false` for `notifyingTextChange` only from representable construction paths where
+    /// the owning panel already has the current draft state. That restores AppKit storage without
+    /// running delegate or binding side effects during SwiftUI lifecycle work.
+    func installPreservedContent(_ content: NSAttributedString, notifyingTextChange: Bool = true) {
+        installAttributedContent(content, notifyingTextChange: notifyingTextChange)
     }
 
-    func installSessionDraft(_ draft: SessionTextBoxInputDraftSnapshot) {
-        installAttributedContent(attributedContent(from: draft))
+    /// Installs a saved session draft into the text view.
+    ///
+    /// Pass `false` for `notifyingTextChange` only from representable construction paths where
+    /// the owning panel already has the current draft state. That restores AppKit storage without
+    /// running delegate or binding side effects during SwiftUI lifecycle work.
+    func installSessionDraft(_ draft: SessionTextBoxInputDraftSnapshot, notifyingTextChange: Bool = true) {
+        installAttributedContent(
+            attributedContent(from: draft),
+            notifyingTextChange: notifyingTextChange
+        )
     }
 
-    private func installAttributedContent(_ content: NSAttributedString) {
+    private func installAttributedContent(_ content: NSAttributedString, notifyingTextChange: Bool) {
         invalidatePendingAttachmentUploads()
         dismissMentionCompletions()
         clearAttachmentFocus(dismissPreview: true)
@@ -3513,7 +3548,11 @@ final class TextBoxInputTextView: NSTextView {
             layoutManager?.ensureLayout(for: textContainer)
         }
         recenterSingleLineTextContainer()
-        didChangeText()
+        if notifyingTextChange {
+            didChangeText()
+        } else {
+            flushAutomaticAttachmentFileCleanup()
+        }
     }
 
     func attributedContentForPreservation() -> NSAttributedString {
