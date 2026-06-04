@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminalCopyMode
 import CmuxSocketControl
 import SwiftUI
 import AppKit
@@ -18,9 +19,6 @@ import UniformTypeIdentifiers
 
 @_silgen_name("ghostty_surface_clear_selection")
 private func ghostty_surface_clear_selection_compat(_ surface: ghostty_surface_t) -> Bool
-
-@_silgen_name("ghostty_surface_select_cursor_cell")
-private func ghostty_surface_select_cursor_cell_compat(_ surface: ghostty_surface_t) -> Bool
 
 enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable {
     case realUserConfig
@@ -1375,56 +1373,6 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     return .external(fallback)
 }
 
-enum TerminalKeyboardCopyModeSelectionMove: String, Equatable {
-    case left
-    case right
-    case up
-    case down
-    case pageUp = "page_up"
-    case pageDown = "page_down"
-    case home
-    case end
-    case beginningOfLine = "beginning_of_line"
-    case endOfLine = "end_of_line"
-}
-
-enum TerminalKeyboardCopyModeAction: Equatable {
-    case exit
-    case startSelection
-    case clearSelection
-    case copyAndExit
-    case copyLineAndExit
-    case scrollLines(Int)
-    case scrollPage(Int)
-    case scrollHalfPage(Int)
-    case scrollToTop
-    case scrollToBottom
-    case jumpToPrompt(Int)
-    case startSearch
-    case searchNext
-    case searchPrevious
-    case adjustSelection(TerminalKeyboardCopyModeSelectionMove)
-}
-
-struct TerminalKeyboardCopyModeInputState: Equatable {
-    var countPrefix: Int?
-    var pendingYankLine = false
-    var pendingG = false
-
-    mutating func reset() {
-        countPrefix = nil
-        pendingYankLine = false
-        pendingG = false
-    }
-}
-
-enum TerminalKeyboardCopyModeResolution: Equatable {
-    case perform(TerminalKeyboardCopyModeAction, count: Int)
-    case consume
-}
-
-private let terminalKeyboardCopyModeMaxCount = 9_999
-
 private var terminalKeyboardCopyModeIndicatorText: String {
     String(localized: "ghostty.copy-mode.indicator", defaultValue: "vim")
 }
@@ -1435,10 +1383,6 @@ private var terminalKeyTableIndicatorDefaultText: String {
 
 private var terminalKeyTableIndicatorAccessibilityLabel: String {
     String(localized: "ghostty.key-table.icon.accessibility", defaultValue: "Key table")
-}
-
-private func terminalKeyboardCopyModeClampCount(_ value: Int) -> Int {
-    min(max(value, 1), terminalKeyboardCopyModeMaxCount)
 }
 
 private func terminalKeyTableIndicatorText(_ name: String) -> String {
@@ -1457,55 +1401,36 @@ private func terminalKeyTableIndicatorText(_ name: String) -> String {
     }
 }
 
-func terminalKeyboardCopyModeInitialViewportRow(
-    rows: Int,
-    imePointY: Double,
-    imeCellHeight: Double,
-    topPadding: Double = 0
-) -> Int {
-    let clampedRows = max(rows, 1)
-    guard imeCellHeight > 0 else { return clampedRows - 1 }
-
-    // `ghostty_surface_ime_point` returns a top-origin Y coordinate at the
-    // cursor baseline plus one cell-height. Convert that to a zero-based row.
-    let estimatedRow = Int(floor(((imePointY - topPadding) / imeCellHeight) - 1))
-    return max(0, min(clampedRows - 1, estimatedRow))
-}
-
-private func terminalKeyboardCopyModeNormalizedModifiers(
+private func terminalKeyboardCopyModeModifiers(
     _ modifierFlags: NSEvent.ModifierFlags
-) -> NSEvent.ModifierFlags {
-    modifierFlags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-}
-
-private func terminalKeyboardCopyModeChars(
-    _ charactersIgnoringModifiers: String?,
-    keyCode: UInt16,
-    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String?
-) -> String {
-    let raw = charactersIgnoringModifiers?.unicodeScalars.first.map { String($0).lowercased() } ?? ""
-    if raw.allSatisfy(\.isASCII) { return raw }
-    // Non-ASCII input sources (Korean 두벌식, Japanese Kana, Zhuyin) translate the
-    // physical key to a layout character, so a vim key like `j` arrives as `ㅓ` and
-    // never matches the ASCII `switch chars` cases. Fall back to the ASCII-capable
-    // layout lookup (the same one the keyDown shortcut path uses) so copy-mode vim
-    // keys resolve regardless of the active input source. ASCII-emitting IMEs
-    // (Pinyin, romaji) keep `raw` and skip the fallback. The provider is injected
-    // so tests can supply a deterministic mapping without depending on the runner's
-    // input source. Pass [] like KeyboardLayout.normalizedCharacters does: the
-    // lookup lowercases its output and only honors shift/command, so modifiers are
-    // irrelevant for letter keys and this stays consistent with the shortcut path.
-    if let asciiScalar = asciiCharacterProvider(keyCode, [])?.unicodeScalars.first {
-        return String(asciiScalar).lowercased()
+) -> TerminalKeyboardCopyModeModifiers {
+    let normalized = modifierFlags.intersection(.deviceIndependentFlagsMask)
+    var modifiers: TerminalKeyboardCopyModeModifiers = []
+    if normalized.contains(.command) {
+        modifiers.insert(.command)
     }
-    return raw
+    if normalized.contains(.shift) {
+        modifiers.insert(.shift)
+    }
+    if normalized.contains(.control) {
+        modifiers.insert(.control)
+    }
+    if normalized.contains(.numericPad) {
+        modifiers.insert(.numericPad)
+    }
+    if normalized.contains(.function) {
+        modifiers.insert(.function)
+    }
+    if normalized.contains(.capsLock) {
+        modifiers.insert(.capsLock)
+    }
+    return modifiers
 }
 
 func terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: NSEvent.ModifierFlags) -> Bool {
-    let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
-    return normalized.contains(.command)
+    CmuxTerminalCopyMode.terminalKeyboardCopyModeShouldBypassForShortcut(
+        modifiers: terminalKeyboardCopyModeModifiers(modifierFlags)
+    )
 }
 
 func terminalKeyboardCopyModeAction(
@@ -1515,100 +1440,15 @@ func terminalKeyboardCopyModeAction(
     hasSelection: Bool,
     asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> TerminalKeyboardCopyModeAction? {
-    let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
-    let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers, keyCode: keyCode, asciiCharacterProvider: asciiCharacterProvider)
-
-    if keyCode == 53 { // Escape
-        return .exit
-    }
-
-    switch keyCode {
-    case 126: // Up
-        return hasSelection ? .adjustSelection(.up) : .scrollLines(-1)
-    case 125: // Down
-        return hasSelection ? .adjustSelection(.down) : .scrollLines(1)
-    case 123: // Left
-        return hasSelection ? .adjustSelection(.left) : nil
-    case 124: // Right
-        return hasSelection ? .adjustSelection(.right) : nil
-    case 116: // Page Up
-        return hasSelection ? .adjustSelection(.pageUp) : .scrollPage(-1)
-    case 121: // Page Down
-        return hasSelection ? .adjustSelection(.pageDown) : .scrollPage(1)
-    case 115: // Home
-        return hasSelection ? .adjustSelection(.home) : .scrollToTop
-    case 119: // End
-        return hasSelection ? .adjustSelection(.end) : .scrollToBottom
-    default:
-        break
-    }
-
-    if normalized == [.control] {
-        if chars == "u" || chars == "\u{15}" {
-            return hasSelection ? .adjustSelection(.pageUp) : .scrollHalfPage(-1)
+    CmuxTerminalCopyMode.terminalKeyboardCopyModeAction(
+        keyCode: keyCode,
+        charactersIgnoringModifiers: charactersIgnoringModifiers,
+        modifiers: terminalKeyboardCopyModeModifiers(modifierFlags),
+        hasSelection: hasSelection,
+        asciiCharacterProvider: { keyCode in
+            asciiCharacterProvider(keyCode, [])
         }
-        if chars == "d" || chars == "\u{04}" {
-            return hasSelection ? .adjustSelection(.pageDown) : .scrollHalfPage(1)
-        }
-        if chars == "b" || chars == "\u{02}" {
-            return hasSelection ? .adjustSelection(.pageUp) : .scrollPage(-1)
-        }
-        if chars == "f" || chars == "\u{06}" {
-            return hasSelection ? .adjustSelection(.pageDown) : .scrollPage(1)
-        }
-        if chars == "y" || chars == "\u{19}" {
-            return hasSelection ? .adjustSelection(.up) : .scrollLines(-1)
-        }
-        if chars == "e" || chars == "\u{05}" {
-            return hasSelection ? .adjustSelection(.down) : .scrollLines(1)
-        }
-        return nil
-    }
-
-    guard normalized.isEmpty || normalized == [.shift] else { return nil }
-
-    switch chars {
-    case "q":
-        return .exit
-    case "v":
-        return hasSelection ? .clearSelection : .startSelection
-    case "y":
-        if normalized == [.shift], !hasSelection {
-            return .copyLineAndExit
-        }
-        return hasSelection ? .copyAndExit : nil
-    case "j":
-        return hasSelection ? .adjustSelection(.down) : .scrollLines(1)
-    case "k":
-        return hasSelection ? .adjustSelection(.up) : .scrollLines(-1)
-    case "h":
-        return hasSelection ? .adjustSelection(.left) : nil
-    case "l":
-        return hasSelection ? .adjustSelection(.right) : nil
-    case "g":
-        if normalized == [.shift] {
-            return hasSelection ? .adjustSelection(.end) : .scrollToBottom
-        }
-        // Bare "g" is a prefix key (e.g. gg); handled in resolve.
-        return nil
-    case "0", "^":
-        return hasSelection ? .adjustSelection(.beginningOfLine) : nil
-    case "$", "4":
-        guard chars == "$" || normalized == [.shift] else { return nil }
-        return hasSelection ? .adjustSelection(.endOfLine) : nil
-    case "{", "[":
-        guard chars == "{" || normalized == [.shift] else { return nil }
-        return .jumpToPrompt(-1)
-    case "}", "]":
-        guard chars == "}" || normalized == [.shift] else { return nil }
-        return .jumpToPrompt(1)
-    case "/":
-        return .startSearch
-    case "n":
-        return normalized == [.shift] ? .searchPrevious : .searchNext
-    default:
-        return nil
-    }
+    )
 }
 
 func terminalKeyboardCopyModeResolve(
@@ -1619,78 +1459,16 @@ func terminalKeyboardCopyModeResolve(
     state: inout TerminalKeyboardCopyModeInputState,
     asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> TerminalKeyboardCopyModeResolution {
-    let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
-    let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers, keyCode: keyCode, asciiCharacterProvider: asciiCharacterProvider)
-
-    if keyCode == 53 { // Escape
-        state.reset()
-        return .perform(.exit, count: 1)
-    }
-
-    if state.pendingYankLine {
-        if chars == "y", normalized.isEmpty || normalized == [.shift] {
-            let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
-            state.reset()
-            return .perform(.copyLineAndExit, count: count)
-        }
-        // Only `yy`/`Y` are supported as line-yank operators, so cancel the
-        // pending yank and treat this key as a fresh command.
-        state.pendingYankLine = false
-    }
-
-    if state.pendingG {
-        if chars == "g", normalized.isEmpty {
-            let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
-            let action: TerminalKeyboardCopyModeAction = hasSelection ? .adjustSelection(.home) : .scrollToTop
-            state.reset()
-            return .perform(action, count: count)
-        }
-        // Not `gg`, cancel and treat as fresh command.
-        state.pendingG = false
-    }
-
-    if normalized.isEmpty,
-       let scalar = chars.unicodeScalars.first,
-       scalar.isASCII,
-       scalar.value >= 48,
-       scalar.value <= 57 {
-        let digit = Int(scalar.value - 48)
-        if digit == 0 {
-            if let currentCount = state.countPrefix {
-                state.countPrefix = terminalKeyboardCopyModeClampCount(currentCount * 10)
-                return .consume
-            }
-        } else {
-            let currentCount = state.countPrefix ?? 0
-            state.countPrefix = terminalKeyboardCopyModeClampCount((currentCount * 10) + digit)
-            return .consume
-        }
-    }
-
-    if !hasSelection, chars == "y", normalized.isEmpty {
-        state.pendingYankLine = true
-        return .consume
-    }
-
-    if chars == "g", normalized.isEmpty {
-        state.pendingG = true
-        return .consume
-    }
-
-    guard let action = terminalKeyboardCopyModeAction(
+    CmuxTerminalCopyMode.terminalKeyboardCopyModeResolve(
         keyCode: keyCode,
         charactersIgnoringModifiers: charactersIgnoringModifiers,
-        modifierFlags: modifierFlags,
+        modifiers: terminalKeyboardCopyModeModifiers(modifierFlags),
         hasSelection: hasSelection,
-        asciiCharacterProvider: asciiCharacterProvider
-    ) else {
-        state.reset()
-        return .consume
-    }
-
-    let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
-    state.reset()
-    return .perform(action, count: count)
+        state: &state,
+        asciiCharacterProvider: { keyCode in
+            asciiCharacterProvider(keyCode, [])
+        }
+    )
 }
 
 private final class GhosttySurfaceCallbackContext {
@@ -7743,11 +7521,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         guard let pending else { return }
         scrollbar = pending
+        finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded(newScrollbar: pending)
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: self,
             userInfo: [GhosttyNotificationKey.scrollbar: pending]
         )
+    }
+
+    private func flushPendingScrollbarIfAvailable() -> Bool {
+        _scrollbarLock.lock()
+        let hasPending = _pendingScrollbar != nil
+        _scrollbarLock.unlock()
+
+        guard hasPending else { return false }
+        flushPendingScrollbar()
+        return true
     }
 
     func enqueueRenderedFrameUpdate() {
@@ -7794,12 +7583,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
-    private var keyboardCopyModeViewportRow: Int?
+    private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
+    private var keyboardCopyModePendingViewportJumpSync = false
+    private var keyboardCopyModePendingViewportJumpScrollbarOffset: UInt64?
+    private var keyboardCopyModePendingViewportJumpGeneration = 0
+    private var keyboardCopyModePendingViewportJumpFallbackLineDelta: Int?
+    private var keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
     /// Tracks whether the user has explicitly entered visual selection mode (v).
-    /// Separate from Ghostty's `has_selection` because copy mode always maintains
-    /// a 1-cell selection as a visible cursor. This flag determines whether
-    /// movements should extend the selection (visual) or scroll the viewport.
+    /// Separate from Ghostty's `has_selection` because non-visual copy mode keeps
+    /// the cursor in AppKit overlay state until visual selection starts.
     private var keyboardCopyModeVisualActive = false
+    private let keyboardCopyModeCursorOverlayView = GhosttyFlashOverlayView(frame: .zero)
     fileprivate var isKeyboardCopyModeActive: Bool { keyboardCopyModeActive }
     fileprivate var currentKeyStateIndicatorText: String? {
         if let name = keyTables.last {
@@ -7894,9 +7688,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // input sequencing that needs to wait for terminal redraws.
         wantsLayer = true
         layer?.masksToBounds = true
+        setupKeyboardCopyModeCursorOverlay()
         installEventMonitor()
         updateTrackingAreas()
         registerForDraggedTypes(Array(Self.dropTypes))
+    }
+
+    private func setupKeyboardCopyModeCursorOverlay() {
+        keyboardCopyModeCursorOverlayView.wantsLayer = true
+        keyboardCopyModeCursorOverlayView.layer?.backgroundColor = NSColor.controlAccentColor
+            .withAlphaComponent(0.45)
+            .cgColor
+        keyboardCopyModeCursorOverlayView.layer?.borderColor = NSColor.white
+            .withAlphaComponent(0.70)
+            .cgColor
+        keyboardCopyModeCursorOverlayView.layer?.borderWidth = 1
+        keyboardCopyModeCursorOverlayView.isHidden = true
+        addSubview(keyboardCopyModeCursorOverlayView, positioned: .above, relativeTo: nil)
     }
 
     private func effectiveBackgroundColor() -> NSColor {
@@ -8156,6 +7964,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func layout() {
         super.layout()
         updateSurfaceSize()
+        syncKeyboardCopyModeCursorOverlay()
         invalidateTextInputCoordinates()
     }
 
@@ -8459,18 +8268,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func setKeyboardCopyModeActive(_ active: Bool) {
         keyboardCopyModeInputState.reset()
         keyboardCopyModeVisualActive = false
+        keyboardCopyModePendingViewportJumpGeneration += 1
+        keyboardCopyModePendingViewportJumpSync = false
+        keyboardCopyModePendingViewportJumpScrollbarOffset = nil
+        keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
+        keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
         keyboardCopyModeActive = active
         if active, let surface {
-            keyboardCopyModeViewportRow = keyboardCopyModeSelectionAnchor(surface: surface)?.row
             _ = ghostty_surface_clear_selection_compat(surface)
-            if keyboardCopyModeViewportRow == nil {
-                keyboardCopyModeViewportRow = keyboardCopyModeImeViewportRow(surface: surface)
-            }
-            // Create a 1-cell selection at the terminal cursor to serve as a
-            // visible cursor indicator in copy mode.
-            _ = ghostty_surface_select_cursor_cell_compat(surface)
+            keyboardCopyModeCursor = keyboardCopyModeInitialCursor(surface: surface)
+            syncKeyboardCopyModeCursorOverlay(surface: surface)
         } else {
-            keyboardCopyModeViewportRow = nil
+            keyboardCopyModeCursor = nil
+            syncKeyboardCopyModeCursorOverlay()
         }
         terminalSurface?.setKeyboardCopyModeActive(active)
     }
@@ -8483,50 +8293,299 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func currentKeyboardCopyModeViewportRow(surface: ghostty_surface_t) -> Int {
-        let rows = max(Int(ghostty_surface_size(surface).rows), 1)
+        let rows = keyboardCopyModeGridMetrics(surface: surface)?.rows
+            ?? max(Int(ghostty_surface_size(surface).rows), 1)
         let fallback = rows - 1
-        return max(0, min(rows - 1, keyboardCopyModeViewportRow ?? fallback))
+        return max(0, min(rows - 1, keyboardCopyModeCursor?.row ?? fallback))
     }
 
-    private func keyboardCopyModeImeViewportRow(surface: ghostty_surface_t) -> Int {
-        let rows = max(Int(ghostty_surface_size(surface).rows), 1)
+    private struct KeyboardCopyModeGridMetrics {
+        let rows: Int
+        let columns: Int
+        let cellWidth: CGFloat
+        let cellHeight: CGFloat
+        let xInset: CGFloat
+        let yInset: CGFloat
+        let viewHeight: CGFloat
+
+        func topOriginRect(for cursor: TerminalKeyboardCopyModeCursor) -> CGRect {
+            CGRect(
+                x: xInset + (CGFloat(cursor.column) * cellWidth),
+                y: yInset + (CGFloat(cursor.row) * cellHeight),
+                width: cellWidth,
+                height: cellHeight
+            )
+        }
+
+        func appKitRect(for cursor: TerminalKeyboardCopyModeCursor) -> CGRect {
+            let topOrigin = topOriginRect(for: cursor)
+            let rawY = viewHeight - topOrigin.maxY
+            let maxY = max(viewHeight - topOrigin.height, 0)
+            return CGRect(
+                x: topOrigin.minX,
+                y: min(max(rawY, 0), maxY),
+                width: topOrigin.width,
+                height: topOrigin.height
+            )
+        }
+    }
+
+    private func keyboardCopyModeGridMetrics(surface: ghostty_surface_t) -> KeyboardCopyModeGridMetrics? {
+        let size = ghostty_surface_size(surface)
+        let backingRows = max(Int(size.rows), 1)
+        let columns = max(Int(size.columns), 1)
+        let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
+        let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
+        guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
+
+        let rows = terminalKeyboardCopyModeVisibleViewportRows(
+            backingRows: backingRows,
+            viewHeight: Double(bounds.height),
+            cellHeight: Double(resolvedCellHeight)
+        )
+        let terminalWidth = CGFloat(columns) * resolvedCellWidth
+        let terminalHeight = CGFloat(rows) * resolvedCellHeight
+        return KeyboardCopyModeGridMetrics(
+            rows: rows,
+            columns: columns,
+            cellWidth: resolvedCellWidth,
+            cellHeight: resolvedCellHeight,
+            xInset: max(0, (bounds.width - terminalWidth) / 2),
+            yInset: max(0, (bounds.height - terminalHeight) / 2),
+            viewHeight: bounds.height
+        )
+    }
+
+    private func keyboardCopyModeInitialCursor(surface: ghostty_surface_t) -> TerminalKeyboardCopyModeCursor {
+        guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else {
+            return TerminalKeyboardCopyModeCursor(row: 0, column: 0)
+        }
+
         var x: Double = 0
         var y: Double = 0
         var width: Double = 0
         var height: Double = 0
         ghostty_surface_ime_point(surface, &x, &y, &width, &height)
-        return terminalKeyboardCopyModeInitialViewportRow(
-            rows: rows,
+
+        let row = terminalKeyboardCopyModeInitialViewportRow(
+            rows: metrics.rows,
             imePointY: y,
-            imeCellHeight: height
+            imeCellHeight: Double(metrics.cellHeight),
+            topPadding: Double(metrics.yInset)
         )
+        let column = terminalKeyboardCopyModeInitialViewportColumn(
+            columns: metrics.columns,
+            imePointX: x,
+            imeCellWidth: Double(metrics.cellWidth),
+            leftPadding: Double(metrics.xInset)
+        )
+        return TerminalKeyboardCopyModeCursor(row: row, column: column)
     }
 
-    private func keyboardCopyModeSelectionAnchor(surface: ghostty_surface_t) -> (row: Int, y: Double)? {
-        let size = ghostty_surface_size(surface)
-        guard size.rows > 0, size.columns > 0 else { return nil }
-        guard ghostty_surface_select_cursor_cell_compat(surface) else { return nil }
+    private func syncKeyboardCopyModeCursorOverlay(surface explicitSurface: ghostty_surface_t? = nil) {
+        guard keyboardCopyModeActive,
+              !keyboardCopyModeVisualActive,
+              let surface = explicitSurface ?? self.surface,
+              let cursor = keyboardCopyModeCursor,
+              let metrics = keyboardCopyModeGridMetrics(surface: surface) else {
+            keyboardCopyModeCursorOverlayView.isHidden = true
+            return
+        }
 
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_selection(surface, &text) else { return nil }
-        defer { ghostty_surface_free_text(surface, &text) }
+        let clampedCursor = cursor.clamped(rows: metrics.rows, columns: metrics.columns)
+        if clampedCursor != cursor {
+            keyboardCopyModeCursor = clampedCursor
+        }
 
-        let rows = max(Int(size.rows), 1)
-        let cols = max(Int(size.columns), 1)
-        let rawRow = Int(text.offset_start) / cols
-        let clampedRow = max(0, min(rows - 1, rawRow))
-        return (row: clampedRow, y: text.tl_px_y)
+        keyboardCopyModeCursorOverlayView.frame = metrics.appKitRect(for: clampedCursor)
+        keyboardCopyModeCursorOverlayView.isHidden = false
     }
 
-    private func refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: ghostty_surface_t) {
-        // In visual mode the user owns the selection range; don't disturb it.
-        // Outside visual mode we keep a 1-cell cursor selection for visibility,
-        // so we still need to refresh the viewport row after scrolling.
-        guard !keyboardCopyModeVisualActive else { return }
-        guard let anchor = keyboardCopyModeSelectionAnchor(surface: surface) else { return }
-        keyboardCopyModeViewportRow = anchor.row
-        // Preserve the visible cursor indicator.
-        _ = ghostty_surface_select_cursor_cell_compat(surface)
+    private func moveKeyboardCopyModeCursor(
+        _ direction: TerminalKeyboardCopyModeSelectionMove,
+        count: Int,
+        surface: ghostty_surface_t
+    ) {
+        guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
+        var cursor = keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface)
+        let scrollDelta = cursor.move(
+            direction,
+            count: count,
+            rows: metrics.rows,
+            columns: metrics.columns
+        )
+        keyboardCopyModeCursor = cursor
+        if scrollDelta != 0 {
+            _ = performBindingAction("scroll_page_lines:\(scrollDelta)")
+        }
+        syncKeyboardCopyModeCursorOverlay(surface: surface)
+    }
+
+    private func clampKeyboardCopyModeCursor(surface: ghostty_surface_t) {
+        guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
+        let cursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
+            .clamped(rows: metrics.rows, columns: metrics.columns)
+        keyboardCopyModeCursor = cursor
+        syncKeyboardCopyModeCursorOverlay(surface: surface)
+    }
+
+    private func beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: Int? = nil) {
+        keyboardCopyModePendingViewportJumpGeneration += 1
+        keyboardCopyModePendingViewportJumpSync = true
+        keyboardCopyModePendingViewportJumpScrollbarOffset = scrollbar?.offset
+        keyboardCopyModePendingViewportJumpFallbackLineDelta = fallbackLineDelta
+        keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
+    }
+
+    private func scheduleKeyboardCopyModeViewportJumpCursorSyncFallback() {
+        let generation = keyboardCopyModePendingViewportJumpGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in
+            self?.previewKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: generation)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) { [weak self] in
+            self?.expireKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: generation)
+        }
+    }
+
+    private func previewKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: Int) {
+        guard keyboardCopyModePendingViewportJumpSync,
+              generation == keyboardCopyModePendingViewportJumpGeneration,
+              keyboardCopyModeActive,
+              let surface else { return }
+
+        if flushPendingScrollbarIfAvailable() {
+            return
+        }
+
+        if let lineDelta = keyboardCopyModePendingViewportJumpFallbackLineDelta,
+           lineDelta != 0,
+           keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta == 0 {
+            shiftKeyboardCopyModeCursorForViewportScroll(lineDelta: lineDelta, surface: surface)
+            keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = lineDelta
+            return
+        }
+
+        clampKeyboardCopyModeCursor(surface: surface)
+    }
+
+    private func expireKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: Int) {
+        guard keyboardCopyModePendingViewportJumpSync,
+              generation == keyboardCopyModePendingViewportJumpGeneration else { return }
+
+        keyboardCopyModePendingViewportJumpSync = false
+        keyboardCopyModePendingViewportJumpScrollbarOffset = nil
+        keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
+        keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
+    }
+
+    private func finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded(newScrollbar: GhosttyScrollbar? = nil) {
+        guard keyboardCopyModePendingViewportJumpSync else { return }
+        keyboardCopyModePendingViewportJumpSync = false
+        defer {
+            keyboardCopyModePendingViewportJumpScrollbarOffset = nil
+            keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
+            keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
+        }
+
+        guard keyboardCopyModeActive, let surface else { return }
+        let resolvedNewOffset = newScrollbar?.offset ?? scrollbar?.offset
+        if let previousOffset = keyboardCopyModePendingViewportJumpScrollbarOffset,
+           let resolvedNewOffset {
+            let lineDelta = keyboardCopyModeViewportLineDelta(
+                from: previousOffset,
+                to: resolvedNewOffset
+            )
+            let remainingLineDelta = lineDelta - keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta
+            if remainingLineDelta != 0 {
+                shiftKeyboardCopyModeCursorForViewportScroll(lineDelta: remainingLineDelta, surface: surface)
+                return
+            }
+        }
+
+        clampKeyboardCopyModeCursor(surface: surface)
+    }
+
+    private func keyboardCopyModeViewportLineDelta(from previousOffset: UInt64, to currentOffset: UInt64) -> Int {
+        if currentOffset >= previousOffset {
+            return Int(clamping: currentOffset - previousOffset)
+        }
+        return -Int(clamping: previousOffset - currentOffset)
+    }
+
+    private func updateKeyboardCopyModeCursorModel(
+        _ direction: TerminalKeyboardCopyModeSelectionMove,
+        count: Int,
+        surface: ghostty_surface_t
+    ) {
+        guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
+        var cursor = keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface)
+        cursor.moveAfterTerminalSelectionAdjustment(
+            direction,
+            count: count,
+            rows: metrics.rows,
+            columns: metrics.columns
+        )
+        keyboardCopyModeCursor = cursor
+    }
+
+    private func shiftKeyboardCopyModeCursorForViewportScroll(
+        lineDelta: Int,
+        surface: ghostty_surface_t
+    ) {
+        guard lineDelta != 0,
+              let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
+        var cursor = keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface)
+        cursor.shiftForViewportScroll(lineDelta: lineDelta, rows: metrics.rows, columns: metrics.columns)
+        keyboardCopyModeCursor = cursor
+        syncKeyboardCopyModeCursorOverlay(surface: surface)
+    }
+
+    private func adjustKeyboardCopyModeSelection(
+        _ direction: TerminalKeyboardCopyModeSelectionMove,
+        count: Int,
+        surface: ghostty_surface_t
+    ) {
+        let action = "adjust_selection:\(direction.rawValue)"
+        let clampedCount = terminalKeyboardCopyModeClampCount(count)
+        for _ in 0 ..< clampedCount {
+            _ = performBindingAction(action)
+            updateKeyboardCopyModeCursorModel(direction, count: 1, surface: surface)
+        }
+    }
+
+    private func selectKeyboardCopyModeCursorCell(surface: ghostty_surface_t) -> Bool {
+        guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return false }
+
+        let cursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
+            .clamped(rows: metrics.rows, columns: metrics.columns)
+        keyboardCopyModeCursor = cursor
+
+        let rect = metrics.topOriginRect(for: cursor)
+        let y = min(max(rect.midY, 0), max(bounds.height - 1, 0))
+        guard let xRange = terminalKeyboardCopyModeCursorSelectionXRange(
+            rectMinX: Double(rect.minX),
+            rectMaxX: Double(rect.maxX),
+            boundsWidth: Double(bounds.width)
+        ) else {
+            _ = ghostty_surface_clear_selection_compat(surface)
+            return false
+        }
+        let mods = GHOSTTY_MODS_NONE
+
+        _ = ghostty_surface_clear_selection_compat(surface)
+        ghostty_surface_mouse_pos(surface, xRange.startX, Double(y), mods)
+        guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
+            _ = ghostty_surface_clear_selection_compat(surface)
+            return false
+        }
+        ghostty_surface_mouse_pos(surface, xRange.endX, Double(y), mods)
+        let selectedCursorCell = ghostty_surface_has_selection(surface)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+        guard selectedCursorCell else {
+            _ = ghostty_surface_clear_selection_compat(surface)
+            return false
+        }
+        return true
     }
 
     private func copyCurrentViewportLinesToClipboard(
@@ -8534,40 +8593,36 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         startRow: Int,
         lineCount: Int
     ) -> Bool {
+        guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return false }
         let clampedCount = terminalKeyboardCopyModeClampCount(lineCount)
-        let rows = max(Int(ghostty_surface_size(surface).rows), 1)
+        let rows = metrics.rows
         let targetRow = max(0, min(rows - 1, startRow))
         let endRow = min(rows - 1, targetRow + clampedCount - 1)
-        guard let anchor = keyboardCopyModeSelectionAnchor(surface: surface) else {
-            return false
-        }
         _ = ghostty_surface_clear_selection_compat(surface)
 
-        var imeX: Double = 0
-        var imeY: Double = 0
-        var imeWidth: Double = 0
-        var imeHeight: Double = 0
-        ghostty_surface_ime_point(surface, &imeX, &imeY, &imeWidth, &imeHeight)
-        let cellHeight = imeHeight > 0 ? imeHeight : max(bounds.height / Double(rows), 1)
         let yMax = max(bounds.height - 1, 0)
 
-        let startRawY = anchor.y + (Double(targetRow - anchor.row) * cellHeight)
-        let endRawY = anchor.y + (Double(endRow - anchor.row) * cellHeight)
+        let startRawY = metrics.topOriginRect(
+            for: TerminalKeyboardCopyModeCursor(row: targetRow, column: 0)
+        ).midY
+        let endRawY = metrics.topOriginRect(
+            for: TerminalKeyboardCopyModeCursor(row: endRow, column: max(metrics.columns - 1, 0))
+        ).midY
         let startY = max(0, min(startRawY, yMax))
         let endY = max(0, min(endRawY, yMax))
         let xMax = max(bounds.width - 1, 0)
-        let startX = min(1, xMax)
-        let endX = xMax
+        let startX = min(metrics.xInset + 0.5, xMax)
+        let endX = min(metrics.xInset + (CGFloat(metrics.columns) * metrics.cellWidth) - 0.5, xMax)
 
-        let mods = ghostty_input_mods_e(rawValue: GHOSTTY_MODS_NONE.rawValue) ?? GHOSTTY_MODS_NONE
-        ghostty_surface_mouse_pos(surface, startX, startY, mods)
+        let mods = GHOSTTY_MODS_NONE
+        ghostty_surface_mouse_pos(surface, Double(startX), Double(startY), mods)
         guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
             return false
         }
         defer {
             _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
         }
-        ghostty_surface_mouse_pos(surface, endX, endY, mods)
+        ghostty_surface_mouse_pos(surface, Double(endX), Double(endY), mods)
         guard ghostty_surface_has_selection(surface) else { return false }
 
         return performBindingAction("copy_to_clipboard")
@@ -8581,8 +8636,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
 
-        // Use the visual-mode flag instead of raw has_selection so that the
-        // 1-cell cursor selection doesn't make every motion behave as visual.
+        // Use the visual-mode flag instead of raw has_selection; non-visual
+        // cursor state is owned by the copy-mode cursor model.
         let hasSelection = keyboardCopyModeVisualActive
         let resolution = terminalKeyboardCopyModeResolve(
             keyCode: event.keyCode,
@@ -8600,12 +8655,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = ghostty_surface_clear_selection_compat(surface)
             setKeyboardCopyModeActive(false)
         case .startSelection:
-            keyboardCopyModeVisualActive = true
+            if selectKeyboardCopyModeCursorCell(surface: surface) {
+                keyboardCopyModeVisualActive = true
+                syncKeyboardCopyModeCursorOverlay(surface: surface)
+            }
         case .clearSelection:
             keyboardCopyModeVisualActive = false
             _ = ghostty_surface_clear_selection_compat(surface)
-            // Re-create 1-cell cursor at terminal cursor position.
-            _ = ghostty_surface_select_cursor_cell_compat(surface)
+            syncKeyboardCopyModeCursorOverlay(surface: surface)
         case .copyAndExit:
             _ = performBindingAction("copy_to_clipboard")
             _ = ghostty_surface_clear_selection_compat(surface)
@@ -8620,34 +8677,71 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = ghostty_surface_clear_selection_compat(surface)
             setKeyboardCopyModeActive(false)
         case let .scrollLines(delta):
-            _ = performBindingAction("scroll_page_lines:\(delta * count)")
-            refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
+            let lineDelta = delta * terminalKeyboardCopyModeClampCount(count)
+            beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: lineDelta)
+            _ = performBindingAction("scroll_page_lines:\(lineDelta)")
+            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case let .scrollPage(delta):
-            performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: count)
-            refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
+            let clampedCount = terminalKeyboardCopyModeClampCount(count)
+            let rows = keyboardCopyModeGridMetrics(surface: surface)?.rows
+                ?? max(Int(ghostty_surface_size(surface).rows), 1)
+            beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: delta * rows * clampedCount)
+            performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: clampedCount)
+            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case let .scrollHalfPage(delta):
+            let clampedCount = terminalKeyboardCopyModeClampCount(count)
             let fraction = delta > 0 ? 0.5 : -0.5
-            performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: count)
-            refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
+            let rows = keyboardCopyModeGridMetrics(surface: surface)?.rows
+                ?? max(Int(ghostty_surface_size(surface).rows), 1)
+            let linesPerScroll = Int((Double(rows) * 0.5).rounded(.towardZero))
+            beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: delta * linesPerScroll * clampedCount)
+            performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: clampedCount)
+            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case .scrollToTop:
-            keyboardCopyModeViewportRow = 0
+            if var cursor = keyboardCopyModeCursor {
+                if let metrics = keyboardCopyModeGridMetrics(surface: surface) {
+                    _ = cursor.move(.home, count: 1, rows: metrics.rows, columns: metrics.columns)
+                } else {
+                    cursor.row = 0
+                    cursor.column = 0
+                }
+                keyboardCopyModeCursor = cursor
+            }
             _ = performBindingAction("scroll_to_top")
+            syncKeyboardCopyModeCursorOverlay(surface: surface)
         case .scrollToBottom:
-            keyboardCopyModeViewportRow = max(Int(ghostty_surface_size(surface).rows) - 1, 0)
+            if var cursor = keyboardCopyModeCursor {
+                if let metrics = keyboardCopyModeGridMetrics(surface: surface) {
+                    _ = cursor.move(.end, count: 1, rows: metrics.rows, columns: metrics.columns)
+                } else {
+                    let size = ghostty_surface_size(surface)
+                    cursor.row = max(Int(size.rows) - 1, 0)
+                    cursor.column = max(Int(size.columns) - 1, 0)
+                }
+                keyboardCopyModeCursor = cursor
+            }
             _ = performBindingAction("scroll_to_bottom")
+            syncKeyboardCopyModeCursorOverlay(surface: surface)
         case let .jumpToPrompt(delta):
+            beginKeyboardCopyModeViewportJumpCursorSync()
             _ = performBindingAction("jump_to_prompt:\(delta * count)")
-            refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
+            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case .startSearch:
             _ = performBindingAction("start_search")
         case .searchNext:
+            beginKeyboardCopyModeViewportJumpCursorSync()
             performBindingAction("navigate_search:next", repeatCount: count)
-            refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
+            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case .searchPrevious:
+            beginKeyboardCopyModeViewportJumpCursorSync()
             performBindingAction("navigate_search:previous", repeatCount: count)
-            refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
+            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
         case let .adjustSelection(direction):
-            performBindingAction("adjust_selection:\(direction.rawValue)", repeatCount: count)
+            if keyboardCopyModeVisualActive {
+                adjustKeyboardCopyModeSelection(direction, count: count, surface: surface)
+            } else {
+                moveKeyboardCopyModeCursor(direction, count: count, surface: surface)
+            }
         }
         return true
     }
