@@ -47,7 +47,10 @@ struct FakeTokenProvider: TokenProviding {
     }
 }
 
-@Suite struct PushRegistrationServiceTests {
+// Serialized: every test shares the process-global RecordingURLProtocol
+// recorder and resets it mid-flow, so parallel execution would let one test's
+// reset() wipe another's recorded request between upload and assertion.
+@Suite(.serialized) struct PushRegistrationServiceTests {
     private func makeService(
         tokenProvider: any TokenProviding = FakeTokenProvider()
     ) -> (PushRegistrationService, UserDefaults) {
