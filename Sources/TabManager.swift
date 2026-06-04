@@ -9516,6 +9516,7 @@ class TabManager: ObservableObject {
             panelIdMap: restoredIdentityMap.panelIds,
             layoutTabIdMap: restoredIdentityMap.layoutTabIds
         )
+        ClosedItemHistoryStore.shared.flushPendingSaves()
 
         if let currentIndex = tabs.firstIndex(where: { $0.id == workspace.id }) {
             let removed = tabs.remove(at: currentIndex)

@@ -46,8 +46,14 @@ class RefChurnFixtureRunner(perf_activation_session.CmuxPerfRunner):
         repo.mkdir(parents=True, exist_ok=True)
         return repo
 
-    def rpc(self, method: str, params: dict | None = None, timeout: float = 60) -> dict:
-        del timeout
+    def rpc(
+        self,
+        method: str,
+        params: dict | None = None,
+        timeout: float = 60,
+        socket_retries: int = 0,
+    ) -> dict:
+        del timeout, socket_retries
         params = params or {}
         if method == "workspace.list":
             return {"workspaces": self._workspace_payloads()}
@@ -142,3 +148,38 @@ def test_activation_socket_readiness_uses_worker_ping(tmp_path: pathlib.Path) ->
 
     assert calls == [["ping"]]
     sleep.assert_not_called()
+
+
+def test_post_restore_snapshot_uses_transient_socket_retries() -> None:
+    runner = object.__new__(perf_activation_session.CmuxPerfRunner)
+    runner.args = types.SimpleNamespace(snapshot_timeout=120)
+    runner.result = {"measurements": {}, "fixture": {}}
+    socket_retries: list[int] = []
+
+    def stop_app() -> None:
+        pass
+
+    def launch(label: str) -> float:
+        assert label == "restore"
+        return 1.0
+
+    def rpc(
+        method: str,
+        params: dict | None = None,
+        timeout: float = 60,
+        socket_retries: int = 0,
+    ) -> dict:
+        socket_retries.append(socket_retries)
+        assert method == "debug.session_snapshot_benchmark"
+        assert params == {"include_scrollback": False, "persist": False}
+        assert timeout == 120
+        return {"shape": {"workspaces": 12, "terminals": 66}}
+
+    runner.stop_app = stop_app
+    runner.launch = launch
+    runner.rpc = rpc
+
+    runner.benchmark_restore()
+
+    assert socket_retries == [3]
+    assert runner.result["fixture"]["post_restore_shape"] == {"workspaces": 12, "terminals": 66}

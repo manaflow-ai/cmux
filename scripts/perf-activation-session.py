@@ -320,12 +320,13 @@ class CmuxPerfRunner:
         last_proc: subprocess.CompletedProcess[str] | None = None
         for attempt in range(socket_retries + 1):
             proc = subprocess.run(
-                [str(self.cli_path)] + args,
+                [str(self.cli_path), *args],
                 input=input_text,
                 text=True,
                 capture_output=True,
                 env=self.cli_env(),
                 timeout=timeout,
+                check=False,
             )
             if proc.returncode == 0:
                 return proc.stdout.strip()
@@ -360,9 +361,15 @@ class CmuxPerfRunner:
         out = self.run_cli(["--json"] + args, timeout=timeout)
         return json.loads(out)
 
-    def rpc(self, method: str, params: dict | None = None, timeout: float = 60) -> dict:
+    def rpc(
+        self,
+        method: str,
+        params: dict | None = None,
+        timeout: float = 60,
+        socket_retries: int = 0,
+    ) -> dict:
         raw_params = json.dumps(params or {})
-        out = self.run_cli(["rpc", method, raw_params], timeout=timeout)
+        out = self.run_cli(["rpc", method, raw_params], timeout=timeout, socket_retries=socket_retries)
         return json.loads(out)
 
     def require_string_field(self, payload: dict, key: str, context: str) -> str:
@@ -619,11 +626,18 @@ class CmuxPerfRunner:
         if pending:
             self.result["fixture"]["scrollback_pending_sample"] = list(pending)[:10]
 
-    def benchmark_snapshot(self, name: str, include_scrollback: bool, persist: bool = True) -> dict:
+    def benchmark_snapshot(
+        self,
+        name: str,
+        include_scrollback: bool,
+        persist: bool = True,
+        socket_retries: int = 0,
+    ) -> dict:
         payload = self.rpc(
             "debug.session_snapshot_benchmark",
             {"include_scrollback": include_scrollback, "persist": persist},
             timeout=max(60, self.args.snapshot_timeout),
+            socket_retries=socket_retries,
         )
         self.result["measurements"][name] = payload
         return payload
@@ -688,7 +702,12 @@ class CmuxPerfRunner:
     def benchmark_restore(self) -> None:
         self.stop_app()
         self.launch("restore")
-        restored = self.benchmark_snapshot("post_restore_no_scrollback_snapshot", include_scrollback=False, persist=False)
+        restored = self.benchmark_snapshot(
+            "post_restore_no_scrollback_snapshot",
+            include_scrollback=False,
+            persist=False,
+            socket_retries=3,
+        )
         self.result["fixture"]["post_restore_shape"] = restored.get("shape", {})
 
     def apply_budgets(self) -> None:
