@@ -3607,4 +3607,93 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "a stale ambient CMUX_SURFACE_ID must fall through to the TTY pane; params=\(params)"
         )
     }
+
+    /// `codex exec` (and `review`, `login`, …) are non-restorable: AgentLaunchSanitizer rejects their
+    /// argv so they never get a resume/fork binding. The CODEX_HOME env-only fallback must NOT bypass
+    /// that — a captured-but-rejected argv keeps returning nil even when CODEX_HOME is present, so no
+    /// env-only record is persisted for the one-shot command.
+    func testCodexHookDoesNotPersistEnvOnlyRecordForNonRestorableExec() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-exec")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-exec-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-exec-session"
+        let ttyName = "ttys304"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "debug.terminals":
+                return self.v2Response(
+                    id: id, ok: true,
+                    result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": surfaceId]]]
+                )
+            case "surface.resume.set", "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id, ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_CLI_TTY_NAME"] = ttyName
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CODEX_HOME"] = root.appendingPathComponent("codex-accounts/work", isDirectory: true).path
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        // A captured but NON-RESTORABLE codex invocation: the sanitizer rejects `exec`.
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(["/usr/local/bin/codex", "exec", "do a one-shot task"])
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        // No env-only CODEX_HOME record may be persisted for the rejected non-restorable argv.
+        let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
+        if let data = try? Data(contentsOf: storeURL),
+           let storeJSON = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let sessions = storeJSON["sessions"] as? [String: Any],
+           let persisted = sessions[sessionId] as? [String: Any] {
+            let env = (persisted["launchCommand"] as? [String: Any])?["environment"] as? [String: String]
+            XCTAssertNil(
+                env?["CODEX_HOME"],
+                "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
+            )
+        }
+    }
 }

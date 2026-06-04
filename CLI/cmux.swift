@@ -24634,15 +24634,16 @@ struct CMUXCLI {
             ?? normalizedHookValue(env["PWD"])
         let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
 
-        // Fallback when a full sanitized launch command can't be captured (no argv because this is
-        // plain `codex` with no cmux launcher and an unresolved/exited PID, or the argv resolved but
-        // didn't sanitize): still preserve the agent's selected launch env alone. That env may carry a
-        // non-default home that resume/fork MUST reproduce or the session won't be found — above all
-        // CODEX_HOME when codex runs under the subrouter account manager (~/.codex-accounts/<account>),
-        // also CLAUDE_CONFIG_DIR for Claude. AgentResumeCommandBuilder then prefixes it ahead of the
-        // kind's fallback verb (`CODEX_HOME=<home> codex resume <id>`), while launcher/kind resolution
-        // still gates whether a resume command is produced at all (omx/omc and unknown kinds stay
-        // non-resumable). Empty selected env keeps the historical nil so behavior is unchanged.
+        // Fallback when the launch argv is genuinely UNAVAILABLE: plain `codex` with no cmux launcher
+        // (no CMUX_AGENT_LAUNCH_ARGV_B64) and an unresolved/exited PID, so processArguments returns nil.
+        // The argv is gone, but the agent's launch env may still carry a non-default home that
+        // resume/fork MUST reproduce or the session won't be found — above all CODEX_HOME when codex
+        // runs under the subrouter account manager (~/.codex-accounts/<account>), also CLAUDE_CONFIG_DIR
+        // for Claude. AgentResumeCommandBuilder then prefixes it ahead of the kind's fallback verb
+        // (`CODEX_HOME=<home> codex resume <id>`), while launcher/kind resolution still gates whether a
+        // resume command is produced (omx/omc and unknown kinds stay non-resumable). Empty selected env
+        // keeps the historical nil. This deliberately does NOT cover a captured-but-rejected argv (see
+        // the sanitizer guard below), so non-restorable invocations stay non-resumable.
         func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else { return nil }
             return AgentHookLaunchCommandRecord(
@@ -24666,7 +24667,11 @@ struct CMUXCLI {
             launcher: launcher,
             fallbackKind: fallbackKind
         ) else {
-            return environmentOnlyRecord()
+            // Argv WAS captured but the sanitizer rejected it — this is exactly how AgentLaunchSanitizer
+            // suppresses non-restorable invocations (`codex exec`, `codex review`, `claude config`, …).
+            // Those must never get a resume/fork binding, so stay nil even when a safe env var (e.g.
+            // CODEX_HOME) is present; do NOT fall through to the env-only record here.
+            return nil
         }
         let source = envArguments == nil ? "process" : "environment"
 
