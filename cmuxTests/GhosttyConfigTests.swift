@@ -1931,10 +1931,12 @@ final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
 
 
 @MainActor
-final class BrowserPanelPopupContextTests: XCTestCase {
-    func testFloatingPopupInheritsOpenerBrowserContext() throws {
+@Suite(.serialized)
+struct BrowserPanelPopupContextTests {
+    @Test
+    func floatingPopupInheritsOpenerBrowserContext() throws {
         let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
-        let popupWebView = try XCTUnwrap(
+        let popupWebView = try #require(
             panel.createFloatingPopup(
                 configuration: WKWebViewConfiguration(),
                 windowFeatures: WKWindowFeatures()
@@ -1942,19 +1944,20 @@ final class BrowserPanelPopupContextTests: XCTestCase {
         )
         defer { popupWebView.window?.close() }
 
-        XCTAssertTrue(
+        #expect(
             popupWebView.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore
         )
     }
 
-    func testFloatingPopupInheritsRemoteWorkspaceWebsiteDataStore() throws {
+    @Test
+    func floatingPopupInheritsRemoteWorkspaceWebsiteDataStore() throws {
         let remoteWorkspaceId = UUID()
         let panel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
-        let popupWebView = try XCTUnwrap(
+        let popupWebView = try #require(
             panel.createFloatingPopup(
                 configuration: WKWebViewConfiguration(),
                 windowFeatures: WKWindowFeatures()
@@ -1962,10 +1965,10 @@ final class BrowserPanelPopupContextTests: XCTestCase {
         )
         defer { popupWebView.window?.close() }
 
-        XCTAssertTrue(
+        #expect(
             popupWebView.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore
         )
-        XCTAssertFalse(popupWebView.configuration.websiteDataStore === WKWebsiteDataStore.default())
+        #expect(!(popupWebView.configuration.websiteDataStore === WKWebsiteDataStore.default()))
     }
 }
 
