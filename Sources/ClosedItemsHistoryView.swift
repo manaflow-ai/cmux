@@ -54,7 +54,6 @@ struct ClosedItemsHistoryView: View {
                                     }
                                 }
                             )
-                            .equatable()
                             .id(op.id)
                         }
                     }

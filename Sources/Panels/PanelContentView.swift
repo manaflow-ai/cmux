@@ -136,8 +136,13 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .project, .extensionBrowser, .history:
+        case .markdown, .filePreview, .rightSidebarTool, .project, .extensionBrowser:
             return true
+        case .history:
+            // The pane drop target is a full-panel AppKit overlay. History does
+            // not accept direct file/text drops, and the overlay can break row
+            // hover tracking when History is hosted as a split.
+            return false
         case .terminal, .browser:
             return false
         }
