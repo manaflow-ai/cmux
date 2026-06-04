@@ -1551,6 +1551,31 @@ func terminalKeyboardCopyModeInitialViewportColumn(
     return max(0, min(clampedColumns - 1, estimatedColumn))
 }
 
+func terminalKeyboardCopyModeCursorSelectionXRange(
+    rectMinX: Double,
+    rectMaxX: Double,
+    boundsWidth: Double
+) -> (startX: Double, endX: Double)? {
+    let maxX = boundsWidth - 1
+    guard maxX > 0 else { return nil }
+
+    let visibleMinX = min(max(rectMinX, 0), maxX)
+    let visibleMaxX = min(max(rectMaxX, 0), maxX)
+    let startX = min(max(visibleMinX + 0.5, 0), maxX)
+    let endX = min(max(visibleMaxX - 0.5, 0), maxX)
+    if endX > startX {
+        return (startX, endX)
+    }
+
+    let midpointX = min(max((visibleMinX + visibleMaxX) / 2, 0), maxX)
+    if midpointX < maxX {
+        return (midpointX, min(midpointX + 1, maxX))
+    }
+    let fallbackEndX = max(midpointX - 1, 0)
+    guard fallbackEndX < midpointX else { return nil }
+    return (midpointX, fallbackEndX)
+}
+
 private func terminalKeyboardCopyModeNormalizedModifiers(
     _ modifierFlags: NSEvent.ModifierFlags
 ) -> NSEvent.ModifierFlags {
@@ -8480,7 +8505,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         keyboardCopyModeCursorOverlayView.frame = metrics.appKitRect(for: cursor)
         keyboardCopyModeCursorOverlayView.isHidden = false
-        addSubview(keyboardCopyModeCursorOverlayView, positioned: .above, relativeTo: nil)
     }
 
     private func moveKeyboardCopyModeCursor(
@@ -8527,17 +8551,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let rect = metrics.topOriginRect(for: cursor)
         let y = min(max(rect.midY, 0), max(bounds.height - 1, 0))
-        let startX = min(max(rect.minX + 0.5, 0), max(bounds.width - 1, 0))
-        let endX = min(max(rect.maxX - 0.5, startX), max(bounds.width - 1, 0))
+        guard let xRange = terminalKeyboardCopyModeCursorSelectionXRange(
+            rectMinX: Double(rect.minX),
+            rectMaxX: Double(rect.maxX),
+            boundsWidth: Double(bounds.width)
+        ) else {
+            _ = ghostty_surface_clear_selection_compat(surface)
+            return false
+        }
         let mods = ghostty_input_mods_e(rawValue: GHOSTTY_MODS_NONE.rawValue) ?? GHOSTTY_MODS_NONE
 
         _ = ghostty_surface_clear_selection_compat(surface)
-        ghostty_surface_mouse_pos(surface, Double(startX), Double(y), mods)
+        ghostty_surface_mouse_pos(surface, xRange.startX, Double(y), mods)
         guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
             _ = ghostty_surface_clear_selection_compat(surface)
             return false
         }
-        ghostty_surface_mouse_pos(surface, Double(endX), Double(y), mods)
+        ghostty_surface_mouse_pos(surface, xRange.endX, Double(y), mods)
         let selectedCursorCell = ghostty_surface_has_selection(surface)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
         guard selectedCursorCell else {
