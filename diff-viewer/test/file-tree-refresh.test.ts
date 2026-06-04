@@ -19,6 +19,7 @@ describe("planPierreFileTreeRefresh", () => {
     expect(planPierreFileTreeRefresh(previousSource, source, paths)).toEqual({
       addedPaths: ["src/main.tsx", "src/viewer-controller.ts"],
       kind: "append",
+      sourceFollowsPrevious: true,
     });
   });
 
@@ -33,6 +34,7 @@ describe("planPierreFileTreeRefresh", () => {
     expect(planPierreFileTreeRefresh(previousSource, source, source.paths)).toEqual({
       addedPaths: ["c.ts"],
       kind: "append",
+      sourceFollowsPrevious: false,
     });
   });
 

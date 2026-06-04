@@ -830,23 +830,24 @@ function usePierreFileTreeSource(
     const previous = previousSource.current;
     previousSource.current = source;
     const plan = planPierreFileTreeRefresh(previous, source, source.paths);
-    let resetTree = false;
+    let useFullGitStatus = false;
     if (plan.kind === "append") {
       if (plan.addedPaths.length > 0) {
         try {
           model.batch(plan.addedPaths.map((path) => ({ type: "add", path })));
+          useFullGitStatus = !plan.sourceFollowsPrevious;
         } catch {
           const preparedInput = preparePresortedFileTreeInput(source.paths);
           model.resetPaths(source.paths, { preparedInput });
-          resetTree = true;
+          useFullGitStatus = true;
         }
       }
     } else {
       const preparedInput = preparePresortedFileTreeInput(source.paths);
       model.resetPaths(source.paths, { preparedInput });
-      resetTree = true;
+      useFullGitStatus = true;
     }
-    applyPierreFileTreeGitStatus(model as any, source, resetTree);
+    applyPierreFileTreeGitStatus(model as any, source, useFullGitStatus);
   }, [model, source]);
 }
 
