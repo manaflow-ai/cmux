@@ -29287,6 +29287,13 @@ function savedBackgroundImagesPanel() {
   const applyEverywhere = settingsActionButton("Apply everywhere", () => applyCurrentBackgroundEverywhere(state.backgroundApplyTarget, workspace), "", `saved background current target apply everywhere app whole window terminal panes all ${currentEverywhere.search}`);
   applyEverywhere.disabled = currentEverywhere.disabled;
   applyEverywhere.title = currentEverywhere.title;
+  const clearTarget = settingsActionButton("Clear target", clearBackgroundApplyTarget, "danger", `saved background clear current target app pane all terminals reset ${targetStatus.hasValue ? "ready " : "empty default "}${targetLabel}`);
+  clearTarget.disabled = !targetStatus.canTarget || !targetStatus.hasValue;
+  clearTarget.title = !targetStatus.canTarget
+    ? `${addTargetOption.label} cannot use a background right now.`
+    : targetStatus.hasValue
+      ? `Clear ${targetLabel}.`
+      : `${targetLabel} has no background to clear.`;
   const pasteSave = settingsActionButton("Paste + save", () => pasteBackgroundImageFromClipboard({ input, target: () => state.backgroundApplyTarget, save: true }), "", "saved background image paste clipboard copied image apply save selected target wallpaper");
   applyUnknownBackgroundSaveLimit(pasteSave, `Paste, apply, and save an image to ${targetLabel}`);
   const chooseSave = settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "saved background image choose local file selected target wallpaper");
@@ -29304,6 +29311,7 @@ function savedBackgroundImagesPanel() {
     saveCurrent,
     saveBackgroundSet,
     applyEverywhere,
+    clearTarget,
     pasteSave,
     chooseSave,
     copyLibrary,
