@@ -55,7 +55,7 @@ final class WorkspaceEphemeralWorktreeManager {
         savedWorkingDirectory: String?,
         worktree: EphemeralWorktreeRecord?
     ) -> String? {
-        if let worktree {
+        if let worktree, isRestoredWorktreeAvailable(worktree) {
             let restoredDirectory = Self.nonEmptyPath(savedWorkingDirectory)
             let worktreeDirectory = Self.nonEmptyPath(worktree.worktreePath)
             if let restoredDirectory,
@@ -76,13 +76,46 @@ final class WorkspaceEphemeralWorktreeManager {
             )
         }
 
+        return restoredSourceWorkingDirectory(
+            savedWorkingDirectory: savedWorkingDirectory,
+            worktree: worktree
+        )
+    }
+
+    func restoredSourceWorkingDirectory(
+        savedWorkingDirectory: String?,
+        worktree: EphemeralWorktreeRecord?
+    ) -> String? {
+        let savedDirectory = Self.nonEmptyPath(savedWorkingDirectory)
+        if let worktree {
+            let sourceDirectory = worktree.matchingSourceDirectory(forWorktreeDirectory: savedDirectory)
+                ?? savedDirectory
+                ?? Self.nonEmptyPath(worktree.sourceRepositoryPath)
+            return resolvedWorkingDirectory(
+                explicitWorkingDirectory: nil,
+                worktree: nil,
+                panelDirectory: sourceDirectory,
+                requestedWorkingDirectory: nil,
+                workspaceDirectory: sourceDirectory
+            )
+        }
+
         return resolvedWorkingDirectory(
             explicitWorkingDirectory: nil,
             worktree: nil,
-            panelDirectory: savedWorkingDirectory,
+            panelDirectory: savedDirectory,
             requestedWorkingDirectory: nil,
-            workspaceDirectory: savedWorkingDirectory
+            workspaceDirectory: savedDirectory
         )
+    }
+
+    func isRestoredWorktreeAvailable(_ worktree: EphemeralWorktreeRecord?) -> Bool {
+        guard let worktreePath = Self.nonEmptyPath(worktree?.worktreePath) else {
+            return false
+        }
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: worktreePath, isDirectory: &isDirectory)
+            && isDirectory.boolValue
     }
 
     func authorizeWindowClose(panelIds: Set<UUID>) {

@@ -91,6 +91,42 @@ final class EphemeralWorktreeLifecycleTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testRestoredWorkingDirectoryFallsBackToSourceWhenWorktreeMissing() throws {
+        let fixture = try GitFixture()
+        defer { fixture.cleanup() }
+
+        let sourceSubdirectory = fixture.repositoryURL
+            .appendingPathComponent("Sources", isDirectory: true)
+            .appendingPathComponent("App", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceSubdirectory, withIntermediateDirectories: true)
+
+        let registry = EphemeralWorktreeRegistry(storeURL: fixture.registryURL)
+        let record = try registry.create(sourceDirectory: sourceSubdirectory.path)
+        let worktreeSubdirectory = URL(fileURLWithPath: record.worktreePath, isDirectory: true)
+            .appendingPathComponent("Sources", isDirectory: true)
+            .appendingPathComponent("App", isDirectory: true)
+            .path
+        try FileManager.default.removeItem(atPath: record.worktreePath)
+
+        let manager = WorkspaceEphemeralWorktreeManager()
+        XCTAssertFalse(manager.isRestoredWorktreeAvailable(record))
+        XCTAssertEqual(
+            manager.resolvedRestoredWorkingDirectory(
+                savedWorkingDirectory: worktreeSubdirectory,
+                worktree: record
+            ),
+            sourceSubdirectory.path
+        )
+        XCTAssertEqual(
+            manager.resolvedRestoredWorkingDirectory(
+                savedWorkingDirectory: sourceSubdirectory.path,
+                worktree: record
+            ),
+            sourceSubdirectory.path
+        )
+    }
+
     func testDirtyWorktreeCleanupSnapshotsChangesBeforeRemoval() throws {
         let fixture = try GitFixture()
         defer { fixture.cleanup() }

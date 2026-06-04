@@ -1641,11 +1641,21 @@ extension Workspace {
                 ?? snapshot.directory
             let workingDirectory = savedWorkingDirectory
                 ?? currentDirectory
-            let restoredEphemeralWorktree = snapshot.terminal?.ephemeralWorktree
-            let restoredWorkingDirectory = ephemeralWorktreeManager.resolvedRestoredWorkingDirectory(
-                savedWorkingDirectory: workingDirectory,
-                worktree: restoredEphemeralWorktree
-            )
+            let snapshotEphemeralWorktree = snapshot.terminal?.ephemeralWorktree
+            let restoredEphemeralWorktree = ephemeralWorktreeManager.isRestoredWorktreeAvailable(snapshotEphemeralWorktree)
+                ? registeredRestoredEphemeralWorktree(snapshotEphemeralWorktree)
+                : nil
+            let restoredWorkingDirectory = if restoredEphemeralWorktree != nil {
+                ephemeralWorktreeManager.resolvedRestoredWorkingDirectory(
+                    savedWorkingDirectory: workingDirectory,
+                    worktree: restoredEphemeralWorktree
+                )
+            } else {
+                ephemeralWorktreeManager.restoredSourceWorkingDirectory(
+                    savedWorkingDirectory: workingDirectory,
+                    worktree: snapshotEphemeralWorktree
+                )
+            }
             let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
                 ? Self.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
@@ -1764,15 +1774,6 @@ extension Workspace {
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
                 ephemeralWorktree: restoredEphemeralWorktree
             ) else {
-                return nil
-            }
-            if restoredEphemeralWorktree != nil,
-               registeredRestoredEphemeralWorktree(restoredEphemeralWorktree) == nil {
-                _ = closePanel(
-                    terminalPanel.id,
-                    force: true,
-                    ephemeralWorktreeCleanupAuthorized: true
-                )
                 return nil
             }
             if let restoredRemotePTYSessionID {

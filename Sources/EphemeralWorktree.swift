@@ -54,6 +54,26 @@ nonisolated struct EphemeralWorktreeRecord: Codable, Sendable, Equatable {
             .path
     }
 
+    func matchingSourceDirectory(forWorktreeDirectory worktreeDirectory: String?) -> String? {
+        guard let worktreeDirectory = Self.standardizedNonEmptyPath(worktreeDirectory),
+              let repositoryPath = Self.standardizedNonEmptyPath(sourceRepositoryPath),
+              let worktreeRoot = Self.standardizedNonEmptyPath(worktreePath),
+              Self.isPath(worktreeDirectory, inside: worktreeRoot) else {
+            return nil
+        }
+
+        var relativePath = String(worktreeDirectory.dropFirst(worktreeRoot.count))
+        while relativePath.first == "/" {
+            relativePath.removeFirst()
+        }
+        guard !relativePath.isEmpty else {
+            return repositoryPath
+        }
+        return URL(fileURLWithPath: repositoryPath, isDirectory: true)
+            .appendingPathComponent(relativePath, isDirectory: true)
+            .path
+    }
+
     private static func standardizedNonEmptyPath(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let trimmed, !trimmed.isEmpty else { return nil }
