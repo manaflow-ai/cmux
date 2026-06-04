@@ -8206,6 +8206,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         syncKeyboardCopyModeCursorOverlay(surface: surface)
     }
 
+    private func clampKeyboardCopyModeCursor(surface: ghostty_surface_t) {
+        guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
+        let cursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
+            .clamped(rows: metrics.rows, columns: metrics.columns)
+        keyboardCopyModeCursor = cursor
+        syncKeyboardCopyModeCursorOverlay(surface: surface)
+    }
+
     private func updateKeyboardCopyModeCursorModel(
         _ direction: TerminalKeyboardCopyModeSelectionMove,
         count: Int,
@@ -8421,18 +8429,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         case let .jumpToPrompt(delta):
             _ = performBindingAction("jump_to_prompt:\(delta * count)")
-            keyboardCopyModeCursor = keyboardCopyModeInitialCursor(surface: surface)
-            syncKeyboardCopyModeCursorOverlay(surface: surface)
+            clampKeyboardCopyModeCursor(surface: surface)
         case .startSearch:
             _ = performBindingAction("start_search")
         case .searchNext:
             performBindingAction("navigate_search:next", repeatCount: count)
-            keyboardCopyModeCursor = keyboardCopyModeInitialCursor(surface: surface)
-            syncKeyboardCopyModeCursorOverlay(surface: surface)
+            clampKeyboardCopyModeCursor(surface: surface)
         case .searchPrevious:
             performBindingAction("navigate_search:previous", repeatCount: count)
-            keyboardCopyModeCursor = keyboardCopyModeInitialCursor(surface: surface)
-            syncKeyboardCopyModeCursorOverlay(surface: surface)
+            clampKeyboardCopyModeCursor(surface: surface)
         case let .adjustSelection(direction):
             if keyboardCopyModeVisualActive {
                 adjustKeyboardCopyModeSelection(direction, count: count, surface: surface)
