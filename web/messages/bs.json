@@ -1254,6 +1254,7 @@
       "flagIdentity": "Put do datoteke identiteta",
       "flagSshOption": "Proslijedi proizvoljne SSH opcije (npr. -o StrictHostKeyChecking=no)",
       "flagNoFocus": "Kreirajte radni prostor bez prelaska na njega",
+      "flagInheritEnv": "Proslijedi cijelo okruženje pozivatelja SSH sesiji, uklanjajući zastarjele cmux socket i workspace varijable",
       "deepLinksTitle": "SSH duboke veze",
       "deepLinksDesc": "Koristite cmux SSH dubinske veze kada web lokacija ili alat želi ponuditi dugme Otvori u cmux. Veza otvara cmux, prikazuje prompt za potvrdu, a zatim pokreće ekvivalentnu cmux ssh naredbu nakon što korisnik potvrdi.",
       "deepLinksWebFallbackDesc": "Koristite zamjenski URL cmux.com za dugmad web stranice. Otvara izvornu vezu i prikazuje preuzimanje ako cmux nije instaliran.",

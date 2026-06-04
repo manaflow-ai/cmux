@@ -1254,6 +1254,7 @@
       "flagIdentity": "Kimlik dosyasının yolu",
       "flagSshOption": "İsteğe bağlı SSH seçeneklerini iletin (ör. -o StrictHostKeyChecking=no)",
       "flagNoFocus": "Geçiş yapmadan çalışma alanını oluşturun",
+      "flagInheritEnv": "Çağrıcının tam ortamını SSH oturumuna ilet ve eski cmux soket ile çalışma alanı değişkenlerini temizle",
       "deepLinksTitle": "SSH derin bağlantıları",
       "deepLinksDesc": "Bir web sitesi veya araç cmux'da aç düğmesi sunmak istediğinde cmux SSH derin bağlantılarını kullanın. Bağlantı cmux'u açar, bir onay istemi gösterir ve kullanıcı onayladıktan sonra eşdeğer cmux ssh komutunu çalıştırır.",
       "deepLinksWebFallbackDesc": "Web sitesi düğmeleri için cmux.com yedek URL'sini kullanın. Yerel bağlantıyı açar ve cmux yüklü değilse indirme işlemini gösterir.",

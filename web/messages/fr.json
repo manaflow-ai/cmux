@@ -1254,6 +1254,7 @@
       "flagIdentity": "Chemin d'accès au fichier d'identité",
       "flagSshOption": "Passez des options SSH arbitraires (par exemple -o StrictHostKeyChecking=no)",
       "flagNoFocus": "Créez l'espace de travail sans y accéder",
+      "flagInheritEnv": "Transmettre l'environnement complet de l'appelant à la session SSH en supprimant les variables de socket et d'espace de travail cmux obsolètes",
       "deepLinksTitle": "Liens profonds SSH",
       "deepLinksDesc": "Utilisez les liens profonds cmux SSH lorsqu'un site Web ou un outil souhaite proposer un bouton Ouvrir dans cmux. Le lien ouvre cmux, affiche une invite de confirmation, puis exécute la commande cmux ssh équivalente après confirmation de l'utilisateur.",
       "deepLinksWebFallbackDesc": "Utilisez l'URL de secours cmux.com pour les boutons du site Web. Il ouvre le lien natif et affiche le téléchargement si cmux n'est pas installé.",

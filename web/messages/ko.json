@@ -1254,6 +1254,7 @@
       "flagIdentity": "ID 파일 경로",
       "flagSshOption": "임의 SSH 옵션 전달(예: -o StrictHostKeyChecking=no)",
       "flagNoFocus": "작업공간으로 전환하지 않고 작업공간 만들기",
+      "flagInheritEnv": "호출자의 전체 환경을 SSH 세션에 전달하고 오래된 cmux 소켓 및 워크스페이스 변수를 제거합니다",
       "deepLinksTitle": "SSH 딥링크",
       "deepLinksDesc": "웹사이트나 도구가 cmux에서 열기 버튼을 제공하려는 경우 cmux SSH 딥 링크를 사용하세요. 링크는 cmux를 열고 확인 프롬프트를 표시한 다음 사용자가 확인한 후 해당 cmux ssh 명령을 실행합니다.",
       "deepLinksWebFallbackDesc": "웹사이트 버튼에는 cmux.com 대체 URL을 사용하세요. 기본 링크가 열리고 cmux가 설치되지 않은 경우 다운로드가 표시됩니다.",

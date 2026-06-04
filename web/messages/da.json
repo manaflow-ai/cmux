@@ -1254,6 +1254,7 @@
       "flagIdentity": "Sti til identitetsfil",
       "flagSshOption": "Bestå vilkårlige SSH-indstillinger (f.eks. -o StrictHostKeyChecking=no)",
       "flagNoFocus": "Opret arbejdsområdet uden at skifte til det",
+      "flagInheritEnv": "Videresend kalderens fulde miljø til SSH-sessionen og fjern forældede cmux-socket- og arbejdsrumsvariabler",
       "deepLinksTitle": "SSH dybe links",
       "deepLinksDesc": "Brug cmux SSH-dybe links, når et websted eller et værktøj ønsker at tilbyde en Åbn i cmux-knap. Linket åbner cmux, viser en bekræftelsesprompt og kører derefter den tilsvarende cmux ssh-kommando, efter at brugeren har bekræftet.",
       "deepLinksWebFallbackDesc": "Brug cmux.com reserve-URL til webstedsknapper. Det åbner det oprindelige link og viser download, hvis cmux ikke er installeret.",

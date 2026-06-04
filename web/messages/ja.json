@@ -1494,6 +1494,7 @@
       "flagIdentity": "ID ファイルへのパス",
       "flagSshOption": "任意の SSH オプションを渡します (例: -o StrictHostKeyChecking=no)",
       "flagNoFocus": "ワークスペースに切り替えずに作成する",
+      "flagInheritEnv": "古いcmuxソケットおよびワークスペース変数を除いた呼び出し元の環境をSSHセッションに転送する",
       "deepLinksTitle": "SSHディープリンク",
       "deepLinksDesc": "Web サイトまたはツールで [cmux で開く] ボタンを提供する必要がある場合は、cmux SSH ディープ リンクを使用します。リンクにより cmux が開き、確認プロンプトが表示され、ユーザーが確認した後に同等の cmux ssh コマンドが実行されます。",
       "deepLinksWebFallbackDesc": "Web サイトのボタンには cmux.com フォールバック URL を使用します。 cmux がインストールされていない場合は、ネイティブ リンクが開き、ダウンロードが表示されます。",
