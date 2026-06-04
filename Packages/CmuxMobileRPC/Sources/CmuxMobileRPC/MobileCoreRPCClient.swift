@@ -50,24 +50,42 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         await session.addEventListener(topics: topics).stream
     }
 
-    /// Build a JSON-RPC request frame with the given method and params.
+    /// Build a JSON-RPC request frame for a method that takes no parameters.
+    ///
+    /// The wire shape still carries `"params": {}` so parameterless requests
+    /// are byte-compatible with the legacy `params: [:]` envelopes.
     /// - Parameters:
     ///   - method: The RPC method name.
-    ///   - params: The request parameters.
     ///   - id: The request id (defaults to a fresh UUID).
     /// - Returns: The encoded request data.
-    /// - Throws: A serialization error if the params are not JSON-encodable.
+    /// - Throws: An encoding error if the envelope cannot be encoded.
     public static func requestData(
         method: String,
-        params: [String: Any] = [:],
         id: String = UUID().uuidString
     ) throws -> Data {
-        let request: [String: Any] = [
-            "id": id,
-            "method": method,
-            "params": params,
-        ]
-        return try JSONSerialization.data(withJSONObject: request)
+        try requestData(method: method, params: MobileRPCEmptyParams(), id: id)
+    }
+
+    /// Build a JSON-RPC request frame with the given method and typed params.
+    ///
+    /// Pass one of the per-method `Codable` param structs (for example
+    /// ``MobileTerminalInputParams`` or ``MobileWorkspaceListParams``) so the
+    /// request body is type-checked at the call site instead of assembled from
+    /// an untyped `[String: Any]`.
+    /// - Parameters:
+    ///   - method: The RPC method name.
+    ///   - params: The typed request parameters.
+    ///   - id: The request id (defaults to a fresh UUID).
+    /// - Returns: The encoded request data.
+    /// - Throws: An encoding error if the params are not JSON-encodable.
+    public static func requestData(
+        method: String,
+        params: some Encodable,
+        id: String = UUID().uuidString
+    ) throws -> Data {
+        try JSONEncoder().encode(
+            MobileRPCRequestEnvelope(id: id, method: method, params: params)
+        )
     }
 
     public func sendRequest(_ requestData: Data, timeoutNanoseconds: UInt64? = nil) async throws -> Data {
@@ -147,27 +165,33 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         _ requestData: Data,
         forceID: Bool = false
     ) throws -> (String, Data) {
-        guard var dict = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
+        guard var envelope = Self.decodedEnvelope(requestData) else {
             throw MobileShellConnectionError.invalidResponse
         }
         let id: String
-        if !forceID, let existing = dict["id"] as? String, !existing.isEmpty {
+        if !forceID, let existing = envelope["id"]?.stringValue, !existing.isEmpty {
             id = existing
         } else {
             id = UUID().uuidString
-            dict["id"] = id
+            envelope["id"] = .string(id)
         }
-        let data = try JSONSerialization.data(withJSONObject: dict)
+        let data = try JSONEncoder().encode(MobileRPCJSONValue.object(envelope))
         return (id, data)
     }
 
+    /// Decode an already-encoded request envelope into the lossless JSON model,
+    /// or `nil` when the data is not a JSON object.
+    private static func decodedEnvelope(_ requestData: Data) -> [String: MobileRPCJSONValue]? {
+        (try? JSONDecoder().decode(MobileRPCJSONValue.self, from: requestData))?.objectValue
+    }
+
     private func requestDataWithAuth(_ requestData: Data) async throws -> Data {
-        guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
+        guard var request = Self.decodedEnvelope(requestData) else {
             return requestData
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
         let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
-        var auth: [String: Any] = [:]
+        var auth: [String: MobileRPCJSONValue] = [:]
         let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachToken = attachToken?.isEmpty == false
         if let attachToken,
@@ -175,7 +199,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
            hasAttachToken,
            requestIsCoveredByAttachTicket {
             if ticket.expiresAt > runtime.now() {
-                auth["attach_token"] = attachToken
+                auth["attach_token"] = .string(attachToken)
             } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
                 throw MobileShellConnectionError.attachTicketExpired
             }
@@ -195,7 +219,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
-                auth["stack_access_token"] = try await runtime.stackAccessTokenProvider()
+                auth["stack_access_token"] = .string(try await runtime.stackAccessTokenProvider())
             } catch let error as MobileShellConnectionError {
                 // The provider already classified the failure: a transient
                 // token-fetch failure (offline / refresh server hiccup, session
@@ -216,17 +240,20 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             }
         }
         if !auth.isEmpty {
-            request["auth"] = auth
+            request["auth"] = .object(auth)
         }
-        return try JSONSerialization.data(withJSONObject: request)
+        return try JSONEncoder().encode(MobileRPCJSONValue.object(request))
     }
 
-    private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
+    private static func requestNeedsStackAuthFallback(
+        _ request: [String: MobileRPCJSONValue],
+        ticket: CmxAttachTicket
+    ) -> Bool {
         guard requestRequiresAuth(request) else {
             return false
         }
-        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let params = request["params"] as? [String: Any] ?? [:]
+        let method = request["method"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let params = request["params"]?.objectValue ?? [:]
         let workspaceSelection = stringParamSelection(params, keys: ["workspace_id"])
         let terminalSelection = stringParamSelection(params, keys: ["surface_id", "terminal_id", "tab_id"])
         if workspaceSelection.hasConflict ||
@@ -257,8 +284,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
-    private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {
-        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func requestRequiresAuth(_ request: [String: MobileRPCJSONValue]) -> Bool {
+        let method = request["method"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
         // Only the unauthenticated host probe is exempt. attach_ticket.create has no
         // attach token yet (it mints the ticket), so requiring auth routes it through
         // the Stack Auth account token: a ticket can only be created by a signed-in user.
@@ -288,17 +315,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return workspaceSelection == ticketWorkspaceID
     }
 
-    private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
+    private static func containsIgnoredAliasParameters(_ params: [String: MobileRPCJSONValue]) -> Bool {
         params["workspaceID"] != nil || params["terminalID"] != nil
     }
 
     private static func stringParamSelection(
-        _ params: [String: Any],
+        _ params: [String: MobileRPCJSONValue],
         keys: [String]
     ) -> StringParamSelection {
         var selected: String?
         for key in keys {
-            if let value = params[key] as? String {
+            if let value = params[key]?.stringValue {
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     if let selected, selected != trimmed {
