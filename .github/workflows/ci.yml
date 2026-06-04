@@ -288,6 +288,24 @@ jobs:
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight \
             test
 
+      # Targeted because the full app-host suite currently hangs partway on CI
+      # (pre-existing AppHang in the AppDelegate*ShortcutTests neighborhood,
+      # masked by the expected-failure gate below), so suites later in the
+      # alphabet never execute there. This keeps the browser sign-in flow race
+      # guards an actually-executed gate.
+      - name: Run auth browser sign-in flow regression
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/HostBrowserSignInFlowTests \
+            test
+
       - name: Run unit tests
         run: |
           set -euo pipefail
