@@ -17562,6 +17562,62 @@ struct SidebarTabDropDelegate: DropDelegate {
         !tabManager.tabs.contains { $0.id == draggedTabId }
     }
 
+    /// Whether the foreign dragged workspace is a group *anchor* in its source
+    /// window. A group-header drag carries the anchor id, and moving only the
+    /// anchor across windows would dissolve the group and strand its members,
+    /// so cross-window drops of a group header are disallowed — the group stays
+    /// intact and members can still be dragged out individually. (Migrating a
+    /// whole group across windows is out of scope for this feature.)
+    private func isCrossWindowGroupAnchorDrag(_ draggedTabId: UUID) -> Bool {
+        guard isCrossWindowDrag(draggedTabId),
+              let sourceManager = AppDelegate.shared?.tabManagerFor(tabId: draggedTabId) else {
+            return false
+        }
+        return sourceManager.workspaceGroups.contains { $0.anchorWorkspaceId == draggedTabId }
+    }
+
+    /// The destination's top-level sidebar ids (each group is represented by its
+    /// anchor; members are folded into the run). A workspace moved in from
+    /// another window arrives ungrouped and `attachWorkspace` normalizes it to a
+    /// top-level boundary, so the planner and indicator reason in this space —
+    /// not raw `tabs` — to match where the workspace actually lands.
+    private func crossWindowTopLevelTabIds() -> [UUID] {
+        tabManager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: nil,
+            targetWorkspaceId: nil,
+            usesTopLevelRows: true
+        )
+    }
+
+    private func crossWindowTopLevelPinnedTabIds() -> Set<UUID> {
+        tabManager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: nil,
+            targetWorkspaceId: nil,
+            usesTopLevelRows: true
+        )
+    }
+
+    /// Map the hovered destination row to its top-level representative: a group
+    /// member resolves to its group's anchor, since an incoming ungrouped
+    /// workspace lands at the group boundary, never inside the run.
+    private func crossWindowTopLevelTarget() -> UUID? {
+        guard let targetTabId else { return nil }
+        if let groupId = tabManager.tabs.first(where: { $0.id == targetTabId })?.groupId,
+           let anchorId = tabManager.workspaceGroups.first(where: { $0.id == groupId })?.anchorWorkspaceId {
+            return anchorId
+        }
+        return targetTabId
+    }
+
+    /// Translate a top-level insertion slot into a raw `tabs` index so the
+    /// attach lands the workspace just before that top-level item's run (or at
+    /// the end); `attachWorkspace` then normalizes the group runs around it.
+    private func crossWindowRawInsertIndex(forTopLevelSlot slot: Int, topLevelIds: [UUID]) -> Int {
+        guard slot < topLevelIds.count else { return tabManager.tabs.count }
+        let topLevelId = topLevelIds[slot]
+        return tabManager.tabs.firstIndex { $0.id == topLevelId } ?? tabManager.tabs.count
+    }
+
     /// Mirror a foreign drag's identity into this window's `SidebarDragState`
     /// so the existing drop-indicator, frame-anchor, and failsafe machinery —
     /// all gated on `draggedTabId != nil` — activate unchanged. The id matches
@@ -17570,7 +17626,8 @@ struct SidebarTabDropDelegate: DropDelegate {
     private func activateForeignDragIfNeeded() {
         guard dragState.draggedTabId == nil,
               let foreignId = SidebarTabDragPayload.currentDraggedWorkspaceId(),
-              isCrossWindowDrag(foreignId) else { return }
+              isCrossWindowDrag(foreignId),
+              !isCrossWindowGroupAnchorDrag(foreignId) else { return }
         dragState.draggedTabId = foreignId
     }
 
@@ -17586,6 +17643,15 @@ struct SidebarTabDropDelegate: DropDelegate {
             return false
         }
         if isCrossWindowDrag(draggedTabId) {
+            // A group header drag carries its anchor id; moving only the anchor
+            // would dissolve the source group, so reject cross-window header
+            // drops (the group stays intact in its window).
+            if isCrossWindowGroupAnchorDrag(draggedTabId) {
+                #if DEBUG
+                cmuxDebugLog("sidebar.validateDrop crossWindow=true rejected=groupAnchor")
+                #endif
+                return false
+            }
             // Foreign workspace: any row (or the end strip) in this window is a
             // valid drop target — the workspace will be moved into this window.
             #if DEBUG
@@ -17722,36 +17788,48 @@ struct SidebarTabDropDelegate: DropDelegate {
     private func performCrossWindowDrop(draggedTabId: UUID) -> Bool {
         guard let app = AppDelegate.shared,
               let destinationWindowId = app.windowId(for: tabManager),
-              let sourceManager = app.tabManagerFor(tabId: draggedTabId) else {
+              let sourceManager = app.tabManagerFor(tabId: draggedTabId),
+              // A group header drag carries its anchor; moving only the anchor
+              // would dissolve the group, so cross-window header drops are
+              // disallowed (also gated in validateDrop).
+              !sourceManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == draggedTabId }) else {
 #if DEBUG
-            cmuxDebugLog("sidebar.drop.crossWindow.abort reason=unresolvedRoute tab=\(draggedTabId.uuidString.prefix(5))")
+            cmuxDebugLog("sidebar.drop.crossWindow.abort reason=unresolvedRouteOrGroupAnchor tab=\(draggedTabId.uuidString.prefix(5))")
 #endif
             return false
         }
 
         // Move the source window's whole multi-selection when the dragged
-        // workspace is part of it; otherwise just the dragged workspace.
+        // workspace is part of it; otherwise just the dragged workspace. Group
+        // anchors in the selection are excluded for the same reason as above.
         let sourceSelection = sourceManager.sidebarSelectedWorkspaceIds
-        let movingIds: [UUID]
+        let candidateIds: [UUID]
         if sourceSelection.contains(draggedTabId), sourceSelection.count > 1 {
-            movingIds = sourceManager.tabs.compactMap { sourceSelection.contains($0.id) ? $0.id : nil }
+            candidateIds = sourceManager.tabs.compactMap { sourceSelection.contains($0.id) ? $0.id : nil }
         } else {
-            movingIds = [draggedTabId]
+            candidateIds = [draggedTabId]
         }
+        let sourceAnchorIds = Set(sourceManager.workspaceGroups.map(\.anchorWorkspaceId))
+        let movingIds = candidateIds.filter { !sourceAnchorIds.contains($0) }
+        guard !movingIds.isEmpty else { return false }
 
+        // Plan against the destination's top-level ids, since `attachWorkspace`
+        // normalizes incoming workspaces to top-level/group boundaries.
+        let topLevelIds = crossWindowTopLevelTabIds()
         let draggedIsPinned = sourceManager.tabs.first { $0.id == draggedTabId }?.isPinned ?? false
-        let insertionIndex = SidebarDropPlanner.crossWindowInsertion(
-            targetTabId: targetTabId,
+        let slot = SidebarDropPlanner.crossWindowInsertion(
+            targetTabId: crossWindowTopLevelTarget(),
             draggedIsPinned: draggedIsPinned,
             indicator: dragState.dropIndicator,
-            tabIds: tabManager.tabs.map(\.id),
-            pinnedTabIds: Set(tabManager.tabs.filter(\.isPinned).map(\.id))
+            tabIds: topLevelIds,
+            pinnedTabIds: crossWindowTopLevelPinnedTabIds()
         ).insertionIndex
+        let rawInsertIndex = crossWindowRawInsertIndex(forTopLevelSlot: slot, topLevelIds: topLevelIds)
 
 #if DEBUG
         cmuxDebugLog(
             "sidebar.drop.crossWindow.commit count=\(movingIds.count) " +
-            "to=\(destinationWindowId.uuidString.prefix(5)) at=\(insertionIndex)"
+            "to=\(destinationWindowId.uuidString.prefix(5)) slot=\(slot) raw=\(rawInsertIndex)"
         )
 #endif
         var didMove = false
@@ -17760,7 +17838,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             if app.moveWorkspaceToWindow(
                 workspaceId: workspaceId,
                 windowId: destinationWindowId,
-                atIndex: insertionIndex + offset,
+                atIndex: rawInsertIndex + offset,
                 focus: isLast
             ) {
                 didMove = true
@@ -17816,20 +17894,23 @@ struct SidebarTabDropDelegate: DropDelegate {
         let draggedIsPinned = AppDelegate.shared?
             .tabManagerFor(tabId: draggedTabId)?
             .tabs.first { $0.id == draggedTabId }?.isPinned ?? false
+        // Plan in top-level space so the indicator lands on the same group/pin
+        // boundary `attachWorkspace` will normalize the dropped workspace to.
         let nextIndicator = SidebarDropPlanner.crossWindowInsertion(
-            targetTabId: targetTabId,
+            targetTabId: crossWindowTopLevelTarget(),
             draggedIsPinned: draggedIsPinned,
             indicator: nil,
-            tabIds: tabManager.tabs.map(\.id),
-            pinnedTabIds: Set(tabManager.tabs.filter(\.isPinned).map(\.id)),
+            tabIds: crossWindowTopLevelTabIds(),
+            pinnedTabIds: crossWindowTopLevelPinnedTabIds(),
             pointerY: targetTabId == nil ? nil : info.location.y,
             targetHeight: targetRowHeight
         ).indicator
+        let usesTopLevelRows = !tabManager.workspaceGroups.isEmpty
         guard dragState.dropIndicator != nextIndicator ||
-                dragState.dropIndicatorUsesTopLevelRows else {
+                dragState.dropIndicatorUsesTopLevelRows != usesTopLevelRows else {
             return
         }
-        dragState.setDropIndicator(nextIndicator)
+        dragState.setDropIndicator(nextIndicator, usesTopLevelRows: usesTopLevelRows)
     }
 
     private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {
