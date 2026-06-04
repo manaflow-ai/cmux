@@ -4192,8 +4192,15 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.isMainFrameProvisionalNavigationActive = false
                 if let targetURL = self.pendingHistoryTraversalTargetAfterProvisionalCancellation,
                    webView.url != targetURL,
-                   webView.canGoBack {
-                    webView.goBack()
+                   let request = Self.historyTraversalRecoveryRequest(
+                    canGoBack: webView.canGoBack
+                   ) {
+                    switch request {
+                    case .goBack:
+                        webView.goBack()
+                    case .loadTarget:
+                        webView.load(URLRequest(url: targetURL))
+                    }
                     return
                 }
                 self.pendingHistoryTraversalTargetAfterProvisionalCancellation = nil
@@ -6339,6 +6346,17 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 }
 
 extension BrowserPanel {
+    private enum HistoryTraversalRecoveryRequest {
+        case goBack
+        case loadTarget
+    }
+
+    private static func historyTraversalRecoveryRequest(
+        canGoBack: Bool
+    ) -> HistoryTraversalRecoveryRequest? {
+        canGoBack ? .goBack : .loadTarget
+    }
+
     private func cancelInFlightNavigationBeforeHistoryTraversal() {
         guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
         pendingHistoryTraversalTargetAfterProvisionalCancellation = webView.url
