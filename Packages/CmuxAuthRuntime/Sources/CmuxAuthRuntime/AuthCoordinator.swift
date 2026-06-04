@@ -69,6 +69,7 @@ public final class AuthCoordinator {
 
     private var pendingNonce: String?
     private var debugCredentials: CMUXAuthAutoLoginCredentials?
+    private var bootstrapTask: Task<Void, Never>?
 
     /// Creates an auth coordinator.
     ///
@@ -110,9 +111,23 @@ public final class AuthCoordinator {
     }
 
     /// Begin asynchronous session restore. Call once after construction at the
-    /// composition root. Idempotent priming already ran in `init`.
+    /// composition root. Idempotent priming already ran in `init`, and repeat
+    /// calls are no-ops.
     public func start() {
-        Task { await checkExistingSession() }
+        guard bootstrapTask == nil else { return }
+        bootstrapTask = Task { await checkExistingSession() }
+    }
+
+    /// Await the launch session restore started by ``start()``. Returns
+    /// immediately once restore has finished (or when ``start()`` was never
+    /// called).
+    ///
+    /// Any probe that needs a definitive ``isAuthenticated`` value (socket
+    /// `auth.status`, CLI-facing checks, token reads racing app launch) must
+    /// await this first, otherwise it can observe the transient signed-out
+    /// state while stored tokens are still being validated.
+    public func awaitBootstrapped() async {
+        await bootstrapTask?.value
     }
 
     // MARK: - Priming
@@ -355,6 +370,24 @@ public final class AuthCoordinator {
         await applySignedInUser(user)
     }
 
+    /// Complete a sign-in whose credentials were established outside the
+    /// ``AuthClient`` seam, e.g. the macOS hosted-browser flow that seeds the
+    /// auth-callback tokens directly into the injected token store.
+    ///
+    /// Validates the now-stored session and publishes the signed-in state
+    /// (user, caches, teams, the `onSignedIn` hook).
+    /// - Throws: ``AuthError/unauthorized`` when no signed-in user could be
+    ///   fetched with the seeded tokens; other display-safe errors otherwise.
+    public func completeExternalSignIn() async throws {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            try await completeSignIn()
+        } catch {
+            throw errorMapper.displaySafe(error)
+        }
+    }
+
     /// Sign out and clear local + persisted session state.
     ///
     /// - Parameter onSignedOut: An async hook the composition root uses to run
@@ -400,6 +433,28 @@ public final class AuthCoordinator {
     /// `Authorization: Bearer <access>` + `X-Stack-Refresh-Token: <refresh>`.
     public func refreshToken() async -> String? {
         await client.refreshToken()
+    }
+
+    /// Both tokens for the current session, for callers that talk to
+    /// cmux-owned backend endpoints (e.g. the cloud VM service) with the
+    /// `Authorization: Bearer <access>` + `X-Stack-Refresh-Token: <refresh>`
+    /// header pair.
+    ///
+    /// Awaits the launch restore first: RPCs firing before the restore
+    /// finishes could otherwise observe an empty token store on a
+    /// refresh-token-only start and report "Not signed in" even though a valid
+    /// session becomes available moments later.
+    /// - Returns: The access and refresh tokens.
+    /// - Throws: ``AuthError/unauthorized`` when either token is missing.
+    public func currentTokens() async throws -> (accessToken: String, refreshToken: String) {
+        await awaitBootstrapped()
+        guard let access = await client.accessToken(), !access.isEmpty else {
+            throw AuthError.unauthorized
+        }
+        guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
+            throw AuthError.unauthorized
+        }
+        return (access, refresh)
     }
 
     /// Force-mint a fresh access token, bypassing the cached-token freshness

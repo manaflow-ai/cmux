@@ -211,9 +211,63 @@ import Testing
         let (coordinator, _) = makeCoordinator(client: client)
 
         coordinator.start()
-        try await Task.sleep(nanoseconds: 50_000_000)
+        await coordinator.awaitBootstrapped()
 
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.currentUser == user)
+    }
+
+    @Test func awaitBootstrappedReturnsWithoutStart() async {
+        let (coordinator, _) = makeCoordinator(client: FakeAuthClient())
+        await coordinator.awaitBootstrapped()
+        #expect(coordinator.isAuthenticated == false)
+    }
+
+    @Test func currentTokensReturnsPairAfterRestore() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(access: "access-1", refresh: "refresh-1", user: user)
+        let (coordinator, _) = makeCoordinator(client: client)
+        coordinator.start()
+
+        let tokens = try await coordinator.currentTokens()
+
+        #expect(tokens.accessToken == "access-1")
+        #expect(tokens.refreshToken == "refresh-1")
+    }
+
+    @Test func currentTokensThrowsWhenRefreshTokenMissing() async {
+        let client = FakeAuthClient(access: "access-only")
+        let (coordinator, _) = makeCoordinator(client: client)
+        await #expect(throws: AuthError.unauthorized) {
+            _ = try await coordinator.currentTokens()
+        }
+    }
+
+    @Test func completeExternalSignInPublishesSeededSession() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setTeams([CMUXAuthTeam(id: "team_a", displayName: "Alpha")])
+        let (coordinator, store) = makeCoordinator(client: client)
+
+        // Simulate the macOS browser flow seeding tokens out-of-band.
+        await client.setTokens(access: "seeded-access", refresh: "seeded-refresh")
+        try await coordinator.completeExternalSignIn()
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(coordinator.resolvedTeamID == "team_a")
+        #expect(store.bool(forKey: "has_tokens"))
+    }
+
+    @Test func completeExternalSignInFailureStaysSignedOut() async {
+        let client = FakeAuthClient()
+        await client.setThrowOnCurrentUser(AuthError.unauthorized)
+        let (coordinator, _) = makeCoordinator(client: client)
+
+        await #expect(throws: AuthError.unauthorized) {
+            try await coordinator.completeExternalSignIn()
+        }
+        #expect(coordinator.isAuthenticated == false)
+        #expect(coordinator.isLoading == false)
     }
 }
