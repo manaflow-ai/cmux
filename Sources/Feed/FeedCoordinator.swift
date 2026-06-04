@@ -120,6 +120,9 @@ final class FeedCoordinator: @unchecked Sendable {
         // caps the pending lifetime to the agent process lifetime
         // — no polling, no leaked cards when the agent is killed.
         let itemIdSlot = UnsafeItemIdSlot()
+        let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
+            ? Self.resolveAttentionTarget(event: event)
+            : nil
         DispatchQueue.main.sync {
             MainActor.assumeIsolated {
                 FeedCoordinator.shared.store.ingest(event)
@@ -132,11 +135,17 @@ final class FeedCoordinator: @unchecked Sendable {
                 // regardless of app focus, unlike the desktop banner below,
                 // so the pending decision is visible in the sidebar even
                 // while the user is in another workspace of the same window.
+                // The target is resolved before entering this main-thread
+                // section so hook-session disk I/O never extends the UI
+                // critical section.
                 // The target is recorded on the waiter here — inside the
                 // ingest `main.sync`, before the card can render and a reply
                 // can fire — so the overlay is cleared exactly once when the
                 // decision concludes (no race with `deliverReply`).
-                if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(event: event) {
+                if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: event,
+                    resolved: resolvedAttentionTarget
+                ) {
                     FeedCoordinator.shared.waiterLock.lock()
                     FeedCoordinator.shared.waiters[requestId]?.attentionTarget = target
                     FeedCoordinator.shared.waiterLock.unlock()
@@ -339,10 +348,15 @@ extension FeedCoordinator {
     /// ``AttentionTarget`` so overlapping decisions on the same panel keep the
     /// badge lit until the last one concludes.
     ///
+    /// - Parameter resolved: the target resolved off the main actor before UI
+    ///   mutation, since hook-session lookup may read from disk.
     /// - Returns: the target to conclude once the decision ends, or `nil` if
     ///   nothing was surfaced (no resolvable workspace).
     @MainActor
-    func surfaceBlockingDecisionAttention(event: WorkstreamEvent) -> AttentionTarget? {
+    func surfaceBlockingDecisionAttention(
+        event: WorkstreamEvent,
+        resolved: (workspaceId: UUID, surfaceId: UUID?)?
+    ) -> AttentionTarget? {
         guard Self.isBlockingDecisionEvent(event.hookEventName) else { return nil }
 
         #if DEBUG
@@ -352,7 +366,7 @@ extension FeedCoordinator {
         }
         #endif
 
-        guard let resolved = Self.resolveAttentionTarget(event: event) else {
+        guard let resolved else {
             #if DEBUG
             cmuxDebugLog(
                 "feed.attention.skip reason=unresolved-target session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) workspace=\(event.workspaceId ?? "nil") receivedAt=\(event.receivedAt.timeIntervalSince1970)"
