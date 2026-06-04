@@ -29823,7 +29823,8 @@ function paletteQuickActions() {
       meta: workspace?.title || t("palette.quickWorkspace"),
       shortcut: "Ctrl+T",
       icon: "terminalPlus",
-      disabled: creatingPane,
+      disabled: !workspace || creatingPane,
+      title: () => quickWorkspacePaneCreationTitle(t("palette.quickTerminal")),
       run: () => createTerminalPanel(newPaneDirection(), { workspaceId: workspace?.id })
     },
     {
@@ -29832,7 +29833,8 @@ function paletteQuickActions() {
       meta: hostnameOf(state.settings.browserHomeUrl),
       shortcut: "Ctrl+Shift+L",
       icon: "browserPlus",
-      disabled: creatingPane,
+      disabled: !workspace || creatingPane,
+      title: () => quickWorkspacePaneCreationTitle(t("palette.quickBrowser"), hostnameOf(state.settings.browserHomeUrl)),
       run: () => openBrowserHome(workspace?.id)
     },
     {
@@ -29842,6 +29844,7 @@ function paletteQuickActions() {
       shortcut: "",
       icon: "splitRight",
       disabled: !active || creatingPane,
+      title: () => active ? paneCreationActionTitle(t("palette.quickSplit")) : "Focus a pane before splitting it.",
       run: () => splitActivePanel("right")
     },
     {
@@ -29898,7 +29901,11 @@ function renderPaletteQuickActions() {
     button.className = "palette-quick-action";
     button.type = "button";
     button.disabled = Boolean(action.disabled);
-    button.title = `${action.label}${action.meta ? ` - ${action.meta}` : ""}`;
+    const title = typeof action.title === "function"
+      ? action.title()
+      : action.title || `${action.label}${action.meta ? ` - ${action.meta}` : ""}`;
+    button.title = title;
+    button.setAttribute("aria-label", title);
     button.innerHTML = `
       <span class="palette-quick-icon" aria-hidden="true"></span>
       <span class="palette-quick-copy">
