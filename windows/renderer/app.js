@@ -21170,10 +21170,10 @@ function quickPaneControlsPanel(panel) {
       title: ready ? paneLookSyncTitle(panel) : unavailableTitle,
       search: "quick setup active pane sync look color background text matching panes"
     }),
-    quickOverviewControlButton("Pane look", () => openPaneAppearanceSettings(panel), {
+    quickOverviewControlButton("Pane settings", () => openActivePaneSettings(panel), {
       disabled: !ready,
-      title: ready ? "Open appearance controls for the active pane." : unavailableTitle,
-      search: "quick setup active pane appearance color background image settings"
+      title: ready ? "Open full setup controls for the active pane." : unavailableTitle,
+      search: "quick setup active pane full settings rename preset color background text appearance"
     })
   ];
   return quickOverviewControlsPanel({
@@ -32751,6 +32751,11 @@ function openPaneAppearanceSettings(panel = focusedPanel()) {
     primePaneAppearanceSettings(panel);
   }
   openSettingsCategory("appearance", { focusSearch: false });
+}
+
+function openActivePaneSettings(panel = focusedPanel() || activePanel()) {
+  if (panel?.id) focusPanel(panel.id);
+  openSettingsCategory("workspace", { focusSearch: false });
 }
 
 function updateRailButtons() {
