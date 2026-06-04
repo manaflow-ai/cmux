@@ -15170,10 +15170,15 @@ function renderSettingsInspector(options = {}) {
   if (!searching) setSettingsSearchBusy(false);
   settingsChrome.className = `settings-react-host${searching ? " is-searching is-search-layout-needed" : ""}`;
   const shouldBuildSection = (id) => state.settingsCategory === id || searching;
+  let storageEntriesForRender = null;
+  const getStorageEntriesForRender = () => {
+    if (!storageEntriesForRender) storageEntriesForRender = dataStorageEntries();
+    return storageEntriesForRender;
+  };
 
   if (shouldBuildSection("quick")) {
     const quickSection = settingsSection("Quick setup");
-    quickSection.append(quickSetupOverviewPanel());
+    quickSection.append(quickSetupOverviewPanel(getStorageEntriesForRender()));
     quickSection.append(quickSetupMapPanel());
     quickSection.append(quickSetupPresetRailPanel());
     quickSection.append(quickSetupGuidePanel());
@@ -15995,11 +16000,12 @@ function renderSettingsInspector(options = {}) {
   }
 
   if (shouldBuildSection("data")) {
+    const storageEntries = getStorageEntriesForRender();
     const actionsSection = settingsSection("Settings data");
-    actionsSection.append(dataSettingsOverviewPanel());
-    actionsSection.append(settingsMetricGrid(settingsDataMetrics(), "data storage local settings metric"));
-    actionsSection.append(dataMaintenanceGrid());
-    actionsSection.append(dataStorageBreakdownDisclosurePanel());
+    actionsSection.append(dataSettingsOverviewPanel(storageEntries));
+    actionsSection.append(settingsMetricGrid(settingsDataMetrics(storageEntries), "data storage local settings metric"));
+    actionsSection.append(dataMaintenanceGrid(storageEntries));
+    actionsSection.append(dataStorageBreakdownDisclosurePanel(storageEntries));
     actionsSection.append(recentCommandsDisclosurePanel());
     nodes.push(actionsSection);
   }
@@ -22410,15 +22416,16 @@ function dataStorageEntries(options = {}) {
   }));
 }
 
-function totalDataStorageBytes() {
-  return dataStorageEntries().reduce((sum, entry) => sum + entry.bytes, 0);
+function totalDataStorageBytes(entries = dataStorageEntries()) {
+  return entries.reduce((sum, entry) => sum + (entry.bytes || 0), 0);
 }
 
-function settingsDataMetrics() {
+function settingsDataMetrics(entries = dataStorageEntries()) {
   const recentItems = recentDataItemCount();
   const savedItems = savedDataItemCount();
+  const bytesByEntryId = new Map(entries.map((entry) => [entry.id, entry.bytes || 0]));
   return [
-    ["Local data", formatBytes(totalDataStorageBytes())],
+    ["Local data", formatBytes(totalDataStorageBytes(entries))],
     ["Recent items", String(recentItems)],
     ["Saved items", String(savedItems)],
     ["Recent folders", `${state.recentFolders.length}/${recentFoldersLimit}`],
@@ -22431,8 +22438,8 @@ function settingsDataMetrics() {
     ["Empty workspaces", String(emptyWorkspaces().length)],
     ["Saved colors", `${state.customColorPalette.length}/${customColorPaletteLimit}`],
     ["Backgrounds", `${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit}`],
-    ["Pane layouts", formatBytes(storageEntryBytes(paneLayoutStorageKey))],
-    ["Split shapes", formatBytes(storageEntryBytes(paneTreeLayoutsStorageKey))]
+    ["Pane layouts", formatBytes(bytesByEntryId.get("paneLayout") || 0)],
+    ["Split shapes", formatBytes(bytesByEntryId.get("paneTreeLayouts") || 0)]
   ];
 }
 
@@ -23994,7 +24001,7 @@ function workspaceCountLabel() {
   return `${count} workspace${count === 1 ? "" : "s"}`;
 }
 
-function quickCustomizationLibraryEntries() {
+function quickCustomizationLibraryEntries(entries = dataStorageEntries()) {
   const iconById = {
     commandSnippets: "commands",
     settingsProfiles: "profiles",
@@ -24009,7 +24016,7 @@ function quickCustomizationLibraryEntries() {
     customColors: "saved colors",
     savedBackgrounds: "saved backgrounds"
   };
-  return dataStorageEntries()
+  return entries
     .filter((entry) => Object.hasOwn(iconById, entry.id))
     .map((entry) => ({
       ...entry,
@@ -24882,7 +24889,7 @@ function quickBackgroundControlsPanel(workspace = activeWorkspace()) {
   });
 }
 
-function quickProfileDataControlsPanel() {
+function quickProfileDataControlsPanel(storageBytes = totalDataStorageBytes()) {
   const setup = activeSettingsSetupModel();
   const profilesFull = savedSettingsProfilesFull();
   const savedItems = savedDataItemCount();
@@ -24891,7 +24898,7 @@ function quickProfileDataControlsPanel() {
   const savedSearch = savedLibrarySearchLabel();
   const savedStatus = savedLibraryStatusLabel();
   const savedCapacitySearch = savedLibraryCapacityLimited() ? "limit full " : "";
-  const meta = `${savedSettingsProfileCountLabel()} profiles / ${savedStatus} / ${recentItems} recent / ${formatBytes(totalDataStorageBytes())}`;
+  const meta = `${savedSettingsProfileCountLabel()} profiles / ${savedStatus} / ${recentItems} recent / ${formatBytes(storageBytes)}`;
   const actions = [
     quickOverviewControlButton("Save profile", saveQuickSetupProfile, {
       disabled: profilesFull,
@@ -24936,7 +24943,7 @@ function quickProfileDataControlsPanel() {
   });
 }
 
-function quickDataMaintenanceControlsPanel() {
+function quickDataMaintenanceControlsPanel(storageBytes = totalDataStorageBytes()) {
   const savedItems = savedDataItemCount();
   const recentItems = recentDataItemCount();
   const emptyTargets = emptyWorkspaceCleanupTargets();
@@ -24980,7 +24987,7 @@ function quickDataMaintenanceControlsPanel() {
   return quickOverviewControlsPanel({
     className: "quick-overview-maintenance",
     title: "Data maintenance controls",
-    meta: `${formatBytes(totalDataStorageBytes())} / ${recentItems} recent / ${savedStatus} / ${emptyTargets.length} empty`,
+    meta: `${formatBytes(storageBytes)} / ${recentItems} recent / ${savedStatus} / ${emptyTargets.length} empty`,
     search: `quick setup data maintenance controls backup restore clear recent saved cleanup privacy storage ${recentItems} recent ${savedItems} saved ${emptyTargets.length} empty ${savedSearch}`,
     actions
   });
@@ -25053,7 +25060,7 @@ function quickCommandActionControlsPanel() {
   });
 }
 
-function quickSetupOverviewPanel() {
+function quickSetupOverviewPanel(storageEntries = dataStorageEntries()) {
   const workspace = activeWorkspace();
   const panels = workspace?.panels || [];
   const terminalCount = panels.filter((panel) => panel.type === "terminal").length;
@@ -25064,7 +25071,8 @@ function quickSetupOverviewPanel() {
   const activeTerminal = activeTerminalPanelForSettings();
   const activeTerminalBackground = activeTerminal ? normalizeBackgroundValue(activeTerminal.backgroundImage) : "";
   const performance = performanceOverviewModel();
-  const libraryEntries = quickCustomizationLibraryEntries();
+  const storageBytes = totalDataStorageBytes(storageEntries);
+  const libraryEntries = quickCustomizationLibraryEntries(storageEntries);
   const librarySummary = quickCustomizationLibrarySummary(libraryEntries);
   const panel = document.createElement("div");
   panel.className = "quick-setup-overview";
@@ -25191,8 +25199,8 @@ function quickSetupOverviewPanel() {
   panel.querySelector("[data-quick-look]").textContent = `${optionLabel(themeOptions, state.settings.theme, "cmux")} / ${optionLabel(surfaceTintOptions, state.settings.surfaceTint, state.settings.surfaceTint)} / ${accentModeLabel()}`;
   panel.querySelector("[data-quick-terminal]").textContent = `${optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono")} ${state.settings.terminalFontSize}px`;
   panel.querySelector("[data-quick-performance]").textContent = performanceModeLabel();
-  panel.querySelector("[data-quick-profile-data-controls]").replaceWith(quickProfileDataControlsPanel());
-  panel.querySelector("[data-quick-data-maintenance-controls]").replaceWith(quickDataMaintenanceControlsPanel());
+  panel.querySelector("[data-quick-profile-data-controls]").replaceWith(quickProfileDataControlsPanel(storageBytes));
+  panel.querySelector("[data-quick-data-maintenance-controls]").replaceWith(quickDataMaintenanceControlsPanel(storageBytes));
   panel.querySelector("[data-quick-workspace-controls]").replaceWith(quickWorkspaceControlsPanel(workspace, terminalCount, browserCount));
   panel.querySelector("[data-quick-layout-controls]").replaceWith(quickLayoutControlsPanel(workspace));
   panel.querySelector("[data-quick-blueprint-controls]").replaceWith(quickBlueprintControlsPanel(workspace));
@@ -26275,14 +26283,14 @@ function paneLayoutPresetsDisclosurePanel() {
   });
 }
 
-function dataStorageBreakdownDisclosurePanel() {
+function dataStorageBreakdownDisclosurePanel(entries = dataStorageEntries({ includeBytes: false })) {
   return settingsDisclosurePanel({
     className: "data-storage-breakdown-disclosure",
     content: "data-storage-breakdown",
     searchTerms: "data storage breakdown local settings metric saved recent cleanup",
     title: t("data.storageBreakdown"),
     body: t("data.storageBreakdown.body"),
-    meta: formatMessage("data.storageEntryCount", { count: dataStorageEntries().length })
+    meta: formatMessage("data.storageEntryCount", { count: entries.length })
   });
 }
 
@@ -26374,7 +26382,7 @@ function quickSettingsShortcutGrid() {
   return grid;
 }
 
-function dataSettingsOverviewPanel() {
+function dataSettingsOverviewPanel(entries = dataStorageEntries()) {
   const panel = document.createElement("div");
   panel.className = "data-settings-overview";
   const savedSearch = savedLibrarySearchLabel();
@@ -26393,7 +26401,7 @@ function dataSettingsOverviewPanel() {
     </div>
     <div class="data-overview-actions"></div>
   `;
-  panel.querySelector("[data-data-overview-storage]").textContent = formatBytes(totalDataStorageBytes());
+  panel.querySelector("[data-data-overview-storage]").textContent = formatBytes(totalDataStorageBytes(entries));
   panel.querySelector("[data-data-overview-saved]").textContent = String(savedDataItemCount());
   panel.querySelector("[data-data-overview-recent]").textContent = String(recentDataItemCount());
   panel.querySelector("[data-data-overview-empty]").textContent = String(emptyWorkspaces().length);
@@ -26412,18 +26420,19 @@ function dataSettingsOverviewPanel() {
   return panel;
 }
 
-function dataMaintenanceDefinitions() {
+function dataMaintenanceDefinitions(entries = dataStorageEntries()) {
   const recentActivity = hasRecentActivity();
   const savedLibrary = savedDataItemCount() > 0;
   const savedSearch = savedLibrarySearchLabel();
   const savedCapacitySearch = savedLibraryCapacityLimited() ? "limit full " : "";
   const emptyCleanupTargets = emptyWorkspaceCleanupTargets();
+  const storageBytes = totalDataStorageBytes(entries);
   return [
     {
       id: "appBackup",
       label: "App backup",
       body: "Export or restore the complete cmux Windows setup.",
-      meta: formatBytes(totalDataStorageBytes()),
+      meta: formatBytes(storageBytes),
       search: "settings data app setup backup export import restore full preferences profiles blueprints snippets colors backgrounds recent",
       actions: [
         {
@@ -26527,11 +26536,11 @@ function dataMaintenanceDefinitions() {
   ];
 }
 
-function dataMaintenanceGrid() {
+function dataMaintenanceGrid(entries = dataStorageEntries()) {
   const grid = document.createElement("div");
   grid.className = "data-maintenance-grid";
   grid.dataset.settingsSearch = normalizeSettingsQuery("settings data maintenance backup import export cleanup privacy reset saved recent app setup library");
-  for (const item of dataMaintenanceDefinitions()) {
+  for (const item of dataMaintenanceDefinitions(entries)) {
     const card = document.createElement("div");
     card.className = "data-maintenance-card";
     card.dataset.settingsSearch = normalizeSettingsQuery(`settings data maintenance ${item.search} ${item.label} ${item.body} ${item.meta}`);
@@ -26563,8 +26572,7 @@ function dataMaintenanceGrid() {
   return grid;
 }
 
-function dataStorageBreakdownPanel() {
-  const entries = dataStorageEntries();
+function dataStorageBreakdownPanel(entries = dataStorageEntries()) {
   const maxBytes = Math.max(1, ...entries.map((entry) => entry.bytes));
   const panel = document.createElement("div");
   panel.className = "data-storage-breakdown";
@@ -26575,7 +26583,7 @@ function dataStorageBreakdownPanel() {
   title.textContent = "Storage breakdown";
   const total = document.createElement("span");
   total.className = "data-storage-total";
-  total.textContent = formatBytes(entries.reduce((sum, entry) => sum + entry.bytes, 0));
+  total.textContent = formatBytes(totalDataStorageBytes(entries));
   header.append(title, total);
   panel.append(header);
 
