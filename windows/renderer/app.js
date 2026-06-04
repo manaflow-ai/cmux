@@ -6666,6 +6666,7 @@ const customizationPaletteCommandIds = new Set([
   "settings.copyCurrentProfile",
   "settings.pasteProfile",
   "settings.saveTerminalProfile",
+  "settings.saveBrowserProfile",
   "settings.tunePerformance",
   "settings.cleanFast",
   "settings.saveCleanFastProfile",
@@ -6721,6 +6722,7 @@ function customizationCommandPaletteSignature() {
   appendSignatureValue(parts, settingsKeysSignature(overlayChromeSettings));
   appendSignatureValue(parts, settingsKeysSignature(workspacePanelWidthSettings));
   appendSignatureValue(parts, settingsKeysSignature(performanceSetupSettings));
+  appendSignatureValue(parts, settingsKeysSignature(browserSetupSettings));
   appendSignatureValue(parts, state.customColorPalette.length);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
   for (const target of ["accent", "workspace", "pane", "all"]) {
@@ -7069,6 +7071,22 @@ function customizationCommandPaletteState(commandId) {
       resetTitle: "Reset background, text, and cursor colors to the cmux default.",
       search: `terminal color colors reset defaults background foreground text cursor cmux ${meta}`
     });
+  }
+  if (commandId === "settings.saveBrowserProfile") {
+    const summary = browserSetupSummaryForSettings(state.settings);
+    const home = hostnameOf(summary.home) || summary.home || "Browser home";
+    const profilesFull = savedSettingsProfilesFull();
+    const profileCount = savedSettingsProfileCountLabel();
+    return {
+      meta: `${home} / ${summary.chrome} / ${profileCount}`,
+      shortcut: "Save",
+      disabled: profilesFull,
+      icon: "profiles",
+      title: profilesFull
+        ? settingsProfileLimitTitle()
+        : "Save the current browser home page, launch mode, external profile, suspend setting, pane chrome, and pane zoom.",
+      search: normalizeSettingsQuery(`browser save profile reusable settings home page launch external profile chrome edge brave suspend inactive pane chrome tabs address controls full compact content zoom scale ${profilesFull ? "limit full " : ""}${summary.home} ${summary.launch} ${summary.profile} ${summary.inactivePanes} ${summary.chrome} ${summary.zoom} ${profileCount}`)
+    };
   }
   if (commandId === "settings.resetCommandPalette") {
     const paletteDefault = commandPaletteSettingsAreDefault();
