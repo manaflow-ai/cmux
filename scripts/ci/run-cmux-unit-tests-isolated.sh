@@ -79,12 +79,11 @@ if [ "$SHARD_INDEX" -ge "$SHARD_COUNT" ]; then
 fi
 
 SELECTED_TEST_CLASSES=()
-class_index=0
 for class in "${TEST_CLASSES[@]}"; do
-  if [ $((class_index % SHARD_COUNT)) -eq "$SHARD_INDEX" ]; then
+  class_hash="$(printf '%s' "$class" | cksum | awk '{print $1}')"
+  if [ $((class_hash % SHARD_COUNT)) -eq "$SHARD_INDEX" ]; then
     SELECTED_TEST_CLASSES+=("$class")
   fi
-  class_index=$((class_index + 1))
 done
 
 if [ "${#SELECTED_TEST_CLASSES[@]}" -eq 0 ]; then

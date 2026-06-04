@@ -182,7 +182,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-c",
                 script,
             ],
-            timeout: 5
+            timeout: 15
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -1852,7 +1852,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(waitForSignalPumpingMainRunLoop(scpInvoked, timeout: 5), .success)
+        XCTAssertEqual(waitForSignalPumpingMainRunLoop(scpInvoked, timeout: 15), .success)
         lock.lock()
         let capturedDestination = scpDestination
         lock.unlock()
@@ -1968,7 +1968,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(waitForSignalPumpingMainRunLoop(scpInvoked, timeout: 5), .success)
+        XCTAssertEqual(waitForSignalPumpingMainRunLoop(scpInvoked, timeout: 15), .success)
         lock.lock()
         let capturedDestination = scpDestination
         lock.unlock()

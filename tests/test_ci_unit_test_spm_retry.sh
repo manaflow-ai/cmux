@@ -67,6 +67,8 @@ ISOLATED_RUNNER_PATTERNS=(
   'PASS $BATCH_LABEL after crash-reported XCTest method retries'
   'SHARD_INDEX="${CMUX_UNIT_TEST_SHARD_INDEX:-0}"'
   'SHARD_COUNT="${CMUX_UNIT_TEST_SHARD_COUNT:-1}"'
+  'class_hash="$(printf '\''%s'\'' "$class" | cksum | awk '\''{print $1}'\'')"'
+  'if [ $((class_hash % SHARD_COUNT)) -eq "$SHARD_INDEX" ]; then'
   'BATCH_SIZE="${CMUX_UNIT_TEST_BATCH_SIZE:-1}"'
   'BATCH_TIMEOUT_SECONDS="${CMUX_UNIT_TEST_BATCH_TIMEOUT_SECONDS:-900}"'
   'Timed out after ${BATCH_TIMEOUT_SECONDS}s running $label; terminating xcodebuild'
