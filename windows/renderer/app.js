@@ -28499,17 +28499,21 @@ function applySettingsPresetById(presetId) {
 function settingsProfilesPanel() {
   const wrapper = document.createElement("div");
   wrapper.className = "settings-profile-list";
-  wrapper.dataset.settingsSearch = normalizeSettingsQuery("saved settings profile preset appearance layout terminal performance apply save copy paste rename delete clipboard json");
+  const setup = activeSettingsSetupModel();
+  const currentSummary = settingsProfileSummary(state.settings);
+  const profilesFull = savedSettingsProfilesFull();
+  const profileCountLabel = `${savedSettingsProfileCountLabel()} saved profiles`;
+  wrapper.dataset.settingsSearch = normalizeSettingsQuery(`saved settings profile preset appearance layout terminal browser performance apply save copy paste rename delete clipboard json ${setup.kind} ${setup.label} ${currentSummary} ${profileCountLabel}`);
 
   const header = document.createElement("div");
   header.className = "recent-folder-header";
   const title = document.createElement("span");
   title.textContent = "Saved profiles";
-  const save = settingsActionButton("Save", saveCurrentSettingsProfile, "", "save current settings profile preset");
-  applySettingsProfileSaveLimit(save);
-  const copyCurrent = settingsActionButton("Copy", copyCurrentSettingsProfile, "", "copy current settings profile setup preset clipboard json");
+  const save = settingsActionButton("Save", saveCurrentSettingsProfile, "", `save current settings profile preset reusable ${profilesFull ? "limit full " : ""}${setup.kind} ${setup.label} ${currentSummary}`);
+  applySettingsProfileSaveLimit(save, "Save the current colors, layout, terminal, browser, and performance settings as a reusable profile.");
+  const copyCurrent = settingsActionButton("Copy", copyCurrentSettingsProfile, "", `copy current settings profile setup preset clipboard json ${setup.kind} ${setup.label} ${currentSummary}`);
   copyCurrent.title = "Copy the current setup as a Settings profile JSON.";
-  const paste = settingsActionButton("Paste", pasteSettingsProfile, "", "paste settings profile setup preset clipboard json");
+  const paste = settingsActionButton("Paste", pasteSettingsProfile, "", `paste settings profile setup preset clipboard json import saved reusable ${profilesFull ? "limit full " : ""}${profileCountLabel}`);
   applySettingsProfileSaveLimit(paste, "Paste a copied Settings profile.");
   const headerActions = document.createElement("div");
   headerActions.className = "recent-folder-header-actions";
@@ -28563,9 +28567,11 @@ function settingsProfileCurrentSetupPanel() {
 
 function settingsProfileCard(profile) {
   const active = isActiveSettingsProfile(profile);
+  const summaryText = settingsProfileSummary(profile.settings);
+  const updateDisabled = active;
   const card = document.createElement("div");
   card.className = `recent-folder-card settings-profile-card${active ? " is-active" : ""}`;
-  card.dataset.settingsSearch = normalizeSettingsQuery(`saved settings profile preset apply active copy paste rename delete clipboard json ${profile.label} ${settingsProfileSummary(profile.settings)}`);
+  card.dataset.settingsSearch = normalizeSettingsQuery(`saved settings profile preset apply active update copy paste rename delete clipboard json ${active ? "active current unavailable " : "ready "}${profile.label} ${summaryText}`);
 
   const text = document.createElement("div");
   text.className = "recent-folder-text";
@@ -28583,20 +28589,32 @@ function settingsProfileCard(profile) {
   name.title = profile.label;
   const summary = document.createElement("div");
   summary.className = "recent-folder-path settings-profile-summary";
-  summary.textContent = settingsProfileSummary(profile.settings);
+  summary.textContent = summaryText;
   summary.title = summary.textContent;
   text.append(name, summary);
 
   const actions = document.createElement("div");
   actions.className = "recent-folder-actions settings-profile-actions";
-  const apply = settingsActionButton(active ? "Active" : "Apply", () => applySavedSettingsProfile(profile.id), active ? "primary" : "", `apply active settings profile ${profile.label}`);
+  const apply = settingsActionButton(active ? "Active" : "Apply", () => applySavedSettingsProfile(profile.id), active ? "primary" : "", `apply active settings profile ${active ? "active current unavailable " : "ready "}${profile.label} ${summaryText}`);
   apply.disabled = active;
+  apply.title = active ? `${profile.label} profile already active.` : `Apply ${profile.label} settings profile.`;
+  const copy = settingsActionButton("Copy", () => copySavedSettingsProfile(profile.id), "", `copy settings profile clipboard json ${profile.label} ${summaryText}`);
+  copy.title = `Copy ${profile.label} as a Settings profile JSON.`;
+  const update = settingsActionButton("Update", () => updateSavedSettingsProfile(profile.id), "", `update settings profile overwrite current settings ${updateDisabled ? "active current unavailable " : "ready "}${profile.label} ${summaryText}`);
+  update.disabled = updateDisabled;
+  update.title = updateDisabled
+    ? `${profile.label} already matches the current settings.`
+    : `Replace ${profile.label} with the current settings.`;
+  const rename = settingsActionButton("Rename", () => renameSavedSettingsProfile(profile.id), "", `rename settings profile ${profile.label}`);
+  rename.title = `Rename ${profile.label}.`;
+  const deleteAction = settingsActionButton("Delete", () => deleteSavedSettingsProfile(profile.id), "danger", `delete settings profile ${profile.label}`);
+  deleteAction.title = `Delete ${profile.label}.`;
   actions.append(
     apply,
-    settingsActionButton("Copy", () => copySavedSettingsProfile(profile.id), "", `copy settings profile clipboard json ${profile.label}`),
-    settingsActionButton("Update", () => updateSavedSettingsProfile(profile.id), "", `update settings profile ${profile.label} overwrite current settings`),
-    settingsActionButton("Rename", () => renameSavedSettingsProfile(profile.id), "", `rename settings profile ${profile.label}`),
-    settingsActionButton("Delete", () => deleteSavedSettingsProfile(profile.id), "danger", `delete settings profile ${profile.label}`)
+    copy,
+    update,
+    rename,
+    deleteAction
   );
   card.append(text, actions);
   return card;
