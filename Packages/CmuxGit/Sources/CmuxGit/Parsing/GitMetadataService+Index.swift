@@ -127,7 +127,8 @@ extension GitMetadataService {
             }
 
             let pathData = Data(pathBytes)
-            guard let path = String(data: pathData, encoding: .utf8), !path.isEmpty else {
+            guard let path = String(data: pathData, encoding: .utf8), !path.isEmpty,
+                  isValidIndexEntryPath(path) else {
                 return nil
             }
             previousPathBytes = pathBytes
@@ -233,6 +234,14 @@ extension GitMetadataService {
     /// Truncates any integer to the 32-bit field width git records in the index.
     nonisolated static func gitIndexUInt32Field<T: BinaryInteger>(_ value: T) -> UInt32 {
         UInt32(truncatingIfNeeded: UInt64(truncatingIfNeeded: value))
+    }
+
+    /// Whether an index entry path is one git would accept: repository-relative
+    /// (not absolute) and free of `..` traversal components. An index containing
+    /// anything else is treated as malformed.
+    nonisolated static func isValidIndexEntryPath(_ path: String) -> Bool {
+        guard !path.hasPrefix("/") else { return false }
+        return !path.split(separator: "/").contains("..")
     }
 
     /// The raw index trailing-20-byte checksum as hex, or `nil` when the index

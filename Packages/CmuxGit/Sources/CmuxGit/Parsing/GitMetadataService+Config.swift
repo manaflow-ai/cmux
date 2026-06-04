@@ -72,7 +72,7 @@ extension GitMetadataService {
             let parts = line.split(separator: "=", maxSplits: 1).map {
                 $0.trimmingCharacters(in: .whitespaces)
             }
-            guard parts.count == 2, parts[0] == "url" else {
+            guard parts.count == 2, parts[0].lowercased() == "url" else {
                 continue
             }
             let remoteURL = gitConfigUnquotedValue(parts[1])
@@ -108,12 +108,13 @@ extension GitMetadataService {
                 .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
                 currentRemoteName = gitConfigRemoteName(fromSectionHeader: line)
-                if line == "[include]" {
+                if line.lowercased() == "[include]" {
                     currentSectionAllowsIncludePath = true
                 } else if let condition = gitConfigIncludeIfCondition(fromSectionHeader: line) {
                     currentSectionAllowsIncludePath = gitConfigIncludeIfConditionMatches(
                         condition,
-                        repository: repository
+                        repository: repository,
+                        configURL: configURL
                     )
                 } else {
                     currentSectionAllowsIncludePath = false
@@ -127,7 +128,7 @@ extension GitMetadataService {
 
             if let currentRemoteName,
                parts.count == 2,
-               parts[0] == "url" {
+               parts[0].lowercased() == "url" {
                 let remoteURL = gitConfigUnquotedValue(parts[1])
                 guard !remoteURL.isEmpty else {
                     continue
@@ -138,7 +139,7 @@ extension GitMetadataService {
 
             guard currentSectionAllowsIncludePath,
                   parts.count == 2,
-                  parts[0] == "path",
+                  parts[0].lowercased() == "path",
                   let includeURL = gitConfigIncludeURL(
                       fromPathValue: parts[1],
                       relativeTo: configURL
@@ -168,12 +169,13 @@ extension GitMetadataService {
             let line = gitConfigLineRemovingInlineComment(rawLine)
                 .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
-                if line == "[include]" {
+                if line.lowercased() == "[include]" {
                     currentSectionAllowsPath = true
                 } else if let condition = gitConfigIncludeIfCondition(fromSectionHeader: line) {
                     currentSectionAllowsPath = gitConfigIncludeIfConditionMatches(
                         condition,
-                        repository: repository
+                        repository: repository,
+                        configURL: configURL
                     )
                 } else {
                     currentSectionAllowsPath = false
@@ -276,10 +278,14 @@ extension GitMetadataService {
     }
 
     /// The remote name from a `[remote "<name>"]` section header, or `nil`.
+    /// The section name is case-insensitive per git; the quoted subsection
+    /// (the remote name) is case-sensitive and extracted verbatim.
     nonisolated static func gitConfigRemoteName(fromSectionHeader header: String) -> String? {
         let prefix = "[remote \""
         let suffix = "\"]"
-        guard header.hasPrefix(prefix), header.hasSuffix(suffix) else {
+        guard header.count > prefix.count + suffix.count - 1,
+              header.lowercased().hasPrefix(prefix),
+              header.hasSuffix(suffix) else {
             return nil
         }
         let name = header.dropFirst(prefix.count).dropLast(suffix.count)
@@ -287,10 +293,14 @@ extension GitMetadataService {
     }
 
     /// The condition from an `[includeIf "<condition>"]` section header, or `nil`.
+    /// The section name is case-insensitive per git; the condition is extracted
+    /// verbatim (its own keyword prefixes are matched case-insensitively later).
     nonisolated static func gitConfigIncludeIfCondition(fromSectionHeader header: String) -> String? {
-        let prefix = "[includeIf \""
+        let prefix = "[includeif \""
         let suffix = "\"]"
-        guard header.hasPrefix(prefix), header.hasSuffix(suffix) else {
+        guard header.count > prefix.count + suffix.count - 1,
+              header.lowercased().hasPrefix(prefix),
+              header.hasSuffix(suffix) else {
             return nil
         }
         let condition = header.dropFirst(prefix.count).dropLast(suffix.count)
@@ -324,22 +334,33 @@ extension GitMetadataService {
     }
 
     /// Whether an `includeIf` condition (`gitdir:`, `gitdir/i:`, `onbranch:`)
-    /// matches this repository.
+    /// matches this repository. `configURL` anchors `./`-relative gitdir
+    /// patterns to the directory containing the config file, per git.
     nonisolated static func gitConfigIncludeIfConditionMatches(
         _ condition: String,
-        repository: ResolvedGitRepository
+        repository: ResolvedGitRepository,
+        configURL: URL
     ) -> Bool {
         let lowercasedCondition = condition.lowercased()
         if lowercasedCondition.hasPrefix("gitdir/i:") {
             let pattern = String(condition.dropFirst("gitdir/i:".count))
-            return gitConfigGitdirPatternMatches(pattern, repository: repository, caseInsensitive: true)
+            return gitConfigGitdirPatternMatches(
+                pattern, repository: repository, caseInsensitive: true, configURL: configURL
+            )
         }
         if lowercasedCondition.hasPrefix("gitdir:") {
             let pattern = String(condition.dropFirst("gitdir:".count))
-            return gitConfigGitdirPatternMatches(pattern, repository: repository, caseInsensitive: false)
+            return gitConfigGitdirPatternMatches(
+                pattern, repository: repository, caseInsensitive: false, configURL: configURL
+            )
         }
         if lowercasedCondition.hasPrefix("onbranch:") {
-            let pattern = String(condition.dropFirst("onbranch:".count))
+            var pattern = String(condition.dropFirst("onbranch:".count))
+            // Per git, an onbranch pattern ending in "/" matches the whole
+            // branch hierarchy under it.
+            if pattern.hasSuffix("/") {
+                pattern.append("**")
+            }
             guard let branch = gitBranchName(repository: repository) else { return false }
             return gitConfigGlobMatches(branch, pattern: pattern, caseInsensitive: false)
         }
@@ -347,14 +368,18 @@ extension GitMetadataService {
     }
 
     /// Whether a `gitdir`/`gitdir/i` glob pattern matches any of the repository's
-    /// directories, applying git's trailing-slash recursive-directory rule.
+    /// directories, applying git's pattern-expansion rules: `~`/`~/` expand to
+    /// the home directory, `./` is relative to the config file's directory, a
+    /// pattern with no leading `~/`, `./`, or `/` gets `**/` prepended, and a
+    /// trailing `/` appends `**` (the recursive-directory rule).
     nonisolated static func gitConfigGitdirPatternMatches(
         _ pattern: String,
         repository: ResolvedGitRepository,
-        caseInsensitive: Bool
+        caseInsensitive: Bool,
+        configURL: URL
     ) -> Bool {
         let isRecursiveDirectoryPattern = pattern.hasSuffix("/")
-        var expandedPattern = gitConfigExpandedPattern(pattern)
+        var expandedPattern = gitConfigExpandedPattern(pattern, configURL: configURL)
         if isRecursiveDirectoryPattern, !expandedPattern.hasSuffix("/") {
             expandedPattern.append("/")
         }
@@ -376,8 +401,11 @@ extension GitMetadataService {
         return false
     }
 
-    /// Expands `~`/`~/` and standardizes an `includeIf` gitdir pattern path.
-    nonisolated static func gitConfigExpandedPattern(_ pattern: String) -> String {
+    /// Expands an `includeIf` gitdir pattern per git's rules: `~`/`~/` to the
+    /// home directory, `./` relative to the config file's directory, absolute
+    /// paths standardized, and anything else prefixed with `**/` so a relative
+    /// pattern matches at any depth.
+    nonisolated static func gitConfigExpandedPattern(_ pattern: String, configURL: URL) -> String {
         if pattern == "~" {
             return FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
         }
@@ -388,7 +416,21 @@ extension GitMetadataService {
                 .standardizedFileURL
                 .path
         }
-        return URL(fileURLWithPath: pattern).standardizedFileURL.path
+        if pattern.hasPrefix("./") {
+            let relativePath = String(pattern.dropFirst(2))
+            let base = configURL.deletingLastPathComponent()
+            guard !relativePath.isEmpty else {
+                return base.standardizedFileURL.path
+            }
+            // Keep glob metacharacters intact: anchor to the config directory
+            // textually instead of routing the pattern through URL resolution.
+            return base.standardizedFileURL.path + "/" + relativePath
+        }
+        if pattern.hasPrefix("/") {
+            return URL(fileURLWithPath: pattern).standardizedFileURL.path
+        }
+        // Relative pattern: match at any depth.
+        return "**/" + pattern
     }
 
     /// Matches a value against a git glob pattern, falling back to `fnmatch`

@@ -45,9 +45,18 @@ extension GitMetadataService {
     }
 
     /// The metadata paths contributed by gitlink (submodule) entries in the
-    /// index, so a submodule checkout change also wakes the watcher.
+    /// index, recursing into nested submodules so a checkout change at any
+    /// depth wakes the watcher. Cycle-safe via the visited work-tree set.
     nonisolated static func gitlinkMetadataWatchPaths(
         repository: ResolvedGitRepository
+    ) -> [String] {
+        var visitedWorkTreeRoots: Set<String> = [repository.workTreeRoot]
+        return gitlinkMetadataWatchPaths(repository: repository, visitedWorkTreeRoots: &visitedWorkTreeRoots)
+    }
+
+    private nonisolated static func gitlinkMetadataWatchPaths(
+        repository: ResolvedGitRepository,
+        visitedWorkTreeRoots: inout Set<String>
     ) -> [String] {
         let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
         guard let indexSnapshot = gitIndexSnapshot(indexURL: indexURL) else {
@@ -60,11 +69,18 @@ extension GitMetadataService {
             let gitlinkURL = URL(fileURLWithPath: repository.workTreeRoot)
                 .appendingPathComponent(entry.path)
                 .standardizedFileURL
-            guard let submoduleRepository = resolveGitRepository(containing: gitlinkURL.path),
+            guard visitedWorkTreeRoots.insert(gitlinkURL.path).inserted,
+                  let submoduleRepository = resolveGitRepository(containing: gitlinkURL.path),
                   submoduleRepository.workTreeRoot == gitlinkURL.path else {
                 continue
             }
             paths.append(contentsOf: gitRepositoryMetadataWatchPaths(repository: submoduleRepository))
+            paths.append(
+                contentsOf: gitlinkMetadataWatchPaths(
+                    repository: submoduleRepository,
+                    visitedWorkTreeRoots: &visitedWorkTreeRoots
+                )
+            )
         }
         return paths
     }
