@@ -6125,12 +6125,23 @@ class TabManager: ObservableObject {
     /// members). This is the destructive sibling of
     /// `ungroupWorkspaceGroup`: ungroup keeps the workspaces, delete throws
     /// them away. Callers that need confirmation must prompt before calling
-    /// this; the method itself is unconditional so socket/CLI paths can opt
-    /// out of the prompt cleanly.
+    /// this; block-policy worktrees still require explicit authorization.
     @discardableResult
-    func deleteWorkspaceGroup(groupId: UUID, recordHistory: Bool = true) -> Int {
+    func deleteWorkspaceGroup(
+        groupId: UUID,
+        recordHistory: Bool = true,
+        ephemeralWorktreeCleanupAuthorizedPanelIdsByWorkspace: [UUID: Set<UUID>] = [:]
+    ) -> Int {
         guard workspaceGroups.contains(where: { $0.id == groupId }) else { return 0 }
         let members = tabs.filter { $0.groupId == groupId }
+        let hasUnauthorizedBlockPolicyWorktree = members.contains { workspace in
+            !unauthorizedBlockPolicyEphemeralWorktreePanelIds(
+                in: workspace,
+                authorizedPanelIds: ephemeralWorktreeCleanupAuthorizedPanelIdsByWorkspace[workspace.id] ?? []
+            ).isEmpty
+        }
+        guard !hasUnauthorizedBlockPolicyWorktree else { return 0 }
+
         var closed = 0
         for tab in members {
             // closeWorkspace short-circuits when tabs.count <= 1, so the last
@@ -6143,9 +6154,13 @@ class TabManager: ObservableObject {
                 assignGroup(workspaceId: tab.id, groupId: nil)
                 continue
             }
-            let countBefore = tabs.count
-            closeWorkspace(tab, recordHistory: recordHistory)
-            if tabs.count < countBefore { closed += 1 }
+            if closeWorkspace(
+                tab,
+                recordHistory: recordHistory,
+                ephemeralWorktreeCleanupAuthorizedPanelIds: ephemeralWorktreeCleanupAuthorizedPanelIdsByWorkspace[tab.id] ?? []
+            ) {
+                closed += 1
+            }
         }
         // closeWorkspace's dissolveGroupsAnchoredBy already removes the group
         // when the anchor is among the closed members, but if every member
@@ -6915,8 +6930,13 @@ class TabManager: ObservableObject {
         _ workspace: Workspace,
         recordHistory: Bool = true,
         ephemeralWorktreeCleanupAuthorizedPanelIds: Set<UUID> = []
-    ) {
-        guard tabs.count > 1 else { return }
+    ) -> Bool {
+        guard tabs.count > 1 else { return false }
+        guard unauthorizedBlockPolicyEphemeralWorktreePanelIds(
+            in: workspace,
+            authorizedPanelIds: ephemeralWorktreeCleanupAuthorizedPanelIds
+        ).isEmpty else { return false }
+
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
@@ -6966,6 +6986,7 @@ class TabManager: ObservableObject {
             }
         }
         publishCmuxWorkspaceClosed(workspace)
+        return true
     }
 
     /// If `closedWorkspaceId` was the anchor of any group, dissolve that group:
@@ -7042,7 +7063,8 @@ class TabManager: ObservableObject {
     }
 
     // Keep closeTab as convenience alias
-    func closeTab(_ tab: Workspace) { closeWorkspace(tab) }
+    @discardableResult
+    func closeTab(_ tab: Workspace) -> Bool { closeWorkspace(tab) }
     func closeCurrentTabWithConfirmation() { closeCurrentWorkspaceWithConfirmation() }
 
     func closeCurrentWorkspace() {
@@ -7501,7 +7523,7 @@ class TabManager: ObservableObject {
         }
     }
 
-    private func blockPolicyEphemeralWorktreePanelIds(
+    func blockPolicyEphemeralWorktreePanelIds(
         in workspace: Workspace,
         panelIds candidatePanelIds: [UUID]? = nil
     ) -> [UUID] {
@@ -7510,6 +7532,30 @@ class TabManager: ObservableObject {
             if let candidatePanelIdSet, !candidatePanelIdSet.contains(panelId) { return nil }
             return record.cleanupPolicy == .block ? panelId : nil
         }
+    }
+
+    func blockPolicyEphemeralWorktreePanelIdsByWorkspace(
+        for workspaces: [Workspace]
+    ) -> [UUID: Set<UUID>] {
+        Dictionary(
+            uniqueKeysWithValues: workspaces.compactMap { workspace in
+                let panelIds = Set(blockPolicyEphemeralWorktreePanelIds(in: workspace))
+                return panelIds.isEmpty ? nil : (workspace.id, panelIds)
+            }
+        )
+    }
+
+    func blockPolicyEphemeralWorktreePanelIdsByWorkspace(inGroup groupId: UUID) -> [UUID: Set<UUID>] {
+        blockPolicyEphemeralWorktreePanelIdsByWorkspace(
+            for: tabs.filter { $0.groupId == groupId }
+        )
+    }
+
+    func unauthorizedBlockPolicyEphemeralWorktreePanelIds(
+        in workspace: Workspace,
+        authorizedPanelIds: Set<UUID> = []
+    ) -> Set<UUID> {
+        Set(blockPolicyEphemeralWorktreePanelIds(in: workspace)).subtracting(authorizedPanelIds)
     }
 
     func cancelEphemeralWorktreeCleanupForAbortedWindowClose() {

@@ -143,7 +143,22 @@ extension VerticalTabsSidebar {
                 guard let tabManager else { return }
                 let otherMemberCount = max(memberCount - 1, 0)
                 guard confirmDeleteWorkspaceGroup(groupName: groupName, otherMemberCount: otherMemberCount) else { return }
-                tabManager.deleteWorkspaceGroup(groupId: groupId)
+                let blockPolicyPanelIdsByWorkspace = tabManager.blockPolicyEphemeralWorktreePanelIdsByWorkspace(
+                    inGroup: groupId
+                )
+                let affectedWorktreeCount = blockPolicyPanelIdsByWorkspace.values.reduce(0) { $0 + $1.count }
+                if affectedWorktreeCount > 0 {
+                    let copy = WorkspaceEphemeralWorktreeManager.closeConfirmationCopy(
+                        affectedCount: affectedWorktreeCount
+                    )
+                    guard tabManager.confirmClose(title: copy.title, message: copy.message, acceptCmdD: false) else {
+                        return
+                    }
+                }
+                tabManager.deleteWorkspaceGroup(
+                    groupId: groupId,
+                    ephemeralWorktreeCleanupAuthorizedPanelIdsByWorkspace: blockPolicyPanelIdsByWorkspace
+                )
             },
             onEditConfig: {
                 SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()

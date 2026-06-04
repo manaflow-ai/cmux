@@ -6366,8 +6366,8 @@ class TerminalController {
                     found = true
                     return
                 }
-                tabManager.closeWorkspace(ws)
                 found = true
+                _ = tabManager.closeWorkspace(ws)
             }
         }
 
@@ -6942,11 +6942,22 @@ class TerminalController {
         }
         var found = false
         var closedCount = 0
+        var blockedWorktreeError: V2CallResult?
         v2MainSync {
             found = tabManager.workspaceGroups.contains(where: { $0.id == gid })
             if found {
+                let records = tabManager.tabs
+                    .filter { $0.groupId == gid }
+                    .flatMap { Array($0.ephemeralWorktreesByPanelId.values) }
+                if let worktreeError = v2BlockedEphemeralWorktreeError(for: records) {
+                    blockedWorktreeError = worktreeError
+                    return
+                }
                 closedCount = tabManager.deleteWorkspaceGroup(groupId: gid)
             }
+        }
+        if let blockedWorktreeError {
+            return blockedWorktreeError
         }
         guard found else {
             return .err(code: "not_found", message: "Group not found", data: [
@@ -19906,8 +19917,15 @@ class TerminalController {
                     result = "ERROR: \(workspaceCloseProtectedMessage())"
                     return
                 }
-                tabManager.closeTab(tab)
-                result = "OK"
+                if !tabManager.unauthorizedBlockPolicyEphemeralWorktreePanelIds(in: tab).isEmpty {
+                    let message = String(
+                        localized: "error.ephemeralWorktree.dirtyRequiresConfirmation",
+                        defaultValue: "This worktree cleanup policy requires confirmation before removal."
+                    )
+                    result = "ERROR: \(message)"
+                    return
+                }
+                result = tabManager.closeTab(tab) ? "OK" : "ERROR: Tab not found"
             }
         }
         return result

@@ -460,6 +460,7 @@ struct CmuxConfigExecutor {
         let workspaceName = wsDef.name ?? command.name
         let restart = command.restart ?? .new
         var existingWorkspaceToClose: Workspace?
+        var existingWorkspaceCleanupAuthorizedPanelIds: Set<UUID> = []
 
         if let existing = tabManager.tabs.first(where: { $0.customTitle == workspaceName }) {
             switch restart {
@@ -497,6 +498,22 @@ struct CmuxConfigExecutor {
             }
         }
 
+        if let existingWorkspaceToClose {
+            let blockPolicyPanelIds = Set(
+                tabManager.blockPolicyEphemeralWorktreePanelIds(in: existingWorkspaceToClose)
+            )
+            if !blockPolicyPanelIds.isEmpty {
+                let copy = WorkspaceEphemeralWorktreeManager.closeConfirmationCopy(
+                    affectedCount: blockPolicyPanelIds.count
+                )
+                guard tabManager.confirmClose(title: copy.title, message: copy.message, acceptCmdD: false) else {
+                    tabManager.selectWorkspace(existingWorkspaceToClose)
+                    return false
+                }
+                existingWorkspaceCleanupAuthorizedPanelIds = blockPolicyPanelIds
+            }
+        }
+
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
         let newWorkspace = tabManager.addWorkspace(workingDirectory: resolvedCwd)
         newWorkspace.setCustomTitle(workspaceName)
@@ -505,7 +522,12 @@ struct CmuxConfigExecutor {
         }
 
         if let existingWorkspaceToClose, existingWorkspaceToClose.id != newWorkspace.id {
-            tabManager.closeWorkspace(existingWorkspaceToClose)
+            guard tabManager.closeWorkspace(
+                existingWorkspaceToClose,
+                ephemeralWorktreeCleanupAuthorizedPanelIds: existingWorkspaceCleanupAuthorizedPanelIds
+            ) else {
+                return false
+            }
         }
 
         if let layout = wsDef.layout {
