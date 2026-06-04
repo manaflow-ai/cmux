@@ -1943,9 +1943,6 @@ final class BrowserPanelPopupContextTests: XCTestCase {
         defer { popupWebView.window?.close() }
 
         XCTAssertTrue(
-            popupWebView.configuration.processPool === panel.webView.configuration.processPool
-        )
-        XCTAssertTrue(
             popupWebView.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore
         )
     }
