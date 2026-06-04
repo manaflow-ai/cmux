@@ -8219,6 +8219,10 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   display: none;
 }
 
+.layout-settings-preview.palette-detail-compact .layout-preview-overlay span:nth-child(3) {
+  display: none;
+}
+
 .layout-preview-switcher {
   position: absolute;
   top: 88px;
@@ -14703,6 +14707,29 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .shell.palette-density-roomy ~ .palette .palette-icon {
   width: 28px;
   height: 28px;
+}
+
+.shell.palette-detail-compact ~ .palette .palette-quick-action {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.shell.palette-detail-compact ~ .palette .palette-quick-icon {
+  grid-row: 1;
+}
+
+.shell.palette-detail-compact ~ .palette .palette-quick-meta,
+.shell.palette-detail-compact ~ .palette .palette-quick-shortcut,
+.shell.palette-detail-compact ~ .palette .palette-meta,
+.shell.palette-detail-compact ~ .palette .palette-shortcut {
+  display: none;
+}
+
+.shell.palette-detail-compact ~ .palette .palette-item {
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+
+.shell.palette-detail-compact ~ .palette .palette-main {
+  gap: 0;
 }
 
 .shell.switcher-style-quiet ~ .workspace-switch-hud,
