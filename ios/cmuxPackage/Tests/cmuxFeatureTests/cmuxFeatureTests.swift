@@ -3,6 +3,7 @@ import CmuxAuthRuntime
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 @testable import CmuxMobileShell
+@testable import CmuxMobileShellUI
 import CmuxMobileShellModel
 import CmuxMobileWorkspace
 import Foundation
@@ -50,9 +51,9 @@ final class TerminalOutputCollector {
 
 @Test func authBuildPolicyCompilesDevShortcutOnlyForDebug() {
     #if CMUX_DEV_AUTH
-    #expect(MobileAuthBuildPolicy.includesFortyTwoShortcut)
+    #expect(MobileAuthBuildPolicy.current.includesFortyTwoShortcut)
     #else
-    #expect(!MobileAuthBuildPolicy.includesFortyTwoShortcut)
+    #expect(!MobileAuthBuildPolicy.current.includesFortyTwoShortcut)
     #endif
 }
 
