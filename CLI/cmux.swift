@@ -7420,6 +7420,7 @@ struct CMUXCLI {
         let workspaceName: String?
         let windowRaw: String?
         let noFocus: Bool
+        let inheritEnvironment: Bool
         let sshOptions: [String]
         let extraArguments: [String]
         let agentSocketPath: String?
@@ -7437,6 +7438,7 @@ struct CMUXCLI {
             workspaceName: String?,
             windowRaw: String? = nil,
             noFocus: Bool,
+            inheritEnvironment: Bool = false,
             sshOptions: [String],
             extraArguments: [String],
             agentSocketPath: String? = nil,
@@ -7451,6 +7453,7 @@ struct CMUXCLI {
             self.workspaceName = workspaceName
             self.windowRaw = windowRaw
             self.noFocus = noFocus
+            self.inheritEnvironment = inheritEnvironment
             self.sshOptions = sshOptions
             self.extraArguments = extraArguments
             self.agentSocketPath = agentSocketPath
@@ -7711,10 +7714,9 @@ struct CMUXCLI {
         var workspaceCreateParams: [String: Any] = [
             "initial_command": initialSSHStartupCommand,
         ]
-        if let agentSocketPath = sshOptions.agentSocketPath {
-            workspaceCreateParams["initial_env"] = [
-                "SSH_AUTH_SOCK": agentSocketPath,
-            ]
+        let startupEnvironment = sshStartupEnvironment(for: sshOptions)
+        if !startupEnvironment.isEmpty {
+            workspaceCreateParams["initial_env"] = startupEnvironment
         }
         try applyWindowOrCallerContext(to: &workspaceCreateParams, client: client, windowRaw: sshOptions.windowRaw)
 
@@ -7890,6 +7892,7 @@ struct CMUXCLI {
         var workspaceName: String?
         var windowRaw: String?
         var noFocus = false
+        var inheritEnvironment = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
         var forwardAgentOverride: Bool?
@@ -7938,6 +7941,9 @@ struct CMUXCLI {
             case "--no-focus":
                 noFocus = true
                 index += 1
+            case "--inherit-env":
+                inheritEnvironment = true
+                index += 1
             case "-A", "--forward-agent":
                 forwardAgentOverride = true
                 index += 1
@@ -7985,12 +7991,60 @@ struct CMUXCLI {
             workspaceName: workspaceName,
             windowRaw: windowRaw ?? windowOverride,
             noFocus: noFocus,
+            inheritEnvironment: inheritEnvironment,
             sshOptions: agentForwarding.sshOptions,
             extraArguments: extraArguments,
             agentSocketPath: agentForwarding.agentSocketPath,
             localSocketPath: localSocketPath,
             remoteRelayPort: remoteRelayPort
         )
+    }
+
+    private static let safeSSHStartupEnvironmentKeys: [String] = [
+        "PATH",
+        "SHELL",
+        "SSH_AUTH_SOCK",
+    ]
+
+    private static let sshInheritedEnvironmentScrubbedKeys: Set<String> = [
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SOCKET_PASSWORD",
+        "CMUX_WORKSPACE_ID",
+        "CMUX_SURFACE_ID",
+        "CMUX_PANEL_ID",
+        "CMUX_TAB_ID",
+        "CMUXD_UNIX_PATH",
+        "CMUX_DEBUG_LOG",
+    ]
+
+    private func sshStartupEnvironment(for options: SSHCommandOptions) -> [String: String] {
+        let environment = ProcessInfo.processInfo.environment
+        var startupEnvironment = options.inheritEnvironment
+            ? scrubbedSSHInheritedEnvironment(environment)
+            : safeSSHStartupEnvironment(environment)
+        if let agentSocketPath = options.agentSocketPath {
+            startupEnvironment["SSH_AUTH_SOCK"] = agentSocketPath
+        }
+        return startupEnvironment
+    }
+
+    private func safeSSHStartupEnvironment(_ environment: [String: String]) -> [String: String] {
+        var result: [String: String] = [:]
+        for key in Self.safeSSHStartupEnvironmentKeys {
+            if let value = Self.normalizedEnvValue(environment[key]) {
+                result[key] = value
+            }
+        }
+        return result
+    }
+
+    private func scrubbedSSHInheritedEnvironment(_ environment: [String: String]) -> [String: String] {
+        var result = environment.compactMapValues { Self.normalizedEnvValue($0) }
+        for key in Self.sshInheritedEnvironmentScrubbedKeys {
+            result.removeValue(forKey: key)
+        }
+        return result
     }
 
     private func resolvedSSHAgentForwarding(
@@ -13522,6 +13576,7 @@ struct CMUXCLI {
               -A, --forward-agent     Forward the caller's SSH agent; also honors ForwardAgent yes from ssh_config
               -a, --no-forward-agent  Disable SSH agent forwarding for this workspace
               --ssh-option <opt>      Extra SSH -o option (repeatable)
+              --inherit-env           Forward the caller environment after scrubbing stale cmux context
               --window <id|ref|index> Target window for the managed workspace
               --no-focus              Create workspace without switching to it
 
