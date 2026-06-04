@@ -1,6 +1,7 @@
 import AppKit
 import CmuxSettings
 import CmuxSocketControl
+import CmuxSwiftRenderUI
 import Carbon.HIToolbox
 import CMUXWorkstream
 import Foundation
@@ -17,7 +18,7 @@ extension Notification.Name {
 }
 
 nonisolated private struct SocketLineProcessingResult: Sendable {
-    let response: String
+    let response: String?
     let authenticated: Bool
 }
 
@@ -2297,6 +2298,9 @@ class TerminalController {
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+        "sidebar.custom.validate",
+        "sidebar.custom.reload",
+        "sidebar.custom.select",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via
@@ -2337,18 +2341,56 @@ class TerminalController {
         )
     }
 
-    private nonisolated func socketWorkerV2ResponseIfNeeded(for command: String) -> String? {
+    private nonisolated func socketWorkerV2ResponseIfHandled(for command: String) -> (handled: Bool, response: String?) {
         guard let request = parseV2SocketRequest(command),
               Self.executionPolicy(forV2Method: request.method) == .socketWorker else {
-            return nil
+            return (false, nil)
         }
 
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
-                return v2Result(id: request.id, workspaceParamError)
+                return (true, v2Result(id: request.id, workspaceParamError))
             }
-            return socketWorkerV2Response(request)
+            if request.method == "feed.push", request.id == nil {
+                guard let waitTimeout = Self.feedPushWaitTimeoutSeconds(params: request.params) else {
+                    return (true, v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "feed.push wait_timeout_seconds must be numeric and between 0 and 120"
+                    ))
+                }
+                guard waitTimeout == 0 else {
+                    return (true, v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "feed.push without an id requires wait_timeout_seconds 0"
+                    ))
+                }
+                _ = socketWorkerV2Response(request)
+                return (true, nil)
+            }
+            return (true, socketWorkerV2Response(request))
         }
+    }
+
+    private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
+        guard let rawTimeout = params["wait_timeout_seconds"] else {
+            return 0
+        }
+        let seconds: Double?
+        if let number = rawTimeout as? NSNumber {
+            seconds = number.doubleValue
+        } else if let value = rawTimeout as? Double {
+            seconds = value
+        } else if let value = rawTimeout as? Int {
+            seconds = Double(value)
+        } else {
+            seconds = nil
+        }
+        guard let seconds, seconds.isFinite, seconds >= 0, seconds <= 120 else {
+            return nil
+        }
+        return seconds
     }
 
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
@@ -2452,6 +2494,12 @@ class TerminalController {
             return v2Result(id: request.id, v2WorkspaceRemotePTYBridge(params: request.params))
         case "workspace.remote.pty_resize":
             return v2Result(id: request.id, v2WorkspaceRemotePTYResize(params: request.params))
+        case "sidebar.custom.validate":
+            return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
+        case "sidebar.custom.reload":
+            return v2Result(id: request.id, v2CustomSidebarReload(params: request.params))
+        case "sidebar.custom.select":
+            return v2Result(id: request.id, v2CustomSidebarSelect(params: request.params))
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
@@ -2811,10 +2859,12 @@ class TerminalController {
 
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
-                let didWriteResponse = writeSocketResponse(result.response, to: socket)
-                publishSocketEvents(command: trimmed, response: result.response)
-                guard didWriteResponse else {
-                    return
+                if let response = result.response {
+                    let didWriteResponse = writeSocketResponse(response, to: socket)
+                    publishSocketEvents(command: trimmed, response: response)
+                    guard didWriteResponse else {
+                        return
+                    }
                 }
             }
         }
@@ -2849,12 +2899,14 @@ class TerminalController {
 
         let response = processCommandUsingSocketExecutionPolicy(command)
 #if DEBUG
-        Self.debugLogSocketCommandEndIfNeeded(
-            debugInfo: debugInfo,
-            startedAt: debugStart,
-            response: response,
-            loggingEnabled: debugLoggingEnabled
-        )
+        if let response {
+            Self.debugLogSocketCommandEndIfNeeded(
+                debugInfo: debugInfo,
+                startedAt: debugStart,
+                response: response,
+                loggingEnabled: debugLoggingEnabled
+            )
+        }
 #endif
         return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
     }
@@ -2941,7 +2993,7 @@ class TerminalController {
     }
 #endif
 
-    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
+    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {
         if Thread.isMainThread,
            let request = parseV2SocketRequest(command),
            Self.executionPolicy(forV2Method: request.method) == .socketWorker,
@@ -2953,7 +3005,11 @@ class TerminalController {
             )
         }
 
-        if let response = socketWorkerV2ResponseIfNeeded(for: command) {
+        let socketWorkerResult = socketWorkerV2ResponseIfHandled(for: command)
+        if socketWorkerResult.handled {
+            guard let response = socketWorkerResult.response else {
+                return nil
+            }
             return response
         }
 
@@ -2973,7 +3029,7 @@ class TerminalController {
     /// request) can reuse the full V1/V2 dispatcher without duplicating
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
-        return processCommandUsingSocketExecutionPolicy(line)
+        return processCommandUsingSocketExecutionPolicy(line) ?? ""
     }
 
     private func processCommand(_ command: String) -> String {
@@ -5574,6 +5630,117 @@ class TerminalController {
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspaces": workspaces
         ])
+    }
+
+    private nonisolated func v2CustomSidebarValidate(params: [String: Any]) -> V2CallResult {
+        let name = v2CustomSidebarName(params: params)
+        if let name, name.isEmpty {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.custom.invalidName",
+                    defaultValue: "Sidebar name must not be empty."
+                ),
+                data: nil
+            )
+        }
+        let report = v2CustomSidebarValidationReport(name: name)
+        return .ok(v2CustomSidebarReportPayload(report))
+    }
+
+    private nonisolated func v2CustomSidebarReload(params: [String: Any]) -> V2CallResult {
+        let name = v2CustomSidebarName(params: params)
+        if let name, name.isEmpty {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.custom.invalidName",
+                    defaultValue: "Sidebar name must not be empty."
+                ),
+                data: nil
+            )
+        }
+        let report = v2CustomSidebarValidationReport(name: name)
+        let validNames = report.validNames
+        let reloadNames = report.names
+        if !reloadNames.isEmpty {
+            v2MainSync {
+                NotificationCenter.default.post(
+                    name: .customSidebarReloadRequested,
+                    object: nil,
+                    userInfo: ["names": reloadNames]
+                )
+            }
+        }
+        var payload = v2CustomSidebarReportPayload(report)
+        payload["reloaded_count"] = validNames.count
+        payload["reloaded_names"] = validNames
+        return .ok(payload)
+    }
+
+    private nonisolated func v2CustomSidebarSelect(params: [String: Any]) -> V2CallResult {
+        guard let name = v2CustomSidebarName(params: params), !name.isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sidebar.custom.selectMissingName",
+                    defaultValue: "Select requires a sidebar name."
+                ),
+                data: nil
+            )
+        }
+
+        let report = v2CustomSidebarValidationReport(name: name)
+        guard let entry = report.entries.first else {
+            return .ok(v2CustomSidebarReportPayload(report))
+        }
+        if let errorMessage = entry.errorMessage {
+            var payload = v2CustomSidebarReportPayload(report)
+            payload["message"] = errorMessage
+            return .ok(payload)
+        }
+
+        let providerId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
+        v2MainSync {
+            UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
+            CmuxExtensionSidebarSelection.setProviderId(providerId)
+            NotificationCenter.default.post(
+                name: .customSidebarReloadRequested,
+                object: nil,
+                userInfo: ["names": [name]]
+            )
+        }
+        var payload = v2CustomSidebarReportPayload(report)
+        payload["selected_provider_id"] = providerId
+        payload["selected_name"] = name
+        return .ok(payload)
+    }
+
+    private nonisolated func v2CustomSidebarName(params: [String: Any]) -> String? {
+        guard let raw = params["name"] as? String else { return nil }
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private nonisolated func v2CustomSidebarValidationReport(name: String?) -> CustomSidebarValidationReport {
+        let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
+        return CustomSidebarValidator().validate(directory: directory, name: name)
+    }
+
+    private nonisolated func v2CustomSidebarReportPayload(_ report: CustomSidebarValidationReport) -> [String: Any] {
+        [
+            "directory": CmuxExtensionSidebarSelection.customSidebarsDirectory.path,
+            "valid_count": report.validCount,
+            "error_count": report.errorCount,
+            "sidebars": report.entries.map { entry in
+                [
+                    "name": entry.name,
+                    "path": entry.fileURL.path,
+                    "kind": entry.kind.rawValue,
+                    "ok": entry.isValid,
+                    "error": v2OrNull(entry.errorMessage)
+                ] as [String: Any]
+            }
+        ]
     }
 
     private func v2ExtensionSidebarSnapshot(params: [String: Any]) -> V2CallResult {

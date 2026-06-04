@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSidebarInterpreterClient
+import CmuxSidebarRemoteRender
 import CmuxSocketControl
 import CmuxSettings
 import CmuxSettingsUI
@@ -8,7 +10,29 @@ import Observation
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+
+/// The process entry point. When the binary is launched with a sidebar worker
+/// flag (the app re-executes its own binary that way so a crash in the
+/// interpreter or renderer kills only the worker process), run that worker
+/// loop instead of the app:
+/// - the render worker hosts its own faceless AppKit session and shares the
+///   rendered layer tree with the host;
+/// - the interpreter worker (stage-1 fallback path) runs before any
+///   AppKit/SwiftUI setup.
 @main
+enum CmuxMain {
+    static func main() {
+        if CommandLine.arguments.contains(RenderWorkerClient.workerModeArgument) {
+            runSidebarRenderWorker()
+        }
+        if CommandLine.arguments.contains(InterpreterClient.workerModeArgument) {
+            runSidebarInterpreterWorker()
+            exit(0)
+        }
+        cmuxApp.main()
+    }
+}
+
 struct cmuxApp: App {
     /// Dependency container for the new settings packages. Constructed
     /// once at app launch and injected into the SwiftUI environment via
@@ -104,6 +128,20 @@ struct cmuxApp: App {
         // (which happens for any shell descended from this process), bare `cmux`
         // resolves here instead of the CLI. See
         // https://github.com/manaflow-ai/cmux/issues/4678.
+        // cmux ships a universal binary so it still supports Intel Macs, but a
+        // stale LaunchServices architecture preference can pin the app to its
+        // x86_64 slice on Apple Silicon, running the whole process tree under
+        // Rosetta (macOS 26 deprecation dialog; translated child shells and
+        // toolchains). `LSArchitecturePriority` in Info.plist fixes future
+        // launches; this corrects an already-mis-pinned install by re-execing the
+        // arm64 slice in place. It runs *before* CLI forwarding so a translated
+        // GUI binary invoked with CLI-style arguments is re-execed natively first
+        // and the forwarded bundled CLI then inherits the native arch too. The
+        // re-exec preserves argv and re-enters this initializer, so forwarding
+        // proceeds normally in the native process. No-op on Intel and on native
+        // launches. See https://github.com/manaflow-ai/cmux/issues/753.
+        RosettaNativeRelaunch.relaunchNativelyIfNeeded()
+
         CLIForwardingLaunchRouter.forwardToBundledCLIIfNeeded()
 
         StartupBreadcrumbLog.append("app.init.begin")
@@ -5125,6 +5163,18 @@ enum KiroIntegrationSettings {
             return defaultNotificationLevel
         }
         return level
+    }
+}
+
+enum AmpIntegrationSettings {
+    static let hooksEnabledKey = "ampHooksEnabled"
+    static let defaultHooksEnabled = true
+
+    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: hooksEnabledKey) == nil {
+            return defaultHooksEnabled
+        }
+        return defaults.bool(forKey: hooksEnabledKey)
     }
 }
 

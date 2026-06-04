@@ -127,6 +127,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:account:account",
         "setting:betaFeatures:feed",
         "setting:betaFeatures:dock",
+        "setting:betaFeatures:customSidebars",
         "setting:browser:history",
         "setting:browser:http-allowlist",
         "setting:workspaceColors:palette",
