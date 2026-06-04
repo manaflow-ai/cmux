@@ -6,6 +6,6 @@ public enum SocketBindAttemptResult: Equatable, Sendable {
     case success(path: String, identity: SocketPathIdentity)
     /// The path does not fit in `sockaddr_un.sun_path`.
     case pathTooLong(path: String)
-    /// A setup stage failed; see ``SocketStageFailure`` for the stage vocabulary.
-    case failure(path: String, stage: String, errnoCode: Int32)
+    /// A setup stage failed; ``SocketStageFailure`` carries the stage vocabulary.
+    case failure(path: String, failure: SocketStageFailure)
 }

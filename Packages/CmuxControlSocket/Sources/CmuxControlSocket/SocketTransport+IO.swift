@@ -3,7 +3,12 @@ internal import Darwin
 
 extension SocketTransport {
     /// Writes all of `data` to `socket`, retrying on `EINTR` and partial
-    /// writes. Returns false on any other write failure.
+    /// writes.
+    ///
+    /// - Parameters:
+    ///   - data: The bytes to write.
+    ///   - socket: The destination socket descriptor.
+    /// - Returns: False on any write failure other than `EINTR`.
     public func writeAll(_ data: Data, to socket: Int32) -> Bool {
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress else { return true }
@@ -35,6 +40,12 @@ extension SocketTransport {
     ///
     /// A blocking client with `SO_RCVTIMEO`/`SO_SNDTIMEO` set to `timeout`;
     /// never polls.
+    ///
+    /// - Parameters:
+    ///   - command: The command text; a trailing newline is appended.
+    ///   - socketPath: The Unix-domain socket path to connect to.
+    ///   - timeout: Send/receive timeout applied to the probe connection.
+    /// - Returns: The first response line without its newline, or nil.
     public func probeCommand(
         _ command: String,
         at socketPath: String,
@@ -75,19 +86,7 @@ extension SocketTransport {
         }
         guard connectResult == 0 else { return nil }
 
-        let payload = command + "\n"
-        let wroteAll = payload.withCString { cString in
-            var remaining = strlen(cString)
-            var pointer = UnsafeRawPointer(cString)
-            while remaining > 0 {
-                let written = write(fd, pointer, remaining)
-                if written <= 0 { return false }
-                remaining -= written
-                pointer = pointer.advanced(by: written)
-            }
-            return true
-        }
-        guard wroteAll else { return nil }
+        guard writeAll(Data((command + "\n").utf8), to: fd) else { return nil }
 
         var buffer = [UInt8](repeating: 0, count: 4096)
         var response = ""

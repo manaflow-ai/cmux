@@ -6,30 +6,40 @@ extension SocketTransport {
     ///
     /// On success the bound socket inode's identity is captured for later
     /// ownership checks.
+    ///
+    /// - Parameters:
+    ///   - socket: The unbound listener socket descriptor.
+    ///   - path: The Unix-domain socket path to bind.
+    ///   - canReplaceRefusedSocket: Whether a connection-refused socket file at
+    ///     the path may be unlinked first (see ``SocketPathLockAcquisition``).
+    /// - Returns: The bind outcome, including the bound inode's
+    ///   ``SocketPathIdentity`` on success.
     public func bindListenerSocket(
         _ socket: Int32,
         path: String,
         canReplaceRefusedSocket: Bool
     ) -> SocketBindAttemptResult {
         if let errnoCode = ensureSocketParentDirectoryExists(path: path) {
-            return .failure(path: path, stage: "create_directory", errnoCode: errnoCode)
+            return .failure(
+                path: path,
+                failure: SocketStageFailure(stage: "create_directory", errnoCode: errnoCode)
+            )
         }
         if let preparationFailure = prepareSocketPathForBind(
             path,
             canReplaceRefusedSocket: canReplaceRefusedSocket
         ) {
-            return .failure(
-                path: path,
-                stage: preparationFailure.stage,
-                errnoCode: preparationFailure.errnoCode
-            )
+            return .failure(path: path, failure: preparationFailure)
         }
 
         guard let bindResult = bindUnixSocket(socket, path: path) else {
             return .pathTooLong(path: path)
         }
         guard bindResult >= 0 else {
-            return .failure(path: path, stage: "bind", errnoCode: errno)
+            return .failure(
+                path: path,
+                failure: SocketStageFailure(stage: "bind", errnoCode: errno)
+            )
         }
         let identityResult = pathIdentityResult(at: path)
         if let identity = identityResult.identity {
@@ -37,8 +47,10 @@ extension SocketTransport {
         }
         return .failure(
             path: path,
-            stage: "stat_bound_path",
-            errnoCode: identityResult.errnoCode ?? EIO
+            failure: SocketStageFailure(
+                stage: "stat_bound_path",
+                errnoCode: identityResult.errnoCode ?? EIO
+            )
         )
     }
 
@@ -48,6 +60,12 @@ extension SocketTransport {
     /// probed: stale sockets are unlinked; refused sockets are unlinked only
     /// when `canReplaceRefusedSocket` proves a prior owner left them behind;
     /// live or indeterminate sockets always block the bind.
+    ///
+    /// - Parameters:
+    ///   - path: The socket path to prepare.
+    ///   - canReplaceRefusedSocket: Whether a connection-refused socket file
+    ///     may be unlinked.
+    /// - Returns: Nil when the path is clear, or the blocking ``SocketStageFailure``.
     public func prepareSocketPathForBind(
         _ path: String,
         canReplaceRefusedSocket: Bool = false

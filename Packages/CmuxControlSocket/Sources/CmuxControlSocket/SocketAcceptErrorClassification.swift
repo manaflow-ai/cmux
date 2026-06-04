@@ -11,7 +11,7 @@ public enum SocketAcceptErrorClassification: String, Equatable, Sendable {
     case resourcePressure = "resource_pressure"
     /// The listener descriptor itself is broken (`EBADF`, `EINVAL`, `ENOTSOCK`);
     /// the listener must be torn down and rearmed.
-    case fatal
+    case fatal = "fatal"
     /// Anything else; back off and retry.
     case retryWithBackoff = "retry_with_backoff"
 }

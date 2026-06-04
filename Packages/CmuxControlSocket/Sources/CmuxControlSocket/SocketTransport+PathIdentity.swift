@@ -4,6 +4,9 @@ internal import Darwin
 extension SocketTransport {
     /// The filesystem identity of the socket inode at `path`, or nil when the
     /// path is missing or not a socket.
+    ///
+    /// - Parameter path: The socket path to stat.
+    /// - Returns: The ``SocketPathIdentity``, or nil.
     public func pathIdentity(at path: String) -> SocketPathIdentity? {
         pathIdentityResult(at: path).identity
     }
@@ -29,6 +32,11 @@ extension SocketTransport {
     }
 
     /// Whether the socket inode at `path` is the one captured in `boundIdentity`.
+    ///
+    /// - Parameters:
+    ///   - path: The socket path to stat.
+    ///   - boundIdentity: The identity captured at bind time (nil never matches).
+    /// - Returns: True only when the current inode equals `boundIdentity`.
     public func pathExists(_ path: String, matching boundIdentity: SocketPathIdentity?) -> Bool {
         guard let currentIdentity = pathIdentity(at: path),
               let boundIdentity else {
@@ -38,12 +46,17 @@ extension SocketTransport {
     }
 
     /// Whether a live listener accepts connections at `path`.
+    ///
+    /// - Parameter path: The socket path to probe.
     public func pathAcceptsConnections(_ path: String) -> Bool {
         pathProbeResult(at: path) == .connected
     }
 
     /// Classifies the liveness of the socket path with a non-blocking
     /// `connect(2)` probe.
+    ///
+    /// - Parameter path: The socket path to probe.
+    /// - Returns: The ``SocketPathProbeResult`` classification.
     public func pathProbeResult(at path: String) -> SocketPathProbeResult {
         let identityResult = pathIdentityResult(at: path)
         guard identityResult.identity != nil else {

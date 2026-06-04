@@ -2,7 +2,10 @@ public import Foundation
 internal import Darwin
 
 extension SocketTransport {
-    /// Sets `O_NONBLOCK` on `fd`; returns the failing `errno` otherwise.
+    /// Sets `O_NONBLOCK` on `fd`.
+    ///
+    /// - Parameter fd: The socket descriptor to configure.
+    /// - Returns: Nil on success, the failing `errno` otherwise.
     public func configureNonBlocking(_ fd: Int32) -> Int32? {
         let flags = fcntl(fd, F_GETFL, 0)
         guard flags >= 0 else {
@@ -34,6 +37,10 @@ extension SocketTransport {
     }
 
     /// Applies `timeout` as both `SO_RCVTIMEO` and `SO_SNDTIMEO` (best effort).
+    ///
+    /// - Parameters:
+    ///   - fd: The socket descriptor to configure.
+    ///   - timeout: The receive and send timeout to apply.
     public func configureSocketTimeouts(_ fd: Int32, timeout: TimeInterval) {
         var socketTimeout = makeSocketTimeout(timeout)
         _ = withUnsafePointer(to: &socketTimeout) { ptr in
@@ -70,7 +77,10 @@ extension SocketTransport {
         return result == 0 ? nil : errno
     }
 
-    /// Sets `SO_NOSIGPIPE` on `fd` (macOS); returns the failing `errno` otherwise.
+    /// Sets `SO_NOSIGPIPE` on `fd` (macOS).
+    ///
+    /// - Parameter fd: The socket descriptor to configure.
+    /// - Returns: Nil on success, the failing `errno` otherwise.
     public func configureNoSigPipe(_ fd: Int32) -> Int32? {
 #if os(macOS)
         var noSigPipe: Int32 = 1
@@ -91,8 +101,10 @@ extension SocketTransport {
     }
 
     /// Configures a freshly accepted client socket: blocking mode, the
-    /// transport's read/write timeouts, and `SO_NOSIGPIPE`. Returns the failing
-    /// stage on error.
+    /// transport's read/write timeouts, and `SO_NOSIGPIPE`.
+    ///
+    /// - Parameter fd: The freshly accepted client socket descriptor.
+    /// - Returns: Nil on success, or the failing ``SocketStageFailure``.
     public func configureAcceptedClientSocket(_ fd: Int32) -> SocketStageFailure? {
         if let errnoCode = configureBlocking(fd) {
             return SocketStageFailure(stage: "accept_client_configure_blocking", errnoCode: errnoCode)
@@ -123,6 +135,10 @@ extension SocketTransport {
     ///
     /// Timeout/NOSIGPIPE failures caused by the client disconnecting between
     /// accept and configure are expected churn and are suppressed.
+    ///
+    /// - Parameters:
+    ///   - stage: The failing stage from ``configureAcceptedClientSocket(_:)``.
+    ///   - errnoCode: The failing `errno`.
     public func shouldReportAcceptedClientConfigFailure(stage: String, errnoCode: Int32) -> Bool {
         guard stage == "accept_client_configure_receive_timeout" ||
             stage == "accept_client_configure_send_timeout" ||

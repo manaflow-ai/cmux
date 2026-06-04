@@ -992,7 +992,7 @@ class TerminalController {
                 activeSocketPathCanReplaceRefusedSocket = canReplaceRefusedSocket
                 return nil
             case .failed(let failure):
-                return .failure(path: activeSocketPath, stage: failure.stage, errnoCode: failure.errnoCode)
+                return .failure(path: activeSocketPath, failure: failure)
             }
         }
 
@@ -1002,11 +1002,11 @@ class TerminalController {
                 path: activeSocketPath,
                 canReplaceRefusedSocket: activeSocketPathCanReplaceRefusedSocket
             )
-        if case .failure(let failedPath, let failedStage, let failedErrnoCode) = bindAttempt,
+        if case .failure(let failedPath, let bindFailure) = bindAttempt,
            let fallbackPath = listenerPolicy.fallbackSocketPathAfterBindFailure(
                requestedPath: failedPath,
-               stage: failedStage,
-               errnoCode: failedErrnoCode
+               stage: bindFailure.stage,
+               errnoCode: bindFailure.errnoCode
            ),
            fallbackPath != failedPath {
             sentryBreadcrumb(
@@ -1015,8 +1015,8 @@ class TerminalController {
                 data: [
                     "requestedPath": failedPath,
                     "fallbackPath": fallbackPath,
-                    "stage": failedStage,
-                    "errno": Int(failedErrnoCode)
+                    "stage": bindFailure.stage,
+                    "errno": Int(bindFailure.errnoCode)
                 ]
             )
             transport.releaseSocketPathLock(activeSocketPathLockFD)
@@ -1055,13 +1055,13 @@ class TerminalController {
                 ]
             )
             return
-        case .failure(let failedPath, let failedStage, let failedErrnoCode):
+        case .failure(let failedPath, let bindFailure):
             print("TerminalController: Failed to bind socket")
             close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
-                stage: failedStage,
-                errnoCode: failedErrnoCode,
+                stage: bindFailure.stage,
+                errnoCode: bindFailure.errnoCode,
                 extra: ["path": failedPath]
             )
             return

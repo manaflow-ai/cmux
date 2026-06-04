@@ -3,6 +3,9 @@ internal import Darwin
 
 extension SocketTransport {
     /// The advisory lock-file path for a socket path.
+    ///
+    /// - Parameter socketPath: The socket path the lock arbitrates.
+    /// - Returns: The sibling lock-file path (`socketPath` + ``pathLockSuffix``).
     public func pathLockPath(for socketPath: String) -> String {
         socketPath + pathLockSuffix
     }
@@ -13,6 +16,9 @@ extension SocketTransport {
     /// is a regular single-link file owned by the current user, and takes a
     /// non-blocking exclusive `flock(2)`. On success the caller owns the
     /// returned descriptor until ``releaseSocketPathLock(_:)``.
+    ///
+    /// - Parameter socketPath: The socket path whose lock to acquire.
+    /// - Returns: The ``SocketPathLockAcquisition`` outcome.
     public func acquireSocketPathLock(for socketPath: String) -> SocketPathLockAcquisition {
         if let errnoCode = ensureSocketParentDirectoryExists(path: socketPath) {
             return .failed(SocketStageFailure(stage: "create_lock_directory", errnoCode: errnoCode))
@@ -113,6 +119,8 @@ extension SocketTransport {
 
     /// Writes the reusable marker into the lock file, marking the socket path
     /// reclaimable by a future listener.
+    ///
+    /// - Parameter fd: The locked lock-file descriptor (no-op when negative).
     public func markSocketPathLockReusable(_ fd: Int32) {
         guard fd >= 0 else { return }
         let marker = Array(pathLockReusableMarker.utf8)
@@ -127,12 +135,17 @@ extension SocketTransport {
                 }
                 return write(fd, baseAddress.advanced(by: written), marker.count - written)
             }
+            if result < 0, errno == EINTR {
+                continue
+            }
             guard result > 0 else { return }
             written += Int(result)
         }
     }
 
     /// Unlocks and closes a lock descriptor (no-op for negative descriptors).
+    ///
+    /// - Parameter fd: The lock-file descriptor returned by ``acquireSocketPathLock(for:)``.
     public func releaseSocketPathLock(_ fd: Int32) {
         guard fd >= 0 else { return }
         _ = flock(fd, LOCK_UN)
@@ -142,6 +155,9 @@ extension SocketTransport {
     /// Whether a startup listener may claim `path`: either nothing exists there
     /// (and no foreign lock blocks it), or a socket exists whose lock is free
     /// and carries the reusable marker.
+    ///
+    /// - Parameter path: The socket path to evaluate.
+    /// - Returns: True when a startup listener may claim the path.
     public func pathCanBeReclaimedForStartup(_ path: String) -> Bool {
         var st = stat()
         guard lstat(path, &st) == 0 else {

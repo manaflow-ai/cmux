@@ -18,11 +18,19 @@ enum UnixSocketFixture {
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
-        path.withCString { ptr in
+        let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
+        let didFit = path.withCString { ptr -> Bool in
+            guard strlen(ptr) < maxLength else { return false }
             withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
                 let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
-                strcpy(pathBuf, ptr)
+                memset(pathBuf, 0, maxLength)
+                strncpy(pathBuf, ptr, maxLength - 1)
             }
+            return true
+        }
+        guard didFit else {
+            Darwin.close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENAMETOOLONG))
         }
 
         let bindResult = withUnsafePointer(to: &addr) { ptr in
