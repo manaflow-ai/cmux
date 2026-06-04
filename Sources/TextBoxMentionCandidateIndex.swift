@@ -17,7 +17,6 @@ struct TextBoxMentionCandidateIndex: Sendable {
                 title: candidate.title,
                 searchableTexts: [
                     candidate.title,
-                    candidate.subtitle,
                     candidate.searchKey
                 ]
             )
