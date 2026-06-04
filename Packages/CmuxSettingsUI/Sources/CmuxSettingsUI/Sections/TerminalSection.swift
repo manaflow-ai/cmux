@@ -66,14 +66,18 @@ public struct TerminalSection: View {
         }
     }
 
-    /// Persists the stretch-tabs-to-fill flag, cancelling any in-flight save so a
-    /// rapid toggle sequence only reflects the latest value.
+    /// Persists the stretch-tabs-to-fill flag in request order while cancelling
+    /// superseded saves that have not started writing yet.
     private func saveTabsFillPaneWidth(_ enabled: Bool) {
-        tabsFillSaveTask?.cancel()
+        let previousSaveTask = tabsFillSaveTask
+        previousSaveTask?.cancel()
         tabsFillSaveGeneration += 1
         let saveGeneration = tabsFillSaveGeneration
         tabsFillSaveFailed = false
         tabsFillSaveTask = Task {
+            if let previousSaveTask {
+                await previousSaveTask.value
+            }
             guard !Task.isCancelled else { return }
             let saved = await hostActions.setSurfaceTabsFillPaneWidth(enabled)
             if saved {
