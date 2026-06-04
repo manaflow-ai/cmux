@@ -14,7 +14,7 @@ struct BrowserWebContentProcessTests {
     private let recoveryURL = URL(string: "data:text/html,cmux-recovery")!
 
     @Test
-    func browserPanelsUseSeparateWebContentProcessPools() {
+    func browserPanelsShareDefaultWebsiteDataStore() {
         let first = BrowserPanel(workspaceId: UUID())
         let second = BrowserPanel(workspaceId: UUID())
         defer {
@@ -22,28 +22,20 @@ struct BrowserWebContentProcessTests {
             second.close()
         }
 
-        #expect(!(first.webView.configuration.processPool === second.webView.configuration.processPool))
         #expect(first.webView.configuration.websiteDataStore === second.webView.configuration.websiteDataStore)
     }
 
     @Test
-    func configureWebViewConfigurationPreservesCopiedProcessPoolWhenOmitted() {
+    func configureWebViewConfigurationAppliesWebsiteDataStore() {
         let configuration = WKWebViewConfiguration()
-        let originalProcessPool = configuration.processPool
-        let suppliedProcessPool = WKProcessPool()
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
 
         BrowserPanel.configureWebViewConfiguration(
             configuration,
-            websiteDataStore: .nonPersistent()
+            websiteDataStore: websiteDataStore
         )
-        #expect(configuration.processPool === originalProcessPool)
 
-        BrowserPanel.configureWebViewConfiguration(
-            configuration,
-            websiteDataStore: .nonPersistent(),
-            processPool: suppliedProcessPool
-        )
-        #expect(configuration.processPool === suppliedProcessPool)
+        #expect(configuration.websiteDataStore === websiteDataStore)
     }
 
     @Test
@@ -55,13 +47,11 @@ struct BrowserWebContentProcessTests {
         defer { panel.close() }
         let oldWebView = panel.webView
         let oldInstanceID = panel.webViewInstanceID
-        let oldProcessPool = oldWebView.configuration.processPool
 
         panel.debugSimulateWebContentProcessTermination()
 
         #expect(!(panel.webView === oldWebView))
         #expect(panel.webViewInstanceID != oldInstanceID)
-        #expect(panel.webView.configuration.processPool === oldProcessPool)
         #expect(panel.hasRecoverableWebContentTermination)
         #expect(panel.webView.navigationDelegate != nil)
         #expect(panel.webView.uiDelegate != nil)
