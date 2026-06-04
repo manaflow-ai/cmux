@@ -20,7 +20,7 @@ extension SocketListenerAcceptPolicyTests {
                     "/opt/homebrew/bin/hermes",
                     "--tui",
                     "--model",
-                    "anthropic/claude-sonnet-4.6",
+                    "gpt-5.4",
                     "--resume",
                     "old-session",
                     "--source",
@@ -39,7 +39,35 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/tmp/hermes repo' && 'env' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--tui' '--model' 'anthropic/claude-sonnet-4.6' '--resume' 'hermes-session-123'"
+            "{ cd -- '/tmp/hermes repo' 2>/dev/null || [ ! -d '/tmp/hermes repo' ]; } && 'env' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--tui' '--model' 'gpt-5.4' '--resume' 'hermes-session-123'"
+        )
+    }
+
+    func testHermesAgentResumeCommandRewritesStaleCodexProvider() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: "hermes-session-123",
+            workingDirectory: "/tmp/hermes repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "hermes-agent",
+                executablePath: "/opt/homebrew/bin/hermes",
+                arguments: [
+                    "/opt/homebrew/bin/hermes",
+                    "--provider",
+                    "openai-codex",
+                    "--model",
+                    "gpt-5.5",
+                ],
+                workingDirectory: "/tmp/hermes repo",
+                environment: [:],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "{ cd -- '/tmp/hermes repo' 2>/dev/null || [ ! -d '/tmp/hermes repo' ]; } && '/opt/homebrew/bin/hermes' '--provider' 'custom' '--model' 'gpt-5.5' '--resume' 'hermes-session-123'"
         )
     }
 
@@ -56,14 +84,46 @@ extension SocketListenerAcceptPolicyTests {
             fileURL: nil,
             specifics: .hermesAgent(
                 source: "tui",
-                model: "anthropic/claude-sonnet-4.6",
+                model: "gpt-5.4",
                 hermesHome: "/tmp/hermes home"
             )
         )
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env HERMES_HOME='/tmp/hermes home' hermes --tui --resume hermes-session-123 --model anthropic/claude-sonnet-4.6"
+            "env HERMES_HOME='/tmp/hermes home' hermes --tui --resume hermes-session-123 --model gpt-5.4"
+        )
+    }
+
+    func testHermesAgentResumeCommandPreservesSubrouterBaseURLs() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: "hermes-session-123",
+            workingDirectory: "/tmp/hermes repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "hermes-agent",
+                executablePath: "/opt/homebrew/bin/hermes",
+                arguments: [
+                    "/opt/homebrew/bin/hermes",
+                    "--provider",
+                    "anthropic",
+                    "--model",
+                    "anthropic/claude-sonnet-4.6",
+                ],
+                workingDirectory: "/tmp/hermes repo",
+                environment: [
+                    "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+                    "HERMES_CODEX_BASE_URL": "http://subrouter-team:31415/backend-api/codex",
+                    "HERMES_HOME": "/tmp/hermes home",
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "{ cd -- '/tmp/hermes repo' 2>/dev/null || [ ! -d '/tmp/hermes repo' ]; } && 'env' 'CUSTOM_BASE_URL=http://subrouter-team:31415/v1' 'HERMES_CODEX_BASE_URL=http://subrouter-team:31415/backend-api/codex' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--provider' 'anthropic' '--model' 'anthropic/claude-sonnet-4.6' '--resume' 'hermes-session-123'"
         )
     }
 
@@ -74,7 +134,7 @@ extension SocketListenerAcceptPolicyTests {
                     "/opt/homebrew/bin/hermes",
                     "--tui",
                     "--model",
-                    "anthropic/claude-sonnet-4.6",
+                    "gpt-5.4",
                     "--resume",
                     "old-session",
                     "--source",
@@ -88,7 +148,7 @@ extension SocketListenerAcceptPolicyTests {
                 "/opt/homebrew/bin/hermes",
                 "--tui",
                 "--model",
-                "anthropic/claude-sonnet-4.6"
+                "gpt-5.4"
             ]
         )
         XCTAssertNil(

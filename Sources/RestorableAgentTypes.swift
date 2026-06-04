@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 enum RestorableAgentKind: Codable, Hashable, Sendable {
@@ -8,6 +9,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     case amp
     case cursor
     case gemini
+    case kiro
     case antigravity
     case opencode
     case rovodev
@@ -26,6 +28,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         .amp,
         .cursor,
         .gemini,
+        .kiro,
         // Antigravity is registry-owned so the built-in Vault registration can be
         // overridden by project config while direct .antigravity values still encode.
         .opencode,
@@ -47,6 +50,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case "amp": self = .amp
         case "cursor": self = .cursor
         case "gemini": self = .gemini
+        case "kiro": self = .kiro
         case "antigravity": self = .antigravity
         case "opencode": self = .opencode
         case "rovodev": self = .rovodev
@@ -70,6 +74,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .amp: return "amp"
         case .cursor: return "cursor"
         case .gemini: return "gemini"
+        case .kiro: return "kiro"
         case .antigravity: return "antigravity"
         case .opencode: return "opencode"
         case .rovodev: return "rovodev"
@@ -87,6 +92,36 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
             return id
         }
         return nil
+    }
+
+    var displayName: String {
+        switch self {
+        case .claude: return "Claude Code"
+        case .codex: return "Codex"
+        case .grok: return "Grok"
+        case .pi: return "Pi"
+        case .amp: return "Amp"
+        case .cursor: return "Cursor"
+        case .gemini: return "Gemini"
+        case .kiro: return "Kiro"
+        case .antigravity: return "Antigravity"
+        case .opencode: return "OpenCode"
+        case .rovodev: return "Rovo Dev"
+        case .hermesAgent: return "Hermes Agent"
+        case .copilot: return "Copilot"
+        case .codebuddy: return "CodeBuddy"
+        case .factory: return "Factory"
+        case .qoder: return "Qoder"
+        case .custom(let id): return id
+        }
+    }
+
+    /// How an agent's session store is keyed, which decides whether `<agent> --resume <id>` is
+    /// sensitive to the directory it is launched from. Derived from the shared
+    /// ``AgentResumeWorkingDirectory/cwdNamespacing(forKind:)`` so the app and the standalone CLI
+    /// apply one classification.
+    var cwdNamespacing: AgentCwdNamespacing {
+        AgentResumeWorkingDirectory().cwdNamespacing(forKind: rawValue)
     }
 
     init(from decoder: Decoder) throws {
