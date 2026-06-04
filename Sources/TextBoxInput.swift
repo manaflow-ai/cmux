@@ -3320,6 +3320,7 @@ struct TextBoxInputView: NSViewRepresentable {
             hasMarkedText: textView.hasMarkedText()
         ) {
             textView.string = text
+            textView.applyCmuxNaturalWritingDirectionToComposedText()
         }
         updateTextView(textView, context: context)
     }
@@ -3560,6 +3561,16 @@ final class TextBoxInputTextView: NSTextView {
         attachmentPreviewPopover?.isShown == true
     }
 
+    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+        super.init(frame: frameRect, textContainer: container)
+        configureCmuxNaturalWritingDirectionForComposedText()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     deinit {
         mentionCompletionWarmupTask?.cancel()
         removeMentionCompletionWindowObservers()
@@ -3688,6 +3699,7 @@ final class TextBoxInputTextView: NSTextView {
         dismissMentionCompletions()
         clearAttachmentFocus(dismissPreview: true)
         textStorage?.setAttributedString(NSAttributedString(string: ""))
+        configureCmuxNaturalWritingDirectionForComposedText()
         recenterSingleLineTextContainer()
         didChangeText()
     }
@@ -3723,6 +3735,7 @@ final class TextBoxInputTextView: NSTextView {
         dismissMentionCompletions()
         clearAttachmentFocus(dismissPreview: true)
         textStorage?.setAttributedString(content)
+        applyCmuxNaturalWritingDirectionToComposedText()
         refreshInlineAttachmentCells(
             font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
             foregroundColor: textColor ?? .labelColor
@@ -5444,7 +5457,8 @@ final class TextBoxInputTextView: NSTextView {
         [
             .font: explicitFont ?? font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
             .foregroundColor: explicitForegroundColor ?? textColor ?? .labelColor,
-            .baselineOffset: textBaselineOffsetForCurrentContent()
+            .baselineOffset: textBaselineOffsetForCurrentContent(),
+            .paragraphStyle: cmuxNaturalComposedTextParagraphStyle()
         ]
     }
 
