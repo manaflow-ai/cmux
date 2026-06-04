@@ -76,9 +76,9 @@ export function DownloadConfirmation() {
         </p>
       </div>
 
-      {/* Official links — reused from the Community page */}
+      {/* Official links — reused from the Community page (no heading here) */}
       <div className="mt-14">
-        <OfficialLinks />
+        <OfficialLinks heading={false} />
       </div>
     </main>
   );
