@@ -69,8 +69,7 @@ enum ClosedItemHistoryEntry: Codable {
 }
 
 /// Identifies a live item that was just reopened from history so a "redo"
-/// (re-close) can target it. Window reopens are not tracked; redo covers panels
-/// and workspaces only.
+/// (re-close) can target it.
 enum ReopenedItemRef: Equatable, Sendable {
     case panel(workspaceId: UUID, panelId: UUID)
     case workspace(workspaceId: UUID)
