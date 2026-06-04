@@ -1007,6 +1007,8 @@ const state = {
   paletteListSignature: "",
   paletteEntriesCache: null,
   paletteEntriesCacheSignature: "",
+  paletteEntriesCacheRevision: 0,
+  paletteEntriesCacheRevisionSeen: -1,
   surfaceTabScrollFrame: 0,
   surfaceTabScrollTargetId: "",
   surfaceTabScrollStateFrame: 0,
@@ -2992,8 +2994,7 @@ function saveRecentCommandAsSnippet(command = state.recentCommands[0]) {
   });
   if (!saved) return null;
   renderSettingsInspector();
-  state.paletteEntriesCache = null;
-  state.paletteEntriesCacheSignature = "";
+  resetPaletteEntriesCache();
   toast(`${saved.label} snippet saved.`);
   return saved;
 }
@@ -6807,6 +6808,7 @@ function updateSettings(updates, options = {}) {
   if (changedKeys.length === 0) return false;
   state.settings = nextSettings;
   state.terminalFontSize = state.settings.terminalFontSize;
+  bumpPaletteEntriesCacheRevision();
   if (options.immediate) saveSettings();
   else scheduleSettingsSave();
   applySettings();
@@ -9888,6 +9890,7 @@ function render(previousState) {
   );
   state.deferSettingsInspectorForWorkspaceSwitch = false;
   renderInspector({ deferSettings: deferSettingsInspector });
+  bumpPaletteEntriesCacheRevision();
   renderPalette();
   announceNewAttention(previousState, state.data);
   recordRenderDuration(performance.now() - renderStartedAt);
@@ -33972,13 +33975,31 @@ function flushPaletteRender() {
   renderPalette();
 }
 
+function bumpPaletteEntriesCacheRevision() {
+  state.paletteEntriesCacheRevision += 1;
+}
+
+function resetPaletteEntriesCache() {
+  state.paletteEntriesCache = null;
+  state.paletteEntriesCacheSignature = "";
+  state.paletteEntriesCacheRevisionSeen = -1;
+  state.paletteListSignature = "";
+}
+
 function paletteEntriesForOpenSession() {
+  if (
+    state.paletteEntriesCache
+    && state.paletteEntriesCacheRevisionSeen === state.paletteEntriesCacheRevision
+  ) {
+    return state.paletteEntriesCache;
+  }
   const signature = paletteEntriesSignature();
   if (!state.paletteEntriesCache || state.paletteEntriesCacheSignature !== signature) {
     state.paletteEntriesCache = preparePaletteEntries(paletteEntries());
     state.paletteEntriesCacheSignature = signature;
     state.paletteListSignature = "";
   }
+  state.paletteEntriesCacheRevisionSeen = state.paletteEntriesCacheRevision;
   return state.paletteEntriesCache;
 }
 
@@ -36188,9 +36209,7 @@ function schedulePaletteFocus() {
 function openPalette() {
   state.paletteOpen = true;
   state.paletteIndex = 0;
-  state.paletteEntriesCache = null;
-  state.paletteEntriesCacheSignature = "";
-  state.paletteListSignature = "";
+  resetPaletteEntriesCache();
   renderPalette();
   elements.paletteList.scrollTop = 0;
   schedulePaletteFocus();
@@ -36199,9 +36218,7 @@ function openPalette() {
 function closePalette() {
   state.paletteOpen = false;
   cancelPaletteFocus();
-  state.paletteEntriesCache = null;
-  state.paletteEntriesCacheSignature = "";
-  state.paletteListSignature = "";
+  resetPaletteEntriesCache();
   elements.paletteList.scrollTop = 0;
   renderPalette();
 }
