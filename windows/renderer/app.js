@@ -13563,13 +13563,21 @@ function renderSettingsInspector(options = {}) {
     ));
     const homeActions = document.createElement("div");
     homeActions.className = "settings-actions";
-    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web system external profile chrome edge brave pane chrome tabs address controls full compact content zoom scale save browser profile reusable copy paste setup clipboard json");
+    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web launch mode system external profile chrome edge brave suspend inactive pane chrome tabs address controls full compact content zoom scale save browser profile reusable copy paste setup clipboard json");
     const browserHomeDefault = browserHomeKey(state.settings.browserHomeUrl) === browserHomeKey(defaultSettings.browserHomeUrl);
     const resetBrowserHomeAction = settingsActionButton("Reset", resetBrowserHome, "", `browser home reset default url page web ${browserHomeDefault ? "active current " : ""}`);
     resetBrowserHomeAction.disabled = browserHomeDefault;
     resetBrowserHomeAction.title = browserHomeDefault
       ? "Browser home already uses the default page."
       : "Reset the browser home page to the default.";
+    const browserLaunchDefault = state.settings.browserLaunchMode === defaultSettings.browserLaunchMode
+      && state.settings.externalBrowserProfileId === defaultSettings.externalBrowserProfileId
+      && state.settings.browserSuspendInactive === defaultSettings.browserSuspendInactive;
+    const resetBrowserLaunchAction = settingsActionButton("Reset launch", resetBrowserLaunchSettings, "", `browser launch mode external profile system chrome edge brave suspend inactive reset default ${browserLaunchDefault ? "active current " : ""}`);
+    resetBrowserLaunchAction.disabled = browserLaunchDefault;
+    resetBrowserLaunchAction.title = browserLaunchDefault
+      ? "Browser launch settings already use defaults."
+      : "Reset launch mode, external profile, and inactive-pane suspension to defaults.";
     const browserPaneViewDefault = state.settings.browserChromeMode === defaultSettings.browserChromeMode
       && state.settings.browserZoom === defaultSettings.browserZoom;
     const resetBrowserPaneViewAction = settingsActionButton("Reset pane view", resetBrowserPaneView, "", `browser pane chrome zoom reset default full 100 ${browserPaneViewDefault ? "active current " : ""}`);
@@ -13591,6 +13599,7 @@ function renderSettingsInspector(options = {}) {
       settingsActionButton("Open pane", () => createPanel("browser", newPaneDirection(), { url: state.settings.browserHomeUrl })),
       settingsActionButton("Open external", () => openExternalBrowser(state.settings.browserHomeUrl, { toast: true }), "", "browser system chrome edge brave profile external"),
       settingsActionButton("Refresh profiles", () => refreshBrowserProfiles({ render: true }), "", "browser chrome edge brave profile detect refresh reload"),
+      resetBrowserLaunchAction,
       resetBrowserPaneViewAction,
       resetBrowserHomeAction
     );
@@ -16748,6 +16757,21 @@ function resetBrowserPaneView() {
   }
   if (state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
   toast("Browser pane view reset.");
+  return true;
+}
+
+function resetBrowserLaunchSettings() {
+  const changed = updateSettings({
+    browserLaunchMode: defaultSettings.browserLaunchMode,
+    externalBrowserProfileId: defaultSettings.externalBrowserProfileId,
+    browserSuspendInactive: defaultSettings.browserSuspendInactive
+  });
+  if (!changed) {
+    toast("Browser launch settings already use defaults.");
+    return false;
+  }
+  if (state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
+  toast("Browser launch settings reset.");
   return true;
 }
 
