@@ -14,6 +14,7 @@ import {
   defaultSettings,
   inactivePaneDimmingOptions,
   interfaceContrastOptions,
+  interfaceDepthOptions,
   paneActionOptions,
   paneDividerSizeOptions,
   paneHeaderOptions,
@@ -265,6 +266,7 @@ const performanceSetupSettings = [
   "backgroundOpacity",
   "backgroundBlur",
   "backgroundEffects",
+  "interfaceDepth",
   "terminalStartupMode",
   "terminalPauseInactiveOutput",
   "terminalSmoothResumedOutput",
@@ -302,6 +304,7 @@ const appearancePreviewKeys = new Set([
   "backgroundPosition",
   "backgroundEffects",
   "interfaceContrast",
+  "interfaceDepth",
   "terminalFontFamily",
   "terminalBackground",
   "terminalForeground",
@@ -382,6 +385,7 @@ const settingsInspectorSettingKeys = {
     "backgroundPosition",
     "backgroundEffects",
     "interfaceContrast",
+    "interfaceDepth",
     "terminalFontFamily",
     "terminalBackground",
     "terminalForeground",
@@ -663,6 +667,7 @@ const lookPackDefinitions = [
       accent: "oklch(66% 0.13 175)",
       accentIntensity: "subtle",
       surfaceTint: "neutral",
+      interfaceDepth: "flat",
       backgroundImage: "",
       backgroundOpacity: 10,
       backgroundBlur: 0,
@@ -683,6 +688,7 @@ const lookPackDefinitions = [
       accent: "oklch(70% 0.16 145)",
       accentIntensity: "subtle",
       surfaceTint: "cool",
+      interfaceDepth: "flat",
       backgroundImage: "",
       backgroundOpacity: 10,
       backgroundBlur: 0,
@@ -703,6 +709,7 @@ const lookPackDefinitions = [
       accent: "oklch(72% 0.17 230)",
       accentIntensity: "balanced",
       surfaceTint: "cool",
+      interfaceDepth: "soft",
       backgroundImage: "preset:blueprint-lines",
       backgroundOpacity: 18,
       backgroundBlur: 0,
@@ -723,6 +730,7 @@ const lookPackDefinitions = [
       accent: "oklch(66% 0.13 175)",
       accentIntensity: "subtle",
       surfaceTint: "cool",
+      interfaceDepth: "soft",
       backgroundImage: "preset:dot-matrix",
       backgroundOpacity: 14,
       backgroundBlur: 0,
@@ -743,6 +751,7 @@ const lookPackDefinitions = [
       accent: "oklch(74% 0.12 35)",
       accentIntensity: "vivid",
       surfaceTint: "warm",
+      interfaceDepth: "layered",
       backgroundImage: "preset:soft-aurora",
       backgroundOpacity: 22,
       backgroundBlur: 4,
@@ -763,6 +772,7 @@ const lookPackDefinitions = [
       accent: "oklch(86% 0.11 70)",
       accentIntensity: "vivid",
       surfaceTint: "neutral",
+      interfaceDepth: "flat",
       backgroundImage: "preset:signal-bands",
       backgroundOpacity: 10,
       backgroundBlur: 0,
@@ -1084,6 +1094,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!backgroundPositionOptions.some(([id]) => id === next.backgroundPosition)) next.backgroundPosition = defaultSettings.backgroundPosition;
   if (!backgroundEffectsOptions.some(([id]) => id === next.backgroundEffects)) next.backgroundEffects = defaultSettings.backgroundEffects;
   if (!interfaceContrastOptions.some(([id]) => id === next.interfaceContrast)) next.interfaceContrast = defaultSettings.interfaceContrast;
+  if (!interfaceDepthOptions.some(([id]) => id === next.interfaceDepth)) next.interfaceDepth = defaultSettings.interfaceDepth;
   if (!accentIntensityOptions.some(([id]) => id === next.accentIntensity)) next.accentIntensity = defaultSettings.accentIntensity;
   if (!surfaceTintOptions.some(([id]) => id === next.surfaceTint)) next.surfaceTint = defaultSettings.surfaceTint;
   if (!themeOptions.some(([id]) => id === next.theme)) next.theme = defaultSettings.theme;
@@ -3110,6 +3121,7 @@ function settingsProfileSummary(settings) {
   const surfaceTint = optionLabel(surfaceTintOptions, normalized.surfaceTint, normalized.surfaceTint);
   const backgroundEffects = optionLabel(backgroundEffectsOptions, normalized.backgroundEffects, "Flat");
   const contrast = optionLabel(interfaceContrastOptions, normalized.interfaceContrast, normalized.interfaceContrast);
+  const depth = optionLabel(interfaceDepthOptions, normalized.interfaceDepth, normalized.interfaceDepth);
   const chromeMotion = optionLabel(chromeMotionOptions, normalized.chromeMotionMode, normalized.chromeMotionMode);
   const startup = optionLabel(terminalStartupOptions, normalized.terminalStartupMode, "Fast");
   const browserHomeHost = hostnameOf(normalized.browserHomeUrl) || "browser";
@@ -3132,6 +3144,7 @@ function settingsProfileSummary(settings) {
     `${surfaceTint.toLowerCase()} tint`,
     `${backgroundEffects.toLowerCase()} background`,
     `${contrast.toLowerCase()} contrast`,
+    `${depth.toLowerCase()} depth`,
     `${normalized.backgroundBlur}px soften`,
     normalized.performanceMode ? "performance" : normalized.reduceMotion ? "reduced motion" : "balanced",
     `${startup.toLowerCase()} startup`,
@@ -5200,6 +5213,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.backgroundPosition,
     settings.backgroundEffects,
     settings.interfaceContrast,
+    settings.interfaceDepth,
     settings.density,
     settings.toolbarMode,
     settings.tabSize,
@@ -5312,6 +5326,9 @@ function applySettings() {
   toggleClassIfChanged(document.body, "interface-contrast-soft", state.settings.interfaceContrast === "soft");
   toggleClassIfChanged(document.body, "interface-contrast-balanced", state.settings.interfaceContrast === "balanced");
   toggleClassIfChanged(document.body, "interface-contrast-strong", state.settings.interfaceContrast === "strong");
+  toggleClassIfChanged(document.body, "interface-depth-flat", state.settings.interfaceDepth === "flat");
+  toggleClassIfChanged(document.body, "interface-depth-soft", state.settings.interfaceDepth === "soft");
+  toggleClassIfChanged(document.body, "interface-depth-layered", state.settings.interfaceDepth === "layered");
   toggleClassIfChanged(elements.shell, "background-effects-flat", state.settings.backgroundEffects === "flat");
   toggleClassIfChanged(elements.shell, "background-effects-tinted", state.settings.backgroundEffects === "tinted");
   toggleClassIfChanged(elements.shell, "background-effects-glass", state.settings.backgroundEffects === "glass");
@@ -12851,23 +12868,29 @@ function renderSettingsInspector(options = {}) {
       true,
       "interface contrast chrome border line divider soft balanced strong readable subtle"
     ));
+    appearanceSection.append(settingRow(
+      "Surface depth",
+      settingSegmentedControl("interfaceDepth", interfaceDepthOptions, "surface depth shadow flat soft layered elevated chrome pane polish performance", { compact: true }),
+      true,
+      "surface depth shadow flat soft layered elevated chrome pane polish performance"
+    ));
     appearanceSection.append(savedColorsDisclosurePanel());
     const appearanceActions = document.createElement("div");
     appearanceActions.className = "settings-actions appearance-actions";
-    appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look save profile copy paste reset theme accent intensity surface tint contrast background terminal colors default profiles clipboard json");
+    appearanceActions.dataset.settingsSearch = normalizeSettingsQuery("appearance look save profile copy paste reset theme accent intensity surface tint contrast depth shadow background terminal colors default profiles clipboard json");
     const lookSettingsDefault = appearanceSettingsAreDefault();
-    const lookReset = settingsActionButton("Reset look", resetAppearanceSettings, "", `appearance look reset theme accent intensity surface tint contrast background terminal colors default ${lookSettingsDefault ? "active current " : ""}`);
+    const lookReset = settingsActionButton("Reset look", resetAppearanceSettings, "", `appearance look reset theme accent intensity surface tint contrast depth shadow background terminal colors default ${lookSettingsDefault ? "active current " : ""}`);
     lookReset.disabled = lookSettingsDefault;
     lookReset.title = lookReset.disabled
       ? "Look settings already match the default setup."
-      : "Reset theme, accent intensity, surface tint, interface contrast, app background, and terminal colors.";
-    const copyLook = settingsActionButton("Copy look", copyLookSettings, "", "appearance look copy theme accent intensity surface tint contrast background terminal colors clipboard json");
-    copyLook.title = "Copy theme, accent intensity, surface tint, interface contrast, app background, and terminal colors as JSON.";
-    const pasteLook = settingsActionButton("Paste look", pasteLookSettings, "", "appearance look paste theme accent intensity surface tint contrast background terminal colors clipboard json");
+      : "Reset theme, accent intensity, surface tint, interface contrast, surface depth, app background, and terminal colors.";
+    const copyLook = settingsActionButton("Copy look", copyLookSettings, "", "appearance look copy theme accent intensity surface tint contrast depth shadow background terminal colors clipboard json");
+    copyLook.title = "Copy theme, accent intensity, surface tint, interface contrast, surface depth, app background, and terminal colors as JSON.";
+    const pasteLook = settingsActionButton("Paste look", pasteLookSettings, "", "appearance look paste theme accent intensity surface tint contrast depth shadow background terminal colors clipboard json");
     pasteLook.title = "Apply copied cmux look JSON.";
     appearanceActions.append(
       applySettingsProfileSaveLimit(
-        settingsActionButton("Save profile", saveCurrentLookProfile, "primary", "appearance look save current settings profile theme accent intensity surface tint contrast background terminal layout performance"),
+        settingsActionButton("Save profile", saveCurrentLookProfile, "primary", "appearance look save current settings profile theme accent intensity surface tint contrast depth shadow background terminal layout performance"),
         "Save this look as a reusable Settings profile."
       ),
       copyLook,
@@ -14030,6 +14053,7 @@ function appearancePreviewPanel() {
     themeLabel: `${optionLabel(themeOptions, state.settings.theme, "cmux")} / ${optionLabel(surfaceTintOptions, state.settings.surfaceTint, state.settings.surfaceTint)}`,
     accentLabel: `${normalizeCustomPaletteColor(state.settings.accent) ? "Custom" : "Preset"} / ${optionLabel(accentIntensityOptions, state.settings.accentIntensity, state.settings.accentIntensity)}`,
     contrastLabel: optionLabel(interfaceContrastOptions, state.settings.interfaceContrast, state.settings.interfaceContrast),
+    depthLabel: optionLabel(interfaceDepthOptions, state.settings.interfaceDepth, state.settings.interfaceDepth),
     backgroundLabel: appearanceBackgroundLabel(state.settings.backgroundImage),
     terminalFontLabel: optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono"),
     terminalFontStack: terminalFontStack(),
@@ -14042,7 +14066,7 @@ function appearancePreviewPanel() {
   });
   preview.style.setProperty("--preview-background-blur", `${state.settings.backgroundBlur}px`);
   preview.style.setProperty("--preview-background-scale", state.settings.backgroundBlur > 0 ? "1.03" : "1");
-  preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme gallery accent intensity surface tint contrast background image strength soften blur terminal colors font");
+  preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme gallery accent intensity surface tint contrast depth shadow background image strength soften blur terminal colors font");
   return preview;
 }
 
@@ -14826,6 +14850,7 @@ function lookPackSummary(pack) {
     optionLabel(themeOptions, settings.theme, settings.theme),
     optionLabel(surfaceTintOptions, settings.surfaceTint, settings.surfaceTint),
     optionLabel(accentIntensityOptions, settings.accentIntensity, settings.accentIntensity),
+    optionLabel(interfaceDepthOptions, settings.interfaceDepth, settings.interfaceDepth),
     appearanceBackgroundLabel(settings.backgroundImage, settings),
     settings.terminalBackground ? "custom terminal" : "default terminal"
   ].join(" / ");
@@ -17740,6 +17765,7 @@ function performanceDiagnosticsPayload() {
     },
     settings: {
       theme: state.settings.theme,
+      interfaceDepth: state.settings.interfaceDepth,
       density: state.settings.density,
       toolbarMode: state.settings.toolbarMode,
       paneHeaderMode: state.settings.paneHeaderMode,
@@ -17823,6 +17849,7 @@ const performanceTuningPresets = [
       backgroundOpacity: 16,
       backgroundBlur: 0,
       backgroundEffects: "flat",
+      interfaceDepth: "soft",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
@@ -17847,6 +17874,7 @@ const performanceTuningPresets = [
       backgroundOpacity: 8,
       backgroundBlur: 0,
       backgroundEffects: "flat",
+      interfaceDepth: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
@@ -17871,6 +17899,7 @@ const performanceTuningPresets = [
       backgroundOpacity: 6,
       backgroundBlur: 0,
       backgroundEffects: "flat",
+      interfaceDepth: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
@@ -17895,6 +17924,7 @@ const performanceTuningPresets = [
       backgroundOpacity: 8,
       backgroundBlur: 0,
       backgroundEffects: "flat",
+      interfaceDepth: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
@@ -17919,6 +17949,7 @@ const performanceTuningPresets = [
       backgroundOpacity: 12,
       backgroundBlur: 0,
       backgroundEffects: "flat",
+      interfaceDepth: "flat",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: true,
       terminalSmoothResumedOutput: true,
@@ -17943,6 +17974,7 @@ const performanceTuningPresets = [
       backgroundOpacity: 16,
       backgroundBlur: 0,
       backgroundEffects: "flat",
+      interfaceDepth: "soft",
       terminalStartupMode: "fast",
       terminalPauseInactiveOutput: false,
       terminalSmoothResumedOutput: false,
@@ -18011,6 +18043,17 @@ const performanceHealthCheckDefinitions = [
       backgroundBlur: 0
     }),
     search: "background image opacity soften blur glass effects wallpaper slow"
+  },
+  {
+    id: "surfaceDepth",
+    label: "Surface depth",
+    body: "Flattens layered shadows when the workspace needs maximum responsiveness.",
+    actionLabel: "Flatten",
+    readyLabel: "Light",
+    issue: () => state.settings.interfaceDepth === "layered",
+    meta: () => optionLabel(interfaceDepthOptions, state.settings.interfaceDepth, state.settings.interfaceDepth),
+    updates: () => ({ interfaceDepth: "flat" }),
+    search: "surface depth shadow layered flat performance lag"
   },
   {
     id: "workspaceChrome",
@@ -18277,12 +18320,14 @@ function performanceSetupSummaryForSettings(settings) {
   const toolbar = optionLabel(toolbarModeOptions, normalized.toolbarMode, normalized.toolbarMode);
   const controls = optionLabel(paneActionOptions, normalized.paneActionMode, normalized.paneActionMode);
   const motionSpeed = optionLabel(chromeMotionOptions, normalized.chromeMotionMode, normalized.chromeMotionMode);
+  const depth = optionLabel(interfaceDepthOptions, normalized.interfaceDepth, normalized.interfaceDepth);
   return {
     mode: normalized.performanceMode ? "Tuned" : "Balanced",
     adaptiveGuard: normalized.adaptivePerformance ? "On" : "Off",
     motion: normalized.performanceMode || normalized.reduceMotion ? `Reduced / ${motionSpeed}` : motionSpeed,
     chrome: `${normalized.density === "compact" ? "Compact" : "Comfortable"} / ${toolbar}`,
     controls,
+    depth,
     background: `${backgroundEffects} ${normalized.backgroundOpacity}% / ${normalized.backgroundBlur}px soften`,
     terminalStartup: optionLabel(terminalStartupOptions, normalized.terminalStartupMode, normalized.terminalStartupMode),
     inactiveOutput: normalized.terminalPauseInactiveOutput ? "Paused" : "Live",
@@ -18426,6 +18471,7 @@ function performanceSetupSettingUpdateFromValue(key, raw) {
     return Number.isFinite(value) ? clamp(Math.round(value), 0, 12) : null;
   }
   if (key === "backgroundEffects") return optionIdAllowed(backgroundEffectsOptions, raw) ? raw : null;
+  if (key === "interfaceDepth") return optionIdAllowed(interfaceDepthOptions, raw) ? raw : null;
   if (key === "terminalPadding") {
     const value = Number(raw);
     return Number.isFinite(value) ? clamp(Math.round(value), 0, 16) : null;
@@ -18493,7 +18539,7 @@ function performanceTuningPresetSettings(preset) {
 function performanceTuningPresetSearchText(preset, settings = performanceTuningPresetSettings(preset)) {
   const summary = performanceSetupSummaryForSettings(settings || {});
   return normalizeSettingsQuery([
-    "performance tuning preset setup apply copy speed lag smooth low motion speed snappy balanced calm live panes workspace chrome density toolbar controls padding background opacity effects glass flat terminal output browser preview suspend history scrollback",
+    "performance tuning preset setup apply copy speed lag smooth low motion speed snappy balanced calm live panes workspace chrome density toolbar controls padding surface depth shadow background opacity effects glass flat terminal output browser preview suspend history scrollback",
     preset?.label,
     preset?.body,
     summary.mode,
@@ -18501,6 +18547,7 @@ function performanceTuningPresetSearchText(preset, settings = performanceTuningP
     summary.motion,
     summary.chrome,
     summary.controls,
+    summary.depth,
     summary.background,
     summary.terminalStartup,
     summary.inactiveOutput,
@@ -19231,6 +19278,7 @@ function quickLookControlsPanel() {
   const profilesFull = savedSettingsProfilesFull();
   const themeLabel = optionLabel(themeOptions, state.settings.theme, state.settings.theme);
   const contrastLabel = optionLabel(interfaceContrastOptions, state.settings.interfaceContrast, state.settings.interfaceContrast);
+  const depthLabel = optionLabel(interfaceDepthOptions, state.settings.interfaceDepth, state.settings.interfaceDepth);
   const surfaceTintLabel = optionLabel(surfaceTintOptions, state.settings.surfaceTint, state.settings.surfaceTint);
   const accentLabel = accentModeLabel();
   const backgroundLabel = appearanceBackgroundLabel(state.settings.backgroundImage);
@@ -19238,26 +19286,26 @@ function quickLookControlsPanel() {
     quickOverviewControlButton("Save profile", saveCurrentLookProfile, {
       disabled: profilesFull,
       title: profilesFull ? settingsProfileLimitTitle() : "Save this look as a reusable Settings profile.",
-      search: "quick setup look appearance save profile theme accent intensity surface tint contrast background terminal colors reusable"
+      search: "quick setup look appearance save profile theme accent intensity surface tint contrast depth shadow background terminal colors reusable"
     }),
     quickOverviewControlButton("Copy look", copyLookSettings, {
-      title: "Copy theme, accent intensity, surface tint, interface contrast, app background, and terminal colors as JSON.",
-      search: "quick setup look appearance copy theme accent intensity surface tint contrast background terminal colors clipboard json"
+      title: "Copy theme, accent intensity, surface tint, interface contrast, surface depth, app background, and terminal colors as JSON.",
+      search: "quick setup look appearance copy theme accent intensity surface tint contrast depth shadow background terminal colors clipboard json"
     }),
     quickOverviewControlButton("Paste look", pasteLookSettings, {
       title: "Apply copied cmux look JSON.",
-      search: "quick setup look appearance paste theme accent intensity surface tint contrast background terminal colors clipboard json"
+      search: "quick setup look appearance paste theme accent intensity surface tint contrast depth shadow background terminal colors clipboard json"
     }),
     quickOverviewControlButton("Reset look", resetAppearanceSettings, {
       disabled: lookSettingsDefault,
       title: lookSettingsDefault
         ? "Look settings already match the default setup."
-        : "Reset theme, accent intensity, surface tint, interface contrast, app background, and terminal colors.",
-      search: `quick setup look appearance reset default theme accent intensity surface tint contrast background terminal colors ${lookSettingsDefault ? "active current" : ""}`
+        : "Reset theme, accent intensity, surface tint, interface contrast, surface depth, app background, and terminal colors.",
+      search: `quick setup look appearance reset default theme accent intensity surface tint contrast depth shadow background terminal colors ${lookSettingsDefault ? "active current" : ""}`
     }),
     quickOverviewControlButton("Looks", () => openSettingsCategory("appearance"), {
       title: "Open full appearance settings.",
-      search: "quick setup look appearance settings theme accent intensity surface tint contrast background terminal color packs"
+      search: "quick setup look appearance settings theme accent intensity surface tint contrast depth shadow background terminal color packs"
     }),
     quickOverviewControlButton("Gallery", () => openSettingsCategory("appearance", { query: "theme gallery", focusSearch: false }), {
       title: "Open the theme gallery and look packs.",
@@ -19267,8 +19315,8 @@ function quickLookControlsPanel() {
   return quickOverviewControlsPanel({
     className: "quick-overview-look",
     title: "Look controls",
-    meta: `${activeLookPackLabel()} / ${themeLabel} / ${surfaceTintLabel}`,
-    search: `quick setup look appearance controls theme accent intensity surface tint contrast background terminal colors profile copy paste reset gallery packs ${activeLookPackLabel()} ${themeLabel} ${surfaceTintLabel} ${contrastLabel} ${backgroundLabel} ${accentLabel}`,
+    meta: `${activeLookPackLabel()} / ${themeLabel} / ${surfaceTintLabel} / ${depthLabel}`,
+    search: `quick setup look appearance controls theme accent intensity surface tint contrast depth shadow background terminal colors profile copy paste reset gallery packs ${activeLookPackLabel()} ${themeLabel} ${surfaceTintLabel} ${contrastLabel} ${depthLabel} ${backgroundLabel} ${accentLabel}`,
     actions
   });
 }
@@ -19847,8 +19895,8 @@ function quickSetupMapItems() {
       label: "Look",
       value: activeLookPackLabel(),
       body: `${optionLabel(themeOptions, state.settings.theme, "cmux")} / ${optionLabel(surfaceTintOptions, state.settings.surfaceTint, state.settings.surfaceTint)} / ${accentModeLabel()}`,
-      meta: appearanceBackgroundLabel(state.settings.backgroundImage),
-      search: "appearance look theme accent color intensity surface tint background terminal colors"
+      meta: `${appearanceBackgroundLabel(state.settings.backgroundImage)} / ${optionLabel(interfaceDepthOptions, state.settings.interfaceDepth, state.settings.interfaceDepth)} depth`,
+      search: "appearance look theme accent color intensity surface tint depth shadow background terminal colors"
     },
     {
       id: "layout",
@@ -21214,7 +21262,7 @@ function refreshPerformanceHealthPanel(panel = elements.inspectorBody.querySelec
 function performanceTuningPresetGrid() {
   const grid = document.createElement("div");
   grid.className = "performance-tune-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes workspace chrome density toolbar padding background opacity soften blur effects motion speed snappy balanced calm glass flat browser preview apply copy setup history scrollback");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("performance tuning presets speed lag low motion live panes workspace chrome density toolbar padding surface depth shadow background opacity soften blur effects motion speed snappy balanced calm glass flat browser preview apply copy setup history scrollback");
   for (const preset of performanceTuningPresets) {
     const settings = performanceTuningPresetSettings(preset);
     if (!settings) continue;
@@ -21252,7 +21300,7 @@ function performanceTuningPresetGrid() {
     const meta = button.querySelectorAll(".performance-tune-meta span");
     meta[0].textContent = summary.mode;
     meta[1].textContent = summary.motion;
-    meta[2].textContent = summary.history;
+    meta[2].textContent = `${summary.depth} / ${summary.history}`;
     button.onclick = () => {
       if (!isActivePerformanceTuningPreset(preset)) applyPerformanceTuningPreset(preset.id);
     };
@@ -21960,6 +22008,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     reduceMotion: true,
     backgroundOpacity: Math.min(state.settings.backgroundOpacity, 8),
     backgroundEffects: "flat",
+    interfaceDepth: "flat",
     density: "compact",
     toolbarMode: "minimal",
     paneActionMode: "essential",
@@ -24939,6 +24988,7 @@ function settingsPresetTags(settings) {
     settings.paneColorMarkers
       ? `${optionLabel(paneMarkerStyleOptions, settings.paneMarkerStyle, settings.paneMarkerStyle)} markers`
       : "Quiet markers",
+    `${optionLabel(interfaceDepthOptions, settings.interfaceDepth, settings.interfaceDepth)} depth`,
     statusbarSummaryLabel(settings),
     `${settings.terminalScrollback.toLocaleString()} history`
   ];
@@ -26578,7 +26628,7 @@ function showToolbarMenu(event) {
         action.title = colorCopyTitle(state.settings.accent, defaultSettings.accent, "Copy the current accent color value.");
         return action;
       })(),
-      toolbarAction("Copy current look", copyLookSettings, false, "Copy theme, accent intensity, surface tint, interface contrast, app background, and terminal colors as JSON."),
+      toolbarAction("Copy current look", copyLookSettings, false, "Copy theme, accent intensity, surface tint, interface contrast, surface depth, app background, and terminal colors as JSON."),
       toolbarAction("Paste look", pasteLookSettings, false, "Apply a copied cmux look JSON payload."),
       contextMenuButton("Background settings", () => openSettingsCategory("appearance", { query: "background", focusSearch: true })),
       contextMenuButton("Copy saved backgrounds", copySavedBackgroundImages),
@@ -30686,6 +30736,7 @@ const appearanceResetSettings = [
   "backgroundPosition",
   "backgroundEffects",
   "interfaceContrast",
+  "interfaceDepth",
   "terminalBackground",
   "terminalForeground",
   "terminalCursorColor"
@@ -30711,6 +30762,7 @@ function lookSettingsPayload() {
       accentIntensity: optionLabel(accentIntensityOptions, state.settings.accentIntensity, state.settings.accentIntensity),
       surfaceTint: optionLabel(surfaceTintOptions, state.settings.surfaceTint, state.settings.surfaceTint),
       contrast: optionLabel(interfaceContrastOptions, state.settings.interfaceContrast, state.settings.interfaceContrast),
+      depth: optionLabel(interfaceDepthOptions, state.settings.interfaceDepth, state.settings.interfaceDepth),
       background: appearanceBackgroundLabel(state.settings.backgroundImage),
       terminalColors: terminalColorPalettePayload().effective
     },
@@ -31002,6 +31054,7 @@ function lookSettingUpdateFromValue(key, raw) {
   if (key === "backgroundPosition") return optionIdAllowed(backgroundPositionOptions, raw) ? raw : null;
   if (key === "backgroundEffects") return optionIdAllowed(backgroundEffectsOptions, raw) ? raw : null;
   if (key === "interfaceContrast") return optionIdAllowed(interfaceContrastOptions, raw) ? raw : null;
+  if (key === "interfaceDepth") return optionIdAllowed(interfaceDepthOptions, raw) ? raw : null;
   if (key === "terminalBackground" || key === "terminalForeground" || key === "terminalCursorColor") {
     if (raw === "" || raw === null) return "";
     return typeof raw === "string" ? normalizeTerminalColor(raw) || null : null;

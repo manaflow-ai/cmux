@@ -5,6 +5,7 @@ export function createAppearancePreview({
   themeLabel,
   accentLabel,
   contrastLabel,
+  depthLabel,
   backgroundLabel,
   terminalFontLabel,
   terminalFontStack,
@@ -15,7 +16,7 @@ export function createAppearancePreview({
   backgroundPosition
 }) {
   const panel = document.createElement("div");
-  panel.className = "appearance-preview";
+  panel.className = `appearance-preview appearance-depth-${settings.interfaceDepth || "soft"}`;
   panel.style.setProperty("--preview-background-image", backgroundImage || "none");
   panel.style.setProperty("--preview-background-opacity", String(Math.max(0, Math.min(0.42, Number(settings.backgroundOpacity) / 100 || 0))));
   panel.style.setProperty("--preview-background-size", backgroundSize || "cover");
@@ -57,6 +58,7 @@ export function createAppearancePreview({
       <span><b data-preview-label-theme></b><em data-preview-theme></em></span>
       <span><b data-preview-label-accent></b><em data-preview-accent></em></span>
       <span><b data-preview-label-contrast></b><em data-preview-contrast></em></span>
+      <span><b data-preview-label-depth></b><em data-preview-depth></em></span>
       <span><b data-preview-label-background></b><em data-preview-background></em></span>
       <span><b data-preview-label-terminal></b><em data-preview-terminal></em></span>
     </div>
@@ -65,11 +67,13 @@ export function createAppearancePreview({
   panel.querySelector("[data-preview-label-theme]").textContent = t("appearance.theme");
   panel.querySelector("[data-preview-label-accent]").textContent = t("appearance.accent");
   panel.querySelector("[data-preview-label-contrast]").textContent = t("appearance.contrast", "Contrast");
+  panel.querySelector("[data-preview-label-depth]").textContent = t("appearance.depth", "Depth");
   panel.querySelector("[data-preview-label-background]").textContent = t("appearance.background");
   panel.querySelector("[data-preview-label-terminal]").textContent = t("appearance.terminal");
   panel.querySelector("[data-preview-theme]").textContent = themeLabel;
   panel.querySelector("[data-preview-accent]").textContent = accentLabel;
   panel.querySelector("[data-preview-contrast]").textContent = contrastLabel;
+  panel.querySelector("[data-preview-depth]").textContent = depthLabel;
   panel.querySelector("[data-preview-background]").textContent = backgroundLabel;
   panel.querySelector("[data-preview-terminal]").textContent = terminalFontLabel;
   return panel;

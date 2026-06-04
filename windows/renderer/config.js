@@ -14,6 +14,7 @@ export const defaultSettings = {
   backgroundPosition: "center",
   backgroundEffects: "flat",
   interfaceContrast: "balanced",
+  interfaceDepth: "soft",
   browserHomeUrl: "https://www.google.com",
   browserLaunchMode: "pane",
   externalBrowserProfileId: "system",
@@ -258,6 +259,12 @@ export const interfaceContrastOptions = [
   ["soft", label("interfaceContrast.soft", "Soft"), label("interfaceContrast.soft.body", "Quieter borders")],
   ["balanced", label("interfaceContrast.balanced", "Balanced"), label("interfaceContrast.balanced.body", "Default separation")],
   ["strong", label("interfaceContrast.strong", "Strong"), label("interfaceContrast.strong.body", "Clearer boundaries")]
+];
+
+export const interfaceDepthOptions = [
+  ["flat", label("interfaceDepth.flat", "Flat"), label("interfaceDepth.flat.body", "No extra surface shadow")],
+  ["soft", label("interfaceDepth.soft", "Soft"), label("interfaceDepth.soft.body", "Subtle separation between panes")],
+  ["layered", label("interfaceDepth.layered", "Layered"), label("interfaceDepth.layered.body", "Richer depth for demos")]
 ];
 
 export const browserHomePresets = [
@@ -547,6 +554,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       backgroundEffects: "flat",
       interfaceContrast: "balanced",
+      interfaceDepth: "soft",
       density: "comfortable",
       paneHeaderMode: "compact",
       paneActionMode: "essential",
@@ -606,6 +614,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       backgroundEffects: "flat",
       interfaceContrast: "soft",
+      interfaceDepth: "flat",
       density: "compact",
       paneHeaderMode: "compact",
       paneActionMode: "essential",
@@ -665,6 +674,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       backgroundEffects: "flat",
       interfaceContrast: "soft",
+      interfaceDepth: "flat",
       density: "compact",
       paneHeaderMode: "compact",
       paneActionMode: "essential",
@@ -725,6 +735,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       backgroundEffects: "flat",
       interfaceContrast: "soft",
+      interfaceDepth: "flat",
       density: "compact",
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
@@ -784,6 +795,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       backgroundEffects: "flat",
       interfaceContrast: "soft",
+      interfaceDepth: "flat",
       density: "compact",
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
@@ -843,6 +855,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       backgroundEffects: "flat",
       interfaceContrast: "strong",
+      interfaceDepth: "flat",
       density: "comfortable",
       paneHeaderMode: "hidden",
       paneActionMode: "essential",
@@ -902,6 +915,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       backgroundEffects: "glass",
       interfaceContrast: "balanced",
+      interfaceDepth: "layered",
       density: "comfortable",
       paneHeaderMode: "full",
       paneActionMode: "full",

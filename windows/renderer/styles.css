@@ -57,6 +57,11 @@
   --scrollbar-thumb: color-mix(in oklch, var(--color-line-strong) 74%, transparent);
   --scrollbar-thumb-hover: color-mix(in oklch, var(--color-muted) 72%, transparent);
   --shadow-soft: 0 10px 36px color-mix(in oklch, var(--color-canvas) 64%, transparent);
+  --depth-pane-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 4%, transparent);
+  --depth-topbar-shadow: 0 8px 24px -24px color-mix(in oklch, var(--color-canvas) 68%, transparent);
+  --depth-sidebar-shadow: 8px 0 24px -28px color-mix(in oklch, var(--color-canvas) 70%, transparent);
+  --depth-inspector-shadow: -10px 0 26px -30px color-mix(in oklch, var(--color-canvas) 74%, transparent);
+  --depth-card-shadow: 0 8px 24px -22px color-mix(in oklch, var(--color-canvas) 72%, transparent);
   color-scheme: dark;
 }
 
@@ -219,6 +224,35 @@ body.interface-contrast-strong {
   --color-faint: color-mix(in oklch, var(--color-muted) 88%, var(--color-text) 12%);
   --scrollbar-thumb: color-mix(in oklch, var(--color-muted) 68%, transparent);
   --scrollbar-thumb-hover: color-mix(in oklch, var(--color-text) 72%, transparent);
+}
+
+body.interface-depth-flat {
+  --shadow-soft: none;
+  --depth-pane-shadow: none;
+  --depth-topbar-shadow: none;
+  --depth-sidebar-shadow: none;
+  --depth-inspector-shadow: none;
+  --depth-card-shadow: none;
+}
+
+body.interface-depth-soft {
+  --shadow-soft: 0 10px 36px color-mix(in oklch, var(--color-canvas) 64%, transparent);
+  --depth-pane-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 4%, transparent);
+  --depth-topbar-shadow: 0 8px 24px -24px color-mix(in oklch, var(--color-canvas) 68%, transparent);
+  --depth-sidebar-shadow: 8px 0 24px -28px color-mix(in oklch, var(--color-canvas) 70%, transparent);
+  --depth-inspector-shadow: -10px 0 26px -30px color-mix(in oklch, var(--color-canvas) 74%, transparent);
+  --depth-card-shadow: 0 8px 24px -22px color-mix(in oklch, var(--color-canvas) 72%, transparent);
+}
+
+body.interface-depth-layered {
+  --shadow-soft: 0 18px 58px color-mix(in oklch, var(--color-canvas) 72%, transparent);
+  --depth-pane-shadow:
+    0 14px 34px -30px color-mix(in oklch, var(--color-canvas) 82%, transparent),
+    inset 0 1px 0 color-mix(in oklch, var(--color-text) 6%, transparent);
+  --depth-topbar-shadow: 0 14px 34px -30px color-mix(in oklch, var(--color-canvas) 82%, transparent);
+  --depth-sidebar-shadow: 12px 0 34px -30px color-mix(in oklch, var(--color-canvas) 82%, transparent);
+  --depth-inspector-shadow: -14px 0 38px -32px color-mix(in oklch, var(--color-canvas) 84%, transparent);
+  --depth-card-shadow: 0 16px 42px -30px color-mix(in oklch, var(--color-canvas) 84%, transparent);
 }
 
 button,
@@ -534,6 +568,15 @@ button {
   display: none;
 }
 
+.shell.performance-mode {
+  --shadow-soft: none;
+  --depth-pane-shadow: none;
+  --depth-topbar-shadow: none;
+  --depth-sidebar-shadow: none;
+  --depth-inspector-shadow: none;
+  --depth-card-shadow: none;
+}
+
 .shell.performance-mode.inspector-open .inspector,
 .shell.performance-mode .browser-error-card,
 .shell.performance-mode ~ .palette .palette-dialog,
@@ -692,6 +735,7 @@ body.reduce-motion *::after {
   overflow: hidden;
   border-right: 1px solid var(--color-line);
   background: var(--color-rail-surface);
+  box-shadow: var(--depth-sidebar-shadow);
 }
 
 .sidebar::before {
@@ -1267,6 +1311,7 @@ body.reduce-motion *::after {
   padding: 0 var(--space-2);
   border-bottom: 1px solid var(--color-line);
   background: var(--color-chrome-surface);
+  box-shadow: var(--depth-topbar-shadow);
   -webkit-app-region: drag;
 }
 
@@ -1688,6 +1733,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
   background: color-mix(in oklch, var(--color-terminal-gutter) 84%, var(--color-canvas-surface) 16%);
+  box-shadow: var(--depth-topbar-shadow);
   padding: 5px 6px 0;
 }
 
@@ -2467,7 +2513,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   outline: 1px solid color-mix(in oklch, var(--color-line) 62%, transparent);
   outline-offset: -1px;
   background: var(--color-pane-surface);
-  box-shadow: none;
+  box-shadow: var(--depth-pane-shadow);
 }
 
 .pane-grid:not(.direction-down) .pane {
@@ -5287,6 +5333,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   overflow: hidden;
   border-left: 1px solid var(--color-line);
   background: var(--color-rail-surface);
+  box-shadow: var(--depth-inspector-shadow);
 }
 
 .shell:not(.inspector-open) .inspector {
@@ -6628,6 +6675,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border: 1px solid var(--color-line);
   border-radius: var(--radius-2);
   background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
+  box-shadow: var(--depth-card-shadow);
 }
 
 .appearance-preview-frame {
@@ -6641,6 +6689,29 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-1);
   background: var(--color-canvas);
+}
+
+.appearance-preview.appearance-depth-flat .appearance-preview-frame,
+.appearance-preview.appearance-depth-flat .appearance-preview-terminal {
+  box-shadow: none;
+}
+
+.appearance-preview.appearance-depth-soft .appearance-preview-frame {
+  box-shadow: 0 8px 24px -24px color-mix(in oklch, var(--color-canvas) 72%, transparent);
+}
+
+.appearance-preview.appearance-depth-soft .appearance-preview-terminal {
+  box-shadow: 0 10px 24px -22px color-mix(in oklch, var(--color-canvas) 78%, transparent);
+}
+
+.appearance-preview.appearance-depth-layered .appearance-preview-frame {
+  box-shadow: 0 16px 42px -30px color-mix(in oklch, var(--color-canvas) 86%, transparent);
+}
+
+.appearance-preview.appearance-depth-layered .appearance-preview-terminal {
+  box-shadow:
+    0 18px 42px -28px color-mix(in oklch, var(--color-canvas) 86%, transparent),
+    inset 0 1px 0 color-mix(in oklch, var(--color-text) 6%, transparent);
 }
 
 @container (max-width: 330px) {
