@@ -4455,6 +4455,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testScheduledExternalGeometrySyncWaitsForQueuedLayoutShift() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
