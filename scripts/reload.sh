@@ -763,6 +763,27 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   APP_PATH="$TAG_APP_PATH"
 fi
 
+# Mirror the tagged DEV .app to ~/Downloads/cmux-dev/ so the user can drag it
+# anywhere except /Applications (DEV bundles must never overwrite the public
+# release at /Applications/cmux.app). Skipped when /Applications is unavailable
+# or when the user explicitly opts out via CMUX_SKIP_DOWNLOADS_MIRROR=1.
+if [[ -n "${TAG:-}" && -n "${TAG_APP_PATH:-}" && -d "$TAG_APP_PATH" ]]; then
+  if [[ "${CMUX_SKIP_DOWNLOADS_MIRROR:-0}" == "1" ]]; then
+    echo "Skipping ~/Downloads/cmux-dev mirror (CMUX_SKIP_DOWNLOADS_MIRROR=1)"
+  elif [[ -d "$HOME/Downloads" || -w "$HOME" ]]; then
+    DOWNLOADS_DEV_DIR="$HOME/Downloads/cmux-dev"
+    mkdir -p "$DOWNLOADS_DEV_DIR"
+    DOWNLOADS_APP_PATH="$DOWNLOADS_DEV_DIR/${APP_NAME}.app"
+    rm -rf "$DOWNLOADS_APP_PATH"
+    cp -R "$TAG_APP_PATH" "$DOWNLOADS_APP_PATH"
+    xattr -cr "$DOWNLOADS_APP_PATH" 2>/dev/null || true
+    echo "Download path:"
+    echo "  $DOWNLOADS_APP_PATH"
+  else
+    echo "Skipping ~/Downloads/cmux-dev mirror (no ~/Downloads and HOME not writable)"
+  fi
+fi
+
 CLI_PATH="$(dirname "$APP_PATH")/cmux"
 if [[ -x "$CLI_PATH" ]]; then
   (umask 077; printf '%s\n' "$CLI_PATH" > /tmp/cmux-last-cli-path) || true

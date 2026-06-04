@@ -143,6 +143,13 @@ class UpdateController {
             return
         }
 
+        if SocketControlSettings.isDebugLikeBundleIdentifier(Bundle.main.bundleIdentifier) {
+            UpdateLogStore.shared.append("launch update probe skipped (dev build, bundle=\(Bundle.main.bundleIdentifier ?? "nil"))")
+            backgroundProbeTimer?.invalidate()
+            backgroundProbeTimer = nil
+            return
+        }
+
         // Probe immediately on launch so the sidebar can surface a passive update indicator
         // without waiting for Sparkle's scheduled check or opening interactive update UI.
         UpdateLogStore.shared.append("starting launch update probe")

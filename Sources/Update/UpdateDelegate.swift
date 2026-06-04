@@ -71,11 +71,21 @@ extension UpdateDriver: SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
-        DispatchQueue.main.async { [weak viewModel] in
-            viewModel?.recordDetectedUpdate(item)
-        }
         let version = item.displayVersionString
         let fileURL = item.fileURL?.absoluteString ?? ""
+        let bundleIdentifier = Bundle.main.bundleIdentifier
+        let isDevBuild = SocketControlSettings.isDebugLikeBundleIdentifier(bundleIdentifier)
+            || SocketControlSettings.isStagingBundleIdentifier(bundleIdentifier)
+        if isDevBuild {
+            UpdateLogStore.shared.append("valid update suppressed for dev build: \(version) (bundle=\(bundleIdentifier ?? "nil"))")
+            DispatchQueue.main.async { [weak viewModel] in
+                viewModel?.clearDetectedUpdate()
+            }
+        } else {
+            DispatchQueue.main.async { [weak viewModel] in
+                viewModel?.recordDetectedUpdate(item)
+            }
+        }
         if fileURL.isEmpty {
             UpdateLogStore.shared.append("valid update found: \(version)")
         } else {
