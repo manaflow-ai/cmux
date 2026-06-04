@@ -12,6 +12,7 @@ import {
   chromeMotionOptions,
   cornerStyleOptions,
   defaultSettings,
+  inactivePaneDimmingOptions,
   interfaceContrastOptions,
   paneActionOptions,
   paneDividerSizeOptions,
@@ -341,6 +342,7 @@ const layoutSettingsPreviewKeys = new Set([
   "cornerStyle",
   "paneDividerSize",
   "activePaneEmphasis",
+  "inactivePaneDimming",
   "titleDetailMode",
   "paneColorMarkers",
   "paneMarkerStyle",
@@ -405,6 +407,7 @@ const settingsInspectorSettingKeys = {
     "cornerStyle",
     "paneDividerSize",
     "activePaneEmphasis",
+    "inactivePaneDimming",
     "titleDetailMode",
     "paneColorMarkers",
     "paneMarkerStyle",
@@ -1100,6 +1103,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!cornerStyleOptions.some(([id]) => id === next.cornerStyle)) next.cornerStyle = defaultSettings.cornerStyle;
   if (!paneDividerSizeOptions.some(([id]) => id === next.paneDividerSize)) next.paneDividerSize = defaultSettings.paneDividerSize;
   if (!activePaneEmphasisOptions.some(([id]) => id === next.activePaneEmphasis)) next.activePaneEmphasis = defaultSettings.activePaneEmphasis;
+  if (!inactivePaneDimmingOptions.some(([id]) => id === next.inactivePaneDimming)) next.inactivePaneDimming = defaultSettings.inactivePaneDimming;
   if (!titleDetailOptions.some(([id]) => id === next.titleDetailMode)) next.titleDetailMode = defaultSettings.titleDetailMode;
   if (!statusDetailOptions.some(([id]) => id === next.statusDetailMode)) next.statusDetailMode = defaultSettings.statusDetailMode;
   if (!paneMarkerStyleOptions.some(([id]) => id === next.paneMarkerStyle)) next.paneMarkerStyle = defaultSettings.paneMarkerStyle;
@@ -3097,6 +3101,7 @@ function settingsProfileSummary(settings) {
   const corners = optionLabel(cornerStyleOptions, normalized.cornerStyle, normalized.cornerStyle);
   const dividers = optionLabel(paneDividerSizeOptions, normalized.paneDividerSize, normalized.paneDividerSize);
   const activePane = optionLabel(activePaneEmphasisOptions, normalized.activePaneEmphasis, normalized.activePaneEmphasis);
+  const inactivePanes = optionLabel(inactivePaneDimmingOptions, normalized.inactivePaneDimming, normalized.inactivePaneDimming);
   const actions = paneActionOptions.find(([id]) => id === normalized.paneActionMode)?.[1] || normalized.paneActionMode;
   const paneMarkers = normalized.paneColorMarkers
     ? `${optionLabel(paneMarkerStyleOptions, normalized.paneMarkerStyle, normalized.paneMarkerStyle).toLowerCase()} markers`
@@ -3118,6 +3123,7 @@ function settingsProfileSummary(settings) {
     `${corners.toLowerCase()} corners`,
     `${dividers.toLowerCase()} dividers`,
     `${activePane.toLowerCase()} active pane`,
+    `${inactivePanes.toLowerCase()} inactive panes`,
     `${actions} pane controls`,
     paneMarkers,
     `${chromeMotion.toLowerCase()} motion`,
@@ -5202,6 +5208,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.cornerStyle,
     settings.paneDividerSize,
     settings.activePaneEmphasis,
+    settings.inactivePaneDimming,
     settings.titleDetailMode,
     settings.paneColorMarkers,
     settings.paneMarkerStyle,
@@ -5287,6 +5294,9 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "active-pane-emphasis-quiet", state.settings.activePaneEmphasis === "quiet");
   toggleClassIfChanged(elements.shell, "active-pane-emphasis-line", state.settings.activePaneEmphasis === "line");
   toggleClassIfChanged(elements.shell, "active-pane-emphasis-strong", state.settings.activePaneEmphasis === "strong");
+  toggleClassIfChanged(elements.shell, "inactive-pane-normal", state.settings.inactivePaneDimming === "normal");
+  toggleClassIfChanged(elements.shell, "inactive-pane-soft", state.settings.inactivePaneDimming === "soft");
+  toggleClassIfChanged(elements.shell, "inactive-pane-muted", state.settings.inactivePaneDimming === "muted");
   toggleClassIfChanged(elements.shell, "pane-color-markers", state.settings.paneColorMarkers);
   toggleClassIfChanged(elements.shell, "pane-marker-dot", state.settings.paneMarkerStyle === "dot");
   toggleClassIfChanged(elements.shell, "pane-marker-edge", state.settings.paneMarkerStyle === "edge");
@@ -13079,6 +13089,12 @@ function renderSettingsInspector(options = {}) {
       true,
       "active pane current focus highlight border outline edge quiet line strong accent"
     ));
+    layoutSection.append(settingRow(
+      "Inactive panes",
+      settingSegmentedControl("inactivePaneDimming", inactivePaneDimmingOptions, "inactive pane dimming normal soft muted quiet focus reduce clutter workspace", { compact: true }),
+      true,
+      "inactive pane dimming normal soft muted quiet focus reduce clutter workspace"
+    ));
     const titleDetailSelect = document.createElement("select");
     titleDetailSelect.className = "setting-select";
     for (const [value, label] of titleDetailOptions) {
@@ -15065,7 +15081,7 @@ function updateLookPackCard(card, pack) {
 function workspaceChromePresetGrid() {
   const grid = document.createElement("div");
   grid.className = "workspace-chrome-preset-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("workspace chrome layout display presets simple compact focus toolbar sidebar tabs status active pane highlight copy");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("workspace chrome layout display presets simple compact focus toolbar sidebar tabs status active inactive pane dimming highlight copy");
   for (const preset of workspaceChromePresets) {
     const settings = workspaceChromePresetSettings(preset);
     if (!settings) continue;
@@ -15103,13 +15119,13 @@ function workspaceChromePresetGrid() {
     const meta = button.querySelectorAll(".workspace-chrome-preset-meta span");
     meta[0].textContent = summary.toolbar;
     meta[1].textContent = summary.tabs === "Hidden" ? "Hidden tabs" : `${summary.tabs} / ${summary.tabClose}`;
-    meta[2].textContent = summary.markers === "Off" ? summary.dividers : `${summary.dividers} / ${summary.markers}`;
+    meta[2].textContent = summary.markers === "Off" ? `${summary.dividers} / ${summary.inactivePane}` : `${summary.inactivePane} / ${summary.markers}`;
     button.onclick = () => {
       if (!isActiveWorkspaceChromePreset(preset)) applyWorkspaceChromePreset(preset.id);
     };
     const actions = document.createElement("div");
     actions.className = "workspace-chrome-preset-actions";
-    const copy = settingsActionButton("Copy", () => copyWorkspaceChromePreset(preset.id), "", `workspace chrome preset copy clipboard json corner radius divider grip active pane highlight ${preset.label} ${preset.body}`);
+    const copy = settingsActionButton("Copy", () => copyWorkspaceChromePreset(preset.id), "", `workspace chrome preset copy clipboard json corner radius divider grip active inactive pane dimming highlight ${preset.label} ${preset.body}`);
     copy.title = "Copy this chrome preset as workspace chrome JSON.";
     actions.append(copy);
     card.append(button, actions);
@@ -15133,6 +15149,7 @@ function layoutSettingsPreviewPanel() {
     `corner-style-${settings.cornerStyle}`,
     `pane-divider-${settings.paneDividerSize}`,
     `active-pane-${settings.activePaneEmphasis}`,
+    `inactive-pane-${settings.inactivePaneDimming}`,
     settings.paneColorMarkers ? "pane-markers-on" : "pane-markers-off",
     `pane-marker-${settings.paneMarkerStyle}`,
     `status-detail-${settings.statusDetailMode}`,
@@ -15141,7 +15158,7 @@ function layoutSettingsPreviewPanel() {
     settings.showStatusbar ? "show-statusbar" : "hide-statusbar",
     settings.performanceMode ? "performance-preview" : ""
   ].filter(Boolean).join(" ");
-  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs close status pane header density settings panel active pane percent resize focus highlight edge mode simple clean panes split shape corner radius rounded divider grip marker color dot tint preset current");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs close status pane header density settings panel active inactive pane percent resize focus highlight edge mode simple clean panes split shape corner radius rounded divider grip marker color dot tint preset current");
   panel.style.setProperty("--layout-preview-sidebar", `${Math.max(24, Math.round((settings.sidebarWidth / 304) * 72))}px`);
   panel.style.setProperty("--layout-preview-inspector", `${Math.max(42, Math.round((settings.inspectorWidth / 480) * 76))}px`);
   panel.innerHTML = `
@@ -15178,6 +15195,7 @@ function layoutSettingsPreviewPanel() {
       <span><b>Corners</b><em data-layout-preview-corners></em></span>
       <span><b>Dividers</b><em data-layout-preview-dividers></em></span>
       <span><b>Focus edge</b><em data-layout-preview-active-emphasis></em></span>
+      <span><b>Inactive</b><em data-layout-preview-inactive-panes></em></span>
       <span><b>Markers</b><em data-layout-preview-markers></em></span>
       <span><b>Header</b><em data-layout-preview-header></em></span>
       <span><b>Controls</b><em data-layout-preview-actions></em></span>
@@ -15199,6 +15217,7 @@ function layoutSettingsPreviewPanel() {
   panel.querySelector("[data-layout-preview-corners]").textContent = optionLabel(cornerStyleOptions, settings.cornerStyle, settings.cornerStyle);
   panel.querySelector("[data-layout-preview-dividers]").textContent = optionLabel(paneDividerSizeOptions, settings.paneDividerSize, settings.paneDividerSize);
   panel.querySelector("[data-layout-preview-active-emphasis]").textContent = optionLabel(activePaneEmphasisOptions, settings.activePaneEmphasis, settings.activePaneEmphasis);
+  panel.querySelector("[data-layout-preview-inactive-panes]").textContent = optionLabel(inactivePaneDimmingOptions, settings.inactivePaneDimming, settings.inactivePaneDimming);
   panel.querySelector("[data-layout-preview-markers]").textContent = settings.paneColorMarkers
     ? optionLabel(paneMarkerStyleOptions, settings.paneMarkerStyle, settings.paneMarkerStyle)
     : "Off";
@@ -17727,6 +17746,7 @@ function performanceDiagnosticsPayload() {
       paneActionMode: state.settings.paneActionMode,
       paneDividerSize: state.settings.paneDividerSize,
       activePaneEmphasis: state.settings.activePaneEmphasis,
+      inactivePaneDimming: state.settings.inactivePaneDimming,
       sidebarDetailMode: state.settings.sidebarDetailMode,
       sidebarBranchMode: state.settings.sidebarBranchMode,
       sidebarFooterMode: state.settings.sidebarFooterMode,
@@ -21945,6 +21965,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     paneActionMode: "essential",
     paneColorMarkers: false,
     paneMarkerStyle: "dot",
+    inactivePaneDimming: "normal",
     showStatusbar: false,
     terminalPadding: Math.min(state.settings.terminalPadding, 4),
     terminalScrollback: Math.min(state.settings.terminalScrollback, 6000),
@@ -24914,6 +24935,7 @@ function settingsPresetTags(settings) {
     optionLabel(toolbarModeOptions, settings.toolbarMode, "Toolbar"),
     settings.performanceMode ? "Speed" : settings.focusMode ? "Focus" : settings.density,
     `${optionLabel(tabCloseModeOptions, settings.tabCloseMode, settings.tabCloseMode)} close`,
+    `${optionLabel(inactivePaneDimmingOptions, settings.inactivePaneDimming, settings.inactivePaneDimming)} inactive`,
     settings.paneColorMarkers
       ? `${optionLabel(paneMarkerStyleOptions, settings.paneMarkerStyle, settings.paneMarkerStyle)} markers`
       : "Quiet markers",
@@ -30475,6 +30497,7 @@ const workspaceChromeSettings = [
   "cornerStyle",
   "paneDividerSize",
   "activePaneEmphasis",
+  "inactivePaneDimming",
   "titleDetailMode",
   "paneColorMarkers",
   "paneMarkerStyle",
@@ -30517,6 +30540,7 @@ const workspaceChromePresets = [
       cornerStyle: defaultSettings.cornerStyle,
       paneDividerSize: defaultSettings.paneDividerSize,
       activePaneEmphasis: defaultSettings.activePaneEmphasis,
+      inactivePaneDimming: defaultSettings.inactivePaneDimming,
       titleDetailMode: defaultSettings.titleDetailMode,
       paneColorMarkers: defaultSettings.paneColorMarkers,
       paneMarkerStyle: defaultSettings.paneMarkerStyle,
@@ -30546,6 +30570,7 @@ const workspaceChromePresets = [
       cornerStyle: "crisp",
       paneDividerSize: "slim",
       activePaneEmphasis: "quiet",
+      inactivePaneDimming: "soft",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       paneMarkerStyle: "dot",
@@ -30575,6 +30600,7 @@ const workspaceChromePresets = [
       cornerStyle: "crisp",
       paneDividerSize: "slim",
       activePaneEmphasis: "quiet",
+      inactivePaneDimming: "muted",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       paneMarkerStyle: "dot",
@@ -30604,6 +30630,7 @@ const workspaceChromePresets = [
       cornerStyle: "round",
       paneDividerSize: "wide",
       activePaneEmphasis: "strong",
+      inactivePaneDimming: "soft",
       titleDetailMode: "detailed",
       paneColorMarkers: true,
       paneMarkerStyle: "tint",
@@ -30633,6 +30660,7 @@ const workspaceChromePresets = [
       cornerStyle: "crisp",
       paneDividerSize: "slim",
       activePaneEmphasis: "quiet",
+      inactivePaneDimming: "muted",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       paneMarkerStyle: "edge",
@@ -30733,6 +30761,7 @@ function workspaceChromeSummaryForSettings(settings) {
     corners: optionLabel(cornerStyleOptions, normalized.cornerStyle, normalized.cornerStyle),
     dividers: optionLabel(paneDividerSizeOptions, normalized.paneDividerSize, normalized.paneDividerSize),
     activePane: optionLabel(activePaneEmphasisOptions, normalized.activePaneEmphasis, normalized.activePaneEmphasis),
+    inactivePane: optionLabel(inactivePaneDimmingOptions, normalized.inactivePaneDimming, normalized.inactivePaneDimming),
     markers: normalized.paneColorMarkers
       ? optionLabel(paneMarkerStyleOptions, normalized.paneMarkerStyle, normalized.paneMarkerStyle)
       : "Off",
@@ -30796,6 +30825,7 @@ function workspaceChromeSettingUpdateFromValue(key, raw) {
   if (key === "cornerStyle") return optionIdAllowed(cornerStyleOptions, raw) ? raw : null;
   if (key === "paneDividerSize") return optionIdAllowed(paneDividerSizeOptions, raw) ? raw : null;
   if (key === "activePaneEmphasis") return optionIdAllowed(activePaneEmphasisOptions, raw) ? raw : null;
+  if (key === "inactivePaneDimming") return optionIdAllowed(inactivePaneDimmingOptions, raw) ? raw : null;
   if (key === "titleDetailMode") return optionIdAllowed(titleDetailOptions, raw) ? raw : null;
   if (key === "paneMarkerStyle") return optionIdAllowed(paneMarkerStyleOptions, raw) ? raw : null;
   if (key === "statusDetailMode") return optionIdAllowed(statusDetailOptions, raw) ? raw : null;
@@ -30877,6 +30907,7 @@ function workspaceChromePresetSearchText(preset, settings = workspaceChromePrese
     summary.corners,
     summary.dividers,
     summary.activePane,
+    summary.inactivePane,
     summary.markers,
     summary.statusbar,
     summary.focusMode,

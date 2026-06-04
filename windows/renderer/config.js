@@ -31,6 +31,7 @@ export const defaultSettings = {
   cornerStyle: "soft",
   paneDividerSize: "balanced",
   activePaneEmphasis: "line",
+  inactivePaneDimming: "normal",
   titleDetailMode: "smart",
   paneColorMarkers: false,
   paneMarkerStyle: "dot",
@@ -413,6 +414,12 @@ export const activePaneEmphasisOptions = [
   ["strong", label("activePaneEmphasis.strong", "Strong"), label("activePaneEmphasis.strong.body", "High-contrast focus")]
 ];
 
+export const inactivePaneDimmingOptions = [
+  ["normal", label("inactivePaneDimming.normal", "Normal"), label("inactivePaneDimming.normal.body", "Keep inactive panes unchanged")],
+  ["soft", label("inactivePaneDimming.soft", "Soft"), label("inactivePaneDimming.soft.body", "Slightly quiet inactive panes")],
+  ["muted", label("inactivePaneDimming.muted", "Muted"), label("inactivePaneDimming.muted.body", "Make the active pane stand out")]
+];
+
 export const paneMarkerStyleOptions = [
   ["dot", label("paneMarkerStyle.dot", "Dot"), label("paneMarkerStyle.dot.body", "Color the tab icon chip")],
   ["edge", label("paneMarkerStyle.edge", "Edge"), label("paneMarkerStyle.edge.body", "Use a slim colored edge")],
@@ -553,6 +560,7 @@ export const settingsPresets = [
       cornerStyle: "soft",
       paneDividerSize: "balanced",
       activePaneEmphasis: "line",
+      inactivePaneDimming: "normal",
       titleDetailMode: "smart",
       paneColorMarkers: false,
       paneMarkerStyle: "dot",
@@ -611,6 +619,7 @@ export const settingsPresets = [
       cornerStyle: "crisp",
       paneDividerSize: "slim",
       activePaneEmphasis: "quiet",
+      inactivePaneDimming: "soft",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       paneMarkerStyle: "dot",
@@ -669,6 +678,7 @@ export const settingsPresets = [
       cornerStyle: "crisp",
       paneDividerSize: "slim",
       activePaneEmphasis: "quiet",
+      inactivePaneDimming: "normal",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       paneMarkerStyle: "dot",
@@ -728,6 +738,7 @@ export const settingsPresets = [
       cornerStyle: "crisp",
       paneDividerSize: "slim",
       activePaneEmphasis: "quiet",
+      inactivePaneDimming: "muted",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       paneMarkerStyle: "edge",
@@ -786,6 +797,7 @@ export const settingsPresets = [
       cornerStyle: "crisp",
       paneDividerSize: "slim",
       activePaneEmphasis: "quiet",
+      inactivePaneDimming: "normal",
       titleDetailMode: "compact",
       paneColorMarkers: false,
       paneMarkerStyle: "dot",
@@ -844,6 +856,7 @@ export const settingsPresets = [
       cornerStyle: "soft",
       paneDividerSize: "wide",
       activePaneEmphasis: "strong",
+      inactivePaneDimming: "normal",
       titleDetailMode: "compact",
       paneColorMarkers: true,
       paneMarkerStyle: "edge",
@@ -902,6 +915,7 @@ export const settingsPresets = [
       cornerStyle: "round",
       paneDividerSize: "balanced",
       activePaneEmphasis: "strong",
+      inactivePaneDimming: "soft",
       titleDetailMode: "detailed",
       paneColorMarkers: true,
       paneMarkerStyle: "tint",

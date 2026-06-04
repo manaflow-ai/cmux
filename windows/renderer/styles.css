@@ -2642,6 +2642,18 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 18%, transparent);
 }
 
+.shell.inactive-pane-soft .pane:not(.is-active):not(.has-attention):not(.is-minimized):not(.is-pending):not(.is-dragging):not(.is-drop-target):not(.is-background-drop-target) {
+  opacity: .92;
+}
+
+.shell.inactive-pane-muted .pane:not(.is-active):not(.has-attention):not(.is-minimized):not(.is-pending):not(.is-dragging):not(.is-drop-target):not(.is-background-drop-target) {
+  opacity: .82;
+}
+
+.shell.inactive-pane-muted .pane:not(.is-active):not(.has-attention):not(.is-minimized):not(.is-pending):not(.is-dragging):not(.is-drop-target):not(.is-background-drop-target) .pane-header {
+  background: color-mix(in oklch, var(--color-pane-warm-surface) 72%, var(--color-canvas-surface) 28%);
+}
+
 .pane.is-minimized {
   flex: 0 0 34px !important;
   min-width: 34px;
@@ -7657,6 +7669,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .layout-preview-pane {
+  position: relative;
   min-width: 0;
   display: grid;
   grid-template-rows: 18px 1fr 1fr;
@@ -7666,6 +7679,7 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
   background: var(--color-terminal-gutter);
+  overflow: hidden;
 }
 
 .layout-settings-preview.active-pane-line .layout-preview-pane {
@@ -7675,6 +7689,25 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 .layout-settings-preview.active-pane-strong .layout-preview-pane {
   border-color: color-mix(in oklch, var(--color-accent) 72%, var(--color-line-strong) 28%);
   box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 16%, transparent);
+}
+
+.layout-settings-preview.inactive-pane-soft .layout-preview-pane::after,
+.layout-settings-preview.inactive-pane-muted .layout-preview-pane::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 32%;
+  height: 18px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-text) 8%, transparent);
+  opacity: .52;
+  pointer-events: none;
+}
+
+.layout-settings-preview.inactive-pane-muted .layout-preview-pane::after {
+  opacity: .34;
 }
 
 .layout-settings-preview.pane-header-full .layout-preview-pane {
