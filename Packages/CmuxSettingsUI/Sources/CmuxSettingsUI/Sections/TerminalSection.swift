@@ -18,6 +18,7 @@ public struct TerminalSection: View {
     @State private var tabsFillPaneWidthLastSaved: Bool
     @State private var tabsFillSaveFailed = false
     @State private var tabsFillSaveTask: Task<Void, Never>?
+    @State private var tabsFillSaveGeneration = 0
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
@@ -69,15 +70,18 @@ public struct TerminalSection: View {
     /// rapid toggle sequence only reflects the latest value.
     private func saveTabsFillPaneWidth(_ enabled: Bool) {
         tabsFillSaveTask?.cancel()
+        tabsFillSaveGeneration += 1
+        let saveGeneration = tabsFillSaveGeneration
         tabsFillSaveFailed = false
         tabsFillSaveTask = Task {
+            guard !Task.isCancelled else { return }
             let saved = await hostActions.setSurfaceTabsFillPaneWidth(enabled)
             if saved {
                 tabsFillPaneWidthLastSaved = enabled
-                if !Task.isCancelled {
+                if saveGeneration == tabsFillSaveGeneration {
                     tabsFillSaveFailed = false
                 }
-            } else if !Task.isCancelled {
+            } else if saveGeneration == tabsFillSaveGeneration && !Task.isCancelled {
                 tabsFillPaneWidth = tabsFillPaneWidthLastSaved
                 tabsFillSaveFailed = true
             }
