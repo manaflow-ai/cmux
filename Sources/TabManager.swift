@@ -2451,6 +2451,20 @@ class TabManager: ObservableObject {
         includeHidden ? tabs : visibleWorkspaceTabs
     }
 
+    func rawWorkspaceInsertionIndex(forVisibleWorkspaceIndex visibleIndex: Int) -> Int {
+        let visibleTabs = visibleWorkspaceTabs
+        let clampedVisibleIndex = max(0, min(visibleIndex, visibleTabs.count))
+        if clampedVisibleIndex == visibleTabs.count {
+            guard let lastVisibleWorkspace = visibleTabs.last,
+                  let rawIndex = tabs.firstIndex(where: { $0.id == lastVisibleWorkspace.id }) else {
+                return tabs.count
+            }
+            return rawIndex + 1
+        }
+        let targetWorkspaceId = visibleTabs[clampedVisibleIndex].id
+        return tabs.firstIndex { $0.id == targetWorkspaceId } ?? tabs.count
+    }
+
     func canHideWorkspaces(_ workspaceIds: Set<UUID>) -> Bool {
         let visibleTargets = workspaceIds.filter { workspaceId in
             guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }

@@ -11286,7 +11286,8 @@ struct VerticalTabsSidebar: View {
                             dragAutoScrollController: dragAutoScrollController,
                             topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                             tabDropDelegate: emptyAreaTabDropDelegate(),
-                            bonsplitDropIndicator: dropIndicatorBinding
+                            bonsplitDropIndicator: dropIndicatorBinding,
+                            performBonsplitMoveToNewWorkspace: moveBonsplitTabToNewWorkspaceAtVisibleEnd
                         )
                         .frame(maxWidth: .infinity, minHeight: 48)
                     }
@@ -12290,7 +12291,8 @@ struct VerticalTabsSidebar: View {
                 dragAutoScrollController: dragAutoScrollController,
                 topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                 tabDropDelegate: emptyAreaTabDropDelegate(),
-                bonsplitDropIndicator: dropIndicatorBinding
+                bonsplitDropIndicator: dropIndicatorBinding,
+                performBonsplitMoveToNewWorkspace: moveBonsplitTabToNewWorkspaceAtVisibleEnd
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -12468,17 +12470,10 @@ struct VerticalTabsSidebar: View {
                 )
             },
             moveToNewWorkspace: { insertionIndex, transfer in
-                guard let app = AppDelegate.shared,
-                      let result = app.moveBonsplitTabToNewWorkspace(
-                        tabId: transfer.tab.id,
-                        destinationManager: tabManager,
-                        focus: true,
-                        focusWindow: true,
-                        insertionIndexOverride: insertionIndex
-                      ) else {
-                    return nil
-                }
-                return result.destinationWorkspaceId
+                moveBonsplitTabToNewWorkspace(
+                    atVisibleInsertionIndex: insertionIndex,
+                    transfer: transfer
+                )?.workspaceId
             },
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
@@ -12492,6 +12487,36 @@ struct VerticalTabsSidebar: View {
             },
             isWorkspaceDropTargetCollectionActive: isBonsplitWorkspaceDropTargetCollectionActive,
             targetBridge: bonsplitWorkspaceDropTargetBridge
+        )
+    }
+
+    private func moveBonsplitTabToNewWorkspace(
+        atVisibleInsertionIndex insertionIndex: Int,
+        transfer: BonsplitTabDragPayload.Transfer
+    ) -> (workspaceId: UUID, sidebarIndex: Int?)? {
+        let rawInsertionIndex = tabManager.rawWorkspaceInsertionIndex(forVisibleWorkspaceIndex: insertionIndex)
+        guard let app = AppDelegate.shared,
+              let result = app.moveBonsplitTabToNewWorkspace(
+                tabId: transfer.tab.id,
+                destinationManager: tabManager,
+                focus: true,
+                focusWindow: true,
+                insertionIndexOverride: rawInsertionIndex
+              ) else {
+            return nil
+        }
+        let sidebarIndex = tabManager.visibleWorkspaceTabs.firstIndex {
+            $0.id == result.destinationWorkspaceId
+        }
+        return (result.destinationWorkspaceId, sidebarIndex)
+    }
+
+    private func moveBonsplitTabToNewWorkspaceAtVisibleEnd(
+        transfer: BonsplitTabDragPayload.Transfer
+    ) -> (workspaceId: UUID, sidebarIndex: Int?)? {
+        moveBonsplitTabToNewWorkspace(
+            atVisibleInsertionIndex: tabManager.visibleWorkspaceTabs.count,
+            transfer: transfer
         )
     }
 
@@ -14901,6 +14926,7 @@ private struct SidebarEmptyArea: View {
     let topDropIndicatorVisible: Bool
     let tabDropDelegate: SidebarTabDropDelegate
     let bonsplitDropIndicator: Binding<SidebarDropIndicator?>
+    let performBonsplitMoveToNewWorkspace: (BonsplitTabDragPayload.Transfer) -> (workspaceId: UUID, sidebarIndex: Int?)?
 
     var body: some View {
         Color.clear
@@ -14917,10 +14943,10 @@ private struct SidebarEmptyArea: View {
             .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegate)
             .overlay {
                 SidebarBonsplitTabNewWorkspaceDropOverlay(
-                    tabManager: tabManager,
                     selectedTabIds: $selectedTabIds,
                     lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                    dropIndicator: bonsplitDropIndicator
+                    dropIndicator: bonsplitDropIndicator,
+                    performMoveToNewWorkspace: performBonsplitMoveToNewWorkspace
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
