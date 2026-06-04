@@ -5846,6 +5846,65 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testPrintableOptionTextBypassesConfiguredShortcutRouting() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window context")
+            return
+        }
+
+        let workspaceCountBefore = manager.tabs.count
+        let optionQShortcut = StoredShortcut(
+            key: "q",
+            command: false,
+            shift: false,
+            option: true,
+            control: false
+        )
+
+        withTemporaryShortcut(action: .newTab, shortcut: optionQShortcut) {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "@",
+                charactersIgnoringModifiers: "q",
+                isARepeat: false,
+                keyCode: 12 // kVK_ANSI_Q
+            ) else {
+                XCTFail("Failed to construct Turkish-Q Option+Q event")
+                return
+            }
+
+            XCTAssertFalse(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "Option+Q that produces @ on Turkish Q should pass through as text input"
+            )
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+            XCTAssertEqual(
+                manager.tabs.count,
+                workspaceCountBefore,
+                "Printable Option text should not trigger the remapped New Workspace shortcut"
+            )
+        }
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
+    }
+
     func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
