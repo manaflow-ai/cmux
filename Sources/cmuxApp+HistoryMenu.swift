@@ -39,13 +39,13 @@ extension cmuxApp {
             Divider()
 
             splitCommandButton(title: String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed"), shortcut: menuShortcut(for: .reopenClosedBrowserPanel)) {
-                if AppDelegate.shared?.reopenMostRecentlyClosedItem(preferredTabManager: historyTabManager) != true {
+                if AppDelegate.shared?.undoLastDestructiveAction(preferredTabManager: historyTabManager, shouldActivate: true) != true {
                     NSSound.beep()
                 }
             }
 
             Button {
-                if AppDelegate.shared?.redoLastReopen(preferredTabManager: historyTabManager) != true {
+                if AppDelegate.shared?.redoLastDestructiveAction(preferredTabManager: historyTabManager) != true {
                     NSSound.beep()
                 }
             } label: {

@@ -229,6 +229,9 @@ final class ClosedItemHistoryStore: ObservableObject {
     /// new close is recorded (any ``push(_:)``) so redo only applies immediately
     /// after an undo.
     @Published private(set) var redoTarget: ReopenedItemRef? = nil
+    /// The operation most recently restored (by undo or pane restore), so a redo
+    /// can re-close that whole group. Cleared on any new close.
+    @Published private(set) var lastRestoredOperationId: UUID? = nil
     @Published private var records: [ClosedItemHistoryRecord] = []
     /// In-memory map from a restored record's id to the live item it produced.
     /// Not persisted, so it is empty after relaunch, which is exactly the
@@ -289,9 +292,12 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func push(_ record: ClosedItemHistoryRecord) {
         // Recording a new close branches the timeline, so any pending redo
-        // (re-close of the last reopened item) no longer applies.
+        // (re-close of the last reopened item / operation) no longer applies.
         if redoTarget != nil {
             redoTarget = nil
+        }
+        if lastRestoredOperationId != nil {
+            lastRestoredOperationId = nil
         }
         records.append(record)
         trimToCapacityIfNeeded()
@@ -311,6 +317,12 @@ final class ClosedItemHistoryStore: ObservableObject {
         guard redoTarget != nil else { return }
         redoTarget = nil
         revision &+= 1
+    }
+
+    /// Marks the operation most recently restored, so a redo can re-close it.
+    func setLastRestoredOperation(_ operationId: UUID?) {
+        guard lastRestoredOperationId != operationId else { return }
+        lastRestoredOperationId = operationId
     }
 
     @discardableResult

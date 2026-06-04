@@ -186,7 +186,89 @@ extension AppDelegate {
         // Mark restored so the immutable log shows it as already-open and
         // restore-remaining / undo skip it (single liveness source of truth).
         ClosedItemHistoryStore.shared.markRestored(recordId: record.id, ref: ref)
+        ClosedItemHistoryStore.shared.setLastRestoredOperation(record.operationId)
         return true
+    }
+
+    /// Op-atomic undo: restores the most recent destructive action (operation)
+    /// whose items aren't already live, as a unit and non-destructively (the
+    /// entries stay in the immutable log, greyed). Walks back monotonically: the
+    /// next undo targets the next-older operation with remaining items. Falls back
+    /// to the legacy browser-tab stack when no grouped operation is pending.
+    @discardableResult
+    func undoLastDestructiveAction(
+        preferredTabManager: TabManager? = nil,
+        shouldActivate: Bool = false
+    ) -> Bool {
+        let operations = ClosedItemHistoryStore.shared.operationSnapshot()
+        guard let op = operations.first(where: { !$0.isFullyRestored }) else {
+            // Everything in the store is already live. Fall back to the legacy
+            // browser-tab stack only (never re-restore a store entry, which would
+            // duplicate something already on screen).
+            for manager in recentlyClosedLegacyBrowserManagers(preferredTabManager: preferredTabManager) {
+                if manager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() {
+                    return true
+                }
+            }
+            return false
+        }
+        var restoredAny = false
+        for item in op.items where !item.isRestored {
+            if reopenClosedHistoryItem(
+                id: item.id,
+                preferredTabManager: preferredTabManager,
+                shouldActivate: shouldActivate
+            ) {
+                restoredAny = true
+            }
+        }
+        if restoredAny {
+            ClosedItemHistoryStore.shared.setLastRestoredOperation(op.id)
+        }
+        return restoredAny
+    }
+
+    /// Op-atomic redo: re-closes the live items of the most recently restored
+    /// operation, re-grouped under one new operation so a subsequent undo brings
+    /// them back together. Best-effort; falls back to single-item redo.
+    @discardableResult
+    func redoLastDestructiveAction(preferredTabManager: TabManager? = nil) -> Bool {
+        guard let opId = ClosedItemHistoryStore.shared.lastRestoredOperationId else {
+            return redoLastReopen(preferredTabManager: preferredTabManager)
+        }
+        let liveRefs = ClosedItemHistoryStore.shared.recordsForOperation(opId).compactMap { record -> ReopenedItemRef? in
+            guard let ref = ClosedItemHistoryStore.shared.restoredRef(for: record.id),
+                  closedItemTargetIsLive(ref) else { return nil }
+            return ref
+        }
+        guard !liveRefs.isEmpty else {
+            ClosedItemHistoryStore.shared.setLastRestoredOperation(nil)
+            return false
+        }
+        let redoOperationId = UUID()
+        var closedAny = false
+        for ref in liveRefs where closeReopenedRef(ref, operationId: redoOperationId) {
+            closedAny = true
+        }
+        ClosedItemHistoryStore.shared.setLastRestoredOperation(nil)
+        return closedAny
+    }
+
+    @discardableResult
+    private func closeReopenedRef(_ ref: ReopenedItemRef, operationId: UUID) -> Bool {
+        switch ref {
+        case .panel(let workspaceId, let panelId):
+            guard let manager = tabManagerFor(tabId: workspaceId),
+                  let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
+            return workspace.closePanel(panelId)
+        case .workspace(let workspaceId):
+            guard let manager = tabManagerFor(tabId: workspaceId),
+                  let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
+            manager.closeWorkspace(workspace, operationId: operationId)
+            return true
+        case .window:
+            return false
+        }
     }
 
     /// Re-closes the item most recently reopened from history ("redo" of an

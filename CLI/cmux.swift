@@ -6948,15 +6948,22 @@ struct CMUXCLI {
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
             } else {
-                let entries = payload["entries"] as? [[String: Any]] ?? []
-                if entries.isEmpty {
+                let operations = payload["operations"] as? [[String: Any]] ?? []
+                if operations.isEmpty {
                     print("No closed items")
                 } else {
-                    for entry in entries {
-                        let entryId = (entry["id"] as? String) ?? ""
-                        let kind = (entry["kind"] as? String) ?? ""
-                        let title = (entry["title"] as? String) ?? ""
-                        print("\(entryId)  [\(kind)]  \(title)")
+                    for op in operations {
+                        let items = op["items"] as? [[String: Any]] ?? []
+                        func line(_ item: [String: Any], indent: String) -> String {
+                            let restored = (item["restored"] as? Bool) == true ? "  (restored)" : ""
+                            return "\(indent)\((item["id"] as? String) ?? "")  [\((item["kind"] as? String) ?? "")]  \((item["title"] as? String) ?? "")\(restored)"
+                        }
+                        if items.count > 1 {
+                            print("\((op["label"] as? String) ?? "group")")
+                            for item in items { print(line(item, indent: "    ")) }
+                        } else if let item = items.first {
+                            print(line(item, indent: ""))
+                        }
                     }
                 }
             }

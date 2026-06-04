@@ -13460,7 +13460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .reopenClosedBrowserPanel) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            _ = reopenMostRecentlyClosedItem(preferredTabManager: routedManager)
+            _ = undoLastDestructiveAction(preferredTabManager: routedManager, shouldActivate: true)
             return true
         }
 

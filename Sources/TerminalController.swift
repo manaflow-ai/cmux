@@ -11432,20 +11432,29 @@ class TerminalController {
     }
 
     private func v2HistoryList(params: [String: Any]) -> V2CallResult {
-        var entries: [[String: Any]] = []
+        var operations: [[String: Any]] = []
+        var totalItems = 0
         v2MainSync {
-            let snapshot = ClosedItemHistoryStore.shared.menuSnapshot(maxItemCount: nil)
-            entries = snapshot.items.map { item in
+            let ops = ClosedItemHistoryStore.shared.operationSnapshot()
+            operations = ops.map { op in
                 [
-                    "id": item.id.uuidString,
-                    "kind": item.kind.rawValue,
-                    "title": item.title,
-                    "detail": item.detail,
-                    "closed_at": Int(item.closedAt.timeIntervalSince1970 * 1000)
-                ]
+                    "id": op.id.uuidString,
+                    "label": op.label,
+                    "closed_at": Int(op.closedAt.timeIntervalSince1970 * 1000),
+                    "fully_restored": op.isFullyRestored,
+                    "items": op.items.map { item in
+                        [
+                            "id": item.id.uuidString,
+                            "kind": item.kind.rawValue,
+                            "title": item.title,
+                            "restored": item.isRestored
+                        ] as [String: Any]
+                    }
+                ] as [String: Any]
             }
+            totalItems = ops.reduce(0) { $0 + $1.items.count }
         }
-        return .ok(["entries": entries, "count": entries.count])
+        return .ok(["operations": operations, "count": totalItems])
     }
 
     private func v2HistoryReopen(params: [String: Any]) -> V2CallResult {
@@ -11475,7 +11484,7 @@ class TerminalController {
         let tabManager = v2ResolveTabManager(params: params)
         var reopened = false
         v2MainSync {
-            reopened = AppDelegate.shared?.reopenMostRecentlyClosedItem(
+            reopened = AppDelegate.shared?.undoLastDestructiveAction(
                 preferredTabManager: tabManager,
                 shouldActivate: false
             ) ?? false
@@ -11490,7 +11499,7 @@ class TerminalController {
         let tabManager = v2ResolveTabManager(params: params)
         var didRedo = false
         v2MainSync {
-            didRedo = AppDelegate.shared?.redoLastReopen(preferredTabManager: tabManager) ?? false
+            didRedo = AppDelegate.shared?.redoLastDestructiveAction(preferredTabManager: tabManager) ?? false
         }
         guard didRedo else {
             return .err(code: "not_found", message: "Nothing to redo", data: nil)

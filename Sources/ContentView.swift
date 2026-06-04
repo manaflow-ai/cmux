@@ -7975,7 +7975,7 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.reopenClosedBrowserTab") {
             if let appDelegate = AppDelegate.shared {
-                _ = appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: tabManager)
+                _ = appDelegate.undoLastDestructiveAction(preferredTabManager: tabManager, shouldActivate: true)
             } else {
                 _ = tabManager.reopenMostRecentlyClosedItem()
             }
