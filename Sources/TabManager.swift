@@ -1128,12 +1128,8 @@ class TabManager: ObservableObject {
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
     private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     private var recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
-    private let initialWorkspaceGitProbeQueue = DispatchQueue(
-        label: "com.cmux.initial-workspace-git-probe",
-        qos: .utility
-    )
     private var workspaceGitProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
-    private var workspaceGitProbeTimersByKey: [WorkspaceGitProbeKey: [DispatchSourceTimer]] = [:]
+    private var workspaceGitProbeTasksByKey: [WorkspaceGitProbeKey: Task<Void, Never>] = [:]
     private var workspaceGitTrackedDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitCleanIndexSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitCleanIndexContentSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
@@ -1143,7 +1139,7 @@ class TabManager: ObservableObject {
     private var workspaceGitMetadataWatcherSourceDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
     private var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
-    private var workspaceGitMetadataFallbackTimer: DispatchSourceTimer?
+    private var workspaceGitMetadataFallbackTask: Task<Void, Never>?
     private var lastSidebarGitMetadataWatchEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     private var lastSidebarPullRequestPollingEnabled = SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
     private var workspacePullRequestProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
@@ -1151,7 +1147,7 @@ class TabManager: ObservableObject {
     private var workspacePullRequestLastTerminalStateRefreshAtByKey: [WorkspaceGitProbeKey: Date] = [:]
     private var workspacePullRequestTransientFailureCountByKey: [WorkspaceGitProbeKey: Int] = [:]
     private var workspacePullRequestRepoCacheBySlug: [String: WorkspacePullRequestRepoCacheEntry] = [:]
-    private var workspacePullRequestPollTimer: DispatchSourceTimer?
+    private var workspacePullRequestPollTask: Task<Void, Never>?
     private var workspacePullRequestRefreshTask: Task<Void, Never>?
     private var workspacePullRequestFollowUpShouldBypassRepoCache = false
 
@@ -1210,16 +1206,22 @@ class TabManager: ObservableObject {
     // workspacePullRequestRepoCacheBySlug and is passed per refresh.
     private let pullRequestProbeService: PullRequestProbeService
 
+    // Drives the git/PR polling delays (probe retry gaps, fallback loop, PR
+    // poll deadline). Injected so tests can use virtual time.
+    private let gitPollClock: any GitPollClock
+
     init(
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
-        gitMetadataService: GitMetadataService = GitMetadataService()
+        gitMetadataService: GitMetadataService = GitMetadataService(),
+        gitPollClock: any GitPollClock = SystemGitPollClock()
     ) {
         self.commandRunner = commandRunner
         self.gitMetadataService = gitMetadataService
+        self.gitPollClock = gitPollClock
 #if DEBUG
         self.pullRequestProbeService = PullRequestProbeService(
             commandRunner: commandRunner,
@@ -1294,8 +1296,11 @@ class TabManager: ObservableObject {
     deinit {
         workspaceCycleCooldownTask?.cancel()
         agentPIDSweepTimer?.cancel()
-        workspacePullRequestPollTimer?.cancel()
-        workspaceGitMetadataFallbackTimer?.cancel()
+        workspacePullRequestPollTask?.cancel()
+        workspaceGitMetadataFallbackTask?.cancel()
+        for task in workspaceGitProbeTasksByKey.values {
+            task.cancel()
+        }
         workspacePullRequestRefreshTask?.cancel()
     }
 
@@ -1319,69 +1324,57 @@ class TabManager: ObservableObject {
     }
 
     private func updateWorkspacePullRequestPollTimer() {
-        guard sidebarPullRequestPollingEnabled else {
-            workspacePullRequestPollTimer?.cancel()
-            workspacePullRequestPollTimer = nil
-            return
-        }
+        workspacePullRequestPollTask?.cancel()
+        workspacePullRequestPollTask = nil
 
-        guard workspacePullRequestRefreshTask == nil else {
-            workspacePullRequestPollTimer?.cancel()
-            workspacePullRequestPollTimer = nil
+        guard sidebarPullRequestPollingEnabled,
+              workspacePullRequestRefreshTask == nil,
+              let nextPollAt = workspacePullRequestNextPollAtByKey.values.min() else {
             return
-        }
-
-        guard let nextPollAt = workspacePullRequestNextPollAtByKey.values.min() else {
-            workspacePullRequestPollTimer?.cancel()
-            workspacePullRequestPollTimer = nil
-            return
-        }
-
-        if workspacePullRequestPollTimer == nil {
-            let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-            timer.setEventHandler { [weak self] in
-                guard let self else { return }
-                DispatchQueue.main.async { [weak self] in
-                    self?.refreshTrackedWorkspacePullRequestsIfNeeded(reason: "timer")
-                }
-            }
-            timer.resume()
-            workspacePullRequestPollTimer = timer
         }
 
         let delay = max(0.25, nextPollAt.timeIntervalSinceNow)
-        workspacePullRequestPollTimer?.schedule(
-            deadline: .now() + delay,
-            repeating: .never,
-            leeway: .milliseconds(250)
-        )
+        let clock = gitPollClock
+        workspacePullRequestPollTask = Task { @MainActor [weak self] in
+            // Bounded, cancellable poll deadline on the injected clock;
+            // re-arming cancels the previous task.
+            do {
+                try await clock.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.refreshTrackedWorkspacePullRequestsIfNeeded(reason: "timer")
+        }
     }
 
     private func updateWorkspaceGitMetadataFallbackTimer() {
         guard sidebarGitMetadataWatchEnabled,
               !workspaceGitTrackedDirectoryByKey.isEmpty else {
-            workspaceGitMetadataFallbackTimer?.cancel()
-            workspaceGitMetadataFallbackTimer = nil
+            workspaceGitMetadataFallbackTask?.cancel()
+            workspaceGitMetadataFallbackTask = nil
             return
         }
 
-        guard workspaceGitMetadataFallbackTimer == nil else {
+        guard workspaceGitMetadataFallbackTask == nil else {
             return
         }
 
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        timer.setEventHandler { [weak self] in
-            DispatchQueue.main.async { [weak self] in
-                self?.refreshTrackedWorkspaceGitMetadata(reason: "fallbackTimer")
+        let clock = gitPollClock
+        let interval = Self.workspaceGitMetadataFallbackRefreshInterval
+        workspaceGitMetadataFallbackTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                // Bounded, cancellable fallback interval on the injected clock
+                // (replaces the repeating DispatchSource timer).
+                do {
+                    try await clock.sleep(for: .seconds(interval))
+                } catch {
+                    return
+                }
+                guard let self, !Task.isCancelled else { return }
+                self.refreshTrackedWorkspaceGitMetadata(reason: "fallbackTimer")
             }
         }
-        timer.schedule(
-            deadline: .now() + Self.workspaceGitMetadataFallbackRefreshInterval,
-            repeating: Self.workspaceGitMetadataFallbackRefreshInterval,
-            leeway: .seconds(15)
-        )
-        timer.resume()
-        workspaceGitMetadataFallbackTimer = timer
     }
 
     private func refreshTrackedWorkspaceGitMetadata(reason: String) {
@@ -1423,16 +1416,13 @@ class TabManager: ObservableObject {
 
         guard isEnabled else {
             stopAllWorkspaceGitMetadataWatchers()
-            workspaceGitMetadataFallbackTimer?.cancel()
-            workspaceGitMetadataFallbackTimer = nil
+            workspaceGitMetadataFallbackTask?.cancel()
+            workspaceGitMetadataFallbackTask = nil
             workspaceGitProbeStateByKey.removeAll()
-            for timers in workspaceGitProbeTimersByKey.values {
-                for timer in timers {
-                    timer.setEventHandler {}
-                    timer.cancel()
-                }
+            for task in workspaceGitProbeTasksByKey.values {
+                task.cancel()
             }
-            workspaceGitProbeTimersByKey.removeAll()
+            workspaceGitProbeTasksByKey.removeAll()
             workspaceGitTrackedDirectoryByKey.removeAll()
             workspaceGitCleanIndexSignatureByKey.removeAll()
             workspaceGitCleanIndexContentSignatureByKey.removeAll()
@@ -1663,8 +1653,8 @@ class TabManager: ObservableObject {
             updateWorkspacePullRequestPollTimer()
             return
         }
-        workspacePullRequestPollTimer?.cancel()
-        workspacePullRequestPollTimer = nil
+        workspacePullRequestPollTask?.cancel()
+        workspacePullRequestPollTask = nil
         for key in requestedKeys {
             workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: false)
         }
@@ -2077,7 +2067,7 @@ class TabManager: ObservableObject {
 
     func activeWorkspaceGitProbePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
         let probeKeys = Set(workspaceGitProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
-            .union(workspaceGitProbeTimersByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspaceGitProbeTasksByKey.keys.filter { $0.workspaceId == workspaceId })
         return Set(probeKeys.map(\.panelId))
     }
 
@@ -2676,7 +2666,7 @@ class TabManager: ObservableObject {
     ) {
         let normalizedDirectory = normalizeDirectory(directory)
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-        cancelWorkspaceGitProbeTimers(for: key)
+        cancelWorkspaceGitProbeTask(for: key)
         if workspaceGitProbeStateByKey[key] == nil {
             workspaceGitProbeStateByKey[key] = .idle
         }
@@ -2688,24 +2678,28 @@ class TabManager: ObservableObject {
         )
 #endif
 
-        var timers: [DispatchSourceTimer] = []
-        for (index, delay) in delays.enumerated() {
-            let isLastAttempt = index == delays.count - 1
-            let timer = DispatchSource.makeTimerSource(queue: initialWorkspaceGitProbeQueue)
-            timer.schedule(deadline: .now() + delay, repeating: .never)
-            timer.setEventHandler { [weak self] in
-                Task { @MainActor [weak self] in
-                    self?.beginWorkspaceGitMetadataProbeAttempt(
-                        probeKey: key,
-                        expectedDirectory: normalizedDirectory,
-                        isLastAttempt: isLastAttempt
-                    )
+        let clock = gitPollClock
+        workspaceGitProbeTasksByKey[key] = Task { @MainActor [weak self] in
+            // The retry delays are absolute offsets from scheduling time; walk
+            // them as sequential gaps on the injected clock (bounded,
+            // cancellable; cancellation replaces the old timer cancels).
+            var previousDelay: TimeInterval = 0
+            for (index, delay) in delays.enumerated() {
+                let isLastAttempt = index == delays.count - 1
+                do {
+                    try await clock.sleep(for: .seconds(delay - previousDelay))
+                } catch {
+                    return
                 }
+                previousDelay = delay
+                guard let self, !Task.isCancelled else { return }
+                self.beginWorkspaceGitMetadataProbeAttempt(
+                    probeKey: key,
+                    expectedDirectory: normalizedDirectory,
+                    isLastAttempt: isLastAttempt
+                )
             }
-            timers.append(timer)
-            timer.resume()
         }
-        workspaceGitProbeTimersByKey[key] = timers
     }
 
     private func beginWorkspaceGitMetadataProbeAttempt(
@@ -2737,14 +2731,8 @@ class TabManager: ObservableObject {
         }
     }
 
-    private func cancelWorkspaceGitProbeTimers(for key: WorkspaceGitProbeKey) {
-        guard let timers = workspaceGitProbeTimersByKey.removeValue(forKey: key) else {
-            return
-        }
-        for timer in timers {
-            timer.setEventHandler {}
-            timer.cancel()
-        }
+    private func cancelWorkspaceGitProbeTask(for key: WorkspaceGitProbeKey) {
+        workspaceGitProbeTasksByKey.removeValue(forKey: key)?.cancel()
     }
 
     private func clearWorkspaceGitProbe(_ key: WorkspaceGitProbeKey) {
@@ -2752,14 +2740,14 @@ class TabManager: ObservableObject {
         workspaceGitCleanIndexSignatureByKey.removeValue(forKey: key)
         workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: key)
         workspaceGitHeadSignatureByKey.removeValue(forKey: key)
-        cancelWorkspaceGitProbeTimers(for: key)
+        cancelWorkspaceGitProbeTask(for: key)
         stopWorkspaceGitMetadataWatcher(for: key)
         updateWorkspaceGitMetadataFallbackTimer()
     }
 
     private func finishWorkspaceGitProbeAttempt(_ key: WorkspaceGitProbeKey) {
         workspaceGitProbeStateByKey.removeValue(forKey: key)
-        cancelWorkspaceGitProbeTimers(for: key)
+        cancelWorkspaceGitProbeTask(for: key)
     }
 
     private func clearWorkspaceGitMetadata(for key: WorkspaceGitProbeKey) {
@@ -2788,7 +2776,7 @@ class TabManager: ObservableObject {
 
     private func clearWorkspaceGitProbes(workspaceId: UUID) {
         let keys = Set(workspaceGitProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
-            .union(workspaceGitProbeTimersByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspaceGitProbeTasksByKey.keys.filter { $0.workspaceId == workspaceId })
         for key in keys {
             clearWorkspaceGitProbe(key)
         }
@@ -2835,7 +2823,7 @@ class TabManager: ObservableObject {
                 if rerunPending {
                     workspaceGitProbeStateByKey[probeKey] = .idle
                     if shouldFinishProbe {
-                        cancelWorkspaceGitProbeTimers(for: probeKey)
+                        cancelWorkspaceGitProbeTask(for: probeKey)
                     }
                     scheduleWorkspaceGitMetadataRefreshIfPossible(
                         workspaceId: probeKey.workspaceId,
@@ -9298,7 +9286,7 @@ extension TabManager {
             forWorkspaceIds: Set(previousTabs.map(\.id))
         )
         let existingProbeKeys = Set(workspaceGitProbeStateByKey.keys)
-            .union(workspaceGitProbeTimersByKey.keys)
+            .union(workspaceGitProbeTasksByKey.keys)
         for key in existingProbeKeys {
             clearWorkspaceGitProbe(key)
         }
