@@ -321,4 +321,19 @@ final class WorkspaceVisibilityTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, second.id)
         XCTAssertEqual(manager.visibleWorkspaceTabs.map(\.id), [first.id, second.id])
     }
+
+    func testSelectWorkspaceUnhidesBeforeSelection() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace(select: false)
+
+        XCTAssertTrue(manager.setWorkspaceHidden(tabId: second.id, hidden: true))
+        XCTAssertEqual(manager.selectedTabId, first.id)
+
+        XCTAssertTrue(manager.selectWorkspace(second))
+
+        XCTAssertFalse(second.isHidden)
+        XCTAssertEqual(manager.selectedTabId, second.id)
+        XCTAssertEqual(manager.visibleWorkspaceTabs.map(\.id), [first.id, second.id])
+    }
 }

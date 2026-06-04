@@ -12238,10 +12238,10 @@ struct VerticalTabsSidebar: View {
 
     private func selectExtensionSidebarWorkspace(_ workspaceId: UUID) {
         guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+        guard tabManager.selectWorkspace(workspace) else { return }
         selection = .tabs
         selectedTabIds = [workspaceId]
         lastSidebarSelectionIndex = tabManager.visibleWorkspaceTabs.firstIndex { $0.id == workspaceId }
-        tabManager.selectWorkspace(workspace)
     }
 
     private func createExtensionWorktreeWorkspace(for section: CmuxSidebarProviderTreeSection) {

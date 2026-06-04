@@ -7545,26 +7545,27 @@ class TabManager: ObservableObject {
         }
     }
 
-    func selectWorkspace(_ workspace: Workspace) {
+    @discardableResult
+    func selectWorkspace(_ workspace: Workspace) -> Bool {
+        guard let liveWorkspace = tabs.first(where: { $0.id == workspace.id }) else { return false }
+        if liveWorkspace.isHidden {
+            guard setWorkspaceHidden(liveWorkspace, hidden: false) else { return false }
+        }
 #if DEBUG
-        debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
+        debugPrimeWorkspaceSwitchTrigger("select", to: liveWorkspace.id)
 #endif
-        selectWorkspaceId(workspace.id, notificationDismissalContext: .explicitWorkspaceResume)
+        selectWorkspaceId(liveWorkspace.id, notificationDismissalContext: .explicitWorkspaceResume)
+        return true
     }
 
     @discardableResult
     func selectWorkspaceRevealingIfNeeded(tabId: UUID) -> Bool {
         guard let workspace = tabs.first(where: { $0.id == tabId }) else { return false }
-        if workspace.isHidden {
-            guard setWorkspaceHidden(workspace, hidden: false) else { return false }
-        }
-        guard let liveWorkspace = tabs.first(where: { $0.id == tabId }) else { return false }
-        selectWorkspace(liveWorkspace)
-        return true
+        return selectWorkspace(workspace)
     }
 
     // Keep selectTab as convenience alias
-    func selectTab(_ tab: Workspace) { selectWorkspace(tab) }
+    func selectTab(_ tab: Workspace) { _ = selectWorkspace(tab) }
 
     var isCloseConfirmationInFlight: Bool { closeConfirmationInFlight }
 
