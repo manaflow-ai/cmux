@@ -411,11 +411,23 @@ extension FeedCoordinator {
               let tab = tabManager.tabs.first(where: { $0.id == target.workspaceId })
         else { return }
 
+        // Lifecycle is per-panel, so clearing this panel's needs-input is
+        // safe even if another panel still needs input.
         if let panelId = target.panelId,
            tab.agentLifecycleStatesByPanelId[panelId]?[target.statusKey] == .needsInput {
             tab.setAgentLifecycle(key: target.statusKey, panelId: panelId, lifecycle: .running)
         }
-        if tab.statusEntries[target.statusKey]?.value == Self.needsInputStatusValue {
+
+        // The status entry is workspace-level (keyed only by statusKey), so it
+        // is shared across panels running the same agent. Only remove it once
+        // no other panel in this workspace still has a pending decision under
+        // the same key — otherwise concluding one panel would wipe another
+        // panel's active "Needs input" badge.
+        let anotherPanelStillPending = pendingAttentionCounts.keys.contains {
+            $0.workspaceId == target.workspaceId && $0.statusKey == target.statusKey
+        }
+        if !anotherPanelStillPending,
+           tab.statusEntries[target.statusKey]?.value == Self.needsInputStatusValue {
             tab.statusEntries.removeValue(forKey: target.statusKey)
         }
     }
