@@ -1296,6 +1296,88 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(displayVisibleFrame.height, stableDisplay.visibleFrame.height, accuracy: 0.001)
     }
 
+    @MainActor
+    func testAppliedRestoreRecordsGeometryUnderActualPostRestoreDisplay() throws {
+        let windowId = UUID()
+        let originalFrame = CGRect(x: 120, y: 30, width: 1_500, height: 920)
+        let restoredFrame = CGRect(x: 2_720, y: 120, width: 1_200, height: 840)
+        let transientShrunkFrame = CGRect(x: 2_720, y: 120, width: 900, height: 640)
+        let displayTwoSnapshot = SessionDisplaySnapshot(
+            displayID: 2,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+        let displayThreeSnapshot = SessionDisplaySnapshot(
+            displayID: 3,
+            frame: SessionRectSnapshot(x: 2_560, y: 0, width: 1_920, height: 1_080),
+            visibleFrame: SessionRectSnapshot(x: 2_560, y: 0, width: 1_920, height: 1_050)
+        )
+        let displayTwo = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+        let displayThree = AppDelegate.SessionDisplayGeometry(
+            displayID: 3,
+            frame: CGRect(x: 2_560, y: 0, width: 1_920, height: 1_080),
+            visibleFrame: CGRect(x: 2_560, y: 0, width: 1_920, height: 1_050)
+        )
+        let coordinator = MainWindowDisplayGeometryCoordinator()
+        let originalCurrent = MainWindowDisplayGeometryCoordinator.CurrentGeometry(
+            connectedDisplayIDs: [2, 3],
+            availableDisplays: [displayTwo, displayThree],
+            fallbackDisplay: displayTwo,
+            windows: [
+                MainWindowDisplayGeometryCoordinator.LiveWindowGeometry(
+                    windowId: windowId,
+                    frame: originalFrame,
+                    displayID: 2,
+                    display: displayTwoSnapshot
+                ),
+            ]
+        )
+        let restoredCurrent = MainWindowDisplayGeometryCoordinator.CurrentGeometry(
+            connectedDisplayIDs: [2, 3],
+            availableDisplays: [displayTwo, displayThree],
+            fallbackDisplay: displayTwo,
+            windows: [
+                MainWindowDisplayGeometryCoordinator.LiveWindowGeometry(
+                    windowId: windowId,
+                    frame: transientShrunkFrame,
+                    displayID: 3,
+                    display: displayThreeSnapshot
+                ),
+            ]
+        )
+
+        coordinator.prime(current: originalCurrent)
+        coordinator.recordAppliedRestore(
+            windowId: windowId,
+            displayID: 2,
+            frame: SessionRectSnapshot(restoredFrame),
+            display: displayThreeSnapshot
+        )
+        coordinator.beginTransition(
+            source: .workspaceScreensDidSleep,
+            reason: .sleepWake,
+            current: restoredCurrent
+        )
+        let snapshot = coordinator.snapshotGeometry(
+            windowId: windowId,
+            liveFrame: transientShrunkFrame,
+            liveDisplayID: 3,
+            liveDisplay: displayThreeSnapshot,
+            current: restoredCurrent
+        )
+        let frame = try XCTUnwrap(snapshot.frame?.cgRect)
+        let display = try XCTUnwrap(snapshot.display)
+        let displayID = try XCTUnwrap(display.displayID)
+
+        XCTAssertEqual(frame.width, restoredFrame.width, accuracy: 0.001)
+        XCTAssertEqual(frame.height, restoredFrame.height, accuracy: 0.001)
+        XCTAssertEqual(displayID, 3)
+    }
+
     func testDisplayReconfigurationKeepsCachedFrameWhenDisplayGeometryChanges() {
         let savedDisplay = SessionDisplaySnapshot(
             displayID: 2,

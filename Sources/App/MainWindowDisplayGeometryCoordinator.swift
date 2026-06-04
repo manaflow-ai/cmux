@@ -238,10 +238,11 @@ final class MainWindowDisplayGeometryCoordinator {
         display: SessionDisplaySnapshot?
     ) {
         guard let display else { return }
-        var bucket = savedDisplayWindowFrames[displayID] ?? []
-        bucket.removeAll { $0.windowId == windowId }
+        let actualDisplayID = display.displayID ?? displayID
+        removeWindowFrames(forWindowId: windowId)
+        var bucket = savedDisplayWindowFrames[actualDisplayID] ?? []
         bucket.append(SavedDisplayWindowFrame(windowId: windowId, frame: frame, display: display))
-        savedDisplayWindowFrames[displayID] = bucket
+        savedDisplayWindowFrames[actualDisplayID] = bucket
     }
 
     func finishDisplayGeometryChange(
