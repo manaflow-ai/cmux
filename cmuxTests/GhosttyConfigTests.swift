@@ -4795,7 +4795,7 @@ struct SidebarFontSizeConfigTests {
     @Test func parseSidebarFontSizeClampsBelowMinimum() {
         var config = GhosttyConfig()
 
-        config.parse("sidebar-font-size = 4")
+        config.parse("sidebar-font-size = 1")
 
         #expect(abs(config.sidebarFontSize - GhosttyConfig.minSidebarFontSize) <= 0.0001)
     }
@@ -4803,7 +4803,7 @@ struct SidebarFontSizeConfigTests {
     @Test func parseSidebarFontSizeClampsAboveMaximum() {
         var config = GhosttyConfig()
 
-        config.parse("sidebar-font-size = 48")
+        config.parse("sidebar-font-size = 96")
 
         #expect(abs(config.sidebarFontSize - GhosttyConfig.maxSidebarFontSize) <= 0.0001)
     }
@@ -4866,7 +4866,7 @@ struct SurfaceTabBarFontSizeConfigTests {
     @Test func parseSurfaceTabBarFontSizeClampsBelowMinimum() {
         var config = GhosttyConfig()
 
-        config.parse("surface-tab-bar-font-size = 4")
+        config.parse("surface-tab-bar-font-size = 1")
 
         #expect(abs(config.surfaceTabBarFontSize - GhosttyConfig.minSurfaceTabBarFontSize) <= 0.0001)
     }
@@ -4874,7 +4874,7 @@ struct SurfaceTabBarFontSizeConfigTests {
     @Test func parseSurfaceTabBarFontSizeClampsAboveMaximum() {
         var config = GhosttyConfig()
 
-        config.parse("surface-tab-bar-font-size = 48")
+        config.parse("surface-tab-bar-font-size = 96")
 
         #expect(abs(config.surfaceTabBarFontSize - GhosttyConfig.maxSurfaceTabBarFontSize) <= 0.0001)
     }
@@ -4911,7 +4911,7 @@ struct SurfaceTabBarFontSizeConfigTests {
     @Test func editorParsesLastSurfaceTabBarValueAndClamps() {
         let contents = """
         surface-tab-bar-font-size = 9
-        surface-tab-bar-font-size = 40
+        surface-tab-bar-font-size = 96
         """
 
         #expect(CmuxGhosttyConfigSettingEditor.parsedSurfaceTabBarFontSize(in: contents)
@@ -4920,6 +4920,47 @@ struct SurfaceTabBarFontSizeConfigTests {
 
     @Test func editorReturnsNilWhenSurfaceTabBarValueAbsent() {
         #expect(CmuxGhosttyConfigSettingEditor.parsedSurfaceTabBarFontSize(in: "sidebar-font-size = 14") == nil)
+    }
+
+    @Test func defaultTerminalFontSizeMatchesBaseline() {
+        let config = GhosttyConfig()
+
+        #expect(abs(config.fontSize - 12) <= 0.0001)
+        #expect(abs(config.fontSize - GhosttyConfig.defaultTerminalFontSize) <= 0.0001)
+    }
+
+    @Test func parseTerminalFontSizeFractionalValue() {
+        var config = GhosttyConfig()
+
+        config.parse("font-size = 13.5")
+
+        #expect(abs(config.fontSize - 13.5) <= 0.0001)
+    }
+
+    @Test func parseTerminalFontSizeClampsBelowMinimum() {
+        var config = GhosttyConfig()
+
+        config.parse("font-size = 1")
+
+        #expect(abs(config.fontSize - GhosttyConfig.minTerminalFontSize) <= 0.0001)
+    }
+
+    @Test func parseTerminalFontSizeClampsAboveMaximum() {
+        var config = GhosttyConfig()
+
+        config.parse("font-size = 200")
+
+        #expect(abs(config.fontSize - GhosttyConfig.maxTerminalFontSize) <= 0.0001)
+    }
+
+    @Test func editorParsesLastTerminalFontValueAndClamps() {
+        let contents = """
+        font-size = 10
+        font-size = 200
+        """
+
+        #expect(CmuxGhosttyConfigSettingEditor.parsedTerminalFontSize(in: contents)
+            == CmuxGhosttyConfigSettingEditor.maxTerminalFontSize)
     }
 
     @Test func editorFormatsSurfaceTabBarValueTrimmingTrailingZeros() {

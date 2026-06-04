@@ -131,13 +131,13 @@ struct SidebarTabItemFontScaleTests {
     }
 
     @Test func sidebarFontScaleClampsSmallSizes() {
-        let scale = SidebarTabItemFontScale.scale(for: 4)
+        let scale = SidebarTabItemFontScale.scale(for: 1)
 
         #expect(abs(scale - (GhosttyConfig.minSidebarFontSize / GhosttyConfig.defaultSidebarFontSize)) <= 0.0001)
     }
 
     @Test func sidebarFontScaleClampsLargeSizes() {
-        let scale = SidebarTabItemFontScale.scale(for: 48)
+        let scale = SidebarTabItemFontScale.scale(for: 96)
 
         #expect(abs(scale - (GhosttyConfig.maxSidebarFontSize / GhosttyConfig.defaultSidebarFontSize)) <= 0.0001)
     }

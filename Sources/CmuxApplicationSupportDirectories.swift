@@ -179,13 +179,18 @@ enum CmuxGhosttyConfigPathResolver {
 enum CmuxGhosttyConfigSettingEditor {
     static let sidebarFontSizeKey = "sidebar-font-size"
     static let defaultSidebarFontSize = 12.5
-    static let minSidebarFontSize = 10.0
-    static let maxSidebarFontSize = 20.0
+    static let minSidebarFontSize = 4.0
+    static let maxSidebarFontSize = 48.0
 
     static let surfaceTabBarFontSizeKey = "surface-tab-bar-font-size"
     static let defaultSurfaceTabBarFontSize = 11.0
-    static let minSurfaceTabBarFontSize = 8.0
-    static let maxSurfaceTabBarFontSize = 14.0
+    static let minSurfaceTabBarFontSize = 4.0
+    static let maxSurfaceTabBarFontSize = 48.0
+
+    static let terminalFontSizeKey = "font-size"
+    static let defaultTerminalFontSize = 12.0
+    static let minTerminalFontSize = 4.0
+    static let maxTerminalFontSize = 72.0
 
     static func clampedSidebarFontSize(_ value: Double) -> Double {
         guard value.isFinite else { return defaultSidebarFontSize }
@@ -211,6 +216,19 @@ enum CmuxGhosttyConfigSettingEditor {
 
     static func parsedSurfaceTabBarFontSize(in contents: String) -> Double? {
         parsedFontSize(in: contents, key: surfaceTabBarFontSizeKey, clamp: clampedSurfaceTabBarFontSize)
+    }
+
+    static func clampedTerminalFontSize(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultTerminalFontSize }
+        return min(max(value, minTerminalFontSize), maxTerminalFontSize)
+    }
+
+    static func formattedTerminalFontSize(_ value: Double) -> String {
+        formattedFontSize(clampedTerminalFontSize(value))
+    }
+
+    static func parsedTerminalFontSize(in contents: String) -> Double? {
+        parsedFontSize(in: contents, key: terminalFontSizeKey, clamp: clampedTerminalFontSize)
     }
 
     /// Formats a point size for display, trimming trailing zeros (`12`, `13.5`, `13.75`).
