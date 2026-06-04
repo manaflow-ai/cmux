@@ -53,10 +53,26 @@ export function workerHighlighterOptions(
 export function codeViewUnsafeCSS(): string {
   return `
     :host {
+      --diffs-light-bg: transparent;
+      --diffs-dark-bg: transparent;
+      --diffs-bg-buffer-override: transparent;
+      --diffs-bg-context-override: transparent;
+      --diffs-bg-context-gutter-override: transparent;
+      --diffs-bg-separator-override: color-mix(in srgb, var(--cmux-diff-fg) 10%, transparent);
       --diffs-addition-color-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
       --diffs-deletion-color-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
       --diffs-fg-number-addition-override: var(--diffs-addition-base);
       --diffs-fg-number-deletion-override: var(--diffs-deletion-base);
+      --diffs-bg-addition-override: color-mix(in srgb, var(--diffs-addition-base) 34%, transparent);
+      --diffs-bg-deletion-override: color-mix(in srgb, var(--diffs-deletion-base) 34%, transparent);
+      --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--diffs-addition-base) 30%, transparent);
+      --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--diffs-deletion-base) 30%, transparent);
+    }
+    :host,
+    pre,
+    code,
+    [data-diffs-header][data-sticky] {
+      background-color: transparent;
     }
     [data-diffs-header] {
       container-type: scroll-state;
