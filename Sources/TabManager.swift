@@ -8936,13 +8936,17 @@ class TabManager: ObservableObject {
     }
 #endif
 
-    func selectTab(at index: Int) {
+    func selectVisibleWorkspace(at index: Int) {
         let visibleTabs = visibleWorkspaceTabs
         guard index >= 0 && index < visibleTabs.count else { return }
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select_index", to: visibleTabs[index].id)
 #endif
         selectWorkspaceId(visibleTabs[index].id, notificationDismissalContext: .explicitWorkspaceResume)
+    }
+
+    func selectTab(at index: Int) {
+        selectVisibleWorkspace(at: index)
     }
 
     func selectLastTab() {
