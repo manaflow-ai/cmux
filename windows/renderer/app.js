@@ -31275,7 +31275,7 @@ function paletteEntries() {
         ? `Run this recent command in ${paletteTerminalTitle}.`
         : "Focus or create a terminal pane before running recent commands.",
       search: normalizeSettingsQuery(`recent terminal command shell run ${terminalReady ? "ready " : "needs terminal "}${commandIndex + 1} ${command} ${paletteTerminalTitle} ${paletteTerminalLocation}`),
-      run: () => runTerminalCommand(command)
+      run: () => runTerminalCommand(command, paletteTerminal)
     });
     entries.push({
       id: `recentCommand.save.${commandIndex}`,
@@ -31429,21 +31429,30 @@ function paletteEntries() {
     run: pasteCommandSnippet
   });
   for (const snippet of allTerminalCommandSnippets()) {
+    const snippetCommand = normalizeTerminalCommand(snippet.command);
+    const snippetReady = Boolean(paletteTerminal && snippetCommand);
+    const snippetSource = snippet.builtIn ? "Built-in terminal snippet" : "Saved terminal snippet";
     entries.push({
       id: `commandSnippet.${snippet.id}`,
       label: `Snippet: ${snippet.label}`,
-      meta: snippet.builtIn ? "Built-in terminal snippet" : "Saved terminal snippet",
-      shortcut: "Snippet",
-      search: normalizeSettingsQuery(`terminal command snippet shell run ${snippet.builtIn ? "built in" : "custom saved"} ${snippet.label} ${snippet.command}`),
-      run: () => runTerminalCommandSnippet(snippet.id)
+      meta: snippetReady ? `Run in ${paletteTerminalTitle} / ${paletteTerminalLocation}` : "Focus a terminal pane first",
+      shortcut: snippetReady ? "Run" : "No terminal",
+      disabled: !snippetReady,
+      icon: "terminal",
+      title: snippetReady
+        ? `Run ${snippet.label} in ${paletteTerminalTitle}.`
+        : "Focus or create a terminal pane before running command snippets.",
+      search: normalizeSettingsQuery(`terminal command snippet shell run ${snippetReady ? "ready " : "needs terminal "}${snippet.builtIn ? "built in" : "custom saved"} ${snippet.label} ${snippetCommand} ${snippetSource} ${paletteTerminalTitle} ${paletteTerminalLocation}`),
+      run: () => runTerminalCommandSnippet(snippet.id, paletteTerminal)
     });
     entries.push({
       id: `commandSnippet.copy.${snippet.id}`,
       label: `Copy snippet: ${snippet.label}`,
-      meta: snippet.command,
+      meta: snippetCommand,
       shortcut: "Copy",
+      icon: "terminal",
       title: `Copy ${snippet.label} as a command snippet JSON.`,
-      search: normalizeSettingsQuery(`terminal command snippet shell copy clipboard json ${snippet.builtIn ? "built in" : "custom saved"} ${snippet.label} ${snippet.command}`),
+      search: normalizeSettingsQuery(`terminal command snippet shell copy clipboard json ${snippet.builtIn ? "built in" : "custom saved"} ${snippet.label} ${snippetCommand}`),
       run: () => copyCommandSnippet(snippet.id)
     });
   }
@@ -35684,10 +35693,10 @@ async function promptRunTerminalCommand(panel = activePanel()) {
   return runTerminalCommand(command, terminalPanel, { renderSettings: state.inspectorMode === "settings" });
 }
 
-function runTerminalCommandSnippet(snippetId) {
+function runTerminalCommandSnippet(snippetId, panel = activePanel()) {
   const snippet = findTerminalCommandSnippet(snippetId);
   if (!snippet) return false;
-  return runTerminalCommand(snippet.command);
+  return runTerminalCommand(snippet.command, panel);
 }
 
 async function copyActiveTerminalSelection(panel = activePanel()) {
