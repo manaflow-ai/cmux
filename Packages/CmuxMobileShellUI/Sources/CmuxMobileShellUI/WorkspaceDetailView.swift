@@ -102,16 +102,6 @@ struct WorkspaceDetailView: View {
             }
         #endif
         }
-        // Applied last so neither the outer .frame clamp nor the navigation
-        // container re-imposes the bottom safe area: the live terminal surface
-        // must reach the screen bottom edge. GhosttySurfaceView owns its bottom
-        // chrome (it docks the accessory toolbar above the home indicator and
-        // reserves its height in the grid), so an empty home-indicator strip
-        // below the surface is wrong. Without this the surface stopped ~34pt
-        // (iPhone) / ~20pt (iPad) short of the bottom.
-        #if os(iOS)
-        .terminalSurfaceIgnoresBottomSafeArea()
-        #endif
     }
 
     @ViewBuilder
