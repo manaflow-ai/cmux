@@ -34670,6 +34670,59 @@ function paletteEntries() {
       search: normalizeSettingsQuery(`paste setup workspace name color folder directory cwd clipboard json ${workspaceIndex + 1} ${workspace.title} ${workspace.cwdShort} ${workspace.cwd}`),
       run: () => pasteWorkspaceSetup(workspace)
     });
+    const paneColorSuggestion = workspacePaneColorSuggestion(workspace);
+    const workspaceHasPaneColors = workspacePaneColorsDirty(workspace);
+    const workspaceUsesPaneColor = Boolean(paneColorSuggestion) && paneColorSuggestion === workspace.color;
+    const workspaceUsesAccent = colorKey(workspace.color) === colorKey(state.settings.accent);
+    const workspacePanesUseWorkspaceColor = workspacePaneColorsMatchWorkspace(workspace);
+    entries.push({
+      id: `workspace.color.usePane.${workspace.id}`,
+      label: `Use pane color: ${workspaceLabel}`,
+      meta: workspaceUsesPaneColor ? `Active / ${paneColorSuggestion}` : paneColorSuggestion ? `${paneColorSuggestion} -> workspace` : "No custom pane color",
+      shortcut: workspaceUsesPaneColor ? "Active" : "Color",
+      active: workspaceUsesPaneColor,
+      disabled: !paneColorSuggestion || workspaceUsesPaneColor,
+      icon: "appearance",
+      title: workspacePaneColorSyncActionTitle("usePane", workspace),
+      search: workspacePaneColorSyncActionSearchText("usePane", workspace, `command palette workspace ${workspaceIndex + 1}`),
+      run: () => setWorkspaceColorFromActivePane(workspace)
+    });
+    entries.push({
+      id: `workspace.color.useAccent.${workspace.id}`,
+      label: `Use app accent: ${workspaceLabel}`,
+      meta: workspaceUsesAccent ? `Active / ${state.settings.accent}` : `${state.settings.accent} -> workspace`,
+      shortcut: workspaceUsesAccent ? "Active" : "Color",
+      active: workspaceUsesAccent,
+      disabled: workspaceUsesAccent,
+      icon: "appearance",
+      title: workspacePaneColorSyncActionTitle("useAccent", workspace),
+      search: workspacePaneColorSyncActionSearchText("useAccent", workspace, `command palette workspace ${workspaceIndex + 1}`),
+      run: () => setWorkspaceColorFromAppAccent(workspace)
+    });
+    entries.push({
+      id: `workspace.color.useWorkspace.${workspace.id}`,
+      label: `Use workspace color on panes: ${workspaceLabel}`,
+      meta: workspacePanesUseWorkspaceColor ? `Active / ${workspacePaneMeta}` : `${workspaceColorForPaneSync(workspace)} -> ${workspacePaneMeta}`,
+      shortcut: workspacePanesUseWorkspaceColor ? "Active" : "Sync",
+      active: workspacePanesUseWorkspaceColor,
+      disabled: !workspace.panels.length || workspacePanesUseWorkspaceColor,
+      icon: "appearance",
+      title: workspacePaneColorSyncActionTitle("useWorkspace", workspace),
+      search: workspacePaneColorSyncActionSearchText("useWorkspace", workspace, `command palette workspace ${workspaceIndex + 1}`),
+      run: () => setWorkspacePaneColorsFromWorkspace(workspace)
+    });
+    entries.push({
+      id: `workspace.color.resetPanes.${workspace.id}`,
+      label: `Clear pane colors: ${workspaceLabel}`,
+      meta: workspaceHasPaneColors ? "Pane overrides present" : "Active / Pane colors inherit",
+      shortcut: workspaceHasPaneColors ? "Reset" : "Active",
+      active: !workspaceHasPaneColors,
+      disabled: !workspaceHasPaneColors,
+      icon: "appearance",
+      title: workspacePaneColorSyncActionTitle("resetPanes", workspace),
+      search: workspacePaneColorSyncActionSearchText("resetPanes", workspace, `command palette workspace ${workspaceIndex + 1}`),
+      run: () => clearWorkspacePaneColors(workspace)
+    });
     for (const [panelIndex, panel] of workspace.panels.entries()) {
       const panelPending = isPendingPanel(panel);
       const panelMinimized = isPanelMinimized(panel);
