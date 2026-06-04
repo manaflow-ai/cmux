@@ -15168,7 +15168,7 @@ function renderSettingsInspector(options = {}) {
   const nodes = [settingsChrome];
   const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
   if (!searching) setSettingsSearchBusy(false);
-  settingsChrome.className = `settings-react-host${searching ? " is-searching" : ""}`;
+  settingsChrome.className = `settings-react-host${searching ? " is-searching is-search-layout-needed" : ""}`;
   const shouldBuildSection = (id) => state.settingsCategory === id || searching;
 
   if (shouldBuildSection("quick")) {
@@ -21881,6 +21881,15 @@ function setSettingsSearchBusy(busy) {
   }
 }
 
+function setSettingsSearchLayoutNeeded(needed) {
+  if (!elements.inspectorBody) return;
+  const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+  for (const host of elements.inspectorBody.querySelectorAll(".settings-react-host")) {
+    host.classList.toggle("is-searching", searching);
+    host.classList.toggle("is-search-layout-needed", searching && needed);
+  }
+}
+
 function syncSettingsDisclosuresForSearch(query) {
   if (!query) {
     state.settingsSearchDisclosuresOpenVersion = 0;
@@ -21924,8 +21933,15 @@ function applySettingsFilter() {
     : rebuildSettingsSearchIndex();
   if (query && disclosureSync.complete) state.settingsSearchDisclosuresOpenVersion = state.settingsSearchIndexVersion;
   const pendingAutoScroll = query && state.settingsSearchAutoScrollQuery === query;
+  const mayAutoScroll = Boolean(!searchStillMounting && query
+    && (pendingAutoScroll || elements.inspectorBody.scrollTop === 0));
+  const searchLayoutNeeded = Boolean(query && (searchStillMounting || mayAutoScroll));
+  setSettingsSearchLayoutNeeded(searchLayoutNeeded);
   const filterSignature = `${query}\u001e${state.settingsSearchIndexVersion}\u001e${pendingAutoScroll ? "scroll" : ""}`;
-  if (filterSignature === state.settingsSearchLastFilterSignature) return;
+  if (filterSignature === state.settingsSearchLastFilterSignature) {
+    if (!searchStillMounting) setSettingsSearchLayoutNeeded(false);
+    return;
+  }
   state.settingsSearchLastFilterSignature = filterSignature;
   let visibleSections = 0;
   let matchingItems = 0;
@@ -21977,10 +21993,10 @@ function applySettingsFilter() {
       ? t("settings.searching")
       : settingsSearchResultMessage(matchingItems, visibleSections)
     : "");
-  const shouldAutoScroll = !searchStillMounting && query
-    && (state.settingsSearchAutoScrollQuery === query || elements.inspectorBody.scrollTop === 0);
+  const shouldAutoScroll = mayAutoScroll;
   if (!searchStillMounting && state.settingsSearchAutoScrollQuery === query) state.settingsSearchAutoScrollQuery = "";
   if (shouldAutoScroll && visibleSections > 0) scrollSettingsSearchTargetIntoView(bestTarget?.item);
+  if (!searchStillMounting) setSettingsSearchLayoutNeeded(false);
 }
 
 function formatMs(value) {

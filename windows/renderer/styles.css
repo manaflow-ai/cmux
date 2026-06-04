@@ -6580,18 +6580,18 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   contain-intrinsic-size: auto 420px;
 }
 
-.settings-react-host.is-searching ~ .settings-section {
+.settings-react-host.is-search-layout-needed ~ .settings-section {
   content-visibility: visible;
   contain-intrinsic-size: none;
 }
 
-.settings-react-host:not(.is-searching) ~ .settings-section > :not(.settings-section-title) {
+.settings-react-host:not(.is-search-layout-needed) ~ .settings-section > :not(.settings-section-title) {
   content-visibility: auto;
   contain-intrinsic-size: auto 96px;
 }
 
-.settings-react-host:not(.is-searching) ~ .settings-section > .quick-setup-overview,
-.settings-react-host:not(.is-searching) ~ .settings-section > .settings-disclosure {
+.settings-react-host:not(.is-search-layout-needed) ~ .settings-section > .quick-setup-overview,
+.settings-react-host:not(.is-search-layout-needed) ~ .settings-section > .settings-disclosure {
   contain-intrinsic-size: auto 240px;
 }
 
