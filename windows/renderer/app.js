@@ -26891,9 +26891,23 @@ function refreshPerformanceOverviewPanel(panel = elements.inspectorBody.querySel
   return overviewChanged || healthChanged;
 }
 
+function settingsRefreshNodeVisible(node) {
+  return Boolean(node?.isConnected && !node.hidden && !node.closest("[hidden]"));
+}
+
+function performanceMetricsVisibleForRefresh() {
+  return [
+    "[data-performance-overview]",
+    "[data-performance-health]",
+    '[data-performance-metrics="true"]',
+    ".performance-tune-grid"
+  ].some((selector) => settingsRefreshNodeVisible(elements.inspectorBody.querySelector(selector)));
+}
+
 function performanceMetricsShouldRefresh() {
-  return state.inspectorMode === "settings"
-    && (state.settingsCategory === "performance" || normalizeSettingsQuery(state.settingsQuery));
+  if (state.inspectorMode !== "settings") return false;
+  if (!normalizeSettingsQuery(state.settingsQuery)) return state.settingsCategory === "performance";
+  return performanceMetricsVisibleForRefresh();
 }
 
 function scheduleStatusbarPerformanceRefresh() {
