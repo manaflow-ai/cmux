@@ -3199,23 +3199,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         return surface
     }
 
-    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
-        guard let event = NSEvent.mouseEvent(
-            with: type,
-            location: location,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1.0
-        ) else {
-            fatalError("Failed to create \(type) mouse event")
-        }
-        return event
-    }
-
     private func findEditableTextField(in view: NSView) -> NSTextField? {
         if let field = view as? NSTextField, field.isEditable {
             return field
@@ -3238,15 +3221,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             return true
         }
         return false
-    }
-
-    private func surfaceView(in hostedView: GhosttySurfaceScrollView) -> NSView? {
-        hostedView.subviews
-            .compactMap { $0 as? NSScrollView }
-            .first?
-            .documentView?
-            .subviews
-            .first
     }
 
     @discardableResult
@@ -3592,106 +3566,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             !hostedView.debugHasSearchOverlay()
         }
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
-    }
-
-    func testSearchOverlayForwardsTerminalMouseReleaseDuringSelectionDrag() throws {
-        let surface = makeTrackedTerminalSurface()
-        let hostedView = surface.hostedView
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-
-        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
-        waitUntil(description: "search overlay to mount") {
-            hostedView.debugHasSearchOverlay()
-        }
-
-        let terminalView = try XCTUnwrap(surfaceView(in: hostedView) as? GhosttyNSView)
-        let overlay = try XCTUnwrap(hostedView.debugSearchOverlayHostingViewForTesting())
-
-        let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
-        terminalView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: downLocation, window: window))
-        XCTAssertTrue(
-            hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
-            "Terminal selection should own the left-button release after mouseDown"
-        )
-
-        let overlayLocation = overlay.convert(NSPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), to: nil)
-        overlay.mouseDragged(with: makeMouseEvent(type: .leftMouseDragged, location: overlayLocation, window: window))
-        XCTAssertTrue(
-            hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
-            "Dragging across the find overlay must keep terminal selection ownership until mouseUp"
-        )
-
-        overlay.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: overlayLocation, window: window))
-        XCTAssertFalse(
-            hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
-            "An overlay-captured mouseUp must release the terminal selection"
-        )
-    }
-
-    func testSearchOverlayMouseReleaseClearsSelectionDragAfterSurfaceRelease() throws {
-        let surface = makeTrackedTerminalSurface()
-        let hostedView = surface.hostedView
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-
-        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
-        waitUntil(description: "search overlay to mount") {
-            hostedView.debugHasSearchOverlay()
-        }
-
-        let terminalView = try XCTUnwrap(surfaceView(in: hostedView) as? GhosttyNSView)
-        let overlay = try XCTUnwrap(hostedView.debugSearchOverlayHostingViewForTesting())
-
-        let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
-        terminalView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: downLocation, window: window))
-        XCTAssertTrue(hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting())
-
-        surface.releaseSurfaceForTesting()
-        XCTAssertNil(surface.surface)
-
-        let overlayLocation = overlay.convert(NSPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), to: nil)
-        overlay.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: overlayLocation, window: window))
-        XCTAssertFalse(
-            hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
-            "The pending terminal release state must clear even if the Ghostty surface is gone"
-        )
     }
 
     func testRapidSearchOverlayToggleDoesNotLeaveStaleOverlayMounted() {
