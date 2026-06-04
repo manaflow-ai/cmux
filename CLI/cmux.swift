@@ -7041,9 +7041,7 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "history.redo", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.reclosed", defaultValue: "Re-closed"))
         case "clear":
-            var params: [String: Any] = [:]
-            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
-            let payload = try client.sendV2(method: "history.clear", params: params)
+            let payload = try client.sendV2(method: "history.clear", params: [:])
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: String(localized: "cli.history.result.cleared", defaultValue: "Cleared"))
         default:
             throw CLIError(message: localizedFormat("cli.history.error.unknownSubcommand", defaultValue: "Unknown history subcommand: %@. Try: list, reopen, undo, redo, clear", sub))

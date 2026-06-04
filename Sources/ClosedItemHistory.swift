@@ -406,14 +406,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             return nil
         }
         let record = records.remove(at: index)
-        if let ref = restoredRefByRecordId.removeValue(forKey: id),
-           redoTarget == ref {
-            redoTarget = nil
-        }
-        if lastRestoredOperationId == record.operationId,
-           !records.contains(where: { $0.operationId == record.operationId }) {
-            lastRestoredOperationId = nil
-        }
+        pruneRestoredStateForRemovedRecord(record)
         revision &+= 1
         persistRecords()
         return (record, index)
@@ -426,10 +419,10 @@ final class ClosedItemHistoryStore: ObservableObject {
             let overflow = records.count - capacity
             for _ in 0..<overflow {
                 guard let removalIndex = records.firstIndex(where: { $0.id != protectedRecordId }) else {
-                    records.removeFirst()
+                    pruneRestoredStateForRemovedRecord(records.removeFirst())
                     continue
                 }
-                records.remove(at: removalIndex)
+                pruneRestoredStateForRemovedRecord(records.remove(at: removalIndex))
             }
         }
         revision &+= 1
@@ -663,7 +656,22 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     private func trimToCapacityIfNeeded() {
         guard let capacity, records.count > capacity else { return }
+        let removed = Array(records.prefix(records.count - capacity))
         records.removeFirst(records.count - capacity)
+        for record in removed {
+            pruneRestoredStateForRemovedRecord(record)
+        }
+    }
+
+    private func pruneRestoredStateForRemovedRecord(_ record: ClosedItemHistoryRecord) {
+        if let ref = restoredRefByRecordId.removeValue(forKey: record.id),
+           redoTarget == ref {
+            redoTarget = nil
+        }
+        if lastRestoredOperationId == record.operationId,
+           !records.contains(where: { $0.operationId == record.operationId }) {
+            lastRestoredOperationId = nil
+        }
     }
 
     private func persistRecords() {

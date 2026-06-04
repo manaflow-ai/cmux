@@ -2065,6 +2065,65 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.items.map(\.title), ["Second Newer", "Failed Restore"])
     }
 
+    func testCapacityTrimPrunesRestoredRefsForEvictedRecords() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        let store = ClosedItemHistoryStore(capacity: 1)
+        store.isTargetLive = { _ in true }
+        let evicted = ClosedItemHistoryRecord(entry: .panel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+        let kept = ClosedItemHistoryRecord(entry: .panel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            tabIndex: 1,
+            snapshot: panelSnapshot
+        )))
+
+        store.push(evicted)
+        store.markRestored(recordId: evicted.id, ref: .panel(workspaceId: workspace.id, panelId: panelSnapshot.id))
+        XCTAssertTrue(store.isRecordRestored(evicted.id))
+
+        store.push(kept)
+
+        XCTAssertNil(store.record(id: evicted.id))
+        XCTAssertFalse(store.isRecordRestored(evicted.id))
+    }
+
+    func testCapacityInsertOverflowPrunesRestoredRefsForEvictedRecords() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        let store = ClosedItemHistoryStore(capacity: 1)
+        store.isTargetLive = { _ in true }
+        let evicted = ClosedItemHistoryRecord(entry: .panel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+        let inserted = ClosedItemHistoryRecord(entry: .panel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            tabIndex: 1,
+            snapshot: panelSnapshot
+        )))
+
+        store.push(evicted)
+        store.markRestored(recordId: evicted.id, ref: .panel(workspaceId: workspace.id, panelId: panelSnapshot.id))
+        XCTAssertTrue(store.isRecordRestored(evicted.id))
+
+        store.insert(inserted, at: 0)
+
+        XCTAssertNil(store.record(id: evicted.id))
+        XCTAssertFalse(store.isRecordRestored(evicted.id))
+        XCTAssertNotNil(store.record(id: inserted.id))
+    }
+
     func testRestoreFirstRestorableCanSkipRecordsThatAlreadyFailedThisCommand() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
