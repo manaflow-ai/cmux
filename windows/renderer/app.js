@@ -6575,6 +6575,8 @@ const commands = [
   { id: "settings.actions", label: "Open Actions Settings", shortcut: "", run: () => openSettingsCategory("actions") },
   { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
   { id: "settings.resetCommandPalette", label: "Reset Command Palette Settings", shortcut: "", run: () => resetCommandPaletteSettings() },
+  { id: "settings.resetSidebar", label: "Reset Sidebar Settings", shortcut: "", run: () => resetSidebarChromeSettings() },
+  { id: "settings.resetOverlays", label: "Reset Overlay Settings", shortcut: "", run: () => resetOverlayChromeSettings() },
   { id: "settings.pasteCommandSnippet", label: "Paste Command Snippet", shortcut: "", run: () => pasteCommandSnippet() },
   { id: "settings.profiles", label: "Open Settings Profiles", shortcut: "", run: () => openSettingsCategory("profiles") },
   { id: "settings.saveProfile", label: "Save Current Settings Profile", shortcut: "", run: () => saveCurrentSettingsProfile() },
@@ -6656,6 +6658,8 @@ const customizationPaletteCommandIds = new Set([
   "settings.copyLook",
   "settings.pasteLook",
   "settings.resetCommandPalette",
+  "settings.resetSidebar",
+  "settings.resetOverlays",
   "settings.copySavedColors",
   "settings.pasteSavedColors",
   "settings.saveAccentColor",
@@ -6675,6 +6679,8 @@ function customizationCommandPaletteSignature() {
   appendSignatureValue(parts, recentDataItemCount());
   appendSignatureValue(parts, settingsKeysSignature(appearanceResetSettings));
   appendSignatureValue(parts, settingsKeysSignature(commandPaletteSettings));
+  appendSignatureValue(parts, settingsKeysSignature(sidebarChromeSettings));
+  appendSignatureValue(parts, settingsKeysSignature(overlayChromeSettings));
   appendSignatureValue(parts, settingsKeysSignature(performanceSetupSettings));
   appendSignatureValue(parts, state.customColorPalette.length);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
@@ -6871,6 +6877,46 @@ function customizationCommandPaletteState(commandId) {
         ? "Command palette already uses defaults."
         : "Reset command palette density, quick actions, details, result limit, and placement.",
       search: normalizeSettingsQuery(`command palette reset defaults density compact balanced roomy quick actions auto hidden details metadata shortcuts result limit focused balanced extended placement top center wide ${paletteDefault ? "active current " : ""}${density} ${actions} ${detail} ${results} ${placement}`)
+    };
+  }
+  if (commandId === "settings.resetSidebar") {
+    const sidebarDefault = sidebarChromeSettingsAreDefault();
+    const rows = optionLabel(sidebarDetailOptions, state.settings.sidebarDetailMode, state.settings.sidebarDetailMode);
+    const rowSize = optionLabel(workspaceRowSizeOptions, state.settings.workspaceRowSize, state.settings.workspaceRowSize);
+    const tools = optionLabel(sidebarToolOptions, state.settings.sidebarToolMode, state.settings.sidebarToolMode);
+    const style = optionLabel(sidebarStyleOptions, state.settings.sidebarStyle, state.settings.sidebarStyle);
+    const activeStyle = optionLabel(workspaceActiveStyleOptions, state.settings.workspaceActiveStyle, state.settings.workspaceActiveStyle);
+    const colorStyle = optionLabel(workspaceColorStyleOptions, state.settings.workspaceColorStyle, state.settings.workspaceColorStyle);
+    const meta = `${style} / ${rows} / ${tools}`;
+    return {
+      meta: sidebarDefault ? "Defaults active" : meta,
+      shortcut: sidebarDefault ? "Default" : "Reset",
+      active: sidebarDefault,
+      disabled: sidebarDefault,
+      icon: "workspace",
+      title: sidebarDefault
+        ? "Sidebar settings already use defaults."
+        : "Reset workspace rows, size, Git branch display, footer, rail tools, sidebar style, home screen, active workspace, and workspace colors.",
+      search: normalizeSettingsQuery(`sidebar workspace list rail reset defaults rows size git branches footer tools style home screen active workspace colors dot edge tint ${sidebarDefault ? "active current " : ""}${rows} ${rowSize} ${tools} ${style} ${activeStyle} ${colorStyle}`)
+    };
+  }
+  if (commandId === "settings.resetOverlays") {
+    const overlayDefault = overlayChromeSettingsAreDefault();
+    const inspector = optionLabel(inspectorStyleOptions, state.settings.inspectorStyle, state.settings.inspectorStyle);
+    const overlay = optionLabel(overlayStyleOptions, state.settings.overlayStyle, state.settings.overlayStyle);
+    const switcher = optionLabel(switcherStyleOptions, state.settings.switcherStyle, state.settings.switcherStyle);
+    const toastPlacement = optionLabel(toastPlacementOptions, state.settings.toastPlacement, state.settings.toastPlacement);
+    const meta = `${inspector} settings / ${switcher} switcher / ${toastPlacement}`;
+    return {
+      meta: overlayDefault ? "Defaults active" : meta,
+      shortcut: overlayDefault ? "Default" : "Reset",
+      active: overlayDefault,
+      disabled: overlayDefault,
+      icon: "settings",
+      title: overlayDefault
+        ? "Overlay settings already use defaults."
+        : "Reset settings panel, overlay, switcher, and toast placement.",
+      search: normalizeSettingsQuery(`overlay settings panel command palette menus dialogs switcher toast reset defaults visual weight quiet subtle solid placement bottom right left top feedback chrome ${overlayDefault ? "active current " : ""}${inspector} ${overlay} ${switcher} ${toastPlacement}`)
     };
   }
   if (commandId === "settings.copySavedColors") {
