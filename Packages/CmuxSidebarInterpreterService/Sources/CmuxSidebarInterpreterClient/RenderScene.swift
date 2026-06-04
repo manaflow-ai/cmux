@@ -22,6 +22,14 @@ public struct RenderScene: Codable, Sendable, Equatable {
     /// Bottom scroll inset so content fades into the host's footer band.
     public var bottomInset: Double
 
+    /// Creates a scene update.
+    ///
+    /// - Parameters:
+    ///   - seq: Monotonic sequence number echoed back in the worker's ack.
+    ///   - filePath: Absolute path of the sidebar file to render.
+    ///   - state: Live data context the interpreter binds identifiers to.
+    ///   - topInset: Top scroll inset reserved for host chrome.
+    ///   - bottomInset: Bottom scroll inset reserved for host chrome.
     public init(
         seq: UInt64,
         filePath: String,

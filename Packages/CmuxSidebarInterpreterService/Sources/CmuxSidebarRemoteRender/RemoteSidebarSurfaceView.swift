@@ -64,11 +64,13 @@ final class RemoteSidebarSurfaceView: NSView {
 
         // The CLI's `sidebar reload` posts a host-process notification; the
         // worker can't observe it across the process boundary, so forward it.
-        reloadTask = Task { @MainActor [weak self] in
+        // Consumed nonisolated: CI's Swift 6.1 rejects awaiting the stream's
+        // non-Sendable `Notification` from an actor-isolated task, and only
+        // the Sendable names array leaves this task (via the outbox).
+        reloadTask = Task { [outbox] in
             for await notification in NotificationCenter.default.notifications(named: .customSidebarReloadRequested) {
                 let names = notification.userInfo?["names"] as? [String]
-                guard let self else { return }
-                self.outbox.yield(.reloadSidebars(names))
+                outbox.yield(.reloadSidebars(names))
             }
         }
 

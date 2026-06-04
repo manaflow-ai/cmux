@@ -30,6 +30,15 @@ public struct RenderPointerEvent: Codable, Sendable, Equatable {
     /// Click multiplicity for ``Kind/down``/``Kind/up`` (double-click = 2).
     public var clickCount: Int
 
+    /// Creates a pointer event.
+    ///
+    /// - Parameters:
+    ///   - kind: The interaction kind.
+    ///   - x: X in surface points from the left edge.
+    ///   - y: Y in surface points from the bottom edge.
+    ///   - deltaX: Horizontal scroll delta (scroll only).
+    ///   - deltaY: Vertical scroll delta (scroll only).
+    ///   - clickCount: Click multiplicity for down/up.
     public init(
         kind: Kind,
         x: Double,

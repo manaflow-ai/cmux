@@ -13,6 +13,12 @@ public struct RenderSurfaceGeometry: Codable, Sendable, Equatable {
     /// rasterizes layer contents crisply.
     public var scale: Double
 
+    /// Creates a surface geometry.
+    ///
+    /// - Parameters:
+    ///   - width: Surface width in points.
+    ///   - height: Surface height in points.
+    ///   - scale: Backing scale factor of the host screen.
     public init(width: Double, height: Double, scale: Double) {
         self.width = width
         self.height = height
