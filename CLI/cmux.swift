@@ -3030,6 +3030,14 @@ struct CMUXCLI {
             return
         }
 
+        if command == "__debug-tmux-compat-env" {
+            try debugDumpTmuxCompatEnvironment(
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
         if command == "omc" {
             try runOMC(
                 commandArgs: commandArgs,
@@ -17537,11 +17545,57 @@ struct CMUXCLI {
             setenv(envVar.key, envVar.value, 1)
         }
         if let focusedContext {
-            setenv("CMUX_WORKSPACE_ID", focusedContext.workspaceId, 1)
-            if let surfaceId = focusedContext.surfaceId, !surfaceId.isEmpty {
+            // The launcher's OWN surface (its inherited env, passed in as processEnvironment) is the
+            // agent's canonical identity; the focused pane is only a fallback. Stamping the focused
+            // pane here would desync CMUX_SURFACE_ID from the inherited CMUX_PANEL_ID and make agents
+            // (codex omx/teams) record + restore into the wrong surface after reload (#4920).
+            let identity = AgentSpawnIdentity().resolve(
+                ownWorkspaceId: processEnvironment["CMUX_WORKSPACE_ID"],
+                ownSurfaceId: processEnvironment["CMUX_SURFACE_ID"],
+                focusedWorkspaceId: focusedContext.workspaceId,
+                focusedSurfaceId: focusedContext.surfaceId
+            )
+            if let workspaceId = identity.workspaceId {
+                setenv("CMUX_WORKSPACE_ID", workspaceId, 1)
+            }
+            if let surfaceId = identity.surfaceId {
                 setenv("CMUX_SURFACE_ID", surfaceId, 1)
             }
         }
+    }
+
+    /// Hidden `__debug-tmux-compat-env` seam: runs the real ``configureTmuxCompatEnvironment`` against
+    /// the live socket's focused context and prints the resolved CMUX_* identity, so an integration
+    /// test can assert the launcher stamps the launch surface (its own env) rather than the focused
+    /// pane (#4920). Not user-facing. The shim/tmux params here do not affect the id resolution.
+    func debugDumpTmuxCompatEnvironment(socketPath: String, explicitPassword: String?) throws {
+        var processEnvironment = ProcessInfo.processInfo.environment
+        // Resolve the focused context from the SAME socket this command was pointed at, not whatever
+        // CMUX_SOCKET_PATH the process happened to inherit.
+        processEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        let focusedContext = try tmuxCompatFocusedContext(
+            processEnvironment: processEnvironment,
+            explicitPassword: explicitPassword
+        )
+        let shimDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-debug-tmux-shim-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+        configureTmuxCompatEnvironment(
+            processEnvironment: processEnvironment,
+            shimDirectory: shimDirectory,
+            executablePath: processEnvironment["CMUX_BUNDLED_CLI_PATH"] ?? "cmux",
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            focusedContext: focusedContext,
+            tmuxPathPrefix: "cmux-debug",
+            cmuxBinEnvVar: "CMUX_BIN",
+            termOverrideEnvVar: "TERM"
+        )
+        func dump(_ key: String) -> String { getenv(key).map { String(cString: $0) } ?? "" }
+        print("CMUX_WORKSPACE_ID=\(dump("CMUX_WORKSPACE_ID"))")
+        print("CMUX_SURFACE_ID=\(dump("CMUX_SURFACE_ID"))")
+        print("CMUX_PANEL_ID=\(dump("CMUX_PANEL_ID"))")
+        print("CMUX_TAB_ID=\(dump("CMUX_TAB_ID"))")
     }
 
     private static let claudeNodeOptionsRestoreModule = """
@@ -18412,11 +18466,21 @@ struct CMUXCLI {
         guard let focusedContext = try tmuxCompatFocusedContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
-        ),
-              let rootSurfaceId = focusedContext.surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rootSurfaceId.isEmpty else {
+        ) else {
             throw CLIError(message: "cmux codex-teams must be started from a cmux terminal surface")
         }
+        // The codex-teams root identity is the LAUNCH surface (this process's own env), not the
+        // operator's focused pane, so the watcher records the surface codex actually runs in (#4920).
+        let rootIdentity = AgentSpawnIdentity().resolve(
+            ownWorkspaceId: launcherEnvironment["CMUX_WORKSPACE_ID"],
+            ownSurfaceId: launcherEnvironment["CMUX_SURFACE_ID"],
+            focusedWorkspaceId: focusedContext.workspaceId,
+            focusedSurfaceId: focusedContext.surfaceId
+        )
+        guard let rootSurfaceId = rootIdentity.surfaceId, !rootSurfaceId.isEmpty else {
+            throw CLIError(message: "cmux codex-teams must be started from a cmux terminal surface")
+        }
+        let rootWorkspaceId = rootIdentity.workspaceId ?? focusedContext.workspaceId
 
         let codexExecutablePath = resolveCodexExecutable(searchPath: launcherEnvironment["PATH"])
         let codexExecutableForShell = codexExecutablePath ?? "codex"
@@ -18512,7 +18576,7 @@ struct CMUXCLI {
             socketPath,
             "__codex-teams-watch",
             "--workspace-id",
-            focusedContext.workspaceId,
+            rootWorkspaceId,
             "--surface-id",
             rootSurfaceId,
             "--app-server-url",
