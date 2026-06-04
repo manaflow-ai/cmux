@@ -35680,6 +35680,26 @@ function paletteEntries() {
       run: () => copySavedBackgroundImage(background.id)
     });
     entries.push({
+      id: `savedBackground.copySource.${background.id}`,
+      label: `Copy background source: ${background.label}`,
+      meta: background.url,
+      shortcut: "Source",
+      disabled: !canCopyBackgroundImageSource(background.url),
+      title: backgroundImageCopyTitle(background.url, "Copy this saved background source."),
+      search: normalizeSettingsQuery(`saved background image wallpaper source copy clipboard url file path ${background.label} ${background.url}`),
+      run: () => copySavedBackgroundImageSource(background)
+    });
+    entries.push({
+      id: `savedBackground.openSource.${background.id}`,
+      label: `Open background source: ${background.label}`,
+      meta: background.url,
+      shortcut: "Open",
+      disabled: !canOpenBackgroundImageSource(background.url),
+      title: backgroundImageOpenTitle(background.url, "Open this saved background source."),
+      search: normalizeSettingsQuery(`saved background image wallpaper source open url file path external browser ${background.label} ${background.url}`),
+      run: () => openBackgroundImageSource(background.url)
+    });
+    entries.push({
       id: `savedBackground.${background.id}`,
       label: `Background: ${background.label}`,
       meta: activeApp ? `Active / ${background.url}` : background.url,
