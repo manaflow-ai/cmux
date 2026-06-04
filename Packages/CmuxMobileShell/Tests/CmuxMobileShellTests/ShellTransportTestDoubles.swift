@@ -360,6 +360,22 @@ enum ShellTestFrames {
         return try MobileSyncFrameCodec.encodeFrame(envelopeData)
     }
 
+    static func attachTicketFrame(route: CmxAttachRoute, workspaceID: String) throws -> Data {
+        let ticket = try CmxAttachTicket(
+            workspaceID: workspaceID,
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
+            authToken: "ticket-secret"
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let ticketObject = try JSONSerialization.jsonObject(with: encoder.encode(ticket))
+        return try resultFrame(result: ["ticket": ticketObject])
+    }
+
     static func attachURL(for ticket: CmxAttachTicket) throws -> String {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -370,7 +386,7 @@ enum ShellTestFrames {
         return "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"
     }
 
-    static func liveTicket() throws -> CmxAttachTicket {
+    static func liveTicket(expiresAt: Date = Date().addingTimeInterval(60)) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(
             id: "debug_loopback",
             kind: .debugLoopback,
@@ -382,7 +398,7 @@ enum ShellTestFrames {
             macDeviceID: "test-mac",
             macDisplayName: "Test Mac",
             routes: [route],
-            expiresAt: Date().addingTimeInterval(60)
+            expiresAt: expiresAt
         )
     }
 }

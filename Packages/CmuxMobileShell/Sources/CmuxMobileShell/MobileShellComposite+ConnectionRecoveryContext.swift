@@ -6,7 +6,7 @@
 /// class body.
 extension MobileShellComposite: MobileConnectionRecoveryContext {
     var canAttemptRecovery: Bool {
-        remoteClient != nil || pairedMacStore != nil
+        remoteClient != nil || connection.pairedMacStore != nil
     }
 
     var hasLiveRemoteConnection: Bool {
