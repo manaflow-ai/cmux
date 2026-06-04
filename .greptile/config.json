@@ -55,6 +55,12 @@
       "severity": "high"
     },
     {
+      "id": "cmux-algorithmic-complexity",
+      "rule": "Flag production code that adds nested full-collection scans, per-target rescans for batch actions, repeated sort/filter/map work in hot UI/socket/search/process paths, in-memory joins that belong in the data store, or unbenchmarked slower algorithms for paths expected to handle about 1000 workspaces or similar user-owned records. Pass for tiny fixed-size collections, tests and benchmark harnesses, existing debt not worsened, and documented bounds with measurements.",
+      "scope": ["**/*.swift", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs", "**/*.sh", "**/*.zsh"],
+      "severity": "high"
+    },
+    {
       "id": "cmux-swiftui-state-layout",
       "rule": "Flag SwiftUI changes that can cause stale state, broad invalidation, layout instability, or main-thread churn: new ObservableObject/@Published state where @Observable is correct, GeometryReader measurement that changes layout, lazy/list row subtrees holding store references, or state mutation during body rendering.",
       "scope": ["**/*.swift"],
