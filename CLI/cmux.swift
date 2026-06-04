@@ -227,10 +227,6 @@ private final class CLISocketSentryTelemetry {
         let description = String(describing: error).lowercased()
         return description == "socket closed before reply" ||
             description == "socket closed before complete reply" ||
-            description.contains("no such file or directory") ||
-            description.contains("socket not found at") ||
-            description.contains("connection refused") ||
-            description.contains("broken pipe") ||
             Self.description(description, containsExactErrno: ENOENT) ||
             Self.description(description, containsExactErrno: ECONNREFUSED) ||
             Self.description(description, containsExactErrno: EPIPE)
