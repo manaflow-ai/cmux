@@ -2986,7 +2986,7 @@ class TabManager: ObservableObject {
 #endif
 
 #if DEBUG
-        if runsWorkspaceGitMetadataRefreshSynchronouslyForTesting {
+        if runsWorkspaceGitMetadataRefreshSynchronouslyForTesting, reason != "branchChange" {
             workspaceGitProbeStateByKey[key] = .inFlight(rerunPending: false)
             let snapshot = Self.initialWorkspaceGitMetadataSnapshot(for: normalizedDirectory)
             applyWorkspaceGitMetadataSnapshot(
