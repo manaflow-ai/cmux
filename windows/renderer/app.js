@@ -6540,6 +6540,8 @@ const commands = [
   { id: "settings.renamePane", label: "Rename Active Pane", shortcut: "", run: () => renameActivePanel() },
   { id: "settings.copyPaneSetup", label: "Copy Active Pane Setup", shortcut: "", run: () => copyActivePaneSetup() },
   { id: "settings.pastePaneSetup", label: "Paste Active Pane Setup", shortcut: "", run: () => pasteActivePaneSetup() },
+  { id: "settings.copyPaneLook", label: "Copy Active Pane Look", shortcut: "", run: () => copyActivePaneLook() },
+  { id: "settings.pastePaneLook", label: "Paste Active Pane Look", shortcut: "", run: () => pasteActivePaneLook() },
   { id: "settings.resetPaneSetup", label: "Reset Active Pane Setup", shortcut: "", run: () => resetActivePaneSetup() },
   { id: "settings.syncPaneLook", label: "Sync Active Pane Look", shortcut: "", run: () => syncActivePaneLook() },
   { id: "settings.resetAppearance", label: "Reset Look Settings", shortcut: "", run: () => resetAppearanceSettings() },
@@ -6890,6 +6892,8 @@ const corePaletteCommandIds = new Set([
   "settings.renamePane",
   "settings.copyPaneSetup",
   "settings.pastePaneSetup",
+  "settings.copyPaneLook",
+  "settings.pastePaneLook",
   "settings.resetPaneSetup",
   "settings.syncPaneLook",
   "layout.activePercent",
@@ -7115,7 +7119,7 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       search: `active pane duplicate clone ${panelTitle} ${panelKind}`
     };
   }
-  if (["settings.pane", "settings.renamePane", "settings.copyPaneSetup", "settings.pastePaneSetup", "settings.resetPaneSetup", "settings.syncPaneLook"].includes(commandId)) {
+  if (["settings.pane", "settings.renamePane", "settings.copyPaneSetup", "settings.pastePaneSetup", "settings.copyPaneLook", "settings.pastePaneLook", "settings.resetPaneSetup", "settings.syncPaneLook"].includes(commandId)) {
     const paneSetupDefault = paneSetupResetIsDefault(panel);
     const syncTargetCount = paneLookSyncTargetPanels(panel, workspace).length;
     const shortcutById = {
@@ -7123,6 +7127,8 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       "settings.renamePane": "Edit",
       "settings.copyPaneSetup": "Copy",
       "settings.pastePaneSetup": "Paste",
+      "settings.copyPaneLook": "Copy look",
+      "settings.pastePaneLook": "Paste look",
       "settings.resetPaneSetup": "Reset",
       "settings.syncPaneLook": "Sync"
     };
@@ -7131,6 +7137,12 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       "settings.renamePane": "Rename the active pane.",
       "settings.copyPaneSetup": "Copy active pane setup as JSON.",
       "settings.pastePaneSetup": "Paste copied pane setup into the active pane.",
+      "settings.copyPaneLook": panel?.type === "terminal"
+        ? "Copy active pane marker color, background, and text size as JSON."
+        : "Copy active browser pane marker color as JSON.",
+      "settings.pastePaneLook": panel?.type === "terminal"
+        ? "Paste copied pane color, background, and text size without renaming the pane."
+        : "Paste copied pane color without renaming the pane or changing its URL.",
       "settings.resetPaneSetup": paneSetupResetTitle(panel),
       "settings.syncPaneLook": paneLookSyncTitle(panel, workspace)
     };
@@ -7147,7 +7159,7 @@ function coreCommandPaletteState(commandId, workspace = activeWorkspace()) {
       disabled,
       icon: "paneSettings",
       title: readyPanel ? titleById[commandId] : noPaneTitle,
-      search: `settings active pane ${shortcutById[commandId]} setup rename copy paste reset sync default color background text ${panelTitle} ${panelKind}`
+      search: `settings active pane ${shortcutById[commandId]} setup look rename copy paste reset sync default color background text url ${panelTitle} ${panelKind}`
     };
   }
   if (["terminal.find", "terminal.clear", "terminal.restart", "terminal.fontUp", "terminal.fontDown", "terminal.fontReset"].includes(commandId)) {
@@ -18037,6 +18049,94 @@ async function pasteActivePaneSetup(panel = focusedPanel() || activePanel()) {
   }
 }
 
+function paneLookPayload(panel = focusedPanel() || activePanel()) {
+  const target = paneSetupTarget(panel);
+  const settings = paneLookSyncUpdates(target);
+  if (!target || !settings) return null;
+  return {
+    version: 1,
+    type: "cmux-pane-look",
+    summary: {
+      kind: target.type === "browser" ? "Browser" : "Terminal",
+      color: settings.color || "Default",
+      background: target.type === "terminal" ? appearanceBackgroundLabel(settings.backgroundImage) : "",
+      text: target.type === "terminal"
+        ? (settings.terminalFontSize ? `${settings.terminalFontSize}px` : "Default")
+        : ""
+    },
+    settings
+  };
+}
+
+async function copyActivePaneLook(panel = focusedPanel() || activePanel()) {
+  const payloadModel = paneLookPayload(panel);
+  if (!payloadModel) {
+    toast("Open a pane to copy its look.");
+    return false;
+  }
+  const payload = JSON.stringify(payloadModel, null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Pane look copied.");
+    return true;
+  }
+  await showTextDialog({
+    title: "Pane look",
+    message: "Clipboard access is unavailable. The active pane look is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
+  return false;
+}
+
+function paneLookUpdatesFromPayload(payload, panel = focusedPanel() || activePanel()) {
+  const target = paneSetupTarget(panel);
+  if (!target) return null;
+  const parsed = importedObject(payload);
+  const source = importedObject(parsed?.settings) || parsed;
+  if (!source) return null;
+  const updates = {};
+  if (Object.prototype.hasOwnProperty.call(source, "color")) {
+    const color = paneSetupColorUpdateFromValue(source.color);
+    if (color === null) return null;
+    updates.color = color;
+  }
+  if (target.type === "terminal") {
+    if (Object.prototype.hasOwnProperty.call(source, "backgroundImage")) {
+      const backgroundImage = paneSetupBackgroundUpdateFromValue(source.backgroundImage);
+      if (backgroundImage === null) return null;
+      updates.backgroundImage = backgroundImage;
+    }
+    if (Object.prototype.hasOwnProperty.call(source, "terminalFontSize")) {
+      const terminalFontSize = paneSetupTerminalFontSizeUpdateFromValue(source.terminalFontSize);
+      if (terminalFontSize === null) return null;
+      updates.terminalFontSize = terminalFontSize;
+    }
+  }
+  return Object.keys(updates).length ? updates : null;
+}
+
+async function pasteActivePaneLook(panel = focusedPanel() || activePanel()) {
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(clipboard);
+    return applyPaneSetupUpdates(paneLookUpdatesFromPayload(parsed, panel), panel, {
+      toastText: "Pane look applied.",
+      alreadyText: "Pane look already matches.",
+      invalidText: "Clipboard does not contain pane look.",
+      unavailableText: "Open a pane to paste look."
+    });
+  } catch {
+    toast("Clipboard does not contain pane look.");
+    return false;
+  }
+}
+
 function paneSetupResetUpdates(panel = focusedPanel() || activePanel()) {
   const target = paneSetupTarget(panel);
   if (!target) return null;
@@ -18705,7 +18805,7 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
 
   const actions = document.createElement("div");
   actions.className = "settings-actions active-pane-actions";
-  actions.dataset.settingsSearch = normalizeSettingsQuery("active pane focus duplicate split reset sync default color text browser terminal actions copy paste setup clipboard json");
+  actions.dataset.settingsSearch = normalizeSettingsQuery("active pane focus duplicate split reset sync default color text browser terminal actions copy paste setup look clipboard json");
   const resetPaneSetup = settingsActionButton("Reset setup", () => resetActivePaneSetup(panel), "", "active pane setup reset default title color background text size");
   resetPaneSetup.disabled = paneSetupResetIsDefault(panel);
   resetPaneSetup.title = paneSetupResetTitle(panel);
@@ -18716,6 +18816,8 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
     settingsActionButton("Focus pane", () => focusPanel(panel.id), "", "active pane focus"),
     settingsActionButton("Copy setup", () => copyActivePaneSetup(panel), "", "active pane setup copy title color background text url clipboard json"),
     settingsActionButton("Paste setup", () => pasteActivePaneSetup(panel), "", "active pane setup paste title color background text url clipboard json"),
+    settingsActionButton("Copy look", () => copyActivePaneLook(panel), "", "active pane look copy color background text clipboard json"),
+    settingsActionButton("Paste look", () => pasteActivePaneLook(panel), "", "active pane look paste color background text clipboard json"),
     resetPaneSetup,
     syncPaneLook,
     settingsActionButton("Duplicate", () => duplicatePanel(panel), "", "active pane duplicate"),
