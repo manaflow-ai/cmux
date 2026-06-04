@@ -20979,12 +20979,12 @@ function quickWorkspaceControlsPanel(workspace, terminalCount = 0, browserCount 
       title: hasWorkspace ? "Choose the active workspace folder." : disabledTitle,
       search: "quick setup workspace folder cwd directory choose change"
     }),
-    quickOverviewControlButton("Copy", () => copyWorkspaceSetup(workspace), {
+    quickOverviewControlButton("Copy setup", () => copyWorkspaceSetup(workspace), {
       disabled: !hasWorkspace,
       title: hasWorkspace ? "Copy this workspace name, color, and folder as JSON." : disabledTitle,
       search: "quick setup workspace copy setup export name color folder clipboard json"
     }),
-    quickOverviewControlButton("Paste", () => pasteWorkspaceSetup(workspace), {
+    quickOverviewControlButton("Paste setup", () => pasteWorkspaceSetup(workspace), {
       disabled: !hasWorkspace,
       title: hasWorkspace ? "Paste copied workspace setup into the active workspace." : disabledTitle,
       search: "quick setup workspace paste setup import name color folder clipboard json"
