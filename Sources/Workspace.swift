@@ -1723,12 +1723,13 @@ extension Workspace {
                 (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
             )
             let requestedWorkingDirectoryForRestoredTerminal =
-                remoteConfiguration != nil &&
-                (restoredAgentWillRunStartupCommand ||
-                 restoredAgentWillRunStartupInput ||
-                 restoresRemoteWorkspaceTerminalSnapshot ||
-                 effectiveRemoteStartupCommand != nil ||
-                 startupHandlesWorkingDirectory)
+                startupHandlesWorkingDirectory ||
+                (remoteConfiguration != nil && (
+                    restoredAgentWillRunStartupCommand ||
+                    restoredAgentWillRunStartupInput ||
+                    restoresRemoteWorkspaceTerminalSnapshot ||
+                    effectiveRemoteStartupCommand != nil
+                ))
                 ? nil
                 : savedWorkingDirectory
 #if DEBUG

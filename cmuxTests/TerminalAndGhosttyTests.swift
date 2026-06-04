@@ -3086,7 +3086,6 @@ final class WindowTerminalHostViewTests: XCTestCase {
     }
 
     func testHostViewStopsSidebarPassThroughJustInsideTerminalContent() {
-        let terminalSideOverlapWidth: CGFloat = 2
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
             styleMask: [.titled, .closable],
@@ -3099,49 +3098,45 @@ final class WindowTerminalHostViewTests: XCTestCase {
             return
         }
 
-        let splitView = NSSplitView(frame: contentView.bounds)
-        splitView.autoresizingMask = [.width, .height]
-        splitView.isVertical = true
-        splitView.dividerStyle = .thin
-        let splitDelegate = BonsplitMockSplitDelegate()
-        splitView.delegate = splitDelegate
-        let first = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height))
-        let second = NSView(frame: NSRect(x: 121, y: 0, width: 179, height: contentView.bounds.height))
-        splitView.addSubview(first)
-        splitView.addSubview(second)
-        contentView.addSubview(splitView)
-        splitView.setPosition(1, ofDividerAt: 0)
-        splitView.adjustSubviews()
-        contentView.layoutSubtreeIfNeeded()
-
         let host = WindowTerminalHostView(frame: contentView.bounds)
         host.autoresizingMask = [.width, .height]
-        let hostedView = makeHostedTerminalView(frame: host.bounds)
+        let terminalOriginX: CGFloat = 80
+        let hostedView = makeHostedTerminalView(
+            frame: NSRect(
+                x: terminalOriginX,
+                y: 0,
+                width: host.bounds.width - terminalOriginX,
+                height: host.bounds.height
+            )
+        )
         host.addSubview(hostedView)
         contentView.addSubview(host)
 
-        let dividerPointInSplit = NSPoint(
-            x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5),
-            y: splitView.bounds.midY
-        )
-        let dividerPointInWindow = splitView.convert(dividerPointInSplit, to: nil)
-        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
-
+        let dividerX = hostedView.frame.minX
         let resizeBandPoint = NSPoint(
-            x: dividerPointInHost.x + terminalSideOverlapWidth,
-            y: dividerPointInHost.y
+            x: dividerX + SidebarResizeInteraction.contentSideHitWidth,
+            y: host.bounds.midY
         )
+        let resizeBandEvent = makeMouseDownEvent(
+            at: host.convert(resizeBandPoint, to: nil),
+            window: window
+        )
+
         XCTAssertNil(
-            host.hitTest(resizeBandPoint),
+            host.performHitTest(at: resizeBandPoint, currentEvent: resizeBandEvent),
             "The narrow terminal-side overlap should still pass through to the sidebar resizer"
         )
 
         let textSelectionPoint = NSPoint(
-            x: dividerPointInHost.x + terminalSideOverlapWidth + 1,
-            y: dividerPointInHost.y
+            x: dividerX + SidebarResizeInteraction.contentSideHitWidth + 1,
+            y: host.bounds.midY
+        )
+        let textSelectionEvent = makeMouseDownEvent(
+            at: host.convert(textSelectionPoint, to: nil),
+            window: window
         )
         assertHitFallsInsideHostedTerminal(
-            host.hitTest(textSelectionPoint),
+            host.performHitTest(at: textSelectionPoint, currentEvent: textSelectionEvent),
             hostedView: hostedView,
             message: "Once the pointer moves past the reduced terminal-side overlap, terminal content should win hit-testing"
         )
@@ -4529,6 +4524,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             originalAnchorFrameInWindow.maxX + 1,
             "The shifted anchor should expose a new trailing region outside the stale portal frame"
         )
+        drainMainQueue()
+        drainMainQueue()
         let retiredStaleWindowPoint = NSPoint(
             x: (originalAnchorFrameInWindow.minX + shiftedAnchorFrameInWindow.minX) / 2,
             y: shiftedAnchorFrameInWindow.midY

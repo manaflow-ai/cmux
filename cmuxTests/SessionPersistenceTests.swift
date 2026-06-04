@@ -167,13 +167,16 @@ final class SessionPersistenceTests: XCTestCase {
     @MainActor
     func testWorkspaceSessionSnapshotRestoresPaneNotificationsIntoStore() throws {
         let store = TerminalNotificationStore.shared
+        let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let originalNotificationStore = appDelegate.notificationStore
+        AppDelegate.shared = appDelegate
         appDelegate.notificationStore = store
         store.replaceNotificationsForTesting([])
         defer {
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
+            AppDelegate.shared = previousAppDelegate
         }
 
         let workspace = Workspace()
