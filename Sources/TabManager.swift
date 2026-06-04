@@ -1220,6 +1220,7 @@ class TabManager: ObservableObject {
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
+        createInitialWorkspace: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
         gitPollClock: any GitPollClock = SystemGitPollClock()
@@ -1235,12 +1236,14 @@ class TabManager: ObservableObject {
 #else
         self.pullRequestProbeService = PullRequestProbeService(commandRunner: commandRunner)
 #endif
-        addWorkspace(
-            title: initialWorkspaceTitle,
-            workingDirectory: initialWorkingDirectory,
-            initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded
-        )
+        if createInitialWorkspace {
+            addWorkspace(
+                title: initialWorkspaceTitle,
+                workingDirectory: initialWorkingDirectory,
+                initialTerminalInput: initialTerminalInput,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded
+            )
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -1297,6 +1300,30 @@ class TabManager: ObservableObject {
         setupChildExitKeyboardUITestIfNeeded()
 #endif
     }
+
+#if DEBUG
+    convenience init(
+        initialWorkspaceTitle: String? = nil,
+        initialWorkingDirectory: String? = nil,
+        initialTerminalInput: String? = nil,
+        autoWelcomeIfNeeded: Bool = true,
+        debugCreateInitialWorkspace: Bool,
+        commandRunner: any CommandRunning = CommandRunner(),
+        gitMetadataService: GitMetadataService = GitMetadataService(),
+        gitPollClock: any GitPollClock = SystemGitPollClock()
+    ) {
+        self.init(
+            initialWorkspaceTitle: initialWorkspaceTitle,
+            initialWorkingDirectory: initialWorkingDirectory,
+            initialTerminalInput: initialTerminalInput,
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+            createInitialWorkspace: debugCreateInitialWorkspace,
+            commandRunner: commandRunner,
+            gitMetadataService: gitMetadataService,
+            gitPollClock: gitPollClock
+        )
+    }
+#endif
 
     deinit {
         workspaceCycleCooldownTask?.cancel()
