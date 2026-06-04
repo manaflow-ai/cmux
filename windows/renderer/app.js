@@ -13827,6 +13827,12 @@ function renderSettingsInspector(options = {}) {
     );
     speedPreset.disabled = speedPresetActive;
     speedPreset.title = speedPresetActive ? "Fast performance settings are already active." : "Apply the fast performance preset.";
+    const performanceSetupDefault = performanceSetupSettingsAreDefault();
+    const resetPerformanceSetupAction = settingsActionButton("Reset setup", resetPerformanceSetupSettings, "", `performance setup reset default speed lag motion output browser chrome history workspace chrome ${performanceSetupDefault ? "active current " : ""}`);
+    resetPerformanceSetupAction.disabled = performanceSetupDefault;
+    resetPerformanceSetupAction.title = performanceSetupDefault
+      ? "Performance setup already uses defaults."
+      : "Reset performance tuning, motion, output, browser, lightweight chrome, and history settings to defaults.";
     performanceActions.append(
       applySettingsProfileSaveLimit(
         settingsActionButton("Save clean + fast", applyAndSaveCleanFastProfile, "primary", "performance clean fast simple speed preset save settings profile reusable"),
@@ -13840,6 +13846,7 @@ function renderSettingsInspector(options = {}) {
       settingsActionButton("Paste setup", pastePerformanceSetup, "", "performance setup paste speed lag motion speed snappy balanced calm workspace chrome density toolbar top bar style button style ghost tab bar quiet banded sidebar style settings panel inspector overlay command palette menus dialogs toast feedback placement bottom right left top palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide switcher workspace pane keyboard hud pane surface spacing gap gutter padding background opacity effects chrome readable soft immersive terminal startup inactive browser suspend pane chrome compact content full controls tabs address clipboard json"),
       settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
       speedPreset,
+      resetPerformanceSetupAction,
       resetPerformanceStatsAction()
     );
     performanceSection.append(performanceActions);
@@ -20046,6 +20053,10 @@ function applyPerformanceHealthFixes() {
   return true;
 }
 
+function performanceSetupSettingsAreDefault() {
+  return settingsKeysMatchDefaults(performanceSetupSettings);
+}
+
 function performanceSetupPayload(settingsSource = state.settings) {
   const source = {
     ...state.settings,
@@ -20161,6 +20172,19 @@ function applyPerformanceSetupUpdates(updates, options = {}) {
   }
   if (state.inspectorMode === "settings") renderSettingsInspector();
   toast(options.toastText || "Performance setup applied.");
+  return true;
+}
+
+function resetPerformanceSetupSettings() {
+  const updates = {};
+  for (const key of performanceSetupSettings) updates[key] = defaultSettings[key];
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Performance setup already uses defaults.");
+    return false;
+  }
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  toast("Performance setup reset.");
   return true;
 }
 
