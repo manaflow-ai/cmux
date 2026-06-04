@@ -217,7 +217,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
             return
         }
 
-        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window, _ in
+        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window, fieldEditor in
             withTemporaryCommandPalettePreviousShortcut {
                 let remappedPrevious = StoredShortcut(key: "u", command: false, shift: false, option: false, control: true)
                 KeyboardShortcutSettings.setShortcut(remappedPrevious, for: .commandPalettePrevious)
@@ -246,10 +246,12 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
                     return
                 }
 
+                XCTAssertTrue(window.firstResponder === fieldEditor)
+
                 #if DEBUG
-                XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: controlPEvent, preferredWindow: window))
+                XCTAssertFalse(appDelegate.debugHandleShortcutMonitorEvent(event: controlPEvent, preferredWindow: window))
                 #else
-                XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
                 #endif
 
                 wait(for: [controlPExpectation], timeout: 0.15)
@@ -279,9 +281,9 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
                 }
 
                 #if DEBUG
-                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: controlUEvent, preferredWindow: window))
+                XCTAssertTrue(appDelegate.debugHandleShortcutMonitorEvent(event: controlUEvent, preferredWindow: window))
                 #else
-                XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
                 #endif
 
                 wait(for: [controlUExpectation], timeout: 1.0)
