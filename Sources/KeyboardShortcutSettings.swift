@@ -1648,10 +1648,28 @@ struct ShortcutStroke: Equatable, Hashable {
         } ?? true
         let shortcutKeyIsDigit = shortcutKey.count == 1 && shortcutKey.first?.isNumber == true
         let shortcutKeyIsLetter = shortcutKey.count == 1 && shortcutKey.first?.isLetter == true
+        let shortcutKeyIsPrintableASCIIPunctuation = shortcutKey.unicodeScalars.count == 1 &&
+            shortcutKey.unicodeScalars.allSatisfy { scalar in
+                scalar.isASCII &&
+                    !CharacterSet.controlCharacters.contains(scalar) &&
+                    !CharacterSet.decimalDigits.contains(scalar) &&
+                    !CharacterSet.letters.contains(scalar)
+            }
+        let eventCharsContainASCIILetter = eventCharacter?.unicodeScalars.contains { scalar in
+            scalar.isASCII && CharacterSet.letters.contains(scalar)
+        } ?? false
+        let expectedShortcutKeyCode = Self.keyCodeForShortcutKey(shortcutKey)
+        let shiftedCommandPunctuationCanUsePhysicalFallback = flags.contains(.command) &&
+            flags.contains(.shift) &&
+            !flags.contains(.control) &&
+            shortcutKeyIsPrintableASCIIPunctuation &&
+            !eventCharsContainASCIILetter &&
+            expectedShortcutKeyCode == keyCode
         let commandPrintableCharacterShouldBlockFallback = flags.contains(.command) &&
             hasEventChars &&
             eventCharsArePrintableASCII &&
             (!flags.contains(.control) || !shortcutKeyIsLetter) &&
+            !shiftedCommandPunctuationCanUsePhysicalFallback &&
             Self.shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
         if shortcutKeyIsDigit,
            hasEventChars,
@@ -1680,9 +1698,10 @@ struct ShortcutStroke: Equatable, Hashable {
                     !Self.shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
                         || (hasEventChars && !eventCharsAreASCII)
                         || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
+                        || shiftedCommandPunctuationCanUsePhysicalFallback
                 ))
         if allowANSIKeyCodeFallback,
-           let expectedKeyCode = Self.keyCodeForShortcutKey(shortcutKey) {
+           let expectedKeyCode = expectedShortcutKeyCode {
             return keyCode == expectedKeyCode
         }
 
