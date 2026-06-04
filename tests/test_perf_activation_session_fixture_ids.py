@@ -110,4 +110,4 @@ def test_activation_fixture_cleanup_uses_stable_workspace_ids(tmp_path: pathlib.
     runner.create_fixture()
 
     assert runner.closed_workspaces == ["initial-workspace", "guard-workspace"]
-    assert runner.selected_workspaces == ["perf-workspace-2"]
+    assert runner.selected_workspaces == ["perf-workspace-2", "perf-workspace-2"]

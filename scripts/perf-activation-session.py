@@ -52,6 +52,21 @@ class PerfFailure(RuntimeError):
     pass
 
 
+SOCKET_UNAVAILABLE_ERRORS = (
+    "Connection refused",
+    "Failed to connect to socket",
+)
+
+TRANSIENT_SOCKET_ERRORS = SOCKET_UNAVAILABLE_ERRORS + (
+    "Socket closed before reply",
+    "Socket closed before complete reply",
+)
+
+
+def has_socket_error(stderr: str, needles: tuple[str, ...]) -> bool:
+    return any(needle in stderr for needle in needles)
+
+
 class CmuxPerfRunner:
     def __init__(self, args: argparse.Namespace):
         self.args = args
@@ -188,7 +203,7 @@ class CmuxPerfRunner:
                 return False
             if self.socket_path.exists():
                 try:
-                    self.run_cli(["--json", "list-workspaces"], timeout=5)
+                    self.run_cli(["--json", "list-workspaces"], timeout=5, socket_retries=0)
                     return True
                 except Exception:
                     pass
@@ -268,30 +283,78 @@ class CmuxPerfRunner:
         if copied_log_paths:
             self.result.setdefault("diagnostics", {})["copied_log_paths"] = copied_log_paths
 
-    def run_cli(self, args: list[str], input_text: str | None = None, timeout: float = 60, check: bool = True) -> str:
-        proc = subprocess.run(
-            [str(self.cli_path)] + args,
-            input=input_text,
-            text=True,
-            capture_output=True,
-            env=self.cli_env(),
-            timeout=timeout,
+    def record_socket_retry(self, args: list[str], proc: subprocess.CompletedProcess[str], attempt: int) -> None:
+        retries = self.result["fixture"].setdefault("socket_retry_attempts", [])
+        if len(retries) >= 20:
+            return
+        retries.append(
+            {
+                "args": args,
+                "attempt": attempt,
+                "returncode": proc.returncode,
+                "stdout_tail": proc.stdout[-1000:],
+                "stderr_tail": proc.stderr[-1000:],
+            }
         )
-        if not check and proc.returncode != 0:
-            self.record_unchecked_cli_failure(args, proc)
-            if "Connection refused" in proc.stderr or "Failed to connect to socket" in proc.stderr:
-                raise PerfFailure(
-                    "cmux command failed while socket was unavailable: "
-                    + " ".join(args)
-                    + f"\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
-                )
-        if check and proc.returncode != 0:
+
+    def record_socket_retry_error(self, args: list[str], error: Exception, attempt: int) -> None:
+        retries = self.result["fixture"].setdefault("socket_retry_attempts", [])
+        if len(retries) >= 20:
+            return
+        retries.append(
+            {
+                "args": args,
+                "attempt": attempt,
+                "error_tail": str(error)[-1000:],
+            }
+        )
+
+    def run_cli(
+        self,
+        args: list[str],
+        input_text: str | None = None,
+        timeout: float = 60,
+        check: bool = True,
+        socket_retries: int = 0,
+    ) -> str:
+        last_proc: subprocess.CompletedProcess[str] | None = None
+        for attempt in range(socket_retries + 1):
+            proc = subprocess.run(
+                [str(self.cli_path)] + args,
+                input=input_text,
+                text=True,
+                capture_output=True,
+                env=self.cli_env(),
+                timeout=timeout,
+            )
+            if proc.returncode == 0:
+                return proc.stdout.strip()
+
+            last_proc = proc
+            if not check:
+                self.record_unchecked_cli_failure(args, proc)
+                if has_socket_error(proc.stderr, SOCKET_UNAVAILABLE_ERRORS):
+                    raise PerfFailure(
+                        "cmux command failed while socket was unavailable: "
+                        + " ".join(args)
+                        + f"\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+                    )
+                return proc.stdout.strip()
+
+            if attempt < socket_retries and has_socket_error(proc.stderr, TRANSIENT_SOCKET_ERRORS):
+                self.record_socket_retry(args, proc, attempt + 1)
+                self.ensure_app_running("socket retry " + " ".join(args))
+                if self.wait_for_socket(timeout_s=10):
+                    continue
+                break
+
+        if last_proc is not None:
             raise PerfFailure(
                 "cmux command failed: "
                 + " ".join(args)
-                + f"\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+                + f"\nstdout:\n{last_proc.stdout}\nstderr:\n{last_proc.stderr}"
             )
-        return proc.stdout.strip()
+        raise PerfFailure("cmux command was not attempted: " + " ".join(args))
 
     def json_cli(self, args: list[str], timeout: float = 60) -> dict:
         out = self.run_cli(["--json"] + args, timeout=timeout)
@@ -330,6 +393,59 @@ class CmuxPerfRunner:
             params["description"] = description
         payload = self.rpc("workspace.create", params, timeout=90)
         return self.require_string_field(payload, "workspace_id", f"workspace.create {title!r}")
+
+    def pane_snapshots(self, workspace: str) -> list[dict]:
+        panes = self.json_cli(["list-panes", "--workspace", workspace], timeout=90).get("panes", [])
+        if not isinstance(panes, list):
+            raise PerfFailure(f"list-panes returned invalid panes for {workspace}: {panes!r}")
+        return panes
+
+    def wait_for_pane_count(self, workspace: str, minimum_count: int, timeout_s: float = 30) -> list[dict]:
+        deadline = time.monotonic() + timeout_s
+        last_count: int | None = None
+        last_error: Exception | None = None
+        while time.monotonic() < deadline:
+            self.ensure_app_running(f"wait_for_pane_count {workspace}")
+            try:
+                panes = self.pane_snapshots(workspace)
+            except Exception as exc:
+                last_error = exc
+            else:
+                last_count = len(panes)
+                if last_count >= minimum_count:
+                    return panes
+            time.sleep(0.1)
+        detail = f"last_count={last_count}"
+        if last_error is not None:
+            detail += f" last_error={last_error}"
+        raise PerfFailure(f"workspace {workspace} did not reach {minimum_count} panes ({detail})")
+
+    def create_pane_and_wait(self, workspace: str, direction: str, expected_pane_count: int) -> list[dict]:
+        args = [
+            "new-pane",
+            "--workspace",
+            workspace,
+            "--type",
+            "terminal",
+            "--direction",
+            direction,
+        ]
+        for attempt in range(3):
+            try:
+                self.run_cli(args, timeout=90)
+            except PerfFailure as exc:
+                if not has_socket_error(str(exc), TRANSIENT_SOCKET_ERRORS) or attempt == 2:
+                    raise
+                self.record_socket_retry_error(args, exc, attempt + 1)
+                self.ensure_app_running("socket retry " + " ".join(args))
+                try:
+                    return self.wait_for_pane_count(workspace, expected_pane_count, timeout_s=10)
+                except PerfFailure:
+                    if not self.wait_for_socket(timeout_s=10):
+                        raise
+                    continue
+            return self.wait_for_pane_count(workspace, expected_pane_count)
+        raise PerfFailure(f"workspace {workspace} did not create pane {expected_pane_count}")
 
     def report_shell_prompt(self, workspace: str, surface: str) -> bool:
         try:
@@ -393,21 +509,11 @@ class CmuxPerfRunner:
                 selected_fixture_workspace = True
             pane_target = self.args.heavy_workspace_panes if i == 1 else self.args.other_workspace_panes
             directions = ["right", "down", "left", "up"]
+            panes = self.pane_snapshots(ws)
             for n in range(max(0, pane_target - 1)):
-                self.run_cli(
-                    [
-                        "new-pane",
-                        "--workspace",
-                        ws,
-                        "--type",
-                        "terminal",
-                        "--direction",
-                        directions[n % len(directions)],
-                    ],
-                    timeout=90,
-                )
+                expected_pane_count = len(panes) + 1
+                panes = self.create_pane_and_wait(ws, directions[n % len(directions)], expected_pane_count)
 
-            panes = self.json_cli(["list-panes", "--workspace", ws], timeout=90).get("panes", [])
             tabbed_panes = panes[: self.args.heavy_tabbed_panes if i == 1 else self.args.other_tabbed_panes]
             for pane in tabbed_panes:
                 self.run_cli(
@@ -415,7 +521,7 @@ class CmuxPerfRunner:
                     timeout=90,
                 )
 
-            panes = self.json_cli(["list-panes", "--workspace", ws], timeout=90).get("panes", [])
+            panes = self.pane_snapshots(ws)
             surfaces: list[str] = []
             for pane in panes:
                 surfaces.extend(pane.get("surface_refs", []))
