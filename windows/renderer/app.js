@@ -1065,6 +1065,9 @@ const state = {
   performanceMetricsRefreshFrame: 0,
   performanceMetricsRefreshTimer: 0,
   performanceMetricsRefreshAt: 0,
+  statusbarPerformanceRefreshFrame: 0,
+  statusbarPerformanceRefreshTimer: 0,
+  statusbarPerformanceRefreshAt: 0,
   settingsSearchIndex: [],
   settingsSearchIndexVersion: 0,
   settingsSearchEmpty: null,
@@ -1167,6 +1170,8 @@ const elements = {
   statusSummary: document.getElementById("statusSummary"),
   statusPipe: document.getElementById("statusPipe"),
   statusPty: document.getElementById("statusPty"),
+  statusRender: document.getElementById("statusRender"),
+  statusOutput: document.getElementById("statusOutput"),
   palette: document.getElementById("palette"),
   paletteInput: document.getElementById("paletteInput"),
   paletteList: document.getElementById("paletteList"),
@@ -5652,6 +5657,7 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "status-detail-compact", state.settings.statusDetailMode === "compact");
   toggleClassIfChanged(elements.shell, "status-detail-runtime", state.settings.statusDetailMode === "runtime");
   toggleClassIfChanged(elements.shell, "status-detail-full", state.settings.statusDetailMode === "full");
+  toggleClassIfChanged(elements.shell, "status-detail-performance", state.settings.statusDetailMode === "performance");
   toggleClassIfChanged(elements.shell, "statusbar-style-subtle", state.settings.statusbarStyle === "subtle");
   toggleClassIfChanged(elements.shell, "statusbar-style-quiet", state.settings.statusbarStyle === "quiet");
   toggleClassIfChanged(elements.shell, "statusbar-style-solid", state.settings.statusbarStyle === "solid");
@@ -5738,6 +5744,9 @@ function updateSettings(updates, options = {}) {
   }
   if (changedKeys.includes("terminalPauseInactiveOutput") || changedKeys.includes("performanceMode")) {
     resumeTerminalOutputAfterActivityChange();
+  }
+  if (changedKeys.includes("statusDetailMode") || changedKeys.includes("showStatusbar") || changedKeys.includes("focusMode")) {
+    updateRuntimeStatusLabels();
   }
   if (changedKeys.includes("terminalSmoothResumedOutput") && !state.settings.terminalSmoothResumedOutput) {
     for (const session of state.terminals.values()) session.resumeThrottleFrames = 0;
@@ -7772,6 +7781,7 @@ function recordRenderDuration(durationMs) {
     : value;
   state.renderStats.maxMs = Math.max(state.renderStats.maxMs, value);
   if (value >= renderSlowFrameMs) state.renderStats.slowCount += 1;
+  scheduleStatusbarPerformanceRefresh();
   schedulePerformanceMetricsRefresh();
   if (!performanceGuardCanUseRenderSignal()) return;
   if (value >= renderSlowFrameMs) state.performanceGuardSlowRenderCount += 1;
@@ -8056,6 +8066,51 @@ function updateRuntimeStatusLabels() {
   setTitleIfChanged(elements.statusPty, state.data?.ptyAvailable
     ? "Terminal shell ready"
     : "Compatibility shell mode active");
+  updateStatusbarPerformanceLabels();
+}
+
+function statusbarPerformanceVisible() {
+  return Boolean(
+    elements.statusRender
+    && elements.statusOutput
+    && state.settings.showStatusbar
+    && !state.settings.focusMode
+    && state.settings.statusDetailMode === "performance"
+  );
+}
+
+function statusbarPerformanceModel() {
+  updateTerminalOutputBacklog();
+  const lastRenderMs = state.renderStats.lastMs || 0;
+  const avgRenderMs = state.renderStats.avgMs || 0;
+  const queuedBytes = state.terminalOutputStats.currentQueued || 0;
+  const pausedTerminals = pausedTerminalOutputCount();
+  return {
+    renderText: avgRenderMs ? `render ${formatMs(avgRenderMs)}` : "render --",
+    renderTitle: `Render last ${formatMs(lastRenderMs)} / avg ${formatMs(avgRenderMs)} / max ${formatMs(state.renderStats.maxMs || 0)} / slow ${state.renderStats.slowCount || 0}.`,
+    renderWarning: lastRenderMs >= renderSlowFrameMs || avgRenderMs >= renderSlowFrameMs,
+    outputText: queuedBytes
+      ? `out ${formatBytes(queuedBytes)}`
+      : pausedTerminals
+        ? `paused ${pausedTerminals}`
+        : "out clean",
+    outputTitle: `Output backlog ${formatBytes(queuedBytes)} / max ${formatBytes(state.terminalOutputStats.maxQueued || 0)} / paused ${pausedTerminals}.`,
+    outputWarning: queuedBytes >= terminalOutputBacklogThreshold
+  };
+}
+
+function updateStatusbarPerformanceLabels() {
+  if (!elements.statusRender || !elements.statusOutput) return false;
+  if (!statusbarPerformanceVisible()) return false;
+  const model = statusbarPerformanceModel();
+  let changed = false;
+  changed = setTextIfChanged(elements.statusRender, model.renderText) || changed;
+  changed = setTitleIfChanged(elements.statusRender, model.renderTitle) || changed;
+  changed = toggleClassIfChanged(elements.statusRender, "is-warning", model.renderWarning) || changed;
+  changed = setTextIfChanged(elements.statusOutput, model.outputText) || changed;
+  changed = setTitleIfChanged(elements.statusOutput, model.outputTitle) || changed;
+  changed = toggleClassIfChanged(elements.statusOutput, "is-warning", model.outputWarning) || changed;
+  return changed;
 }
 
 function updateOperationChrome() {
@@ -11178,6 +11233,7 @@ function recordTerminalOutputQueueChange(delta) {
   const currentQueued = Math.max(0, (state.terminalOutputStats.currentQueued || 0) + delta);
   state.terminalOutputStats.currentQueued = currentQueued;
   state.terminalOutputStats.maxQueued = Math.max(state.terminalOutputStats.maxQueued || 0, currentQueued);
+  scheduleStatusbarPerformanceRefresh();
 }
 
 function updateTerminalOutputBacklog() {
@@ -13811,7 +13867,7 @@ function renderSettingsInspector(options = {}) {
       ? "Choose how much runtime information the status bar shows."
       : "Enable the status bar before changing its detail level.";
     statusDetailSelect.onchange = () => updateSettings({ statusDetailMode: statusDetailSelect.value });
-    layoutSection.append(settingRow("Status detail", statusDetailSelect, false, "status bar compact runtime full pipe shell readiness diagnostics clean"));
+    layoutSection.append(settingRow("Status detail", statusDetailSelect, false, "status bar compact runtime full performance pipe shell readiness diagnostics render output lag clean"));
     const statusbarStyleControl = settingSegmentedControl("statusbarStyle", statusbarStyleOptions, "status bar footer style visual weight quiet subtle solid contrast badges runtime", { compact: true });
     for (const button of statusbarStyleControl.querySelectorAll("button")) button.disabled = !state.settings.showStatusbar;
     statusbarStyleControl.title = state.settings.showStatusbar
@@ -15802,7 +15858,7 @@ function layoutSettingsPreviewPanel() {
     settings.showStatusbar ? "show-statusbar" : "hide-statusbar",
     settings.performanceMode ? "performance-preview" : ""
   ].filter(Boolean).join(" ");
-  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar rail tools primary hidden home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet subtle solid overlay style command palette menus dialogs toast feedback placement position switcher style workspace pane keyboard hud command palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide row size density compact roomy active row selected current subtle filled line workspace color marker dot edge tint top bar style toolbar label mode icons labels button style ghost filled tab bar quiet banded tabs close active selected underline status style quiet subtle solid pane header surface density new pane placement split direction right below down settings panel inactive pane percent resize focus highlight edge mode simple clean panes split shape corner radius rounded divider style spacing gap gutter grip line minimal marker color dot tint preset current");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar rail tools primary hidden home screen empty workspace starter launchers guided compact quiet style quiet solid settings panel style inspector quiet subtle solid overlay style command palette menus dialogs toast feedback placement position switcher style workspace pane keyboard hud command palette density compact balanced roomy search results quick actions auto hidden command list details metadata shortcuts compact labels result limit focused balanced extended placement position top center wide row size density compact roomy active row selected current subtle filled line workspace color marker dot edge tint top bar style toolbar label mode icons labels button style ghost filled tab bar quiet banded tabs close active selected underline status style quiet subtle solid performance diagnostics render output pane header surface density new pane placement split direction right below down settings panel inactive pane percent resize focus highlight edge mode simple clean panes split shape corner radius rounded divider style spacing gap gutter grip line minimal marker color dot tint preset current");
   panel.style.setProperty("--layout-preview-sidebar", `${Math.max(24, Math.round((settings.sidebarWidth / 304) * 72))}px`);
   panel.style.setProperty("--layout-preview-inspector", `${Math.max(42, Math.round((settings.inspectorWidth / 480) * 76))}px`);
   panel.innerHTML = `
@@ -22385,6 +22441,25 @@ function performanceMetricsShouldRefresh() {
     && (state.settingsCategory === "performance" || normalizeSettingsQuery(state.settingsQuery));
 }
 
+function scheduleStatusbarPerformanceRefresh() {
+  if (!statusbarPerformanceVisible()) return;
+  if (state.statusbarPerformanceRefreshFrame || state.statusbarPerformanceRefreshTimer) return;
+  const delay = Math.max(0, performanceMetricsRefreshMinMs - (performance.now() - state.statusbarPerformanceRefreshAt));
+  const enqueueFrame = () => {
+    state.statusbarPerformanceRefreshTimer = 0;
+    state.statusbarPerformanceRefreshFrame = requestAnimationFrame(() => {
+      state.statusbarPerformanceRefreshFrame = 0;
+      state.statusbarPerformanceRefreshAt = performance.now();
+      updateStatusbarPerformanceLabels();
+    });
+  };
+  if (delay > 0) {
+    state.statusbarPerformanceRefreshTimer = window.setTimeout(enqueueFrame, delay);
+    return;
+  }
+  enqueueFrame();
+}
+
 function schedulePerformanceMetricsRefresh() {
   if (!performanceMetricsShouldRefresh()) return;
   if (state.performanceMetricsRefreshFrame || state.performanceMetricsRefreshTimer) return;
@@ -22961,6 +23036,12 @@ function resetRenderStats() {
   state.performanceMetricsRefreshTimer = 0;
   state.performanceMetricsRefreshFrame = 0;
   state.performanceMetricsRefreshAt = 0;
+  if (state.statusbarPerformanceRefreshTimer) window.clearTimeout(state.statusbarPerformanceRefreshTimer);
+  if (state.statusbarPerformanceRefreshFrame) cancelAnimationFrame(state.statusbarPerformanceRefreshFrame);
+  state.statusbarPerformanceRefreshTimer = 0;
+  state.statusbarPerformanceRefreshFrame = 0;
+  state.statusbarPerformanceRefreshAt = 0;
+  updateStatusbarPerformanceLabels();
   renderSettingsInspector();
   toast("Performance stats reset.");
   return true;

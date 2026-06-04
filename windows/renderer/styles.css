@@ -6106,7 +6106,9 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 #statusPipe,
-#statusPty {
+#statusPty,
+#statusRender,
+#statusOutput {
   flex: 0 0 auto;
   padding: 3px 6px;
   border: 1px solid color-mix(in oklch, var(--color-line) 72%, transparent);
@@ -6114,13 +6116,35 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   background: color-mix(in oklch, var(--color-pane) 76%, transparent);
 }
 
+#statusRender,
+#statusOutput {
+  display: none;
+}
+
 .shell.status-detail-compact #statusPipe,
-.shell.status-detail-compact #statusPty {
+.shell.status-detail-compact #statusPty,
+.shell.status-detail-compact #statusRender,
+.shell.status-detail-compact #statusOutput {
   display: none;
 }
 
 .shell.status-detail-runtime #statusPipe {
   display: none;
+}
+
+.shell.status-detail-performance #statusPipe,
+.shell.status-detail-performance #statusPty {
+  display: none;
+}
+
+.shell.status-detail-performance #statusRender,
+.shell.status-detail-performance #statusOutput {
+  display: inline-flex;
+  align-items: center;
+}
+
+.shell.status-detail-performance #statusSummary {
+  flex-basis: 18ch;
 }
 
 .shell.statusbar-style-quiet .statusbar {
@@ -6131,7 +6155,9 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .shell.statusbar-style-quiet #statusPipe,
-.shell.statusbar-style-quiet #statusPty {
+.shell.statusbar-style-quiet #statusPty,
+.shell.statusbar-style-quiet #statusRender,
+.shell.statusbar-style-quiet #statusOutput {
   padding: 0;
   border-color: transparent;
   background: transparent;
@@ -6145,10 +6171,19 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 }
 
 .shell.statusbar-style-solid #statusPipe,
-.shell.statusbar-style-solid #statusPty {
+.shell.statusbar-style-solid #statusPty,
+.shell.statusbar-style-solid #statusRender,
+.shell.statusbar-style-solid #statusOutput {
   border-color: color-mix(in oklch, var(--color-accent) 24%, var(--color-line-strong) 76%);
   background: color-mix(in oklch, var(--color-accent) 8%, var(--color-pane-active-surface) 92%);
   color: color-mix(in oklch, var(--color-text) 72%, var(--color-muted) 28%);
+}
+
+.shell #statusRender.statusbar-perf.is-warning,
+.shell #statusOutput.statusbar-perf.is-warning {
+  border-color: color-mix(in oklch, var(--color-warning) 54%, var(--color-line) 46%);
+  background: color-mix(in oklch, var(--color-warning) 12%, var(--color-pane) 88%);
+  color: var(--color-text);
 }
 
 #statusSummary.is-busy {
@@ -9311,6 +9346,14 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
 
 .layout-settings-preview.status-detail-runtime .layout-preview-status span:nth-child(2) {
   display: none;
+}
+
+.layout-settings-preview.status-detail-performance .layout-preview-status {
+  grid-template-columns: minmax(0, 1fr) 34px 42px;
+}
+
+.layout-settings-preview.status-detail-performance .layout-preview-status span:nth-child(n+2) {
+  background: color-mix(in oklch, var(--color-warning) 16%, var(--color-text) 8%);
 }
 
 .layout-settings-preview.statusbar-style-quiet .layout-preview-status {

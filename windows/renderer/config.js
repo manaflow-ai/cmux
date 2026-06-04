@@ -624,7 +624,8 @@ export const paneMarkerStyleOptions = [
 export const statusDetailOptions = [
   ["compact", label("statusDetail.compact", "Compact")],
   ["runtime", label("statusDetail.runtime", "Runtime")],
-  ["full", label("statusDetail.full", "Full")]
+  ["full", label("statusDetail.full", "Full")],
+  ["performance", label("statusDetail.performance", "Performance")]
 ];
 
 export const statusbarStyleOptions = [
