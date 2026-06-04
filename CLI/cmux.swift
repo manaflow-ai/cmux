@@ -24615,13 +24615,34 @@ struct CMUXCLI {
         let envArguments = decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
         let processArguments = fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
         let arguments = envArguments ?? processArguments
-        guard let arguments, !arguments.isEmpty else { return nil }
-
-        let executablePath = normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"]) ?? arguments.first
+        let launcher = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"]) ?? fallbackKind
         let workingDirectory = normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
-        let launcher = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"]) ?? fallbackKind
+        let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
+
+        guard let arguments, !arguments.isEmpty else {
+            // No launch argv: plain `codex` (not a cmux launcher, so no CMUX_AGENT_LAUNCH_ARGV_B64)
+            // whose PID could not be resolved at hook time. The argv is gone, but the agent's launch
+            // env may still carry a non-default home that resume/fork MUST reproduce or the session
+            // won't be found — most importantly CODEX_HOME when codex runs under the subrouter account
+            // manager (~/.codex-accounts/<account>), also CLAUDE_CONFIG_DIR for Claude. Preserve just
+            // that selected env so AgentResumeCommandBuilder prefixes it ahead of the kind's fallback
+            // verb (`CODEX_HOME=<home> codex resume <id>`). When the env is empty (default home,
+            // nothing to carry) keep the historical nil so behavior is unchanged.
+            guard !environment.isEmpty else { return nil }
+            return AgentHookLaunchCommandRecord(
+                launcher: launcher,
+                executablePath: nil,
+                arguments: [],
+                workingDirectory: workingDirectory,
+                environment: environment,
+                capturedAt: Date().timeIntervalSince1970,
+                source: "environment"
+            )
+        }
+
+        let executablePath = normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"]) ?? arguments.first
         guard let sanitizedArguments = sanitizedAgentLaunchArguments(
             arguments,
             launcher: launcher,
@@ -24630,7 +24651,6 @@ struct CMUXCLI {
             return nil
         }
         let source = envArguments == nil ? "process" : "environment"
-        let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
 
         return AgentHookLaunchCommandRecord(
             launcher: launcher,
