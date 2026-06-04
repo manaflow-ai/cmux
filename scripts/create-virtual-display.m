@@ -53,6 +53,42 @@ static void writeString(NSString *value, NSString *path) {
     }
 }
 
+static BOOL displayIsOnline(CGDirectDisplayID displayID) {
+    uint32_t count = 0;
+    if (CGGetOnlineDisplayList(0, NULL, &count) != kCGErrorSuccess || count == 0) {
+        return NO;
+    }
+
+    CGDirectDisplayID *displayIDs = calloc(count, sizeof(CGDirectDisplayID));
+    if (!displayIDs) {
+        return NO;
+    }
+
+    CGError error = CGGetOnlineDisplayList(count, displayIDs, &count);
+    BOOL found = NO;
+    if (error == kCGErrorSuccess) {
+        for (uint32_t i = 0; i < count; i += 1) {
+            if (displayIDs[i] == displayID) {
+                found = YES;
+                break;
+            }
+        }
+    }
+
+    free(displayIDs);
+    return found;
+}
+
+static BOOL waitForOnlineDisplay(CGDirectDisplayID displayID) {
+    for (int attempt = 0; attempt < 100; attempt += 1) {
+        if (displayIsOnline(displayID)) {
+            return YES;
+        }
+        usleep(50 * 1000);
+    }
+    return NO;
+}
+
 static NSDictionary<NSString *, NSNumber *> *parseModeSpec(NSString *raw) {
     NSArray<NSString *> *parts = [raw.lowercaseString componentsSeparatedByString:@"x"];
     if (parts.count != 2) { return nil; }
@@ -220,6 +256,11 @@ int main(int argc, const char *argv[]) {
         BOOL ok = [display applySettings:settings];
         if (!ok) {
             fprintf(stderr, "ERROR: Failed to apply display settings\n");
+            return 1;
+        }
+
+        if (!waitForOnlineDisplay(display.displayID)) {
+            fprintf(stderr, "ERROR: Virtual display %u was not reported online after settings were applied\n", display.displayID);
             return 1;
         }
 
