@@ -67,6 +67,17 @@ nonisolated enum FileExplorerRootSyncPolicy {
     }
 }
 
+nonisolated enum RightSidebarDirectoryContext {
+    static func normalizedDirectory(_ directory: String?) -> String? {
+        let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func dockRootDirectory(workspaceDirectory: String?, fallbackDirectory: String?) -> String? {
+        normalizedDirectory(workspaceDirectory) ?? normalizedDirectory(fallbackDirectory)
+    }
+}
+
 extension RightSidebarMode {
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
@@ -421,12 +432,19 @@ struct RightSidebarPanelView: View {
         case .feed:
             FeedPanelView()
         case .dock:
-            DockPanelView(rootDirectory: sessionIndexDirectory, workspaceId: workspaceId, store: dockStore)
+            DockPanelView(rootDirectory: dockRootDirectory, workspaceId: workspaceId, store: dockStore)
         }
     }
 
     private var sessionIndexDirectory: String? {
         sessionIndexStore.currentDirectory
+    }
+
+    private var dockRootDirectory: String? {
+        RightSidebarDirectoryContext.dockRootDirectory(
+            workspaceDirectory: tabManager.selectedWorkspace?.currentDirectory,
+            fallbackDirectory: sessionIndexStore.currentDirectory
+        )
     }
 
     private func selectMode(_ mode: RightSidebarMode) {
