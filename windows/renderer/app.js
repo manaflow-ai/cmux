@@ -26408,22 +26408,27 @@ function applyBackgroundPreset(preset, options = {}) {
 function savedBackgroundImagesPanel() {
   const panel = document.createElement("div");
   panel.className = "saved-background-panel";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("saved background image wallpaper library url file apply rename delete save copy paste clipboard json");
-
-  panel.append(activeBackgroundTargetControl());
-
   const targetStatus = activeBackgroundTargetStatus();
   const addTargetOption = backgroundApplyTargetOption(targetStatus.scope);
   const targetLabel = backgroundApplyTargetActionLabel(targetStatus.scope);
+  const savedCountLabel = `${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit} saved backgrounds`;
+  const libraryFull = savedBackgroundImagesFull();
+  panel.dataset.settingsSearch = normalizeSettingsQuery(`saved background image wallpaper library url file apply rename delete save copy paste clipboard json ${targetStatus.canTarget ? "ready " : "unavailable "}${targetLabel} ${savedCountLabel}`);
+
+  panel.append(activeBackgroundTargetControl());
+
   const addCard = document.createElement("div");
   addCard.className = "saved-background-add-card";
-  addCard.dataset.settingsSearch = normalizeSettingsQuery("saved background add image drop paste choose local file url selected target wallpaper");
+  addCard.dataset.settingsSearch = normalizeSettingsQuery(`saved background add image drop paste choose local file url selected target wallpaper ${targetStatus.canTarget ? "ready " : "unavailable "}${targetLabel} ${savedCountLabel}`);
 
   const addCopy = document.createElement("button");
   addCopy.className = "saved-background-add-copy";
   addCopy.type = "button";
-  addCopy.title = `Choose and save an image for ${targetLabel}`;
-  addCopy.setAttribute("aria-label", `Choose and save an image for ${targetLabel}.`);
+  const addCopyTitle = targetStatus.canTarget
+    ? `Choose and save an image for ${targetLabel}.`
+    : `${addTargetOption.label} cannot use a background right now.`;
+  addCopy.title = addCopyTitle;
+  addCopy.setAttribute("aria-label", addCopyTitle);
   addCopy.innerHTML = `
       <span class="saved-background-add-icon" aria-hidden="true">${quickActionIconMarkup("background")}</span>
       <span class="saved-background-add-text">
@@ -26502,10 +26507,13 @@ function savedBackgroundImagesPanel() {
   applyUnknownBackgroundSaveLimit(pasteSave, `Paste, apply, and save an image to ${targetLabel}`);
   const chooseSave = settingsActionButton("Choose + save", () => chooseBackgroundImageForTarget({ save: true }), "", "saved background image choose local file selected target wallpaper");
   applyUnknownBackgroundSaveLimit(chooseSave, `Choose, apply, and save an image to ${targetLabel}`);
-  const copyLibrary = settingsActionButton("Copy library", copySavedBackgroundImages, "", "saved background image library copy clipboard json");
-  copyLibrary.title = "Copy saved backgrounds as JSON.";
-  const pasteLibrary = settingsActionButton("Paste library", pasteSavedBackgroundImages, "", "saved background image library paste clipboard json image url path");
-  pasteLibrary.title = "Merge copied saved backgrounds into the library.";
+  const copyLibrary = settingsActionButton("Copy library", copySavedBackgroundImages, "", `saved background image library copy clipboard json ${savedCountLabel}`);
+  copyLibrary.disabled = state.savedBackgroundImages.length === 0;
+  copyLibrary.title = copyLibrary.disabled ? "Save a background before copying the library." : "Copy saved backgrounds as JSON.";
+  const pasteLibrary = settingsActionButton("Paste library", pasteSavedBackgroundImages, "", `saved background image library paste clipboard json image url path import ${libraryFull ? "limit full " : ""}${savedCountLabel}`);
+  pasteLibrary.title = libraryFull
+    ? "Merge copied saved backgrounds. New backgrounds may be skipped by the limit."
+    : "Merge copied saved backgrounds into the library.";
   actions.append(
     applyAndSave,
     saveCurrent,
@@ -26541,6 +26549,7 @@ function savedBackgroundImagesPanel() {
     const activeTarget = target === "pane" ? activePane : target === "all" ? activeAll : activeApp;
     const targetDisabled = Boolean(targetOption.disabled) || activeTarget;
     const applyTitle = savedBackgroundImageApplyTitle(background, targetOption, activeTarget);
+    const activeSearch = `${activeApp ? "app active " : ""}${activePane ? "pane active " : ""}${activeAll ? "all terminals active " : ""}`;
     const card = document.createElement("div");
     card.className = [
       "saved-background-card",
@@ -26549,7 +26558,7 @@ function savedBackgroundImagesPanel() {
       activeAll ? "is-active-all" : "",
       activeTarget ? "is-active-target" : ""
     ].filter(Boolean).join(" ");
-    card.dataset.settingsSearch = normalizeSettingsQuery(`saved background image wallpaper scope app pane all terminals copy clipboard json ${background.label} ${background.url}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`saved background image wallpaper scope app pane all terminals copy clipboard json apply ${activeTarget ? "active current unavailable " : targetDisabled ? "unavailable " : "ready "}${activeSearch}${targetLabel} ${background.label} ${background.url}`);
     const preview = document.createElement("button");
     preview.className = `saved-background-preview${activeTarget ? " is-active" : ""}`;
     preview.type = "button";
@@ -26574,7 +26583,7 @@ function savedBackgroundImagesPanel() {
 
     const scope = document.createElement("div");
     scope.className = "background-preset-scope saved-background-scope";
-    scope.dataset.settingsSearch = normalizeSettingsQuery(`saved background scope app pane all terminals ${background.label}`);
+    scope.dataset.settingsSearch = normalizeSettingsQuery(`saved background scope app pane all terminals ${activeSearch}${background.label}`);
     const addScopeChip = (labelText, active, muted = false) => {
       const chip = document.createElement("span");
       chip.className = [
@@ -26591,10 +26600,11 @@ function savedBackgroundImagesPanel() {
 
     const cardActions = document.createElement("div");
     cardActions.className = "saved-background-card-actions";
-    const apply = settingsActionButton(backgroundApplyTargetPrimaryLabel(target), () => applySavedBackgroundImageToTarget(background.id, target), "primary", `apply saved background selected target ${targetOption.label} ${background.label}`);
+    const apply = settingsActionButton(backgroundApplyTargetPrimaryLabel(target), () => applySavedBackgroundImageToTarget(background.id, target), "primary", `apply saved background selected target ${targetDisabled ? "unavailable " : "ready "}${targetOption.label} ${background.label}`);
     apply.disabled = targetDisabled;
     apply.title = applyTitle;
-    const more = settingsActionButton("More", (event) => showSavedBackgroundImageMenu(event, background), "", `saved background more actions open rename delete copy ${background.label}`);
+    const more = settingsActionButton("More", (event) => showSavedBackgroundImageMenu(event, background), "", `saved background more actions open rename delete copy apply app pane all terminals ${background.label}`);
+    more.title = `More actions for ${background.label}.`;
     cardActions.append(apply, more);
     card.append(preview, text, scope, cardActions);
     list.append(card);
