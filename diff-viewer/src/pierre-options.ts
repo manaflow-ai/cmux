@@ -98,10 +98,6 @@ export function codeViewUnsafeCSS(): string {
     [data-separator='line-info'] [data-expand-button] {
       background-color: transparent;
     }
-    [data-gutter] [data-separator='line-info'] [data-separator-content],
-    [data-content] [data-separator='line-info'] [data-separator-wrapper] {
-      display: none;
-    }
     @container sticky-header scroll-state(stuck: top) {
       [data-diffs-header]::after {
         position: absolute;
