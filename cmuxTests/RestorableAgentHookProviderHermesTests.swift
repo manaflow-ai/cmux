@@ -7,7 +7,7 @@ import XCTest
 @testable import cmux
 #endif
 
-extension AgentResumeCommandPolicyTests {
+extension SocketListenerAcceptPolicyTests {
     func testHermesAgentResumeCommandPreservesTUIAndHermesHome() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .hermesAgent,

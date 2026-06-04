@@ -1771,7 +1771,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 }
 
-final class AgentResumeCommandPolicyTests: XCTestCase {
+final class SocketListenerAcceptPolicyTests: XCTestCase {
     func testClaudeResumeCommandPreservesLaunchFlagsAndDropsInjectedHookSettings() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
