@@ -650,14 +650,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `needsAnotherRender` and re-enqueue exactly one when it completes.
     private var renderInFlight: Bool = false
     private var needsAnotherRender: Bool = false
-    /// True while the app is inactive/backgrounded. `render_now` runs a GPU
-    /// present that ends in a synchronous `waitUntilCompleted`; if the app loses
-    /// the Metal drawable (background) while one is in flight, that wait blocks
-    /// forever, leaving `renderInFlight` permanently true (no future render
-    /// dispatches) and the serial `outputQueue` dead (queued `process_output`
-    /// never runs). We suspend on `willResignActive` — while the GPU is still
-    /// available so any in-flight render drains — and gate dispatch so no
-    /// `render_now` is ever sent into the background.
+    /// True while the app is inactive/backgrounded. On iOS `render_now`
+    /// produces a frame synchronously on `outputQueue` and acquires a
+    /// swap-chain frame slot from libghostty; if the app is backgrounded while
+    /// the GPU can't complete a committed frame, that acquire could stall and
+    /// the serial `outputQueue` would stop draining (queued `process_output`
+    /// never runs). libghostty now bounds the acquire (generic.zig
+    /// `frame_acquire_timeout_ns`) so a foreground stall self-heals as a
+    /// skipped frame, but we still suspend on `willResignActive` — while the
+    /// GPU is available so any in-flight render drains — and gate dispatch so
+    /// no `render_now` is sent into the background.
     private var renderingSuspended: Bool = false
     #if DEBUG
     /// Last time the display-link heartbeat logged (DEBUG diagnostic). The
@@ -1875,10 +1877,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// gates this on `needsDraw`/`pendingRenderFrames`, so it is not a
     /// per-frame loop that would flood the main queue with present blocks.
     private func requestRender() {
-        // Never dispatch a render into the background: `render_now` ends in a
-        // synchronous GPU wait that blocks forever once iOS pulls the drawable,
-        // permanently wedging the serial output queue. `resumeRendering` clears
-        // this on the next active transition.
+        // Never dispatch a render into the background: a backgrounded
+        // `render_now` can stall acquiring a swap-chain frame slot from
+        // libghostty, leaving the serial output queue undrained. The acquire is
+        // now bounded in libghostty (so a foreground stall self-heals as a
+        // skipped frame the display link re-drives), but we still gate on
+        // suspension; `resumeRendering` clears it on the next active transition.
         guard !renderingSuspended, let surface else { return }
         // Coalesce: never let more than one render_now sit on the serial queue.
         // (Called on main from the display link.)
@@ -2264,6 +2268,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func syncRendererLayerFrame(scale: CGFloat, renderRect: CGRect) {
+        // Resize the render layer WITHOUT CoreAnimation's implicit ~0.25s
+        // bounds/position animation. While that animation runs, the layer's
+        // presentation size differs from the size libghostty just rendered, and
+        // the present path discards any frame whose surface size != the live
+        // layer (see `applyGeometryResult`). So after a resize/zoom-settle every
+        // draw — including the bounded post-settle burst (~0.1s) — lands
+        // mid-animation and is dropped, leaving a blank/stale surface until the
+        // next input forces a redraw after the animation finally settled (the
+        // "blanked out, typing brought it back" symptom). Disabling implicit
+        // actions makes the bounds change land in one step, so a single redraw
+        // presents at the final size immediately. The host layer and letterbox
+        // border already suppress implicit actions; this keeps the render
+        // sublayer consistent.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         layer.contentsScale = scale
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
             if sublayer.frame != renderRect {
@@ -2274,6 +2293,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             sublayer.contentsScale = scale
         }
+        CATransaction.commit()
     }
 
     /// Add / update a 1-pixel separator border around the pinned surface
