@@ -16441,7 +16441,7 @@ final class Workspace: Identifiable, ObservableObject {
                 insertFirst: insertFirst
             ) != nil
         } else {
-            let sourcePaneId = paneId(forPanelId: panelId)
+            let sourcePaneId = self.paneId(forPanelId: panelId)
             let sourceIndex = indexInPane(forPanelId: panelId)
             guard let detached = detachSurface(panelId: panelId) else {
                 return false
@@ -16501,7 +16501,7 @@ final class Workspace: Identifiable, ObservableObject {
               let destinationController = bonsplitController(containingPaneId: paneId) else { return false }
 
         if sourceController !== destinationController {
-            let sourcePaneId = paneId(forPanelId: panelId)
+            let sourcePaneId = self.paneId(forPanelId: panelId)
             let sourceIndex = indexInPane(forPanelId: panelId)
             guard let detached = detachSurface(panelId: panelId) else {
                 return false
