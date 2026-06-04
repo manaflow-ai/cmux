@@ -7828,6 +7828,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var deferredSurfaceSizeRetryQueued = false
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
+    private var hasPendingLeftMouseRelease = false
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -10030,16 +10031,34 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
         }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        hasPendingLeftMouseRelease = true
     }
 
     override func mouseUp(with event: NSEvent) {
         #if DEBUG
         cmuxDebugLog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
         #endif
-        guard let surface = surface else { return }
+        completePendingLeftMouseRelease(with: event)
+    }
+
+    @discardableResult
+    func forwardPendingLeftMouseDrag(with event: NSEvent) -> Bool {
+        guard hasPendingLeftMouseRelease, let surface else { return false }
+        let eventPoint = convert(event.locationInWindow, from: nil)
+        trackMousePointIfUsable(eventPoint)
+        ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
+        return true
+    }
+
+    @discardableResult
+    func completePendingLeftMouseRelease(with event: NSEvent) -> Bool {
+        guard hasPendingLeftMouseRelease else { return false }
+        hasPendingLeftMouseRelease = false
+        guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
         let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
         _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
+        return true
     }
 
     /// Attempt to open the word under the mouse cursor as a file path, resolved
@@ -10874,6 +10893,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // the viewport rather than a cached in-bounds hover point.
         ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
     }
+
+#if DEBUG
+    func debugHasPendingLeftMouseReleaseForTesting() -> Bool {
+        hasPendingLeftMouseRelease
+    }
+#endif
 
     override func scrollWheel(with event: NSEvent) {
         NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
@@ -12687,7 +12712,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         searchFocusTarget = .searchField
-        let overlay = NSHostingView(rootView: rootView)
+        let overlay = TerminalSearchOverlayHostingView(rootView: rootView, surfaceView: surfaceView)
         overlay.frame = bounds
         overlay.autoresizingMask = [.width, .height]
         searchOverlayHostingView = overlay
@@ -13157,6 +13182,18 @@ final class GhosttySurfaceScrollView: NSView {
     func debugHasSearchOverlay() -> Bool {
         guard let overlay = searchOverlayHostingView else { return false }
         return overlay.superview === self && !overlay.isHidden
+    }
+
+    func debugSearchOverlayHostingViewForTesting() -> NSView? {
+        guard let overlay = searchOverlayHostingView,
+              overlay.superview === self else {
+            return nil
+        }
+        return overlay
+    }
+
+    func debugSurfaceHasPendingLeftMouseReleaseForTesting() -> Bool {
+        surfaceView.debugHasPendingLeftMouseReleaseForTesting()
     }
 
     func debugHasKeyboardCopyModeIndicator() -> Bool {
