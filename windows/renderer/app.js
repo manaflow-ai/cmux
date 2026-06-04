@@ -35709,6 +35709,24 @@ function paletteEntries() {
       run: () => openBackgroundImageSource(background.url)
     });
     entries.push({
+      id: `savedBackground.rename.${background.id}`,
+      label: `Rename background: ${background.label}`,
+      meta: background.url,
+      shortcut: "Rename",
+      title: `Rename ${background.label}.`,
+      search: normalizeSettingsQuery(`saved background image wallpaper library rename label name ${background.label} ${background.url}`),
+      run: () => renameSavedBackgroundImage(background.id)
+    });
+    entries.push({
+      id: `savedBackground.delete.${background.id}`,
+      label: `Delete background: ${background.label}`,
+      meta: background.url,
+      shortcut: "Delete",
+      title: `Delete ${background.label} from saved backgrounds.`,
+      search: normalizeSettingsQuery(`saved background image wallpaper library delete remove ${background.label} ${background.url}`),
+      run: () => deleteSavedBackgroundImage(background.id)
+    });
+    entries.push({
       id: `savedBackground.${background.id}`,
       label: `Background: ${background.label}`,
       meta: activeApp ? `Active / ${background.url}` : background.url,
