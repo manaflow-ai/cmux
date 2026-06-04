@@ -16204,10 +16204,9 @@ function quickSettingsSignature(options = {}) {
   appendSignatureValue(parts, state.backgroundApplyTarget);
   appendSignatureValue(parts, state.savedBackgroundImages.length);
   appendSignatureValue(parts, state.savedBackgroundImages.map((background) => background.url).join(","));
-  appendSignatureArray(parts, dataStorageEntries(), (nextParts, entry) => {
+  appendSignatureArray(parts, dataStorageEntries({ includeBytes: false }), (nextParts, entry) => {
     appendSignatureValue(nextParts, entry.id);
     appendSignatureValue(nextParts, entry.count);
-    appendSignatureValue(nextParts, entry.bytes);
   });
   appendSignatureValue(parts, state.performanceGuardTriggered);
   appendSignatureValue(parts, state.performanceGuardReason || "");
@@ -22296,7 +22295,8 @@ function hasEmptyWorkspaceCleanupTargets() {
   return emptyWorkspaceCleanupTargets().length > 0;
 }
 
-function dataStorageEntries() {
+function dataStorageEntries(options = {}) {
+  const includeBytes = options.includeBytes !== false;
   const entries = [
     {
       id: "settings",
@@ -22403,6 +22403,7 @@ function dataStorageEntries() {
       terms: "background image wallpaper"
     }
   ];
+  if (!includeBytes) return entries;
   return entries.map((entry) => ({
     ...entry,
     bytes: storageEntryBytes(entry.key)
