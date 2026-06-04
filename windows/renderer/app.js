@@ -28232,6 +28232,85 @@ function terminalBackgroundsMatch(workspace, value) {
   return terminals.length > 0 && terminals.every((panel) => panelBackgroundMatches(panel, value));
 }
 
+function backgroundEverywhereApplyModel(value, label = "Background", workspace = activeWorkspace()) {
+  const background = normalizedSavedBackgroundValue(value);
+  const terminalCount = workspaceTerminalPanels(workspace).length;
+  const hasTerminalPanes = terminalCount > 0;
+  const appActive = Boolean(background && normalizeBackgroundValue(state.settings.backgroundImage) === normalizeBackgroundValue(background));
+  const allTerminalsActive = hasTerminalPanes ? terminalBackgroundsMatch(workspace, background) : true;
+  const active = Boolean(background && appActive && allTerminalsActive);
+  const targetLabel = hasTerminalPanes
+    ? `the app and ${terminalCount} terminal pane${terminalCount === 1 ? "" : "s"}`
+    : "the whole app";
+  if (!background) {
+    return {
+      background,
+      terminalCount,
+      hasTerminalPanes,
+      appActive,
+      allTerminalsActive,
+      active: false,
+      disabled: true,
+      meta: "No background",
+      title: "Choose a background before applying it everywhere.",
+      search: "everywhere no background unavailable app all terminals"
+    };
+  }
+  return {
+    background,
+    terminalCount,
+    hasTerminalPanes,
+    appActive,
+    allTerminalsActive,
+    active,
+    disabled: active,
+    meta: hasTerminalPanes ? `App + ${terminalCount} terminal${terminalCount === 1 ? "" : "s"}` : "Whole app",
+    title: active
+      ? `${label} already applies to ${targetLabel}.`
+      : `Apply ${label} to ${targetLabel}.`,
+    search: `${active ? "active current unavailable " : "ready "}everywhere whole app all terminals ${terminalCount}`
+  };
+}
+
+async function applyBackgroundValueEverywhere(value, options = {}) {
+  const label = options.label || "Background";
+  const workspace = options.workspace || activeWorkspace();
+  const model = backgroundEverywhereApplyModel(value, label, workspace);
+  if (!model.background || model.active) {
+    toast(model.title);
+    return false;
+  }
+  const validated = await validateBackgroundImageValue(model.background);
+  if (!validated.ok) {
+    toast(`${label} background could not be loaded.`);
+    return null;
+  }
+  const appChanged = await applyCustomBackgroundImage(validated.url, { render: false, toast: false });
+  if (appChanged === null) {
+    toast(`${label} background could not be applied.`);
+    return null;
+  }
+  let terminalsChanged = false;
+  if (model.hasTerminalPanes) {
+    terminalsChanged = await applyWorkspaceBackgroundImageToTerminals(validated.url, workspace, { render: false, toast: false });
+    if (terminalsChanged === null) {
+      if (appChanged && state.inspectorMode === "settings") renderSettingsInspector();
+      toast(`${label} could not be applied to terminal panes.`);
+      return Boolean(appChanged);
+    }
+  }
+  const changed = Boolean(appChanged || terminalsChanged);
+  if (changed && state.inspectorMode === "settings") renderSettingsInspector();
+  if (changed) {
+    toast(model.hasTerminalPanes
+      ? `${label} applied to app and terminal panes.`
+      : `${label} applied to app.`);
+  } else {
+    toast(model.title);
+  }
+  return changed;
+}
+
 function workspaceTerminalBackgroundState(workspace = activeWorkspace(), appBackground = state.settings.backgroundImage) {
   const terminals = workspaceTerminalPanels(workspace);
   const terminalCount = terminals.length;
@@ -28497,7 +28576,7 @@ function backgroundPresetGrid() {
     const copyAction = settingsActionButton("Copy", () => copyBackgroundPresetImage(preset), "", `background template copy reusable library clipboard json ${preset.label}`);
     copyAction.disabled = !preset.value;
     copyAction.title = preset.value ? "Copy this template as saved background JSON." : "This template has no reusable background.";
-    const moreAction = settingsActionButton("More", (event) => showBackgroundPresetMenu(event, preset), "", `background template more scopes app pane all terminals ${preset.label}`);
+    const moreAction = settingsActionButton("More", (event) => showBackgroundPresetMenu(event, preset), "", `background template more scopes app pane all terminals everywhere ${preset.label}`);
     actions.append(applyAction, saveAction, copyAction, moreAction);
 
     card.append(button, scope, actions);
@@ -28516,6 +28595,7 @@ function showBackgroundPresetMenu(event, preset) {
   const activeApp = backgroundPresetActiveForTarget(preset.value, "app", workspace);
   const activePane = backgroundPresetActiveForTarget(preset.value, "pane", workspace);
   const activeAll = backgroundPresetActiveForTarget(preset.value, "all", workspace);
+  const everywhere = backgroundEverywhereApplyModel(preset.value, preset.label, workspace);
   const menu = ensureContextMenu();
   menu.className = "context-menu";
   const title = document.createElement("div");
@@ -28527,7 +28607,12 @@ function showBackgroundPresetMenu(event, preset) {
   const actions = contextMenuActionGroup(
     contextMenuButton(activeApp ? "App active" : "Apply to app", () => applyBackgroundPreset(preset, { toast: true }), activeApp),
     contextMenuButton(activePane ? "Terminal active" : "Apply to active terminal", () => applyBackgroundPresetToTarget(preset, "pane"), !activeTerminal || activePane),
-    contextMenuButton(activeAll ? "All terminals active" : "Apply to all terminals", () => applyBackgroundPresetToTarget(preset, "all"), !hasTerminalPanes || activeAll)
+    contextMenuButton(activeAll ? "All terminals active" : "Apply to all terminals", () => applyBackgroundPresetToTarget(preset, "all"), !hasTerminalPanes || activeAll),
+    (() => {
+      const action = contextMenuButton(everywhere.active ? "Everywhere active" : "Apply everywhere", () => applyBackgroundValueEverywhere(preset.value, { label: preset.label, workspace }), everywhere.disabled);
+      action.title = everywhere.title;
+      return action;
+    })()
   );
   const savedBackground = backgroundPresetSavedBackground(preset);
   const saveAction = contextMenuButton(
@@ -28766,7 +28851,7 @@ function savedBackgroundImagesPanel() {
     const apply = settingsActionButton(backgroundApplyTargetPrimaryLabel(target), () => applySavedBackgroundImageToTarget(background.id, target), "primary", `apply saved background selected target ${targetDisabled ? "unavailable " : "ready "}${targetOption.label} ${background.label}`);
     apply.disabled = targetDisabled;
     apply.title = applyTitle;
-    const more = settingsActionButton("More", (event) => showSavedBackgroundImageMenu(event, background), "", `saved background more actions open rename delete copy apply app pane all terminals ${background.label}`);
+    const more = settingsActionButton("More", (event) => showSavedBackgroundImageMenu(event, background), "", `saved background more actions open rename delete copy apply app pane all terminals everywhere ${background.label}`);
     more.title = `More actions for ${background.label}.`;
     cardActions.append(apply, more);
     card.append(preview, text, scope, cardActions);
@@ -28794,6 +28879,7 @@ function showSavedBackgroundImageMenu(event, background) {
   const activeApp = savedBackgroundImageActiveForTarget(background, "app", workspace);
   const activePane = savedBackgroundImageActiveForTarget(background, "pane", workspace);
   const activeAll = savedBackgroundImageActiveForTarget(background, "all", workspace);
+  const everywhere = backgroundEverywhereApplyModel(background.url, background.label, workspace);
   const appTargetOption = backgroundApplyTargetOption("app", workspace);
   const paneTargetOption = backgroundApplyTargetOption("pane", workspace);
   const allTargetOption = backgroundApplyTargetOption("all", workspace);
@@ -28806,7 +28892,12 @@ function showSavedBackgroundImageMenu(event, background) {
   const applyActions = contextMenuActionGroup(
     applyApp,
     applyPane,
-    applyAll
+    applyAll,
+    (() => {
+      const action = contextMenuButton(everywhere.active ? "Everywhere active" : "Apply everywhere", () => applyBackgroundValueEverywhere(background.url, { label: background.label, workspace }), everywhere.disabled);
+      action.title = everywhere.title;
+      return action;
+    })()
   );
   const openSource = contextMenuButton(
     "Open source",
@@ -34331,6 +34422,7 @@ function paletteEntries() {
     const activeApp = normalizeBackgroundValue(state.settings.backgroundImage) === normalizeBackgroundValue(preset.value);
     const activePane = Boolean(paletteActiveTerminal && panelBackgroundMatches(paletteActiveTerminal, preset.value));
     const activeAll = terminalBackgroundsMatch(paletteWorkspace, preset.value);
+    const activeEverywhere = backgroundEverywhereApplyModel(preset.value, preset.label, paletteWorkspace);
     const savedBackground = backgroundPresetSavedBackground(preset);
     const appMeta = preset.value ? "Built-in background" : "No background";
     entries.push({
@@ -34365,6 +34457,17 @@ function paletteEntries() {
       title: backgroundPresetApplyTitle(preset, backgroundAllTargetOption, activeAll),
       search: normalizeSettingsQuery(`background preset template image wallpaper apply active all terminal panes workspace ${preset.label} ${preset.value}`),
       run: () => applyWorkspaceBackgroundImageToTerminals(preset.value)
+    });
+    entries.push({
+      id: `backgroundPresetEverywhere.${presetId}`,
+      label: `Background everywhere: ${preset.label}`,
+      meta: activeEverywhere.active ? `Active / ${activeEverywhere.meta}` : activeEverywhere.meta,
+      shortcut: activeEverywhere.active ? "Active" : "Look",
+      active: activeEverywhere.active,
+      disabled: activeEverywhere.disabled,
+      title: activeEverywhere.title,
+      search: normalizeSettingsQuery(`background preset template image wallpaper apply everywhere app whole window all terminal panes workspace ${activeEverywhere.search} ${preset.label} ${preset.value}`),
+      run: () => applyBackgroundValueEverywhere(preset.value, { label: preset.label, workspace: paletteWorkspace })
     });
     entries.push({
       id: `backgroundPreset.save.${presetId}`,
@@ -34655,6 +34758,7 @@ function paletteEntries() {
     const activeApp = savedBackgroundImageActiveForTarget(background, "app", paletteWorkspace);
     const activePane = Boolean(paletteActiveTerminal && savedBackgroundImageActiveForTarget(background, "pane", paletteWorkspace));
     const activeAll = savedBackgroundImageActiveForTarget(background, "all", paletteWorkspace);
+    const activeEverywhere = backgroundEverywhereApplyModel(background.url, background.label, paletteWorkspace);
     entries.push({
       id: `savedBackground.copy.${background.id}`,
       label: `Copy background: ${background.label}`,
@@ -34708,6 +34812,17 @@ function paletteEntries() {
         toast(`All terminals already use ${background.label}.`);
         return false;
       }
+    });
+    entries.push({
+      id: `savedBackgroundEverywhere.${background.id}`,
+      label: `Background everywhere: ${background.label}`,
+      meta: activeEverywhere.active ? `Active / ${activeEverywhere.meta}` : activeEverywhere.meta,
+      shortcut: activeEverywhere.active ? "Active" : "Look",
+      active: activeEverywhere.active,
+      disabled: activeEverywhere.disabled,
+      title: activeEverywhere.title,
+      search: normalizeSettingsQuery(`saved background image wallpaper apply everywhere app whole window all terminal panes workspace ${activeEverywhere.search} ${background.label} ${background.url}`),
+      run: () => applyBackgroundValueEverywhere(background.url, { label: background.label, workspace: paletteWorkspace })
     });
   }
   const activeSetup = activeSettingsSetupModel();
