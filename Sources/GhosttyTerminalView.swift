@@ -6493,7 +6493,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         ghostty_surface_set_content_scale(createdSurface, scaleFactors.x, scaleFactors.y)
-        let backingSize = view.convertToBacking(NSRect(origin: .zero, size: view.bounds.size)).size
+        let surfaceSize = view.resolvedSurfaceSize(preferred: view.bounds.size)
+        let backingSize = view.convertToBacking(NSRect(origin: .zero, size: surfaceSize)).size
         let wpx = pixelDimension(from: backingSize.width)
         let hpx = pixelDimension(from: backingSize.height)
         if wpx > 0, hpx > 0 {
@@ -7475,6 +7476,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
+    weak var surfaceHostView: GhosttySurfaceScrollView?
     var scrollbar: GhosttyScrollbar?
     /// Pending scrollbar value written from the action callback thread;
     /// read and cleared on the main thread by `flushPendingScrollbar()`.
@@ -7970,7 +7972,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override var isOpaque: Bool { false }
 
-    private func resolvedSurfaceSize(preferred size: CGSize?) -> CGSize {
+    fileprivate func resolvedSurfaceSize(preferred size: CGSize?) -> CGSize {
+        if let hostedViewportSize = surfaceHostView?.renderedSurfaceViewportRect(preferredSize: size).size,
+           hostedViewportSize.width > 0,
+           hostedViewportSize.height > 0 {
+            return hostedViewportSize
+        }
+
         if let size,
            size.width > 0,
            size.height > 0 {
@@ -11789,6 +11797,7 @@ final class GhosttySurfaceScrollView: NSView {
         documentView.addSubview(surfaceView)
 
         super.init(frame: .zero)
+        surfaceView.surfaceHostView = self
         wantsLayer = true
         layer?.masksToBounds = true
 
@@ -12192,17 +12201,6 @@ final class GhosttySurfaceScrollView: NSView {
         let previousSurfaceSize = surfaceView.frame.size
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         _ = setFrameIfNeeded(scrollView, to: bounds)
-        let targetSize = scrollView.bounds.size
-#if DEBUG
-        logLayoutDuringActiveDrag(targetSize: targetSize)
-#endif
-        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
-        _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
-        let targetDocumentFrame = CGRect(
-            origin: documentView.frame.origin,
-            size: CGSize(width: scrollView.bounds.width, height: documentView.frame.height)
-        )
-        _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
         if let zone = activeDropZone {
@@ -12236,6 +12234,18 @@ final class GhosttySurfaceScrollView: NSView {
             scrollView.tile()
         }
         scrollView.layoutSubtreeIfNeeded()
+        let targetViewportRect = renderedSurfaceViewportRect(preferredSize: scrollView.bounds.size)
+        let targetSize = targetViewportRect.size
+#if DEBUG
+        logLayoutDuringActiveDrag(targetSize: targetSize)
+#endif
+        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
+        _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
+        let targetDocumentFrame = CGRect(
+            origin: documentView.frame.origin,
+            size: CGSize(width: targetSize.width, height: documentView.frame.height)
+        )
+        _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
@@ -12416,10 +12426,14 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
+        let hasUsableBounds = bounds.width > 1 && bounds.height > 1
+        if hasUsableBounds {
+            _ = synchronizeGeometryAndContent()
+        }
         surfaceView.attachSurface(terminalSurface)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
-        guard bounds.width > 1, bounds.height > 1 else { return }
+        guard hasUsableBounds else { return }
         _ = synchronizeGeometryAndContent()
     }
 
@@ -14380,21 +14394,51 @@ final class GhosttySurfaceScrollView: NSView {
         // Intentionally no-op (no retry loops).
     }
 
-    private func synchronizeSurfaceView() {
+    // The clip view's visible rect is the authoritative terminal viewport. All
+    // Ghostty/PTTY size reporting should flow through this geometry so the
+    // drawn cell grid and the reported cols/rows never diverge.
+    fileprivate func renderedSurfaceViewportRect(preferredSize: CGSize? = nil) -> CGRect {
         let visibleRect = scrollView.contentView.documentVisibleRect
-        guard !pointApproximatelyEqual(surfaceView.frame.origin, visibleRect.origin) else { return }
+        if visibleRect.width > 0, visibleRect.height > 0 {
+            return visibleRect
+        }
+
+        let clipBounds = scrollView.contentView.bounds
+        if clipBounds.width > 0, clipBounds.height > 0 {
+            return CGRect(origin: clipBounds.origin, size: clipBounds.size)
+        }
+
+        if let preferredSize,
+           preferredSize.width > 0,
+           preferredSize.height > 0 {
+            return CGRect(origin: surfaceView.frame.origin, size: preferredSize)
+        }
+
+        if surfaceView.frame.width > 0, surfaceView.frame.height > 0 {
+            return surfaceView.frame
+        }
+
+        return CGRect(origin: .zero, size: scrollView.bounds.size)
+    }
+
+    private func synchronizeSurfaceView() {
+        let visibleRect = renderedSurfaceViewportRect(preferredSize: surfaceView.frame.size)
+        guard !Self.rectApproximatelyEqual(surfaceView.frame, visibleRect) else { return }
 #if DEBUG
-        logDragGeometryChange(event: "surfaceOrigin", old: surfaceView.frame.origin, new: visibleRect.origin)
+        if !pointApproximatelyEqual(surfaceView.frame.origin, visibleRect.origin) {
+            logDragGeometryChange(event: "surfaceOrigin", old: surfaceView.frame.origin, new: visibleRect.origin)
+        }
 #endif
-        surfaceView.frame.origin = visibleRect.origin
+        surfaceView.frame = visibleRect
     }
 
     /// Match upstream Ghostty behavior: use content area width (excluding non-content
     /// regions such as scrollbar space) when telling libghostty the terminal size.
     @discardableResult
     private func synchronizeCoreSurface() -> Bool {
-        let width = max(0, surfaceView.frame.width)
-        let height = surfaceView.frame.height
+        let viewportSize = renderedSurfaceViewportRect(preferredSize: surfaceView.frame.size).size
+        let width = max(0, viewportSize.width)
+        let height = viewportSize.height
         guard width > 0, height > 0 else { return false }
         return surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
     }
