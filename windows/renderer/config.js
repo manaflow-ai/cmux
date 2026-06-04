@@ -28,6 +28,7 @@ export const defaultSettings = {
   toolbarMode: "minimal",
   tabSize: "balanced",
   tabCloseMode: "hover",
+  tabActiveStyle: "filled",
   addTabStyle: "compact",
   cornerStyle: "soft",
   paneDividerSize: "balanced",
@@ -398,6 +399,12 @@ export const tabCloseModeOptions = [
   ["always", label("tabClose.always", "Always"), label("tabClose.always.body", "Keep close buttons visible")]
 ];
 
+export const tabActiveStyleOptions = [
+  ["subtle", label("tabActiveStyle.subtle", "Subtle"), label("tabActiveStyle.subtle.body", "Quiet active tab")],
+  ["filled", label("tabActiveStyle.filled", "Filled"), label("tabActiveStyle.filled.body", "Classic selected tab")],
+  ["line", label("tabActiveStyle.line", "Line"), label("tabActiveStyle.line.body", "Accent underline")]
+];
+
 export const addTabStyleOptions = [
   ["labeled", label("addTabStyle.labeled", "Labeled")],
   ["compact", label("addTabStyle.compact", "Compact")],
@@ -571,6 +578,7 @@ export const settingsPresets = [
       toolbarMode: "minimal",
       tabSize: "balanced",
       tabCloseMode: "hover",
+      tabActiveStyle: "filled",
       addTabStyle: "compact",
       cornerStyle: "soft",
       paneDividerSize: "balanced",
@@ -632,6 +640,7 @@ export const settingsPresets = [
       toolbarMode: "minimal",
       tabSize: "compact",
       tabCloseMode: "minimal",
+      tabActiveStyle: "subtle",
       addTabStyle: "compact",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
@@ -693,6 +702,7 @@ export const settingsPresets = [
       toolbarMode: "minimal",
       tabSize: "compact",
       tabCloseMode: "minimal",
+      tabActiveStyle: "subtle",
       addTabStyle: "compact",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
@@ -755,6 +765,7 @@ export const settingsPresets = [
       toolbarMode: "minimal",
       tabSize: "balanced",
       tabCloseMode: "minimal",
+      tabActiveStyle: "line",
       addTabStyle: "compact",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
@@ -816,6 +827,7 @@ export const settingsPresets = [
       toolbarMode: "minimal",
       tabSize: "compact",
       tabCloseMode: "minimal",
+      tabActiveStyle: "subtle",
       addTabStyle: "hidden",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
@@ -877,6 +889,7 @@ export const settingsPresets = [
       toolbarMode: "minimal",
       tabSize: "balanced",
       tabCloseMode: "hover",
+      tabActiveStyle: "line",
       addTabStyle: "compact",
       cornerStyle: "soft",
       paneDividerSize: "wide",
@@ -938,6 +951,7 @@ export const settingsPresets = [
       toolbarMode: "standard",
       tabSize: "roomy",
       tabCloseMode: "always",
+      tabActiveStyle: "filled",
       addTabStyle: "labeled",
       cornerStyle: "round",
       paneDividerSize: "balanced",
