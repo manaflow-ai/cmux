@@ -709,6 +709,8 @@ fileprivate final class VsyncIOSurfaceTimelineState {
 
     let frameCount: Int
     let closeFrame: Int
+    // CVDisplayLink callbacks are synchronous and cannot await an actor. Keep this DEBUG-only
+    // lock scoped to short state transitions before main-thread IOSurface sampling.
     let lock = NSLock()
 
     var framesWritten = 0
