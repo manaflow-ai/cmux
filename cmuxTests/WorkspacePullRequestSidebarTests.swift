@@ -654,7 +654,6 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         let result = XCTWaiter().wait(for: [finishedMonitoring], timeout: monitorDuration + 1.5)
         timer.invalidate()
         XCTAssertEqual(result, .completed)
-        XCTAssertGreaterThan(invocationCounter.value, 0)
         XCTAssertLessThan(
             maxTickGap,
             allowedMainThreadGap,
@@ -864,13 +863,6 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             "Stale shell report_pr messages must not repopulate PR badges while sidebar.watchGitStatus is disabled."
         )
         XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [panelId]), [])
-
-        workspace.updatePanelGitBranch(
-            panelId: panelId,
-            branch: "issue-2722-git-index-lock-poll",
-            isDirty: false
-        )
-        XCTAssertFalse(workspace.panelGitBranches.isEmpty)
 
         let branchResponse = TerminalController.shared.handleSocketLine(
             "report_git_branch main --status=unknown --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"

@@ -2349,10 +2349,12 @@ class TabManager: ObservableObject {
         watchGitStatus: Bool?,
         pullRequestPolling: Bool?
     ) {
+        let previousWatchGitStatus = sidebarGitMetadataWatchEnabled
+        let previousPullRequestPolling = sidebarPullRequestPollingEnabled
         sidebarGitMetadataWatchEnabledOverrideForTesting = watchGitStatus
         sidebarPullRequestPollingEnabledOverrideForTesting = pullRequestPolling
-        lastSidebarGitMetadataWatchEnabled = !sidebarGitMetadataWatchEnabled
-        lastSidebarPullRequestPollingEnabled = !sidebarPullRequestPollingEnabled
+        lastSidebarGitMetadataWatchEnabled = previousWatchGitStatus
+        lastSidebarPullRequestPollingEnabled = previousPullRequestPolling
         sidebarMetadataSettingsDidChange()
     }
 
