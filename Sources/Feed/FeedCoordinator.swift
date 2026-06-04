@@ -297,8 +297,12 @@ extension FeedCoordinator {
     /// keys its status by its own source name. Returning the agent's own key
     /// is what lets the existing per-agent resume hooks (e.g. Claude's
     /// `pre-tool-use`) clear the needs-input badge once the agent continues.
+    private static let lifecycleStatusKeyOverrides = [
+        "claude": "claude_code",
+    ]
+
     static func lifecycleStatusKey(forSource source: String) -> String {
-        source == "claude" ? "claude_code" : source
+        lifecycleStatusKeyOverrides[source] ?? source
     }
 
     /// Identifies the sidebar slot an attention overlay lights up. Overlays
@@ -348,13 +352,21 @@ extension FeedCoordinator {
         }
         #endif
 
-        guard let resolved = Self.resolveAttentionTarget(event: event),
-              let tabManager = AppDelegate.shared?.tabManagerFor(tabId: resolved.workspaceId),
+        guard let resolved = Self.resolveAttentionTarget(event: event) else {
+            #if DEBUG
+            cmuxDebugLog(
+                "feed.attention.skip reason=unresolved-target session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) workspace=\(event.workspaceId ?? "nil") receivedAt=\(event.receivedAt.timeIntervalSince1970)"
+            )
+            #endif
+            return nil
+        }
+
+        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: resolved.workspaceId),
               let tab = tabManager.tabs.first(where: { $0.id == resolved.workspaceId })
         else {
             #if DEBUG
             cmuxDebugLog(
-                "feed.attention.skip session=\(event.sessionId) hook=\(event.hookEventName.rawValue) workspace=\(event.workspaceId ?? "nil")"
+                "feed.attention.skip reason=missing-workspace session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) workspace=\(resolved.workspaceId.uuidString) receivedAt=\(event.receivedAt.timeIntervalSince1970)"
             )
             #endif
             return nil
