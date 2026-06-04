@@ -7,6 +7,7 @@ export type FileTreeRefreshSource = {
 export type FileTreeRefreshPlan =
   | {
       addedPaths: string[];
+      requiresFullGitStatus: boolean;
       sourceFollowsPrevious: boolean;
       kind: "append";
     }
@@ -51,6 +52,7 @@ export function planPierreFileTreeRefresh(
 
   return {
     addedPaths: paths.slice(previousPathCount, sourcePathCount),
+    requiresFullGitStatus: !sourceFollowsPrevious,
     sourceFollowsPrevious,
     kind: "append",
   };

@@ -2,7 +2,7 @@ import { CodeView, WorkerPoolContextProvider, type CodeViewHandle, useWorkerPool
 import { getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { copyGitApplyCommand, diffSourceDetail, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
 import { fileName, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
@@ -160,15 +160,19 @@ export function App({ config, initialStatus }: ConfigProps) {
   const label = createDiffViewerLabelResolver(payload.labels, {
     assertMissing: shouldAssertMissingLabels(),
   });
-  const appearance = resolveDiffViewerAppearance(payload.appearance);
+  const appearance = useMemo(() => resolveDiffViewerAppearance(payload.appearance), [payload.appearance]);
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
-  const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
-  const highlighterOptions = workerHighlighterOptions(state.options, appearance);
-  const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
+  const workerModuleURL = useMemo(
+    () => resolveDiffViewerAssetURL(config.assets?.workerModuleURL),
+    [config.assets?.workerModuleURL],
+  );
+  const workerPoolOptions = useMemo(() => createDiffWorkerPoolOptions(workerModuleURL), [workerModuleURL]);
+  const highlighterOptions = useMemo(() => workerHighlighterOptions(state.options, appearance), [state.options, appearance]);
+  const renderedCodeViewOptions = useMemo(() => codeViewOptions(state.options, appearance), [state.options, appearance]);
 
   usePageDataAttributes(state);
   usePendingReplacement(payload, label, dispatch);
@@ -227,10 +231,10 @@ export function App({ config, initialStatus }: ConfigProps) {
         <main id="viewer" aria-label={label("diffViewer")}>
           {state.items.length > 0 ? (
             <WorkerPoolContextProvider
-              poolOptions={createDiffWorkerPoolOptions(workerModuleURL)}
+              poolOptions={workerPoolOptions}
               highlighterOptions={highlighterOptions}
             >
-              <WorkerRenderOptionsSync highlighterOptions={highlighterOptions} />
+              <WorkerRenderOptionsSync codeViewRef={codeViewRef} highlighterOptions={highlighterOptions} />
               <CodeView
                 ref={codeViewRef}
                 className="code-view-root"
@@ -258,8 +262,14 @@ function resolveDiffViewerAssetURL(rawURL: string | undefined): URL {
   return new URL(rawURL || defaultWorkerModuleURL, window.location.href);
 }
 
-function WorkerRenderOptionsSync({ highlighterOptions }: { highlighterOptions: ReturnType<typeof workerHighlighterOptions> }) {
-  useWorkerRenderOptionsSync(highlighterOptions);
+function WorkerRenderOptionsSync({
+  codeViewRef,
+  highlighterOptions,
+}: {
+  codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>;
+  highlighterOptions: ReturnType<typeof workerHighlighterOptions>;
+}) {
+  useWorkerRenderOptionsSync(highlighterOptions, codeViewRef);
   return null;
 }
 
@@ -783,17 +793,29 @@ function useSyncedRef<T>(value: T): React.MutableRefObject<T> {
   return ref;
 }
 
-function useWorkerRenderOptionsSync(highlighterOptions: ReturnType<typeof workerHighlighterOptions>): void {
+function useWorkerRenderOptionsSync(
+  highlighterOptions: ReturnType<typeof workerHighlighterOptions>,
+  codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>,
+): void {
   const workerPool = useWorkerPool();
   const syncedOptions = useRef<ReturnType<typeof workerHighlighterOptions> | null>(null);
   useEffect(() => {
     if (!workerPool || sameWorkerHighlighterOptions(syncedOptions.current, highlighterOptions)) {
       return;
     }
+    let active = true;
     syncedOptions.current = highlighterOptions;
     workerPool.setRenderOptions(highlighterOptions)
+      .then(() => {
+        if (active) {
+          codeViewRef.current?.getInstance()?.render(true);
+        }
+      })
       .catch((error: unknown) => console.warn("cmux diff worker render options update failed", error));
-  }, [highlighterOptions, workerPool]);
+    return () => {
+      active = false;
+    };
+  }, [codeViewRef, highlighterOptions, workerPool]);
 }
 
 function sameWorkerHighlighterOptions(
@@ -831,7 +853,7 @@ function usePierreFileTreeSource(
     const previous = previousSource.current;
     previousSource.current = source;
     const plan = planPierreFileTreeRefresh(previous, source, source.paths);
-    let useFullGitStatus = false;
+    let useFullGitStatus = plan.kind === "append" ? plan.requiresFullGitStatus : false;
     if (plan.kind === "append") {
       if (plan.addedPaths.length > 0) {
         try {

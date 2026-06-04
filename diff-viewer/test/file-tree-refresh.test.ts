@@ -19,6 +19,7 @@ describe("planPierreFileTreeRefresh", () => {
     expect(planPierreFileTreeRefresh(previousSource, source, paths)).toEqual({
       addedPaths: ["src/main.tsx", "src/viewer-controller.ts"],
       kind: "append",
+      requiresFullGitStatus: false,
       sourceFollowsPrevious: true,
     });
   });
@@ -34,6 +35,26 @@ describe("planPierreFileTreeRefresh", () => {
     expect(planPierreFileTreeRefresh(previousSource, source, source.paths)).toEqual({
       addedPaths: ["c.ts"],
       kind: "append",
+      requiresFullGitStatus: true,
+      sourceFollowsPrevious: false,
+    });
+  });
+
+  test("requires a full git-status refresh for skipped same-length sources", () => {
+    const previousSource = {
+      paths: ["a.ts", "b.ts"],
+    };
+    const source = {
+      paths: ["a.ts", "b.ts"],
+      previousSource: {
+        paths: ["a.ts", "b.ts"],
+      },
+    };
+
+    expect(planPierreFileTreeRefresh(previousSource, source, source.paths)).toEqual({
+      addedPaths: [],
+      kind: "append",
+      requiresFullGitStatus: true,
       sourceFollowsPrevious: false,
     });
   });
