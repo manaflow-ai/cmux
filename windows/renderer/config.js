@@ -29,6 +29,7 @@ export const defaultSettings = {
   sidebarDetailMode: "compact",
   sidebarBranchMode: "hidden",
   sidebarFooterMode: "workspace",
+  sidebarToolMode: "all",
   sidebarStyle: "subtle",
   inspectorStyle: "subtle",
   overlayStyle: "subtle",
@@ -429,6 +430,12 @@ export const sidebarFooterOptions = [
   ["full", label("sidebarFooter.full", "Workspace + reset")]
 ];
 
+export const sidebarToolOptions = [
+  ["all", label("sidebarTools.all", "All"), label("sidebarTools.all.body", "Workspaces, notifications, session tools, and settings")],
+  ["primary", label("sidebarTools.primary", "Primary"), label("sidebarTools.primary.body", "Keep workspaces and settings only")],
+  ["hidden", label("sidebarTools.hidden", "Hidden"), label("sidebarTools.hidden.body", "Hide the sidebar rail tools")]
+];
+
 export const sidebarStyleOptions = [
   ["subtle", label("sidebarStyle.subtle", "Subtle"), label("sidebarStyle.subtle.body", "Default sidebar contrast")],
   ["quiet", label("sidebarStyle.quiet", "Quiet"), label("sidebarStyle.quiet.body", "Lower contrast workspace rail")],
@@ -737,6 +744,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
+      sidebarToolMode: "all",
       sidebarStyle: "subtle",
       inspectorStyle: "subtle",
       overlayStyle: "subtle",
@@ -821,6 +829,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "compact",
+      sidebarToolMode: "primary",
       sidebarStyle: "quiet",
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
@@ -905,6 +914,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "compact",
+      sidebarToolMode: "primary",
       sidebarStyle: "quiet",
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
@@ -990,6 +1000,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
+      sidebarToolMode: "hidden",
       sidebarStyle: "quiet",
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
@@ -1074,6 +1085,7 @@ export const settingsPresets = [
       sidebarDetailMode: "compact",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
+      sidebarToolMode: "primary",
       sidebarStyle: "quiet",
       inspectorStyle: "quiet",
       overlayStyle: "quiet",
@@ -1158,6 +1170,7 @@ export const settingsPresets = [
       sidebarDetailMode: "balanced",
       sidebarBranchMode: "hidden",
       sidebarFooterMode: "workspace",
+      sidebarToolMode: "all",
       sidebarStyle: "solid",
       inspectorStyle: "solid",
       overlayStyle: "solid",
@@ -1242,6 +1255,7 @@ export const settingsPresets = [
       sidebarDetailMode: "detailed",
       sidebarBranchMode: "all",
       sidebarFooterMode: "compact",
+      sidebarToolMode: "all",
       sidebarStyle: "solid",
       inspectorStyle: "solid",
       overlayStyle: "solid",
