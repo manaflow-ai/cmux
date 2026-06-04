@@ -26,6 +26,7 @@ export const defaultSettings = {
   sidebarFooterMode: "workspace",
   toolbarMode: "minimal",
   tabSize: "balanced",
+  tabCloseMode: "hover",
   addTabStyle: "compact",
   cornerStyle: "soft",
   paneDividerSize: "balanced",
@@ -381,6 +382,12 @@ export const tabSizeOptions = [
   ["roomy", label("tabSize.roomy", "Roomy")]
 ];
 
+export const tabCloseModeOptions = [
+  ["minimal", label("tabClose.minimal", "Minimal"), label("tabClose.minimal.body", "Show close buttons only on hover or focus")],
+  ["hover", label("tabClose.hover", "On hover"), label("tabClose.hover.body", "Show close on hover and active tabs")],
+  ["always", label("tabClose.always", "Always"), label("tabClose.always.body", "Keep close buttons visible")]
+];
+
 export const addTabStyleOptions = [
   ["labeled", label("addTabStyle.labeled", "Labeled")],
   ["compact", label("addTabStyle.compact", "Compact")],
@@ -533,6 +540,7 @@ export const settingsPresets = [
       sidebarFooterMode: "workspace",
       toolbarMode: "minimal",
       tabSize: "balanced",
+      tabCloseMode: "hover",
       addTabStyle: "compact",
       cornerStyle: "soft",
       paneDividerSize: "balanced",
@@ -589,6 +597,7 @@ export const settingsPresets = [
       sidebarFooterMode: "compact",
       toolbarMode: "minimal",
       tabSize: "compact",
+      tabCloseMode: "minimal",
       addTabStyle: "compact",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
@@ -645,6 +654,7 @@ export const settingsPresets = [
       sidebarFooterMode: "compact",
       toolbarMode: "minimal",
       tabSize: "compact",
+      tabCloseMode: "minimal",
       addTabStyle: "compact",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
@@ -702,6 +712,7 @@ export const settingsPresets = [
       sidebarFooterMode: "workspace",
       toolbarMode: "minimal",
       tabSize: "balanced",
+      tabCloseMode: "minimal",
       addTabStyle: "compact",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
@@ -758,6 +769,7 @@ export const settingsPresets = [
       sidebarFooterMode: "workspace",
       toolbarMode: "minimal",
       tabSize: "compact",
+      tabCloseMode: "minimal",
       addTabStyle: "hidden",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
@@ -814,6 +826,7 @@ export const settingsPresets = [
       sidebarFooterMode: "workspace",
       toolbarMode: "minimal",
       tabSize: "balanced",
+      tabCloseMode: "hover",
       addTabStyle: "compact",
       cornerStyle: "soft",
       paneDividerSize: "wide",
@@ -870,6 +883,7 @@ export const settingsPresets = [
       sidebarFooterMode: "compact",
       toolbarMode: "standard",
       tabSize: "roomy",
+      tabCloseMode: "always",
       addTabStyle: "labeled",
       cornerStyle: "round",
       paneDividerSize: "balanced",

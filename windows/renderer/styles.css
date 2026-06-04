@@ -2042,6 +2042,23 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
   color: var(--color-text);
 }
 
+.shell.tab-close-always .surface-close {
+  opacity: .86;
+  pointer-events: auto;
+}
+
+.shell.tab-close-always .surface-tab:hover .surface-close,
+.shell.tab-close-always .surface-tab:focus-within .surface-close,
+.shell.tab-close-always .surface-close:focus-visible {
+  opacity: 1;
+}
+
+.shell.tab-close-minimal .surface-tab.is-active:not(:hover):not(:focus-within) .surface-close,
+.shell.tab-close-minimal .surface-tabs.is-crowded .surface-tab.is-active:not(:hover):not(:focus-within) .surface-close {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .surface-tab.is-dragging {
   opacity: .58;
 }
@@ -4189,6 +4206,24 @@ body.reduce-motion .surface-new-tab.is-creating.is-waiting:not(:disabled) .surfa
     opacity: 1;
     pointer-events: auto;
   }
+}
+
+.shell.tab-close-always .browser-tab-close,
+.shell.tab-close-always .browser-tab.is-active:not(:hover):not(:focus-within) .browser-tab-close {
+  opacity: .86;
+  pointer-events: auto;
+}
+
+.shell.tab-close-always .browser-tab:hover .browser-tab-close,
+.shell.tab-close-always .browser-tab:focus-within .browser-tab-close,
+.shell.tab-close-always .browser-tab-close:focus-visible {
+  opacity: 1;
+}
+
+.shell.tab-close-minimal .browser-tab.is-active:not(:hover):not(:focus-within) .browser-tab-close,
+.shell.tab-close-minimal .browser-tab-list.is-crowded .browser-tab.is-active:not(:hover):not(:focus-within) .browser-tab-close {
+  opacity: 0;
+  pointer-events: none;
 }
 
 @container (max-width: 180px) {

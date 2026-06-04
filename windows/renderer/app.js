@@ -30,6 +30,7 @@ import {
   terminalFontOptions,
   terminalProfiles,
   terminalStartupOptions,
+  tabCloseModeOptions,
   tabSizeOptions,
   themePreviewOptions,
   titleDetailOptions,
@@ -334,6 +335,7 @@ const layoutSettingsPreviewKeys = new Set([
   "sidebarFooterMode",
   "toolbarMode",
   "tabSize",
+  "tabCloseMode",
   "addTabStyle",
   "cornerStyle",
   "paneDividerSize",
@@ -350,6 +352,7 @@ const layoutSettingsPreviewKeys = new Set([
 ]);
 const surfaceTabLayoutKeys = new Set([
   "tabSize",
+  "tabCloseMode",
   "addTabStyle",
   "paneColorMarkers",
   "focusMode",
@@ -394,6 +397,7 @@ const settingsInspectorSettingKeys = {
     "sidebarFooterMode",
     "toolbarMode",
     "tabSize",
+    "tabCloseMode",
     "addTabStyle",
     "cornerStyle",
     "paneDividerSize",
@@ -1087,6 +1091,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
     next.toolbarMode = parsed.showAdvanced ? "expanded" : defaultSettings.toolbarMode;
   }
   if (!tabSizeOptions.some(([id]) => id === next.tabSize)) next.tabSize = defaultSettings.tabSize;
+  if (!tabCloseModeOptions.some(([id]) => id === next.tabCloseMode)) next.tabCloseMode = defaultSettings.tabCloseMode;
   if (!addTabStyleOptions.some(([id]) => id === next.addTabStyle)) next.addTabStyle = defaultSettings.addTabStyle;
   if (!cornerStyleOptions.some(([id]) => id === next.cornerStyle)) next.cornerStyle = defaultSettings.cornerStyle;
   if (!paneDividerSizeOptions.some(([id]) => id === next.paneDividerSize)) next.paneDividerSize = defaultSettings.paneDividerSize;
@@ -3083,6 +3088,7 @@ function settingsProfileSummary(settings) {
   const theme = themeOptions.find(([id]) => id === normalized.theme)?.[1] || normalized.theme;
   const toolbar = toolbarModeOptions.find(([id]) => id === normalized.toolbarMode)?.[1] || normalized.toolbarMode;
   const addTabs = optionLabel(addTabStyleOptions, normalized.addTabStyle, normalized.addTabStyle);
+  const closeTabs = optionLabel(tabCloseModeOptions, normalized.tabCloseMode, normalized.tabCloseMode);
   const corners = optionLabel(cornerStyleOptions, normalized.cornerStyle, normalized.cornerStyle);
   const dividers = optionLabel(paneDividerSizeOptions, normalized.paneDividerSize, normalized.paneDividerSize);
   const activePane = optionLabel(activePaneEmphasisOptions, normalized.activePaneEmphasis, normalized.activePaneEmphasis);
@@ -3100,6 +3106,7 @@ function settingsProfileSummary(settings) {
     toolbar,
     `${statusbarSummaryLabel(normalized).toLowerCase()} status`,
     `${addTabs} add tabs`,
+    `${closeTabs.toLowerCase()} tab close`,
     `${corners.toLowerCase()} corners`,
     `${dividers.toLowerCase()} dividers`,
     `${activePane.toLowerCase()} active pane`,
@@ -5182,6 +5189,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.density,
     settings.toolbarMode,
     settings.tabSize,
+    settings.tabCloseMode,
     settings.addTabStyle,
     settings.cornerStyle,
     settings.paneDividerSize,
@@ -5264,6 +5272,9 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "add-tabs-labeled", state.settings.addTabStyle === "labeled");
   toggleClassIfChanged(elements.shell, "add-tabs-compact", state.settings.addTabStyle === "compact");
   toggleClassIfChanged(elements.shell, "add-tabs-hidden", state.settings.addTabStyle === "hidden");
+  toggleClassIfChanged(elements.shell, "tab-close-minimal", state.settings.tabCloseMode === "minimal");
+  toggleClassIfChanged(elements.shell, "tab-close-hover", state.settings.tabCloseMode === "hover");
+  toggleClassIfChanged(elements.shell, "tab-close-always", state.settings.tabCloseMode === "always");
   toggleClassIfChanged(elements.shell, "active-pane-emphasis-quiet", state.settings.activePaneEmphasis === "quiet");
   toggleClassIfChanged(elements.shell, "active-pane-emphasis-line", state.settings.activePaneEmphasis === "line");
   toggleClassIfChanged(elements.shell, "active-pane-emphasis-strong", state.settings.activePaneEmphasis === "strong");
@@ -13022,6 +13033,12 @@ function renderSettingsInspector(options = {}) {
       "surface tab chrome tab width compact balanced roomy"
     ));
     layoutSection.append(settingRow(
+      "Tab close",
+      settingSegmentedControl("tabCloseMode", tabCloseModeOptions, "surface browser tab close button visibility minimal hover always clutter clean discoverable", { compact: true }),
+      true,
+      "surface browser tab close button visibility minimal hover always clutter clean discoverable"
+    ));
+    layoutSection.append(settingRow(
       "Add tabs",
       settingSegmentedControl("addTabStyle", addTabStyleOptions.map(([value, label]) => [
         value,
@@ -15066,7 +15083,7 @@ function workspaceChromePresetGrid() {
     button.querySelector(".workspace-chrome-preset-body").textContent = preset.body;
     const meta = button.querySelectorAll(".workspace-chrome-preset-meta span");
     meta[0].textContent = summary.toolbar;
-    meta[1].textContent = summary.tabs;
+    meta[1].textContent = summary.tabs === "Hidden" ? "Hidden tabs" : `${summary.tabs} / ${summary.tabClose}`;
     meta[2].textContent = summary.dividers;
     button.onclick = () => {
       if (!isActiveWorkspaceChromePreset(preset)) applyWorkspaceChromePreset(preset.id);
@@ -15092,6 +15109,7 @@ function layoutSettingsPreviewPanel() {
     `pane-actions-${settings.paneActionMode}`,
     `toolbar-${settings.toolbarMode}`,
     `tab-size-${settings.tabSize}`,
+    `tab-close-${settings.tabCloseMode}`,
     `add-tabs-${settings.addTabStyle}`,
     `corner-style-${settings.cornerStyle}`,
     `pane-divider-${settings.paneDividerSize}`,
@@ -15102,7 +15120,7 @@ function layoutSettingsPreviewPanel() {
     settings.showStatusbar ? "show-statusbar" : "hide-statusbar",
     settings.performanceMode ? "performance-preview" : ""
   ].filter(Boolean).join(" ");
-  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs status pane header density settings panel active pane percent resize focus highlight edge mode simple clean panes split shape corner radius rounded divider grip preset current");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs close status pane header density settings panel active pane percent resize focus highlight edge mode simple clean panes split shape corner radius rounded divider grip preset current");
   panel.style.setProperty("--layout-preview-sidebar", `${Math.max(24, Math.round((settings.sidebarWidth / 304) * 72))}px`);
   panel.style.setProperty("--layout-preview-inspector", `${Math.max(42, Math.round((settings.inspectorWidth / 480) * 76))}px`);
   panel.innerHTML = `
@@ -15152,7 +15170,9 @@ function layoutSettingsPreviewPanel() {
   `;
   panel.querySelector("[data-layout-preview-toolbar]").textContent = optionLabel(toolbarModeOptions, settings.toolbarMode, settings.toolbarMode);
   panel.querySelector("[data-layout-preview-mode]").textContent = settings.focusMode ? "Focus" : "Standard";
-  panel.querySelector("[data-layout-preview-tabs]").textContent = settings.focusMode || !settings.showTabs ? "Hidden" : optionLabel(tabSizeOptions, settings.tabSize, settings.tabSize);
+  panel.querySelector("[data-layout-preview-tabs]").textContent = settings.focusMode || !settings.showTabs
+    ? "Hidden"
+    : `${optionLabel(tabSizeOptions, settings.tabSize, settings.tabSize)} / ${optionLabel(tabCloseModeOptions, settings.tabCloseMode, settings.tabCloseMode)}`;
   panel.querySelector("[data-layout-preview-add-tabs]").textContent = settings.focusMode || !settings.showTabs ? "Hidden" : optionLabel(addTabStyleOptions, settings.addTabStyle, settings.addTabStyle);
   panel.querySelector("[data-layout-preview-corners]").textContent = optionLabel(cornerStyleOptions, settings.cornerStyle, settings.cornerStyle);
   panel.querySelector("[data-layout-preview-dividers]").textContent = optionLabel(paneDividerSizeOptions, settings.paneDividerSize, settings.paneDividerSize);
@@ -17686,6 +17706,7 @@ function performanceDiagnosticsPayload() {
       sidebarBranchMode: state.settings.sidebarBranchMode,
       sidebarFooterMode: state.settings.sidebarFooterMode,
       tabSize: state.settings.tabSize,
+      tabCloseMode: state.settings.tabCloseMode,
       titleDetailMode: state.settings.titleDetailMode,
       showTabs: state.settings.showTabs,
       showStatusbar: state.settings.showStatusbar,
@@ -24864,6 +24885,7 @@ function settingsPresetTags(settings) {
   const tags = [
     optionLabel(toolbarModeOptions, settings.toolbarMode, "Toolbar"),
     settings.performanceMode ? "Speed" : settings.focusMode ? "Focus" : settings.density,
+    `${optionLabel(tabCloseModeOptions, settings.tabCloseMode, settings.tabCloseMode)} close`,
     statusbarSummaryLabel(settings),
     `${settings.terminalScrollback.toLocaleString()} history`
   ];
@@ -30417,6 +30439,7 @@ const workspaceChromeSettings = [
   "sidebarFooterMode",
   "toolbarMode",
   "tabSize",
+  "tabCloseMode",
   "addTabStyle",
   "cornerStyle",
   "paneDividerSize",
@@ -30457,6 +30480,7 @@ const workspaceChromePresets = [
       sidebarFooterMode: defaultSettings.sidebarFooterMode,
       toolbarMode: defaultSettings.toolbarMode,
       tabSize: defaultSettings.tabSize,
+      tabCloseMode: defaultSettings.tabCloseMode,
       addTabStyle: defaultSettings.addTabStyle,
       cornerStyle: defaultSettings.cornerStyle,
       paneDividerSize: defaultSettings.paneDividerSize,
@@ -30484,6 +30508,7 @@ const workspaceChromePresets = [
       sidebarFooterMode: "compact",
       toolbarMode: "minimal",
       tabSize: "compact",
+      tabCloseMode: "minimal",
       addTabStyle: "compact",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
@@ -30511,6 +30536,7 @@ const workspaceChromePresets = [
       sidebarFooterMode: "compact",
       toolbarMode: "minimal",
       tabSize: "compact",
+      tabCloseMode: "minimal",
       addTabStyle: "hidden",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
@@ -30538,6 +30564,7 @@ const workspaceChromePresets = [
       sidebarFooterMode: "full",
       toolbarMode: "standard",
       tabSize: "roomy",
+      tabCloseMode: "always",
       addTabStyle: "labeled",
       cornerStyle: "round",
       paneDividerSize: "wide",
@@ -30565,6 +30592,7 @@ const workspaceChromePresets = [
       sidebarFooterMode: "workspace",
       toolbarMode: "minimal",
       tabSize: "balanced",
+      tabCloseMode: "minimal",
       addTabStyle: "compact",
       cornerStyle: "crisp",
       paneDividerSize: "slim",
@@ -30664,6 +30692,7 @@ function workspaceChromeSummaryForSettings(settings) {
     paneControls: optionLabel(paneActionOptions, normalized.paneActionMode, normalized.paneActionMode),
     workspaceRows: optionLabel(sidebarDetailOptions, normalized.sidebarDetailMode, normalized.sidebarDetailMode),
     tabs: normalized.showTabs ? optionLabel(tabSizeOptions, normalized.tabSize, normalized.tabSize) : "Hidden",
+    tabClose: normalized.showTabs ? optionLabel(tabCloseModeOptions, normalized.tabCloseMode, normalized.tabCloseMode) : "Hidden",
     corners: optionLabel(cornerStyleOptions, normalized.cornerStyle, normalized.cornerStyle),
     dividers: optionLabel(paneDividerSizeOptions, normalized.paneDividerSize, normalized.paneDividerSize),
     activePane: optionLabel(activePaneEmphasisOptions, normalized.activePaneEmphasis, normalized.activePaneEmphasis),
@@ -30722,6 +30751,7 @@ function workspaceChromeSettingUpdateFromValue(key, raw) {
   if (key === "sidebarFooterMode") return optionIdAllowed(sidebarFooterOptions, raw) ? raw : null;
   if (key === "toolbarMode") return optionIdAllowed(toolbarModeOptions, raw) ? raw : null;
   if (key === "tabSize") return optionIdAllowed(tabSizeOptions, raw) ? raw : null;
+  if (key === "tabCloseMode") return optionIdAllowed(tabCloseModeOptions, raw) ? raw : null;
   if (key === "addTabStyle") return optionIdAllowed(addTabStyleOptions, raw) ? raw : null;
   if (key === "cornerStyle") return optionIdAllowed(cornerStyleOptions, raw) ? raw : null;
   if (key === "paneDividerSize") return optionIdAllowed(paneDividerSizeOptions, raw) ? raw : null;
@@ -30802,6 +30832,7 @@ function workspaceChromePresetSearchText(preset, settings = workspaceChromePrese
     summary.paneControls,
     summary.workspaceRows,
     summary.tabs,
+    summary.tabClose,
     summary.corners,
     summary.dividers,
     summary.activePane,
