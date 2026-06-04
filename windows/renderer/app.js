@@ -5310,6 +5310,81 @@ function activePaneForColorTarget() {
   return focusedPanel() || activePanel();
 }
 
+function paneColorTarget(panel = activePaneForColorTarget()) {
+  const found = panel?.id ? findPanelState(panel.id) : null;
+  return found?.panel || panel || null;
+}
+
+function paneColorFallback(panel = activePaneForColorTarget(), workspace = activeWorkspace()) {
+  const found = panel?.id ? findPanelState(panel.id) : null;
+  const targetWorkspace = found?.workspace || workspace;
+  return targetWorkspace?.color || state.settings.accent;
+}
+
+function paneColorValue(panel = activePaneForColorTarget(), workspace = activeWorkspace()) {
+  const target = paneColorTarget(panel);
+  return target?.color || paneColorFallback(target, workspace);
+}
+
+function paneColorStatusLabel(panel = activePaneForColorTarget(), workspace = activeWorkspace()) {
+  const target = paneColorTarget(panel);
+  if (!target) return "No pane";
+  return target.color
+    ? colorSummaryLabel(target.color, paneColorFallback(target, workspace))
+    : `Inherited ${colorSummaryLabel(paneColorFallback(target, workspace), state.settings.accent)}`;
+}
+
+function paneColorBaseSearchText(panel = activePaneForColorTarget(), workspace = activeWorkspace()) {
+  const target = paneColorTarget(panel);
+  return [
+    "active pane color marker tab tint swatch custom saved palette",
+    target ? panelDisplayTitle(target, true) : "no pane select pane",
+    target?.type === "browser" ? "browser pane" : "terminal pane",
+    paneColorStatusLabel(target, workspace),
+    paneColorValue(target, workspace)
+  ].join(" ");
+}
+
+function paneColorActionSearchText(actionId, panel = activePaneForColorTarget(), workspace = activeWorkspace(), extra = "") {
+  const terms = {
+    control: "picker hex save copy reset clear default swatches",
+    swatch: "apply set swatch preset marker tab",
+    save: "save reusable saved color library palette",
+    copy: "copy value hex clipboard",
+    paste: "paste clipboard apply hex oklch",
+    clear: "clear reset default inherit workspace",
+    apply: "apply saved color palette"
+  };
+  return normalizeSettingsQuery([
+    paneColorBaseSearchText(panel, workspace),
+    terms[actionId] || actionId,
+    extra
+  ].join(" "));
+}
+
+function paneColorActionTitle(actionId, panel = activePaneForColorTarget(), workspace = activeWorkspace(), options = {}) {
+  const target = paneColorTarget(panel);
+  const fallback = paneColorFallback(target, workspace);
+  const color = paneColorValue(target, workspace);
+  if (!target) return options.paneRequiredTitle || "Open or select a pane first.";
+  if (actionId === "save") {
+    return customColorSaveTitle(color, target.color
+      ? "Save this pane color to the reusable palette."
+      : "Save this pane's inherited color to the reusable palette.");
+  }
+  if (actionId === "copy") return colorCopyTitle(target.color, fallback, "Copy this pane color value.");
+  if (actionId === "clear") {
+    return target.color ? "Clear this pane color so it inherits the workspace color." : "Pane color already inherits the workspace color.";
+  }
+  if (actionId === "paste") return "Paste a copied color to this pane.";
+  if (actionId === "swatch") {
+    const next = options.color || "";
+    const active = colorKey(color) === colorKey(next);
+    return active ? `Pane already uses ${String(next).toUpperCase()}.` : `Set pane color to ${String(next).toUpperCase()}.`;
+  }
+  return "Update this pane color.";
+}
+
 function savedColorActiveForTarget(color, target = state.colorApplyTarget, workspace = activeWorkspace()) {
   const colorValue = colorKey(color);
   const scope = normalizeColorApplyTarget(target);
@@ -7138,7 +7213,9 @@ function customizationColorCommandPaletteState(commandId) {
     disabled: saved || model.disabled,
     icon: "appearance",
     title: saved ? "This color is already saved." : model.title,
-    search: `saved color palette custom accent workspace pane reusable library ${target} ${label}`
+    search: target === "pane"
+      ? paneColorActionSearchText("save", activePaneForColorTarget(), activeWorkspace(), `saved color palette custom reusable library ${label}`)
+      : `saved color palette custom accent workspace pane reusable library ${target} ${label}`
   };
 }
 
@@ -20586,13 +20663,17 @@ function activePaneSettingsPanel(workspace = activeWorkspace()) {
       onClear: () => updatePanel(panel.id, { color: "" }),
       clearLabel: "Default",
       clearDisabled: !panel.color,
+      clearTitle: paneColorActionTitle("clear", panel, workspace),
       saveLabel: "Save",
+      saveTitle: paneColorActionTitle("save", panel, workspace),
+      copyTitle: paneColorActionTitle("copy", panel, workspace),
+      copyToast: "Pane color copied.",
       targetLabel: panel.type === "browser" ? "Browser pane" : "Terminal pane",
       targetMeta: panelDisplayTitle(panel, true),
-      searchTerms: "active pane custom color hex picker reset default clear"
+      searchTerms: paneColorActionSearchText("control", panel, workspace)
     }),
     true,
-    "active pane color tab custom hex picker palette swatch reset default clear"
+    paneColorActionSearchText("control", panel, workspace)
   ));
 
   if (panel.type === "terminal") {
@@ -26908,8 +26989,12 @@ function colorControlPanel({
   onClear,
   clearLabel = "Default",
   clearDisabled = false,
+  clearTitle = "",
   copyLabel = "Copy",
+  copyTitle = "",
+  copyToast = "",
   saveLabel = "",
+  saveTitle = "",
   targetLabel = "",
   targetMeta = "",
   searchTerms = ""
@@ -26948,11 +27033,11 @@ function colorControlPanel({
   const picker = colorPicker(activeColor, onPick, fallbackColor);
   custom.append(picker);
   if (copyLabel) {
-    const copyToast = targetLabel ? `${targetLabel} color copied.` : "Color copied.";
-    const copy = settingsActionButton(copyLabel, () => copyColorValue(activeColor, fallbackColor, copyToast), "", `color copy current value clipboard ${searchTerms}`);
+    const toastText = copyToast || (targetLabel ? `${targetLabel} color copied.` : "Color copied.");
+    const copy = settingsActionButton(copyLabel, () => copyColorValue(activeColor, fallbackColor, toastText), "", `color copy current value clipboard ${searchTerms}`);
     copy.classList.add("settings-color-copy");
     copy.disabled = !canCopyColorValue(activeColor, fallbackColor);
-    copy.title = colorCopyTitle(activeColor, fallbackColor, `Copy ${targetLabel ? targetLabel.toLowerCase() : "current color"} value.`);
+    copy.title = copyTitle || colorCopyTitle(activeColor, fallbackColor, `Copy ${targetLabel ? targetLabel.toLowerCase() : "current color"} value.`);
     custom.append(copy);
   }
   if (saveLabel) {
@@ -26961,6 +27046,7 @@ function colorControlPanel({
       upsertCustomColorPalette(input?.value || activeColor || fallbackColor);
     }, "", `color save custom palette ${searchTerms}`);
     save.classList.add("settings-color-save");
+    if (saveTitle) save.title = saveTitle;
     custom.append(save);
   }
   if (onClear) {
@@ -26968,7 +27054,7 @@ function colorControlPanel({
     clear.classList.add("settings-color-clear");
     clear.disabled = clearDisabled;
     const clearTarget = targetLabel || "Color";
-    clear.title = clearDisabled ? `${clearTarget} already uses the default color.` : `Reset ${clearTarget.toLowerCase()} color to default.`;
+    clear.title = clearTitle || (clearDisabled ? `${clearTarget} already uses the default color.` : `Reset ${clearTarget.toLowerCase()} color to default.`);
     custom.append(clear);
   }
   panel.append(custom);
@@ -27044,8 +27130,12 @@ function savedColorPalettePanel() {
   const saveWorkspace = settingsActionButton("Save workspace", () => upsertCustomColorPalette(workspace?.color), "", "saved color save workspace");
   applyCustomColorSaveLimit(saveWorkspace, workspace?.color, "Save the active workspace color.");
   const pane = focusedPanel();
-  const savePane = settingsActionButton("Save pane", () => upsertCustomColorPalette(pane?.color), "", "saved color save active pane tab");
-  applyCustomColorSaveLimit(savePane, pane?.color, "Save the active pane color.");
+  const savePane = settingsActionButton("Save pane", () => upsertCustomColorPalette(paneColorValue(pane, workspace)), "", paneColorActionSearchText("save", pane, workspace));
+  if (pane) applyCustomColorSaveLimit(savePane, paneColorValue(pane, workspace), paneColorActionTitle("save", pane, workspace));
+  else {
+    savePane.disabled = true;
+    savePane.title = paneColorActionTitle("save", pane, workspace);
+  }
   const clearWorkspace = settingsActionButton("Clear workspace", () => clearWorkspaceColor(workspace), "", "saved color clear workspace color default reset");
   clearWorkspace.disabled = !workspace?.color;
   clearWorkspace.title = !workspace
@@ -30880,14 +30970,15 @@ function showPanelContextMenu(event, panel) {
   colorTitle.textContent = "Tab appearance";
   const colors = document.createElement("div");
   colors.className = "context-colors";
+  const effectivePaneColor = paneColorValue(panel, workspace);
   for (const [colorIndex, color] of workspaceColorPalette().entries()) {
-    const active = colorKey(panel.color) === colorKey(color);
+    const active = colorKey(effectivePaneColor) === colorKey(color);
     const button = document.createElement("button");
     button.className = `context-color${active ? " is-active" : ""}`;
     button.type = "button";
     button.disabled = active;
     const label = contextColorButtonLabel("tab", color, active, colorIndex);
-    button.title = label;
+    button.title = paneColorActionTitle("swatch", panel, workspace, { color });
     button.setAttribute("aria-label", label);
     button.setAttribute("aria-pressed", String(active));
     button.style.setProperty("--context-color", color);
@@ -30900,9 +30991,9 @@ function showPanelContextMenu(event, panel) {
   }
   const appearanceSettings = contextMenuButton("All appearance settings", () => openSettingsCategory("appearance"), false, "", { icon: "settings" });
   const clear = contextMenuButton("Clear color", () => updatePanel(panel.id, { color: "" }), !panel.color, "", { icon: "close" });
-  clear.title = panel.color ? "Clear this pane color." : "Pane color is already default.";
-  const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(panel.color), !canSaveCustomColor(panel.color), "", { icon: "plus" });
-  saveColor.title = customColorSaveTitle(panel.color, "Save this pane color to the reusable palette.");
+  clear.title = paneColorActionTitle("clear", panel, workspace);
+  const saveColor = contextMenuButton("Save color", () => upsertCustomColorPalette(paneColorValue(panel, workspace)), !canSaveCustomColor(paneColorValue(panel, workspace)), "", { icon: "plus" });
+  saveColor.title = paneColorActionTitle("save", panel, workspace);
   const copyColor = contextMenuButton(
     "Copy color",
     () => copyColorValue(panel.color, workspace?.color || state.settings.accent, "Pane color copied."),
@@ -30910,7 +31001,7 @@ function showPanelContextMenu(event, panel) {
     "",
     { icon: "clipboard" }
   );
-  copyColor.title = colorCopyTitle(panel.color, workspace?.color || state.settings.accent, "Copy this pane color value.");
+  copyColor.title = paneColorActionTitle("copy", panel, workspace);
   const customColor = contextColorPicker(panel.color, (color) => {
     updatePanel(panel.id, { color });
     upsertCustomColorPalette(color, { render: false, toast: false });
@@ -33413,14 +33504,19 @@ function paletteEntries() {
   ]) {
     const label = option.label.toLowerCase();
     const disabled = option.disabled || !canCopyColorValue(option.color, fallback);
+    const paneSearch = id === "pane"
+      ? paneColorActionSearchText("copy", paletteActivePane, paletteWorkspace, `${option.status} ${option.meta}`)
+      : "";
     entries.push({
       id: `currentColor.copy.${id}`,
       label: `Copy ${label} color`,
       meta: `${option.status} / ${option.meta}`,
       shortcut: "Copy",
       disabled,
-      title: disabled ? `${option.label}: ${option.meta}.` : colorCopyTitle(option.color, fallback, `Copy ${label} color value.`),
-      search: normalizeSettingsQuery(`copy current ${label} color value clipboard ${option.status} ${option.meta}`),
+      title: id === "pane"
+        ? (option.disabled ? `${option.label}: ${option.meta}.` : paneColorActionTitle("copy", paletteActivePane, paletteWorkspace))
+        : disabled ? `${option.label}: ${option.meta}.` : colorCopyTitle(option.color, fallback, `Copy ${label} color value.`),
+      search: id === "pane" ? paneSearch : normalizeSettingsQuery(`copy current ${label} color value clipboard ${option.status} ${option.meta}`),
       run: () => copyColorValue(option.color, fallback, toastText)
     });
   }
@@ -33439,7 +33535,9 @@ function paletteEntries() {
       shortcut: "Save",
       disabled: model.disabled,
       title: model.title,
-      search: normalizeSettingsQuery(`save current ${label} color reusable palette custom ${option.status} ${option.meta}`),
+      search: id === "pane"
+        ? paneColorActionSearchText("save", paletteActivePane, paletteWorkspace, `${option.status} ${option.meta}`)
+        : normalizeSettingsQuery(`save current ${label} color reusable palette custom ${option.status} ${option.meta}`),
       run: () => saveCurrentColorToPalette(id)
     });
   }
@@ -33457,8 +33555,12 @@ function paletteEntries() {
       meta: `${option.status} / ${option.meta}`,
       shortcut: "Paste",
       disabled: option.disabled,
-      title: option.disabled ? `${option.label}: ${option.meta}.` : `Paste a copied color to ${label}.`,
-      search: normalizeSettingsQuery(`paste copied clipboard ${label} color apply current target ${option.status} ${option.meta} hex oklch`),
+      title: id === "pane"
+        ? (option.disabled ? `${option.label}: ${option.meta}.` : paneColorActionTitle("paste", paletteActivePane, paletteWorkspace))
+        : option.disabled ? `${option.label}: ${option.meta}.` : `Paste a copied color to ${label}.`,
+      search: id === "pane"
+        ? paneColorActionSearchText("paste", paletteActivePane, paletteWorkspace, `${option.status} ${option.meta} hex oklch`)
+        : normalizeSettingsQuery(`paste copied clipboard ${label} color apply current target ${option.status} ${option.meta} hex oklch`),
       run: () => pasteColorToTarget(id)
     });
     entries.push({
@@ -33469,10 +33571,14 @@ function paletteEntries() {
       disabled: option.disabled || targetDefault,
       title: option.disabled
         ? `${option.label}: ${option.meta}.`
-        : targetDefault
+        : id === "pane"
+          ? paneColorActionTitle("clear", paletteActivePane, paletteWorkspace)
+          : targetDefault
           ? `${option.label} already uses the default color.`
           : `Reset ${label} color to default.`,
-      search: normalizeSettingsQuery(`reset default clear ${label} color current target accent workspace pane all ${targetDefault ? "active current " : ""}${option.status} ${option.meta}`),
+      search: id === "pane"
+        ? paneColorActionSearchText("clear", paletteActivePane, paletteWorkspace, `${targetDefault ? "active current " : ""}${option.status} ${option.meta}`)
+        : normalizeSettingsQuery(`reset default clear ${label} color current target accent workspace pane all ${targetDefault ? "active current " : ""}${option.status} ${option.meta}`),
       run: () => resetColorTarget(id)
     });
   }
@@ -33542,7 +33648,7 @@ function paletteEntries() {
       active: activePaneColor,
       disabled: activePaneColor || colorPaneTargetOption.disabled,
       title: savedColorApplyTitle(color, colorPaneTargetOption, activePaneColor),
-      search: normalizeSettingsQuery(`saved color palette custom active pane tab ${color}`),
+      search: paneColorActionSearchText("apply", paletteActivePane, paletteWorkspace, `saved color palette custom ${activePaneColor ? "active current " : ""}${color}`),
       run: () => applySavedColorToTarget(color, "pane")
     });
     entries.push({
