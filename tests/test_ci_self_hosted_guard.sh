@@ -293,6 +293,17 @@ check_no_xctest_quarantines() {
   echo "PASS: workflows do not hide XCTest coverage with -skip-testing"
 }
 
+check_vm_socket_tests_do_not_skip_ctrl_interactive() {
+  for script in "$ROOT_DIR/scripts/run-tests-v1.sh" "$ROOT_DIR/scripts/run-tests-v2.sh"; do
+    if grep -n "test_ctrl_interactive.py" "$script" | grep -Eq "SKIP|continue"; then
+      echo "FAIL: $(basename "$script") must run test_ctrl_interactive.py so Ctrl+C/Ctrl+D terminal delivery stays covered"
+      exit 1
+    fi
+  done
+
+  echo "PASS: VM socket runners include Ctrl+C/Ctrl+D terminal delivery regression"
+}
+
 check_retryable_submodule_checkout() {
   if grep -R -n "submodules: recursive" "$ROOT_DIR/.github/workflows"; then
     echo "FAIL: workflows must not let actions/checkout fetch submodules without the retry wrapper"
@@ -725,6 +736,7 @@ check_xcode_selection
 check_workflow_yaml_parse
 check_release_build_signal
 check_no_xctest_quarantines
+check_vm_socket_tests_do_not_skip_ctrl_interactive
 check_tmux_corpus_pr_jobs_do_not_report_skipped_terminal_tests
 check_activation_artifacts_are_required
 check_retryable_submodule_checkout

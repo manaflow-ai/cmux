@@ -223,10 +223,6 @@ echo "== tests (v1) =="
 fail=0
 for f in tests/test_*.py; do
   base=$(basename "$f")
-  if [ "$base" = "test_ctrl_interactive.py" ]; then
-    echo "SKIP $f"
-    continue
-  fi
 
   echo "== launch ($base) =="
   launch_and_wait

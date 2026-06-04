@@ -1,121 +1,151 @@
 #!/usr/bin/env python3
 """
-Interactive test for Ctrl+C and Ctrl+D in cmux terminal.
+Regression test for Ctrl+C and Ctrl+D delivery to a cmux terminal.
 
-This script tests that control signals are properly handled.
-Run this script inside the cmux terminal.
-
-Tests:
-1. Ctrl+C (SIGINT) - Should interrupt a running process
-2. Ctrl+D (EOF) - Should signal end-of-file on stdin
-
-Usage:
-    python3 test_ctrl_interactive.py
+The VM runner starts cmux before invoking this script. The test drives the
+terminal through the debug socket and verifies foreground processes receive the
+same control characters a user would type.
 """
 
+import os
+import shlex
+import sys
+import time
+import uuid
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from cmux import cmux, cmuxError
+
+
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
+
+
+def _wait_for_marker(marker: Path, timeout_s: float = 5.0) -> str:
+    start = time.time()
+    while time.time() - start < timeout_s:
+        try:
+            return marker.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            time.sleep(0.05)
+    raise cmuxError(f"Timed out waiting for marker: {marker}")
+
+
+def _focused_terminal(c: cmux) -> tuple[str, str]:
+    c.activate_app()
+    workspace_id = c.new_workspace()
+    c.select_workspace(workspace_id)
+
+    start = time.time()
+    last_health = []
+    while time.time() - start < 5.0:
+        last_health = c.surface_health()
+        terminal = next((h for h in last_health if h.get("type") == "terminal" and h.get("in_window")), None)
+        if terminal is not None:
+            surface = str(terminal.get("id") or terminal.get("index"))
+            c.focus_surface(surface)
+            return workspace_id, surface
+        time.sleep(0.1)
+
+    raise cmuxError(f"Timed out waiting for terminal surface: {last_health}")
+
+
+def _send_python(c: cmux, surface: str, code: str) -> None:
+    c.send_surface(surface, f"python3 -c {shlex.quote(code)}\n")
+
+
+def _wait_for_shell(c: cmux, surface: str, root: Path, token: str) -> None:
+    marker = root / f"cmux-shell-ready-{token}"
+    marker.unlink(missing_ok=True)
+    c.send_surface(surface, f"printf shell-ready > {shlex.quote(str(marker))}\n")
+    value = _wait_for_marker(marker, timeout_s=5.0)
+    if value != "shell-ready":
+        raise cmuxError(f"Expected shell-ready marker, got {value!r}")
+
+
+def _test_ctrl_c(c: cmux, surface: str, root: Path, token: str) -> None:
+    ready = root / f"cmux-ctrl-c-ready-{token}"
+    done = root / f"cmux-ctrl-c-done-{token}"
+    ready.unlink(missing_ok=True)
+    done.unlink(missing_ok=True)
+
+    _send_python(
+        c,
+        surface,
+        f"""
+import pathlib
 import signal
 import sys
-import os
+import time
 
-def test_ctrl_c():
-    """Test Ctrl+C signal handling"""
-    print("\n=== Test 1: Ctrl+C (SIGINT) ===")
-    print("This test will wait for you to press Ctrl+C.")
-    print("Press Ctrl+C now...")
+ready = pathlib.Path({str(ready)!r})
+done = pathlib.Path({str(done)!r})
 
-    received = [False]
+def handle_sigint(signum, frame):
+    done.write_text("sigint", encoding="utf-8")
+    print("CMUX_CTRL_C_DONE {token}", flush=True)
+    sys.exit(0)
 
-    def handler(signum, frame):
-        received[0] = True
-        print("\n✅ SUCCESS: SIGINT (Ctrl+C) received!")
+signal.signal(signal.SIGINT, handle_sigint)
+ready.write_text("ready", encoding="utf-8")
+print("CMUX_CTRL_C_READY {token}", flush=True)
 
-    old_handler = signal.signal(signal.SIGINT, handler)
+while True:
+    time.sleep(0.1)
+""",
+    )
 
-    try:
-        # Wait for up to 10 seconds for Ctrl+C
-        import time
-        for i in range(10):
-            if received[0]:
-                break
-            time.sleep(1)
-            if not received[0]:
-                print(f"   Waiting... ({10-i-1}s remaining)")
+    _wait_for_marker(ready, timeout_s=5.0)
+    c.send_key_surface(surface, "ctrl-c")
+    value = _wait_for_marker(done, timeout_s=5.0)
+    if value != "sigint":
+        raise cmuxError(f"Expected SIGINT marker, got {value!r}")
+    _wait_for_shell(c, surface, root, f"{token}-after-ctrl-c")
 
-        if not received[0]:
-            print("\n❌ FAILED: No SIGINT received within 10 seconds")
-            print("   Ctrl+C may not be working correctly.")
-            return False
-        return True
-    finally:
-        signal.signal(signal.SIGINT, old_handler)
 
-def test_ctrl_d():
-    """Test Ctrl+D (EOF) handling"""
-    print("\n=== Test 2: Ctrl+D (EOF) ===")
-    print("This test will read from stdin.")
-    print("Press Ctrl+D (on empty line) to send EOF...")
-    print("Type something and press Enter, then Ctrl+D on empty line:")
+def _test_ctrl_d(c: cmux, surface: str, root: Path, token: str) -> None:
+    ready = root / f"cmux-ctrl-d-ready-{token}"
+    done = root / f"cmux-ctrl-d-done-{token}"
+    ready.unlink(missing_ok=True)
+    done.unlink(missing_ok=True)
 
-    try:
-        lines = []
-        while True:
-            try:
-                line = input("> ")
-                lines.append(line)
-            except EOFError:
-                print("\n✅ SUCCESS: EOF (Ctrl+D) received!")
-                print(f"   Lines entered before EOF: {len(lines)}")
-                return True
-    except KeyboardInterrupt:
-        print("\n⚠️  Got Ctrl+C instead of Ctrl+D")
-        return False
+    _send_python(
+        c,
+        surface,
+        f"""
+import pathlib
+import sys
 
-def main():
-    print("=" * 50)
-    print("cmux Control Signal Test")
-    print("=" * 50)
-    print("\nThis script tests if Ctrl+C and Ctrl+D work correctly.")
-    print("Run this inside the cmux terminal to verify the fix.\n")
+ready = pathlib.Path({str(ready)!r})
+done = pathlib.Path({str(done)!r})
+ready.write_text("ready", encoding="utf-8")
+print("CMUX_CTRL_D_READY {token}", flush=True)
+data = sys.stdin.read()
+done.write_text(f"eof:{{len(data)}}", encoding="utf-8")
+print("CMUX_CTRL_D_DONE {token}", flush=True)
+""",
+    )
 
-    # Check if running in a terminal
-    if not os.isatty(sys.stdin.fileno()):
-        print("Warning: Not running in a terminal")
+    _wait_for_marker(ready, timeout_s=5.0)
+    c.send_key_surface(surface, "ctrl-d")
+    value = _wait_for_marker(done, timeout_s=5.0)
+    if not value.startswith("eof:"):
+        raise cmuxError(f"Expected EOF marker, got {value!r}")
 
-    results = []
 
-    # Test Ctrl+C
-    try:
-        results.append(("Ctrl+C (SIGINT)", test_ctrl_c()))
-    except Exception as e:
-        print(f"Error in Ctrl+C test: {e}")
-        results.append(("Ctrl+C (SIGINT)", False))
+def main() -> int:
+    token = uuid.uuid4().hex[:12]
+    root = Path("/tmp")
 
-    # Test Ctrl+D
-    try:
-        results.append(("Ctrl+D (EOF)", test_ctrl_d()))
-    except Exception as e:
-        print(f"Error in Ctrl+D test: {e}")
-        results.append(("Ctrl+D (EOF)", False))
+    with cmux(SOCKET_PATH) as c:
+        _workspace_id, surface = _focused_terminal(c)
+        _test_ctrl_c(c, surface, root, token)
+        _test_ctrl_d(c, surface, root, token)
 
-    # Summary
-    print("\n" + "=" * 50)
-    print("Test Results Summary")
-    print("=" * 50)
+    print("PASS: Ctrl+C SIGINT and Ctrl+D EOF delivered to terminal process")
+    return 0
 
-    all_passed = True
-    for name, passed in results:
-        status = "✅ PASS" if passed else "❌ FAIL"
-        print(f"  {name}: {status}")
-        if not passed:
-            all_passed = False
-
-    print()
-    if all_passed:
-        print("All tests passed! Control signals are working correctly.")
-    else:
-        print("Some tests failed. Check the key input handling code.")
-
-    return 0 if all_passed else 1
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
