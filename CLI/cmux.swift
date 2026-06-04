@@ -17376,7 +17376,10 @@ struct CMUXCLI {
     /// test can assert the launcher stamps the launch surface (its own env) rather than the focused
     /// pane (#4920). Not user-facing. The shim/tmux params here do not affect the id resolution.
     func debugDumpTmuxCompatEnvironment(socketPath: String, explicitPassword: String?) throws {
-        let processEnvironment = ProcessInfo.processInfo.environment
+        var processEnvironment = ProcessInfo.processInfo.environment
+        // Resolve the focused context from the SAME socket this command was pointed at, not whatever
+        // CMUX_SOCKET_PATH the process happened to inherit.
+        processEnvironment["CMUX_SOCKET_PATH"] = socketPath
         let focusedContext = try tmuxCompatFocusedContext(
             processEnvironment: processEnvironment,
             explicitPassword: explicitPassword

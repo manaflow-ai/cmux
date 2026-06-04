@@ -8456,9 +8456,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return self.v2Response(id: id, ok: false, error: ["code": "unsupported", "message": method])
         }
 
-        // ...but the launcher RUNS in surface B (its own inherited env).
+        // ...but the launcher RUNS in surface B (its own inherited env). Tab id is surface-scoped, so
+        // it is distinct from the workspace id.
         let launchWorkspace = "33333333-3333-3333-3333-333333333333"
         let launchSurface = "44444444-4444-4444-4444-444444444444"
+        let launchTab = "55555555-5555-5555-5555-555555555555"
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["__debug-tmux-compat-env"],
@@ -8467,7 +8469,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_WORKSPACE_ID": launchWorkspace,
                 "CMUX_SURFACE_ID": launchSurface,
                 "CMUX_PANEL_ID": launchSurface,
-                "CMUX_TAB_ID": launchWorkspace,
+                "CMUX_TAB_ID": launchTab,
                 "HOME": tmpDir.path,
                 "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
             ],
@@ -8484,7 +8486,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "launcher must NOT stamp the focused surface; stdout:\n\(result.stdout)"
         )
         XCTAssertTrue(result.stdout.contains("CMUX_WORKSPACE_ID=\(launchWorkspace)"), result.stdout)
-        // Matched-pair invariant: SURFACE == PANEL (the desync is exactly the bug).
+        // Matched-pair invariant: SURFACE == PANEL (the desync is exactly the bug). The surface-scoped
+        // tab id passes through untouched.
         XCTAssertTrue(result.stdout.contains("CMUX_PANEL_ID=\(launchSurface)"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("CMUX_TAB_ID=\(launchTab)"), result.stdout)
     }
 }
