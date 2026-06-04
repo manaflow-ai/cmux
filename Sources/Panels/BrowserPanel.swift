@@ -3387,13 +3387,6 @@ final class BrowserPanel: Panel, ObservableObject {
         backgroundPreloadWindow != nil
     }
 
-#if DEBUG
-    var debugBackgroundPreloadAttachedWindowOverrideForTesting: NSWindow?
-
-    func debugInstallBackgroundPreloadHostForTesting(_ window: NSWindow?) {
-        backgroundPreloadWindow = window
-    }
-#endif
     private var shouldPreloadInitialNavigationInBackground: Bool
     private var backgroundPreloadWindow: NSWindow?
     private struct PendingInteractiveBrowserPrompt {
@@ -4488,6 +4481,14 @@ final class BrowserPanel: Panel, ObservableObject {
         return attachedWindow == nil || attachedWindow === preloadWindow
     }
 
+    static func shouldReleaseBackgroundPreloadHost(
+        preloadWindow: NSWindow?,
+        attachedWindow: NSWindow?
+    ) -> Bool {
+        guard let preloadWindow, let attachedWindow else { return false }
+        return attachedWindow !== preloadWindow
+    }
+
     private func presentBrowserAlert(
         _ alert: NSAlert,
         in webView: WKWebView,
@@ -4564,13 +4565,11 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: String) {
         guard let preloadWindow = backgroundPreloadWindow else { return }
-#if DEBUG
-        let attachedWindow = debugBackgroundPreloadAttachedWindowOverrideForTesting ?? webView.window
-#else
         let attachedWindow = webView.window
-#endif
-        guard let attachedWindow else { return }
-        guard attachedWindow !== preloadWindow else { return }
+        guard Self.shouldReleaseBackgroundPreloadHost(
+            preloadWindow: preloadWindow,
+            attachedWindow: attachedWindow
+        ) else { return }
         closeBackgroundPreloadHost(reason: reason)
         drainPendingInteractiveBrowserPromptsIfPossible(reason: reason)
     }

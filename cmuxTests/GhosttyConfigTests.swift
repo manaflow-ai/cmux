@@ -2188,15 +2188,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertTrue(panel.hasBackgroundPreloadHost)
     }
 
-    func testBackgroundPreloadReleaseConsumesHostAfterRealWindowAttachment() {
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: nil,
-            renderInitialNavigation: false,
-            isRemoteWorkspace: false
-        )
-        defer { panel.close() }
-
+    func testBackgroundPreloadReleaseDecisionRequiresRealWindowAttachment() {
         let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         let preloadWindow = NSWindow(
             contentRect: frame,
@@ -2205,12 +2197,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             defer: false
         )
         preloadWindow.isReleasedWhenClosed = false
-#if DEBUG
-        panel.debugInstallBackgroundPreloadHostForTesting(preloadWindow)
-#else
-        XCTFail("debugInstallBackgroundPreloadHostForTesting is only available in DEBUG")
-#endif
-        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+        defer { preloadWindow.close() }
 
         let realHostWindow = NSWindow(
             contentRect: frame,
@@ -2222,24 +2209,31 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             realHostWindow.contentView = nil
             realHostWindow.close()
         }
-        let contentView = NSView(frame: frame)
-        realHostWindow.contentView = contentView
-        realHostWindow.orderFront(nil)
-        realHostWindow.displayIfNeeded()
-#if DEBUG
-        panel.debugBackgroundPreloadAttachedWindowOverrideForTesting = realHostWindow
-#else
-        XCTFail("debugBackgroundPreloadAttachedWindowOverrideForTesting is only available in DEBUG")
-#endif
 
-        panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "test.realWindow")
-
-        XCTAssertFalse(panel.hasBackgroundPreloadHost)
-
-#if DEBUG
-        panel.debugBackgroundPreloadAttachedWindowOverrideForTesting = nil
-#endif
-        realHostWindow.contentView = nil
+        XCTAssertFalse(
+            BrowserPanel.shouldReleaseBackgroundPreloadHost(
+                preloadWindow: nil,
+                attachedWindow: realHostWindow
+            )
+        )
+        XCTAssertFalse(
+            BrowserPanel.shouldReleaseBackgroundPreloadHost(
+                preloadWindow: preloadWindow,
+                attachedWindow: nil
+            )
+        )
+        XCTAssertFalse(
+            BrowserPanel.shouldReleaseBackgroundPreloadHost(
+                preloadWindow: preloadWindow,
+                attachedWindow: preloadWindow
+            )
+        )
+        XCTAssertTrue(
+            BrowserPanel.shouldReleaseBackgroundPreloadHost(
+                preloadWindow: preloadWindow,
+                attachedWindow: realHostWindow
+            )
+        )
     }
 
     func testLifecycleTracksVisibleHiddenAndClosingStates() {
